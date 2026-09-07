@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
-- **Open challenge (2026-09-07):** the first consumer completes a Delivery and moves every reserved unit to `SOLD` in one transaction. Units are references, not parts. Routing that consequence through events leaves a window with a delivered Delivery and reserved units. See TODO.md, "Challenges from the first consumer", item 1.
+- **Refined by:** ADR-0019 — a transition's outcome may cascade transitions on related objects inside the store; that is not an *effect*, which remains something caused outside it. ADR-0021 — derived attributes are named expressions, not the stored computation this ADR excludes.
 
 ## Context
 

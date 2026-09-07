@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
-- **Open challenge (2026-09-07):** at-least-once delivery to a consumer is the path by which a cross-object consequence (delivery completed, units sold) would become eventually rather than atomically consistent. See TODO.md, "Challenges from the first consumer", item 1.
+- **Refined by:** ADR-0019 — consequences declared as cascaded outcomes commit in the transition's own transaction and appear in this log as causally linked events; delivery to consumers remains for effects and for consequences the declaration does not cascade.
 
 ## Context
 

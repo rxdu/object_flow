@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
-- **Open challenge (2026-09-07):** first-consumer evidence bears on this ADR on two points — derived read-only views (slot state, computed and not stored) and atomic outcomes on *referenced* objects rather than parts. See TODO.md, "Challenges from the first consumer", items 1 and 3. The decision stands until those are resolved.
+- **Refined by:** ADR-0019 — the cascade described under Consequences generalises from parts to any related object; ADR-0021 — what this ADR rejects is derived *lifecycle state*; a derived attribute with no transitions is a view and is allowed.
 
 ## Context
 

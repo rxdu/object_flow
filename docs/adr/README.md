@@ -20,3 +20,10 @@
 | [0016](0016-actions-are-self-transitions.md) | Actions are self-transitions | Accepted |
 | [0017](0017-file-attachments-are-content-addressed-references.md) | File attachments are content-addressed references; the bytes are out of scope | Proposed |
 | [0018](0018-every-object-carries-a-store-assigned-globally-unique-identifier.md) | Every object carries a store-assigned, globally unique identifier | Accepted |
+| [0019](0019-outcomes-cascade-across-relationships-atomically.md) | A transition's outcome may cascade transitions and creations across relationships, atomically | Accepted (iteration 1, review pending) |
+| [0020](0020-a-transition-may-be-reachable-only-via-named-parents.md) | A transition may be reachable only via named parent transitions | Accepted (iteration 1, review pending) |
+| [0021](0021-derived-attributes-and-the-expression-language.md) | Derived attributes are never stored; the expression language is small and grows only by decision | Accepted (iteration 1, review pending) |
+| [0022](0022-time-is-a-guard-value-and-availability-is-queryable.md) | Time is a guard value; the read surface answers which objects have a transition available | Accepted (iteration 1, review pending) |
+| [0023](0023-transitions-execute-under-locks-and-may-carry-an-expected-version.md) | Transitions execute under locks; a request may carry an expected version | Accepted (iteration 1, review pending) |
+| [0024](0024-deletion-is-a-terminal-transition-gated-on-live-references.md) | Deletion is a terminal transition gated on live references; parts cascade, references block | Accepted (iteration 1, review pending) |
+| [0025](0025-the-actor-is-a-value-supplied-by-the-consumer.md) | The actor is a value supplied by the consumer; ObjectKeeper does not authenticate | Accepted (iteration 1, review pending) |

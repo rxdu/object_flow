@@ -136,7 +136,7 @@ Slot state afterwards is a **derived view**, never stored: `slot.state := unit =
 
 ## 4. Proposed mechanisms
 
-Eight additions. Each is the smallest that closes a gap in §2.5 and §3, or a challenge in TODO.md. A, C, D and E change what accepted ADRs say and would each need an ADR; B, F, G and H are additions.
+Eight additions, each the smallest that closes a gap in §2.5 and §3 or a challenge in TODO.md. **Adopted in design iteration 1 as ADR-0019 (A and B), ADR-0020 (C), ADR-0021 (D), ADR-0022 (E), ADR-0023 (F), ADR-0024 (G) and ADR-0025 (H), pending author review.** The text below is retained as the worked rationale.
 
 ### A. Cascaded outcomes
 
@@ -206,5 +206,5 @@ Nothing in the table needs a mechanism beyond A–H.
 
 - **Identifier minting — closed by ADR-0018.** ObjectKeeper assigns every object a globally unique id; serials are business identifiers the consumer mints and supplies as creation input, with uniqueness an invariant. No sequence primitive.
 - **Guard language size.** D states the observed floor. Confirm "no arithmetic" before the language is designed; the first counter-example decides it.
-- **Cascade depth and cycles.** A cascade may cascade — `retire` → `engagement_line.close` → `engagement.close` when the last line closes. Depth must be finite and visible in the declaration, and a cycle is a declaration error.
-- **Which of A–H become ADRs.** A, C, D and E change what accepted ADRs say and need one each. B, F, G and H are additions and could share one.
+- **Cascade depth and cycles — closed by ADR-0019.** The transition-reference graph must be acyclic; depth is visible in the declaration.
+- **Which of A–H become ADRs — done.** ADR-0019 to ADR-0025.

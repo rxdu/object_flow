@@ -1,6 +1,6 @@
 # ObjectKeeper — Design
 
-Status: early design. Nothing implemented. This document records the model as agreed so far; individual decisions and their rejected alternatives live in [`docs/adr/`](adr/), open questions in [`../TODO.md`](../TODO.md).
+Status: early design. Nothing implemented. This document records the model as agreed so far; individual decisions and their rejected alternatives live in [`docs/adr/`](adr/), open questions in [`../TODO.md`](../TODO.md). Decisions taken in autonomous design iterations are marked as such in the ADR index and listed in TODO.md under "Author review queue".
 
 ## Purpose
 
@@ -41,26 +41,33 @@ The distinction from an ORM is deliberate: an ORM abstracts *mechanism* (it hide
 ```text
 ObjectType
   id                store-assigned, globally unique, immutable, opaque (ADR-0018)
+  version           incremented on every recorded change (ADR-0023)
   attributes
     controlled      referenced by guards; written only via transitions
     free            editable with permission; recorded, not gated
+    derived         a named expression, never stored, evaluated on read (ADR-0021)
   invariants        type-level properties; the runtime enforces them at any
                     transition that could violate them, on either side
   state machine     exactly one per object type
-    states
+    states          at least one terminal; deletion is a terminal state (ADR-0024)
     transitions     addressed by name; from a state, a set of states, or
                     any non-terminal state
       inputs        arguments supplied by the caller
-      guards        evaluated over current state + inputs
-      outcome       the new state and the controlled-attribute writes; recorded
+      guards        evaluated over current state + inputs + actor + now
+      outcome       own new state and controlled writes, plus cascaded
+                    transitions and creations across relationships,
+                    all in one transaction (ADR-0019)
+      only via      optional: reachable only as a cascade from named
+                    parent transitions (ADR-0020)
     actions         transitions whose from-state equals their to-state
                     (ADR-0016); not a separate element
   relationships
     composition     exclusive membership + lifetime bounded by the whole
-    reference       everything else
+    reference       everything else; inverses may be declared
 
-Actor               whoever requests a transition or action; referenced by
-                    guards. Shape undecided — see TODO.md, "Actors and authority".
+Actor               supplied by the consumer with every request: id, kind
+                    (human | agent | service), optional principal,
+                    capabilities (ADR-0025). Referenced by guards as actor.*
 ```
 
 ### Terminology
@@ -75,9 +82,13 @@ Words that were used loosely in earlier drafts now have one meaning each.
 | **Action** | A transition whose from-state equals its to-state (ADR-0016): it writes controlled attributes without changing lifecycle state. Declared, guarded, recorded and listed like any transition; rendered under its state in the readable rule set rather than as an arrow. A self-transition here has no exit or entry semantics, unlike a statechart. |
 | **Guard** | A predicate over current state and transition inputs that must hold for a transition or action to proceed. Returns a structured verdict with a remedy class, never only a boolean. |
 | **Invariant** | A type-level property the runtime enforces at every transition that could violate it (ADR-0009). |
-| **Outcome** | What a transition or action writes and records: the new state, the controlled attributes it sets, and the event. Earlier drafts called this "effects"; renamed so the word is free for the next row. |
+| **Outcome** | What a transition or action writes and records: its new state, the controlled attributes it sets, any cascaded transitions and creations on related objects (ADR-0019), and the events. Earlier drafts called this "effects"; renamed so the word is free for the next row. |
+| **Cascaded transition** | A transition on a related object declared as part of another transition's outcome. Gated by its own guards, committed in the same transaction, recorded as caused by the parent. |
+| **Only via** | A declaration that a transition is not requestable and occurs only as a cascade from named parents (ADR-0020). |
+| **Derived attribute** | A named expression on a type, never stored, evaluated on read; readable by guards (ADR-0021). |
+| **Verdict** | The result of evaluating a request: satisfied; unsatisfied with a reason and remedy class; `stale` (ADR-0023); or not requestable (ADR-0020). |
 | **Effect** | Something caused outside ObjectKeeper — raising an invoice, sending a message. Out of scope (ADR-0007). Consumers cause effects by observing recorded events. |
-| **Actor** | Whoever requests a transition or action: a person, an agent acting for a principal, a service. Referenced by guards; the model is open. |
+| **Actor** | Whoever requests a transition or action, as a descriptor the consumer's authentication supplies: id, kind, optional principal, capabilities (ADR-0025). ObjectKeeper does not authenticate. |
 | **Approval** | Listed as in scope but not yet defined. The working reading is a guard of the form "a prior transition was performed by an actor holding authority X", reported with remedy class `delegable`. Open in TODO.md. |
 | **Available transitions** | The transitions whose guards are satisfied, or satisfiable with input, for a given object and actor now. Earlier drafts said "available actions". |
 | **Object id** | The identifier ObjectKeeper assigns to every object at creation or import: globally unique, immutable, opaque (ADR-0018). Every reference, event and external link holds it. |
@@ -106,7 +117,29 @@ An unsatisfied guard reports why it failed in a form a caller can act on:
 | `delegable` | Another actor must act | Ask them |
 | `temporal` | Only time will satisfy it | Come back later |
 | `dependent` | Another object must change state | Work on that first |
-| `unreachable-from-here` | Wrong state; another transition comes first | Take a different path |
+| `unreachable-from-here` | Wrong state; another transition comes first, or this one is only-via | Take a different path |
+
+A request can also be refused with `stale` — the object changed since the caller read it (ADR-0023) — whose remedy is to re-read and decide again.
+
+## Transition execution
+
+A request names an object, a transition, its inputs, the actor (ADR-0025), and optionally the version the caller last read and an idempotency key (ADR-0014). It executes in one transaction (ADR-0023):
+
+1. If an `expected_version` is given and differs from the object's, refuse with `stale`.
+2. Lock, in id order, every object the outcome will write: the target and every object reached by a cascaded transition or creation (ADR-0019).
+3. Evaluate every guard — the parent's, then each cascaded transition's, depth-first in declaration order — over a consistent snapshot. Any failure blocks the whole request; the verdict names the object, transition and guard, with its remedy class. Only-via transitions contribute their non-actor guards (ADR-0020).
+4. Check every invariant the written objects could violate (ADR-0009); those expressible as database constraints are enforced by the database.
+5. Write all outcomes; increment each written object's version; record one event per transition, cascaded ones carrying the parent's event as cause; write them to the log (ADR-0013). Commit.
+
+Outcomes are straight-line: they may iterate a declared relationship with a filter, never choose between alternatives. Branching is expressed as separate transitions with distinguishing guards.
+
+## Time
+
+`now` is a value in the expression language (ADR-0021). A time-driven transition is an ordinary transition whose guard reads it — `expire: ACTIVE → EXPIRED, guard end_date <= now` — and ObjectKeeper never requests it (ADR-0012). The read surface answers, for a type and a transition, which objects have that transition available now; a scheduler above asks and requests (ADR-0022). The guard is the timing rule, in one place.
+
+## Deletion
+
+A deletable type declares a terminal state and a transition into it, guarded on there being no live object referencing this one; parts are cascaded, references block with remedy class `dependent` (ADR-0024). Deleted objects stay readable by id and in history and take no further transitions. There is no bypass; repair is the recorded override of ADR-0001.
 
 ## Events and delivery
 
@@ -145,6 +178,7 @@ The store **decides and records**. It does not compute values and it does not ca
 | Type-level invariants | Long-running process orchestration |
 | History, attribution | Human UI, agent framework |
 | Event log and delivery to subscribers | Deciding *when* a transition should happen |
+| Cascaded consequences declared on a transition (ADR-0019) | Effects outside the store |
 
 This split is not arbitrary. Preconditions and permissions have the same shape across every domain — "required field", "needs approval", "no open children" look alike whether the object is a deployment or a loan application. Computation and effects are exactly where domains differ irreducibly. The state machine generalises because it sits at the layer where domains resemble each other.
 
