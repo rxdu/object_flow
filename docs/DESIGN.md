@@ -152,7 +152,7 @@ The existing system already contains a hand-built version of ObjectKeeper's conc
 
 The Deployment, Site, Robot, Task, UAT and Deal names used in the ADRs are illustrative and predate this decision. They are not the first consumer's model. The real object types include Robot, Accessory, SparePart, Delivery, Service, WarrantyContract, ProductConfiguration, IntakeBatch, ProcurementOrder and ShippingRecord, with Engagement and Lease designed but not yet built.
 
-Where the first consumer's evidence challenges an accepted decision, the challenge is recorded in TODO.md under "Challenges from the first consumer" and noted on the affected ADR. None has been resolved yet.
+Where the first consumer's evidence challenges an accepted decision, the challenge is recorded in TODO.md under "Challenges from the first consumer" and noted on the affected ADR. A worked walkthrough of the unit and delivery lifecycles against this model, with proposed resolutions, is in [`design/first-consumer-walkthrough.md`](design/first-consumer-walkthrough.md) (draft). None has been resolved yet.
 
 ## Data import
 
