@@ -40,6 +40,7 @@ A practical consequence: a single business rule today is expressed as a storage 
 |---|---|
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Purpose, position in the stack, the model, scope boundaries, known limits |
 | [`docs/adr/`](docs/adr/) | Decisions taken, each with the alternatives rejected and why |
+| [`docs/design/`](docs/design/) | The first-consumer walkthrough, four case studies, and the catalogue of edge cases the model does not cover |
 | [`docs/LESSONS.md`](docs/LESSONS.md) | Operational lessons |
 | [`TODO.md`](TODO.md) | Open questions and outstanding confirmations |
 
