@@ -40,6 +40,7 @@ The distinction from an ORM is deliberate: an ORM abstracts *mechanism* (it hide
 
 ```text
 ObjectType
+  id                store-assigned, globally unique, immutable, opaque (ADR-0018)
   attributes
     controlled      referenced by guards; written only via transitions
     free            editable with permission; recorded, not gated
@@ -79,6 +80,9 @@ Words that were used loosely in earlier drafts now have one meaning each.
 | **Actor** | Whoever requests a transition or action: a person, an agent acting for a principal, a service. Referenced by guards; the model is open. |
 | **Approval** | Listed as in scope but not yet defined. The working reading is a guard of the form "a prior transition was performed by an actor holding authority X", reported with remedy class `delegable`. Open in TODO.md. |
 | **Available transitions** | The transitions whose guards are satisfied, or satisfiable with input, for a given object and actor now. Earlier drafts said "available actions". |
+| **Object id** | The identifier ObjectKeeper assigns to every object at creation or import: globally unique, immutable, opaque (ADR-0018). Every reference, event and external link holds it. |
+| **Business identifier** | An identifier the consumer assigns with business meaning, such as an asset serial. A controlled attribute with a uniqueness invariant; never the object's identity. |
+| **External identifier** | An identifier another system owns, such as a Xero contact id or a legacy primary key. A controlled attribute naming its source. |
 
 ## Behaviour that falls out of the model
 
@@ -158,7 +162,7 @@ Where the first consumer's evidence challenges an accepted decision, the challen
 
 Because the first consumer is a rebuild with ported data, import is a designed path rather than a script beside the store (ADR-0015). Every imported object arrives mid-lifecycle and none of its state passed through a guard, so import is the first use, at scale, of the authorised and recorded override that [Known limits](#known-limits) already requires for administrative repair.
 
-Imported state is recorded with provenance `asserted`, distinct from state that ObjectKeeper observed a transition produce. The importer evaluates the declaration against every incoming object and reports each invariant the legacy data violates; it never admits a violation silently, and what to do with each class of violation is a decision taken by a person. Legacy history is preserved as read-only entries of kind `legacy` attached to the object. External identifiers that other systems reference survive the port. Files — photos, PDFs, templates — are production data too; ADR-0017 proposes carrying them as content-addressed references with the bytes in external storage, and is not yet decided. The design of the import path, and its relationship to schema evolution, is open in TODO.md.
+Every imported object receives a new object id; its legacy primary key is kept as an external identifier so preserved history and surviving links still resolve, and cross-references are re-pointed through that mapping (ADR-0018). Imported state is recorded with provenance `asserted`, distinct from state that ObjectKeeper observed a transition produce. The importer evaluates the declaration against every incoming object and reports each invariant the legacy data violates; it never admits a violation silently, and what to do with each class of violation is a decision taken by a person. Legacy history is preserved as read-only entries of kind `legacy` attached to the object. External identifiers that other systems reference survive the port. Files — photos, PDFs, templates — are production data too; ADR-0017 proposes carrying them as content-addressed references with the bytes in external storage, and is not yet decided. The design of the import path, and its relationship to schema evolution, is open in TODO.md.
 
 ## Known limits
 

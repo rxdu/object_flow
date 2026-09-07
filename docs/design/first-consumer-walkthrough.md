@@ -35,6 +35,7 @@ Terminal states: `RETIRED`, `CANCELLED`. Every transition is named and requested
 
 | Attribute | Class | Written by |
 |---|---|---|
+| `id` | store-assigned | ObjectKeeper, at creation or import (ADR-0018); never the serial |
 | `serial` | controlled | the creation transitions, as input; uniqueness is an invariant |
 | `model` | controlled reference | the creation transitions |
 | `manufacturer_serial` | controlled | action `capture_manufacturer_serial`, in `INTAKE` |
@@ -203,7 +204,7 @@ Nothing in the table needs a mechanism beyond A–H.
 
 ## 6. Still open after this
 
-- **Identifier minting.** The first consumer mints serials at unit birth. Under the model the consumer mints and supplies them as creation input, with uniqueness an invariant. Whether ObjectKeeper should offer a sequence primitive is a small question with a real answer either way.
+- **Identifier minting — closed by ADR-0018.** ObjectKeeper assigns every object a globally unique id; serials are business identifiers the consumer mints and supplies as creation input, with uniqueness an invariant. No sequence primitive.
 - **Guard language size.** D states the observed floor. Confirm "no arithmetic" before the language is designed; the first counter-example decides it.
 - **Cascade depth and cycles.** A cascade may cascade — `retire` → `engagement_line.close` → `engagement.close` when the last line closes. Depth must be finite and visible in the declaration, and a cycle is a declaration error.
 - **Which of A–H become ADRs.** A, C, D and E change what accepted ADRs say and need one each. B, F, G and H are additions and could share one.
