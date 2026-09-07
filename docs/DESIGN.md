@@ -68,7 +68,7 @@ Words that were used loosely in earlier drafts now have one meaning each.
 | **Lifecycle** | The observable shape — the states an object passes through. What is seen. |
 | **State machine** | The mechanism — states, transitions and the guards on them. What does it. |
 | **Transition** | A named, guarded, recorded request to move an object from one state to another. The only way lifecycle state changes. |
-| **Action** | A named, guarded, recorded operation that writes controlled attributes without changing lifecycle state. Whether an action is modelled as a self-transition or as a distinct element is open (TODO.md). |
+| **Action** | A named, guarded, recorded operation that writes controlled attributes without changing lifecycle state. ADR-0016 proposes modelling it as a self-transition; not yet decided. |
 | **Guard** | A predicate over current state and transition inputs that must hold for a transition or action to proceed. Returns a structured verdict with a remedy class, never only a boolean. |
 | **Invariant** | A type-level property the runtime enforces at every transition that could violate it (ADR-0009). |
 | **Outcome** | What a transition or action writes and records: the new state, the controlled attributes it sets, and the event. Earlier drafts called this "effects"; renamed so the word is free for the next row. |
@@ -152,7 +152,7 @@ Where the first consumer's evidence challenges an accepted decision, the challen
 
 Because the first consumer is a rebuild with ported data, import is a designed path rather than a script beside the store (ADR-0015). Every imported object arrives mid-lifecycle and none of its state passed through a guard, so import is the first use, at scale, of the authorised and recorded override that [Known limits](#known-limits) already requires for administrative repair.
 
-Imported state is recorded with provenance `asserted`, distinct from state that ObjectKeeper observed a transition produce. The importer evaluates the declaration against every incoming object and reports each invariant the legacy data violates; it never admits a violation silently, and what to do with each class of violation is a decision taken by a person. Legacy history is preserved as read-only entries of kind `legacy` attached to the object. External identifiers that other systems reference survive the port. The design of that path, and its relationship to schema evolution, is open in TODO.md.
+Imported state is recorded with provenance `asserted`, distinct from state that ObjectKeeper observed a transition produce. The importer evaluates the declaration against every incoming object and reports each invariant the legacy data violates; it never admits a violation silently, and what to do with each class of violation is a decision taken by a person. Legacy history is preserved as read-only entries of kind `legacy` attached to the object. External identifiers that other systems reference survive the port. Files — photos, PDFs, templates — are production data too; ADR-0017 proposes carrying them as content-addressed references with the bytes in external storage, and is not yet decided. The design of the import path, and its relationship to schema evolution, is open in TODO.md.
 
 ## Known limits
 
