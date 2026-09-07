@@ -1,4 +1,4 @@
-# Design
+# ObjectKeeper — Design
 
 Status: early design. Nothing implemented. This document records the model as agreed so far; individual decisions and their rejected alternatives live in [`docs/adr/`](adr/), open questions in [`../TODO.md`](../TODO.md).
 
@@ -15,7 +15,7 @@ Genericity is a requirement from the start. The first consumers are the author's
 ```text
 agents · applications · human UI          consumers
 ─────────────────────────────────────
-object + lifecycle store                  this project
+ObjectKeeper                              this project
 ─────────────────────────────────────
 PostgreSQL / SQLite                       storage
 
