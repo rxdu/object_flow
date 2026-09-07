@@ -33,3 +33,6 @@
 | [0029](0029-named-sequences-mint-business-identifiers.md) | Named, scoped sequences mint business identifiers at creation | Accepted (iteration 2, review pending) |
 | [0030](0030-read-visibility-is-a-declared-predicate.md) | Read visibility is a declared predicate over actor and object; an invisible object is not found | Accepted (iteration 3, review pending) |
 | [0031](0031-erasure-redacts-declared-personal-attributes-across-history.md) | Erasure redacts declared personal attributes across history; recorded, irreversible, not deletion | Accepted (iteration 3, review pending) |
+| [0032](0032-expression-language-version-2-adds-arithmetic.md) | The expression language gains arithmetic, durations and sum/min/max; domain formulas stay outside | Accepted (iteration 4, review pending) |
+| [0033](0033-current-state-is-stored-and-the-log-is-permanent-history.md) | Current state is stored; the log is permanent history, never pruned; provenance attaches to events | Accepted (iteration 4, review pending) |
+| [0034](0034-event-ordering-and-subscriptions-as-a-built-in-type.md) | Events are ordered per object and per cause; subscriptions are a built-in type with a filter and lifecycle | Accepted (iteration 4, review pending) |

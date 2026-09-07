@@ -50,6 +50,8 @@ ObjectType            declared under a version (ADR-0027); may extend a base
       personal      optionally marked; subject to erasure (ADR-0031)
     free            editable with permission; recorded, not gated
     derived         a named expression, never stored, evaluated on read (ADR-0021)
+    indexed         declared per attribute; type-scan guards and visibility
+                    predicates should use indexed attributes
   visibility        optional predicate over actor and object; an invisible
                     object is not found (ADR-0030)
   invariants        type-level properties; the runtime enforces them at any
@@ -106,6 +108,9 @@ Words that were used loosely in earlier drafts now have one meaning each.
 | **Link object** | A type whose purpose is to relate two objects and carry attributes or a lifecycle about that relation — an association with labels, an engagement line with dates. References themselves carry nothing. |
 | **Visibility** | A declared predicate over actor and object that every read applies; failing it means not found (ADR-0030). |
 | **Erasure** | Redaction of declared personal attributes across an object and its history, recorded and irreversible; distinct from deletion (ADR-0031). |
+| **Expression language** | The one language of guards, invariants, derived attributes, visibility, outcome values and filters: paths, comparison, null and membership tests, boolean logic, `count`/`all`/`any`/`none` and `sum`/`min`/`max` over relationships or types, arithmetic on numbers and durations, `now`, `actor`, `inputs`, and declared external evaluators. No strings beyond equality, no user functions, no recursion (ADR-0021, ADR-0032). |
+| **Provenance** | What an event records about itself: actor, principal, context, cause, declaration version, and source — observed, asserted, migrated, corrected or erased (ADR-0033). |
+| **Subscription** | A built-in object type holding a filter and a cursor over the log, with a lifecycle of active, lagging and dead-lettered (ADR-0034). |
 | **Effect** | Something caused outside ObjectKeeper — raising an invoice, sending a message. Out of scope (ADR-0007). Consumers cause effects by observing recorded events. |
 | **Actor** | Whoever requests a transition or action, as a descriptor the consumer's authentication supplies: id, kind, optional principal, capabilities (ADR-0025). ObjectKeeper does not authenticate. |
 | **Approval** | Listed as in scope but not yet defined. The working reading is a guard of the form "a prior transition was performed by an actor holding authority X", reported with remedy class `delegable`. Open in TODO.md. |
@@ -150,7 +155,7 @@ A request names an object, a transition, its inputs, the actor (ADR-0025), and o
 4. Check every invariant the written objects could violate (ADR-0009); those expressible as database constraints are enforced by the database. A violation verdict names the conflicting objects.
 5. Write all outcomes; increment each written object's version; record one event per transition, cascaded ones carrying the parent's event as cause; write them to the log (ADR-0013). Commit.
 
-Outcomes are straight-line: they may iterate a declared relationship with a filter, never choose between alternatives. Branching is expressed as separate transitions with distinguishing guards.
+Outcomes are straight-line: they may iterate a declared relationship of `this` or of an input, with a filter, never choose between alternatives. Branching is expressed as separate transitions with distinguishing guards. A declaration may cap the fan-out of a cascaded relationship; a request exceeding it is refused with `self-serviceable`.
 
 ## Time
 
@@ -185,7 +190,11 @@ Every recorded transition writes its event to a durable, ordered log **inside th
   a cursor                calls subscribers
 ```
 
-Every recorded event carries `changes_state`, derived from whether the transition's from-state and to-state differ, so a subscriber can ask for lifecycle changes only and ignore actions (ADR-0016).
+Every recorded event carries `changes_state`, derived from whether the transition's from-state and to-state differ, so a subscriber can ask for lifecycle changes only and ignore actions (ADR-0016). It also carries its provenance (ADR-0033): actor, principal, context, cause, declaration version and source.
+
+Current state is stored, one row per object, and the log is the permanent history; a fold of the log reproduces the row, never the reverse, and the log is never pruned — retention is archival tiering (ADR-0033). Events are strictly ordered per object and causally ordered across a cascade; a global position serves cursors and is monotonic but not a commit order (ADR-0034).
+
+Subscriptions are a built-in object type: a filter over a type or family, transition names and `changes_state`; a cursor; and a lifecycle `active → lagging → dead-lettered` driven by acknowledgement lag. A dead-lettered subscription can be revived at any position because nothing has been pruned (ADR-0034).
 
 Pull-only deployments need no background process and stay library-shaped. Push delivery requires a worker draining the log, and is the point at which a deployment becomes a service.
 
@@ -208,6 +217,8 @@ The store **decides and records**. It does not compute values and it does not ca
 | Cascaded consequences declared on a transition (ADR-0019) | Effects outside the store |
 
 This split is not arbitrary. Preconditions and permissions have the same shape across every domain — "required field", "needs approval", "no open children" look alike whether the object is a deployment or a loan application. Computation and effects are exactly where domains differ irreducibly. The state machine generalises because it sits at the layer where domains resemble each other.
+
+The line on computation is precise (ADR-0032): the store evaluates declared arithmetic over its own data — a stock level, an order total, a duration since — where the result is a guard, a view, an invariant or a quantity written by an outcome. It does not own domain formulas: tax, pricing, discounts, scoring and conversion are computed by the consumer and supplied as inputs, which guards then check for range and consistency.
 
 ## First consumer
 

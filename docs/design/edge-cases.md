@@ -24,3 +24,12 @@ Status: maintained by the design iterations; started 2026-09-07. Each entry says
 - **Erasing a value another object's guard or derived attribute depends on.** Covered with caveat. After erasure the value reads as the redaction marker, which compares as null; a guard that needed it will fail with its usual remedy class. Erasure never silently satisfies a guard.
 - **Erasure and content-addressed files.** Covered with caveat. The blob is deleted; the reference's content hash remains in the event skeleton. A hash of a personal document is not the document, but a deployment that treats it as personal must declare the whole `file` attribute `personal` so the reference is redacted too.
 - **Moving a deal between pipelines yields a new object id.** Covered with caveat. Supersession creates a new object; links that consumers hold to the old id resolve through the pointer, but any external system that stored the id must follow it.
+
+## From orders at volume (iteration 4)
+
+- **Hot rows.** Covered with caveat. Every reservation on one product takes that product's row lock (ADR-0023), which is what prevents overselling and also what serialises a flash sale. Throughput on a single SKU is bounded by lock hold time. Sharding stock into several bucket objects, each with its own quantity, is a modelling choice the consumer makes; the store does not do it.
+- **Multi-warehouse or multi-region stock.** Not covered as one store. ObjectKeeper is one database; stock split across regions that must not share a transaction is several stores, and reconciling them is a consumer concern outside the mediated guarantee.
+- **Very large cascades.** Covered with caveat. A placement that creates thousands of lines and reserves thousands of products is one transaction and one lock set; it will succeed, slowly, and hold locks meanwhile. A declaration may state a maximum fan-out for a cascaded relationship; a request exceeding it is refused with `self-serviceable`, meaning split the request.
+- **Gapless order numbers.** Not covered; see iteration 2. A rolled-back placement leaves a gap in the sequence.
+- **Analytics over the whole log.** Out of scope. The read surface answers questions about objects; questions about millions of events belong in a warehouse fed from the log by a subscriber.
+- **Erasure across archived events.** Covered with caveat. ADR-0033's archival tiering must keep archived events reachable by ADR-0031 erasure, or archive only events that carry no personal attributes.

@@ -24,7 +24,7 @@ The first consumer computes slot state (`UNFILLED` / `FILLED` / `FULFILLED`) fro
 | conditional expression, for derived attributes only | `unit == null ? UNFILLED : …` |
 | a named external evaluator (ADR-0008) | `xero.invoice_valid(order_id)` |
 
-**Not in version 1:** arithmetic, string operations, user-defined functions, and any call other than a declared external evaluator. Every guard observed in the first consumer fits without them. The language grows only by an ADR that names the use case that forced it; the next case study that needs arithmetic (quantity-tracked stock, iteration 4) will be that test.
+**Not in version 1:** arithmetic, string operations, user-defined functions, and any call other than a declared external evaluator. Every guard observed in the first consumer fits without them. The language grows only by an ADR that names the use case that forced it. *Version 2 (ADR-0032, iteration 4) added arithmetic, durations and `sum`/`min`/`max` after three case studies asked for them; the rest of the exclusions stand.*
 
 ## Alternatives rejected
 
