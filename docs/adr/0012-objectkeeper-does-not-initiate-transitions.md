@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
+- **Open challenge (2026-09-07):** the first consumer's operations design firms a pegged unit's reservation automatically when it becomes available, specifically to close a double-booking window; and it has time-driven transitions (warranty expiry, overdue procurement, overdue lease) from day one. See TODO.md, "Challenges from the first consumer", items 2 and 5.
 
 ## Context
 

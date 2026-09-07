@@ -33,5 +33,5 @@ Rejected for the first version: it makes the project infrastructure with an avai
 
 - Storage columns must be permissive, because requiredness attaches to transitions rather than attributes (see ADR-0002). The database therefore cannot act as a backstop; all strictness lives in the runtime.
 - Anything that writes around the runtime writes garbage with no complaint. This makes the mediated property an operational commitment (deployment, access control, migration tooling) and not only an architectural one.
-- Administrative repair needs a designed path — an authorised, recorded override transition — rather than an out-of-band database edit.
+- Administrative repair needs a designed path — an authorised, recorded override transition — rather than an out-of-band database edit. The data import of ADR-0015 is the first use of that path, at scale.
 - Systems whose records have external consumers (Xero: auditors, tax authorities, banks) stay where they are. The keep/replace test is: does anyone outside the organisation depend on this system's record, does it do real work beyond storage and UI, and is the exit cost permanent.

@@ -26,7 +26,7 @@ Three properties carry that:
 
 | Property | Meaning |
 |---|---|
-| **Mediated** | No path to the data except through defined transitions |
+| **Mediated** | No path to the data except through ObjectKeeper; state changes pass through declared transitions and their guards, every other write is recorded |
 | **Declared** | What is allowed is data, inspectable at runtime — not code |
 | **Recorded** | Every change is attributed and reconstructable |
 
@@ -44,6 +44,8 @@ A practical consequence: a single business rule today is expressed as a storage 
 | [`TODO.md`](TODO.md) | Open questions and outstanding confirmations |
 
 ## Scope
+
+The first consumer is the author's own robotics operations platform, rebuilt on ObjectKeeper with its production data ported; see [`docs/DESIGN.md`](docs/DESIGN.md#first-consumer).
 
 ObjectKeeper **decides and records**. It does not compute values, cause external effects, orchestrate long-running processes, or render a user interface — those belong to the consumers above it. See [ADR-0007](docs/adr/0007-decide-and-record-not-compute-or-effect.md) for why that boundary is where it is.
 

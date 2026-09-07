@@ -33,4 +33,4 @@ Rejected because it ties the rule to *how* the caller is editing rather than to 
 - `validate(object)` has no answer. The meaningful call is `validate(object, intent)`.
 - Unsatisfied gates *are* the blocked-action explanation; it is not a separately built feature.
 - Storage must be permissive, so the database is not a safety net (see ADR-0001).
-- Creation stops being a special case: it is the transition from nothing into the initial state, carrying its own guards.
+- Creation stops being a special case: it is the transition from nothing into the initial state, carrying its own guards. Imported objects (ADR-0015) are the one exception: they are asserted into a mid-lifecycle state through the override path, and the importer reports which structural guards they would have failed.

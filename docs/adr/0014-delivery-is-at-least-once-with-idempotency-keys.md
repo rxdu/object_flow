@@ -48,3 +48,9 @@ Not adopted as a default: it runs application code inside the write transaction,
 
 - The documented guarantee is **at-least-once delivery with idempotent handling**, stated in the interface contract so that non-idempotent handlers are a caller error rather than a surprise. A handler that raises an invoice without a reprocessing guard will raise two.
 - Idempotency keys pay twice: they deduplicate, and because the key is recorded on the transition they give **causal lineage** in history — "this deployment advanced because of event 10471, which was Task 512 completing." Provenance becomes not only *who* but *what caused this*, which is the reconstruct-how-it-got-here property the original brief asked for, arriving as a by-product.
+
+## Evidence from the first consumer
+
+The inventory system already requires an `Idempotency-Key` header on every agent POST and rejects its absence (`docs/agent-operations.md` §3; `app/models/idempotency_key.py`). Keys are scoped per principal so two agents may reuse the same opaque string; the request body is fingerprinted so a key reused with a different body fails with 422 instead of replaying a stale response; a unique constraint on `(principal, key)` settles a race between two simultaneous same-key requests. The stated motivation is the one this ADR gives: an unattended agent retries a POST after a network timeout even when the server already committed.
+
+One difference to carry forward. The inventory system's key deduplicates an HTTP request and replays its stored response byte-for-byte. This ADR's key deduplicates a *transition* and is recorded on it for lineage. Both are needed in a deployment that exposes ObjectKeeper over HTTP — the request-level key protects the transport, the transition-level key protects the record — and they should not be conflated.

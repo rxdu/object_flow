@@ -11,7 +11,7 @@ Some guards depend on facts the store does not hold: parts availability in a sup
 
 The object definition references a guard **by name**. An external evaluator answers it, and is contractually required to return a structured verdict — satisfied, or unsatisfied with a reason and a remedy class — in exactly the same shape as a built-in guard.
 
-Guards are additionally marked **eager** (evaluated whenever available actions are listed) or **deferred** (checked only at execution). Deferred guards may fail at commit time despite the action having been listed as available.
+Guards are additionally marked **eager** (evaluated whenever available transitions are listed) or **deferred** (checked only at execution). Deferred guards may fail at commit time despite the transition having been listed as available.
 
 ## Alternatives rejected
 
@@ -33,5 +33,11 @@ The discipline that keeps a generic system generic is a rule about its escape ha
 
 ## Consequences
 
-- Listing available actions must stay cheap and frequent; a guard that round-trips to a third party would otherwise make the primary read path slow and dependent on someone else's uptime. Hence the eager/deferred distinction.
+- Listing available transitions must stay cheap and frequent; a guard that round-trips to a third party would otherwise make the primary read path slow and dependent on someone else's uptime. Hence the eager/deferred distinction.
 - An alternative to deferring is to mirror the external fact locally as a maintained attribute, trading read-time cost for write-time projection and a cache that can silently lie.
+
+## Evidence from the first consumer
+
+Both patterns this ADR describes appear in the inventory system's ADR-0003 on Xero-owned customer identity. The *external evaluator* shape: on delivery completion, the delivery's `order_id` is validated against Xero — reject a placeholder, confirm the invoice exists, store its resolved contact id — which is a guard over a fact the store does not hold. The *mirror* shape: the local `customers` table becomes a 1:1 mirror of Xero contacts keyed by `ContactID`, synced incrementally, with Xero merges followed automatically — the maintained-attribute alternative named under Consequences, chosen there because name matching measured 83% accurate and a query-time join would re-run the error on every read.
+
+The deferred/eager distinction has a concrete cost there too: Xero access tokens expire after thirty minutes and the sync trigger is unresolved, so a guard that reached Xero on every listing would be both slow and intermittently unavailable.

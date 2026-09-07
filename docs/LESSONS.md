@@ -13,3 +13,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Offering to scaffold a repository at the end of a conceptual discussion, when the request was to think about the idea.
 - **Correction:** When told the work is at the idealization stage, treat that as the deliverable, not as a preamble. Capture decisions when asked, and otherwise state explicitly what is being held only in conversation so it is a visible risk rather than a silent one.
 - **Context:** This project; applies generally to design-first work.
+
+### The design record did not name its first consumer
+
+- **Pattern:** DESIGN.md described its examples as a strawman and TODO.md listed domain questions as unanswered, while the real first consumer — a production system in a sibling repository — already answered several of them and contradicted others. A reviewer inferred the wrong first consumer from the strawman names and had to be corrected by the author.
+- **Correction:** Name the first consumer in the design record, with the location of its repository, before listing any domain question as open, and check that repository for evidence before extending the model. A question whose answer sits in a repository the author already owns is not an open question.
+- **Context:** This project; applies to any design whose first customer already exists as code.

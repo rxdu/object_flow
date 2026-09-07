@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
+- **Open challenge (2026-09-07):** first-consumer evidence bears on this ADR on two points — derived read-only views (slot state, computed and not stored) and atomic outcomes on *referenced* objects rather than parts. See TODO.md, "Challenges from the first consumer", items 1 and 3. The decision stands until those are resolved.
 
 ## Context
 

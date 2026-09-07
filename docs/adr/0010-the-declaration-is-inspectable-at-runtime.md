@@ -27,3 +27,9 @@ With one inspectable declaration, those become projections: the form knows which
 
 - The same structured unsatisfied-guard output serves three consumers: the agent's next action, the UI's tooltip on a disabled control, and the API's error response.
 - The rule set for an object type should be printable as a readable artifact, so that someone who knows the business process can verify it. Since the residual risk is specification gaps rather than implementation bugs (see DESIGN.md, Known limits), legibility is as load-bearing for trust as enforcement is.
+
+## Evidence from the first consumer
+
+The inventory system has a centralised, declarative-looking registry (`app/core/state_registry.py`) that is not the API. Its ADR-0002 records the consequence. Three inventory transitions — `SOLD → AVAILABLE`, `DEVELOPMENT → AVAILABLE`, `DEVELOPMENT → RETIRED` — were declared in the registry, admin-gated, and covered by integration tests that called `execute_transition` directly. No API route imported the state-transition system, and the one route that could have carried a status change refused it. `RETIRED` therefore existed for months only as a badge in the SPA and as counter tiles rendering a permanent zero. The defect surfaced from an operational complaint (the leasing pool count was wrong), not from review, and the fix included a new class of test — reachability — asserting that every non-terminal state has an outgoing transition callable from a route.
+
+That test exists only because the declaration and the API are separate artefacts that can disagree. When the API is a projection of the declaration, a declared transition is reachable by construction and the test has nothing to check. This is the strongest single argument for the project in the first consumer's record.

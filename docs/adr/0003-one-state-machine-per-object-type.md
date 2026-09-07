@@ -36,3 +36,9 @@ Rejected outright: quadratic state growth, guards duplicated per combination, an
 - Composition nests. Each level should trust the level below's guards rather than re-checking them: a Deal gates on "all Deployments are `accepted`" and relies on the Deployment's own guards to have enforced task completion.
 - An axis that is genuinely 1:1 for an object's whole life *and* has gated transitions of its own would need an object with no natural name. That case has not been observed; if it appears it is the one piece of evidence that would argue for reconsidering regions.
 - Objects invented purely to host a lifecycle are a modelling smell. The test is whether the thing has a name people already use.
+
+## Evidence from the first consumer
+
+The inventory system's own ADR-0002 (`~/RduWs/wr_inventory_management/docs/adr/0002-unit-engagement-and-leasing-model.md`) met this question directly. A unit had accumulated sub-states inside one status value — idle and leasable, in use by engineering, deployed at an event, under repair, dead — and the requirement was to track them without adding them to the lifecycle enum. The resolution was three orthogonal axes: **lifecycle status** (what the unit is to the business), **engagement** (who physically has it, and until when), and **serviceability** (does it work). Engagement became a separate header-plus-lines object with its own lifecycle, `SCHEDULED → OUT → RETURNING → CLOSED`; serviceability was already the separate `Service` object. The tell recorded there: every sub-state named had a *duration*, which is what marks it as not a status.
+
+That is composition-or-reference rather than parallel regions, reached independently. The 1:1-for-life axis that would argue for regions was not found, and a `development_substate` column on the unit was rejected for carrying no dates and no history. The domain question in TODO.md is answered accordingly.

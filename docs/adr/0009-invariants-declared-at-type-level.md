@@ -26,3 +26,12 @@ Rejected for two reasons. It is duplication, so the copies drift. More important
 - This is the same relationship a database `UNIQUE` constraint has to insert paths: the property is stated, not its enforcement points.
 - Requires the runtime to analyse which transitions can affect an invariant, which is a real piece of machinery rather than a notation convenience.
 - If it turns out that everything worth enforcing attaches naturally to a specific transition, this concept should be dropped rather than carried.
+
+## Evidence from the first consumer
+
+Two type-level invariants exist in the inventory system, so the "drop it if nothing needs it" consequence does not apply.
+
+- **One open engagement per unit**, enforced by a partial unique index (`WHERE actual_end IS NULL`) on the engagement-lines table (inventory ADR-0002). The stated reason is the one this ADR gives: a service-layer check leaves a race that the database does not, and "in two places at once" is a fact the store should refuse rather than a rule each transition remembers to check.
+- **Exactly one active version per configuration SKU**, enforced in the same transaction as activation by superseding every other live version (inventory `docs/design/business-processes.md`, Configuration Lifecycle). Three separate activation paths all had to honour it — the duplication this ADR predicts when an invariant is written as per-transition guards.
+
+The domain question in TODO.md is answered accordingly.

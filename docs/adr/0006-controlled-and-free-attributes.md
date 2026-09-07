@@ -36,3 +36,9 @@ Maximally consistent, and rejected for the same reason: it forces a state change
 ## Open
 
 Not explicitly confirmed in discussion. Revisit before it becomes load-bearing.
+
+## Evidence from the first consumer
+
+The inventory system draws this line by hand. Its generic update path refuses a status change (`app/services/inventory_item_service.py:506-514`), and its ADR-0002 says explicitly not to relax that block: "status changes should go through named operations, not a generic field write." Status and the foreign keys that bind units to deliveries are controlled; notes, remarks, shipping address and a shipment's tracking and carrier fields are edited freely and audited. Notes are append-only and can be invalidated but not edited, which is a stricter free-attribute policy than this ADR describes and may be worth carrying as an option.
+
+This does not confirm the ADR — that remains the author's call — but it shows the split is the one a real system converged on.
