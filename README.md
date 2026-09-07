@@ -46,3 +46,7 @@ A practical consequence: a single business rule today is expressed as a storage 
 ## Scope
 
 ObjectKeeper **decides and records**. It does not compute values, cause external effects, orchestrate long-running processes, or render a user interface — those belong to the consumers above it. See [ADR-0007](docs/adr/0007-decide-and-record-not-compute-or-effect.md) for why that boundary is where it is.
+
+## License
+
+[Apache License 2.0](LICENSE).
