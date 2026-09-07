@@ -43,5 +43,4 @@ Rejected as the general rule: a service account or a webhook has no reason to be
 
 - The model block gains the actor descriptor. DESIGN.md's in-scope "permissions" means guards over `actor.*`.
 - Provenance on every event includes actor and principal.
-- "Approval" remains undefined pending the approvals case study (iteration 5); the actor model gives it something to be defined in terms of.
-- The TODO.md actor item is narrowed to delegation, attenuation and proposals.
+- Approval was defined in ADR-0035 in terms of this descriptor; delegation, attenuation and proposals in ADR-0036.

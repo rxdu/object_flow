@@ -26,7 +26,7 @@ Exactly-once *effect* is achieved at the receiver, by deduplicating on the event
 
 **Transitions accept an idempotency key.** For the common case — an event causing a transition on another object — the source event identifier is used as that key, and ObjectKeeper refuses a second attempt carrying a key it has already applied.
 
-**Acknowledgements are still required**, for progress tracking, lag and stuck-subscriber detection, safe pruning of the log, and backpressure. They are not a correctness mechanism for exactly-once.
+**Acknowledgements are still required**, for progress tracking, lag and stuck-subscriber detection, and backpressure. They are not a correctness mechanism for exactly-once. *(An earlier draft also listed "safe pruning of the log"; ADR-0033 made the log permanent, so that purpose is gone.)*
 
 ## Alternatives rejected
 

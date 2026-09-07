@@ -1,6 +1,6 @@
 # First consumer walkthrough: the unit, the delivery, and what the model needs
 
-Status: **Draft for discussion**, 2026-09-07. Not an ADR. This document works the first consumer's real lifecycles through the model in [`DESIGN.md`](../DESIGN.md), finds where the model as written cannot express them, and proposes the smallest set of additions that would. Everything under §4 is a proposal. Parts that are accepted will become ADRs, and this document will then be reduced to a worked example.
+Status: **worked example**, written 2026-09-07 as a draft and adopted in design iteration 1. It works the first consumer's real lifecycles through the model as it stood, finds where that model could not express them, and proposes the additions that became ADR-0019 to ADR-0025. It is kept as the rationale behind those ADRs; the current model is [`DESIGN.md`](../DESIGN.md).
 
 Source material: `wr:app/core/state_registry.py`, `wr:docs/proposals/operations-system-design.md` §4–§5, `wr:docs/adr/0002-unit-engagement-and-leasing-model.md`, `wr:docs/adr/0003-xero-as-source-of-truth-for-customer-identity.md`. The `wr:` prefix is defined in [`TODO.md`](../../TODO.md).
 

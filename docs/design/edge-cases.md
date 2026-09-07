@@ -2,6 +2,13 @@
 
 Status: maintained by the design iterations; started 2026-09-07. Each entry says whether the case is **not covered**, **covered with caveat**, or **deferred** to a named place. The bar for listing is "a real system does this and a type author would look for it".
 
+## General
+
+- **Atomicity across ObjectKeeper and an external system.** Not covered. A transition and a call to Xero, a payment gateway or a mail server cannot commit together. The design's answer is the mirror-plus-idempotency pattern: the external system is recorded as a mirror object, the consumer performs the external action on observing the event and reports back with the external event id as idempotency key (ADR-0008, ADR-0014). The window between the two is real and visible in the record.
+- **The clock.** Covered with caveat. `now` in a guard is the database's transaction time, not the caller's clock; a guard such as `end_date <= now` is evaluated at commit. A caller that reasons about time from its own clock can be refused by a few seconds either way.
+- **Several ObjectKeeper stores.** Not covered as one system. Each store guarantees its own data; references across stores are external identifiers, and no invariant spans them.
+- **Very long histories on one object.** Covered with caveat. `changed_since` and `history` read an object's events; an object with millions of events (a counter, a queue) is a modelling smell — the events belong on the things being counted.
+
 ## From the inventory system (iteration 1)
 
 - **One unit becomes two, or two become one.** Not covered. Supersession (ADR-0028) records one successor; a physical split or merge of serialised units is two creations or one creation plus two supersessions, with history staying on the originals.

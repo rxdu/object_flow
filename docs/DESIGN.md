@@ -34,7 +34,7 @@ ObjectKeeper is a layer over a database, not a database (ADR-0001). The core is 
 | Property | Meaning | Why it matters |
 |---|---|---|
 | **Mediated** | No path to the data except through ObjectKeeper. State changes pass through declared transitions and their guards; every other write is recorded with provenance | The peace-of-mind guarantee |
-| **Declared** | What is allowed is data, inspectable at runtime — not code | UI, API and agent tools are projections of one declaration |
+| **Declared** | What is allowed is data, inspectable at runtime — not code (ADR-0010) | UI, API and agent tools are projections of one declaration |
 | **Recorded** | Every change is attributed, caused and reconstructable | Trust after the fact, not only while watching |
 
 An ORM abstracts *mechanism* — it hides SQL and faithfully executes whatever the caller asks. This layer abstracts *authority*: what may change, when, by whom, and what follows.
@@ -97,7 +97,7 @@ An attribute has a declared type — string, integer, decimal with scale, money 
 
 ### 5.3 Relationships
 
-Relationships are **composition** — exclusive membership and a lifetime bounded by the whole, so parts cascade with the whole — or **reference** — everything else (ADR-0003). References carry no attributes; a relation with labels, dates or a lifecycle of its own is a **link object**, a type with two references. Inverses may be declared, and outcomes and guards may traverse them.
+Relationships are **composition** — exclusive membership and a lifetime bounded by the whole, so parts cascade with the whole — or **reference** — everything else (ADR-0003). A composite's state is its own, gated by guards that read its parts, never derived from them (ADR-0004); "why is this stuck" is then answered by a `dependent` verdict naming the parts. References carry no attributes; a relation with labels, dates or a lifecycle of its own is a **link object**, a type with two references. Inverses may be declared, and outcomes and guards may traverse them.
 
 ### 5.4 State machines and transitions
 

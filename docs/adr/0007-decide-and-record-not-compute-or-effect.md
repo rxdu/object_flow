@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0019 — a transition's outcome may cascade transitions on related objects inside the store; that is not an *effect*, which remains something caused outside it. ADR-0021 — derived attributes are named expressions, not the stored computation this ADR excludes.
+- **Refined by:** ADR-0019 — a transition's outcome may cascade transitions on related objects inside the store; that is not an *effect*, which remains something caused outside it. ADR-0021 — derived attributes are named expressions, not the stored computation this ADR excludes. ADR-0032 — the store evaluates declared arithmetic over its own data (a stock level, an order total); what stays outside is the *domain formula* — the tax rate in the example below, pricing, scoring, conversion.
 
 ## Context
 

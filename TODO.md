@@ -13,7 +13,7 @@ An autonomous design-iteration loop was started on 2026-09-07 with the brief: it
 | 3 | HubSpot-style CRM: pipelines, associations, duplicate merge, ownership, right to erasure versus the recorded property | [x] 2026-09-08 — `docs/design/case-study-crm.md`; ADR-0030, ADR-0031; three clarifications folded into DESIGN.md |
 | 4 | High-volume short-lived domain (e-commerce orders): quantity stock and arithmetic, payment as external system, ordering, retention, stored versus folded state | [x] 2026-09-08 — `docs/design/case-study-orders.md`; ADR-0032 to ADR-0034; five open model questions closed |
 | 5 | Approvals and bookings: multi-actor approval, delegation, proposals, interval conflicts | [x] 2026-09-08 — `docs/design/case-study-approvals-and-bookings.md`; ADR-0035, ADR-0036; approval defined; delegation and proposals closed |
-| 6 | Consolidation: rewrite DESIGN.md as one cohesive spec; edge-cases document; coherence pass over all ADRs | [~] 2026-09-08 — ADR-0037 read surface; DESIGN.md rewritten (§1–§14); coherence pass over the ADRs next |
+| 6 | Consolidation: rewrite DESIGN.md as one cohesive spec; edge-cases document; coherence pass over all ADRs | [x] 2026-09-08 — ADR-0037 read surface; DESIGN.md rewritten (§1–§14); superseded statements in ADR-0001, 0007, 0012, 0013, 0014, 0015, 0018, 0023, 0025 marked; edge-cases general section; two lessons recorded |
 
 ## Author review queue
 
@@ -67,8 +67,21 @@ The port of the first consumer's production data is a designed path (ADR-0015, D
 - [ ] **Validation report.** Specify what the importer evaluates per object (invariants, the structural guards of the creation transition, referential integrity) and the shape of the report. Decide the per-class disposition mechanism: clean upstream, or admit with a recorded flag that later transitions can see.
 - [ ] **Legacy history.** Specify the read-only `legacy` history entry: payload, attachment to the object, and whether the read path presents it inline with ObjectKeeper's own history or separately.
 - [x] **Soft-deleted rows.** Land in the type's declared deleted terminal state with provenance `asserted` (ADR-0024). Per-type naming of that state is import mapping work, not design.
+- [x] **Legacy keys.** Preserved as `external: legacy` attributes with `lookup` by them (ADR-0018, ADR-0037).
 - [ ] **Files.** The first consumer stores photos (robot, delivery, service, intake), packing-list PDFs and label templates. The author's preference is links to file objects in an S3-like store or a filesystem, with ObjectKeeper's scope undecided. Analysed in [ADR-0017](docs/adr/0017-file-attachments-are-content-addressed-references.md), proposed as a content-addressed `file` attribute type with the bytes out of scope. If accepted, closes ADR-0015's open item and fixes how legacy photos port.
 - [ ] **Cutover.** Big-bang or staged by object type with ObjectKeeper read-only for the remainder. A project-plan decision that the design must not preclude.
+
+## Toward implementation
+
+The design is complete enough to plan an implementation. These are the artefacts that planning needs and the design does not yet contain; each is WHAT, not HOW.
+
+- [ ] **Concrete declaration syntax.** A file format for types, machines, transitions, guards and outcomes that a person can read and diff, with the version-2 expression language given a grammar. The readable rule set is a rendering of it.
+- [ ] **Storage schema.** The object row, the event log with per-object sequence and global position, sequences, subscriptions, proposals, the idempotency table, and how declared invariants of known shape become constraints; partitioning and archival tiering for the log.
+- [ ] **Library API.** The request and verdict shapes of §6 and the read surface of §10 as one language-level API; transport bindings come after.
+- [ ] **Publish and import tooling.** The validation report of ADR-0027 and ADR-0015, the migration-mapping format, and the per-class disposition record.
+- [ ] **Renderers.** The printable rule set per version; agent tool schemas from `declaration` plus `availability`.
+- [ ] **Adversarial test harness.** A fallible agent, given the declaration and the read surface, trying every route to an invalid state on a real type set; the first consumer's types are the fixture.
+- [ ] **Prototype the first consumer's unit and delivery types** in the declaration syntax before any runtime exists, to check that the walkthrough survives contact with a concrete format.
 
 ## Resolved since last revision
 
@@ -77,7 +90,7 @@ The port of the first consumer's production data is a designed path (ADR-0015, D
 - [x] **Library or service** — the core is library-shaped; only push delivery requires a background worker ([ADR-0012](docs/adr/0012-objectkeeper-does-not-initiate-transitions.md), [ADR-0013](docs/adr/0013-events-are-recorded-to-a-durable-log-in-the-transition-transaction.md)).
 - [x] **First consumer named** — the extended Weston Robot inventory system, rebuilt on ObjectKeeper with its production data ported and preserved ([ADR-0015](docs/adr/0015-first-consumer-and-fresh-build-with-ported-data.md)). The Deployment/Site names in earlier ADRs are illustrative only.
 - [x] **Threat model** — mistakes, not malice; the purpose in the author's words is recorded in DESIGN.md, Purpose.
-- [~] **Iteration 6 (2026-09-08, pending author review)** — the read surface (ADR-0037) closes the last three open model questions; DESIGN.md rewritten as one specification with numbered sections and a terminology appendix. Coherence pass over the ADRs to follow.
+- [x] **Iteration 6 (2026-09-08, pending author review)** — the read surface (ADR-0037) closes the last three open model questions; DESIGN.md rewritten as one specification with numbered sections and a terminology appendix; coherence pass marked every statement in the early ADRs that a later decision superseded, with strikethrough and a pointer rather than deletion; the walkthrough is now a worked example; `edge-cases.md` gained a general section. The loop's brief is complete.
 - [x] **Iteration 5 (2026-09-08, pending author review)** — approvals and bookings: approval as recorded parts with a guard invalidated through `changed_since` (ADR-0035); proposals as a built-in opt-in type and delegation supplied in the descriptor (ADR-0036). Bookings needed nothing new; known-shape invariants compile to database constraints.
 - [x] **Iteration 4 (2026-09-08, pending author review)** — orders at volume: expression language version 2 with arithmetic, durations and aggregates, restating the computation boundary (ADR-0032); stored current state, a permanent never-pruned log, provenance on events (ADR-0033); per-object and causal ordering, subscriptions as a built-in type with filter and lifecycle (ADR-0034). Closes five open model questions. Second structurally different case study done.
 - [x] **Iteration 3 (2026-09-08, pending author review)** — CRM case study: read visibility predicates (ADR-0030); erasure of personal attributes across history (ADR-0031); references carry no attributes, link objects carry them; request `context` on events; invariant verdicts name conflicting objects. Arithmetic in the expression language now requested by three cases (ATP, deal totals, activity recency); decided in iteration 4.

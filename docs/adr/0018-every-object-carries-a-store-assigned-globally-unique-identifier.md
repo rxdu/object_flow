@@ -46,7 +46,7 @@ The legacy database's scheme. Rejected because integers collide on import and on
 
 - **References and events use the object id.** Relationships are stable under any attribute edit, including a serial correction. The event log, idempotency keys and causal lineage all reference objects and events by identifiers of this kind.
 - **Business identifiers are ordinary controlled attributes.** Uniqueness is a declared invariant (ADR-0009). *The sentence "ObjectKeeper offers no sequence primitive" that stood here was withdrawn by ADR-0029 in design iteration 2 (pending author review): a business identifier may be minted from a named, scoped sequence at creation.*
-- **External identifiers are ordinary controlled attributes** that name their source. Whether the declaration marks them so that import and the read surface can find "the Xero id" generically is the remaining question in TODO.md.
+- **External identifiers are ordinary controlled attributes** that name their source. ADR-0037 decided that the declaration marks them (`external: <source>`), with uniqueness per source automatic and a `lookup` operation on the read surface.
 - **Import assigns new ids and preserves legacy keys.** Every ported object receives an object id; its legacy primary key is kept as an external identifier with source `legacy`, so the preserved audit history and any surviving links still resolve. Cross-references are re-pointed through the legacy-key-to-object-id mapping during import (ADR-0015).
 - **Agents and UIs hold one stable handle.** Every read returns the object id and every request names it; there is no natural-key lookup to get wrong.
 

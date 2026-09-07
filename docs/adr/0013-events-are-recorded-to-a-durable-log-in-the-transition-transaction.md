@@ -54,6 +54,6 @@ Rejected once no-loss became a requirement: polling sees *state*, a feed sees *t
 ## Consequences
 
 - The log is mandatory, not an optional feature.
-- Retention interacts with subscriber progress: an event not yet consumed by a registered subscriber cannot be pruned, so one dead subscriber would otherwise pin the log forever. A retention and slow-consumer policy is required (open in TODO.md).
+- ~~Retention interacts with subscriber progress: an event not yet consumed by a registered subscriber cannot be pruned, so one dead subscriber would otherwise pin the log forever. A retention and slow-consumer policy is required.~~ *Superseded by ADR-0033: the log is the permanent history and is never pruned, so nothing is pinned; slow consumers are handled by the subscription's own lifecycle (ADR-0034).*
 - Push delivery needs a worker draining the log, which reintroduces a background process — **for push only**. Pull-only deployments remain library-shaped (ADR-0012).
 - This admits a staging that costs nothing later: build the log and the pull interface first, add the delivery worker when an application actually wants callbacks. The core does not change when that happens — a consumer is added, not modified.
