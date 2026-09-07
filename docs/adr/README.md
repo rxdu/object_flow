@@ -31,3 +31,5 @@
 | [0027](0027-declarations-are-versioned-and-removals-require-a-mapping.md) | Declarations are versioned; removals require a mapping applied as recorded migrations | Accepted (iteration 2, review pending) |
 | [0028](0028-supersession-an-object-may-end-by-naming-a-successor.md) | Supersession: an object may end in a terminal state that names its successor | Accepted (iteration 2, review pending) |
 | [0029](0029-named-sequences-mint-business-identifiers.md) | Named, scoped sequences mint business identifiers at creation | Accepted (iteration 2, review pending) |
+| [0030](0030-read-visibility-is-a-declared-predicate.md) | Read visibility is a declared predicate over actor and object; an invisible object is not found | Accepted (iteration 3, review pending) |
+| [0031](0031-erasure-redacts-declared-personal-attributes-across-history.md) | Erasure redacts declared personal attributes across history; recorded, irreversible, not deletion | Accepted (iteration 3, review pending) |

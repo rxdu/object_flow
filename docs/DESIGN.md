@@ -47,8 +47,11 @@ ObjectType            declared under a version (ADR-0027); may extend a base
   attributes
     controlled      referenced by guards; written only via transitions
       identifier    optionally minted from a named, scoped sequence (ADR-0029)
+      personal      optionally marked; subject to erasure (ADR-0031)
     free            editable with permission; recorded, not gated
     derived         a named expression, never stored, evaluated on read (ADR-0021)
+  visibility        optional predicate over actor and object; an invisible
+                    object is not found (ADR-0030)
   invariants        type-level properties; the runtime enforces them at any
                     transition that could violate them, on either side
   state machine     exactly one per object type; a named declaration the
@@ -67,7 +70,9 @@ ObjectType            declared under a version (ADR-0027); may extend a base
                     parent transitions (ADR-0020)
     actions         transitions whose from-state equals their to-state
                     (ADR-0016); not a separate element
-  relationships
+  relationships   carry no attributes; a link with labels, dates or a
+                    lifecycle of its own is a link object — a type with two
+                    references
     composition     exclusive membership + lifetime bounded by the whole
     reference       everything else; inverses may be declared
 
@@ -98,6 +103,9 @@ Words that were used loosely in earlier drafts now have one meaning each.
 | **Declaration version** | The version of a type's declaration; recorded on every object and event; removals need a mapping applied as recorded migrations (ADR-0027). |
 | **Supersession** | Ending an object in a terminal state that names its successor, keeping id and history; how an object changes kind (ADR-0028). |
 | **Sequence** | A named, scoped, monotonic counter the store maintains to mint business identifiers at creation (ADR-0029). |
+| **Link object** | A type whose purpose is to relate two objects and carry attributes or a lifecycle about that relation — an association with labels, an engagement line with dates. References themselves carry nothing. |
+| **Visibility** | A declared predicate over actor and object that every read applies; failing it means not found (ADR-0030). |
+| **Erasure** | Redaction of declared personal attributes across an object and its history, recorded and irreversible; distinct from deletion (ADR-0031). |
 | **Effect** | Something caused outside ObjectKeeper — raising an invoice, sending a message. Out of scope (ADR-0007). Consumers cause effects by observing recorded events. |
 | **Actor** | Whoever requests a transition or action, as a descriptor the consumer's authentication supplies: id, kind, optional principal, capabilities (ADR-0025). ObjectKeeper does not authenticate. |
 | **Approval** | Listed as in scope but not yet defined. The working reading is a guard of the form "a prior transition was performed by an actor holding authority X", reported with remedy class `delegable`. Open in TODO.md. |
@@ -134,12 +142,12 @@ A request can also be refused with `stale` — the object changed since the call
 
 ## Transition execution
 
-A request names an object, a transition, its inputs, the actor (ADR-0025), and optionally the version the caller last read and an idempotency key (ADR-0014). It executes in one transaction (ADR-0023):
+A request names an object, a transition, its inputs, the actor (ADR-0025), and optionally the version the caller last read, an idempotency key (ADR-0014), and a free-form `context` recorded on the event beside the actor. If the type declares visibility and the actor cannot see the object, the request is refused as not found before anything else (ADR-0030). It then executes in one transaction (ADR-0023):
 
 1. If an `expected_version` is given and differs from the object's, refuse with `stale`.
 2. Lock, in id order, every object the outcome will write: the target and every object reached by a cascaded transition or creation (ADR-0019).
 3. Evaluate every guard — the parent's, then each cascaded transition's, depth-first in declaration order — over a consistent snapshot. Any failure blocks the whole request; the verdict names the object, transition and guard, with its remedy class. Only-via transitions contribute their non-actor guards (ADR-0020).
-4. Check every invariant the written objects could violate (ADR-0009); those expressible as database constraints are enforced by the database.
+4. Check every invariant the written objects could violate (ADR-0009); those expressible as database constraints are enforced by the database. A violation verdict names the conflicting objects.
 5. Write all outcomes; increment each written object's version; record one event per transition, cascaded ones carrying the parent's event as cause; write them to the log (ADR-0013). Commit.
 
 Outcomes are straight-line: they may iterate a declared relationship with a filter, never choose between alternatives. Branching is expressed as separate transitions with distinguishing guards.
@@ -157,6 +165,8 @@ An object never changes type. When it must continue as something else — moved 
 ## Deletion
 
 A deletable type declares a terminal state and a transition into it, guarded on there being no live object referencing this one; parts are cascaded, references block with remedy class `dependent` (ADR-0024). Deleted objects stay readable by id and in history and take no further transitions. There is no bypass; repair is the recorded override of ADR-0001.
+
+Erasure is different from deletion. Attributes may be declared personal, and a declared erasure transition replaces their values with a redaction marker on the object and in every event that carried them, deletes referenced file content, keeps the event skeleton, and records that it happened. It is the one place the log is rewritten, and it is irreversible (ADR-0031).
 
 ## Events and delivery
 
