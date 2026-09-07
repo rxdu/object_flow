@@ -41,16 +41,19 @@ The distinction from an ORM is deliberate: an ORM abstracts *mechanism* (it hide
 ```text
 ObjectType
   attributes
-    controlled      referenced by guards; written only via transitions or actions
+    controlled      referenced by guards; written only via transitions
     free            editable with permission; recorded, not gated
   invariants        type-level properties; the runtime enforces them at any
                     transition that could violate them, on either side
   state machine     exactly one per object type
     states
-    transitions
+    transitions     addressed by name; from a state, a set of states, or
+                    any non-terminal state
       inputs        arguments supplied by the caller
       guards        evaluated over current state + inputs
       outcome       the new state and the controlled-attribute writes; recorded
+    actions         transitions whose from-state equals their to-state
+                    (ADR-0016); not a separate element
   relationships
     composition     exclusive membership + lifetime bounded by the whole
     reference       everything else
@@ -67,8 +70,8 @@ Words that were used loosely in earlier drafts now have one meaning each.
 |---|---|
 | **Lifecycle** | The observable shape — the states an object passes through. What is seen. |
 | **State machine** | The mechanism — states, transitions and the guards on them. What does it. |
-| **Transition** | A named, guarded, recorded request to move an object from one state to another. The only way lifecycle state changes. |
-| **Action** | A named, guarded, recorded operation that writes controlled attributes without changing lifecycle state. ADR-0016 proposes modelling it as a self-transition; not yet decided. |
+| **Transition** | A named, guarded, recorded request to move an object from one state to another, addressed by name and never by target state. The only way state or controlled attributes change. |
+| **Action** | A transition whose from-state equals its to-state (ADR-0016): it writes controlled attributes without changing lifecycle state. Declared, guarded, recorded and listed like any transition; rendered under its state in the readable rule set rather than as an arrow. A self-transition here has no exit or entry semantics, unlike a statechart. |
 | **Guard** | A predicate over current state and transition inputs that must hold for a transition or action to proceed. Returns a structured verdict with a remedy class, never only a boolean. |
 | **Invariant** | A type-level property the runtime enforces at every transition that could violate it (ADR-0009). |
 | **Outcome** | What a transition or action writes and records: the new state, the controlled attributes it sets, and the event. Earlier drafts called this "effects"; renamed so the word is free for the next row. |
@@ -83,7 +86,8 @@ These are consequences of the structure above, not separately designed features.
 
 - **Creation** is the transition from nothing into the initial state, carrying its own guards. **End of life** is the transition into a terminal state, gated on outstanding parts. Neither is a special case. Imported objects are the one exception: they enter mid-lifecycle through the override path, not through creation (see [Data import](#data-import)).
 - **Validity is relative to intent.** The meaningful call is `validate(object, intent)`; `validate(object)` has no answer once requiredness attaches to transitions.
-- **Availability is three-way**: available / available-with-input / blocked. Blocked carries a reason and a remedy class.
+- **Availability is three-way**: available / available-with-input / blocked. Blocked carries a reason and a remedy class. Transitions and actions appear in one list, since an action is a transition.
+- **A same-state request is not a no-op.** Because transitions are addressed by name, "move to `PREPARATION`" for an object already in `PREPARATION` names no transition and is rejected; nothing is recorded for a change that did not happen (ADR-0016).
 - **A transition's parameter list is derived from its own guards**, so the agent-facing tool schema and the validation rules cannot drift apart — they are the same declaration read two ways.
 - **Causal lineage.** Because an event-driven transition carries the source event's identifier as its idempotency key, history records not only *who* changed an object but *what caused* the change.
 - **One rule, many projections.** A single guard declaration serves the storage constraint, the API validation, the UI's disabled-button reason, the error message, and the agent's tool description. The cost of a business rule today scales with the number of surfaces, not the number of rules; this collapses it.
@@ -116,6 +120,8 @@ Every recorded transition writes its event to a durable, ordered log **inside th
   consumer holds          delivery worker
   a cursor                calls subscribers
 ```
+
+Every recorded event carries `changes_state`, derived from whether the transition's from-state and to-state differ, so a subscriber can ask for lifecycle changes only and ignore actions (ADR-0016).
 
 Pull-only deployments need no background process and stay library-shaped. Push delivery requires a worker draining the log, and is the point at which a deployment becomes a service.
 
@@ -160,7 +166,7 @@ The guarantee is narrower than it first sounds: the system can guarantee that **
 
 Two consequences follow:
 
-1. The rule set for an object type should be printable as a readable artifact, so that someone who knows the business process can check it. Legibility is as load-bearing for trust as enforcement.
+1. The rule set for an object type should be printable as a readable artifact, so that someone who knows the business process can check it. Legibility is as load-bearing for trust as enforcement. That artifact lists actions under the state they apply in, not as self-loops on the lifecycle diagram (ADR-0016).
 2. Acceptance testing should be adversarial rather than happy-path: point an agent at the system and try to get it to produce an invalid state. "Can it complete the workflow" is the weaker question. Adversarial here follows the threat model — a fallible actor that guesses, retries and skips steps, trying every route — not a hostile one with credentials.
 
 The mediated property is also an operational commitment, not only an architectural one. If anything else can reach the database — a migration script, an admin tool, a colleague with `psql`, a reporting job that "just" updates a flag — the guarantee is gone. Administrative repair needs a designed answer (an authorised, recorded override transition), because the unplanned 11pm database fix is how the history quietly becomes fiction. The data import of ADR-0015 is the first use of that path.

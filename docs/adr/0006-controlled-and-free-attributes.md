@@ -11,7 +11,7 @@ Every decision so far governs state changes, but most edits to a real object are
 
 Classify the attribute rather than the write:
 
-- **controlled** — writable only via specific actions or transitions. Any attribute referenced by a guard must be controlled, or the guard is trivially bypassable.
+- **controlled** — writable only via transitions, of which actions (self-transitions, ADR-0016) are one kind. Any attribute referenced by a guard must be controlled, or the guard is trivially bypassable.
 - **free** — editable by any permitted actor. Recorded with provenance, but not gated.
 
 ## Alternatives rejected

@@ -1,6 +1,6 @@
 # ADR-0016: Actions are self-transitions
 
-- **Status:** Proposed — analysis requested 2026-09-07; not yet decided
+- **Status:** Accepted — analysis requested and the recommendation accepted 2026-09-07
 - **Date:** 2026-09-07
 
 ## Context
@@ -11,7 +11,7 @@ The first consumer shows that actions are most of the work, not an edge case. Ev
 
 Two ways to model it were compared.
 
-## Decision (provisional)
+## Decision
 
 An action is a transition whose from-state and to-state are the same. It is declared, guarded, addressed, recorded and listed exactly as any other transition. Two rules make that safe and legible:
 
@@ -22,7 +22,7 @@ A from-state may be a set of states, or any non-terminal state. That is not an a
 
 ## Alternatives
 
-### A. Self-transition (chosen provisionally)
+### A. Self-transition (chosen)
 
 Pros:
 
@@ -59,7 +59,7 @@ Cons:
 - **Invariant analysis needs a second path**, exactly the hazard ADR-0009 names.
 - **Bigger language.**
 
-## Consequences (if accepted)
+## Consequences
 
 - The API addresses transitions by name. `validate(object, intent)` in DESIGN.md already implies this.
 - The transition declaration allows a from-state set and an any-non-terminal wildcard.
