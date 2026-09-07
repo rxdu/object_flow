@@ -34,6 +34,10 @@ Would make the store a more complete application platform.
 
 Rejected because it imports precisely the domain-specific parts, which either forces code into the model (see ADR-0008) or produces an expression language that grows without limit. It also blurs the boundary with workflow orchestration, which is a solved problem elsewhere.
 
+## Relationship to event delivery
+
+Push delivery of recorded events (ADR-0013) is not an exception to this ADR. Delivering a record is not making a decision: the subscriber registered its interest in advance, and the payload says *this happened*, not *do this*. What remains out of scope is ObjectKeeper deciding an outcome and acting on it — the Xero example above stays excluded, because raising an invoice is an effect ObjectKeeper would be choosing to cause.
+
 ## Consequences
 
 - Consuming applications compute values and then supply them as transition inputs, where guards can check them.

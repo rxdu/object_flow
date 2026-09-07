@@ -64,6 +64,7 @@ These are consequences of the structure above, not separately designed features.
 - **Validity is relative to intent.** The meaningful call is `validate(object, intent)`; `validate(object)` has no answer once requiredness attaches to transitions.
 - **Availability is three-way**: available / available-with-input / blocked. Blocked carries a reason and a remedy class.
 - **A transition's parameter list is derived from its own guards**, so the agent-facing tool schema and the validation rules cannot drift apart — they are the same declaration read two ways.
+- **Causal lineage.** Because an event-driven transition carries the source event's identifier as its idempotency key, history records not only *who* changed an object but *what caused* the change.
 - **One rule, many projections.** A single guard declaration serves the storage constraint, the API validation, the UI's disabled-button reason, the error message, and the agent's tool description. The cost of a business rule today scales with the number of surfaces, not the number of rules; this collapses it.
 
 ### Remedy classes
@@ -78,6 +79,29 @@ An unsatisfied guard reports why it failed in a form a caller can act on:
 | `dependent` | Another object must change state | Work on that first |
 | `unreachable-from-here` | Wrong state; another transition comes first | Take a different path |
 
+## Events and delivery
+
+ObjectKeeper initiates nothing — every state change happens because a caller asked for it, and the deciding of *when* belongs to the layer above (ADR-0012). Applications therefore learn what happened by reading what was recorded.
+
+Every recorded transition writes its event to a durable, ordered log **inside the same transaction that records the state change**, so no registered subscriber can lose an event (ADR-0013):
+
+```text
+            recorded transition
+                    │
+         durable ordered log        written in the same transaction
+                    │
+        ┌───────────┴───────────┐
+     pull                     push
+  consumer holds          delivery worker
+  a cursor                calls subscribers
+```
+
+Pull-only deployments need no background process and stay library-shaped. Push delivery requires a worker draining the log, and is the point at which a deployment becomes a service.
+
+The guarantee is **at-least-once delivery with idempotent handling** (ADR-0014). Exactly-once delivery is impossible across a process boundary; exactly-once *effect* comes from deduplicating on the event identifier in the same transaction as the side effect. For the common case — an event causing a transition on another object — transitions accept an idempotency key, so the deduplication happens centrally rather than in every application.
+
+Acknowledgements exist for progress tracking, lag detection, safe pruning of the log, and backpressure. They are not a correctness mechanism for exactly-once.
+
 ## Scope boundaries
 
 The store **decides and records**. It does not compute values and it does not cause external effects.
@@ -89,6 +113,7 @@ The store **decides and records**. It does not compute values and it does not ca
 | Part-state conditions, thresholds | Selection logic (route to nearest engineer) |
 | Type-level invariants | Long-running process orchestration |
 | History, attribution | Human UI, agent framework |
+| Event log and delivery to subscribers | Deciding *when* a transition should happen |
 
 This split is not arbitrary. Preconditions and permissions have the same shape across every domain — "required field", "needs approval", "no open children" look alike whether the object is a deployment or a loan application. Computation and effects are exactly where domains differ irreducibly. The state machine generalises because it sits at the layer where domains resemble each other.
 
