@@ -47,3 +47,7 @@ Rejected by ADR-0007's own reasoning: a language that can express tax calculatio
 - A type-scan predicate in a guard or invariant is a global query and needs an index; this is the "global queries versus maintained projections" question in TODO.md, now with concrete instances.
 - Available-to-promise, sums and totals remain consumer computations supplied as inputs where a guard must check them.
 - TODO.md challenge 3 is closed.
+
+## Amendment (design iteration 2, 2026-09-07; pending author review)
+
+Outcome writes take the form `attribute := expression`, in the version-1 language above: an input, a literal, `now`, `actor.id`, or an attribute path over `this` and its relationships. Examples from the ticket case study: `resolved_at := now`, `resolution := null` on reopen, `assignee := project.lead`. This adds no construct to the language; it states where expressions may appear.

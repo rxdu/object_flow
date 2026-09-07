@@ -39,24 +39,30 @@ The distinction from an ORM is deliberate: an ORM abstracts *mechanism* (it hide
 ## Model
 
 ```text
-ObjectType
+ObjectType            declared under a version (ADR-0027); may extend a base
+                      declaration for attributes, relationships, invariants and
+                      derived attributes (ADR-0026)
   id                store-assigned, globally unique, immutable, opaque (ADR-0018)
   version           incremented on every recorded change (ADR-0023)
   attributes
     controlled      referenced by guards; written only via transitions
+      identifier    optionally minted from a named, scoped sequence (ADR-0029)
     free            editable with permission; recorded, not gated
     derived         a named expression, never stored, evaluated on read (ADR-0021)
   invariants        type-level properties; the runtime enforces them at any
                     transition that could violate them, on either side
-  state machine     exactly one per object type
-    states          at least one terminal; deletion is a terminal state (ADR-0024)
+  state machine     exactly one per object type; a named declaration the
+                    type binds whole (ADR-0026)
+    states          each with a category; at least one terminal; deletion is
+                    a terminal state (ADR-0024); a terminal state may be
+                    superseding, naming a successor (ADR-0028)
     transitions     addressed by name; from a state, a set of states, or
                     any non-terminal state
       inputs        arguments supplied by the caller
       guards        evaluated over current state + inputs + actor + now
-      outcome       own new state and controlled writes, plus cascaded
-                    transitions and creations across relationships,
-                    all in one transaction (ADR-0019)
+      outcome       own new state and controlled writes (attribute :=
+                    expression), plus cascaded transitions and creations
+                    across relationships, all in one transaction (ADR-0019)
       only via      optional: reachable only as a cascade from named
                     parent transitions (ADR-0020)
     actions         transitions whose from-state equals their to-state
@@ -87,6 +93,11 @@ Words that were used loosely in earlier drafts now have one meaning each.
 | **Only via** | A declaration that a transition is not requestable and occurs only as a cascade from named parents (ADR-0020). |
 | **Derived attribute** | A named expression on a type, never stored, evaluated on read; readable by guards (ADR-0021). |
 | **Verdict** | The result of evaluating a request: satisfied; unsatisfied with a reason and remedy class; `stale` (ADR-0023); or not requestable (ADR-0020). |
+| **Type family** | A base declaration and every type extending it; a query target (ADR-0026). |
+| **State category** | A consumer-defined classification every state declares, such as open / in progress / done, so family-wide guards and views need not know state names (ADR-0026). |
+| **Declaration version** | The version of a type's declaration; recorded on every object and event; removals need a mapping applied as recorded migrations (ADR-0027). |
+| **Supersession** | Ending an object in a terminal state that names its successor, keeping id and history; how an object changes kind (ADR-0028). |
+| **Sequence** | A named, scoped, monotonic counter the store maintains to mint business identifiers at creation (ADR-0029). |
 | **Effect** | Something caused outside ObjectKeeper — raising an invoice, sending a message. Out of scope (ADR-0007). Consumers cause effects by observing recorded events. |
 | **Actor** | Whoever requests a transition or action, as a descriptor the consumer's authentication supplies: id, kind, optional principal, capabilities (ADR-0025). ObjectKeeper does not authenticate. |
 | **Approval** | Listed as in scope but not yet defined. The working reading is a guard of the form "a prior transition was performed by an actor holding authority X", reported with remedy class `delegable`. Open in TODO.md. |
@@ -136,6 +147,12 @@ Outcomes are straight-line: they may iterate a declared relationship with a filt
 ## Time
 
 `now` is a value in the expression language (ADR-0021). A time-driven transition is an ordinary transition whose guard reads it — `expire: ACTIVE → EXPIRED, guard end_date <= now` — and ObjectKeeper never requests it (ADR-0012). The read surface answers, for a type and a transition, which objects have that transition available now; a scheduler above asks and requests (ADR-0022). The guard is the timing rule, in one place.
+
+## Declarations: composition, versioning, supersession
+
+A declaration is a versioned artefact (ADR-0027). Types share attributes, relationships, invariants and derived attributes by `extends`; state machines are named and bound whole, never inherited piecemeal (ADR-0026). Publishing a new version is recorded; additions apply forward; removing a state requires a mapping that is applied as recorded migration transitions, and a new invariant is checked against live objects and reported before it is enforced. Import is this mechanism from version zero (ADR-0015).
+
+An object never changes type. When it must continue as something else — moved to another project, converted from a subtask, merged into a canonical record — it ends in a superseding terminal state that names its successor, and the read surface follows the pointer on request (ADR-0028).
 
 ## Deletion
 

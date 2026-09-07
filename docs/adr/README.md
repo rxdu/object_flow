@@ -27,3 +27,7 @@
 | [0023](0023-transitions-execute-under-locks-and-may-carry-an-expected-version.md) | Transitions execute under locks; a request may carry an expected version | Accepted (iteration 1, review pending) |
 | [0024](0024-deletion-is-a-terminal-transition-gated-on-live-references.md) | Deletion is a terminal transition gated on live references; parts cascade, references block | Accepted (iteration 1, review pending) |
 | [0025](0025-the-actor-is-a-value-supplied-by-the-consumer.md) | The actor is a value supplied by the consumer; ObjectKeeper does not authenticate | Accepted (iteration 1, review pending) |
+| [0026](0026-declarations-compose-by-extends-and-bind-a-named-state-machine.md) | Declarations compose by `extends` and bind a named state machine; states carry a category | Accepted (iteration 2, review pending) |
+| [0027](0027-declarations-are-versioned-and-removals-require-a-mapping.md) | Declarations are versioned; removals require a mapping applied as recorded migrations | Accepted (iteration 2, review pending) |
+| [0028](0028-supersession-an-object-may-end-by-naming-a-successor.md) | Supersession: an object may end in a terminal state that names its successor | Accepted (iteration 2, review pending) |
+| [0029](0029-named-sequences-mint-business-identifiers.md) | Named, scoped sequences mint business identifiers at creation | Accepted (iteration 2, review pending) |
