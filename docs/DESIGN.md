@@ -70,6 +70,8 @@ ObjectType            declared under a version (ADR-0027); may extend a base
                     across relationships, all in one transaction (ADR-0019)
       only via      optional: reachable only as a cascade from named
                     parent transitions (ADR-0020)
+      proposable    optional: a caller lacking authority may file a
+                    Proposal instead (ADR-0036)
     actions         transitions whose from-state equals their to-state
                     (ADR-0016); not a separate element
   relationships   carry no attributes; a link with labels, dates or a
@@ -108,12 +110,13 @@ Words that were used loosely in earlier drafts now have one meaning each.
 | **Link object** | A type whose purpose is to relate two objects and carry attributes or a lifecycle about that relation — an association with labels, an engagement line with dates. References themselves carry nothing. |
 | **Visibility** | A declared predicate over actor and object that every read applies; failing it means not found (ADR-0030). |
 | **Erasure** | Redaction of declared personal attributes across an object and its history, recorded and irreversible; distinct from deletion (ADR-0031). |
-| **Expression language** | The one language of guards, invariants, derived attributes, visibility, outcome values and filters: paths, comparison, null and membership tests, boolean logic, `count`/`all`/`any`/`none` and `sum`/`min`/`max` over relationships or types, arithmetic on numbers and durations, `now`, `actor`, `inputs`, and declared external evaluators. No strings beyond equality, no user functions, no recursion (ADR-0021, ADR-0032). |
+| **Expression language** | The one language of guards, invariants, derived attributes, visibility, outcome values and filters: paths, comparison, null and membership tests, boolean logic, `count`/`all`/`any`/`none` and `sum`/`min`/`max` over relationships or types, arithmetic on numbers and durations, `changed_since` over history, `now`, `actor`, `inputs`, and declared external evaluators. No strings beyond equality, no user functions, no recursion (ADR-0021, ADR-0032, ADR-0035). |
 | **Provenance** | What an event records about itself: actor, principal, context, cause, declaration version, and source — observed, asserted, migrated, corrected or erased (ADR-0033). |
 | **Subscription** | A built-in object type holding a filter and a cursor over the log, with a lifecycle of active, lagging and dead-lettered (ADR-0034). |
 | **Effect** | Something caused outside ObjectKeeper — raising an invoice, sending a message. Out of scope (ADR-0007). Consumers cause effects by observing recorded events. |
 | **Actor** | Whoever requests a transition or action, as a descriptor the consumer's authentication supplies: id, kind, optional principal, capabilities (ADR-0025). ObjectKeeper does not authenticate. |
-| **Approval** | Listed as in scope but not yet defined. The working reading is a guard of the form "a prior transition was performed by an actor holding authority X", reported with remedy class `delegable`. Open in TODO.md. |
+| **Approval** | A recorded part of the approved object — approver, kind, decision, event — created by an `approve` action. "Needs approval" is a guard counting approvals that are still valid, where validity is `not changed_since(relevant, approval.event)` (ADR-0035). |
+| **Proposal** | A built-in object type holding a request a caller lacked authority for; an authorised actor's approval executes it as that actor, with the approval as cause. Opt-in per transition (ADR-0036). |
 | **Available transitions** | The transitions whose guards are satisfied, or satisfiable with input, for a given object and actor now. Earlier drafts said "available actions". |
 | **Object id** | The identifier ObjectKeeper assigns to every object at creation or import: globally unique, immutable, opaque (ADR-0018). Every reference, event and external link holds it. |
 | **Business identifier** | An identifier the consumer assigns with business meaning, such as an asset serial. A controlled attribute with a uniqueness invariant; never the object's identity. |
@@ -152,7 +155,7 @@ A request names an object, a transition, its inputs, the actor (ADR-0025), and o
 1. If an `expected_version` is given and differs from the object's, refuse with `stale`.
 2. Lock, in id order, every object the outcome will write: the target and every object reached by a cascaded transition or creation (ADR-0019).
 3. Evaluate every guard — the parent's, then each cascaded transition's, depth-first in declaration order — over a consistent snapshot. Any failure blocks the whole request; the verdict names the object, transition and guard, with its remedy class. Only-via transitions contribute their non-actor guards (ADR-0020).
-4. Check every invariant the written objects could violate (ADR-0009); those expressible as database constraints are enforced by the database. A violation verdict names the conflicting objects.
+4. Check every invariant the written objects could violate (ADR-0009); those of known shape — uniqueness, interval exclusion per key — are compiled to database constraints, the rest run under serialisable isolation with bounded retry (ADR-0023). A violation verdict names the conflicting objects.
 5. Write all outcomes; increment each written object's version; record one event per transition, cascaded ones carrying the parent's event as cause; write them to the log (ADR-0013). Commit.
 
 Outcomes are straight-line: they may iterate a declared relationship of `this` or of an input, with a filter, never choose between alternatives. Branching is expressed as separate transitions with distinguishing guards. A declaration may cap the fan-out of a cascaded relationship; a request exceeding it is refused with `self-serviceable`.

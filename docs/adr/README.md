@@ -36,3 +36,5 @@
 | [0032](0032-expression-language-version-2-adds-arithmetic.md) | The expression language gains arithmetic, durations and sum/min/max; domain formulas stay outside | Accepted (iteration 4, review pending) |
 | [0033](0033-current-state-is-stored-and-the-log-is-permanent-history.md) | Current state is stored; the log is permanent history, never pruned; provenance attaches to events | Accepted (iteration 4, review pending) |
 | [0034](0034-event-ordering-and-subscriptions-as-a-built-in-type.md) | Events are ordered per object and per cause; subscriptions are a built-in type with a filter and lifecycle | Accepted (iteration 4, review pending) |
+| [0035](0035-approval-is-a-guard-over-recorded-approval-parts.md) | An approval is a recorded part; "needs approval" is a guard over those parts, invalidated by content change | Accepted (iteration 5, review pending) |
+| [0036](0036-proposals-are-a-built-in-type-and-delegation-is-supplied.md) | Proposals are a built-in, opt-in type; delegation and attenuation arrive in the actor descriptor | Accepted (iteration 5, review pending) |

@@ -33,3 +33,14 @@ Status: maintained by the design iterations; started 2026-09-07. Each entry says
 - **Gapless order numbers.** Not covered; see iteration 2. A rolled-back placement leaves a gap in the sequence.
 - **Analytics over the whole log.** Out of scope. The read surface answers questions about objects; questions about millions of events belong in a warehouse fed from the log by a subscriber.
 - **Erasure across archived events.** Covered with caveat. ADR-0033's archival tiering must keep archived events reachable by ADR-0031 erasure, or archive only events that carry no personal attributes.
+
+## From approvals and bookings (iteration 5)
+
+- **Approving several objects in one decision.** Not built in. A proposal targets one request; a batch approval is several approvals, or a parent object whose approval the children's guards read through the relationship.
+- **An approver who later loses authority.** Covered with caveat. An approval is a recorded fact; it stays valid unless the type declares that it is invalidated by content change (`changed_since`) or by age. Re-checking the approver's current capabilities is not built in; a type that needs it records the approver's capability at approval and a scheduler re-validates.
+- **Four-eyes across different objects** (the same person may not approve both the request and its invoice). Covered only where the two objects are related by a declared relationship the guard can traverse; otherwise it is the consumer's rule.
+- **Amending a proposal before approving.** Not covered. A proposal's inputs are fixed at submission; the approver rejects it, or executes the transition directly with different inputs, and the record shows both.
+- **Editing a recurring series after instances exist.** Consumer logic: instances are objects the consumer created; which to change is a selection.
+- **Waitlist promotion.** Consumer logic: "the first in the queue" is a selection with an ordering the language does not express.
+- **Business hours and local time.** Not covered. Timestamps are absolute; calendar arithmetic is a consumer input.
+- **Substitution bookings** ("any robot of this model"). Consumer logic: choosing the unit is a selection; once chosen, the booking is ordinary.
