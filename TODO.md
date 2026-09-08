@@ -9,12 +9,23 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 | ADRs | 64, none Proposed |
 | Defect register | 164 entries, none open; seven carried to open questions ([`docs/design/defects.md`](docs/design/defects.md)) |
 | Declaration syntax | **iteration 16, ready for author review**; checker clean, 24 of 52 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
-| Open model questions | none |
+| Open questions | twelve, raised by writing the syntax against four domains ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
 | Awaiting author review | ADR-0019 to ADR-0064, DESIGN.md as a whole, and the declaration syntax |
 
 The design was built in six autonomous iterations, then reviewed for implementation readiness, then repaired. The review found 42 defects, ten of which broke the model or a running system; re-expressing the case studies against the repaired grammar found five more. ADR-0038 to ADR-0054 are that repair, and none has been reviewed by the author.
 
 **Three of them changed decisions the author had made.** ADR-0042 removes the free-attribute class, superseding ADR-0006. ADR-0047 withdraws ADR-0005's claim that a transition's input schema is derived from its guards. ADR-0029 withdrew a consequence of ADR-0018. Everything else adds to the model or corrects a contradiction inside it.
+
+## Decisions waiting on you
+
+Twelve open questions, in [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md) §11 with the evidence that raised each. Two independent reviewers, asked where your attention is worth spending, both said here rather than on the check list. Grouped by what a decision would change:
+
+- **Four say a whole domain cannot be expressed.** 9 and 10 together mean a payments ledger cannot be: `money` fixes its currency at declaration, and a balance cannot be a counter, so the design's own remedy for a slow invariant scan is closed to every quantity that is money. 12 asks whether `serial` and `quantity` are the right two tracking modes, since a payment, a posting and an account are neither. 6 asks whether confidentiality should be per-attribute, hiding one field currently costing a whole type.
+- **Two would change the storage schema, so they want answering before implementation.** 10, above, and 5, whether declaring an inverse should imply an index on the stored end.
+- **Three are friction the model should ratify or reject.** 4, whether mandatory `limit` and mandatory guard names earn their cost, which now carries evidence against: a reviewer's model reported a worst-case fan-out of thirty-three thousand from bounds they said they invented. 7, whether a cascade should carry arguments. 11, whether `only via` needs a form naming a family.
+- **Three are smaller.** 1, 2 and 3.
+
+One decision is already recorded and worth flagging separately: check 52 verifies that a normative statement cites the check enforcing it, and its own row now records that running it against the four defects that motivated it catches one. Whether a presence-only check belongs in the table at all is a judgement a reviewer explicitly left to you.
 
 ## Author review queue
 
