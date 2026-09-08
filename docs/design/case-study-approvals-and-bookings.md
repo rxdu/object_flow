@@ -16,14 +16,14 @@ Every earlier case had a single actor per transition. Approval is the case where
 | An approval | a **part** of the approved object: `Approval { approver, principal, decision, kind, comment, event }` created by an `approve` or `reject` action on the parent (ADR-0016, ADR-0019) |
 | Who may approve | actor guards on the action: `actor.has(APPROVE_PURCHASE)` (ADR-0025) |
 | Separation of duties | `actor.id != requested_by.id`; `none(a in approvals where a.approver == actor.id)`. Under three-valued logic an erased requester makes the first clause unknown, so it fails rather than passing (ADR-0047) |
-| "Needs approval" gate on the real transition | a guard counting valid approvals: `count(a in approvals where a.decision == APPROVED and not changed_since([amount, vendor], a.at_event)) >= 1` (ADR-0035, ADR-0047) |
+| "Needs approval" gate on the real transition | a guard counting valid approvals: `count(a in approvals where a.decision == Decision.APPROVED and not changed_since([amount, vendor], a.at_event)) >= 1` (ADR-0035, ADR-0047) |
 | N-of-M | `>= N` |
 | All of a set | one guard per required `kind` |
 | Sequential chain (manager, then finance) | the finance `approve` action is guarded on a valid manager approval existing |
-| Threshold (director above an amount) | `amount > 10000 implies any(a in approvals where a.kind == DIRECTOR and …)` (ADR-0032) |
+| Threshold (director above an amount) | `amount > SGD 10000.00 implies any(a in approvals where a.kind == ApprovalKind.DIRECTOR and …)` (ADR-0032) |
 | Approval invalidated by a material edit | the same guard, through `changed_since`: an approval older than the last change to the declared relevant attributes does not count (ADR-0035) |
 | Withdraw request | an ordinary transition by the requester |
-| Approval expires; escalate after N days | queried by filtering the stored `approval.at` against the supplied time, since a `now`-dependent derived attribute is not itself indexable (ADR-0048); escalation is a scheduler asking the availability query (ADR-0022) |
+| Approval expires; escalate after N days | queried by filtering the stored `approval.at_event` against the supplied time, since a `now`-dependent derived attribute is not itself indexable (ADR-0048); escalation is a scheduler asking the availability query (ADR-0022) |
 | Remedy when approval is missing | `delegable`, naming the capability and kind required, not a person |
 
 ### 2.2 A purchase request, declared

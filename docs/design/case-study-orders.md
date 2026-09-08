@@ -16,14 +16,14 @@ Every earlier case has few, long-lived, richly related objects. An order system 
 | Cart; add / remove / change line | an object in a draft-like state; lines are parts; edits are actions (ADR-0016) |
 | Place order | a creation transition on `Order` cascading `create OrderLine` from the cart's lines and `product.reserve(qty)` on each product, in one transaction (ADR-0019); the cart ends `converted`, superseded by the order (ADR-0028) |
 | Line price captured at placement | an input written to the line, never a reference to the product's current price |
-| Order total, line subtotal | derived: `sum(lines.qty * lines.unit_price)` (ADR-0032) |
+| Order total, line subtotal | derived: `sum(l in lines: l.qty * l.unit_price)` (ADR-0032) |
 | Tax, discount, shipping cost | domain formulas: the consumer computes and supplies them as inputs; guards check ranges and consistency (`inputs.tax >= 0`) (ADR-0007) |
 | Reserve stock; oversell prevention | `Product.reserve`: guard `on_hand - reserved >= inputs.qty`; outcome `reserved := reserved + inputs.qty`, read-modify-write at the moment it is applied, so two lines on one product cannot both pass (ADR-0038) |
 | Payment authorised / captured / refunded | a `Payment` object mirroring the gateway (ADR-0008 mirror shape); the consumer receives the gateway's webhook and requests the transition with the gateway event id as idempotency key (ADR-0014) |
 | Order paid | `Order.mark_paid` cascaded from `Payment.capture`, only-via (ADR-0020); guard `payment.amount == total` |
 | Unpaid order auto-cancels after 30 minutes | `cancel_unpaid: placed → cancelled, guard placed_at + 30 min <= now`; a scheduler requests it through the availability query (ADR-0022, ADR-0032 for the duration) |
 | Fulfilment, partial shipment | `Shipment` objects with line quantities as link objects; the invariant is declared on the line as a relationship aggregate, `sum(a in allocations: a.qty) <= qty`, since ADR-0047 refuses grouped aggregation |
-| Return, refund | transitions on order lines and `Payment.refund(amount)` with `sum(refunds) <= captured` |
+| Return, refund | transitions on order lines and `Payment.refund(amount)` with `sum(r in refunds: r.amount) <= captured` |
 | Fraud hold, manual review | states plus actor guards (ADR-0025) |
 | Guest checkout | an actor of kind `human` with an ephemeral id the consumer mints; nothing in the store cares |
 | Retrying client placing the same order twice | idempotency key on the placement request (ADR-0014); the cascade is one request, so one key |
@@ -68,7 +68,7 @@ The price is snapshotted onto the line rather than referenced, for the reason th
 
 ## 4. What held without change
 
-*Revisited after the repair.* Cascaded creation of lines and reservation in one transaction is ADR-0019, now applied sequentially per ADR-0038, which is what closes the self-oversell this study originally missed. The row lock on a product is now for contention rather than correctness: ADR-0039 makes serialisable isolation the guarantee, so a contended product retries rather than queueing, and the hot-row analysis below should be read with that in mind. Payment as a mirror with the gateway event as idempotency key is ADR-0008 and ADR-0014. Auto-cancel is ADR-0022. Guest actors fit ADR-0025. Snapshotting the price at placement is the same rule the inventory system learned about applied configurations. Lifecycles were unaffected. Guards, verdicts and only-via all changed later: three-valued semantics and declared remedy classes (ADR-0047), the `over-limit` verdict (ADR-0041), and only-via transitions no longer appearing in availability (ADR-0041).
+*Revisited after the repair.* Cascaded creation of lines and reservation in one transaction is ADR-0019, now applied sequentially per ADR-0038, which is what closes the self-oversell this study originally missed. The row lock on a product is now for contention rather than correctness: ADR-0039 makes serialisable isolation the guarantee, so a contended product queues on the row lock rather than aborting and retrying (ADR-0039 decision 3), and the hot-row analysis below should be read with that in mind. Payment as a mirror with the gateway event as idempotency key is ADR-0008 and ADR-0014. Auto-cancel is ADR-0022. Guest actors fit ADR-0025. Snapshotting the price at placement is the same rule the inventory system learned about applied configurations. Lifecycles were unaffected. Guards, verdicts and only-via all changed later: three-valued semantics and declared remedy classes (ADR-0047), the `over-limit` verdict (ADR-0041), and only-via transitions no longer appearing in availability (ADR-0041).
 
 ## 5. Rare cases, recorded in `edge-cases.md`
 

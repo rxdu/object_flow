@@ -14,6 +14,8 @@ An outcome could not pass inputs to a cascaded transition, though every study do
 
 ## Decision
 
+*Notation, added 2026-09-08: the block below is the grammar as this ADR left it. `docs/design/declaration-syntax.md` §5.2 owns it now, and five things have changed — a write is `set <target> := <expr>`, a binding is `create <name> = <Type>.<transition>(…)`, reaching another object is `call`, every loop declares a `limit`, and `clear`, `add`, `remove` and `supersede` are steps this list does not have.*
+
 An outcome is a sequence of steps, applied in order (ADR-0038). The grammar is:
 
 ```text

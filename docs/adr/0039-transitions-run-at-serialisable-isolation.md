@@ -37,7 +37,7 @@ Have each transition declare what it reads so the runtime can lock or check it. 
 
 ## Consequences
 
-- Throughput is bounded by the serialisation-failure rate, not by lock contention alone. The orders case study's hot-row analysis needs revisiting: a popular product now retries rather than queueing, and the row lock of rule 3 is what keeps that bearable.
+- Throughput is bounded by the serialisation-failure rate, not by lock contention alone. The orders case study's hot-row analysis needs revisiting: a popular product now queues on the row lock rather than aborting and retrying, per decision 3, so the failure mode is latency rather than a retry storm, and the row lock of rule 3 is what keeps that bearable.
 - SQLite serialises writers already, so this costs nothing there. PostgreSQL pays for predicate tracking, which is the honest price of the guarantee.
 - The retry count is a deployment setting with a declared default, and exhaustion must be observable, since a rising rate is the signal that a declaration has a contention problem.
 - ADR-0023 rules 2 and 6 are superseded. Its rules 4 and 5 on versions and the `stale` verdict stand.

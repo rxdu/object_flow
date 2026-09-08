@@ -37,15 +37,15 @@ Terminal states: `RETIRED`, `CANCELLED`. Every transition is named and requested
 | Attribute | Class | Written by |
 |---|---|---|
 | `id` | store-assigned | ObjectKeeper, at creation or import (ADR-0018); never the serial |
-| `serial` | controlled | the creation transitions, as input; uniqueness is an invariant |
-| `model` | controlled reference | the creation transitions |
+| `serial` | attribute | the creation transitions, as input; uniqueness is an invariant |
+| `model` | `ref` | the creation transitions |
 | `manufacturer_serial` | attribute | action `capture_manufacturer_serial`, in `INTAKE` |
 | `label_printed_at` | attribute | action `record_label_print`, in `INTAKE` |
 | `photos` | `file[]` | action `attach_photo`, in `INTAKE` (ADR-0017) |
-| `cancellation_reason`, `retirement_reason` | controlled | `cancel`, `retire`, as input |
-| `procurement_order`, `shipment` | controlled references | `request`, `ship` |
-| `binding` — the slot this unit is promised to | controlled reference | `reserve` / `release`, and the pegging action while inbound |
-| `notes` | controlled | action `edit(notes)`, guarded on a capability (ADR-0042) |
+| `cancellation_reason`, `retirement_reason` | attribute | `cancel`, `retire`, as input |
+| `procurement_order`, `shipment` | `ref` | `request`, `ship` |
+| `binding` — the slot this unit is promised to | `ref` | `reserve` / `release`, and the pegging action while inbound |
+| `notes` | attribute | action `edit(notes)`, guarded on a capability (ADR-0042) |
 
 ### 2.3 Guards, as the model would declare them
 

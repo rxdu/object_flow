@@ -18,7 +18,7 @@ This is a defect the repair introduced. It is the ordinary consequence of adopti
 
 1. **`is null` and `is not null` are predicates that always return true or false**, never unknown. They test presence, which is a definite fact about an attribute even when its value is not.
 2. **Comparison with `null` remains unknown**, and a bare `null` literal in a comparison is a publish error rather than a silent always-unknown expression. A declaration that means to test presence must say so.
-3. **The conditional in a derived attribute uses the same predicate**: `unit is null ? UNFILLED : FILLED`.
+3. **The conditional in a derived attribute uses the same predicate**: `if unit is null then UNFILLED else FILLED` *(written `? :` here; ADR-0056 §8 renamed it, which that ADR's consequences said it would)*.
 4. Aggregate predicates use it like any other clause: `none(s in slots where s.role in (PRIMARY, INCLUDED) and s.unit is null)`.
 
 ## Alternatives rejected

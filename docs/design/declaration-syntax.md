@@ -566,7 +566,7 @@ It says nothing about being *owned*. A whole with a terminal transition whose pa
 
 ```text
 <kind> <name> <states> [only via …] [accepts <attribute>, …] [proposable] {   # the head
-  input     <name> : <type>[?]
+  input     <name> : <type>[?|[]]
   input     <name> : <type> default <expr>
   require   <name>: <expression> [eager|deferred] [because <remedy class>]
   corrects  <attribute>, …                                     # §6.4
@@ -576,6 +576,8 @@ It says nothing about being *owned*. A whole with a terminal transition whose pa
 ```
 
 **A `default` may not be given for an optional input** (check 20). An optional input carrying a default is never unsupplied, so the skip rule below could never fire for it, and a partial edit would clear the field it meant to leave alone.
+
+An input may be **set-valued**, written `<type>[]`, and a set may be of a reference type — which is how a transition takes a selection, such as the slots to move to a new delivery. The `admits` input of an assertion is the same form over `invariant`.
 
 **`accepts`** declares that these attributes are supplied by the caller and written directly. `accepts comment` is exactly `input comment : <the attribute's type>` plus `set comment := inputs.comment`, optionality included. It is available on `create`, `do` and `act`, and it accepts a reference as readily as an attribute.
 

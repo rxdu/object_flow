@@ -91,6 +91,6 @@ The repair added several checks that reject a declaration rather than accept one
 
 ## From a payments ledger (written after the model)
 
-- **An N-leg posting whose leg count comes from the request.** Not expressible. There is no set-of-object input, and a counted loop carries no per-leg data, so each posting shape is declared as its own creation. A three-leg capture with a fee and a two-leg reversal are two transitions.
+- **A posting whose legs each carry their own account, amount and sign, supplied by the request.** An input may be a set of references, so a selection can be passed; a set of anonymous structures cannot, since every input is typed. Each posting shape is therefore its own creation.
 - **Exact allocation of an amount into parts that must sum back.** Not expressible, deliberately. Who absorbs the remainder is a decision rather than a calculation, and ADR-0007 puts it with the consumer.
 - **A compensating entry as a correction.** Not what `corrects` is. `corrects` rewrites an attribute of one object in place with provenance; a ledger forbids that, and its compensating entry is an ordinary new posting linked to the original by a reference.

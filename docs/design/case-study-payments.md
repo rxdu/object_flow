@@ -29,7 +29,7 @@ It also has time with legal force, a chargeback window measured from settlement,
 | The network approved | `require authorised: card_network.authorisation_stands(this.id) deferred` |
 | The network refused | `require refused: not card_network.authorisation_stands(this.id) deferred` |
 | Money movement is all-or-nothing | a posting's entries are created in one outcome, and a failing guard on any of them aborts the request (ADR-0038) |
-| An entry outlives its posting | `POSTED` is reached only by a creation, so the posting has no terminal transition and the coverage rule asks nothing (ADR-0064) |
+| An entry outlives its posting | `POSTED` is reached only by a creation, so the posting has no terminal transition and the coverage rule asks nothing (ADR-0061 decision 5) |
 | The chargeback window | `require in_window: settled_at is not null and now <= settled_at + 120 days because unreachable_from_here` |
 | A settled payment still accepts a chargeback | `SETTLED` is `category closed` and **not** `terminal`, with `ARCHIVED` after it |
 
@@ -205,7 +205,7 @@ Five things. Four became open questions the author has since answered; the fifth
 ## 6. Rare cases, recorded in `edge-cases.md`
 
 - A multi-currency balance in one attribute. Not covered, by decision (ADR-0068).
-- An N-leg posting whose leg count comes from the request. Not expressible: there is no set-of-object input, and a counted loop carries no per-leg data, so each posting shape is its own creation.
+- A posting whose legs each carry their own account, amount and sign, supplied by the request. An input may be a set of references, so a selection can be passed; a set of anonymous structures cannot, since every input is typed. Each posting shape is therefore its own creation.
 - Exact allocation of an amount into parts that must sum back. Not expressible, and deliberately: who absorbs the remainder is a decision, and it belongs to the consumer.
 - A compensating entry as a *correction*. `corrects` rewrites an attribute in place, which this domain forbids; a compensating entry is an ordinary new posting and the link between them is a reference.
 - A maintained counter over money. Deferred (ADR-0072).

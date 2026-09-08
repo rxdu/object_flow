@@ -18,11 +18,11 @@ The first consumer computes slot state (`UNFILLED` / `FILLED` / `FULFILLED`) fro
 |---|---|
 | literals; attribute paths across relationships | `model.label_photo_required`, `binding.delivery.state` |
 | comparison, null test, membership | `end_date <= now`, `reason in CancellationReason` — *the `reason != null` example that stood here is broken under ADR-0047's three-valued comparison; ADR-0053 replaces it with `reason is not null`* |
-| boolean logic and implication | `a and b`, `not a`, `a → b` |
+| boolean logic and implication | `a and b`, `not a`, `a implies b` *(written `→` here; ADR-0056 §8 made it `implies`)* |
 | `count`, `all`, `any`, `none` over a relationship, with a predicate | `none(s in slots where s.role in (PRIMARY, INCLUDED) and s.unit is null)` |
 | the same over a type, with a predicate (a type scan) | `none(s in Service where s.unit == this and s.state != CANCELLED)` |
 | `now`, `actor.*`, `inputs.*`, `this` | `actor.has(DELIVERY_COMPLETE)` |
-| conditional expression, for derived attributes only | `unit is null ? UNFILLED : …` |
+| conditional expression | `if unit is null then UNFILLED else …` *(written `? :` here; ADR-0056 §8 made it `if … then … else`, and ADR-0072 later allowed it in an outcome value)* |
 | a named external evaluator (ADR-0008) | `xero.invoice_valid(order_id)` |
 
 **Not in version 1:** arithmetic, string operations, user-defined functions, and any call other than a declared external evaluator. Every guard observed in the first consumer fits without them. The language grows only by an ADR that names the use case that forced it. *Version 2 (ADR-0032, iteration 4) added arithmetic, durations and `sum`/`min`/`max` after three case studies asked for them; the rest of the exclusions stand.*

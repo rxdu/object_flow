@@ -24,7 +24,8 @@ RETIRED = [
     (r"\btime-gated\b", "sweepable (ADR-0048)", {"defects.md"}),
     (r"unreachable-from-here", "unreachable_from_here", {"defects.md", "0056", "0059"}),
     (r"\blet\s+\w+\s*=\s*create\b", "create <name> = <Type>.<transition>(…)",
-     {"defects.md", "0046"}),
+     {"defects.md", "0046"}),        # 0046 is the record that introduced it, annotated in place
+    (r"\?\s+\w+\s+:\s+\w+\s*`", "if … then … else", {"defects.md", "0021", "0053"}),
 ]
 
 findings = []
@@ -144,7 +145,14 @@ def check_declarations():
     """
     checker = ROOT / "scripts/check-syntax-doc.py"
     for p in sorted(ROOT.glob("docs/design/*.md")):
-        if "```text" not in p.read_text():
+        text = p.read_text()
+        if "```text" not in text:
+            # a document that once carried declarations and no longer does is
+            # more likely a retagged fence than a rewrite; say so rather than
+            # silently dropping it from the checked set
+            if "```" in text and re.search(r"^\s*(type|machine)\s+\w+", text, re.M):
+                findings.append(f"{p.relative_to(ROOT)}: has declaration-shaped lines "
+                                "in a fence that is not ```text, so nothing checks them")
             continue
         r = subprocess.run([sys.executable, str(checker), str(p)],
                            capture_output=True, text=True)
