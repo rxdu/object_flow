@@ -6,11 +6,11 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 
 | | |
 |---|---|
-| ADRs | 59, none Proposed |
-| Defect register | 62 entries, none open ([`docs/design/defects.md`](docs/design/defects.md)) |
-| Declaration syntax | iteration 10, checker clean, 19 of 41 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
+| ADRs | 60, none Proposed |
+| Defect register | 96 entries, none open; three carried to open questions ([`docs/design/defects.md`](docs/design/defects.md)) |
+| Declaration syntax | iteration 11, checker clean, 22 of 50 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
 | Open model questions | none |
-| Awaiting author review | ADR-0019 to ADR-0059, DESIGN.md as a whole, and the declaration syntax |
+| Awaiting author review | ADR-0019 to ADR-0060, DESIGN.md as a whole, and the declaration syntax |
 
 The design was built in six autonomous iterations, then reviewed for implementation readiness, then repaired. The review found 42 defects, ten of which broke the model or a running system; re-expressing the case studies against the repaired grammar found five more. ADR-0038 to ADR-0054 are that repair, and none has been reviewed by the author.
 
@@ -25,7 +25,7 @@ Nothing here is blocked on it, and none of it is settled without it.
 - [ ] **The model additions** — ADR-0026 extends and families, ADR-0027 versioning, ADR-0028 supersession, ADR-0029 sequences, ADR-0030 visibility, ADR-0031 and ADR-0051 erasure, ADR-0050 tracking mode.
 - [ ] **The surfaces** — ADR-0034 and ADR-0043 subscriptions, ADR-0036 and ADR-0044 proposals, ADR-0037 and ADR-0048 the read surface, ADR-0049 external evaluators.
 - [ ] **The decisions that changed yours** — ADR-0042, ADR-0047 §6, ADR-0029.
-- [ ] **The declaration syntax** — [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md), and the model amendments writing it forced: ADR-0055 to ADR-0059. This is the surface every consumer writes against, so it is the part worth reading slowest.
+- [ ] **The declaration syntax** — [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md), and the model amendments writing it forced: ADR-0055 to ADR-0060. This is the surface every consumer writes against, so it is the part worth reading slowest.
 - [ ] **DESIGN.md as a whole**, rewritten from scratch on 2026-09-08 rather than patched further.
 
 ## History
@@ -37,7 +37,7 @@ Nothing here is blocked on it, and none of it is settled without it.
 | Repair, 2026-09-08 | ADR-0038 to ADR-0053; the register closed |
 | Re-expression, 2026-09-08 | The five case studies rewritten in the repaired grammar, which found D37 to D41 |
 | Coherence pass, 2026-09-08 | ADR-0054; DESIGN.md rewritten; 20 statements corrected across the ADR set; D42 to D47 |
-| Declaration syntax, 2026-09-08 | Ten iterations against a reviewer reading as a first-time user; ADR-0055 to ADR-0059; D48 to D62; `scripts/check-syntax-doc.py` runs the document's examples against its own rules |
+| Declaration syntax, 2026-09-08 | Eleven iterations against reviewers reading as a first-time user and as the implementer of the checker; ADR-0055 to ADR-0060; D48 to D96; `scripts/check-syntax-doc.py` runs the document's examples against its own rules |
 
 ## Open model questions
 

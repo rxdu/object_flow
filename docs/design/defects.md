@@ -475,3 +475,180 @@ Both were invisible while the model was described in prose, and became obvious t
 **Re-parenting escapes the source whole's invariants.** Writing a part's owner is what makes splitting expressible, and after the write the part points only at the destination, so reverse traversal never re-checks the source. An invariant such as "a shipment has at least one line" could be broken by moving the last line away.
 
 **Resolved by ADR-0058.** A re-parent is treated as writing both wholes for the purposes of invariants and the part-event index, though neither whole's guards run.
+
+## Found by the iteration-10 review of the declaration syntax
+
+Two independent reviews on 2026-09-08, both returning a blocking verdict. One wrote a clinical-trial model in the syntax as a first-time user; the other audited every check in §10 for decidability against the grammar in §1–9. Line citations are `docs/design/declaration-syntax.md` at iteration 10.
+
+The dominant finding is a recurrence of the defect fixed the same day as D48: **a term that exists only in the check list**. Eleven of them, listed under D95. `docs/LESSONS.md` records the pattern; it did not prevent the repeat because the earlier fix was scoped to the one term found rather than to the class.
+
+### D63
+**`accepts` is documented in two mutually exclusive positions.** `:426` places it in the transition body, in a stated clause order. All seven examples place it in the head, before the `{`, where `:407` says only markings go. Two of them (`:144`, `:264`) additionally put the head `accepts` before a body `input`, reversing the stated order. An implementer must reject either the rule or every example.
+
+**Resolved by ADR-0060 decision 2.** `accepts` and `only via` are the transition head; inputs, guards and outcomes are the body.
+
+### D64
+**The line-continuation rule does not admit a trailing comma.** `:619` continues a line only when it "ends in an operator or an open bracket". Five sites end on a comma and continue: `:34`, `:152`, `:198`, `:268`. Read literally, `do delete ACTIVE -> DELETED only via Delivery.cancel,` is a complete declaration.
+
+**Resolved by ADR-0060 decision 1.** A clause continues when the next line is indented more deeply.
+
+### D65
+**Seven continuation lines begin with an operator after a line that ends in an identifier.** `:62`, `:73`, `:239`, `:240`, `:279`, `:334`, `:530`. `derive leasable = state == DEVELOPMENT` / `and none(…)` parses as two clauses under the stated rule, the second beginning with a reserved word, which `:623` forbids and check 21 flags. The examples need a look-ahead rule the document does not state.
+
+**Resolved by ADR-0060 decision 1.** The same rule; indentation is what the examples were already doing.
+
+### D66
+**Braces mean three things and the cascade group is written two ways.** `:190` writes the cascade group inside `{ … }` as metasyntactic repetition; the example at `:201` writes the same construct with no braces. `:629` claims a collection literal and a block "never occupy the same position", which is false for `assert <name> -> { S } { … }` and `act <name> at { A } { … }`, where they are adjacent. The meta-notation itself is never introduced.
+
+**Resolved.** §9.3 gives the rule for adjacent groups: the first is the collection, the second the body, and a body is always written. §9.4 introduces the meta-notation. The cascade grammar now matches the example.
+
+### D67
+**A bare state literal is indistinguishable from an attribute of the same name.** `:605` gives `<Type>.<STATE>` for another type's states and nothing for the bare case, while no casing convention is mandated. A type with `states ACTIVE` and `attr ACTIVE bool` makes `require g: ACTIVE` ambiguous. The same holds for a bare category name against an attribute named `closed`. The partial checker resolves it with an undocumented upper-case regex, which is the invention the document forces.
+
+**Resolved.** §9.2 gives a resolution order, and check 33 rejects a state name colliding with a member name, so no declaration reaches the ambiguous case.
+
+### D68
+**A state may legally be named `any`, which collides with the wildcard.** `:623` permits any reserved word as a state name. `states any category live` plus `act poke at any` has two readings, and checks 15, 19 and 40 give different answers. The same shape applies to a category named `terminal`.
+
+**Resolved.** §9.2 forbids `any`, `terminal` and `superseding` as state, category or transition names — the three genuine collisions, rather than a blanket reservation.
+
+### D69
+**Operator associativity is never stated.** `:619` gives precedence only. `closes_at - grace - opened_at` types left-associatively and fails right-associatively, so check 24's verdict on a legal guard rests on a rule the document does not carry.
+
+**Resolved.** §8.3 states left associativity, `implies` right, and comparison non-chaining.
+
+### D70
+**Header clause order is contradicted by adjacent examples.** `:551` writes `type Bug version 1 abstract`; `:552` writes `type BugInPlatform extends Bug version 1`. Whether `abstract` precedes the version, whether `extends` follows it, and whether marking order on `ref` and `state` is free are all unstated.
+
+**Resolved.** §2 fixes the header as `type <Name> [extends <Base>] version <n> [abstract]` and makes marking order free elsewhere.
+
+### D71
+**The compilation unit is undefined.** `:28` calls a file a module and `:32` imports across modules. Eight checks need types from other modules. Whether publishing takes a module or a whole-model closure, and whether the capability and category vocabularies are module-scoped or global, is stated nowhere.
+
+**Resolved by ADR-0060 decision 12.** Publishing takes a module and the closure of its `use` imports; capabilities and categories are one vocabulary across it.
+
+### D72
+**There is no syntax for an enum member literal.** `:605` gives the rule for a state literal and explains why a bare name is ambiguous; it gives no analogous rule for enums, and no example ever reads an enum-typed attribute. `severity == AESeverity.SEVERE` cannot be written from the document. Check 19 nonetheless verifies "enum member" references. This is the second-most-common guard shape after a capability test.
+
+**Resolved by ADR-0060 decision 10.** An enum member is `<Enum>.<MEMBER>`.
+
+### D73
+**`.state` and `.category` are read in five guards and granted by no member rule.** `:605` gives a reference "`.id` and its declared members", and `state` is declared on no type. Yet `l.engagement.state` (`:73`), `r.state.category` (`:251`), `inputs.slot.state` (`:339`) and bare `state` (`:72`) all depend on it. `.category` yields a value whose type §8 does not list, so `r.state.category != closed` cannot be typed under `:611`.
+
+**Resolved by ADR-0060 decisions 9 and 10.** §8.1 gives every object `.state`, of type `state`, carrying `.category` of type `category`.
+
+### D74
+**Three-valued evaluation is absent from §8.** The section claims the checker types every expression and never mentions absence, unknown, or that an unknown guard fails. A first-time reader wrote `derive serious = severity == SEVERE or ae_outcome == FATAL` where `ae_outcome` is absent early in the lifecycle, making a later `not serious` guard permanently unsatisfiable. No check catches it, and the rule exists only in `docs/DESIGN.md` §5.7 and one incidental clause at `:441`.
+
+**Resolved by ADR-0060 decision 4.** §8.2 states absence, unknown propagation, the three exceptions, and the asymmetry that guards fail and invariants hold. The publish report names guards that can be unknown through an optional they never test.
+
+### D75
+**Duration units, currencies and decimal precision are given by example only.** `:619` shows `30 min`, `2 h`, `14 days` with no closed unit set, no singular/plural rule and no seconds or weeks. `money(ccy)` names no currency set. `:609` gives a scale rule for `+`/`-` on decimals and no precision rule.
+
+**Resolved.** §8.3 closes the duration units at `s min h days weeks`, requires ISO 4217 currencies, and gives the decimal precision rule.
+
+### D76
+**`this.id` and `identity` arguments to an evaluator are unstated.** `:605` grants `.id` to every reference; `this` is not obviously a reference. `:497` passes a `string` to an evaluator, and whether `identity` is a legal argument type is not said. Passing an object to an external system is the ordinary case.
+
+**Resolved.** §8.1 gives `this.id` and makes `identity` an ordinary scalar an evaluator may take.
+
+### D77
+**`referrers` has a heterogeneous element type on which `.state` is read.** `:534` defines it as every object holding a live reference, across types, and the guard at `:529` reads `r.state.category`. The element type is unstated, so check 24 cannot type the document's own deletion guard.
+
+**Resolved.** §8.1 gives a `referrers` element `.id` and `.state` and nothing else, which types the deletion guard and no more; filtering by type stays open question 2.
+
+### D78
+**`counter` has no marking slot in the grammar and no stated relation to `attr`.** `:163` is bare `counter <name>`; the example at `:579` writes `counter on_hand indexed`. Whether a counter is an "attribute" for the purposes of checks 7, 8, 10, 17, 19 and 33 is never said, and one reading makes check 17 fire on the document's own `set reserved := reserved + inputs.qty` at `:590`. The partial checker special-cases counters, which is evidence the ambiguity is real.
+
+**Resolved by ADR-0060 decision 8.** A counter is an attribute of type `int` and takes markings.
+
+### D79
+**`owner` has no marking slot, and nothing says whether the state and stored reference ends are indexed.** A type-scan invariant over a composed type reads its `owner`, and check 7 fails a type-scan invariant reading an unindexed attribute. There is no syntax to index an `owner`, so the invariant cannot be written and cannot be fixed.
+
+**Resolved by ADR-0060 decision 9.** `.state` and stored relationship ends are always available to a filter and are never marked.
+
+### D80
+**A part declared in an abstract base cannot declare its cascades.** `:414` blesses an abstract `owner` as the way one part type serves two wholes, and §4.1 points users there. The base has no transitions, so a `cascade on` clause in it can name nothing, and nothing says a subtype may supply the clauses. Check 11 also fires wrongly on this shape, since `only via` then names a subtype rather than "its whole".
+
+**Resolved by ADR-0060 decision 7.** A part in an abstract base carries no cascade clauses; each subtype supplies its own with the top-level `cascade <part> on …` form, and check 11 resolves the whole to each concrete declarer.
+
+### D81
+**`survives` is all-or-nothing where the need is per-transition.** A part may have to outlive one terminal transition and be disposed of by another: an adverse event follows a withdrawn trial subject but must be closed before the record is archived. `:189` and `:273` offer only the whole-part choice, so the constraint moves into a guard and the failure changes from an automatic cascade to a blocked transition someone must chase.
+
+**Resolved by ADR-0060 decision 7.** `survives on { … }` names the terminal transitions a part outlives; the rest must still be covered.
+
+### D82
+**A cascade clause is repeated once per terminal transition.** Four identical lines per part in the document's own Delivery, and a reviewer's model reached sixteen. The repetition is mechanical and invites the omission check 37 exists to catch.
+
+**Resolved by ADR-0060 decision 7.** `cascade on { a, b } to T.x limit n` takes a set of triggers.
+
+### D83
+**`terminal` and `closed` pull in opposite directions with no warning.** Check 40 forbids an `act` at a terminal state, so any object that must still accept recorded activity after it closes cannot mark its closing state terminal. A reviewer discovered this only after writing the lifecycle and had to insert an extra state and transition and re-issue every cascade clause.
+
+**Resolved.** §4.2 states that `terminal` is not `closed`, and that an object still accepting recorded activity belongs in a closed non-terminal state.
+
+### D84
+**No personal attribute can be required, and no invariant can assert one is present.** `:181` forbids a required `personal` attribute because erasure writes absence. The consequence is that a consent signature and a subject's initials are both optionally absent in a model where they are legally mandatory, and the natural repair, an invariant asserting presence, would then be violated by erasure. Whether invariants are suspended during erasure is not stated.
+
+**Resolved by ADR-0060 decision 5.** An erasure admits every invariant reading what it erased, and records the admission.
+
+### D85
+**`may admit` cannot name the invariant an assertion actually breaches.** Check 27 restricts admission to invariants the binding type declares. The invariant at risk is typically on the related type: asserting a subject back into an enrolled state breaches the site's enrolment cap. There is no admission path, so the assertion is simply blocked.
+
+**Resolved by ADR-0060 decision 6.** `may admit <Type>.<invariant>` reaches invariants on types reachable by a declared inverse.
+
+### D86
+**`accepts` plus `default` silently resets a value on a non-creation transition.** `:183` expands a default into a creation only; `:441` says without restriction that an unsupplied accepted attribute takes the default. Under the second, a partial edit writes the default over a value someone set. No check covers it.
+
+**Resolved by ADR-0060 decision 3.** A `default` applies at creation only.
+
+### D87
+**`visible when` has no typing, traversal or indexing rules.** `:550` shows one example, `:605` lists `actor.principal` with no type, `:182` says visibility consumes indexes, and check 7 does not cover visibility. Whether a predicate may traverse a relationship is unstated, so scoping a reader to their own site cannot be written with confidence.
+
+**Resolved.** §6.7 types the predicate, allows one step of traversal over stored ends, requires indexed reads, and forbids evaluators, unindexed derivations and set-valued traversal. Check 7 now covers visibility.
+
+### D88
+**`sweepable` is reported by the publish report and defined nowhere.** `:681`. The word appears once in the document. The operational question behind it, finding the objects whose time-gated transition is now due, has no answer: `now` is forbidden in an invariant, a derive reading a clock cannot be indexed, and the store never initiates.
+
+**Resolved.** The report line names **time-gated** transitions, meaning every guard that can currently fail is `temporal`, which is the list a consumer polls.
+
+### D89
+**The identifier rule contradicts itself on scope.** `:178` mints an identifier "at creation before the outcome runs" and permits a scope naming "only a reference the creation writes". The creation writes that reference in the outcome, which by the first clause has not run. The document's own `Robot.serial scoped by model` has this shape.
+
+**Resolved.** §3.1 states that the mint happens after the creation's writes to the scoping reference and before every other outcome step.
+
+### D90
+**Mandatory `limit` produces invented numbers and an unactionable report.** A reviewer's model reached a reported worst-case fan-out around thirty-three thousand from limits they acknowledged inventing. Open question 4 already asks whether mandatory `limit` is worth its friction; this is the first evidence.
+
+**Recorded as evidence for open question 4.** Not resolved; mandatory `limit` stands until the author rules on it.
+
+### D91
+**Confidentiality is per-object, and the common need is per-attribute.** Hiding a treatment allocation from an investigator while the rest of the subject stays visible required splitting one string into its own type with its own lifecycle and four cascade clauses. The document does not name this cost.
+
+**Recorded as open question 6.** Not resolved; per-attribute confidentiality is a model change, not a syntax one.
+
+### D92
+**An evaluator cannot return a value, and the common integration assigns one.** `:490` returns only a verdict. A randomisation service assigns the arm; the model must accept the arm from the caller and separately ask whether an allocation exists, so the store cannot check that the supplied value is the one the external system chose.
+
+**Recorded as open question 7.** Not resolved; an evaluator returning a value crosses the decide-and-record boundary of ADR-0007 and needs the author.
+
+### D93
+**The §10 preamble's decidability claim is wrong in three ways.** `:635`. Check 23's rename clause is undecidable in principle, since a rename with no mapping is textually identical to a drop plus an add. The report list at `:681` does not contain the new-invariant scan the preamble places in it. "Which invariants compile to a database constraint on this backend" needs the backend configuration, a third external input the preamble does not mention.
+
+**Resolved.** The §10 preamble now names the four external inputs correctly and claims decidability only from the closure.
+
+### D94
+**Fourteen checks are ambiguous, fire on the document's own examples, or cannot be built.** Checks 2, 7, 8, 10, 11, 12, 13, 15, 16, 17, 18, 19, 21, 22, 26, 33, 34, 35, 36 and 39 each need an invented decision; the audit gives one per check. Three fire on the document's own text: check 19 on `summary serial, model, state` at `:59`, check 13's "a name that never calls it" on `ChecklistItem.add` at `:144`, check 17 on the counter write at `:590`. Check 20 cannot be built at all: the document gives no inference procedure, and the only one in the repository rejects the document's own guard at `:589`.
+
+**Resolved.** §10 was rewritten. Every check names the section defining its terms, the three that fired on the document's own examples no longer do, and check 20 no longer claims an inference that contradicts a declared class.
+
+### D95
+**Eleven terms are used by §10 and defined nowhere in §1–9.** traversal invariant, type-scan invariant, symmetric, "the three forms", family, analysable, actor guard, cascade argument, remedy-class inference, scope for duplicate names, and sweepable. Seven of them are defined in `docs/DESIGN.md` or an ADR, so the syntax document is not self-contained while presenting itself as the artefact a declaration author reads. One, `analysable` in check 36, is defined nowhere in the repository, including in the ADR that introduced it.
+
+**Resolved by ADR-0060.** All eleven are now defined in the syntax document: the invariant forms and symmetry in §3.4, family in §2, actor guard in §4.2, remedy classes and their inference in §5.1, cascade edges and taint in §10, scope in check 33, and `analysable` replaced by a decidable statement about an abstract owner in check 36.
+
+### D96
+**Seventeen rules stated in §1–9 have no check.** Mandatory `tracking` (`:80`); the presence of a version on every declaration (`:50`); three stated clause orders (`:82`, `:407`, `:426`); the `extends` base being declared, abstract and acyclic; the identifier scope rule (`:178`); `unique in scope` presupposing a `scoped by`; what a `default` expression may read; "any larger expression containing an unsupplied optional input is a publish error" (`:466`), which names itself a publish error; `limit` on a cascade; `eager`/`deferred` appearing only on an evaluator guard; the `supersede` operand form; the rule that an indexed `derive` reads no clock (`:599`); the `visible when` predicate; a body-less `sum`; `<Binder>.<transition>` rather than `<Machine>.<transition>`; the remedy-class vocabulary, where a misspelling is silent; and `use` imports.
+
+
+**Resolved.** Checks 42 to 50 close sixteen of the seventeen. The seventeenth, type-body clause order, is demoted to a readability convention, since a declaration with shuffled clauses is no less well defined.

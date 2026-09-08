@@ -74,7 +74,9 @@ def parse(text, base=0):
         if m := re.match(r"^counter\s+(\w+)", s):            cur.counters.add(m.group(1))
         if m := re.match(r"^(ref|part|owner)\s+(\w+)\s*:(.*)$", s):
             spec, j = m.group(3), i
-            while j + 1 < len(lines) and re.match(r"^\s+(cascade|survives)\b", lines[j + 1]):
+            ind = len(raw) - len(raw.lstrip())
+            while j + 1 < len(lines) and lines[j + 1].strip() \
+                  and len(lines[j + 1]) - len(lines[j + 1].lstrip()) > ind:
                 j += 1; spec += " " + lines[j].strip()
             cur.rels[m.group(2)] = (m.group(1), spec, ln)
             i = j + 1; continue
@@ -185,6 +187,27 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
             if not any("terminal" in v[0] for v in states.values()):
                 add(15, f"{d.name} has no terminal state", d.start)
 
+        # 42 — tracking and version present
+        if d.kind == "type" and not d.abstract and d.tracking not in ("serial", "quantity"):
+            add(42, f"{d.name} has tracking {d.tracking!r}, which is not serial or quantity", d.start)
+
+        # 43 — extends resolves to an abstract base, acyclically
+        if d.base:
+            seen43, cur43 = set(), d
+            while cur43 and cur43.base:
+                if cur43.base in seen43:
+                    add(43, f"{d.name} has a cyclic extends chain through {cur43.base}", d.start); break
+                seen43.add(cur43.base); cur43 = by_name.get(cur43.base)
+            anc43 = by_name.get(d.base)
+            if anc43 is not None and not anc43.abstract:
+                add(43, f"{d.name} extends {d.base}, which is not abstract", d.start)
+
+        # 47 — a cascade clause states its bound
+        for rn, (rk, rspec, rln) in d.rels.items():
+            for cl in re.findall(r"cascade on\b.*?(?=cascade on|survives|$)", rspec):
+                if "limit" not in cl:
+                    add(47, f"{d.name}.{rn} has a cascade clause with no limit", rln)
+
         # reference pairs: exactly one end stores the value (check 41)
         for rn, (rk, rspec, rln) in d.rels.items():
             if rk != "ref" or not rspec.split(): continue
@@ -289,7 +312,8 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                     if pt is None and t.machine:
                         pm = by_name.get(t.machine)
                         if pm: pt = next((x for x in pm.trans if x[1] == tr), None)
-                    cascades = re.search(rf"cascade on {tr}\b[^\n]*to\s+{d.name}\.{tn}\b",
+                    trig = r"cascade on\s+(?:\{[^}]*\b" + tr + r"\b[^}]*\}|" + tr + r"\b)"
+                    cascades = re.search(trig + r"[^\n]*?to\s+" + d.name + r"\." + tn + r"\b",
                                          "\n".join(v[1] for v in t.rels.values()))
                     if pt is None and not cascades:
                         add(13, f"{d.name}.{tn} names parent {ty}.{tr}, which does not exist", ln); continue
@@ -347,6 +371,9 @@ FIXTURES = {
   35: "machine M version 1 {\n state S category live\n state D category closed terminal\n create mk -> S { }\n do go S -> D { set mystery := 1 }\n}",
   13: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D only via B.nope { }\n}",
   38: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } { input reason : string\n require may: actor.has(Q) because delegable\n may admit inv }\n}",
+  42: "type A version 1 {\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}",
+  43: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\ntype B extends A version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T { }\n do go2 T -> U { }\n}",
+  47: "type W version 1 {\n tracking serial\n states S category live, D category closed terminal\n part ps : C[] inverse w\n      cascade on go to C.del\n create mk -> S { }\n do go S -> D { }\n}",
   41: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref bs : B[] inverse as\n create mk -> S { }\n do go S -> D { }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n ref as : A[] inverse bs\n create mk2 -> T { }\n do go2 T -> U { }\n}",
   40: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n act poke at D { }\n}",
 }

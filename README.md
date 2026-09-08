@@ -2,7 +2,7 @@
 
 A governed object store: your data, and the rules that constrain how it changes.
 
-> **Status: design only, under review.** Nothing is implemented. This repository contains the design record: the model, the declaration syntax consumers write against, the decisions taken, and a defect register whose 62 findings have been resolved but not yet reviewed by the author.
+> **Status: design only, under review.** Nothing is implemented. This repository contains the design record: the model, the declaration syntax consumers write against, the decisions taken, and a defect register whose 96 findings have been resolved but not yet reviewed by the author.
 
 ## What it is
 
