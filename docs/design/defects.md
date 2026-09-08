@@ -71,6 +71,7 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D57](#d57) | The conditional `? :` collided with `?` as optionality | **resolved by ADR-0056** |
 | [D58](#d58) | Implication `→` collided with the to-state arrow in ASCII | **resolved by ADR-0056** |
 | [D59](#d59) | Remedy class names contain hyphens, which lex as subtraction | **resolved by ADR-0056** |
+| [D60](#d60) | An approval could not be invalidated by an edit to a part | **resolved by ADR-0057** |
 
 ---
 
@@ -457,3 +458,8 @@ Both were invisible while the model was described in prose, and became obvious t
 **Remedy class names contain hyphens, which lex as subtraction.** `because unreachable-from-here` lexed as three identifiers and two subtractions. Renamed to single tokens and swept across seventeen sites.
 
 **Resolved by ADR-0056.**
+
+### D60
+**An approval could not be invalidated by an edit to a part.** `changed_since` read attributes of `this` only, and ADR-0056 removed the runtime-maintained inverse that used to stamp a whole when a part changed. So editing a purchase order's line left the order untouched and its approvals standing, and the only workaround was a timestamp attribute, an action to touch it, and a cascade from every line-editing transition — the per-transition duplication ADR-0035 exists to remove, in its own headline guard.
+
+**Resolved by ADR-0057.** `changed_since` accepts a part relationship name, answered from an index over the log rather than a write.

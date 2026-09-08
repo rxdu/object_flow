@@ -1,6 +1,6 @@
 # The declaration syntax
 
-Status: **draft, iteration 6** (2026-09-08). The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
+Status: **draft, iteration 7** (2026-09-08). The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
 
 Two goals shape every choice, and where they conflict the second wins.
 
@@ -85,6 +85,7 @@ Nine top-level forms: `module`, `use`, `capability`, `category`, `enum`, `sequen
 type Robot version 3 {
   tracking serial
   machine  UnitLifecycle
+  provides capability EDIT = INVENTORY_CREATE
   summary  serial, model, state
 
   attr serial string identifier from unit_serial scoped by model
@@ -117,6 +118,30 @@ A type either **binds** a shared machine or **declares one inline** with `states
 Reachability, name scoping and the terminal-state rule are checked **per binder**, over the machine's transitions plus that type's own.
 
 ```text
+type ExpenseClaim version 1 {
+  tracking serial
+  machine  ApprovalFlow
+  provides capability EDIT = CLAIM_EDIT
+
+  attr receipt file?
+  attr claimant_email string? personal
+
+  create file_claim -> DRAFT accepts claimant_email {
+    require may: actor.has(CLAIM_EDIT) because delegable
+  }
+  act attach_receipt at DRAFT {          # this type's own; ApprovalFlow knows nothing of it
+    input value : file
+    require may: actor.has(CLAIM_EDIT) because delegable
+    set receipt := inputs.value
+  }
+  erase forget {
+    input reason : string
+    require may: actor.has(ERASE_PERSONAL) because delegable
+  }
+}
+```
+
+```text
 type ChecklistItem version 1 {
   tracking serial
   states   ACTIVE category live, DELETED category closed terminal
@@ -125,8 +150,9 @@ type ChecklistItem version 1 {
   attr  label   string
   attr  checked bool default false
 
-  create add -> ACTIVE accepts label {
-    require may: actor.has(DELIVERY_EDIT) because delegable
+  create add -> ACTIVE only via Delivery.add_checklist_item accepts label {
+    input for_delivery : Delivery
+    set delivery := inputs.for_delivery
   }
   act tick   at ACTIVE { require may: actor.has(DELIVERY_EDIT) because delegable
                          set checked := true }
@@ -191,6 +217,8 @@ machine UnitLifecycle version 2 {
   requires attr label_printed_at timestamp?
   requires attr photos file[]
   requires ref  model : RobotModel
+  requires ref  binding : DeliveryItem?
+  requires attr retirement_reason RetirementReason?
   requires invariant one_open_engagement
   requires capability EDIT
 
@@ -253,7 +281,17 @@ machine UnitLifecycle version 2 {
 
 ### 4.1 `requires`
 
-A machine states what a binding type must provide: the attributes, references, **parts**, invariants and **capabilities** its transitions and admissions name. Publishing verifies every binder supplies them with compatible types, and separately that the machine body names nothing it does not require — a completeness check, without which the requirement list drifts from the body it describes.
+A machine states what a binding type must provide, one requirement per line:
+
+```text
+requires attr <name> <type>[?]
+requires ref  <name> : <Type>[?|[]]
+requires part <name> : <Type>[]
+requires invariant <name>
+requires capability <NAME>
+```
+
+It covers the attributes, references, parts, invariants and capabilities its transitions and admissions name. Publishing verifies every binder supplies them with compatible types, and separately that the machine body names nothing it does not require — a completeness check, without which the requirement list drifts from the body it describes.
 
 A required **capability** is a name the machine uses in its guards and each binder maps to its own:
 
@@ -362,6 +400,12 @@ evaluator xero version 1 {
 }
 ```
 
+A guard calls one as `<evaluator>.<fn>(<arg>, …)`, which is the only call form outside an outcome:
+
+```text
+require invoiced: xero.invoice_valid(order_id) deferred because dependent
+```
+
 A function declares its argument types and how stale a verdict may be. Every evaluator returns a verdict, so no return type is written, and a guard may be a `verdict` as well as a `bool`. A verdict too stale to use is refused as `temporal` whatever the guard declares.
 
 ### 6.3 Assertions and admissions
@@ -374,7 +418,7 @@ A function declares its argument types and how stale a verdict may be. Every eva
 erase forget {
   input reason : string
   require may: actor.has(ERASE_PERSONAL) because delegable
-  for a in approvals limit 1000 { call a.forget() }
+  for a in approvals limit 1000 { call a.forget(reason := inputs.reason) }
 }
 
 act correct_delivery_date at any {
@@ -452,14 +496,14 @@ A `quantity` type declares at least one `counter`. A `derive` may be `indexed` w
 
 ## 8. Expressions and types
 
-The expression language is DESIGN.md §5.7. Its types are the attribute types of §3.1 plus `verdict`, and the checker types every expression:
+The expression language is DESIGN.md §5.7. Its types are the attribute types of §3.1, plus **references** (an object of a named type, carrying `.id` and its declared members), **`state`** (a member of one machine's state set, carrying `.category`), **`invariant`** (a name declared on a type), and **`verdict`**. The checker types every expression:
 
 - `+` and `-` take two operands of one type: `int`, `decimal` of one scale, `money` of one currency, or `timestamp - timestamp` yielding a `duration`; `timestamp ± duration` yields a `timestamp`;
 - `*` and `/` are **scalar**: `int` or `decimal` on one side, and `int`, `decimal`, `money` or `duration` on the other, yielding the non-scalar type. `money * money` is an error, as is `duration * duration`;
 - comparison needs both sides of one type; `is null` and `is not null` take anything and yield `bool`;
 - `and`, `or`, `not`, `implies` take and yield `bool`. An evaluator call yields a `verdict`, which is usable **only as a whole guard clause**, never as an operand, so a guard clause is a `bool` or a single evaluator call;
 - `count` yields `int`, `sum`/`min`/`max` the element type, `all`/`any`/`none` `bool`;
-- `changed_since(<attribute>, …, <event expression>)` yields `bool`, its attributes naming `this`;
+- `changed_since([<attribute>, …], <event expression>)` yields `bool`. The bracketed list is the model's own form. Each name is an attribute of `this`, **or a part relationship**, which means "any change to any of those parts" — without which an approval on a whole cannot be invalidated by an edit to one of its lines, which is the single most-cited guard in the model;
 - `if <bool> then <a> else <b>` yields the common type of `a` and `b`, and is allowed only in a derived attribute.
 
 Aggregates are `agg(<name> in <collection> [where <filter>][: <body>])`. The body is required for `sum`, `min` and `max`, and optional for `count`, `all`, `any` and `none`.
@@ -470,7 +514,7 @@ Precedence, highest first: paths and calls; unary `not`; `* /`; `+ -`; compariso
 
 **Reserved words** may not be used as names:
 
-`module use capability category enum sequence evaluator machine type version tracking serial quantity states state abstract requires attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because eager deferred set add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh string bool int decimal money timestamp duration event file verdict`
+`module use capability category enum sequence evaluator machine type version tracking serial quantity states state abstract requires provides attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because eager deferred set add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh string bool int decimal money timestamp duration event file verdict`
 
 `min` and `h` and `days` are duration units only after a numeric literal, which is the one position the aggregate `min` cannot occupy.
 
@@ -478,7 +522,7 @@ Precedence, highest first: paths and calls; unary `not`; `* /`; `+ -`; compariso
 
 **Symbols.** `->` is a to-state, an assertable-state set and a migration mapping; never implication, never a reference type. `implies` is implication. `inputs.<name>` reads an input. `:=` assigns and binds an argument; `=` binds a created name and defines a derivation; `==` compares. `{a, b}` is a collection literal and `{ … }` a block; the two never occupy the same position. `:` ascribes a type and names a guard or invariant. `in` is a binder and membership, both meaning "element of".
 
-`summary`, `accepts`, `corrects`, `capability`, `category` and `changed_since` take bare comma-separated lists.
+`summary`, `accepts`, `corrects`, `capability` and `category` take bare comma-separated lists; `changed_since` brackets its list, matching the model.
 
 ## 10. What the checker verifies
 
@@ -517,6 +561,8 @@ Each check names the file, line and declaration. Checks 22 and 23 need the previ
 | 29 | An `assert` with no capability guard or no `reason` input; an `erase` with no `reason` input |
 | 30 | A family member whose machine lacks a transition another member's cascade calls |
 | 31 | A `quantity` type with no `counter`; a `counter` on a `serial` type |
+| 32 | An invariant reading `now`, which no after-write check can enforce |
+| 33 | Duplicate transition, state, attribute or guard names within one scope |
 | 34 | A type with no creation transition |
 | 35 | A machine body naming a type-level attribute, reference, part, invariant or capability it does not `require` |
 | 36 | A `part`/`owner` pair whose types disagree |
@@ -524,8 +570,6 @@ Each check names the file, line and declaration. Checks 22 and 23 need the previ
 | 38 | An `assert` with `may admit` but no `admits` input, or with no `state`-typed target input |
 | 39 | An `erase` that does not reach a part type holding personal attributes |
 | 40 | An `act` declared at a terminal state |
-| 32 | An invariant reading `now`, which no after-write check can enforce |
-| 33 | Duplicate transition, state, attribute or guard names within one scope |
 
 Reported without failing: a declared input nothing reads; a guard whose remedy class was inferred, and what was inferred; which invariants compile to a database constraint on this backend; which transitions are sweepable; which derived attributes are queryable; and how many pending proposals a publish would invalidate.
 

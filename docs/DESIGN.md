@@ -178,7 +178,7 @@ One language serves guards, invariants, derived attributes, visibility predicate
 | `is null`, `is not null` — definite presence tests, never unknown | `s.unit is not null` |
 | `count`, `all`, `any`, `none`, `sum`, `min`, `max` over a relationship or a type, binding the element | `none(s in Service where s.unit == this and s.state != CANCELLED)`, `sum(l in lines: l.qty * l.unit_price)` |
 | arithmetic on numbers; durations, and `+ -` with timestamps | `on_hand - reserved >= inputs.qty`, `placed_at + 30 min <= now` |
-| `changed_since(attributes, event)` over the object's history | `not changed_since([amount, vendor], a.event)` |
+| `changed_since([attributes or parts], event)` over the object's history | `not changed_since([amount, vendor, lines], a.event)` |
 | conditional expression, in derived attributes only | `if unit is null then UNFILLED else FILLED` |
 | a declared external evaluator | `xero.invoice_valid(order_id)` |
 
