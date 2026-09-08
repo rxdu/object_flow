@@ -157,7 +157,10 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
 
     for d in decls:
         mach = by_name.get(d.machine) if d.machine else None
-        trans = d.trans + (mach.trans if mach else [])
+        mtrans = mach.trans if mach else []
+        if any(t[0] == "create" for t in d.trans):        # §2.1: a binder's creations replace
+            mtrans = [t for t in mtrans if t[0] != "create"]
+        trans = d.trans + mtrans
         states = d.states or (mach.states if mach else {})
         attrs, rels, seen = dict(d.attrs), dict(d.rels), set()
         anc = by_name.get(d.base)
@@ -303,6 +306,12 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                             add(11, f"{d.name}.{tn} is only via {sorted(named)}, not its whole {whole}", ln)
                     if owner[0] not in written:
                         add(18, f"{d.name}.{tn} creates a part without writing owner '{owner[0]}'", ln)
+                for pn, (pk, pspec, pln) in rels.items():
+                    if pk != "part" or pn.startswith("$sub$") or not pspec.split(): continue
+                    ptype = pspec.split()[0]
+                    if ptype.endswith("?") or ptype.endswith("[]"): continue     # optional or set
+                    if not re.search(r"\bcreate\s+(?:\w+\s*=\s*)?" + re.escape(ptype) + r"\.", body):
+                        add(8, f"{d.name}.{tn} never fills required part '{pn}'", ln)
                 for an, (spec, aln) in attrs.items():
                     if "?" in spec.split()[0] if spec.split() else False: continue
                     if spec and not spec.split()[0].endswith("?") and "[]" not in spec.split()[0] \
@@ -408,7 +417,8 @@ def line_checks(text, base, capdecl, reserved, machine_caps):
 # ── fixtures: every claimed check must fire on one of these ─────────────────
 FIXTURES = {
   2:  "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { create B.mk2() }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T { input amount : int\n }\n do take T -> U { }\n}",
-  8:  "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr name string\n create mk -> S { }\n do go S -> D { }\n}",
+  8:  ["type W version 1 {\n tracking serial\n states S category live, D category closed terminal\n part p : C inverse w\n create mk -> S { }\n do go S -> D { }\n}",
+       "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr name string\n create mk -> S { }\n do go S -> D { }\n}"],
   11: "type P version 1 {\n tracking serial\n states S category live, D category closed terminal\n owner w : W inverse parts\n create mk -> S { set w := inputs.w }\n do go S -> D { }\n}",
   15: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go D -> S { }\n}",
   16: "type A version 1 {\n tracking serial\n create mk -> S { }\n}",
@@ -450,9 +460,20 @@ def doc_checks(src):
         r"|[Pp]ublishing checks|which publishing checks|is an error|are both rejected"
         r"|is mandatory|may not be|may not name|may not call|may not read|may not traverse"
         r"|may declare no|must be present|must reach|must be marked|must be declared"
-        r"|is not allowed|is not permitted|What is not allowed)\b")
+        r"|is not allowed|is not permitted|What is not allowed|usable \*\*only|usable only)\b")
+    def sentence(text, i, j):
+        """The sentence around [i, j): bounded by a newline, a table cell, or '. '."""
+        a = max((text.rfind(x, 0, i) for x in ("\n", " | ")), default=-1)
+        for m2 in re.finditer(r"\.\s+(?=[A-Z\u2014`*])", text[:i]):
+            a = max(a, m2.end())
+        ends = [x for x in (text.find("\n", j), text.find(" | ", j)) if x != -1]
+        m3 = re.search(r"\.\s+(?=[A-Z\u2014`*])|\.$", text[j:])
+        if m3: ends.append(j + m3.end())
+        b = min(ends) if ends else len(text)
+        return text[max(a, 0):b]
+
     for m in norm.finditer(body):
-        win = body[max(0, m.start() - 260): m.end() + 260]
+        win = sentence(body, m.start(), m.end())
         if not re.search(r"check \d+|checks \d+|§10", win):
             ln = src[:a10 + m.start()].count("\n") + 1
             quote = re.sub(r"\s+", " ", body[max(0, m.start() - 60):m.end() + 30]).strip()

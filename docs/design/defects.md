@@ -912,7 +912,7 @@ Three reviewers re-read their own findings against the repair. Two returned non-
 ### D146
 **A cascade's target was checked for existence and not for from-state coverage.** Since a failing cascade now aborts the whole request, a mis-specified one is a production abort rather than a publish error, and the coverage is decidable from the text.
 
-**Resolved by check 53.** Not yet implemented.
+**Resolved as a publish report.** Iteration 15 found the condition undecidable as first written — see D154 — so it names the uncovered states without failing.
 
 ### D147
 **The abstract-base worked example had one concrete whole.** It demonstrated the mechanism the checker verifies rather than the case the paragraph is about, a part serving *two* wholes with different transition names.
@@ -977,3 +977,37 @@ Two of three reviewers non-blocking; the payments declaration that could not be 
 **A clause left behind by the swap-test rewrite gave a false reason.** It said the `id` exclusion "is not one of the symmetric shapes below" when there are no longer shapes below and the clause passes the swap test.
 
 **Resolved.** The ground is redundancy, which is what check 6 rejects it on.
+
+## Found by the iteration-15 review
+
+All three reviewers non-blocking, and one wrote "the document is ready for the author". These are their residuals.
+
+### D159
+**A binder's own `create` did not replace the machine's, so the document's own remedy could not be spelled.** §2.1 offered three ways for a binder to hold a required attribute, reference or part that a machine-supplied creation cannot provide: make it optional, give it a `default`, or declare its own `create`. The third does not work, because a binder's transitions are additional, so the machine's generic creation remains available and still produces an object without the required thing. The document's named example, a card payment obliged to hold its card details from birth, had no legal spelling.
+
+**Resolved.** A `create` is the exception to the additive rule: a binder's creations replace the machine's. Birth is where a type's obligations are established, and a type that says how it is born says so completely.
+
+### D160
+**Check 52's proximity window gave a live false pass.** A citation 219 characters before an uncited rule satisfied the check, and the citation named a different check than the one enforcing it, so a reader following it was sent to the wrong place.
+
+**Resolved.** The citation must be in the same sentence as the statement. Scoping it that way immediately found four more uncited statements, including the one the window had been shielding.
+
+### D161
+**A check widened to satisfy a citation came out forbidding more than its rule did.** §9.2 says a state or category may not be named `any`, `terminal` or `superseding`, and a transition may not be named `any` — only `any`, for a stated reason. Check 33 flattened the three bullets into one clause and so rejected `do terminal S -> D`, which §9.2 permits.
+
+**Resolved.** This is the rule-and-check divergence class arriving inside the repair built for it, and it is invisible to check 52 in both directions: the check cites its rule and would pass any presence test. It was caught the way all four earlier instances were, by reading the two texts side by side.
+
+### D162
+**The overlap illustration defending the normalisation table was wrong on its own terms.** It said swapping `b.start < end` gives the same comparison once direction is discounted. It does not: the swapped conjunct matches the *other* original conjunct, not the one it came from.
+
+**Resolved.** The corrected illustration shows both normalisations doing work, which is what the sentence was there to argue.
+
+### D163
+**Check 8's two clauses still stated their quantifier with different precision**, the attribute clause saying "a creation never writes" where the part clause had been tightened to "every creation".
+
+**Resolved**, and the part clause is now implemented: a creation that does not fill a required singular part is reported, per creation, which was the silent gap D156 named and did not close in the tool.
+
+### D164
+**Two smaller items.** `.state` is described as sitting "alongside" an object's declared members while the swap test and the resolution order both need it to count as one; and a dangling reference to check 53 survived its demotion to a report, in a file check 52 does not read.
+
+**Resolved.**

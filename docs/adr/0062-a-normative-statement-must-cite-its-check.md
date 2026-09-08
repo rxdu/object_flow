@@ -28,7 +28,7 @@ Twelve statements needed citations. The check was confirmed by removing one and 
 ## Alternatives rejected
 
 - **Move the rules into §10 so there is one place.** Rejected: a reader meets a rule where the construct is, and a language reference that states its rules only in a validation appendix is unreadable. The two locations are right; the missing thing was the link.
-- **Require the reverse link as well, every check citing the section it enforces.** Deferred rather than rejected. Several checks already do, and it would catch a check with no rule behind it. It is a larger edit over fifty-three rows and no defect yet found needs it, so it is not worth doing on speculation.
+- **Require the reverse link as well, every check citing the section it enforces.** Deferred rather than rejected, and for a better reason than the first draft of this ADR gave. It said no defect needed it; iteration 15 then produced one — check 33 was widened to satisfy a citation and came out forbidding more than §9.2 does. But a reverse link would not have caught it either: check 33 cites §9.2 and would pass any presence test. Neither direction catches a **contradiction**; both catch absence. What caught it was a reviewer reading the two texts side by side. The reverse link is still worth adding eventually, because it puts the two texts where one person can compare them, which is the thing that actually works.
 - **Review discipline instead of a check.** Rejected on evidence: this was the third iteration in which the same discipline was intended and did not hold. A rule enforced by attention is a rule that fails when attention is elsewhere, which is the argument the whole project rests on.
 
 ## Consequences
