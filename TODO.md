@@ -71,9 +71,15 @@ The port of the first consumer's production data is a designed path (ADR-0015, D
 - [ ] **Files.** The first consumer stores photos (robot, delivery, service, intake), packing-list PDFs and label templates. The author's preference is links to file objects in an S3-like store or a filesystem, with ObjectKeeper's scope undecided. Analysed in [ADR-0017](docs/adr/0017-file-attachments-are-content-addressed-references.md), proposed as a content-addressed `file` attribute type with the bytes out of scope. If accepted, closes ADR-0015's open item and fixes how legacy photos port.
 - [ ] **Cutover.** Big-bang or staged by object type with ObjectKeeper read-only for the remainder. A project-plan decision that the design must not preclude.
 
+## Defect repair
+
+An implementation-readiness review on 2026-09-08 found **36 verified defects**, recorded with evidence in [`docs/design/defects.md`](docs/design/defects.md). Ten break the model or a running system. The design is **not** implementation-ready until at least those ten are resolved, and three of them (D01 cascade semantics, D02 isolation, D03 the override) change the execution model rather than adding to it.
+
+Repair order: D01, D02, D03 first, since they change §6 and would otherwise force a rewrite; then the remaining severity-1 items; then the expression language (D11 to D26 are largely one body of work); then the contradictions.
+
 ## Toward implementation
 
-The design is complete enough to plan an implementation. These are the artefacts that planning needs and the design does not yet contain; each is WHAT, not HOW.
+These artefacts are needed once the register is clear. These are the artefacts that planning needs and the design does not yet contain; each is WHAT, not HOW.
 
 - [ ] **Concrete declaration syntax.** A file format for types, machines, transitions, guards and outcomes that a person can read and diff, with the version-2 expression language given a grammar. The readable rule set is a rendering of it.
 - [ ] **Storage schema.** The object row, the event log with per-object sequence and global position, sequences, subscriptions, proposals, the idempotency table, and how declared invariants of known shape become constraints; partitioning and archival tiering for the log.

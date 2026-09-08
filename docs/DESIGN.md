@@ -1,6 +1,6 @@
 # ObjectKeeper — Design
 
-Status: design complete to the level needed to plan an implementation; nothing implemented. This document is the single description of the model. Each decision, with the alternatives it rejected, is an ADR in [`docs/adr/`](adr/); the case studies that shaped it are in [`docs/design/`](design/); what the model deliberately does not cover is in [`design/edge-cases.md`](design/edge-cases.md); open work is in [`../TODO.md`](../TODO.md). Decisions taken in the autonomous design iterations of 2026-09-07/08 (ADR-0019 onward) are marked in the ADR index and listed in TODO.md under "Author review queue".
+Status: **under repair, not implementation-ready.** An implementation-readiness review on 2026-09-08 found 36 verified defects, 10 of which break the model or a running system; they are tracked in [`design/defects.md`](design/defects.md). Statements in this document that a defect contradicts are not yet corrected. Nothing implemented. This document is the single description of the model. Each decision, with the alternatives it rejected, is an ADR in [`docs/adr/`](adr/); the case studies that shaped it are in [`docs/design/`](design/); what the model deliberately does not cover is in [`design/edge-cases.md`](design/edge-cases.md); open work is in [`../TODO.md`](../TODO.md). Decisions taken in the autonomous design iterations of 2026-09-07/08 (ADR-0019 onward) are marked in the ADR index and listed in TODO.md under "Author review queue".
 
 ## 1. Purpose
 
