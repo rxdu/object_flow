@@ -10,7 +10,14 @@ came to advertise six checks it did not have.
 """
 import re, sys, pathlib
 
-DOC = pathlib.Path(__file__).resolve().parents[1] / "docs/design/declaration-syntax.md"
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+SPEC = ROOT / "docs/design/declaration-syntax.md"
+
+
+def target():
+    """The document to check: the specification, or a path given on the command line."""
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    return pathlib.Path(args[0]) if args else SPEC
 
 # ── model of a declaration ──────────────────────────────────────────────────
 class Decl:
@@ -516,16 +523,19 @@ def self_test():
 def main():
     if "--self-test" in sys.argv:
         sys.exit(0 if self_test() else 1)
+    DOC = target()
+    is_spec = DOC.resolve() == SPEC.resolve()
     src = DOC.read_text()
     blocks = [(src[: m.start()].count("\n") + 2, m.group(1))
               for m in re.finditer(r"```text\n(.*?)```", src, flags=re.S)]
+    vocab = src if is_spec else src + "\n" + SPEC.read_text()
     capdecl, catdecl = set(), set()
-    for m in re.finditer(r"^capability\s+((?:.+\n?)+?)(?=\n[a-z]|\n\n)", src, flags=re.M):
+    for m in re.finditer(r"^capability\s+((?:.+\n?)+?)(?=\n[a-z]|\n\n)", vocab, flags=re.M):
         capdecl |= set(re.findall(r"[A-Z][A-Z_0-9]*", m.group(1)))
-    for m in re.finditer(r"^category\s+(.+)$", src, flags=re.M):
+    for m in re.finditer(r"^category\s+(.+)$", vocab, flags=re.M):
         catdecl |= {c.strip() for c in m.group(1).split(",")}
     reserved = set()
-    if rw := re.search(r"\n`(module use .+?)`\n", src, flags=re.S):
+    if rw := re.search(r"\n`(module use .+?)`\n", SPEC.read_text(), flags=re.S):
         reserved = set(rw.group(1).split())
     machine_caps = {w for m in re.findall(r"^\s*requires capability ([^\n]+)$", src, flags=re.M) for w in re.findall(r"[A-Z][A-Z_0-9]*", m)}
 
@@ -538,16 +548,16 @@ def main():
         findings += analyse(blk, bstart, capdecl, catdecl, reserved, world)
         findings += line_checks(blk, bstart, capdecl, reserved, machine_caps)
 
-    if rw:
+    if rw and is_spec:
         w = rw.group(1).split()
         if dups := {x for x in w if w.count(x) > 1}: findings.append((21, f"duplicate reserved words {sorted(dups)}", 1))
         for kw in ("provides", "requires", "cascade", "accepts", "corrects", "inputs"):
             if re.search(rf"(^|\s|`){kw}\b", src) and kw not in w:
                 findings.append((21, f"keyword '{kw}' used but not reserved", 1))
 
-    findings += doc_checks(src)
+    findings += doc_checks(src) if is_spec else []
 
-    if "## 10. What the checker verifies" in src:
+    if is_spec and "## 10. What the checker verifies" in src:
         _a = src.index("## 10. What the checker verifies")
         _b = src.find("\n## 11.", _a)
         sec = src[_a:_b if _b != -1 else len(src)]
