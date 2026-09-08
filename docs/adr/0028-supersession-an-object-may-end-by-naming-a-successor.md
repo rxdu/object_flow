@@ -27,6 +27,6 @@ Rejected: lineage is lost; ADR-0018 forbids reusing the id.
 
 ## Consequences
 
-- Move-to-project, convert-subtask, and merge (iteration 3) are the same mechanism.
+- Move-to-project and convert-subtask are the same mechanism. So is a **merge**, which supersedes the losing record (iteration 3) — and a *duplicate* is not a merge: it closes with a `duplicate_of` reference and both records stay live, which is the distinction the paragraph above draws.
 - A split — one object becoming two — is not supersession; see `docs/design/edge-cases.md`.
 - Availability queries exclude superseded objects, as they exclude deleted ones (ADR-0024).

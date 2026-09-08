@@ -45,7 +45,7 @@ Written `<Type>.<invariant>`, restricted to types reachable by a declared invers
 
 ### 8. A counter is an attribute
 
-Whether a `counter` was an "attribute" silently changed six checks, and one reading rejected the document's own stock example. It is an attribute of type `int`, never absent, never negative, initialised to zero, and it takes markings like any other.
+Whether a `counter` was an "attribute" silently changed six checks, and one reading rejected the document's own stock example. It is an attribute of type `int`, never absent, never negative, initialised to zero, and it takes markings like any other. *(Reversed in part by ADR-0072 §5: non-negativity is a fact about stock rather than about counters, so it is an invariant the type declares.)*
 
 ### 9. `.state` and stored relationship ends are always available to a filter
 

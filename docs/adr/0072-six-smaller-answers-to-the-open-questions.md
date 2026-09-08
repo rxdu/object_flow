@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — recommendations accepted by the author 2026-09-08
 - **Date:** 2026-09-08
+- **Refines:** ADR-0030, ADR-0050, ADR-0052, ADR-0060 §8 — whose non-negative counter §5 below reverses
 - **Answers:** open questions 2, 3, 5, 6, 10, 11
 
 ## Context

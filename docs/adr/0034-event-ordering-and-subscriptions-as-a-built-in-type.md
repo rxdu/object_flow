@@ -34,6 +34,8 @@ Rejected for now: per-event predicate evaluation over arbitrary attributes is th
 
 ### Subscriptions as consumer-managed cursors outside the store
 
+*Substantially adopted later. ADR-0043 moved the acknowledged position out of the object, so it is not versioned and emits no events, and made lag and death derived rather than states. The reasoning below is what that ADR overturned.*
+
 Rejected: a cursor's lag and death are operational facts that need history and alerts, which is what an object type provides.
 
 ## Consequences

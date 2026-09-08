@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 3 (2026-09-08); pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0072 — six smaller answers to the open questions; §4 keeps confidentiality per object and records the cost of the workaround.
 
 ## Context
 

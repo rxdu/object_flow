@@ -35,7 +35,7 @@ ADR-0046 made `this_event` available by allocating an event's identity before it
 
 ADR-0045 restricted invariants to relationships with declared inverses so the affected set is computable by reverse traversal. That does not cover an invariant that scans a type, such as the booking overlap rule, where there is no relationship to invert.
 
-A type-scan invariant must be **symmetric**: the predicate that finds a conflict from a newly written object must be the same predicate that would find it from the other side. Overlap, equality on a shared key, and their conjunctions are symmetric; publishing recognises those shapes and rejects others, which must be restated as relationship invariants. Symmetry is what makes "recheck the objects that conflict with what I wrote" equal to "recheck what I wrote".
+A type-scan invariant must be **symmetric**: the predicate that finds a conflict from a newly written object must be the same predicate that would find it from the other side. Overlap, equality on a shared key, and their conjunctions are symmetric; publishing recognises those shapes and rejects others, which must be restated as relationship invariants. Symmetry is what makes "recheck the objects that conflict with what I wrote" equal to "recheck what I wrote". *(Superseded by ADR-0063: recognising a fixed set of shapes excluded "at most one open X per Y", the commonest type-scan there is, so symmetry is now decided by a swap test with four named normalisations, and these shapes are examples rather than the list.)*
 
 ## Alternatives rejected
 

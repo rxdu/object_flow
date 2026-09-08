@@ -7,7 +7,7 @@
 
 ## Context
 
-ADR-0044 settled that a relationship is physically held on one end and that the other end is a derived view resolved as a query, and gave the reason: making the runtime write both ends created a second write path whose events carried no transition name, could not be filtered by a subscription, left `changes_state` undefined, and stamped the far object's last-written index so that binding a unit invalidated every approval on its delivery.
+ADR-0056 §1 settled that a relationship is physically held on one end and that the other end is a derived view resolved as a query, and gave the reason: making the runtime write both ends created a second write path whose events carried no transition name, could not be filtered by a subscription, left `changes_state` undefined, and stamped the far object's last-written index so that binding a unit invalidated every approval on its delivery.
 
 What it never settled is **which** end holds it, and the declaration syntax inherited the gap. Every example declared both ends — `Robot.binding : Delivery? inverse units` in one type and `Delivery.units : Robot[] inverse binding` in the other — with nothing in the text distinguishing the stored end from the view. Check 17 already rejected "a write whose target is not an attribute or **stored relationship end** of `this`", so the checks depended on a term the grammar never defined. A declaration author reading section 3 could not tell which of the two ends they were allowed to write, and the checker had no pair-level rule for `ref` at all, so a pair that could not be stored anywhere published cleanly.
 
@@ -32,7 +32,7 @@ The rule is the relational one — the value sits on the side that can hold exac
 
 - **Declare only the stored end and let `inverse` create the far view implicitly.** This is the smallest grammar and removes the possibility of a disagreeing pair entirely. Rejected because a reader of `type Delivery` would see `for u in units` in a transition body with no declaration of `units` anywhere in the type; the name would arrive from a different type's text. The document's own principle is that a declaration is read by people who did not write it, and a name appearing from nowhere is the opposite of that.
 - **Require an explicit `stored` marking on every pair.** Rejected because it is a mandatory annotation whose value is deducible from the two lines it sits between, which makes it something to forget and something to get wrong. It survives only for the one-to-one case, where nothing else can decide.
-- **Let either end be written and have the store choose a representation.** Rejected for the reason ADR-0044 already gave: it reintroduces the far-side write, and the choice would not be visible in the declaration, so two backends could disagree about which writes are legal.
+- **Let either end be written and have the store choose a representation.** Rejected for the reason ADR-0056 §1 already gave: it reintroduces the far-side write, and the choice would not be visible in the declaration, so two backends could disagree about which writes are legal.
 - **Allow set-to-set pairs and materialise a join table.** Rejected because the association is nearly always a thing with its own state — an assignment, a membership, a booking, all of which acquire a start date, a status or an approver within a release or two — and an implicit join table has no place to put them. Forcing the author to declare the type makes the eventual attribute an edit rather than a migration.
 
 ## Consequences
