@@ -7,7 +7,7 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 | | |
 |---|---|
 | ADRs | 64, none Proposed |
-| Defect register | 164 entries, none open; seven carried to open questions ([`docs/design/defects.md`](docs/design/defects.md)) |
+| Defect register | 167 entries, none open; seven carried to open questions ([`docs/design/defects.md`](docs/design/defects.md)) |
 | Declaration syntax | **iteration 16, ready for author review**; checker clean, 24 of 52 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
 | Open questions | thirteen, raised by writing the syntax against four domains ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
 | Awaiting author review | ADR-0019 to ADR-0064, DESIGN.md as a whole, and the declaration syntax |

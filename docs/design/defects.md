@@ -1011,3 +1011,18 @@ All three reviewers non-blocking, and one wrote "the document is ready for the a
 **Two smaller items.** `.state` is described as sitting "alongside" an object's declared members while the swap test and the resolution order both need it to count as one; and a dangling reference to check 53 survived its demotion to a report, in a file check 52 does not read.
 
 **Resolved.**
+
+### D165
+**The creation-replacement rule broke its own motivating example.** Replacing a machine's creation orphans the state that creation reached, which is the ordinary shape of an initial state, so check 15 rejected the card payment ADR-0064 was written to make expressible. Reachability is checked per binder, and before the rule every binder inherited the creation, so the case could not previously arise.
+
+**Resolved.** A state only a replaced creation reached is reported, not failed. For that binder it is a state the type carries and can never occupy, which is worth knowing and is not an error; failing would make a machine unshareable by anyone needing to be born in a different state.
+
+### D166
+**Two checks were not updated alongside the two that were.** Check 33's transition scope still counted machine transitions the binder no longer has, so reusing the replaced creation's name — the natural way to write a replacement — tripped the duplicate rule. Check 44 said "the type's creations" without saying which set, where check 8 had been made explicit.
+
+**Resolved.** Both carry the clause check 8 got, and check 13 now reports a replaced parent in those words rather than as one that does not exist.
+
+### D167
+**Inserting an open question renumbered four others and invalidated six references** across the ADRs and the defect register, which is the lesson about scoping a fix already recorded in `docs/LESSONS.md` arriving in the fix for something else.
+
+**Resolved.** The numbering is restored, the new question is appended, and §11 says the questions are addressed by number so a new one goes at the end.

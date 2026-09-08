@@ -26,6 +26,15 @@ Check 34, which requires a non-abstract type to have a creation, counts a machin
 - **A `suppresses` marking** naming machine transitions the binder does not offer. Rejected as more general than the evidence supports: creation is the only transition where the additive rule actually bites, because it is the only one that establishes obligations rather than changing state. A general suppression mechanism can be added later if a second case appears.
 - **Let the machine's creation fill the part.** Not possible: the part's type is the binder's, and a machine that knew it would not be shared.
 
+## Consequences it has on other checks
+
+Replacement reaches four checks, and an audit found that two had been updated with it and two had not, which is the divergence class ADR-0062 is about arriving between an ADR and a check rather than between a section and a check.
+
+- **Check 15, reachability.** Replacing a creation can orphan the state it reached, which is the ordinary shape of a machine's initial state — so the rule written to make a required part expressible produced a type that would not publish, on this ADR's own motivating example. Resolved by **reporting** rather than failing: for that binder it is a state the type carries and can never occupy, which is worth knowing and is not an error. Failing would make a machine unshareable by anyone who needed to be born somewhere else.
+- **Check 33, duplicate names.** Its transition scope now counts only the machine transitions the binder actually has, so a binder may reuse the replaced creation's name, which is the most natural way to write a replacement.
+- **Check 44, identifier scope**, uses the same creation set as check 8, which check 8 spelled out and check 44 did not.
+- **Check 13** reports a parent the binder replaced in those words, rather than as a transition that does not exist.
+
 ## Consequences
 
 - `scripts/check-syntax-doc.py` drops machine-supplied creations for a binder that declares its own, and check 8's part clause is implemented per creation. It was specified in iteration 14, tightened in 15, and unimplemented until now — the reviewer's probe passed for four rounds while the text said it should fail.

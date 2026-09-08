@@ -158,9 +158,15 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
     for d in decls:
         mach = by_name.get(d.machine) if d.machine else None
         mtrans = mach.trans if mach else []
+        replaced = []
         if any(t[0] == "create" for t in d.trans):        # §2.1: a binder's creations replace
+            replaced = [t for t in mtrans if t[0] == "create"]
             mtrans = [t for t in mtrans if t[0] != "create"]
         trans = d.trans + mtrans
+        # a state the replaced creation used to reach is reported, not failed (ADR-0064)
+        orphaned = set()
+        for _k, _tn, _h, _b, _l in replaced:
+            orphaned |= {x for x in re.findall(r"->\s*(\w+)", _h.split("{")[0])}
         states = d.states or (mach.states if mach else {})
         attrs, rels, seen = dict(d.attrs), dict(d.rels), set()
         anc = by_name.get(d.base)
@@ -229,7 +235,8 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                     if catdecl and c not in catdecl: add(19, f"category {c} not declared", ln)
                 if "terminal" not in mods and s_ not in out_s:
                     add(15, f"{d.name}.{s_} is non-terminal with no outgoing transition", ln)
-                if s_ not in in_s: add(15, f"{d.name}.{s_} is reachable by nothing", ln)
+                if s_ not in in_s and s_ not in orphaned:
+                    add(15, f"{d.name}.{s_} is reachable by nothing", ln)
             if not any("terminal" in v[0] for v in states.values()):
                 add(15, f"{d.name} has no terminal state", d.start)
 
