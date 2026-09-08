@@ -5,9 +5,6 @@ Status: **draft, iteration 17** (2026-09-08). Three reviewers returned non-block
 Two goals shape every choice, and where they conflict the second wins.
 
 1. **The common case should cost nothing to write and nothing to read.**
-
-    **Recommended: no.** The first consumer's own machine has requestable transitions into closed states that must stay requestable, `retire` and `cancel` among them. Its real authority boundary is not entry into a closed state but the **undo of a committed decision**: `wr:docs/design/procurement-error-recovery.md` states it as "correct freely before it's real; gate the undo of a committed decision", and only two operations carry the admin gate, cancelling a placed order and reverting a committed intake. Report at publish which transitions enter a closed state with no authority list, and leave the choice visible.
-
 2. **Everything the design promises to check must be decidable from the text.** §10 lists the checks.
 
 ## Iterations
@@ -866,19 +863,10 @@ A name is a letter or `_` followed by letters, digits or `_`. **Reserved words m
 - a **transition** may not be named `any` (check 33).
 
 A bare name in an expression resolves in this order, the first match winning:
-
-    **Recommended: the smallest version.** Give a `referrers` element a comparable type name rather than full filtering. The case is real — `wr:app/models/note.py:37` is a polymorphic note with no foreign key, so notes are orphaned when their subject goes — and a type name is enough for a deletion guard to treat one referencing type differently without opening heterogeneous member access.
-
 1. a loop binder in scope;
 2. one of `inputs`, `actor`, `this`, `now`, `referrers`, `this_event`;
 3. `state`, or an attribute, counter, derivation or relationship end of `this`, inherited ones included;
-
-    **Recommended: yes.** Accept both spellings in both places. Friction with no compensating clarity.
-
 4. a state of this type's machine;
-
-    **Recommended: keep both, and drop the reported product.** Guard names carry the failing clause into the verdict, which the remedy classes rest on. Bounds are real protection where a loop repeats over a caller-supplied count, which the first consumer does when raising a procurement order and in `wr:app/api/robots.py:48` batch creation. What is worthless is the worst-case product across nested loops, which multiplies invented numbers into a precise and meaningless total. Report each loop's own bound, and the observed maximum from live objects, which the publish report already reads.
-
 5. a category.
 
 Outside an expression a name resolves to a declaration **of the kind the grammar requires in that position** — a machine after `machine`, a sequence after `from`, a type after `:`, an evaluator before a `.` in a guard call, an invariant after `requires invariant` — which is why those kinds appear in check 19 and not in the list above.

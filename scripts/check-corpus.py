@@ -95,6 +95,23 @@ def check_amendments():
                 findings.append(f"ADR-{n:04d} amends ADR-{t}, which does not say so in return")
 
 
+def check_answer_blocks():
+    """Recommendation paragraphs belong only in the answers section.
+
+    A scripted edit keyed on `^\\d+\\. ` once inserted four of them into two
+    unrelated numbered lists, including the name-resolution order check 19
+    depends on.  Nothing mechanical distinguishes that from a legitimate
+    indented continuation -- the shapes are identical -- so this checks the one
+    thing that is decidable: where those paragraphs are allowed to be.
+    """
+    spec = ROOT / "docs/design/declaration-syntax.md"
+    lines = spec.read_text().split("\n")
+    answers = next((i for i, l in enumerate(lines) if l.startswith("## 11.")), len(lines))
+    for i, line in enumerate(lines[:answers], 1):
+        if line.lstrip().startswith("**Recommended"):
+            findings.append(f"declaration-syntax.md:{i}  an answer paragraph outside §11")
+
+
 def check_declarations():
     """Every document that states declarations must pass the syntax checker.
 
@@ -123,6 +140,7 @@ def main():
     check_retired()
     check_adr_headers(nums)
     check_amendments()
+    check_answer_blocks()
     check_declarations()
 
     print(f"corpus: {len(nums)} decision records, {maxcheck} checks defined")
