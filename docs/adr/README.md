@@ -66,3 +66,11 @@
 | [0062](0062-a-normative-statement-must-cite-its-check.md) | A normative statement must cite the check that enforces it | Accepted (repair D134-D148, review pending) |
 | [0063](0063-the-swap-test-is-a-decision-procedure.md) | The swap test names its normalisations, and check 52's claim is retracted | Accepted (repair D149-D158, review pending) |
 | [0064](0064-a-binders-creations-replace-the-machines.md) | A binder's own creations replace the machine's | Accepted (repair D159-D164, review pending) |
+| [0065](0065-a-machines-creation-guards-bind-any-creation-that-replaces-it.md) | A machine's creation guards bind any creation that replaces it | Accepted by the author |
+| [0066](0066-a-cascade-clause-carries-arguments.md) | A cascade clause carries arguments | Accepted by the author |
+| [0067](0067-a-third-tracking-mode-for-types-that-track-no-physical-thing.md) | A third tracking mode, for a type that tracks no physical thing | Accepted by the author, amends ADR-0050 |
+| [0068](0068-money-keeps-its-currency-in-the-declaration.md) | Money keeps its currency in the declaration | Accepted by the author |
+| [0069](0069-an-evaluator-returns-a-verdict-and-an-assigning-system-is-a-mirror.md) | An evaluator returns a verdict; an assigning system is a mirror | Accepted by the author |
+| [0070](0070-authority-is-not-mandatory-at-a-closed-state-and-the-boundary-is-the-undo.md) | An authority list is not mandatory at a closed state | Accepted by the author |
+| [0071](0071-bounds-and-guard-names-stay-and-the-worst-case-product-goes.md) | Bounds and guard names stay; the reported worst-case product goes | Accepted by the author |
+| [0072](0072-six-smaller-answers-to-the-open-questions.md) | Six smaller answers to the open questions | Accepted by the author |

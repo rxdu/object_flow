@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D33, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Amended by:** ADR-0067 — a third mode, `record`, for a type that tracks no physical thing. Twelve or more of the first consumer's entities are records rather than tracked things, and none of them is quantity-tracked.
 
 ## Context
 

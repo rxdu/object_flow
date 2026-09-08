@@ -144,7 +144,7 @@ Availability is therefore three-way for a listing: available, available-with-inp
 
 **Approval** is not a separate mechanism. An approval is a recorded part of the approved object, carrying the approver, a kind, a decision and the event that recorded it, created by an `approve` action. "Needs approval" is then an ordinary guard counting the approvals that are still valid, where validity is `not changed_since([…], a.event)`, so a material edit invalidates an approval without every editing action having to remember a reset. N-of-M, sequential chains, thresholds and separation of duties are guards of that shape, and a missing approval reports `delegable` (ADR-0035).
 
-A guard that depends on facts outside the store references a **named external evaluator**, which must return the same verdict shape (ADR-0008). Evaluators are consulted **before** the write transaction opens, never inside it, and their verdict carries an as-of time recorded on the event; a declaration may set a freshness bound, past which the verdict is refused as `temporal` (ADR-0049). The guarantee for an external fact is as of that time, not at commit.
+A guard that depends on facts outside the store references a **named external evaluator**, which must return the same verdict shape and **never a value** (ADR-0008, ADR-0069). An external system that decides or assigns something is modelled as a mirror instead: an object here with an external identifier, reconciled on the external system's own identifier. Two ways to import external truth would differ in what they record, and the mirror is the one that leaves a history. Evaluators are consulted **before** the write transaction opens, never inside it, and their verdict carries an as-of time recorded on the event; a declaration may set a freshness bound, past which the verdict is refused as `temporal` (ADR-0049). The guarantee for an external fact is as of that time, not at commit.
 
 ### 5.6 Invariants
 
@@ -199,7 +199,7 @@ Import is this mechanism from version zero (§11). The printable rule set is per
 
 ### 5.10 Tracking mode
 
-A type declares whether it is **serial-tracked**, meaning one object per physical thing with its own lifecycle, or **quantity-tracked**, meaning a stock object carrying counters that actions adjust (ADR-0050). A slot in a configuration declares which fill form it takes, so one kit may carry a serialised robot and a counted quantity of consumables. Reserve means the same in both: the thing is spoken for. Changing a type's mode is a new type, and objects move by supersession one at a time.
+A type declares one of three modes (ADR-0050, ADR-0067). **Serial-tracked** is one object per physical thing with its own lifecycle. **Quantity-tracked** is a stock object carrying counters that actions adjust. **Record** tracks no physical thing at all — a delivery, a service job, an audit entry — and carries no counters, which is what most of an operations platform holds: in the first consumer, three entities are serial-identified and twelve or more are records. A slot in a configuration declares which fill form it takes, so one kit may carry a serialised robot and a counted quantity of consumables. Reserve means the same in both: the thing is spoken for. Changing a type's mode is a new type, and objects move by supersession one at a time.
 
 ## 6. Transition execution
 

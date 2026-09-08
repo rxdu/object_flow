@@ -196,8 +196,8 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 add(34, f"{d.name} has no creation transition", d.start)
             if d.tracking == "quantity" and not d.counters:
                 add(31, f"{d.name} is tracking quantity with no counter", d.start)
-            if d.tracking == "serial" and d.counters:
-                add(31, f"{d.name} is tracking serial with a counter", d.start)
+            if d.tracking in ("serial", "record") and d.counters:
+                add(31, f"{d.name} is tracking {d.tracking} with a counter", d.start)
 
         # per-binder state analysis (machine states + this type's transitions)
         if states and d.kind == "type":
@@ -246,9 +246,9 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
             while tr is None and anc42 is not None and anc42.base and anc42.base not in seen42:
                 seen42.add(anc42.base); anc42 = by_name.get(anc42.base)
                 tr = anc42.tracking if anc42 else None
-            if tr not in ("serial", "quantity"):
+            if tr not in ("serial", "quantity", "record"):
                 add(42, f"{d.name} has tracking {tr!r}, declared or inherited, "
-                        "which is not serial or quantity", d.start)
+                        "which is not serial, quantity or record", d.start)
 
         # 43 — extends resolves to an abstract base, acyclically
         if d.base:
@@ -547,7 +547,12 @@ def main():
 
     findings += doc_checks(src)
 
-    sec = src[src.index("## 10. What the checker verifies"):] if "## 10. What the checker verifies" in src else src
+    if "## 10. What the checker verifies" in src:
+        _a = src.index("## 10. What the checker verifies")
+        _b = src.find("\n## 11.", _a)
+        sec = src[_a:_b if _b != -1 else len(src)]
+    else:
+        sec = src
     nums = [int(x) for x in re.findall(r"^\| (\d+) \|", sec, flags=re.M)]
     if nums != sorted(nums): findings.append((0, f"check table misordered: {nums}", 1))
     ok = self_test()
