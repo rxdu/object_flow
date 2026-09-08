@@ -28,6 +28,7 @@ class Decl:
         self.provides = set()
         self.invariants = set()
         self.derives = set()
+        self.base = None
 
 
 def parse(text, base=0):
@@ -36,10 +37,12 @@ def parse(text, base=0):
     while i < len(lines):
         raw, ln = lines[i], base + i
         if m := re.match(r"^(machine|type)\s+(\w+)", raw):
+            xbase = re.search(r"\bextends\s+(\w+)", raw)
             if "…" in raw:                     # elided placeholder
                 cur = None; i += 1; continue
             cur = Decl(m.group(1), m.group(2), ln)
             cur.abstract = " abstract" in raw
+            cur.base = xbase.group(1) if xbase else None
             decls.append(cur); i += 1; continue
         if cur is None:
             i += 1; continue
@@ -76,7 +79,11 @@ def parse(text, base=0):
             cur.rels[m.group(2)] = (m.group(1), spec, ln)
             i = j + 1; continue
         if m := re.match(r"^(create|do|act|assert|erase)\s+(\w+)(.*)$", s):
-            head = m.group(3)
+            head, j0 = m.group(3), i
+            while "{" not in head and j0 + 1 < len(lines):
+                j0 += 1; head += " " + lines[j0].strip()
+            raw = "\n".join(lines[i:j0 + 1])
+            i = j0
             sets = re.findall(r"\{[^{}]*\}", head)
             for k, ss in enumerate(sets): head = head.replace(ss, f"@@{k}@@", 1)
             head = head.split("{")[0]
@@ -107,8 +114,14 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
         mach = by_name.get(d.machine) if d.machine else None
         trans = d.trans + (mach.trans if mach else [])
         states = d.states or (mach.states if mach else {})
-        attrs = dict(d.attrs)
-        rels = dict(d.rels)
+        attrs, rels, seen = dict(d.attrs), dict(d.rels), set()
+        anc = by_name.get(d.base)
+        while anc and anc.name not in seen:
+            seen.add(anc.name)
+            for k, v in anc.attrs.items(): attrs.setdefault(k, v)
+            for k, v in anc.rels.items(): rels.setdefault(k, v)
+            d.invariants |= anc.invariants; d.derives |= anc.derives
+            anc = by_name.get(anc.base)
         provides = set(d.provides)
         if mach:
             for rk, rn, rln in mach.requires:
@@ -172,6 +185,32 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
             if not any("terminal" in v[0] for v in states.values()):
                 add(15, f"{d.name} has no terminal state", d.start)
 
+        # reference pairs: exactly one end stores the value (check 41)
+        for rn, (rk, rspec, rln) in d.rels.items():
+            if rk != "ref" or not rspec.split(): continue
+            im = re.search(r"\binverse\s+(\w+)", rspec)
+            if not im: continue
+            fname = rspec.split()[0].rstrip("?[]")
+            far = by_name.get(fname)
+            if far is None: continue
+            fe = far.rels.get(im.group(1))
+            if fe is None:
+                add(41, f"{d.name}.{rn} names inverse {fname}.{im.group(1)}, which {fname} does not declare", rln)
+                continue
+            if fe[0] != "ref" or not fe[1].split(): continue
+            fm = re.search(r"\binverse\s+(\w+)", fe[1])
+            if fm and fm.group(1) != rn:
+                add(41, f"{d.name}.{rn} and {fname}.{im.group(1)} do not name each other", rln)
+                continue
+            if d.name > fname: continue          # report the pair once
+            near_set, far_set = "[]" in rspec.split()[0], "[]" in fe[1].split()[0]
+            if near_set and far_set:
+                add(41, f"{d.name}.{rn} and {fname}.{im.group(1)} are both set-valued, so neither end can store the pair", rln)
+            elif not near_set and not far_set:
+                n = ("stored" in rspec.split()) + ("stored" in fe[1].split())
+                if n != 1:
+                    add(41, f"{d.name}.{rn} and {fname}.{im.group(1)} are both singular; exactly one must be marked 'stored' ({n} are)", rln)
+
         # parts and owners
         owner = next(((n, v) for n, v in d.rels.items() if v[0] == "owner"), None)
         for kind, tn, head, body, ln in (trans if d.kind == "type" else d.trans):
@@ -181,6 +220,11 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 if owner:
                     if "only via" not in head:
                         add(11, f"{d.name}.{tn} creates a part but is not 'only via' its whole", ln)
+                    else:
+                        whole = owner[1][1].split()[0].rstrip("?[]")
+                        named = {t for t, _ in re.findall(r"(\w+)\.(\w+)", head.split("only via")[1])}
+                        if named and whole not in named:
+                            add(11, f"{d.name}.{tn} is only via {sorted(named)}, not its whole {whole}", ln)
                     if owner[0] not in written:
                         add(18, f"{d.name}.{tn} creates a part without writing owner '{owner[0]}'", ln)
                 for an, (spec, aln) in attrs.items():
@@ -242,11 +286,15 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                     if t is None:
                         add(13, f"{d.name}.{tn} names unknown parent type {ty}", ln); continue
                     pt = next((x for x in t.trans if x[1] == tr), None)
-                    if pt is None:
+                    if pt is None and t.machine:
+                        pm = by_name.get(t.machine)
+                        if pm: pt = next((x for x in pm.trans if x[1] == tr), None)
+                    cascades = re.search(rf"cascade on {tr}\b[^\n]*to\s+{d.name}\.{tn}\b",
+                                         "\n".join(v[1] for v in t.rels.values()))
+                    if pt is None and not cascades:
                         add(13, f"{d.name}.{tn} names parent {ty}.{tr}, which does not exist", ln); continue
-                    reaches = re.search(rf"\b(?:call|create)\s+[\w.$]*\.?{tn}\s*\(", pt[3]) \
-                              or re.search(rf"cascade on {tr}\b[^\n]*to\s+{d.name}\.{tn}\b", "\n".join(
-                                  v[1] for v in t.rels.values()))
+                    reaches = cascades or (pt and re.search(
+                        rf"\b(?:call|create)\s+(?:[\w.$]+\.)?{tn}\s*\(", pt[3]))
                     if not reaches:
                         add(13, f"{d.name}.{tn} names parent {ty}.{tr}, which never reaches it", ln)
 
@@ -271,16 +319,12 @@ def line_checks(text, base, capdecl, reserved, machine_caps):
         if re.search(r"\b(count|sum|all|any|none|min|max)\(\s*(?!\w+\s+in\b)[a-z_]+\s+where", code):
             out.append((21, f"aggregate without a binder: {code[:48]}", ln))
         if "$" in code: out.append((21, f"'$' input prefix: {code[:48]}", ln))
-        if re.match(r"^\s*for\s+\w+\s+in\b", code) and "limit" not in code:
+        if re.search(r"\bfor\s+\w+\s+in\b", code) and "limit" not in code:
             out.append((21, f"for without limit: {code[:48]}", ln))
         if re.match(r"^\s*do\s+\w+\s+at\s", code): out.append((21, f"'do' with 'at': {code[:48]}", ln))
         for cap in re.findall(r"actor\.\w+\((\w+)\)", code):
             if cap not in capdecl and cap not in machine_caps:
                 out.append((19, f"capability {cap} used but not declared", ln))
-        if m := re.match(r"^\s*(?:attr|ref|part|owner|counter)\s+(\w+)", code):
-            if m.group(1) in reserved - {"event", "state", "count", "type", "owner", "scope",
-                                         "serial", "quantity", "format", "summary", "version"}:
-                out.append((21, f"reserved word '{m.group(1)}' used as a name", ln))
     return out
 
 
@@ -303,6 +347,7 @@ FIXTURES = {
   35: "machine M version 1 {\n state S category live\n state D category closed terminal\n create mk -> S { }\n do go S -> D { set mystery := 1 }\n}",
   13: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D only via B.nope { }\n}",
   38: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } { input reason : string\n require may: actor.has(Q) because delegable\n may admit inv }\n}",
+  41: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref bs : B[] inverse as\n create mk -> S { }\n do go S -> D { }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n ref as : A[] inverse bs\n create mk2 -> T { }\n do go2 T -> U { }\n}",
   40: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n act poke at D { }\n}",
 }
 
@@ -352,7 +397,8 @@ def main():
             if re.search(rf"(^|\s|`){kw}\b", src) and kw not in w:
                 findings.append((21, f"keyword '{kw}' used but not reserved", 1))
 
-    nums = [int(x) for x in re.findall(r"^\| (\d+) \|", src, flags=re.M)]
+    sec = src[src.index("## 10. What the checker verifies"):] if "## 10. What the checker verifies" in src else src
+    nums = [int(x) for x in re.findall(r"^\| (\d+) \|", sec, flags=re.M)]
     if nums != sorted(nums): findings.append((0, f"check table misordered: {nums}", 1))
     ok = self_test()
     covered = sorted(FIXTURES)

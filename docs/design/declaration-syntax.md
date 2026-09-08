@@ -1,6 +1,6 @@
 # The declaration syntax
 
-Status: **draft, iteration 8** (2026-09-08). The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
+Status: **draft, iteration 10** (2026-09-08). The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
 
 Two goals shape every choice, and where they conflict the second wins.
 
@@ -9,49 +9,19 @@ Two goals shape every choice, and where they conflict the second wins.
 
 ## Iterations
 
-Five drafts, four review rounds: three engineers building real systems in it, one auditing it against the model. What each round changed.
+Ten drafts, nine review rounds: engineers building real systems in it, and audits against the model. Each round is summarised by what it changed, because most changes were reversals of the round before.
 
-**2** made machines optional, stopped a write leaving the object being transitioned, unified references, named guards, and added twelve constructs the model needed and iteration 1 could not express.
-
-**3** reversed two of those. `internal` had replaced the `only via` authority list and so deleted the guarantee it existed to make; and the implicit machine existed in the runtime but not the file, so its state had no category, no terminal state and no creation transition.
-
-**4** merged a model audit: a machine now says what it requires of a binding type, `tracking` is explicit again, deletion cascades name a transition and a bound, and `default` became sugar rather than an ungated write.
-
-**5** fixed what a model audit said not to publish: runtime-maintained inverses were a second write path, the unlisted authority marking re-opened a closed guarantee, and an optional input carrying a default could never be unsupplied.
-
-**6** fixes what an engineer found by building a 243-line purchasing model in iteration 4, and adds a checker that runs this document's own examples against its own rules:
-
-| Problem | Change |
+| # | What it changed |
 |---|---|
-| `int × money` did not type, so a line total was unwritable and the model's own canonical example was rejected | `*` and `/` are scalar; `money * money` is the error instead (§8) |
-| An evaluator call yields a `verdict` and a guard had to be `bool`, so the escape hatch could not be used | A verdict is a whole guard clause, never an operand (§8) |
-| A shared machine could not require a `part`, and its guards named one type's capabilities, so two types could share a lifecycle only by sharing an authority model | `requires part` and `requires capability`, mapped per binder by `provides` (§4.1) |
-| Whether a type binding a shared machine may declare its own transitions was never stated, and both answers broke something | It may; they are private to it, and reachability is checked per binder (§2.1) |
-| A part's delete cascade named a target but no trigger, so a whole with two terminal transitions had no answer | `cascade on <transition> to <Type>.<transition>` (§3.2) |
-| An accepted attribute with a default, left unsupplied, yielded absence rather than the default | It takes the default (§5.1) |
-| A part's creation was independently requestable, so a line could be added to an approved order | Parts are created `only via` their whole (check 11) |
-| `limit` bounded the request, so no author could tell which number to raise | It bounds its loop; publishing reports the worst-case product (§5.2) |
-| An `act` at a terminal state was legal, contradicting the rule that a deleted object takes no further transitions | Forbidden, and `at any` means non-terminal (§4.2) |
-| An erasure could return success and leave the person's identity in the parts | An `erase` must reach every part type holding personal attributes (§6.4) |
-| Check 7 rejected local invariants, which read their own row and need no index; check 11 was unreachable | Both rewritten; seven checks added |
-
-**5** fixed what the model audit found wrong, and the three things it said not to publish:
-
-| Problem | Change |
-|---|---|
-| **Runtime-maintained inverses were a second write path.** Writing one end wrote the far object with an event carrying no transition name, unfilterable by any subscription, and stamped its last-written index so binding a unit invalidated approvals on the delivery | **One end is stored; the inverse is a derived view over it** (§3.3, ADR-0056). Nothing to maintain, one write, one event |
-| **`internal` re-opened the guarantee** iteration 3 closed, defended only by a report of derived parents | Dropped. `only via` is the sole form (§4.2) |
-| **An optional input with a `default` is never unsupplied**, so the skip rule could never fire and a partial edit cleared the field | `default` is not allowed on an optional input (§5.1) |
-| `proposable` was reserved, forbidden and checked, but had no position in any grammar line | Given one (§4.2) |
-| A guard calling an evaluator yields `verdict`, and §8 required `bool` | Both are admitted (§8) |
-| `timestamp - timestamp` and `days` were used by the model and untypeable here | Added (§8) |
-| `changed_since`, on which every approval guard rests, had no grammar | Added (§8) |
-| Remedy class names contain hyphens, which lex as subtraction | Renamed to `self_serviceable` and `unreachable_from_here` throughout the record |
-| An abstract base type was unwritable, though the model permits one | `abstract` (§2.1) |
-| `count` named both a stock attribute and the aggregate | The attribute is `counter`, matching the model's own word |
-| `$name` diverged from the model's `inputs.*`, used at fifty sites | `inputs.` restored |
-| `removed attr` was required for every dropped attribute, though the model says removal merely hides | Required only for a rename (§6.6) |
-| The §7 example failed four of its own checks | Rewritten and mechanically verified (§7) |
+| 2 | Machines optional; a write may not leave the object being transitioned; references unified; guards named; twelve constructs the model needed and iteration 1 could not express |
+| 3 | Reversed two of those. The unlisted authority marking had deleted the guarantee `only via` exists to make, and the implicit machine existed in the runtime but not the file |
+| 4 | A machine says what it requires of a binder; `tracking` explicit again; deletion cascades name a transition and a bound; `default` became sugar rather than an ungated write |
+| 5 | Reversed the runtime-maintained inverse, which was a second write path; dropped the unlisted authority marking for good; forbade a default on an optional input |
+| 6 | Scalar arithmetic so a line total types; evaluator calls usable in a guard; `requires part` and `requires capability`; a binder may declare its own transitions |
+| 7 | Rewrote the checker after it was found to verify none of iteration 6's fixes; added the grammar the document relied on and could not write |
+| 8 | Made coverage fixture-derived, so it cannot be claimed without being demonstrated; fixed the capability indirection its own machine bypassed |
+| 9 | Eight parser bugs, two of which made the tool unusable on any model with a numbered state; joined the delivery and unit examples so the cascades are real |
+| 10 | A wrapped transition head parsed with an empty body, so every body check silently passed; `only via` did not resolve machine-supplied parents; the reserved-word rule the document had abandoned was still enforced |
 
 ## 1. Shape of a file
 
@@ -118,6 +88,8 @@ A type body's clauses appear in one order: `tracking`, `machine` or `states`, `p
 A type either **binds** a shared machine or **declares one inline** with `states`, which declares a machine named after the type. Exactly one of the two, unless the type is `abstract`, which has no objects and so needs no lifecycle.
 
 **A type that binds a shared machine may also declare its own transitions.** They are private to it and may read anything it declares. The shared machine's transitions are the shared lifecycle; the type's are what only that type does. This is what lets two types share a lifecycle without being identical, and it is why `requires` (§4.1) constrains only the machine body: a type-local transition needs no permission from the machine.
+
+A binder whose creation comes from the machine may declare no required attribute of its own, since the machine's creation cannot write it; such an attribute must be optional, carry a `default`, or the binder must declare its own `create`.
 
 Reachability, name scoping and the terminal-state rule are checked **per binder**, over the machine's transitions plus that type's own.
 
@@ -195,7 +167,7 @@ counter <name>                        # a non-negative integer of stock, quantit
 
 | | |
 |---|---|
-| scalars | `string` `bool` `int` `decimal(p,s)` `money(ccy)` `timestamp` `duration` |
+| scalars | `string` `bool` `int` `decimal(p,s)` `money(ccy)` `timestamp` `duration` `identity` |
 | enum, event, file | `RetirementReason`, `event`, `file` |
 | set | append `[]` |
 
@@ -213,9 +185,10 @@ References are `ref`, `part` or `owner`, never an attribute type. Inputs may be 
 ### 3.2 References and composition
 
 ```text
-ref   <name> : <Type>[?|[]] [inverse <name>] [marking …]
+ref   <name> : <Type>[?|[]] [inverse <name>] [stored] [marking …]
 part  <name> : <Type>[?|[]] inverse <name>
       { cascade on <transition> to <Type>.<transition> limit <n> }…
+      [survives]
 owner <name> : <Type>       inverse <name>
 ```
 
@@ -285,7 +258,7 @@ type Approval version 1 {
   states   RECORDED category live, DISCARDED category closed terminal
 
   owner subject : Delivery inverse approvals
-  attr  approver string
+  attr  approver identity
   attr  at_event event
 
   create record -> RECORDED only via Delivery.approve accepts approver, at_event {
@@ -297,24 +270,33 @@ type Approval version 1 {
 }
 ```
 
-Every terminal transition of the whole must be covered by a `cascade on` clause, or the part is orphaned under a closed whole; publishing checks it (ADR-0058).
+A cascade drives its transition on each part for which it is available, and **skips a part already in a terminal state**, since its disposition has happened. That is what lets a delivery be cancelled and later deleted without its parts being driven twice. Every terminal transition of the whole must be covered by a `cascade on` clause, or the part must be marked `survives` to say deliberately that it outlives its whole; publishing rejects a terminal transition covered by neither (ADR-0058).
 
 A guard invalidated by a change to a part reads the part relationship by name:
 
 ```text
-require fresh: not changed_since([approved_total, checklist_items], a.event)
+require fresh: not changed_since([approved_total, checklist_items], a.at_event)
                because delegable
 ```
 
-`part` and `owner` are the two ends of a composition: exclusive membership, lifetime bounded by the whole, re-parentable by writing the `owner`. **`cascade on <transition> to <Type>.<transition>` names which of the whole's transitions drives the cascade, which part transition it drives, and a bound. A whole with several terminal transitions carries one clause each, or marks the part `survives`.** A whole with several terminal transitions says which one cascades; iteration 4 named the target and the bound but not the trigger, so a type with both a reject and a withdraw had no answer. A cascade clause **counts as a call site** for the purposes of an `only via` list.
+`part` and `owner` are the two ends of a composition: exclusive membership, lifetime bounded by the whole, re-parentable by writing the `owner`. **`cascade on <transition> to <Type>.<transition>` names which of the whole's transitions drives the cascade, which part transition it drives, and a bound.** A whole with several terminal transitions writes one clause per transition, which is why the delivery above repeats four. Iteration 4 named the target and the bound but not the trigger, so a type with both a reject and a withdraw had no answer. A cascade clause **counts as a call site** for the purposes of an `only via` list.
 
 A reference may omit `inverse`, which only means no back-reference is named. It remains visible to `referrers` and to the deletion guard.
 
-### 3.3 One end is stored; the inverse is derived
+### 3.3 Both ends are declared; one of them stores the value
 
-A relationship is stored on **one** end. Its declared `inverse` is a derived view over that stored reference, resolved by the store as a query.
+Both ends of a relationship are declared, each in its own type, so a type reads completely on its own. Exactly one end **stores** the value; the other is a derived view the store resolves as a query. Which end stores it follows from the declaration, and is never a matter of reading order:
 
-So `Robot.binding` is stored and `DeliveryItem.unit` reads "the robot whose binding is this". Writing `set binding := inputs.slot` is one write with one event, and the far object's view changes because what it reads changed, not because anything wrote to it.
+| The pair | The stored end |
+|---|---|
+| `part` / `owner` | the `owner`. The child holds the parent, which is what makes re-parenting one write |
+| `ref` with one singular end (`T` or `T?`) and one set end (`T[]`) | the singular end |
+| `ref` with two singular ends | ambiguous; exactly one must be marked `stored` |
+| `ref` with two set ends | neither end can hold it. Declare a type for the association carrying a `ref` to each side; publishing rejects the pair |
+
+So `Robot.binding : Delivery?` stores, and `Delivery.units : Robot[] inverse binding` reads "the robots whose binding is this". Only the stored end is writable: `set binding := inputs.slot` is one write with one event, and the far object's view changes because what it reads changed, not because anything wrote to it. A write naming a derived end is rejected (check 17), and so is a pair with no stored end or two (check 41).
+
+Iteration 9 declared both ends and left which one held the value to the reader, so a set could be `set` in one type and not in another with nothing in the text to say why.
 
 Iteration 3 had the runtime write both ends. That was a second write path: the far event carried no transition name, so no subscription could filter it, `changes_state` was undefined for it, and it stamped the far object's last-written index, so binding a unit invalidated every approval on the delivery. Iteration 2's alternative — a transition per direction — cost the authority twice and made the release path a cascade cycle the checker rejects.
 
@@ -620,7 +602,7 @@ A `quantity` type declares at least one `counter`. A `derive` may be `indexed` w
 
 ## 8. Expressions and types
 
-The expression language is DESIGN.md §5.7. Its types are the attribute types of §3.1, plus **references** (an object of a named type, carrying `.id` and its declared members), **`state`** (a member of one machine's state set, carrying `.category`), **`invariant`** (a name declared on a type), and **`verdict`**. Two further rules the examples already rely on. Every reference carries **`.id`**, of an opaque identity type comparable only with another `.id`. **`actor`** has the shape of §5.8's descriptor: `.id` of that same type, `.kind` of a fixed enum, `.principal`, and `.has(<capability>)` yielding `bool`. A **state literal of another type** is written `<Type>.<STATE>`, since a bare name would be ambiguous across machines.
+The expression language is DESIGN.md §5.7. Its types are the attribute types of §3.1, plus **references** (an object of a named type, carrying `.id` and its declared members), **`state`** (a member of one machine's state set, carrying `.category`), **`invariant`** (a name declared on a type), and **`verdict`**. Two further rules the examples already rely on. Every reference carries **`.id`**, of the `identity` type, which is also the type of `actor.id` and so the type an approver is stored in. **`actor`** has the shape of §5.8's descriptor: `.id` of that same type, `.kind` of a fixed enum, `.principal`, and `.has(<capability>)` yielding `bool`. A **state literal of another type** is written `<Type>.<STATE>`, since a bare name would be ambiguous across machines.
 
 The checker types every expression:
 
@@ -689,11 +671,12 @@ Each check names the file, line and declaration. Checks 22 and 23 need the previ
 | 33 | Duplicate transition, state, attribute or guard names within one scope |
 | 34 | A type with no creation transition |
 | 35 | A machine body naming a type-level attribute, reference, part, invariant or capability it does not `require` |
-| 36 | A `part`/`owner` pair whose types disagree |
+| 36 | A `part`/`owner` pair whose types disagree; a transition writing an `owner` whose source and destination wholes are not both analysable for their invariants (ADR-0058) |
 | 37 | A `part … cascade` whose trigger names a transition the whole does not have; a terminal transition of the whole covered by neither a `cascade on` clause nor `survives` |
 | 38 | An `assert` with `may admit` but no `admits` input, or with no `state`-typed target input |
 | 39 | An `erase` that does not reach a part type holding personal attributes |
 | 40 | An `act` declared at a terminal state |
+| 41 | A `ref` pair with two set ends; two singular ends with neither or both marked `stored`; an `inverse` the far type does not declare, or whose far end names a different near end |
 
 Reported without failing: a declared input nothing reads; a guard whose remedy class was inferred, and what was inferred; which invariants compile to a database constraint on this backend; which transitions are sweepable; which derived attributes are queryable; and how many pending proposals a publish would invalidate.
 
