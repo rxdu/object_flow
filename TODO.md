@@ -7,20 +7,20 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 | | |
 |---|---|
 | ADRs | 73, none Proposed |
-| Defect register | 170 entries, none open; seven carried to open questions ([`docs/design/defects.md`](docs/design/defects.md)) |
+| Defect register | 170 entries and five cosmetics, all closed; seven were carried to open questions the author has since ruled on ([`docs/design/defects.md`](docs/design/defects.md)) |
 | Declaration syntax | **iteration 18, ready for author review**; checker clean, 24 of 52 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
 | Open questions | none. All thirteen answered by the author 2026-09-08, ADR-0065 to ADR-0072 ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
 | Awaiting author review | ADR-0019 to ADR-0064, DESIGN.md as a whole, and the declaration syntax. ADR-0065 to ADR-0073 are settled: ADR-0065 to ADR-0072 are the author's own rulings, ADR-0073 confirmed 2026-09-08 |
 
-The design was built in six autonomous iterations, then reviewed for implementation readiness, then repaired. The review found 42 defects, ten of which broke the model or a running system; re-expressing the case studies against the repaired grammar found five more. ADR-0038 to ADR-0054 are that repair, and none has been reviewed by the author.
+The design was built in six autonomous iterations, then reviewed for implementation readiness, then repaired. The review found 41 defects, ten of which broke the model or a running system; re-expressing the case studies against the repaired grammar found five more. ADR-0038 to ADR-0054 are that repair, and none has been reviewed by the author.
 
 **Three of them changed decisions the author had made.** ADR-0042 removes the free-attribute class, superseding ADR-0006. ADR-0047 withdraws ADR-0005's claim that a transition's input schema is derived from its guards. ADR-0029 withdrew a consequence of ADR-0018. Everything else adds to the model or corrects a contradiction inside it.
 
 ## What the author decided
 
-All thirteen open questions were ruled on 2026-09-08, recorded as ADR-0065 to ADR-0072 and marked Accepted rather than pending. The table in [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md) §11 gives each answer and where it lives; §12 says what remains unestablished.
+All thirteen open questions were ruled on 2026-09-08, recorded as ADR-0065 to ADR-0072 and marked Accepted rather than pending; ADR-0073 followed and was confirmed the same day. The table in [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md) §11 gives each answer and where it lives; §12 says what remains unestablished.
 
-Five changed the language: a machine's creation guards bind any creation that replaces it, a cascade clause carries arguments, a third tracking mode for types that track no physical thing, a comparable type name on a reverse reference, and both state spellings in both places. Three refused a change: money keeps its currency in the declaration, evaluators stay verdict-only with a mirror for anything that assigns, and an authority list stays optional at a closed state. One closed a question already answered. Four are deferrals recorded with their evidence.
+Five changed the language: a machine's creation guards bind any creation that replaces it, a cascade clause carries arguments, a third tracking mode for types that track no physical thing, a comparable type name on a reverse reference, and both state spellings in both places. Four refused a change: money keeps its currency in the declaration, evaluators stay verdict-only with a mirror for anything that assigns, confidentiality stays per object, and an authority list stays optional at a closed state. One closed a question already answered elsewhere. One kept a rule and changed what is reported. One deferred, and one agreed in principle without building it.
 
 **Two answers moved because of evidence rather than argument.** Per-attribute confidentiality looked likely and turned out to have no need in the first consumer at all. The money counter turned out to rest on a mechanism that consumer does not use, since it stores no stock level and computes availability instead.
 
@@ -42,11 +42,11 @@ Nothing here is blocked on it, and none of it is settled without it.
 | Phase | Outcome |
 |---|---|
 | Iterations 1–6, 2026-09-07/08 | The model, from the first consumer outward through four case studies; ADR-0019 to ADR-0037 |
-| Readiness review, 2026-09-08 | 42 defects across four independent passes; the design was not implementable |
+| Readiness review, 2026-09-08 | 41 defects across four independent passes, D01 to D36 and five cosmetics; the design was not implementable |
 | Repair, 2026-09-08 | ADR-0038 to ADR-0053; the register closed |
-| Re-expression, 2026-09-08 | The five case studies rewritten in the repaired grammar, which found D37 to D41 |
+| Re-expression, 2026-09-08 | Four case studies and the walkthrough rewritten in the repaired grammar, which found D37 to D41 |
 | Coherence pass, 2026-09-08 | ADR-0054; DESIGN.md rewritten; 20 statements corrected across the ADR set; D42 to D47 |
-| Declaration syntax, 2026-09-08 | Eleven iterations against reviewers reading as a first-time user and as the implementer of the checker; ADR-0055 to ADR-0060; D48 to D96; `scripts/check-syntax-doc.py` runs the document's examples against its own rules |
+| Declaration syntax, 2026-09-08 | Eighteen iterations against reviewers reading as a first-time user and as the implementer of the checker; ADR-0055 to ADR-0064; D48 to D168; `scripts/check-syntax-doc.py` runs the document's examples against its own rules |
 
 ## Open model questions
 
@@ -78,19 +78,19 @@ The port of the first consumer's production data is a designed path (ADR-0015, D
 
 ## Defect repair
 
-Closed. The register at [`docs/design/defects.md`](docs/design/defects.md) holds 47 entries with none open, and records for each what was decided and by which ADR. Two entries are refusals rather than resolutions: dynamic attribute writes and grouped aggregation, both declined by decision and recorded in the edge-case catalogue.
+Closed. The register at [`docs/design/defects.md`](docs/design/defects.md) holds 170 entries and five cosmetics, all closed, and records for each what was decided and by which ADR. Two entries are refusals rather than resolutions: dynamic attribute writes and grouped aggregation, both declined by decision and recorded in the edge-case catalogue.
 
 ## Toward implementation
 
-These artefacts are needed once the register is clear. These are the artefacts that planning needs and the design does not yet contain; each is WHAT, not HOW.
+The artefacts planning needs. Two are now done: the declaration syntax and the first consumer's types written in it. Each item is WHAT, not HOW.
 
-- [ ] **Concrete declaration syntax.** A file format for types, machines, transitions, guards and outcomes that a person can read and diff, with the version-2 expression language given a grammar. The readable rule set is a rendering of it.
-- [ ] **Storage schema.** The object row, the event log with per-object sequence and global position, sequences, subscriptions, proposals, the idempotency table, and how declared invariants of known shape become constraints; partitioning and archival tiering for the log.
+- [x] **Concrete declaration syntax.** A file format for types, machines, transitions, guards and outcomes that a person can read and diff, with the version-2 expression language given a grammar. The readable rule set is a rendering of it.
+- [ ] **Storage schema.** The object row, the event log with per-object sequence and global position, the per-attribute write index and the last-part-event position that `changed_since` needs (ADR-0048, ADR-0057), sequences, subscriptions, proposals, the idempotency table, and how declared invariants of known shape become constraints; partitioning and archival tiering for the log.
 - [ ] **Library API.** The request and verdict shapes of §6 and the read surface of §10 as one language-level API; transport bindings come after.
 - [ ] **Publish and import tooling.** The validation report of ADR-0027 and ADR-0015, the migration-mapping format, and the per-class disposition record.
 - [ ] **Renderers.** The printable rule set per version; agent tool schemas from `declaration` plus `availability`.
 - [ ] **Adversarial test harness.** A fallible agent, given the declaration and the read surface, trying every route to an invalid state on a real type set; the first consumer's types are the fixture.
-- [ ] **Prototype the first consumer's unit and delivery types** in the declaration syntax before any runtime exists, to check that the walkthrough survives contact with a concrete format.
+- [x] **Prototype the first consumer's unit and delivery types** in the declaration syntax before any runtime exists, to check that the walkthrough survives contact with a concrete format.
 
 ## Resolved since last revision
 
@@ -111,7 +111,7 @@ These artefacts are needed once the register is clear. These are the artefacts t
 ## Confirmations outstanding
 
 - [ ] Confirm the import-path properties derived in ADR-0015 Consequences: provenance `asserted`; validate-and-report with per-class disposition by a person; legacy history as read-only entries of kind `legacy`; external identifiers preserved. Derived 2026-09-07, not individually confirmed.
-- [ ] **Open-source library or not.** Undecided as of 2026-09-07. Nothing recorded depends on it; it should get an ADR when it is decided, because it changes what the first version must include.
+- [x] **Open-source library or not.** Decided in fact rather than in a record: `LICENSE` is Apache-2.0 and the README says so. It still wants an ADR, because the reasoning is nowhere and it changes what the first version must include.
 
 ## Validation
 

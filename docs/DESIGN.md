@@ -214,7 +214,7 @@ External evaluators named by any guard in the request are consulted **first, out
 4. Evaluate the parent transition's guards. A failure refuses the request, naming the clause, its object and its remedy class.
 5. Apply the parent's outcome in full: its new state and its attribute writes, each value read at the moment it is applied (ADR-0054).
 6. Then, depth-first in declaration order and over collection elements in ascending object-id order, take each cascaded transition or creation in turn, **skipping a part already in a terminal state**, since its disposition has happened and that is the only skip on account of state; for each of the rest evaluate its guards **against the state produced so far**, then apply its outcome immediately (ADR-0038). Only-via transitions contribute their non-actor guards; other cascades run as the requesting actor. Any failure aborts the whole request and rolls back.
-7. Check every invariant the written objects could violate, except those with an admitted violation still standing (ADR-0045, ADR-0054).
+7. Check every invariant the written objects could violate — where a transition writes a part's `owner`, **both** the source whole and the destination whole count as written, so the source's invariants are re-checked and both have their part-event position stamped (ADR-0058), except those with an admitted violation still standing (ADR-0045, ADR-0054).
 8. Increment each written object's version; record one event per transition, each cascaded event carrying the parent's event as its cause; append them to the log in the same transaction (ADR-0013). Commit.
 
 Row locks are taken as objects are reached, for contention rather than correctness: serialisable isolation is what makes a guard's reads safe, including reads of objects the request never writes. A serialisation failure is retried to a declared bound and then refused with `stale`.
@@ -223,7 +223,7 @@ An **asserting** transition (§8) differs in two ways: step 4 evaluates only its
 
 ## 7. History, events and delivery
 
-**Current state is stored**, one row per object with its attributes, state, version, declaration version and last event. **The event log is the permanent history**, written in the transition's transaction; a fold of the log reproduces the row, never the reverse (ADR-0033). A per-attribute index of the event that last wrote it makes `changed_since` a constant-time comparison (ADR-0048).
+**Current state is stored**, one row per object with its attributes, state, version, declaration version and last event. **The event log is the permanent history**, written in the transition's transaction; a fold of the log reproduces the row, never the reverse (ADR-0033). A per-attribute index of the event that last wrote it makes `changed_since` a constant-time comparison (ADR-0048), and a **last-part-event position** per object that has parts does the same for the half of `changed_since` that reaches a composition (ADR-0057).
 
 Every event carries `changes_state`, true when from and to differ, and its **provenance**: actor, principal, `context`, cause, declaration version, and a `source` of
 
@@ -311,7 +311,7 @@ Preconditions and permissions have the same shape across domains; formulas, effe
 
 ## 13. Known limits
 
-The guarantee is that **no state change bypasses the guards except through a declared, capability-gated, recorded assertion**, and that the objects holding asserted state or admitted violations are queryable at any time (§8, §10). It cannot guarantee that **the guards say what was meant**. Risk relocates from scattered implementation bugs to specification gaps in one readable place. Hence two obligations: the rule set for a type must be printable for review by someone who knows the process, and acceptance testing must be adversarial in the threat model's sense, a fallible actor that guesses, retries and skips steps, trying every route to an invalid state.
+The guarantee is that **no state change bypasses the guards except through a capability-gated, recorded assertion — either one the type declares, or the built-in one import and migration use**, and that the objects holding asserted state or admitted violations are queryable at any time (§8, §10). It cannot guarantee that **the guards say what was meant**. Risk relocates from scattered implementation bugs to specification gaps in one readable place. Hence two obligations: the rule set for a type must be printable for review by someone who knows the process, and acceptance testing must be adversarial in the threat model's sense, a fallible actor that guesses, retries and skips steps, trying every route to an invalid state.
 
 The mediated property is an operational commitment. Anything else that can reach the database, a migration script, `psql`, a reporting job, voids it. Repair is a declared assertion, and the data import is its first use at scale.
 

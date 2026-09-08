@@ -52,9 +52,16 @@ def check_references(nums, maxcheck):
                 n = int(m.group(1))
                 if n == 0 or n > maxcheck:
                     findings.append(f"{rel}:{i}  check {n} is out of range (1..{maxcheck})")
-            for m in re.finditer(r"\]\((?!http)([^)#]+?)(?:#[^)]*)?\)", line):
-                if not (p.parent / m.group(1)).resolve().exists():
+            for m in re.finditer(r"\]\((?!http)([^)#]*?)(#[^)]*)?\)", line):
+                target = (p.parent / m.group(1)).resolve() if m.group(1) else p
+                if not target.exists():
                     findings.append(f"{rel}:{i}  broken link {m.group(1)}")
+                elif m.group(2) and target.suffix == ".md":
+                    want = m.group(2)[1:]
+                    heads = {re.sub(r"[^a-z0-9 -]", "", h.lower()).replace(" ", "-")
+                             for h in re.findall(r"^#+ (.+)$", target.read_text(), re.M)}
+                    if want not in heads:
+                        findings.append(f"{rel}:{i}  anchor #{want} does not resolve in {m.group(1) or p.name}")
 
 
 def check_retired():

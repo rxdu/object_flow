@@ -70,6 +70,6 @@ The import-path properties above were derived in discussion on 2026-09-07 as con
 
 ## Open
 
-- **Whether the project is an open-source library** was left undecided on 2026-09-07. Nothing in this ADR depends on it.
+- **Whether the project is an open-source library** was left undecided on 2026-09-07. Nothing in this ADR depends on it. *(Settled in fact since: `LICENSE` is Apache-2.0. The reasoning has no ADR, which TODO.md records.)*
 - ~~**What "preserved" covers beyond object rows.**~~ **Closed by ADR-0017, accepted 2026-09-08.** Files are content-addressed into the deployment's blob store and each becomes a controlled `file` attribute on its object, written by the import's asserting transition like any other value.
 - **Cutover staging**: big-bang or per object type.
