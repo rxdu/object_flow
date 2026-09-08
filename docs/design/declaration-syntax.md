@@ -316,7 +316,7 @@ type Whole version 1 abstract {
 
 type Ticket extends Whole version 1 {
   states OPEN category live, CLOSED category closed terminal
-  cascade notes on { close } to Note.file limit 100
+  cascade notes on { close } to Note.file(reason := "the ticket was closed") limit 100
   create raise -> OPEN { require may: actor.has(DEAL_VIEW_ALL) because delegable }
   act annotate at OPEN {
     input body : string
@@ -328,7 +328,7 @@ type Ticket extends Whole version 1 {
 
 type Incident extends Whole version 1 {
   states LIVE category live, RESOLVED category closed terminal
-  cascade notes on { resolve } to Note.file limit 100
+  cascade notes on { resolve } to Note.file(reason := "the incident was resolved") limit 100
   create report -> LIVE { require may: actor.has(DEAL_VIEW_ALL) because delegable }
   act annotate at LIVE {
     input body : string
@@ -343,11 +343,15 @@ type Note version 1 {
   states DRAFT category live, FILED category closed terminal
   owner subject : Whole inverse notes
   attr  body string
+  attr  filed_reason string?
   create add -> DRAFT only via Ticket.annotate, Incident.annotate accepts body {
     input on : Whole
     set subject := inputs.on
   }
-  do file DRAFT -> FILED only via Ticket.close, Incident.resolve { }
+  do file DRAFT -> FILED only via Ticket.close, Incident.resolve {
+    input reason : string
+    set filed_reason := inputs.reason
+  }
 }
 ```
 
