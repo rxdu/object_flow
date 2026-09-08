@@ -1,6 +1,6 @@
 # The declaration syntax
 
-Status: **draft, iteration 17** (2026-09-08). Three reviewers returned non-blocking on iteration 15; this iteration is their residuals. **Ready for author review.** The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
+Status: **draft, iteration 18** (2026-09-08). Three reviewers returned non-blocking on iteration 15; this iteration is their residuals. **Ready for author review.** The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
 
 Two goals shape every choice, and where they conflict the second wins.
 
@@ -9,7 +9,7 @@ Two goals shape every choice, and where they conflict the second wins.
 
 ## Iterations
 
-Seventeen drafts, sixteen review rounds: engineers building real systems in it, and audits against the model. Each round is summarised by what it changed, because most changes were reversals of the round before.
+Eighteen drafts, sixteen review rounds and one coherence pass: engineers building real systems in it, and audits against the model. Each round is summarised by what it changed, because most changes were reversals of the round before.
 
 | # | What it changed |
 |---|---|
@@ -29,6 +29,7 @@ Seventeen drafts, sixteen review rounds: engineers building real systems in it, 
 | 15 | Two of three reviewers non-blocking. The swap test of iteration 14 was under-specified: read literally it rejected the two shapes it claimed to accept, because swapping a comparison also reverses its operands. It now names the four normalisations and is a decision procedure. Check 52's own detector recognised seven phrasings and missed seventeen normative statements in this document; a reviewer ran the check against the four defects it was built for and found it catches one, so the claim that it would have caught them is retracted here rather than softened |
 | 16 | All three reviewers non-blocking. Check 52's proximity window gave a live false pass, so citation is now scoped to the sentence, which found four more. A check widened to satisfy a citation came out forbidding more than its rule did — the rule-and-check divergence class arriving inside the repair for it, and invisible to check 52 in both directions, since a wrong citation and an overreaching check both pass a presence test. A binder's own `create` now replaces the machine's, without which the document's own remedy for a required part could not be spelled |
 | 17 | The creation-replacement rule of iteration 16 broke its own motivating example: replacing a creation orphans the state it reached, which is what an initial state is, so the type the rule was written to make expressible would not publish. Reachability after a replacement is reported rather than failed. Two of the four checks replacement touches had been updated with it and two had not |
+| 18 | The author ruled on all thirteen open questions (ADR-0065 to ADR-0072), which added a third tracking mode, arguments on a cascade clause, a comparable type on a reverse reference and both state spellings. Re-expressing the five older case studies then found that `DESIGN.md` had promised since the repair that a value could be cleared deliberately, and the language had no spelling for it; `clear` is ADR-0073 |
 
 ## 1. Shape of a file
 
@@ -898,7 +899,7 @@ evaluator  <name> version <n> { fn <name>(<arg> : <type>, …) [fresh <duration>
 machine    <Name> version <n> { … }
 type       <Name> [extends <Base>] version <n> [abstract] { … }
 
-tracking     serial|quantity
+tracking     serial|quantity|record
 machine      <Name>
 states       <STATE> category <name> [terminal] [superseding], …   # either spelling,
 state        <STATE> category <name> [terminal] [superseding]        # in either place
@@ -1007,7 +1008,6 @@ Two answers moved because of the survey rather than the argument. Per-attribute 
 
 Not questions about the language, which is settled, but things the record knows it has not established.
 
-- **A payments case study.** Five case studies exist and none is high-volume, short-lived or money-carrying. Four of the thirteen questions came from a model written in review and never written up, so their evidence is not in the repository.
 - **A consumer that maintains a counter.** ADR-0072 defers the money counter partly because nothing in the record exercises the counter at all. A design that offers a maintained counter as the remedy for a slow scan should be able to point at someone maintaining one.
 - **Whether `quantity` earns its place.** The same survey that produced the third tracking mode found no quantity-tracked type in the first consumer. The orders case study needs it and ADR-0050's reasoning holds, so it stays and is worth watching.
 - **The commitment boundary.** ADR-0070 records that a consumer's authority attaches to undoing a commitment, and that nothing in the model distinguishes that from any other transition. One consumer names the concept; a second would justify a construct.

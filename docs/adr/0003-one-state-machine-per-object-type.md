@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0064 — a binder's own creations replace the machine's.
 
 ## Context
 

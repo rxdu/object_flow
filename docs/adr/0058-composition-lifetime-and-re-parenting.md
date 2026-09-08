@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D61 and D62, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0059 — both ends of a relationship are declared, and cardinality decides which one stores the value; ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0061 — ten decisions from the payments-ledger review; ADR-0066 — a cascade clause carries arguments.
 - **Refines:** ADR-0024, ADR-0045, ADR-0046, ADR-0057
 
 ## Context

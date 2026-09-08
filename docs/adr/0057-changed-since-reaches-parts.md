@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D60, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0058 — every terminal transition of a whole must dispose of its parts, and re-parenting is checked against both wholes.
 - **Refines:** ADR-0035
 
 ## Context

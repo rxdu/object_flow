@@ -48,7 +48,7 @@ def check_references(nums, maxcheck):
             for m in re.finditer(r"ADR-(\d{4})", line):
                 if int(m.group(1)) not in nums:
                     findings.append(f"{rel}:{i}  ADR-{m.group(1)} does not exist")
-            for m in re.finditer(r"\bcheck (\d+)\b", line):
+            for m in re.finditer(r"\b[Cc]heck (\d+)\b", line):
                 n = int(m.group(1))
                 if n == 0 or n > maxcheck:
                     findings.append(f"{rel}:{i}  check {n} is out of range (1..{maxcheck})")
@@ -87,12 +87,16 @@ def check_amendments():
             for p in ADR.glob("[0-9]*.md")}
     for n, body in sorted(text.items()):
         head = "\n".join(body.split("\n")[:12])
-        m = re.search(r"\*\*Amends:\*\*\s*(.+)", head)
-        if not m:
-            continue
-        for t in re.findall(r"ADR-(\d{4})", m.group(1)):
-            if "Amended by" not in text.get(int(t), ""):
-                findings.append(f"ADR-{n:04d} amends ADR-{t}, which does not say so in return")
+        for kind, back in (("Amends", "Amended by"), ("Refines", "Refined by"),
+                           ("Supersedes", "Superseded by")):
+            m = re.search(r"\*\*%s:\*\*\s*(.+)" % kind, head)
+            if not m:
+                continue
+            for t in re.findall(r"ADR-(\d{4})", m.group(1)):
+                target = text.get(int(t), "")
+                if back not in target and f"ADR-{n:04d}" not in target:
+                    findings.append(f"ADR-{n:04d} {kind.lower()} ADR-{t}, "
+                                    f"which does not say so in return")
 
 
 def check_answer_blocks():

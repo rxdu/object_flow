@@ -1,6 +1,6 @@
 # ObjectKeeper — Design
 
-**Status: under review.** The model is settled and 46 defects found by an implementation-readiness review have been resolved; every resolution is recorded in [`design/defects.md`](design/defects.md) and marked pending author review in [`../TODO.md`](../TODO.md). Nothing is implemented, and the artefacts an implementation needs — a declaration syntax, a storage schema, a library API — do not exist yet.
+**Status: under review.** The model is settled and 46 defects found by an implementation-readiness review have been resolved; every resolution is recorded in [`design/defects.md`](design/defects.md) and marked pending author review in [`../TODO.md`](../TODO.md). Nothing is implemented. The declaration syntax exists and is ready for review ([`design/declaration-syntax.md`](design/declaration-syntax.md)), with a checker over its own examples; the storage schema, the library API and the publish tooling do not exist yet.
 
 This document is the single description of the model. Each decision, with the alternatives it rejected, is an ADR in [`adr/`](adr/); the case studies that shaped it and the catalogue of what it deliberately does not cover are in [`design/`](design/).
 
@@ -51,7 +51,7 @@ The model was tested against five further shapes, each recorded with what it for
 
 ```
 ObjectType            declared under a version (§5.9); may extend a base;
-                      declares a tracking mode, serial or quantity (§5.10)
+                      declares a tracking mode, serial, quantity or record (§5.10)
   id                store-assigned, globally unique, immutable, opaque
   version           incremented on every recorded change
   attributes        written only by transition outcomes; each has a declared
@@ -61,7 +61,8 @@ ObjectType            declared under a version (§5.9); may extend a base;
   visibility        optional predicate over actor and object (§5.8)
   invariants        type-level properties, enforced dynamically (§5.6)
   relationships     composition or reference; carry no attributes (§5.3)
-  state machine     exactly one, a named declaration bound whole (§5.4)
+  state machine     exactly one, named or inline; a binder adds its own transitions
+                    and replaces the machine's creations (§5.4)
     states          each with a category; at least one terminal
     transitions     named; declare inputs, guards and an outcome (§5.4)
                     optional markings: only via · proposable · asserting
@@ -76,7 +77,7 @@ Every object carries a store-assigned, globally unique, immutable, opaque id, as
 
 ### 5.2 Attributes
 
-An attribute has a declared type: string, boolean, integer, decimal with scale, money with currency, timestamp, duration, enum with declared options, reference, event reference, file, or a set of any of these.
+An attribute has a declared type: string, boolean, integer, decimal with scale, money with currency, timestamp, duration, identity, enum with declared options, event reference, file, or a set of any of these. A **reference is not an attribute type**; it is declared as `ref`, `part` or `owner` (§5.3), though an input may be reference-typed.
 
 **Every attribute is written only by a transition outcome** (ADR-0042). There is no ungated write. A type makes attributes editable by declaring an action for them, which costs one declaration and gives the edit a guard, an actor and an event. Attributes may additionally be marked:
 
@@ -92,11 +93,11 @@ An attribute has a declared type: string, boolean, integer, decimal with scale, 
 
 Relationships are **composition**, meaning exclusive membership and a lifetime bounded by the whole, or **reference**, meaning everything else (ADR-0003). A composite's state is its own, gated by guards that read its parts and never derived from them (ADR-0004); "why is this stuck" is then answered by a `dependent` verdict naming the parts. A composition part may be re-parented by a transition that writes its owner, which is what makes splitting an object expressible (ADR-0046).
 
-References carry no attributes. A relation with labels, dates or a lifecycle of its own is a **link object**: a type with two references. **One end of a relationship is stored and its declared inverse is a derived view over it** (ADR-0056), so there is only ever one write and one event; guards, invariants and outcomes traverse either direction. A composition declares the child transition its whole's deletion drives, and that cascade's bound.
+References carry no attributes. A relation with labels, dates or a lifecycle of its own is a **link object**: a type with two references. **One end of a relationship is stored and its declared inverse is a derived view over it** (ADR-0056), so there is only ever one write and one event; guards, invariants and outcomes traverse either direction. A composition declares, for **every terminal transition of the whole**, the child transition it drives and that cascade's bound, or marks the part `survives` to say deliberately that it outlives its whole; publishing rejects a terminal transition covered by neither (ADR-0058). A cascade clause may carry arguments (ADR-0066).
 
 ### 5.4 State machines, transitions and outcomes
 
-Each type binds exactly one **named** state machine, whole; two types that share a lifecycle bind the same machine (ADR-0003, ADR-0026). Every state has a **category** from a consumer-defined set, so guards and views that span a family need not know state names, and at least one state is terminal.
+Each type binds exactly one **named** state machine, or declares its lifecycle inline; two types that share a lifecycle bind the same machine (ADR-0003, ADR-0026). A binder may add transitions of its own, and its own **creations replace the machine's** rather than adding to them, since birth is where a type's obligations are established (ADR-0064). The machine's creation **guards** still bind the replacement, so a lifecycle's entry condition cannot be dropped by declaring a creation (ADR-0065). Every state has a **category** from a consumer-defined set, so guards and views that span a family need not know state names, and at least one state is terminal.
 
 A **transition** is a named, guarded, recorded request to move an object from one state to another. It is requested **by name, never by target state**. Its from-state may be one state, a set, or any non-terminal state. It declares **inputs** with types and optionality, **guards**, and an **outcome**. An **action** is a transition whose from- and to-state are equal; its outcome is unrestricted like any other (ADR-0016, ADR-0041). A request naming no declared transition is refused, so nothing is recorded for a change that did not happen.
 
@@ -108,7 +109,7 @@ Rules that make an outcome readable and safe:
 - **Sets change element-wise.** `add` and `remove` are read-modify-write like any outcome write, so two adds in one request accumulate and two concurrent adds serialise. The expression language gains no set algebra; `set` on a set-valued attribute still replaces it wholly (ADR-0055).
 - **Absence skips, in two places only.** A write whose right-hand side is an unsupplied optional input is skipped, not applied, and a `call` whose path runs through an absent optional end is skipped because there is no object to reach. Everywhere else absence in a path is an error. Clearing a value deliberately is the `clear` step, which writes absence and is a write like any other (ADR-0073). Until iteration 18 this sentence promised something the syntax had no spelling for.
 - **`this` and `this_event` are available**, including inside a creation outcome: the new object's id and its event's identity are allocated before the outcome runs (ADR-0046, ADR-0052).
-- **Bounded.** A declaration may cap iteration fan-out; exceeding it is refused with `over-limit`. The graph of transitions that reference each other in outcomes must be acyclic (ADR-0019).
+- **Bounded.** Every loop and every cascade clause must declare a bound; exceeding one is refused with `over-limit` naming that loop (ADR-0071). The graph of transitions that reference each other in outcomes must be acyclic (ADR-0019).
 
 A transition may be marked **only via** named parent transitions, meaning it is not requestable and carries no actor guards of its own (ADR-0020); **proposable**, meaning a caller lacking authority may file a Proposal (§9); or **asserting** (§8).
 
@@ -116,7 +117,7 @@ Creation is a transition from nothing into an initial state, carrying its own gu
 
 ### 5.5 Guards, verdicts and remedy classes
 
-A guard is an expression that must hold for a transition to proceed. Each guard clause **declares its remedy class**, inferred where the shape is unambiguous (ADR-0047). A transition **declares its inputs**; publishing rejects a guard naming an undeclared input and warns on an input nothing uses, so the tool schema and the validation rules cannot drift, because they are one declaration.
+A guard is an expression that must hold for a transition to proceed. Each guard clause may **declare its remedy class**; omitted, one is always inferred, by a stated priority order because most guards match several rules, and the inference never contradicts a declared class (ADR-0063). A transition **declares its inputs**; publishing rejects a guard naming an undeclared input and warns on an input nothing uses, so the tool schema and the validation rules cannot drift, because they are one declaration.
 
 Evaluating a request yields one **verdict**:
 
@@ -152,7 +153,7 @@ A type-level property, declared once against the type rather than restated on ev
 
 - a **local** invariant reads only the object's own attributes and state, so the affected set is the object just written. This is the commonest and cheapest form;
 - a **traversal** invariant reads related objects, and may traverse only relationships with **declared inverses**, so the affected objects are found by reverse traversal;
-- a **type-scan** invariant reads other objects of a type and must be **symmetric**, so the predicate that finds a conflict from a written object is the same one that would find it from the other side (ADR-0052). Symmetry is decided by exchanging the two objects in the predicate and requiring the same expression back; overlap, equality on a shared key, and a status filter applied to both objects all pass, which is what makes booking-overlap and one-active-version expressible. The scan never includes the object being written (ADR-0061).
+- a **type-scan** invariant reads other objects of a type and must be **symmetric**, so the predicate that finds a conflict from a written object is the same one that would find it from the other side (ADR-0052). Symmetry is decided by a **swap test** whose four normalisations are `docs/design/declaration-syntax.md` §3.4, which owns it: exchange the two objects and require the same predicate back, comparing conjuncts as a set and comparisons modulo operand order and direction. Overlap, equality on a shared key and a status filter applied to both objects all pass, and only under those normalisations — stating the test without them rejects the shapes it is meant to accept (ADR-0063). The scan never includes the object being written (ADR-0061).
 
 Publishing classifies each invariant, reports which form it decided and which transitions could violate it, and rejects anything that fits none. An erasure admits every invariant reading an attribute it erased, and records the admission, since writing absence may break one and refusing the erasure is not available (ADR-0060). Correctness comes from serialisable isolation (ADR-0039), so an invariant is enforced whether or not it compiles to a database constraint. Compilation is an optimisation whose available shapes depend on the backend, and publishing reports which of a declaration's invariants the configured backend can compile (ADR-0041).
 
@@ -168,7 +169,7 @@ One language serves guards, invariants, derived attributes, visibility predicate
 | `count`, `all`, `any`, `none`, `sum`, `min`, `max` over a relationship or a type, binding the element | `none(s in Service where s.unit == this and s.state != CANCELLED)`, `sum(l in lines: l.qty * l.unit_price)` |
 | arithmetic on numbers; durations, and `+ -` with timestamps | `on_hand - reserved >= inputs.qty`, `placed_at + 30 min <= now` |
 | `changed_since([attributes or parts], event)` over the object's history | `not changed_since([amount, vendor, lines], a.at_event)` |
-| conditional expression, in derived attributes only | `if unit is null then UNFILLED else FILLED` |
+| conditional expression, in a derived attribute or an outcome value, never in a guard | `if unit is null then UNFILLED else FILLED` |
 | a declared external evaluator | `xero.invoice_valid(order_id)` |
 
 Evaluation is **three-valued**: comparison with an absent value, and division by zero, yield unknown. Unknown propagates, with the two Kleene exceptions that make presence tests useful — `and` is false if either side is false, `or` is true if either side is true — and a guard that evaluates to unknown **fails**, naming the clause and reporting the value as unknown rather than false. An **invariant** that evaluates to unknown **holds**, which is the rule a database `CHECK` follows and the only one under which a partially filled object is workable. Presence is therefore tested with `is null` and `is not null`, and comparing against a bare `null` literal is a publish error (ADR-0053). Over an empty set, `count` and `sum` are zero, `all` and `none` are true, `any` is false, and `min` and `max` are unknown. `this` always means the object the expression is declared on and never rebinds, so every aggregate binds its element explicitly.
@@ -179,13 +180,13 @@ Not in the language: grouped aggregation, string operations beyond equality and 
 
 ### 5.8 Actors and visibility
 
-Every request carries an **actor descriptor** the consumer's authentication produces: id, kind (human, agent or service), optional principal, a set of opaque capabilities, and optional attributes (ADR-0025). ObjectKeeper validates its shape, not its truth. Guards read it, and every event records it. Delegation and attenuation arrive in the descriptor; a consumer that must govern delegations models them as objects (ADR-0036). Where a guard needs a referenced person, that person is an ordinary object.
+Every request carries an **actor descriptor** the consumer's authentication produces: id, kind (human, agent or service), optional principal, a set of opaque capabilities, and optional attributes (ADR-0025). ObjectKeeper validates its shape, not its truth. A guard reads **four** members of it — `.id`, `.kind`, `.principal` and `.has(<capability>)`; the optional attributes are deliberately not readable, since they carry no declared types and a guard over an untyped value cannot be checked at publish. Guards read it, and every event records it. Delegation and attenuation arrive in the descriptor; a consumer that must govern delegations models them as objects (ADR-0036). Where a guard needs a referenced person, that person is an ordinary object.
 
 A type may declare a **visibility** predicate over actor and object; every read, query, availability result and delivered event applies it, and an invisible object is **not found**, never blocked, so a verdict never discloses existence (ADR-0030). A cascaded transition is not subject to visibility: the parent's guards are its authority.
 
 ### 5.9 Declarations: composition and versioning
 
-A type may **extend** a base declaration for attributes, relationships, invariants and derived attributes; state machines are bound whole and never inherited piecemeal. A **family** is a base and everything extending it, and is a query target (ADR-0026).
+A type may **extend** a base declaration for attributes, relationships, invariants and derived attributes; state machines are bound by name and never inherited piecemeal, though a binder adds its own transitions and replaces the machine's creations (ADR-0064). A **family** is a base and everything extending it, and is a query target (ADR-0026).
 
 Declarations are **versioned**, and every object and event records the version of its **type**. Because a type's behaviour depends on the machine, enums, sequences, evaluators and base types it uses, advancing any of those requires advancing every dependent type, which publishing enforces (ADR-0027, ADR-0056). A machine declares what it requires of its binders, and publishing verifies each one. Publishing is a designed operation with a report:
 
@@ -212,7 +213,7 @@ External evaluators named by any guard in the request are consulted **first, out
 3. If the idempotency key has been applied before, return the original result, marked as a replay (ADR-0041).
 4. Evaluate the parent transition's guards. A failure refuses the request, naming the clause, its object and its remedy class.
 5. Apply the parent's outcome in full: its new state and its attribute writes, each value read at the moment it is applied (ADR-0054).
-6. Then, depth-first in declaration order and over collection elements in ascending object-id order, take each cascaded transition or creation in turn: evaluate its guards **against the state produced so far**, then apply its outcome immediately (ADR-0038). Only-via transitions contribute their non-actor guards; other cascades run as the requesting actor. Any failure aborts the whole request and rolls back.
+6. Then, depth-first in declaration order and over collection elements in ascending object-id order, take each cascaded transition or creation in turn, **skipping a part already in a terminal state**, since its disposition has happened and that is the only skip on account of state; for each of the rest evaluate its guards **against the state produced so far**, then apply its outcome immediately (ADR-0038). Only-via transitions contribute their non-actor guards; other cascades run as the requesting actor. Any failure aborts the whole request and rolls back.
 7. Check every invariant the written objects could violate, except those with an admitted violation still standing (ADR-0045, ADR-0054).
 8. Increment each written object's version; record one event per transition, each cascaded event carrying the parent's event as its cause; append them to the log in the same transaction (ADR-0013). Commit.
 
@@ -259,7 +260,7 @@ Delivery is **at-least-once with idempotent handling**. Exactly-once *effect* co
 
 **Supersession** ends an object in a terminal state that names its successor, which may be an existing object or one the same outcome created. Id and history stay, the read surface follows the pointer on request, and references are re-pointed only by declared cascade. It is how an object changes kind: moved, converted, merged (ADR-0028, ADR-0046). A duplicate is closed with a reference, not superseded.
 
-**Assertion** is the only way to set state without satisfying the type's guards, and it is declared, not ambient (ADR-0040). An asserting transition names the states it may assert; is addressed by name with the target state as a constrained input, so §5.4's by-name rule holds; carries its own guards, at minimum a capability and a mandatory reason; and records what it stepped over. A type that declares none cannot be repaired this way at all. Invariants are not bypassed by default: an assertion marked `may_admit` accepts an explicit list of the invariants it knowingly violates, and each **admission** names an object and an invariant, suppresses that invariant's check for that object, and is discharged automatically when the invariant holds again (ADR-0054). Import and declaration migration use a **built-in** assertion gated on a deployment capability, so no type is unimportable by omission.
+**Assertion** is the only way to set state without satisfying the type's guards, and it is declared, not ambient (ADR-0040). An asserting transition names the states it may assert; is addressed by name with the target state as a constrained input, so §5.4's by-name rule holds; carries its own guards, at minimum a capability and a mandatory reason; and records what it stepped over. A type that declares none cannot be repaired this way at all. Invariants are not bypassed by default: an assertion marked `may admit` accepts an explicit list of the invariants it knowingly violates, and each **admission** names an object and an invariant, suppresses that invariant's check for that object, and is discharged automatically when the invariant holds again (ADR-0054). Import and declaration migration use a **built-in** assertion gated on a deployment capability, so no type is unimportable by omission.
 
 **Erasure** replaces the values of declared personal attributes with absence, on the object and in every event that carried them, deletes referenced file content, keeps the event skeleton, records that it happened, and is irreversible (ADR-0031). It runs from any state, terminal included, since erasure requests arrive for closed accounts; it is the one carve-out from the rule that a deleted object admits no further transitions (ADR-0056). The marker is absence rather than a sentinel, so it collides with no unique constraint and reads as unknown in the expression language, which makes a guard over an erased value fail rather than pass (ADR-0051). It is the one place the log is rewritten, and it is not deletion.
 
@@ -287,7 +288,7 @@ One API. Every operation takes an actor and applies visibility (ADR-0037).
 | **pull**(subscription, position) | A page of events per the subscription's filter |
 | **batch**(requests) | N independent requests, **each in its own transaction**, returning N verdicts in order |
 
-Neither `available`, `check` nor `availability` calls an external evaluator; each says which guards it did not evaluate. Time-dependent derived attributes are queried by filtering the stored operand the expression compares against `now`, since a clock-dependent value cannot be indexed. There is **no atomic batch**: atomic multi-object semantics are declared cascades (§5.4). Beyond the indexes a type declares, the store maintains no projection; where a scan is too slow, the type declares a counter and the cascade that maintains it.
+Neither `available`, `check` nor `availability` calls an external evaluator; each says which guards it did not evaluate. Time-dependent derived attributes are queried by filtering the stored operand the expression compares against `now`, since a clock-dependent value cannot be indexed. There is **no atomic batch**: atomic multi-object semantics are declared cascades (§5.4). Beyond the indexes a type declares, the store maintains no projection; where a scan is too slow and the type is `quantity`-tracked, it declares a counter and the cascade that maintains it. That remedy is **not available to a `serial` or `record` type**, which is open question 10 and is why a ledger balance has nothing tying it to the entries that produced it (ADR-0072).
 
 Writes go through the request of §6. Operational calls that are not object operations are `acknowledge`, which advances a subscription's progress (§7), and `publish`, which installs a declaration version (§5.9).
 
@@ -345,7 +346,7 @@ Concrete cases the model does not cover, or covers with a caveat, are catalogued
 | **Visibility** | A declared predicate every read applies; failing it means not found. |
 | **Object id / business identifier / external identifier** | Store-assigned identity; a consumer-minted meaningful value such as a serial; a value another system owns. |
 | **Sequence** | A named, scoped, monotonic counter that mints business identifiers; not gapless. |
-| **Tracking mode** | Whether a type is serial-tracked, one object per thing, or quantity-tracked, counters on a stock object. |
+| **Tracking mode** | Whether a type is serial-tracked, one object per thing; quantity-tracked, counters on a stock object; or a record, tracking no physical thing at all (ADR-0067). |
 | **Type family** | A base declaration and everything extending it. |
 | **Declaration version** | The version of a type's declaration, recorded on every object and event. |
 | **Publish** | Installing a declaration version, with a report of migrations, admissions, compiled invariants and sweepability. |

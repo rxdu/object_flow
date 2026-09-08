@@ -954,7 +954,7 @@ Two of three reviewers non-blocking; the payments declaration that could not be 
 **Resolved.** Check 17 covers a write whose value does not fit its target, and the citation points there.
 
 ### D154
-**Check 53's verdict on a legitimate cascade could not be predicted.** "Every non-terminal state its part can be in when the trigger fires" was carrying the decision and was undefined. The cheap reading rejects a correct model; the expensive one requires propagating a guard on a different transition two states earlier, which is not decidable from the text.
+**The cascade-coverage check's verdict on a legitimate cascade could not be predicted.** "Every non-terminal state its part can be in when the trigger fires" was carrying the decision and was undefined. The cheap reading rejects a correct model; the expensive one requires propagating a guard on a different transition two states earlier, which is not decidable from the text.
 
 **Resolved.** The strict form, reported without failing, naming the uncovered states. It moves out of the check table into the report, since a report is what an undecidable-in-general risk deserves.
 

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 4 (2026-09-08); pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0061 — ten decisions from the payments-ledger review; ADR-0068 — money keeps its currency in the declaration.
 
 ## Context
 

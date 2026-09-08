@@ -30,9 +30,9 @@ That last sentence is the decision. A test used by a publish check has to be a p
 
 Not softened. It was a testable claim, someone tested it, and it failed. The row now says what the check does — enforce the discipline going forward for the phrasings it recognises — and names its two mechanical bounds: one citation shields every normative statement within 260 characters of it, and the phrasing list is fixed. The detector itself was widened from seven phrasings to twenty, which found seventeen uncited statements in this document, and runtime refusals were excluded because they are not publish-time rules.
 
-### 4. Check 53 becomes a report
+### 4. The cascade-coverage check becomes a report
 
-Its condition, "every non-terminal state the part can be in when the trigger fires", could not be decided: the cheap reading rejects correct models, and the expensive one requires propagating a guard on a different transition two states earlier. It is now the strict form, reported without failing, naming the uncovered states. A risk that is undecidable in general and cheap to compute conservatively is what a report is for.
+It had been numbered 53. Its condition, "every non-terminal state the part can be in when the trigger fires", could not be decided: the cheap reading rejects correct models, and the expensive one requires propagating a guard on a different transition two states earlier. It is now the strict form, reported without failing, naming the uncovered states. A risk that is undecidable in general and cheap to compute conservatively is what a report is for.
 
 ### 5. The syntax document owns the outcome grammar
 

@@ -3,6 +3,7 @@
 - **Status:** Accepted — repair of D159–D164, 2026-09-08; pending author review
 - **Refines:** ADR-0003, ADR-0026, ADR-0060, ADR-0062
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0065 — a machine's creation guards bind any creation that replaces it.
 
 ## Context
 

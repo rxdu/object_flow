@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0061 — ten decisions from the payments-ledger review.
 
 ## Context
 

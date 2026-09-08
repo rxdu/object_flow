@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D42, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review.
 - **Amended by:** ADR-0056 §8 — the conditional is `if … then … else` and implication is `implies`. ADR-0073 adds `clear`, which is how absence is written now that a bare `null` is not assignable.
 - **Refines:** ADR-0047
 

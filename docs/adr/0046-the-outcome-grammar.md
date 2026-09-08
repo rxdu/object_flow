@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D11 to D15, D18 and D29, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0055 — a third invariant form for single-object properties, and outcome steps that add to and remove from a set; ADR-0058 — every terminal transition of a whole must dispose of its parts, and re-parenting is checked against both wholes.
 - **Amended by:** ADR-0052 — the outcome grammar gains the forms re-expressing the case studies needed; ADR-0056 §2 makes `supersede` an outcome step, §6 adds `referrers`, §9 writes an input as `inputs.<name>`. ADR-0066 lets a cascade clause carry arguments; ADR-0073 adds `clear`.
 - **Refines:** ADR-0019
 

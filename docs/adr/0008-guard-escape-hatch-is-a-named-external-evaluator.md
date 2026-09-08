@@ -3,6 +3,7 @@
 - **Status:** **Accepted** — confirmed by the author 2026-09-08, after the readiness review
 - **Confirmed as decided, with one reinterpretation:** ADR-0049 moved evaluators outside the write transaction and gave their verdict an as-of time, so *eager* and *deferred* now mark **when in a caller's workflow** an evaluator is consulted, not where in the transaction. ADR-0048 additionally excludes evaluators from the `available` sweep entirely.
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0069 — an evaluator returns a verdict; an external system that assigns is a mirror.
 
 ## Context
 

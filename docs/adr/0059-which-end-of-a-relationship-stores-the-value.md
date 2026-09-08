@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of the iteration-9 syntax review, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review.
 - **Refines:** ADR-0045, ADR-0058
 
 ## Context

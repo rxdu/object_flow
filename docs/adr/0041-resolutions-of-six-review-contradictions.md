@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D05, D06, D27, D28, D31, D36, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0071 — mandatory bounds and guard names stay; the reported worst-case product goes.
 
 ## Context
 

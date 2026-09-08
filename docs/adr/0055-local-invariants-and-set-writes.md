@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D48 and D49, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0062 — a normative statement must cite the check that enforces it.
 - **Refines:** ADR-0045, ADR-0052, ADR-0046
 
 ## Context

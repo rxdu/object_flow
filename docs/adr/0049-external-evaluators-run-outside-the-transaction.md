@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D32, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0054 — four semantics the repair left open — parent ordering, partial `check`, built-in assertion, and discharged admissions; ADR-0069 — an evaluator returns a verdict; an external system that assigns is a mirror.
 - **Refines:** ADR-0008
 
 ## Context

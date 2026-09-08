@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0069 — an evaluator returns a verdict; an external system that assigns is a mirror.
 
 ## Context
 

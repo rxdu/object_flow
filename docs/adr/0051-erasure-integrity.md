@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D35, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review.
 - **Refines:** ADR-0031
 
 ## Context

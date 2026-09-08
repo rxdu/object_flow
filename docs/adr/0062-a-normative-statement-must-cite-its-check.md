@@ -3,6 +3,7 @@
 - **Status:** Accepted — repair of D134–D148, 2026-09-08; pending author review
 - **Refines:** ADR-0052, ADR-0055, ADR-0060, ADR-0061
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0063 — the swap test names its normalisations, and check 52's claim is retracted; ADR-0064 — a binder's own creations replace the machine's.
 
 ## Context
 
@@ -36,4 +37,4 @@ Twelve statements needed citations. The check was confirmed by removing one and 
 - `scripts/check-syntax-doc.py` gains `doc_checks()` and `DOC_FIXTURES`, and enforces 24 of 53 checks with 26 fixtures.
 - Fourteen further defects from the same round are repaired in the sections that define them, the substantive ones being the swap test for type-scan symmetry (superseding ADR-0052's shape whitelist, which excluded "at most one open X per Y"), the counting rule a self-excluding scan implies, and rounding for decimal products.
 - `docs/design/case-study-approvals-and-bookings.md` is corrected. It carried the `id` exclusion that ADR-0061 made an error, and it is the example ADR-0052's symmetry rule was derived from. That is the failure this ADR is about, in a sibling document.
-- Check 53, cascade from-state coverage, is defined and not implemented.
+- Cascade from-state coverage is defined as a check and not implemented. *(ADR-0063 then demoted it to a publish report, its condition having turned out undecidable as written, so the check list ends at 52 and this item has no number.)*
