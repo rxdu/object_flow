@@ -62,3 +62,4 @@
 | [0058](0058-composition-lifetime-and-re-parenting.md) | Every terminal transition disposes of its parts; re-parenting is checked against both wholes | Accepted (repair D61-D62, review pending) |
 | [0059](0059-which-end-of-a-relationship-stores-the-value.md) | Both ends of a relationship are declared; cardinality decides which one stores the value | Accepted (repair of the iteration-9 syntax review, review pending) |
 | [0060](0060-decisions-from-the-iteration-11-syntax-review.md) | Twelve decisions from the iteration-11 syntax review | Accepted (repair D63-D96, review pending) |
+| [0061](0061-decisions-from-the-payments-ledger-review.md) | Ten decisions from the payments-ledger review | Accepted (repair D114-D133, review pending) |

@@ -50,9 +50,14 @@ def parse(text, base=0):
         if m := re.match(r"^machine\s+(\w+)", s):            cur.machine = m.group(1)
         if m := re.match(r"^tracking\s+(\w+)", s):           cur.tracking = m.group(1)
         if s.startswith("provides capability"):
-            for nm in re.findall(r"(\w+)\s*=", s): cur.provides.add(nm)
+            acc, j = s, i
+            ind0 = len(raw) - len(raw.lstrip())
+            while j + 1 < len(lines) and lines[j + 1].strip() \
+                  and len(lines[j + 1]) - len(lines[j + 1].lstrip()) > ind0:
+                j += 1; acc += " " + lines[j].strip()
+            for nm in re.findall(r"(\w+)\s*=", acc): cur.provides.add(nm)
             cur.provided_from = getattr(cur, "provided_from", []) + \
-                [(rhs, ln) for rhs in re.findall(r"=\s*(\w+)", s)]
+                [(rhs, ln) for rhs in re.findall(r"=\s*(\w+)", acc)]
         if m := re.match(r"^requires\s+(\w+)\s+(.+)$", s):
             kind, rest = m.group(1), m.group(2)
             names = re.findall(r"\w+", rest) if kind == "capability" \
@@ -79,6 +84,16 @@ def parse(text, base=0):
                   and len(lines[j + 1]) - len(lines[j + 1].lstrip()) > ind:
                 j += 1; spec += " " + lines[j].strip()
             cur.rels[m.group(2)] = (m.group(1), spec, ln)
+            i = j + 1; continue
+        if m := re.match(r"^cascade\s+(\w+)\s+on\b(.*)$", s):
+            acc, j = "cascade on" + m.group(2), i
+            ind0 = len(raw) - len(raw.lstrip())
+            while j + 1 < len(lines) and lines[j + 1].strip() \
+                  and len(lines[j + 1]) - len(lines[j + 1].lstrip()) > ind0:
+                j += 1; acc += " " + lines[j].strip()
+            k = "$sub$" + m.group(1)
+            prev = cur.rels.get(k)
+            cur.rels[k] = ("part", (prev[1] + " " if prev else "") + acc, ln)
             i = j + 1; continue
         if m := re.match(r"^(create|do|act|assert|erase)\s+(\w+)(.*)$", s):
             head, j0 = m.group(3), i
@@ -271,8 +286,12 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                         add(11, f"{d.name}.{tn} creates a part but is not 'only via' its whole", ln)
                     else:
                         whole = owner[1][1].split()[0].rstrip("?[]")
+                        wd = by_name.get(whole)
+                        wholes = {whole}
+                        if wd is not None and wd.abstract:      # the family declares the part
+                            wholes |= {n for n, x in by_name.items() if x.base == whole}
                         named = {t for t, _ in re.findall(r"(\w+)\.(\w+)", head.split("only via")[1])}
-                        if named and whole not in named:
+                        if named and not (named & wholes):
                             add(11, f"{d.name}.{tn} is only via {sorted(named)}, not its whole {whole}", ln)
                     if owner[0] not in written:
                         add(18, f"{d.name}.{tn} creates a part without writing owner '{owner[0]}'", ln)

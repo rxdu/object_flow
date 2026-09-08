@@ -740,3 +740,107 @@ The same two reviewers re-read their own findings against the repair. Both retur
 **The new-invariant scan was named in the §10 preamble and absent from the report list.** Reported against iteration 10 and survived the rewrite of §10 verbatim.
 
 **Resolved.** The report now lists how many live objects a new invariant would violate.
+
+## Found by modelling a payments ledger
+
+The third review, on the first domain that is high-volume, short-lived and money-carrying. Two of the findings are the prose and the checker disagreeing about the same construct, which is a worse state than either being wrong alone.
+
+### D114
+**The abstract-base part pattern had no spelling that publishes.** §3.2 and §4.2 both recommend an abstract `owner` for a part serving two wholes, and the checker rejected both spellings: `only via <Subtype>.<transition>` failed check 11 as "not its whole", and `only via <Base>.<transition>` failed check 13 because an abstract base declares no transitions. Eighteen of the reviewer's twenty-two findings were this. Separately, the top-level `cascade <part> on …` form was not counted as a call site although §3.2 says a cascade clause is one, so the part's disposal transition looked unreachable.
+
+**Resolved.** Check 11 resolves an abstract whole to any concrete type in its family; the top-level cascade clause is parsed and counted. A worked example is now in §3.2, so the checker regression-tests the pattern on every run.
+
+### D115
+**A wrapped `provides capability` line was read as declaring only its first line.** Four spurious check-16 findings on a legal declaration. The parser accumulated continuation lines for relationships and not for `provides`.
+
+**Resolved.** It follows §9.1 like everything else.
+
+### D116
+**`money` had no scale and no rounding rule.** §8.3 stated that `int / int` truncates *because* money is the trap it would create, and then left money's own arithmetic undefined: nothing said that `money(JPY)` has no minor unit, or what `money(USD) * decimal(5,4)` does with a fractional cent.
+
+**Resolved.** The scale is the currency's minor unit; multiplication and division by a scalar round half to even, stated rather than deferred to a backend. Exact allocation of an amount into parts is named as not expressible.
+
+### D117
+**`money` fixes its currency at declaration, so a multi-currency ledger cannot be typed.** The alternatives are one attribute per currency, or a `decimal` beside a currency string, which discards every check the type exists to provide.
+
+**Recorded as open question 9.** Not resolved; runtime currency is a model change.
+
+### D118
+**Idempotency, an advertised runtime capability, had no declarable form.** `unique` was global, sequence-scoped or partial, with no compound key. Written as a type-scan, nothing said whether the scanned set includes the object being written; read the obvious way it matched itself, so no object could ever be created. Adding `p.id != this.id` fixed that and violated check 6, since an inequality is not one of the symmetric shapes.
+
+**Resolved.** A type-scan ranges over every *other* object of the type, so no exclusion clause is needed or permitted, and `unique with <attr>, …` gives the compound form directly.
+
+### D119
+**The negative of an external verdict did not type.** §8.3 prescribes writing a conditional external check as two transitions with opposite guards, and a verdict was usable only as a whole guard clause, so the second transition could not be written. A decline could be gated on nobody having asked the authority, never on the authority having said no.
+
+**Resolved.** A guard clause may be a negated evaluator call. A stale verdict is still refused as `temporal`, since `not stale` is not `satisfied`.
+
+### D120
+**A required reference or singular part was unchecked at creation.** Check 8 covered attributes only, so a type could declare a mandatory `ref` and a creation that never wrote it.
+
+**Resolved.** Check 8 covers all three.
+
+### D121
+**A `ref` with only one end declared had no stored-end rule.** §3.3's table had rows for one-singular-one-set, two-singular and two-set, and none for the common case of a reference with no `inverse`, which §3.2 explicitly permits.
+
+**Resolved.** That end stores it and must be singular; a set-valued reference with no inverse is rejected.
+
+### D122
+**Whether a family member satisfies a base-typed input was never stated.** A machine shared by two types passes `this` to something declared over their common base, which is the ordinary shape and rested on an assumption.
+
+**Resolved.** Stated in §8.1, in one direction only.
+
+### D123
+**The cascade skip rule did not say whether it governs a `call`.** "Skips a part already in a terminal state … that is the only skip" left an erasure's `call c.forget(…)` ambiguous, and under one reading an erasure silently left personal data in place while check 39 still passed.
+
+**Resolved.** The skip belongs to a `cascade` clause alone; a `call` never skips.
+
+### D124
+**"Terminal transition" was never defined**, though the cascade coverage rule turns on it. A type whose objects are born final has creations into a terminal state and no `do` at all, and its wholes could not tell whether coverage applied.
+
+**Resolved.** A terminal transition is a `do` whose to-state is terminal; a creation is not one.
+
+### D125
+**A sequence could be scoped only by a reference.** A tenant identifier mirrored from another system is an indexed attribute, so a per-tenant reference number required inventing a type solely to be scoped by.
+
+**Resolved.** A scope names a reference or an indexed attribute the creation writes.
+
+### D126
+**`tracking` was not inherited and an abstract type had to declare it.** So a family stated it twice with nothing checking that the two agreed, on a type that has no objects.
+
+**Resolved.** It is inherited like everything else, and an abstract type needs none.
+
+### D127
+**No remedy class distinguished a window that has not opened from one that has closed.** Both are a comparison against `now`, both inferred `temporal`, and the publish report lists a transition as time-gated on that basis. A chargeback window that had expired would sit on a consumer's polling list forever.
+
+**Resolved.** `temporal` is defined as "wait, and it will pass"; a closed window is `unreachable_from_here`; no inference can separate them, so the class must be declared on any deadline guard, and the time-gated report uses the declared class only.
+
+### D128
+**A single two-valued branch multiplied into four transitions.** Debit and credit differ by a sign, and with `if` confined to derivations the branch split the writing transition, then the transition that called it, then every `only via` list naming them.
+
+**Resolved.** `if` is allowed in the value expression of an outcome step, and still not in a guard, where a conditional would hide which clause failed.
+
+### D129
+**A money balance cannot be a counter.** DESIGN.md offers a counter and a maintaining cascade as the remedy when an invariant's scan is too slow, and a counter is a non-negative `int`, so the remedy is closed to every quantity that is money.
+
+**Recorded as open question 10.** Not resolved.
+
+### D130
+**`only via` on a shared child scales as binders times triggers.** Eight parents for one disposal transition, duplicated in each subtype's cascade clauses, with check 13 making both directions an error so three lists must agree exactly.
+
+**Recorded as open question 11.** Not resolved.
+
+### D131
+**`serial` and `quantity` fit neither a payment, a posting nor an account.** Each declares `serial` because the alternative demands a counter, so the declaration states something untrue about the domain.
+
+**Recorded as open question 12.** Not resolved; this is ADR-0050's decision to revisit.
+
+### D132
+**Whether an `enum` body may wrap was unclear**, since §9.3's list of comma-taking clauses omitted it and check 51 now makes a wrong guess a publish error.
+
+**Resolved.** Listed, and it wraps by §9.1 like everything else.
+
+### D133
+**The prohibition on marking a stored end `indexed` lived only in §8.1 and a check.** §3.1's marking table and §3.2's grammar both still invited it, and the document's own examples carried it until iteration 12.
+
+**Resolved.** Stated in the marking table where a reader meets it, and check 7 rejects it rather than leaving it undecided.
