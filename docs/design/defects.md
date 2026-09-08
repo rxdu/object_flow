@@ -72,6 +72,8 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D58](#d58) | Implication `→` collided with the to-state arrow in ASCII | **resolved by ADR-0056** |
 | [D59](#d59) | Remedy class names contain hyphens, which lex as subtraction | **resolved by ADR-0056** |
 | [D60](#d60) | An approval could not be invalidated by an edit to a part | **resolved by ADR-0057** |
+| [D61](#d61) | A part is orphaned by any terminal transition its cascade does not name | **resolved by ADR-0058** |
+| [D62](#d62) | Re-parenting escapes the source whole's invariants | **resolved by ADR-0058** |
 
 ---
 
@@ -463,3 +465,13 @@ Both were invisible while the model was described in prose, and became obvious t
 **An approval could not be invalidated by an edit to a part.** `changed_since` read attributes of `this` only, and ADR-0056 removed the runtime-maintained inverse that used to stamp a whole when a part changed. So editing a purchase order's line left the order untouched and its approvals standing, and the only workaround was a timestamp attribute, an action to touch it, and a cascade from every line-editing transition — the per-transition duplication ADR-0035 exists to remove, in its own headline guard.
 
 **Resolved by ADR-0057.** `changed_since` accepts a part relationship name, answered from an index over the log rather than a write.
+
+### D61
+**A part is orphaned by any terminal transition its cascade does not name.** ADR-0056 gave a composition a cascade trigger, and a whole with two terminal transitions names one. Its parts survive the other, alive under a closed whole, which is what "lifetime bounded by the whole" forbids.
+
+**Resolved by ADR-0058.** Every terminal transition must dispose of the parts or the part must be explicitly marked as surviving.
+
+### D62
+**Re-parenting escapes the source whole's invariants.** Writing a part's owner is what makes splitting expressible, and after the write the part points only at the destination, so reverse traversal never re-checks the source. An invariant such as "a shipment has at least one line" could be broken by moving the last line away.
+
+**Resolved by ADR-0058.** A re-parent is treated as writing both wholes for the purposes of invariants and the part-event index, though neither whole's guards run.

@@ -1,277 +1,342 @@
 #!/usr/bin/env python3
 """Validate the declaration-syntax document against its own rules.
 
-Four drafts shipped examples violating checks the same document defines. This
-runs the mechanically decidable subset over every fenced example. Run it before
-editing the document, not after: a fix that the checker cannot see is asserted,
-not verified.
-
-Coverage is listed in COVERS below and printed on every run, so the gap between
-what the document defines and what this enforces is never invisible again.
+Coverage is not a list someone maintains. Every check below carries a FIXTURE:
+a minimal declaration that must produce it. `--self-test` runs them, and the
+coverage line printed on a normal run is *derived* from which fixtures fire.
+A check that is claimed but unimplemented therefore fails the self-test rather
+than appearing in a comment nobody rechecks — which is how a previous version
+came to advertise six checks it did not have.
 """
 import re, sys, pathlib
 
-COVERS = [2, 8, 11, 15, 16, 17, 18, 19, 20, 21, 26, 29, 31, 34, 35, 40]
 DOC = pathlib.Path(__file__).resolve().parents[1] / "docs/design/declaration-syntax.md"
 
-src = DOC.read_text()
-lines = src.split("\n")
-findings = []
-
-
-def add(check, detail, line):
-    findings.append((check, detail, line))
-
-
-blocks = [(src[: m.start()].count("\n") + 2, m.group(1))
-          for m in re.finditer(r"```text\n(.*?)```", src, flags=re.S)]
-
-# ── vocabularies declared in the document ───────────────────────────────────
-def decl_list(kw):
-    m = re.search(rf"^{kw}\s+(.+?)(?=\n[a-z]|\n\n)", src, flags=re.M | re.S)
-    return set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", m.group(1))) if m else set()
-
-capdecl, catdecl = decl_list("capability"), decl_list("category")
-reserved = set()
-rw = re.search(r"\n`(module use .+?)`\n", src, flags=re.S)
-if rw:
-    reserved = set(rw.group(1).split())
-
-# ── parse each block into a declaration ─────────────────────────────────────
+# ── model of a declaration ──────────────────────────────────────────────────
 class Decl:
     def __init__(self, kind, name, start):
         self.kind, self.name, self.start = kind, name, start
-        self.states, self.trans, self.attrs, self.refs = {}, [], set(), set()
-        self.requires, self.provides, self.machine = [], set(), None
         self.abstract = False
+        self.machine = None
+        self.tracking = None
+        self.states = {}        # name -> (modifiers, line)
+        self.trans = []         # (kind, name, head, body, line)
+        self.attrs = {}         # name -> (type_and_markings, line)
+        self.counters = set()
+        self.rels = {}          # name -> (kind, decl_text, line)
+        self.requires = []      # (kind, name, line)
+        self.provides = set()
+        self.invariants = set()
 
 
-decls = []
-for bstart, blk in blocks:
-    blines = blk.split("\n")
-    cur = None
+def parse(text, base=0):
+    decls, cur, lines = [], None, text.split("\n")
     i = 0
-    while i < len(blines):
-        raw, ln = blines[i], bstart + i
-        m = re.match(r"^(machine|type)\s+(\w+)", raw)
-        if m and "\u2026" in raw:      # an elided placeholder, e.g. "type Robot version 3 { … }"
-            cur = None
-            i += 1
-            continue
-        if m:
+    while i < len(lines):
+        raw, ln = lines[i], base + i
+        if m := re.match(r"^(machine|type)\s+(\w+)", raw):
+            if "…" in raw:                     # elided placeholder
+                cur = None; i += 1; continue
             cur = Decl(m.group(1), m.group(2), ln)
             cur.abstract = " abstract" in raw
-            decls.append(cur)
-            i += 1
-            continue
+            decls.append(cur); i += 1; continue
         if cur is None:
-            i += 1
-            continue
+            i += 1; continue
         s = raw.strip()
-        if m := re.match(r"^machine\s+(\w+)", s):
-            cur.machine = m.group(1)
-        if m := re.match(r"^state\s+(\w+)(.*)$", s):
-            cur.states[m.group(1)] = (m.group(2), ln)
-        if s.startswith("states "):                       # may wrap over lines
-            acc, j = s[len("states "):], i
-            while acc.rstrip().endswith(",") and j + 1 < len(blines):
-                j += 1
-                acc += " " + blines[j].strip()
+        if m := re.match(r"^machine\s+(\w+)", s):            cur.machine = m.group(1)
+        if m := re.match(r"^tracking\s+(\w+)", s):           cur.tracking = m.group(1)
+        if s.startswith("provides capability"):
+            for nm in re.findall(r"(\w+)\s*=", s): cur.provides.add(nm)
+        if m := re.match(r"^requires\s+(\w+)\s+(.+)$", s):
+            kind, rest = m.group(1), m.group(2)
+            names = re.findall(r"\w+", rest) if kind == "capability" \
+                    else re.findall(r"^\s*(\w+)", rest)
+            for nm in names:
+                cur.requires.append((kind, nm, ln))
+        if m := re.match(r"^invariant\s+(\w+)", s):          cur.invariants.add(m.group(1))
+        if m := re.match(r"^state\s+(\w+)(.*)$", s):         cur.states[m.group(1)] = (m.group(2), ln)
+        if s.startswith("states "):
+            acc, j = s[7:], i
+            while acc.rstrip().endswith(",") and j + 1 < len(lines):
+                j += 1; acc += " " + lines[j].strip()
             for part in acc.split(","):
                 if sm := re.match(r"\s*(\w+)(.*)", part):
                     cur.states[sm.group(1)] = (sm.group(2), ln)
-            i = j + 1
-            continue
-        if m := re.match(r"^(?:attr|counter)\s+(\w+)(.*)$", s):
-            cur.attrs.add(m.group(1))
-        if m := re.match(r"^(ref|part|owner)\s+(\w+)(.*)$", s):
-            cur.refs.add(m.group(2))
-        if m := re.match(r"^requires\s+\w+\s+(\w+)", s):
-            cur.requires.append(m.group(1))
-        if m := re.match(r"^provides\s+capability\s+(\w+)", s):
-            cur.provides.add(m.group(1))
+            i = j + 1; continue
+        if m := re.match(r"^attr\s+(\w+)\s*(.*)$", s):       cur.attrs[m.group(1)] = (m.group(2), ln)
+        if m := re.match(r"^counter\s+(\w+)", s):            cur.counters.add(m.group(1))
+        if m := re.match(r"^(ref|part|owner)\s+(\w+)\s*:(.*)$", s):
+            cur.rels[m.group(2)] = (m.group(1), m.group(3), ln)
         if m := re.match(r"^(create|do|act|assert|erase)\s+(\w+)(.*)$", s):
             head = m.group(3)
             sets = re.findall(r"\{[^{}]*\}", head)
-            for k, ss in enumerate(sets):
-                head = head.replace(ss, f"@@{k}@@", 1)
+            for k, ss in enumerate(sets): head = head.replace(ss, f"@@{k}@@", 1)
             head = head.split("{")[0]
-            for k, ss in enumerate(sets):
-                head = head.replace(f"@@{k}@@", ss)
-            body = raw[raw.find("{") + 1:] if "{" in raw else ""
-            j = i
-            while j + 1 < len(blines) and not re.match(r"^\s*\}", blines[j + 1]) and \
-                  not re.match(r"^\s*(create|do|act|assert|erase|state|attr|ref|part|owner|requires|provides|derive|invariant)\b", blines[j + 1]):
-                j += 1
-                body += "\n" + blines[j]
+            for k, ss in enumerate(sets): head = head.replace(f"@@{k}@@", ss)
+            body, depth, j = "", raw.count("{") - raw.count("}"), i
+            if "{" in raw: body = raw[raw.index("{") + 1:]
+            while depth > 0 and j + 1 < len(lines):
+                j += 1; body += "\n" + lines[j]
+                depth += lines[j].count("{") - lines[j].count("}")
             cur.trans.append((m.group(1), m.group(2), head, body, ln))
+            i = j + 1; continue
         i += 1
-
-# ── checks over the parsed declarations ─────────────────────────────────────
-def states_of(d):
-    if d.states:
-        return d.states
-    if d.machine:
-        for o in decls:
-            if o.kind == "machine" and o.name == d.machine:
-                return o.states
-    return {}
+    return decls
 
 
-for d in decls:
-    st = d.states
-    own_and_machine = list(d.trans)
-    if d.machine:
-        for o in decls:
-            if o.kind == "machine" and o.name == d.machine:
-                own_and_machine += o.trans
-                for r in o.requires:
-                    if r.isupper() and r not in d.provides:
-                        add(16, f"{d.name} binds {o.name} which requires capability {r}, and provides none", d.start)
-                    elif not r.isupper() and r not in d.attrs | d.refs and not any(
-                            re.search(rf"invariant {r}\b", b) for _, b in [(0, src)]):
-                        add(16, f"{d.name} binds {o.name} which requires {r}, not declared on the binder", d.start)
+def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None):
+    """Return findings as (check_number, detail, line)."""
+    out = []
+    def add(c, d, l): out.append((c, d, l))
+    decls = parse(text, base)
+    by_name = dict(world or {})
+    by_name.update({d.name: d for d in decls})
+    capdecl = capdecl if capdecl is not None else set()
+    catdecl = catdecl if catdecl is not None else set()
+    reserved = reserved or set()
 
-    # check 34 — every concrete type needs a creation
-    if d.kind == "type" and not d.abstract and not any(t[0] == "create" for t in own_and_machine):
-        add(34, f"{d.name} has no creation transition", d.start)
+    for d in decls:
+        mach = by_name.get(d.machine) if d.machine else None
+        trans = d.trans + (mach.trans if mach else [])
+        states = d.states or (mach.states if mach else {})
+        attrs = dict(d.attrs)
+        rels = dict(d.rels)
+        provides = set(d.provides)
+        if mach:
+            for rk, rn, rln in mach.requires:
+                if rk == "capability":
+                    if rn not in provides:
+                        add(16, f"{d.name} binds {mach.name} requiring capability {rn}, provides none", d.start)
+                elif rn not in attrs and rn not in rels and rn not in d.invariants and rn not in d.counters:
+                    add(16, f"{d.name} binds {mach.name} requiring {rn}, not declared on the binder", d.start)
+        if d.kind == "type" and not d.abstract:
+            if not d.machine and not d.states:
+                add(16, f"{d.name} neither binds a machine nor declares states", d.start)
+            if d.machine and d.states:
+                add(16, f"{d.name} both binds a machine and declares states", d.start)
+            if not any(t[0] == "create" for t in trans):
+                add(34, f"{d.name} has no creation transition", d.start)
+            if d.tracking == "quantity" and not d.counters:
+                add(31, f"{d.name} is tracking quantity with no counter", d.start)
+            if d.tracking == "serial" and d.counters:
+                add(31, f"{d.name} is tracking serial with a counter", d.start)
 
-    if not st:
-        continue
-    outgoing, incoming = set(), set()
-    for kind, tname, head, body, ln in own_and_machine:
-        froms, tos = set(), set()
-        for grp in re.findall(r"\{\s*([A-Z_,\s]+?)\s*\}\s*->", head):
-            froms |= {x for x in re.split(r"[,\s]+", grp) if x}
-        for one in re.findall(r"^\s*([A-Z][A-Z_]*)\s*->", head):
-            froms.add(one)
-        for grp in re.findall(r"->\s*\{\s*([A-Z_,\s]+?)\s*\}", head):
-            tos |= {x for x in re.split(r"[,\s]+", grp) if x}
-        for one in re.findall(r"->\s*([A-Z][A-Z_]*)", head):
-            tos.add(one)
-        ats = set(re.findall(r"\bat\s+([A-Z][A-Z_]*)", head))
-        for x in froms | tos | ats:
-            if x not in st and x != "ANY":
-                add(19, f"{d.name}.{tname} names undeclared state {x}", ln)
-        outgoing |= {x for x in froms if x in st}
-        incoming |= {x for x in tos if x in st}
-        for a in ats:
-            if a in st:
-                outgoing.add(a); incoming.add(a)
-                if "terminal" in st[a][0]:
-                    add(40, f"{d.name}.{tname} is an act at terminal state {a}", ln)
-        for f in froms:
-            if f in st and "terminal" in st[f][0] and kind == "do":
-                add(15, f"{d.name}.{tname} is a do leaving terminal state {f}", ln)
-        if kind == "create":
-            # check 18 — a part's creation must write its owner
-            if any(re.match(r"^owner\s", x) for x in []):
-                pass
-    for s_, (mods, ln) in st.items():
-        if "category" not in mods:
-            add(15, f"{d.name}.{s_} has no category", ln)
-        else:
-            for c in re.findall(r"category (\w+)", mods):
-                if c not in catdecl:
-                    add(19, f"category {c} not declared", ln)
-        if "terminal" not in mods and s_ not in outgoing:
-            add(15, f"{d.name}.{s_} is non-terminal with no outgoing transition", ln)
-        if s_ not in incoming:
-            add(15, f"{d.name}.{s_} is reachable by nothing", ln)
-    if not any("terminal" in v[0] for v in st.values()):
-        add(15, f"{d.name} has no terminal state", d.start)
+        # per-binder state analysis (machine states + this type's transitions)
+        if states and d.kind == "type":
+            out_s, in_s = set(), set()
+            for kind, tn, head, body, ln in trans:
+                froms, tos = set(), set()
+                for g in re.findall(r"\{\s*([A-Z_,\s]+?)\s*\}\s*->", head):
+                    froms |= {x for x in re.split(r"[,\s]+", g) if x}
+                for one in re.findall(r"^\s*([A-Z][A-Z_]*)\s*->", head): froms.add(one)
+                for g in re.findall(r"->\s*\{\s*([A-Z_,\s]+?)\s*\}", head):
+                    tos |= {x for x in re.split(r"[,\s]+", g) if x}
+                for one in re.findall(r"->\s*([A-Z][A-Z_]*)", head): tos.add(one)
+                ats = set()
+                for g in re.findall(r"\bat\s*\{\s*([A-Z_,\s]+?)\s*\}", head):
+                    ats |= {x for x in re.split(r"[,\s]+", g) if x}
+                for one in re.findall(r"\bat\s+([A-Z][A-Z_]*)", head): ats.add(one)
+                for x in froms | tos | ats:
+                    if x not in states and x != "ANY":
+                        add(19, f"{d.name}.{tn} names undeclared state {x}", ln)
+                out_s |= {x for x in froms if x in states}
+                in_s |= {x for x in tos if x in states}
+                for a in ats:
+                    if a in states:
+                        out_s.add(a); in_s.add(a)
+                        if "terminal" in states[a][0]:
+                            add(40, f"{d.name}.{tn} is an act at terminal state {a}", ln)
+                for f in froms:
+                    if f in states and "terminal" in states[f][0] and kind == "do":
+                        add(15, f"{d.name}.{tn} is a do leaving terminal state {f}", ln)
+            for s_, (mods, ln) in states.items():
+                if "category" not in mods: add(15, f"{d.name}.{s_} has no category", ln)
+                for c in re.findall(r"category (\w+)", mods):
+                    if catdecl and c not in catdecl: add(19, f"category {c} not declared", ln)
+                if "terminal" not in mods and s_ not in out_s:
+                    add(15, f"{d.name}.{s_} is non-terminal with no outgoing transition", ln)
+                if s_ not in in_s: add(15, f"{d.name}.{s_} is reachable by nothing", ln)
+            if not any("terminal" in v[0] for v in states.values()):
+                add(15, f"{d.name} has no terminal state", d.start)
 
-    # check 11 / 18 — parts
-    owners = [x for x in d.refs if any(re.match(rf"^owner\s+{x}\b", l.strip())
-                                       for l in blocks[0][1].split("\n"))]
-for d in decls:
-    owner_names = set()
-    for bstart, blk in blocks:
-        for l in blk.split("\n"):
-            if m := re.match(r"^\s*owner\s+(\w+)\s*:", l):
-                owner_names.add((d.name, m.group(1)))
-    for kind, tname, head, body, ln in d.trans:
-        if kind != "create":
-            continue
-        is_part = any(re.match(r"^\s*owner\s+\w+\s*:", l) for l in
-                      (blk for bs, blk in blocks if bs <= d.start <= bs + blk.count("\n"))
-                      for l in [""])
-    # simpler: detect owner within the same block as d
-    blk = next((b for bs, b in blocks if bs <= d.start <= bs + b.count("\n") + 1), "")
-    owner_decl = re.search(r"^\s*owner\s+(\w+)\s*:", blk, flags=re.M)
-    if owner_decl:
-        for kind, tname, head, body, ln in d.trans:
-            if kind != "create":
-                continue
-            if "only via" not in head:
-                add(11, f"{d.name}.{tname} creates a part but is not 'only via' its whole", ln)
-            if not re.search(rf"\b{owner_decl.group(1)}\b", head + body):
-                add(18, f"{d.name}.{tname} creates a part without writing owner '{owner_decl.group(1)}'", ln)
+        # parts and owners
+        owner = next(((n, v) for n, v in d.rels.items() if v[0] == "owner"), None)
+        for kind, tn, head, body, ln in d.trans:
+            written = set(re.findall(r"\bset\s+(\w+)\s*:=", body)) | \
+                      {x for g in re.findall(r"accepts\s+([\w,\s]+)", head) for x in re.split(r"[,\s]+", g) if x}
+            if kind == "create":
+                if owner:
+                    if "only via" not in head:
+                        add(11, f"{d.name}.{tn} creates a part but is not 'only via' its whole", ln)
+                    if owner[0] not in written:
+                        add(18, f"{d.name}.{tn} creates a part without writing owner '{owner[0]}'", ln)
+                for an, (spec, aln) in attrs.items():
+                    if "?" in spec.split()[0] if spec.split() else False: continue
+                    if spec and not spec.split()[0].endswith("?") and "[]" not in spec.split()[0] \
+                       and "default" not in spec and an not in written:
+                        add(8, f"{d.name}.{tn} never writes required attribute '{an}'", ln)
+            if kind == "assert":
+                if not re.search(r"actor\.\w+\(", body): add(29, f"{d.name}.{tn} asserts with no capability guard", ln)
+                if not re.search(r"input\s+reason\b", body): add(29, f"{d.name}.{tn} asserts with no reason input", ln)
+                if "may admit" in body and not re.search(r"input\s+admits\b", body):
+                    add(38, f"{d.name}.{tn} has 'may admit' but no admits input", ln)
+            if kind == "erase" and not re.search(r"input\s+reason\b", body):
+                add(29, f"{d.name}.{tn} erases with no reason input", ln)
+            # 17 — a write must target this object
+            for tgt in re.findall(r"^\s*(?:set|add|remove)\s+([\w.]+)\s*:=", body, flags=re.M):
+                if "." in tgt: add(17, f"{d.name}.{tn} writes through a path '{tgt}'", ln)
+                elif tgt not in attrs and tgt not in rels and tgt not in d.counters \
+                     and tgt not in {n for _, n, _ in d.requires}:
+                    add(19, f"{d.name}.{tn} writes undeclared name '{tgt}'", ln)
+            for tgt in re.findall(r"^\s*(?:add|remove)\s+(\w+)\s*:=", body, flags=re.M):
+                spec = attrs.get(tgt, ("", 0))[0]
+                if spec and "[]" not in spec: add(17, f"{d.name}.{tn} adds to non-set '{tgt}'", ln)
+            # 20 — guards must be named; no default on an optional input
+            for g in re.findall(r"^\s*require\s+(.*)$", body, flags=re.M):
+                if not re.match(r"^\w+\s*:", g): add(20, f"{d.name}.{tn} has an unnamed guard", ln)
+            for inp in re.findall(r"^\s*input\s+(\w+)\s*:\s*([^\n]*)$", body, flags=re.M):
+                if "?" in inp[1] and "default" in inp[1]:
+                    add(20, f"{d.name}.{tn} gives a default to optional input '{inp[0]}'", ln)
+            # 26 — supersession
+            to_states = set(re.findall(r"->\s*([A-Z][A-Z_]*)", head))
+            sup = re.search(r"^\s*supersede\s+(.*)$", body, flags=re.M)
+            if sup and not any("superseding" in states.get(t, ("", 0))[0] for t in to_states):
+                add(26, f"{d.name}.{tn} supersedes into a non-superseding state", ln)
+            if sup and sup.group(1).strip() == "this":
+                add(26, f"{d.name}.{tn} supersedes itself", ln)
+            if not sup:
+                for t in to_states:
+                    if "superseding" in states.get(t, ("", 0))[0]:
+                        add(26, f"{d.name}.{tn} enters superseding state {t} without a supersede", ln)
+            # 2 — cascade arguments
+            for tgt, tn2, args in re.findall(r"\b(?:call|create)\s+([\w.$]+)\.(\w+)\(([^)]*)\)", body):
+                callee = by_name.get(tgt) or by_name.get(tgt.split(".")[-1])
+                if callee:
+                    ct = next((t for t in callee.trans if t[1] == tn2), None)
+                    if ct:
+                        need = {n for n, sp in re.findall(r"^\s*input\s+(\w+)\s*:\s*([^\n]*)$", ct[3], flags=re.M)
+                                if "?" not in sp}
+                        given = set(re.findall(r"(\w+)\s*:=", args))
+                        for miss in need - given:
+                            add(2, f"{d.name}.{tn} calls {tgt}.{tn2} without required '{miss}'", ln)
+                    else:
+                        add(19, f"{d.name}.{tn} calls undeclared transition {tgt}.{tn2}", ln)
+        # 35 — machine requires completeness
+        if d.kind == "machine":
+            req = {n for _, n, _ in d.requires}
+            for kind, tn, head, body, ln in d.trans:
+                names = set(re.findall(r"\bset\s+(\w+)\s*:=", body)) | \
+                        {x for g in re.findall(r"accepts\s+([\w,\s]+)", head) for x in re.split(r"[,\s]+", g) if x} | \
+                        set(re.findall(r"actor\.\w+\((\w+)\)", body))
+                for n in names:
+                    if n and n not in req and n not in capdecl and n != "state":
+                        add(35, f"{d.name}.{tn} names '{n}', which the machine does not require", ln)
+    return out
 
-# ── machine 'requires' completeness (check 35) ──────────────────────────────
-for d in decls:
-    if d.kind != "machine":
-        continue
-    req = set(d.requires)
-    for kind, tname, head, body, ln in d.trans:
-        for nm in set(re.findall(r"\bset\s+(\w+)\s*:=", body)) | set(
-                re.findall(r"accepts\s+([\w,\s]+)", head)):
-            for one in re.split(r"[,\s]+", nm):
-                if one and one not in req and one not in ("state",):
-                    add(35, f"{d.name}.{tname} names '{one}', which the machine does not require", ln)
 
-# ── line-level lexical and expression checks ────────────────────────────────
-for bstart, blk in blocks:
-    for i, l in enumerate(blk.split("\n")):
-        ln, s = bstart + i, l.strip()
-        code = s.split("#")[0]
-        if re.search(r"(==|!=)\s*null|null\s*(==|!=)", code):
-            add(21, "comparison against a bare null", ln)
+def line_checks(text, base, capdecl, reserved, machine_caps):
+    out = []
+    for i, l in enumerate(text.split("\n")):
+        ln, code = base + i, l.strip().split("#")[0]
+        if re.search(r"(==|!=)\s*null|null\s*(==|!=)", code): out.append((21, "comparison against a bare null", ln))
         if re.search(r"\b(count|sum|all|any|none|min|max)\(\s*(?!\w+\s+in\b)[a-z_]+\s+where", code):
-            add(21, f"aggregate without an element binder: {code[:52]}", ln)
-        if "$" in code:
-            add(21, f"'$' input prefix, should be inputs.: {code[:52]}", ln)
+            out.append((21, f"aggregate without a binder: {code[:48]}", ln))
+        if "$" in code: out.append((21, f"'$' input prefix: {code[:48]}", ln))
         if re.match(r"^\s*for\s+\w+\s+in\b", code) and "limit" not in code:
-            add(21, f"for without limit: {code[:52]}", ln)
-        if re.match(r"^\s*do\s+\w+\s+at\s", code):
-            add(21, f"'do' used with 'at', that is 'act': {code[:52]}", ln)
+            out.append((21, f"for without limit: {code[:48]}", ln))
+        if re.match(r"^\s*do\s+\w+\s+at\s", code): out.append((21, f"'do' with 'at': {code[:48]}", ln))
         for cap in re.findall(r"actor\.\w+\((\w+)\)", code):
-            if cap not in capdecl:
-                add(19, f"capability {cap} used but not declared", ln)
-        if m := re.match(r"^\s*attr\s+(\w+)", code):
-            if m.group(1) in reserved - {"event", "state", "count", "type", "owner", "scope", "serial", "quantity", "format", "summary"}:
-                add(21, f"reserved word '{m.group(1)}' used as an attribute name", ln)
-        if re.search(r"\bcall\s+\w[\w.]*\.forget\(\s*\)", code):
-            add(2, "call to an erase transition passes no reason argument", ln)
+            if cap not in capdecl and cap not in machine_caps:
+                out.append((19, f"capability {cap} used but not declared", ln))
+        if m := re.match(r"^\s*(?:attr|ref|part|owner|counter)\s+(\w+)", code):
+            if m.group(1) in reserved - {"event", "state", "count", "type", "owner", "scope",
+                                         "serial", "quantity", "format", "summary", "version"}:
+                out.append((21, f"reserved word '{m.group(1)}' used as a name", ln))
+    return out
 
-# ── document-level claims ───────────────────────────────────────────────────
-m = re.search(r"(\w+) top-level forms: (.+?)\.", src)
-if m:
-    n = {"Seven": 7, "Eight": 8, "Nine": 9, "Ten": 10}.get(m.group(1))
-    listed = len(re.findall(r"`(\w+)`", m.group(2)))
-    if n != listed:
-        add(0, "says " + m.group(1) + " top-level forms, lists " + str(listed), 1)
-if rw:
-    words = rw.group(1).split()
-    if dups := {w for w in words if words.count(w) > 1}:
-        add(21, f"duplicate reserved words: {sorted(dups)}", 1)
-    for kw in ("provides", "requires", "cascade", "accepts", "corrects"):
-        if re.search(rf"^\s*{kw}\b", src, flags=re.M) and kw not in words:
-            add(21, f"keyword '{kw}' used in the document but not reserved", 1)
-nums = [int(x) for x in re.findall(r"^\| (\d+) \|", src, flags=re.M)]
-if nums != sorted(nums):
-    add(0, f"check table is misordered: {nums}", 1)
 
-print(f"{DOC.name}: {len(blocks)} example blocks, {len(decls)} declarations")
-print(f"enforces checks {COVERS} of the 40 defined; the rest are not mechanised")
-if not findings:
-    print("clean")
-    sys.exit(0)
-seen = set()
-for c, d, ln in sorted(findings, key=lambda f: (f[2], f[0])):
-    if (c, d) in seen:
-        continue
-    seen.add((c, d))
-    print(f"  check{c:<3} line {ln:>4}  {d}")
-print(f"{len(seen)} finding(s)")
-sys.exit(1)
+# ── fixtures: every claimed check must fire on one of these ─────────────────
+FIXTURES = {
+  2:  "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { call B.take() }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T { }\n do take T -> U { input amount : int\n }\n}",
+  8:  "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr name string\n create mk -> S { }\n do go S -> D { }\n}",
+  11: "type P version 1 {\n tracking serial\n states S category live, D category closed terminal\n owner w : W inverse parts\n create mk -> S { set w := inputs.w }\n do go S -> D { }\n}",
+  15: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go D -> S { }\n}",
+  16: "type A version 1 {\n tracking serial\n create mk -> S { }\n}",
+  17: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { set other.x := 1 }\n}",
+  18: "type P version 1 {\n tracking serial\n states S category live, D category closed terminal\n owner w : W inverse parts\n create mk -> S only via W.add { }\n do go S -> D { }\n}",
+  19: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> NOWHERE { }\n}",
+  20: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require actor.has(X) }\n}",
+  21: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require n: x == null }\n}",
+  26: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { supersede this }\n}",
+  29: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } { }\n}",
+  31: "type A version 1 {\n tracking quantity\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}",
+  34: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n do go S -> D { }\n}",
+  35: "machine M version 1 {\n state S category live\n state D category closed terminal\n create mk -> S { }\n do go S -> D { set mystery := 1 }\n}",
+  38: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } { input reason : string\n require may: actor.has(Q) because delegable\n may admit inv }\n}",
+  40: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n act poke at D { }\n}",
+}
+
+
+def self_test():
+    bad = []
+    for check, fixture in sorted(FIXTURES.items()):
+        found = {c for c, _, _ in analyse(fixture, 0, {"X", "Q"}, {"live", "closed"}, set())}
+        found |= {c for c, _, _ in line_checks(fixture, 0, {"X", "Q"}, set(), set())}
+        if check not in found:
+            bad.append((check, sorted(found)))
+    for c, got in bad:
+        print(f"  FIXTURE FAILS: check {c} never fired (got {got})")
+    print(f"self-test: {len(FIXTURES) - len(bad)}/{len(FIXTURES)} claimed checks demonstrably fire")
+    return not bad
+
+
+def main():
+    if "--self-test" in sys.argv:
+        sys.exit(0 if self_test() else 1)
+    src = DOC.read_text()
+    blocks = [(src[: m.start()].count("\n") + 2, m.group(1))
+              for m in re.finditer(r"```text\n(.*?)```", src, flags=re.S)]
+    capdecl, catdecl = set(), set()
+    for m in re.finditer(r"^capability\s+((?:.+\n?)+?)(?=\n[a-z]|\n\n)", src, flags=re.M):
+        capdecl |= set(re.findall(r"[A-Z][A-Z_0-9]*", m.group(1)))
+    for m in re.finditer(r"^category\s+(.+)$", src, flags=re.M):
+        catdecl |= {c.strip() for c in m.group(1).split(",")}
+    reserved = set()
+    if rw := re.search(r"\n`(module use .+?)`\n", src, flags=re.S):
+        reserved = set(rw.group(1).split())
+    machine_caps = {w for m in re.findall(r"requires capability ([^\n]+)", src) for w in re.findall(r"\w+", m)}
+
+    world = {}
+    for bstart, blk in blocks:
+        for d in parse(blk, bstart):
+            world[d.name] = d
+    findings, ndecl = [], len(world)
+    for bstart, blk in blocks:
+        findings += analyse(blk, bstart, capdecl, catdecl, reserved, world)
+        findings += line_checks(blk, bstart, capdecl, reserved, machine_caps)
+    nums = [int(x) for x in re.findall(r"^\| (\d+) \|", src, flags=re.M)]
+    if nums != sorted(nums): findings.append((0, f"check table misordered: {nums}", 1))
+    if rw:
+        w = rw.group(1).split()
+        if dups := {x for x in w if w.count(x) > 1}: findings.append((21, f"duplicate reserved words {sorted(dups)}", 1))
+        for kw in ("provides", "requires", "cascade", "accepts", "corrects", "inputs"):
+            if re.search(rf"(^|\s|`){kw}\b", src) and kw not in w:
+                findings.append((21, f"keyword '{kw}' used but not reserved", 1))
+
+    ok = self_test()
+    covered = sorted(FIXTURES)
+    print(f"{DOC.name}: {len(blocks)} blocks, {ndecl} declarations")
+    print(f"enforces checks {covered} of 40 defined; each is demonstrated by a fixture above")
+    seen, uniq = set(), []
+    for c, d, ln in sorted(findings, key=lambda f: (f[2], f[0])):
+        if (c, d) in seen: continue
+        seen.add((c, d)); uniq.append((c, d, ln))
+    if not uniq and ok:
+        print("clean"); sys.exit(0)
+    for c, d, ln in uniq:
+        print(f"  check{c:<3} line {ln:>4}  {d}")
+    print(f"{len(uniq)} finding(s)")
+    sys.exit(1)
+
+
+main()

@@ -59,3 +59,4 @@
 | [0055](0055-local-invariants-and-set-writes.md) | A third invariant form for single-object properties, and outcome steps that add to and remove from a set | Accepted (repair D48-D49, review pending) |
 | [0056](0056-model-amendments-found-by-writing-the-syntax.md) | Ten model amendments found by writing the declaration syntax | Accepted (repair D50-D59, review pending) |
 | [0057](0057-changed-since-reaches-parts.md) | `changed_since` may name a part relationship, so an approval is invalidated by an edit to a part | Accepted (repair D60, review pending) |
+| [0058](0058-composition-lifetime-and-re-parenting.md) | Every terminal transition disposes of its parts; re-parenting is checked against both wholes | Accepted (repair D61-D62, review pending) |

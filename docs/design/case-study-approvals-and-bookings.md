@@ -20,7 +20,7 @@ Every earlier case had a single actor per transition. Approval is the case where
 | N-of-M | `>= N` |
 | All of a set | one guard per required `kind` |
 | Sequential chain (manager, then finance) | the finance `approve` action is guarded on a valid manager approval existing |
-| Threshold (director above an amount) | `amount > 10000 → any(a in approvals where a.kind == DIRECTOR and …)` (ADR-0032) |
+| Threshold (director above an amount) | `amount > 10000 implies any(a in approvals where a.kind == DIRECTOR and …)` (ADR-0032) |
 | Approval invalidated by a material edit | the same guard, through `changed_since`: an approval older than the last change to the declared relevant attributes does not count (ADR-0035) |
 | Withdraw request | an ordinary transition by the requester |
 | Approval expires; escalate after N days | queried by filtering the stored `approval.at` against the supplied time, since a `now`-dependent derived attribute is not itself indexable (ADR-0048); escalation is a scheduler asking the availability query (ADR-0022) |
@@ -42,7 +42,7 @@ PurchaseRequest: DRAFT → SUBMITTED → APPROVED → ORDERED | REJECTED | WITHD
       none(a in approvals where a.approver == actor.id
                             and not changed_since([amount, vendor], a.event))
                                                                            [delegable]
-      inputs.kind == DIRECTOR → actor.has(APPROVE_DIRECTOR)                [delegable]
+      inputs.kind == DIRECTOR implies actor.has(APPROVE_DIRECTOR)                [delegable]
     outcome:
       create Approval.record(approver  := actor.id,
                              principal := actor.principal,
@@ -56,7 +56,7 @@ PurchaseRequest: DRAFT → SUBMITTED → APPROVED → ORDERED | REJECTED | WITHD
       any(a in approvals where a.kind == MANAGER and a.decision == APPROVED
                            and not changed_since([amount, vendor], a.event))
                                                                            [delegable]
-      amount > 10000 → any(a in approvals where a.kind == DIRECTOR
+      amount > 10000 implies any(a in approvals where a.kind == DIRECTOR
                                             and a.decision == APPROVED
                                             and not changed_since([amount, vendor], a.event))
                                                                            [delegable]

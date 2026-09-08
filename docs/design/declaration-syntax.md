@@ -1,6 +1,6 @@
 # The declaration syntax
 
-Status: **draft, iteration 7** (2026-09-08). The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
+Status: **draft, iteration 8** (2026-09-08). The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
 
 Two goals shape every choice, and where they conflict the second wins.
 
@@ -85,7 +85,7 @@ Nine top-level forms: `module`, `use`, `capability`, `category`, `enum`, `sequen
 type Robot version 3 {
   tracking serial
   machine  UnitLifecycle
-  provides capability EDIT = INVENTORY_CREATE
+  provides capability EDIT = INVENTORY_CREATE, RETIRE = INVENTORY_RETIRE, ASSERT = INVENTORY_ASSERT
   summary  serial, model, state
 
   attr serial string identifier from unit_serial scoped by model
@@ -100,14 +100,18 @@ type Robot version 3 {
   ref  engagement_lines : EngagementLine[] inverse unit
 
   derive leasable = state == DEVELOPMENT
-                and none(l in engagement_lines where l.engagement.state != CLOSED)
+                and none(l in engagement_lines where l.engagement.state != Engagement.CLOSED)
 
   invariant one_open_engagement:
-            count(l in engagement_lines where l.engagement.state != CLOSED) <= 1
+            count(l in engagement_lines where l.engagement.state != Engagement.CLOSED) <= 1
 }
 ```
 
 **`tracking`** is `serial` or `quantity` and is mandatory. Neither is a default, because inferring it from an incidental property is the implicit rule the model rejects by name.
+
+A type body's clauses appear in one order: `tracking`, `machine` or `states`, `provides`, `summary`, `visible when`, then attributes, relationships, derivations, invariants, and last the transitions.
+
+`extends` inherits every attribute, relationship, derivation and invariant of the base, and nothing else: a machine is always bound explicitly, and transitions are never inherited.
 
 ### 2.1 Every type has an explicit lifecycle
 
@@ -118,6 +122,21 @@ A type either **binds** a shared machine or **declares one inline** with `states
 Reachability, name scoping and the terminal-state rule are checked **per binder**, over the machine's transitions plus that type's own.
 
 ```text
+machine ApprovalFlow version 1 {
+  requires capability EDIT
+
+  state DRAFT     category live
+  state SUBMITTED category live
+  state APPROVED  category closed terminal
+  state REJECTED  category closed terminal
+
+  do submit DRAFT -> SUBMITTED { require may: actor.has(EDIT) because delegable }
+  do reject SUBMITTED -> REJECTED { require may: actor.has(EDIT) because delegable }
+  do approve SUBMITTED -> APPROVED proposable {
+    require may: actor.has(EDIT) because delegable
+  }
+}
+
 type ExpenseClaim version 1 {
   tracking serial
   machine  ApprovalFlow
@@ -194,8 +213,42 @@ References are `ref`, `part` or `owner`, never an attribute type. Inputs may be 
 
 ```text
 ref   <name> : <Type>[?|[]] [inverse <name>] [marking …]
-part  <name> : <Type>[?|[]] inverse <name> cascade on <transition> to <Type>.<transition> limit <n>
+part  <name> : <Type>[?|[]] inverse <name>
+      { cascade on <transition> to <Type>.<transition> limit <n> }…
 owner <name> : <Type>       inverse <name>
+```
+
+```text
+type Delivery version 1 {
+  tracking serial
+  states   PREPARATION category live, DELIVERED category closed terminal,
+           CANCELLED category closed terminal
+
+  part checklist_items : ChecklistItem[] inverse delivery
+       cascade on cancel to ChecklistItem.delete limit 500
+       cascade on complete to ChecklistItem.delete limit 500
+
+  attr approved_total money(SGD)?
+
+  create open -> PREPARATION { require may: actor.has(DELIVERY_EDIT) because delegable }
+  act add_checklist_item at PREPARATION {
+    require may: actor.has(DELIVERY_EDIT) because delegable
+  }
+  do complete PREPARATION -> DELIVERED {
+    require settled: none(c in checklist_items where not c.checked) because dependent
+    require may: actor.has(DELIVERY_COMPLETE) because delegable
+  }
+  do cancel PREPARATION -> CANCELLED { require may: actor.has(DELIVERY_EDIT) because delegable }
+}
+```
+
+Every terminal transition of the whole must be covered by a `cascade on` clause, or the part is orphaned under a closed whole; publishing checks it (ADR-0058).
+
+A guard invalidated by a change to a part reads the part relationship by name:
+
+```text
+require fresh: not changed_since([approved_total, checklist_items], a.event)
+               because delegable
 ```
 
 `part` and `owner` are the two ends of a composition: exclusive membership, lifetime bounded by the whole, re-parentable by writing the `owner`. **`cascade on <transition> to <Type>.<transition>` names which of the whole's transitions drives the cascade and which part transition it drives, with a bound.** A whole with several terminal transitions says which one cascades; iteration 4 named the target and the bound but not the trigger, so a type with both a reject and a withdraw had no answer. A cascade clause **counts as a call site** for the purposes of an `only via` list.
@@ -220,7 +273,7 @@ machine UnitLifecycle version 2 {
   requires ref  binding : DeliveryItem?
   requires attr retirement_reason RetirementReason?
   requires invariant one_open_engagement
-  requires capability EDIT
+  requires capability EDIT, RETIRE, ASSERT
 
   state REQUESTED   category inbound
   state PROCUREMENT category inbound
@@ -233,10 +286,10 @@ machine UnitLifecycle version 2 {
   state CANCELLED   category closed terminal
 
   create request -> REQUESTED accepts model {
-    require may: actor.has(INVENTORY_CREATE) because delegable
+    require may: actor.has(EDIT) because delegable
   }
-  do ship    REQUESTED   -> PROCUREMENT { require may: actor.has(INVENTORY_CREATE) because delegable }
-  do receive PROCUREMENT -> INTAKE      { require may: actor.has(INVENTORY_CREATE) because delegable }
+  do ship    REQUESTED   -> PROCUREMENT { require may: actor.has(EDIT) because delegable }
+  do receive PROCUREMENT -> INTAKE      { require may: actor.has(EDIT) because delegable }
 
   do inventorize INTAKE -> AVAILABLE {
     require labelled: label_printed_at is not null           because unreachable_from_here
@@ -253,19 +306,19 @@ machine UnitLifecycle version 2 {
 
   do sell RESERVED -> SOLD only via Delivery.complete_sale { }
   do accept_return SOLD -> AVAILABLE {
-    require may: actor.has(INVENTORY_RETIRE) because delegable
+    require may: actor.has(RETIRE) because delegable
   }
   do deliver_internal RESERVED -> DEVELOPMENT only via Delivery.complete_internal { }
 
   do retire DEVELOPMENT -> RETIRED accepts retirement_reason {
-    require may: actor.has(INVENTORY_RETIRE) because delegable
+    require may: actor.has(RETIRE) because delegable
   }
   do cancel { REQUESTED, PROCUREMENT, INTAKE } -> CANCELLED {
-    require may: actor.has(INVENTORY_RETIRE) because delegable
+    require may: actor.has(EDIT) because delegable
   }
 
   act record_label_print at INTAKE {
-    require may: actor.has(INVENTORY_CREATE) because delegable
+    require may: actor.has(EDIT) because delegable
     set label_printed_at := now
   }
 
@@ -273,7 +326,7 @@ machine UnitLifecycle version 2 {
     input to : state
     input reason : string
     input admits : invariant[]?
-    require may: actor.has(INVENTORY_ASSERT) because delegable
+    require may: actor.has(ASSERT) because delegable
     may admit one_open_engagement
   }
 }
@@ -496,7 +549,9 @@ A `quantity` type declares at least one `counter`. A `derive` may be `indexed` w
 
 ## 8. Expressions and types
 
-The expression language is DESIGN.md §5.7. Its types are the attribute types of §3.1, plus **references** (an object of a named type, carrying `.id` and its declared members), **`state`** (a member of one machine's state set, carrying `.category`), **`invariant`** (a name declared on a type), and **`verdict`**. The checker types every expression:
+The expression language is DESIGN.md §5.7. Its types are the attribute types of §3.1, plus **references** (an object of a named type, carrying `.id` and its declared members), **`state`** (a member of one machine's state set, carrying `.category`), **`invariant`** (a name declared on a type), and **`verdict`**. Two further rules the examples already rely on. Every reference carries **`.id`**, of an opaque identity type comparable only with another `.id`. **`actor`** has the shape of §5.8's descriptor: `.id` of that same type, `.kind` of a fixed enum, `.principal`, and `.has(<capability>)` yielding `bool`. A **state literal of another type** is written `<Type>.<STATE>`, since a bare name would be ambiguous across machines.
+
+The checker types every expression:
 
 - `+` and `-` take two operands of one type: `int`, `decimal` of one scale, `money` of one currency, or `timestamp - timestamp` yielding a `duration`; `timestamp ± duration` yields a `timestamp`;
 - `*` and `/` are **scalar**: `int` or `decimal` on one side, and `int`, `decimal`, `money` or `duration` on the other, yielding the non-scalar type. `money * money` is an error, as is `duration * duration`;
@@ -514,7 +569,7 @@ Precedence, highest first: paths and calls; unary `not`; `* /`; `+ -`; compariso
 
 **Reserved words** may not be used as names:
 
-`module use capability category enum sequence evaluator machine type version tracking serial quantity states state abstract requires provides attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because eager deferred set add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh string bool int decimal money timestamp duration event file verdict`
+`module use capability category enum sequence evaluator machine type version inputs tracking serial quantity states state abstract requires provides attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because eager deferred set add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh string bool int decimal money timestamp duration event file verdict`
 
 `min` and `h` and `days` are duration units only after a numeric literal, which is the one position the aggregate `min` cannot occupy.
 
