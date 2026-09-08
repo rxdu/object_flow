@@ -39,7 +39,7 @@ Order.place: [*] → PLACED                            a creation transition
           address  (string)
   guards:
     inputs.cart.state == ACTIVE                                            [dependent]
-    count(l in inputs.cart.lines) > 0                                      [self-serviceable]
+    count(l in inputs.cart.lines) > 0                                      [self_serviceable]
     actor.id == inputs.cart.owner or actor.has(ORDER_CREATE_ANY)           [delegable]
   outcome:
     customer := inputs.customer

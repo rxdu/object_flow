@@ -54,7 +54,7 @@ Bug.resolve: IN_PROGRESS → DONE
     actor.id == assignee.id or actor.has(ISSUE_RESOLVE_ANY)                [delegable]
     none(t in subtasks where t.state.category != done)                     [dependent]
     none(b in blocked_by where b.state.category != done)                   [dependent]
-    inputs.resolution == FIXED → inputs.fix_version is not null            [self-serviceable]
+    inputs.resolution == FIXED → inputs.fix_version is not null            [self_serviceable]
   outcome:
     state       := DONE
     resolution  := inputs.resolution

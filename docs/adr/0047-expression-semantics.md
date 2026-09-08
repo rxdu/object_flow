@@ -40,7 +40,7 @@ The anti-drift property that ADR-0005 and ADR-0010 rest on is preserved by a che
 
 ### 7. Remedy classes are declared per clause
 
-A guard clause declares its remedy class. Where the shape is unambiguous the class may be omitted and is inferred: a comparison against `now` is `temporal`, a comparison against an input is `self-serviceable`, an aggregate over another type is `dependent`, an `actor.*` test is `delegable`. Publishing warns where a class is omitted and the shape is ambiguous. A failing conjunction reports the first failing clause and its class.
+A guard clause declares its remedy class. Where the shape is unambiguous the class may be omitted and is inferred: a comparison against `now` is `temporal`, a comparison against an input is `self_serviceable`, an aggregate over another type is `dependent`, an `actor.*` test is `delegable`. Publishing warns where a class is omitted and the shape is ambiguous. A failing conjunction reports the first failing clause and its class.
 
 ### 8. Derived attributes must be acyclic
 
@@ -51,7 +51,7 @@ The dependency graph among derived attributes is checked at publish and a cycle 
 - **Two-valued logic with null as a value.** Rejected: it is what makes erasure defeat exclusionary guards, and it makes `x != null` a way of asking two different questions.
 - **Division by zero as a verdict.** Rejected: expressions must compose. A verdict is what a *request* yields, not what a subexpression yields.
 - **Deriving input schemas from guards.** Rejected as undecidable in general; see 6. The elegance was real and the mechanism was not.
-- **Inferring remedy classes entirely.** Rejected: `end_date <= now` is `temporal` when the date is stored and `self-serviceable` when it is supplied, so shape alone cannot decide. Declaration with inference as a shortcut is honest.
+- **Inferring remedy classes entirely.** Rejected: `end_date <= now` is `temporal` when the date is stored and `self_serviceable` when it is supplied, so shape alone cannot decide. Declaration with inference as a shortcut is honest.
 
 ## Consequences
 

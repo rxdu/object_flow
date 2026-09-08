@@ -1,6 +1,6 @@
 # The declaration syntax
 
-Status: **draft, iteration 4** (2026-09-08). The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
+Status: **draft, iteration 5** (2026-09-08). The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
 
 Two goals shape every choice, and where they conflict the second wins.
 
@@ -9,26 +9,31 @@ Two goals shape every choice, and where they conflict the second wins.
 
 ## Iterations
 
-Three reviews have been run: two engineers building real systems in it, one auditing it against the model. What each changed.
+Five drafts, four review rounds: three engineers building real systems in it, one auditing it against the model. What each round changed.
 
-**Iteration 2** made machines optional, stopped a write from leaving the object being transitioned, unified references, named guards, and added twelve constructs the model needed and iteration 1 could not express.
+**2** made machines optional, stopped a write leaving the object being transitioned, unified references, named guards, and added twelve constructs the model needed and iteration 1 could not express.
 
-**Iteration 3** reversed two of those. `internal` had replaced the `only via` authority list and thereby deleted the guarantee it existed to make: with no declared list, every call site became an authorised parent by construction, so a new module could write `call unit.sell()` and grant itself the power to sell a unit with no delivery. And the implicit machine existed in the runtime but not in the file, so its state had no category, no terminal state and no creation transition. Iteration 3 also made inverses runtime-maintained, restored repeat-over-count, and closed an approval-forgery hole.
+**3** reversed two of those. `internal` had replaced the `only via` authority list and so deleted the guarantee it existed to make; and the implicit machine existed in the runtime but not the file, so its state had no category, no terminal state and no creation transition.
 
-**Iteration 4** fixes what the model audit found still wrong:
+**4** merged a model audit: a machine now says what it requires of a binding type, `tracking` is explicit again, deletion cascades name a transition and a bound, and `default` became sugar rather than an ungated write.
+
+**5** fixes what the model audit found still wrong, and the three things it said not to publish:
 
 | Problem | Change |
 |---|---|
-| A machine holds transitions; the invariants, attributes and markings they read live on the type. A shared machine could not say what it needs of a binder, so several checks were undecidable from a machine body | `requires` on a machine, verified against every binder (§4.1) |
-| `tracking quantity` as an opt-in made absence mean serial — the inference ADR-0050 rejects by name | `tracking` is explicit and mandatory (§2) |
-| Eager and deferred moved from the guard to the evaluator function, so two guards over one function could not differ | Back on the guard (§5.1) |
-| Deletion cascading into parts was asserted in prose: no step, no `limit`, no named transition, invisible to cycle detection | `cascade` on the `part` end (§3.2) |
-| `default` was a runtime write appearing in no outcome and no event, a new exception to the mediated property | Defined as sugar the checker expands into every creation's outcome (§3.1) |
-| Four independent version counters with no rule for which one an object records | An object records its **type**'s version; bumping a machine, enum or evaluator forces a bump in every binder (§1) |
-| Two things the model makes warnings were publish failures | Moved to the reported-not-failed list (§10) |
-| The conditional expression was missing, and `?` was already optionality | `if … then … else …` (§8) |
-| `final` and `internal` renamed the model's `terminal` and `only via` with no ADR | `terminal` restored; `only via` is the primary form and `internal` its unlisted variant (§4.2) |
-| Aggregates required a body the model's own examples omit | The body is optional for every boolean aggregate (§8) |
+| **Runtime-maintained inverses were a second write path.** Writing one end wrote the far object with an event carrying no transition name, unfilterable by any subscription, and stamped its last-written index so binding a unit invalidated approvals on the delivery | **One end is stored; the inverse is a derived view over it** (§3.3, ADR-0056). Nothing to maintain, one write, one event |
+| **`internal` re-opened the guarantee** iteration 3 closed, defended only by a report of derived parents | Dropped. `only via` is the sole form (§4.2) |
+| **An optional input with a `default` is never unsupplied**, so the skip rule could never fire and a partial edit cleared the field | `default` is not allowed on an optional input (§5.1) |
+| `proposable` was reserved, forbidden and checked, but had no position in any grammar line | Given one (§4.2) |
+| A guard calling an evaluator yields `verdict`, and §8 required `bool` | Both are admitted (§8) |
+| `timestamp - timestamp` and `days` were used by the model and untypeable here | Added (§8) |
+| `changed_since`, on which every approval guard rests, had no grammar | Added (§8) |
+| Remedy class names contain hyphens, which lex as subtraction | Renamed to `self_serviceable` and `unreachable_from_here` throughout the record |
+| An abstract base type was unwritable, though the model permits one | `abstract` (§2.1) |
+| `count` named both a stock attribute and the aggregate | The attribute is `counter`, matching the model's own word |
+| `$name` diverged from the model's `inputs.*`, used at fifty sites | `inputs.` restored |
+| `removed attr` was required for every dropped attribute, though the model says removal merely hides | Required only for a rename (§6.6) |
+| The §7 example failed four of its own checks | Rewritten and mechanically verified (§7) |
 
 ## 1. Shape of a file
 
@@ -51,9 +56,9 @@ type      Robot version 3 { … }
 
 Nine top-level forms: `module`, `use`, `capability`, `category`, `enum`, `sequence`, `evaluator`, `machine`, `type`.
 
-**`capability` and `category` declare vocabularies**, because both are otherwise bare identifiers a typo turns into silence: a mistyped capability is a guard nobody can satisfy, a mistyped category a family-wide guard that never matches.
+**`capability` and `category` declare vocabularies.** Both are otherwise bare identifiers a typo turns into silence: a mistyped capability is a guard nobody can satisfy, a mistyped category a family-wide guard that never matches. The declaration is a spell-check, not a promise: capabilities are opaque strings the consumer's authentication produces, and nothing here can verify it produces these.
 
-**Versions.** Every named declaration carries one. An object and an event record the version of their **type**. Because a type's behaviour depends on the machine, enums and evaluators it uses, advancing any of those requires advancing every type that binds them, which the checker enforces; otherwise a type's recorded version would not identify the rules that applied.
+**Versions.** Every named declaration carries one. An object and an event record the version of their **type**, and advancing a machine, enum, sequence, evaluator or base type requires advancing every dependent type, which publishing enforces. Otherwise a recorded version would not identify the rules that applied.
 
 ## 2. Types
 
@@ -82,11 +87,11 @@ type Robot version 3 {
 }
 ```
 
-**`tracking`** is `serial` or `quantity`, and is mandatory. Neither is a default, because inferring it from an incidental property is the implicit rule the model rejects by name.
+**`tracking`** is `serial` or `quantity` and is mandatory. Neither is a default, because inferring it from an incidental property is the implicit rule the model rejects by name.
 
 ### 2.1 Every type has an explicit lifecycle
 
-A type either **binds** a shared machine or **declares one inline** with `states`. Exactly one of the two, never neither:
+A type either **binds** a shared machine or **declares one inline** with `states`, which declares a machine named after the type. Exactly one of the two, unless the type is `abstract`, which has no objects and so needs no lifecycle.
 
 ```text
 type ChecklistItem version 1 {
@@ -108,15 +113,13 @@ type ChecklistItem version 1 {
 }
 ```
 
-Iteration 2 gave such a type an implicit machine, which saved a line and cost far more: no category, so a delete guard reading `state.category` over referrers was undecidable; no terminal state; no way to write its creation; no cascade target for the whole's deletion; and no migration path when it later needed a real lifecycle. Promotion is now moving the `states` line and the transitions into a `machine` block and binding it.
-
 ## 3. Attributes and references
 
 ### 3.1 Attributes
 
 ```text
-attr  <name> <type>[?] [marking …]
-count <name>                         # a non-negative integer of stock, quantity types only
+attr    <name> <type>[?] [marking …]
+counter <name>                        # a non-negative integer of stock, quantity types only
 ```
 
 `?` means the value may be absent. Without it the value must be present whenever the object exists, checked at creation and at every write.
@@ -127,32 +130,36 @@ count <name>                         # a non-negative integer of stock, quantity
 | enum, event, file | `RetirementReason`, `event`, `file` |
 | set | append `[]` |
 
-References are always `ref`, `part` or `owner`, never an attribute type.
+References are `ref`, `part` or `owner`, never an attribute type. Inputs may be reference-typed.
 
 | Marking | Meaning |
 |---|---|
 | `identifier from <seq> [scoped by <ref>] format "<pattern>"` | Minted at creation before the outcome runs. A scope may name only a reference the creation writes |
-| `unique` / `unique in scope` / `unique where <expr>` | A uniqueness invariant: global, per the identifier's sequence scope, or partial. **`identifier` does not imply it**, and a scoped sequence repeats across scopes |
+| `unique` / `unique in scope` / `unique where <expr>` | Sugar for a uniqueness invariant: global, per the sequence's scope, or partial. **`identifier` does not imply it**, since a scoped sequence repeats across scopes |
 | `external "<source>"` | Owned by another system; uniqueness per source is automatic and partial over absent values |
 | `personal` | Subject to erasure. A required attribute may not be `personal`, since erasure writes absence |
 | `indexed` | Available to query filters, type-scan predicates and visibility |
-| `default <expr>` | **Sugar.** The checker expands it into a `set` at the head of every creation that does not write the attribute, so it appears in the rule set and in the creation's event like any other write. There is no ungated write |
+| `default <expr>` | Sugar the checker expands into a `set` at the head of every creation that does not write the attribute, so it appears in the rule set and in the event like any other write |
 
 ### 3.2 References and composition
 
 ```text
 ref   <name> : <Type>[?|[]] [inverse <name>] [marking …]
-part  <name> : <Type>[]     inverse <name> cascade <Type>.<transition> limit <n>
+part  <name> : <Type>[?|[]] inverse <name> cascade <Type>.<transition> limit <n>
 owner <name> : <Type>       inverse <name>
 ```
 
-`part` and `owner` are the two ends of a composition: exclusive membership, lifetime bounded by the whole, and re-parentable by writing the `owner`. **`cascade` names the part transition the whole's deletion drives, and its bound**, because iteration 3 asserted that cascade in prose with no step, no limit, no named transition, and nothing for the cycle check to see.
+`part` and `owner` are the two ends of a composition: exclusive membership, lifetime bounded by the whole, re-parentable by writing the `owner`. **`cascade` names the part transition the whole's deletion drives, and its bound.**
 
-A reference may omit `inverse`, which only means no back-reference is named for traversal. It remains visible to `referrers` and to the deletion guard.
+A reference may omit `inverse`, which only means no back-reference is named. It remains visible to `referrers` and to the deletion guard.
 
-### 3.3 Inverses are maintained by the runtime
+### 3.3 One end is stored; the inverse is derived
 
-When both ends are declared, writing either updates the other in the same transaction, recording an event on both. An author never writes the companion update, which iteration 2 required and which made the release path a cascade cycle the checker rejects.
+A relationship is stored on **one** end. Its declared `inverse` is a derived view over that stored reference, resolved by the store as a query.
+
+So `Robot.binding` is stored and `DeliveryItem.unit` reads "the robot whose binding is this". Writing `set binding := inputs.slot` is one write with one event, and the far object's view changes because what it reads changed, not because anything wrote to it.
+
+Iteration 3 had the runtime write both ends. That was a second write path: the far event carried no transition name, so no subscription could filter it, `changes_state` was undefined for it, and it stamped the far object's last-written index, so binding a unit invalidated every approval on the delivery. Iteration 2's alternative — a transition per direction — cost the authority twice and made the release path a cascade cycle the checker rejects.
 
 ## 4. Machines and transitions
 
@@ -180,16 +187,16 @@ machine UnitLifecycle version 2 {
   do receive PROCUREMENT -> INTAKE      { require may: actor.has(INVENTORY_CREATE) because delegable }
 
   do inventorize INTAKE -> AVAILABLE {
-    require labelled: label_printed_at is not null            because unreachable-from-here
+    require labelled: label_printed_at is not null           because unreachable_from_here
     require photo:    model.label_photo_required
-                      implies count(p in photos) >= 1         because unreachable-from-here
+                      implies count(p in photos) >= 1        because unreachable_from_here
   }
 
   do reserve AVAILABLE -> RESERVED only via Delivery.bind_slot {
     input slot : DeliveryItem
-    require matches:  $slot.model == model  because dependent
-    require unfilled: $slot.unit is null    because dependent
-    set binding := $slot
+    require matches:  inputs.slot.model == model  because dependent
+    require unfilled: inputs.slot.unit is null    because dependent
+    set binding := inputs.slot
   }
 
   do sell RESERVED -> SOLD only via Delivery.complete_sale { }
@@ -219,24 +226,9 @@ machine UnitLifecycle version 2 {
 
 ### 4.1 `requires`
 
-A machine states what a binding type must provide: the attributes, references and invariants its transitions and admissions name. The checker verifies every binder supplies them, with compatible types.
+A machine states what a binding type must provide: the attributes, references and invariants its transitions and admissions name. Publishing verifies every binder supplies them with compatible types. Without it a shared machine reads names that live on the type, so a second binder had to coincidentally declare the same ones.
 
-Without it a shared machine reads names that live on the type, so a second binder had to coincidentally declare the same ones, and a check like "an admission naming an invariant the type declares" was undecidable from the machine body.
-
-### 4.2 `only via` and `internal`
-
-```text
-do sell RESERVED -> SOLD only via Delivery.complete_sale, Lease.convert { }
-do note_seen at ACTIVE internal { … }
-```
-
-`only via` makes a transition unrequestable and **names the transitions that may cascade to it**. The checker verifies the list against the call sites it derives: a `call` from a transition not named is a publish error, and a name that never calls it is a publish error too.
-
-`internal` is the same unrequestability with no list, for a transition whose authority does not matter. The checker prints the derived parents.
-
-Iteration 2 offered only `internal`, which deleted the guarantee: with no declared list, every call site became an authorised parent by construction, so a new module could grant itself the power to sell a unit with no delivery, and no publish could refuse it. Checking a declared list against a derived one costs nothing to maintain when it is right.
-
-Neither carries actor guards, since the parent's authority is theirs; writing one is a publish error rather than a guard silently dropped. Neither may be `proposable`, since an unrequestable transition can never yield the verdict that makes a proposal meaningful.
+### 4.2 Transition kinds and markings
 
 | Keyword | From | To |
 |---|---|---|
@@ -245,6 +237,19 @@ Neither carries actor guards, since the parent's authority is theirs; writing on
 | `act` | `at` a state, a set, or `any` | the same state |
 | `assert` | `any` | an input drawn from a declared set (§6.3) |
 | `erase` | any state, terminal included | the same state |
+
+Markings follow the states and precede the body:
+
+```text
+do   sell RESERVED -> SOLD only via Delivery.complete_sale, Lease.convert { }
+do   approve SUBMITTED -> APPROVED proposable { … }
+```
+
+**`only via`** makes a transition unrequestable and names the transitions that may cascade to it. Publishing verifies the list against the call sites it derives: a `call` from a transition not named is an error, and a name that never calls it is an error too.
+
+Iteration 2 offered an unlisted variant instead, and iteration 4 kept it. Both deleted the guarantee: with no declared list, every call site becomes an authorised parent by construction, so a new module could write `call unit.sell()` and grant itself the power to sell a unit with no delivery, and no publish could refuse it. There is now no unlisted form. A transition either states who may cause it, or anyone may request it.
+
+An `only via` transition carries no actor guards, since the parent's authority is its authority; writing one is a publish error rather than a guard silently dropped. It may not be `proposable`, since an unrequestable transition can never yield the verdict that makes a proposal meaningful.
 
 `terminal` means no `do` may leave the state.
 
@@ -255,14 +260,17 @@ Clauses appear in one order: `input`, `accepts`, `require`, then the outcome.
 ### 5.1 Inputs and guards
 
 ```text
-input   <name> : <type>[?] [default <expr>]
+input   <name> : <type>[?]
+input   <name> : <type> default <expr>
 accepts <attribute>, …
 require <name>: <expression> [eager|deferred] [because <remedy class>]
 ```
 
-**`accepts`** declares that these attributes are supplied by the caller and written directly. `accepts comment` is exactly `input comment : <the attribute's type>` plus `set comment := $comment`, optionality included. It removes the input–argument–write triplication that made recording one approval eighteen lines.
+**A `default` may not be given for an optional input.** An optional input carrying a default is never unsupplied, so the skip rule below could never fire for it, and a partial edit would clear the field it meant to leave alone.
 
-**Guard names are always required**, because a verdict carries the failing clause's name, and that name should not appear or change shape when someone adds a second guard. A rename is then visibly a change to the type's public surface.
+**`accepts`** declares that these attributes are supplied by the caller and written directly. `accepts comment` is exactly `input comment : <the attribute's type>` plus `set comment := inputs.comment`, optionality included. It is available on `create`, `do` and `act`.
+
+**Guard names are always required.** A verdict carries the failing clause's name, and that name should not appear or change shape when someone adds a second guard.
 
 **`eager` or `deferred`** marks a guard that calls an external evaluator, not the evaluator itself, so two guards over one function may differ. Omitted, a guard is eager.
 
@@ -281,11 +289,11 @@ for    <name> in <collection> [where <expr>] limit <n> { … }
 for    <name> in 1..<expression> limit <n> { … }
 ```
 
-**Every write stays on `this`**, and its target may be an attribute or a relationship end; writing an `owner` is how a part is re-parented, which is what makes splitting an object expressible. Reaching another object is `call`, which runs its transition, evaluates its guards and records an event on it.
+**Every write stays on `this`**, and its target may be an attribute or a stored relationship end; writing an `owner` re-parents a part, which is what makes splitting an object expressible. Reaching another object is `call`, which runs its transition, evaluates its guards and records an event on it.
 
 A path may be rooted at `this`, a relationship, a loop binder or an input.
 
-**Optional inputs.** A step or argument whose expression is *exactly* an unsupplied optional input is skipped. Any larger expression containing one is a publish error, so `set amount := $amount` and `set amount := $amount + 0` cannot be confused. A skipped write does not stamp the attribute's last-written index, so a no-op edit does not invalidate an approval.
+**Optional inputs.** A step or argument whose expression is *exactly* an unsupplied optional input is skipped. Any larger expression containing one is a publish error, so `set amount := inputs.amount` and `set amount := inputs.amount + 0` cannot be confused. A skipped write does not stamp the attribute's last-written index, so a no-op edit does not invalidate an approval.
 
 `limit` is mandatory on every loop and bounds the whole request rather than each loop.
 
@@ -298,11 +306,11 @@ state MERGED category closed terminal superseding
 
 do merged_into ACTIVE -> MERGED only via Contact.merge_in {
   input successor : Contact
-  supersede $successor
+  supersede inputs.successor
 }
 ```
 
-The successor may be an input or a name bound by an earlier `create`. A type may declare `ref supersedes : <Type>? inverse superseded_by` to navigate the other way. Self-supersession and cycles are publish errors.
+The successor may be an input or a name bound by an earlier `create`. Self-supersession and cycles are publish errors.
 
 ### 6.2 External evaluators
 
@@ -313,14 +321,9 @@ evaluator xero version 1 {
 }
 ```
 
-A function declares its argument types and how stale a verdict may be. Every evaluator returns a verdict, so no return type is written. A verdict too stale to use is refused as `temporal` whatever the guard declares.
+A function declares its argument types and how stale a verdict may be. Every evaluator returns a verdict, so no return type is written, and a guard may be a `verdict` as well as a `bool`. A verdict too stale to use is refused as `temporal` whatever the guard declares.
 
 ### 6.3 Assertions and admissions
-
-```text
-input admits : invariant[]?
-may admit one_open_engagement, serial_unique
-```
 
 `may admit` lists the invariants an assertion is *permitted* to violate; the `admits` input carries the ones a particular request actually admits, so an admission names an object and an invariant rather than blanket-admitting on every use. An assertion must declare a capability guard and a `reason` input.
 
@@ -337,15 +340,13 @@ act correct_delivery_date at any {
   input value  : timestamp
   input reason : string
   corrects date
-  set date := $value
+  set date := inputs.value
 }
 ```
 
-An `erase` transition erases every `personal` attribute of its object, runs from **any** state including a terminal one, since erasure requests arrive for closed accounts, and may cascade into parts. A type with `personal` attributes and no `erase` is a publish error, as is a `personal` attribute that is required.
+An `erase` transition erases every `personal` attribute of its object, runs from **any** state including a terminal one, since erasure requests arrive for closed accounts, and may cascade into parts. Declaring one is optional. `corrects <attribute>, …` produces the `corrected` provenance; the outcome must write exactly the attributes named, and a `reason` input is required.
 
-`corrects <attribute>, …` produces the `corrected` provenance; the checker requires the outcome to write exactly the attributes named.
-
-### 6.5 Deletion guards and `referrers`
+### 6.5 Deletion guards
 
 ```text
 do delete ACTIVE -> DELETED {
@@ -360,10 +361,10 @@ do delete ACTIVE -> DELETED {
 
 ```text
 removed state LEGACY_HOLD -> AVAILABLE
-removed attr  old_name    -> new_name
+renamed attr  old_name    -> new_name
 ```
 
-A publish that drops a state or an attribute carries the mapping in the file that drops it. A rename is a removal plus an addition with a mapping.
+A publish that drops a state carries its mapping. A dropped attribute merely hides, its recorded values staying in history, so only a rename needs one.
 
 ### 6.7 `this_event`, visibility, extension
 
@@ -371,6 +372,7 @@ A publish that drops a state or an attribute carries the mapping in the file tha
 
 ```text
 visible when actor.has(DEAL_VIEW_ALL) or owner.id == actor.id
+type Bug version 1 abstract { … }
 type BugInPlatform extends Bug version 1 { machine PlatformWorkflow  … }
 ```
 
@@ -379,18 +381,31 @@ type BugInPlatform extends Bug version 1 { machine PlatformWorkflow  … }
 ```text
 type Stock version 1 {
   tracking quantity
-  states   ACTIVE category live
+  states   ACTIVE category live, CLOSED category closed terminal
 
-  ref   model : ProductModel inverse stock indexed
-  count on_hand
-  count reserved
+  ref     model : ProductModel inverse stock indexed
+  counter on_hand  indexed
+  counter reserved indexed
 
   derive available = on_hand - reserved indexed
   invariant reserved_bounded: reserved >= 0 and reserved <= on_hand
+
+  create open -> ACTIVE accepts model {
+    require may: actor.has(INVENTORY_CREATE) because delegable
+  }
+  do reserve at ACTIVE only via Order.place {
+    input qty : int
+    require enough: on_hand - reserved >= inputs.qty because dependent
+    set reserved := reserved + inputs.qty
+  }
+  do close ACTIVE -> CLOSED {
+    require empty: on_hand == 0 because dependent
+    require may:   actor.has(INVENTORY_RETIRE) because delegable
+  }
 }
 ```
 
-A `quantity` type declares at least one `count`. A `derive` may be `indexed` when it reads only stored indexed attributes of the same object and no clock, which is what makes a low-stock query possible.
+A `quantity` type declares at least one `counter`. A `derive` may be `indexed` when it reads only stored indexed attributes of the same object and no clock, which is what makes a low-stock query possible.
 
 `reserved_bounded` is a **local** invariant, reading only this object.
 
@@ -398,31 +413,32 @@ A `quantity` type declares at least one `count`. A `derive` may be `indexed` whe
 
 The expression language is DESIGN.md §5.7. Its types are the attribute types of §3.1 plus `verdict`, and the checker types every expression:
 
-- arithmetic is `int` with `int`, `decimal` with `decimal` of the same scale, `money` with `money` of the same currency, and `timestamp ± duration`;
+- arithmetic is `int` with `int`, `decimal` with `decimal` of the same scale, `money` with `money` of the same currency, `timestamp ± duration`, and `timestamp - timestamp` yielding a `duration`;
 - comparison needs both sides of one type; `is null` and `is not null` take anything and yield `bool`;
-- `and`, `or`, `not`, `implies` take and yield `bool`; a guard must be `bool`;
+- `and`, `or`, `not`, `implies` take and yield `bool`; a guard must be `bool` or `verdict`;
 - `count` yields `int`, `sum`/`min`/`max` the element type, `all`/`any`/`none` `bool`;
+- `changed_since(<attribute>, …, <event expression>)` yields `bool`, its attributes naming `this`;
 - `if <bool> then <a> else <b>` yields the common type of `a` and `b`, and is allowed only in a derived attribute.
 
-Aggregates are `agg(<name> in <collection> [where <filter>][: <body>])`. The body is required for `sum`, `min` and `max`, and optional for `count`, `all`, `any` and `none`, whose examples in the model omit it.
+Aggregates are `agg(<name> in <collection> [where <filter>][: <body>])`. The body is required for `sum`, `min` and `max`, and optional for `count`, `all`, `any` and `none`.
 
-Precedence, highest first: paths and calls; unary `not`; `* /`; `+ -`; comparison, `in`, `is null`; `and`; `or`; `implies`; `if`. A line continues while it ends in an operator or an open bracket. Literals: `30 min`, `2 h`, `USD 19.99`, `"text"`, `true`, `{A, B}`.
+Precedence, highest first: paths and calls; unary `not`; `* /`; `+ -`; comparison, `in`, `is null`; `and`; `or`; `implies`; `if`. A line continues while it ends in an operator or an open bracket. Literals: `30 min`, `2 h`, `14 days`, `USD 19.99`, `"text"`, `true`, `{A, B}`.
 
 ## 9. Lexical rules
 
 **Reserved words** may not be used as names:
 
-`module use capability category enum sequence evaluator machine type version tracking serial quantity states state requires attr count ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed only via internal proposable terminal superseding supersede input accepts require because eager deferred set add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none sum min max now actor this this_event referrers fn fresh string bool int decimal money timestamp duration event file verdict`
+`module use capability category enum sequence evaluator machine type version tracking serial quantity states state abstract requires attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because eager deferred set add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh string bool int decimal money timestamp duration event file verdict`
 
-Duration units `min` and `h` are reserved only after a numeric literal, which is the one place the aggregate `min` cannot appear.
+`min` and `h` and `days` are duration units only after a numeric literal, which is the one position the aggregate `min` cannot occupy.
 
-**Symbols.** `->` is a to-state, an assertable-state set, a removal mapping and an evaluator's absent return; it is never implication and never a reference type. `implies` is implication. `$name` is an input. `:=` assigns and binds an argument; `=` binds a created name and defines a derivation; `==` compares. `{a, b}` is a collection literal and `{ … }` a block; the two never occupy the same position. `:` ascribes a type and names a guard or invariant. `in` is a binder and membership, both meaning "element of".
+**Symbols.** `->` is a to-state, an assertable-state set and a migration mapping; never implication, never a reference type. `implies` is implication. `inputs.<name>` reads an input. `:=` assigns and binds an argument; `=` binds a created name and defines a derivation; `==` compares. `{a, b}` is a collection literal and `{ … }` a block; the two never occupy the same position. `:` ascribes a type and names a guard or invariant. `in` is a binder and membership, both meaning "element of".
 
-`summary`, `accepts`, `corrects`, `capability`, `category` and `changed_since` take bare comma-separated lists, not brace literals.
+`summary`, `accepts`, `corrects`, `capability`, `category` and `changed_since` take bare comma-separated lists.
 
 ## 10. What the checker verifies
 
-Each check names the file, line and declaration. Checks 22, 23 and 30 need the previously published declaration; the rest are decidable from the text.
+Each check names the file, line and declaration. Checks 22 and 23 need the previously published declaration, and the new-invariant scan and pending-proposal count in the publish report need the live objects; the rest are decidable from the text.
 
 | # | Check |
 |---|---|
@@ -434,39 +450,38 @@ Each check names the file, line and declaration. Checks 22, 23 and 30 need the p
 | 6 | A type-scan invariant that is not symmetric |
 | 7 | An invariant or type-scan guard reading an unindexed attribute |
 | 8 | A required attribute a creation never writes, one a later transition sets to absent, or one written only from an optional input |
-| 9 | A required attribute marked `personal`; a type with `personal` attributes and no `erase` |
+| 9 | A required attribute marked `personal` |
 | 10 | A personal value reaching a non-personal attribute by write, cascade argument or derivation |
 | 11 | A personal attribute declared as a required external identifier |
 | 12 | A cascade cycle across transitions, including `part … cascade` targets |
-| 13 | A `call` to an `only via` transition from a parent it does not name; a named parent that never calls it; an `only via` or `internal` transition nothing reaches |
-| 14 | An actor guard on an `only via` or `internal` transition; either marked `proposable` |
+| 13 | A `call` to an `only via` transition from a parent it does not name; a named parent that never calls it; an `only via` transition nothing reaches |
+| 14 | An actor guard on an `only via` transition; `only via` with `proposable` |
 | 15 | A non-terminal state with no outgoing transition; a state nothing can reach; a `do` leaving a `terminal` state; a machine with no `terminal` state; a state with no category |
-| 16 | A type that neither binds a machine nor declares `states`, or does both; a machine `requires` a binder does not satisfy |
-| 17 | A write whose target is not an attribute or relationship end of `this`; an `add` or `remove` on a target that is not set-valued |
+| 16 | A non-abstract type that neither binds a machine nor declares `states`, or does both; a machine `requires` a binder does not satisfy |
+| 17 | A write whose target is not an attribute or stored relationship end of `this`; an `add` or `remove` on a target that is not set-valued |
 | 18 | A `part`/`owner` pair disagreeing on name or cardinality; a `create` of a part that never writes its `owner`; a `part` whose `cascade` names a transition the child does not have |
 | 19 | A capability, category, state, attribute, enum member or evaluator function that is not declared |
-| 20 | An unnamed guard |
+| 20 | An unnamed guard; a `default` on an optional input |
 | 21 | A `for` without `limit`; a bare `null` in a comparison; an unbound aggregate; a reserved word as a name; `if` outside a derived attribute |
-| 22 | A version that did not advance while its content changed; a type binding a machine, enum or evaluator whose version advanced without its own |
-| 23 | A state or attribute removed with no `removed` mapping |
+| 22 | A version that did not advance while its content changed; a type whose machine, enum, sequence, evaluator or base type advanced without it |
+| 23 | A state removed, or an attribute renamed, with no mapping |
 | 24 | An expression that does not type |
 | 25 | An `event`-typed input receiving anything but `this_event` |
 | 26 | A `supersede` outside a `superseding` to-state, a `superseding` state entered without one, self-supersession or a cycle |
 | 27 | A `may admit` naming an invariant the binding type does not declare |
-| 28 | `corrects` naming attributes the outcome does not write, or the reverse |
+| 28 | `corrects` naming attributes the outcome does not write, or the reverse; a `corrects` with no `reason` input |
 | 29 | An `assert` with no capability guard or no `reason` input; an `erase` with no `reason` input |
 | 30 | A family member whose machine lacks a transition another member's cascade calls |
-| 31 | A `quantity` type with no `count`; a `count` on a `serial` type |
+| 31 | A `quantity` type with no `counter`; a `counter` on a `serial` type |
 | 32 | An invariant reading `now`, which no after-write check can enforce |
 | 33 | Duplicate transition, state, attribute or guard names within one scope |
 
-Reported without failing: a declared input nothing reads; a guard whose remedy class was inferred, and what was inferred; which invariants compile to a database constraint on this backend; which transitions are sweepable; which derived attributes are queryable; the derived parent list for each `internal` transition; and how many pending proposals a publish would invalidate.
+Reported without failing: a declared input nothing reads; a guard whose remedy class was inferred, and what was inferred; which invariants compile to a database constraint on this backend; which transitions are sweepable; which derived attributes are queryable; and how many pending proposals a publish would invalidate.
 
-## 11. Open questions for iteration 5
+## 11. Open questions
 
-1. Whether `accepts` should also be available on `do` and `act`, not only `create`.
-2. Whether `only via` should be mandatory on a transition entering a closed-category state, which is where authority matters most.
-3. Whether runtime-maintained inverses are surprising, given every other write is explicit.
-4. Whether `referrers` should be filterable by type.
-5. Whether `states` inline and `machine` shared should look more alike.
-6. Whether mandatory `limit` and mandatory guard names are worth their friction, both being deviations from the model that need an ADR either way.
+1. Whether `only via` should be mandatory on any transition entering a closed-category state, which is where authority matters most.
+2. Whether `referrers` should be filterable by type, so a deletion guard can treat one referencing type differently.
+3. Whether inline `states` and a shared `machine` should look more alike than they do.
+4. Whether mandatory `limit` and mandatory guard names are worth their friction; both are deviations the model should ratify or reject.
+5. Whether a derived inverse is fast enough without an index on the stored end, or whether declaring an inverse should imply one.

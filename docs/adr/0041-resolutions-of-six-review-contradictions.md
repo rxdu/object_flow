@@ -41,7 +41,7 @@ Since ADR-0039 makes serialisable isolation the default, compilation is now an *
 
 ### 6. A cascade that exceeds its declared fan-out cap gets its own verdict (D36)
 
-`self-serviceable` was wrong: it means satisfiable by a transition argument, and no argument makes a cascade smaller. A request exceeding a declared fan-out cap is refused with the verdict **`over-limit`**, naming the relationship and the cap.
+`self_serviceable` was wrong: it means satisfiable by a transition argument, and no argument makes a cascade smaller. A request exceeding a declared fan-out cap is refused with the verdict **`over-limit`**, naming the relationship and the cap.
 
 It is not a guard failure. Nothing about the object is wrong; the request is too large for the declaration's stated bound. The verdict taxonomy becomes: satisfied; unsatisfied with a remedy class; `stale`; `not found`; `not requestable`; `over-limit`.
 

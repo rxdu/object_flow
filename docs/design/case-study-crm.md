@@ -44,7 +44,7 @@ Contact.merge_in: ACTIVE → ACTIVE                        an action on the surv
           phone   (string, optional)
           company (reference Company, optional)
   guards:
-    inputs.loser != this                                                   [self-serviceable]
+    inputs.loser != this                                                   [self_serviceable]
     inputs.loser.state == ACTIVE                                           [dependent]
     actor.has(CONTACT_MERGE)                                               [delegable]
   outcome:

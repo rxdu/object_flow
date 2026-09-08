@@ -16,7 +16,7 @@ A transition may declare `only via` a list of parent transitions on other types.
 - carries **no actor guards of its own** — the parent's guards are its authority;
 - keeps its other guards, which are evaluated in the cascade like any other.
 
-A direct request for it is refused with the **`not requestable`** verdict, naming the parent transitions that lead to it (ADR-0041 fixed this; the ADR originally said remedy class `unreachable-from-here`).
+A direct request for it is refused with the **`not requestable`** verdict, naming the parent transitions that lead to it (ADR-0041 fixed this; the ADR originally said remedy class `unreachable_from_here`).
 
 ## Alternatives rejected
 

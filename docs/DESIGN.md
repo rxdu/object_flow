@@ -92,7 +92,7 @@ An attribute has a declared type: string, boolean, integer, decimal with scale, 
 
 Relationships are **composition**, meaning exclusive membership and a lifetime bounded by the whole, or **reference**, meaning everything else (ADR-0003). A composite's state is its own, gated by guards that read its parts and never derived from them (ADR-0004); "why is this stuck" is then answered by a `dependent` verdict naming the parts. A composition part may be re-parented by a transition that writes its owner, which is what makes splitting an object expressible (ADR-0046).
 
-References carry no attributes. A relation with labels, dates or a lifecycle of its own is a **link object**: a type with two references. Inverses may be declared, and guards, invariants and outcomes may traverse them.
+References carry no attributes. A relation with labels, dates or a lifecycle of its own is a **link object**: a type with two references. **One end of a relationship is stored and its declared inverse is a derived view over it** (ADR-0056), so there is only ever one write and one event; guards, invariants and outcomes traverse either direction. A composition declares the child transition its whole's deletion drives, and that cascade's bound.
 
 ### 5.4 State machines, transitions and outcomes
 
@@ -106,6 +106,7 @@ An **outcome** is an ordered sequence of steps (ADR-0046, ADR-0052):
   <attribute> := <expression>                        write on this object
   add    <attribute> := <expression>                 insert into a set-valued attribute
   remove <attribute> := <expression>                 delete from a set-valued attribute
+  supersede <expression>                             name this object's successor
   let <name> = create <Type>.<transition>(…)         create, bound for later steps
   <path>.<transition>(<input> := <expression>, …)    cascade, with inputs
   for <name> in <collection expression> [where …]:   iterate, binding the element
@@ -144,11 +145,11 @@ An unsatisfied verdict's **remedy class** tells a caller what to do next:
 
 | Remedy class | Meaning | Caller's next move |
 |---|---|---|
-| `self-serviceable` | Satisfiable by a transition argument | Supply it |
+| `self_serviceable` | Satisfiable by a transition argument | Supply it |
 | `delegable` | Another actor must act; may name a capability and, if proposable, offer a Proposal | Ask them, or propose |
 | `temporal` | Only time will satisfy it | Come back later |
 | `dependent` | Another object must change state; names it | Work on that first |
-| `unreachable-from-here` | Wrong state; another transition comes first | Take a different path |
+| `unreachable_from_here` | Wrong state; another transition comes first | Take a different path |
 
 Availability is therefore three-way for a listing: available, available-with-input naming what must be supplied, or blocked with a verdict.
 
@@ -173,12 +174,12 @@ One language serves guards, invariants, derived attributes, visibility predicate
 | Construct | Example |
 |---|---|
 | literals; attribute paths across relationships; `this`, `this_event`, `inputs.*`, `actor.*`, `now` | `binding.delivery.state`, `actor.has(DELIVERY_COMPLETE)` |
-| comparison, membership; boolean logic and implication | `reason in CancellationReason`, `required → count(p in photos) >= 1` |
+| comparison, membership; boolean logic and implication | `reason in CancellationReason`, `required implies count(p in photos) >= 1` |
 | `is null`, `is not null` — definite presence tests, never unknown | `s.unit is not null` |
 | `count`, `all`, `any`, `none`, `sum`, `min`, `max` over a relationship or a type, binding the element | `none(s in Service where s.unit == this and s.state != CANCELLED)`, `sum(l in lines: l.qty * l.unit_price)` |
 | arithmetic on numbers; durations, and `+ -` with timestamps | `on_hand - reserved >= inputs.qty`, `placed_at + 30 min <= now` |
 | `changed_since(attributes, event)` over the object's history | `not changed_since([amount, vendor], a.event)` |
-| conditional expression, in derived attributes only | `unit is null ? UNFILLED : FILLED` |
+| conditional expression, in derived attributes only | `if unit is null then UNFILLED else FILLED` |
 | a declared external evaluator | `xero.invoice_valid(order_id)` |
 
 Evaluation is **three-valued**: comparison with an absent value, and division by zero, yield unknown; unknown propagates; and a guard that evaluates to unknown **fails**, naming the clause. Presence is therefore tested with `is null` and `is not null`, and comparing against a bare `null` literal is a publish error (ADR-0053). Over an empty set, `count` and `sum` are zero, `all` and `none` are true, `any` is false, and `min` and `max` are unknown. `this` always means the object the expression is declared on and never rebinds, so every aggregate binds its element explicitly.
@@ -197,7 +198,7 @@ A type may declare a **visibility** predicate over actor and object; every read,
 
 A type may **extend** a base declaration for attributes, relationships, invariants and derived attributes; state machines are bound whole and never inherited piecemeal. A **family** is a base and everything extending it, and is a query target (ADR-0026).
 
-Declarations are **versioned**, and every object and event records the version in force (ADR-0027). Publishing is a designed operation with a report:
+Declarations are **versioned**, and every object and event records the version of its **type**. Because a type's behaviour depends on the machine, enums, sequences, evaluators and base types it uses, advancing any of those requires advancing every dependent type, which publishing enforces (ADR-0027, ADR-0056). A machine declares what it requires of its binders, and publishing verifies each one. Publishing is a designed operation with a report:
 
 - **additions apply forward**; a new guard bites at the next transition;
 - a **new invariant** is checked against live objects and every violation reported, then resolved by a mapping or admitted (§8);
@@ -271,7 +272,7 @@ Delivery is **at-least-once with idempotent handling**. Exactly-once *effect* co
 
 **Assertion** is the only way to set state without satisfying the type's guards, and it is declared, not ambient (ADR-0040). An asserting transition names the states it may assert; is addressed by name with the target state as a constrained input, so §5.4's by-name rule holds; carries its own guards, at minimum a capability and a mandatory reason; and records what it stepped over. A type that declares none cannot be repaired this way at all. Invariants are not bypassed by default: an assertion marked `may_admit` accepts an explicit list of the invariants it knowingly violates, and each **admission** names an object and an invariant, suppresses that invariant's check for that object, and is discharged automatically when the invariant holds again (ADR-0054). Import and declaration migration use a **built-in** assertion gated on a deployment capability, so no type is unimportable by omission.
 
-**Erasure** replaces the values of declared personal attributes with absence, on the object and in every event that carried them, deletes referenced file content, keeps the event skeleton, records that it happened, and is irreversible (ADR-0031). The marker is absence rather than a sentinel, so it collides with no unique constraint and reads as unknown in the expression language, which makes a guard over an erased value fail rather than pass (ADR-0051). It is the one place the log is rewritten, and it is not deletion.
+**Erasure** replaces the values of declared personal attributes with absence, on the object and in every event that carried them, deletes referenced file content, keeps the event skeleton, records that it happened, and is irreversible (ADR-0031). It runs from any state, terminal included, since erasure requests arrive for closed accounts; it is the one carve-out from the rule that a deleted object admits no further transitions (ADR-0056). The marker is absence rather than a sentinel, so it collides with no unique constraint and reads as unknown in the expression language, which makes a guard over an erased value fail rather than pass (ADR-0051). It is the one place the log is rewritten, and it is not deletion.
 
 ## 9. Built-in types
 

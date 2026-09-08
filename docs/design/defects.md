@@ -61,6 +61,16 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D47](#d47) | Superseded rules restated as current across the record | **resolved by the coherence pass** |
 | [D48](#d48) | Single-object invariants are rejected by the model | **resolved by ADR-0055** |
 | [D49](#d49) | A set-valued attribute can only be replaced wholly | **resolved by ADR-0055** |
+| [D50](#d50) | Runtime-maintained inverses were a second write path | **resolved by ADR-0056** |
+| [D51](#d51) | `supersede` was missing from the outcome grammar | **resolved by ADR-0056** |
+| [D52](#d52) | A composition's delete cascade had no declaration site | **resolved by ADR-0056** |
+| [D53](#d53) | Versions did not propagate from a machine to its binders | **resolved by ADR-0056** |
+| [D54](#d54) | A machine could not state what it requires of a binding type | **resolved by ADR-0056** |
+| [D55](#d55) | A deletion guard had to hand-enumerate every referencing type | **resolved by ADR-0056** |
+| [D56](#d56) | Erasure could not run on a deleted object | **resolved by ADR-0056** |
+| [D57](#d57) | The conditional `? :` collided with `?` as optionality | **resolved by ADR-0056** |
+| [D58](#d58) | Implication `→` collided with the to-state arrow in ASCII | **resolved by ADR-0056** |
+| [D59](#d59) | Remedy class names contain hyphens, which lex as subtraction | **resolved by ADR-0056** |
 
 ---
 
@@ -393,3 +403,57 @@ Both were invisible while the model was described in prose, and became obvious t
 **A set-valued attribute can only be replaced wholly.** The outcome grammar had one write step, `attribute := expression`, and the expression language has no set operators by design. So attaching an intake photo, adding a watcher or adding a typed link cannot be written. Replacing the whole set makes a concurrent second attachment silently discard the first, which is the lost update the design's concurrency work exists to prevent.
 
 **Resolved by ADR-0055.** `add` and `remove` outcome steps, read-modify-write like any other write, with no set algebra added to the expression language.
+
+---
+
+## Found by writing the declaration syntax, rounds 2 to 5
+
+### D50
+**Runtime-maintained inverses were a second write path.** Iteration 3 of the syntax had the runtime write both ends of a declared relationship. The far object's event carried no transition name, so no subscription could filter it, `changes_state` was undefined for it, and it stamped the far object's last-written index, so binding a unit invalidated every approval on the delivery. Only one end is now stored; the inverse is a derived view.
+
+**Resolved by ADR-0056.**
+
+### D51
+**`supersede` was missing from the outcome grammar.** DESIGN.md §5.4 listed the outcome steps without it, while §8 required supersession and ADR-0028 defined it as an outcome operation.
+
+**Resolved by ADR-0056.**
+
+### D52
+**A composition's delete cascade had no declaration site.** "Parts cascade" was asserted in the model and declared nowhere, so the cascade named no transition, carried no bound, and was invisible to the acyclicity check.
+
+**Resolved by ADR-0056.**
+
+### D53
+**Versions did not propagate from a machine to its binders.** An object records its type's version, but a type's behaviour depends on the machine, enums, sequences, evaluators and base types it uses. A recorded version that did not move when those moved identified nothing.
+
+**Resolved by ADR-0056.**
+
+### D54
+**A machine could not state what it requires of a binding type.** Transitions live in a machine; the attributes, references and invariants they read live on the type. With two types binding one machine, nothing said what the second must provide, and checks over a machine body were undecidable.
+
+**Resolved by ADR-0056.**
+
+### D55
+**A deletion guard had to hand-enumerate every referencing type.** In other modules, forever, which is the cascade failure the deletion rule exists to prevent reintroduced as a maintenance burden. `referrers` replaces it and reaches references with no declared inverse, which previously escaped the guard entirely.
+
+**Resolved by ADR-0056.**
+
+### D56
+**Erasure could not run on a deleted object.** A deleted object admits no further transitions, and erasure requests arrive precisely for closed accounts and retired units. Erasure is now the one carve-out.
+
+**Resolved by ADR-0056.**
+
+### D57
+**The conditional `? :` collided with `?` as optionality.** Two meanings for one symbol in a language whose lexical section exists to prevent them.
+
+**Resolved by ADR-0056.**
+
+### D58
+**Implication `→` collided with the to-state arrow in ASCII.** And cannot be typed. `implies` replaces it.
+
+**Resolved by ADR-0056.**
+
+### D59
+**Remedy class names contain hyphens, which lex as subtraction.** `because unreachable-from-here` lexed as three identifiers and two subtractions. Renamed to single tokens and swept across seventeen sites.
+
+**Resolved by ADR-0056.**

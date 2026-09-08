@@ -51,20 +51,20 @@ Terminal states: `RETIRED`, `CANCELLED`. Every transition is named and requested
 
 | Transition | Guard | Reads | Remedy class on failure |
 |---|---|---|---|
-| `inventorize` INTAKE → AVAILABLE | `label_printed_at is not null` | own attribute | `unreachable-from-here` — do `record_label_print` |
-| | `model.manufacturer_serial_required → manufacturer_serial is not null` | own + referenced model | `unreachable-from-here` |
-| | `model.label_photo_required → count(p in photos) >= 1` | own + model | `unreachable-from-here` |
-| `reserve(slot)` AVAILABLE → RESERVED | `slot.model == model` | input + referenced | `self-serviceable` — choose another slot |
+| `inventorize` INTAKE → AVAILABLE | `label_printed_at is not null` | own attribute | `unreachable_from_here` — do `record_label_print` |
+| | `model.manufacturer_serial_required → manufacturer_serial is not null` | own + referenced model | `unreachable_from_here` |
+| | `model.label_photo_required → count(p in photos) >= 1` | own + model | `unreachable_from_here` |
+| `reserve(slot)` AVAILABLE → RESERVED | `slot.model == model` | input + referenced | `self_serviceable` — choose another slot |
 | | `slot.unit is null` | input | `dependent` |
 | | `slot.delivery.state == PREPARATION` | referenced | `dependent` |
 | | `actor.has(DELIVERY_EDIT)` | actor | `delegable` |
 | `retire(reason)` DEVELOPMENT → RETIRED | `actor.role == ADMIN` | actor | `delegable` |
-| | `reason is not null` | input | `self-serviceable` |
+| | `reason is not null` | input | `self_serviceable` |
 | `sell` RESERVED → SOLD | *only via* `Delivery.complete_sale` | — | not requestable |
 | `convert_lease` DEVELOPMENT → SOLD | *only via* `Lease.convert` | — | not requestable |
 | `revert_intake` AVAILABLE → INTAKE | `binding is null or binding.delivery.state == PREPARATION` | referenced | `dependent` |
 | | `none(s in Service where s.unit == this and s.state != CANCELLED)` | collection over a type | `dependent` |
-| `cancel(reason)` | `reason in CancellationReason` | input | `self-serviceable` |
+| `cancel(reason)` | `reason in CancellationReason` | input | `self_serviceable` |
 
 Everything in this table is a comparison, a null test, a membership test, a `count`, or an `all`/`none` over a relationship or a type, with the actor as a value. There is no arithmetic.
 
@@ -118,8 +118,8 @@ Two completion transitions rather than one with a branch. The inventory system's
 complete_sale: PREPARATION → DELIVERED
   inputs: (none)
   guards:
-    type == DIRECT_SALE                                                    [unreachable-from-here]
-    all(c in checklist_items: c.checked)                                   [self-serviceable]
+    type == DIRECT_SALE                                                    [unreachable_from_here]
+    all(c in checklist_items: c.checked)                                   [self_serviceable]
     none(s in slots where s.role in (PRIMARY, INCLUDED) and s.unit is null)[dependent]
     all(r in check_records where r.required: r.result == PASS)             [dependent]
     xero.invoice_valid(order_id)                                           [dependent]
