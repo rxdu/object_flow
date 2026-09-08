@@ -23,4 +23,4 @@ Rejected on two grounds. First, the composite loses all agency: it cannot be hel
 ## Consequences
 
 - "Why is this stuck?" gets a useful answer: `accepted` is blocked with `3 of 7 Tasks not done`, remedy class *dependent*.
-- Cascade termination needs no special machinery. "A Deployment cannot close with open Tasks" is just a guard on the transition into the terminal state; a cascade-close is a transition that proposes terminal transitions on each part, each gated normally.
+- Cascade termination needs no special machinery. "A Deployment cannot close with open Tasks" is just a guard on the transition into the terminal state; a cascade-close is a transition that cascades terminal transitions onto each part, each gated normally (ADR-0019). "Propose" is avoided here because ADR-0036 reserves it.

@@ -12,8 +12,8 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D02](#d02) | Reads outside the lock set are unisolated | **resolved by ADR-0039** |
 | [D03](#d03) | The guarantee is false as written; the override is undeclared | **resolved by ADR-0040** |
 | [D04](#d04) | The lock set cannot be computed when the spec says | **resolved by ADR-0039** |
-| [D05](#d05) | Availability both does and does not list only-via transitions | open |
-| [D06](#d06) | Idempotent replay is specified as both refuse and replay | open |
+| [D05](#d05) | Availability both does and does not list only-via transitions | **resolved by ADR-0041** |
+| [D06](#d06) | Idempotent replay is specified as both refuse and replay | **resolved by ADR-0041** |
 | [D07](#d07) | The built-in Subscription cannot be operated under its own rules | open |
 | [D08](#d08) | Proposals across declaration versions are undefined | open |
 | [D09](#d09) | Free attributes have no write path | open |
@@ -34,16 +34,16 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D24](#d24) | Remedy-class assignment has no rule | open |
 | [D25](#d25) | The availability query has unbounded cost | open |
 | [D26](#d26) | `changed_since` has no index story | open |
-| [D27](#d27) | The spec's definition of an action is the option ADR-0016 rejected | open |
-| [D28](#d28) | Files are both never touched and deleted | open |
+| [D27](#d27) | The spec's definition of an action is the option ADR-0016 rejected | **resolved by ADR-0041** |
+| [D28](#d28) | Files are both never touched and deleted | **resolved by ADR-0041** |
 | [D29](#d29) | Splitting is both uncovered and expressible | open |
 | [D30](#d30) | Derived attributes cannot be queried | open |
-| [D31](#d31) | Constraint compilation is mis-cited and backend-dependent | open |
+| [D31](#d31) | Constraint compilation is mis-cited and backend-dependent | **resolved by ADR-0041** |
 | [D32](#d32) | External evaluators have no slot in the execution sequence | open |
 | [D33](#d33) | Quantity and serial tracking are incompatible | open |
 | [D34](#d34) | Three Proposed ADRs are load-bearing | open |
 | [D35](#d35) | Erasure has no taint rule and may collide with uniqueness | open |
-| [D36](#d36) | `self-serviceable` is misused for the fan-out cap | open |
+| [D36](#d36) | `self-serviceable` is misused for the fan-out cap | **resolved by ADR-0041** |
 
 ---
 
@@ -103,11 +103,15 @@ Two further problems: a created object has no id to sort by, and `docs/adr/0018-
 
 This decides whether an agent is shown `unit.sell`, which is the hazard ADR-0020 names at `0020:25`: "an agent will call whatever is listed."
 
+**Resolved by ADR-0041.** ADR-0020 wins: only-via transitions are not listed; `not requestable` is returned when one is named explicitly.
+
 ### D06
 **Idempotent replay is specified as both refuse and replay.**
 `docs/adr/0014-delivery-is-at-least-once-with-idempotency-keys.md:27` — "ObjectKeeper refuses a second attempt carrying a key it has already applied." `docs/DESIGN.md:165` — "If the idempotency key has been applied before, return the original result."
 
 Different observable behaviour. `docs/adr/0022-time-is-a-guard-value-and-availability-is-queryable.md:15` depends on the replay reading ("so a repeated sweep is harmless"). ADR-0014 itself warns at `:54` against conflating request replay with transition deduplication.
+
+**Resolved by ADR-0041.** Replay wins: an applied key returns the original result, marked as a replay. ADR-0014's wording corrected in place.
 
 ### D07
 **The built-in Subscription cannot be operated under its own rules.**
@@ -193,8 +197,12 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 ### D27
 **The spec's definition of an action is the option ADR-0016 rejected.** `docs/DESIGN.md:106` and `:242` say an action "writes controlled attributes without changing lifecycle state", which is the shape of ADR-0016's rejected option B (`docs/adr/0016:45`, "an outcome restricted to attribute writes"). ADR-0035 requires actions to create Approvals (`0035:12`) and the CRM merge requires an action to cascade (`crm:47`).
 
+**Resolved by ADR-0041.** ADR-0016 wins: an action's outcome is unrestricted. DESIGN.md §5.4 and the terminology entry corrected.
+
 ### D28
 **Files are both never touched and deleted.** `docs/DESIGN.md:96` — "ObjectKeeper never touches the bytes"; `:200` — erasure "deletes referenced file content"; `docs/adr/0031:14` the same; `docs/adr/0017-file-attachments-are-content-addressed-references.md:20` gives the backend interface as "put, get-URL, exists, delete". Also, an Accepted ADR (0031) depends on a Proposed one (0017), and `docs/DESIGN.md:212` states file porting as settled while `docs/adr/0015:74` leaves it open.
+
+**Resolved by ADR-0041.** Erasure wins: ObjectKeeper never reads, streams or serves bytes, and deletes them only during erasure.
 
 ### D29
 **Splitting is both uncovered and expressible.** Recorded as not covered at `docs/design/edge-cases.md:14`, `:22` and `docs/DESIGN.md:233`; asserted as expressible at `docs/design/first-consumer-walkthrough.md:201`. It appeared in three of five case studies, it is the one-to-many mirror of supersession, and it needs exactly D12 plus a declared write path for a composition part's owner.
@@ -204,6 +212,8 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 
 ### D31
 **Constraint compilation is mis-cited and backend-dependent.** `docs/DESIGN.md:130` and `docs/adr/0001-store-owns-persistence.md:34` attribute a three-shape list to ADR-0023, which names only "uniqueness, a partial unique index" (`0023:14`). "Uniqueness per external source" comes from `docs/adr/0037:29`; "interval exclusion per key" appears only in `case-study-approvals-and-bookings.md:70`, which itself mis-cites ADR-0023. SQLite, a stated target (`docs/adr/0001:16`), has no exclusion constraint, so the same declaration gives different guarantees per backend with no caveat. `docs/adr/0002-requiredness-attaches-to-transitions.md:35` still asserts unannotated that "the database is not a safety net".
+
+**Resolved by ADR-0041.** Serialisable isolation (ADR-0039) makes correctness backend-independent; compilation is an optimisation, reported at publish.
 
 ### D32
 **External evaluators have no slot in the execution sequence.** `docs/DESIGN.md:161-169` never mentions them. A deferred guard is "checked only at execution" (`docs/adr/0008:14`), which places a third-party network call inside the write transaction while holding row locks, the cost ADR-0014 rejected in-process handlers for (`0014:45`).
@@ -224,8 +234,10 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 
 ## Cosmetic
 
-- **C01** `docs/adr/0013-events-are-recorded-to-a-durable-log-in-the-transition-transaction.md:34` diagram still reads "consumer holds a cursor", which ADR-0034 explicitly rejected at `0034:35`.
+- **C01** `docs/adr/0013-events-are-recorded-to-a-durable-log-in-the-transition-transaction.md:34` diagram still reads "consumer holds a cursor", which ADR-0034 explicitly rejected at `0034:35`. **Resolved: diagram corrected.**
 - **C02** `docs/DESIGN.md:83` lays out `actions` as a sibling of `transitions`, the visual shape of ADR-0016's rejected option B, though the text is correct.
-- **C03** `docs/adr/0011-project-name-objectkeeper.md:42` attributes "gates rather than propels" to ADR-0004; it is ADR-0012's decision.
-- **C04** `docs/adr/0004-composite-state-is-gated-not-derived.md:26` says a cascade-close "proposes" terminal transitions; since ADR-0036 "propose" is a reserved concept.
+- **C03** `docs/adr/0011-project-name-objectkeeper.md:42` attributes "gates rather than propels" to ADR-0004; it is ADR-0012's decision. **Resolved: citation corrected to ADR-0012.**
+- **C04** `docs/adr/0004-composite-state-is-gated-not-derived.md:26` says a cascade-close "proposes" terminal transitions; since ADR-0036 "propose" is a reserved concept. **Resolved: reworded to "cascades".**
 - **C05** The iteration-4 clarifications (outcomes may iterate an input's relationships; declared indexes; the fan-out cap) and the request `context` field live only in DESIGN.md and TODO.md with no ADR, against the convention that decisions live in ADRs.
+
+**Resolved by ADR-0041.** A new `over-limit` verdict replaces the misuse of `self-serviceable`.

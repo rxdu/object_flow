@@ -32,5 +32,5 @@ Rejected because it ties the rule to *how* the caller is editing rather than to 
 
 - `validate(object)` has no answer. The meaningful call is `validate(object, intent)`.
 - Unsatisfied gates *are* the blocked-action explanation; it is not a separately built feature.
-- Storage must be permissive, so the database is not a safety net (see ADR-0001).
+- Storage must be permissive, so the database is not a safety net for guards (see ADR-0001). *Refined by ADR-0039 and ADR-0041: invariants are enforced by serialisable isolation, and compile to constraints where the backend allows, as an optimisation.*
 - Creation stops being a special case: it is the transition from nothing into the initial state, carrying its own guards. Imported objects (ADR-0015) are the one exception: they are asserted into a mid-lifecycle state through the override path, and the importer reports which structural guards they would have failed.

@@ -13,7 +13,7 @@ DESIGN.md never said what deletion is. The first consumer has a soft-delete flag
 2. That transition is guarded on **no live references**: `none(<referencing type> where <reference> == this and state not terminal)`, for every declared inverse relationship. A Customer with live deliveries is blocked with remedy class `dependent`, naming them.
 3. **Parts are cascaded** (ADR-0019): the whole's delete transition cascades the part's, because a part cannot outlive its whole (ADR-0003). **References are never cascaded** by deletion.
 4. A deleted object stays readable in history and by id, is excluded from default reads and from availability queries, and admits no further transitions.
-5. There is no `force_transition`. Administrative repair is the authorised, recorded override of ADR-0001, which is itself a transition with guards.
+5. There is no `force_transition`. Administrative repair is a declared asserting transition (ADR-0040), which carries its own capability and reason guards rather than the type's.
 6. Legacy rows with `is_deleted = true` import into the type's deleted state with provenance `asserted` (ADR-0015).
 
 Physical erasure — removing attribute values from history for a legal reason — is a separate concern, not deletion, and is left to the CRM case study (iteration 3).

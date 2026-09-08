@@ -24,7 +24,7 @@ Given the no-loss requirement of ADR-0013, the choice is forced.
 
 Exactly-once *effect* is achieved at the receiver, by deduplicating on the event identifier within the same transaction as the side effect.
 
-**Transitions accept an idempotency key.** For the common case — an event causing a transition on another object — the source event identifier is used as that key, and ObjectKeeper refuses a second attempt carrying a key it has already applied.
+**Transitions accept an idempotency key.** For the common case — an event causing a transition on another object — the source event identifier is used as that key, and a second attempt carrying an already-applied key returns the original result. *(This sentence read "ObjectKeeper refuses a second attempt" until ADR-0041 corrected it: refusal would make a timeout retry indistinguishable from a genuine duplicate.)*
 
 **Acknowledgements are still required**, for progress tracking, lag and stuck-subscriber detection, and backpressure. They are not a correctness mechanism for exactly-once. *(An earlier draft also listed "safe pruning of the log"; ADR-0033 made the log permanent, so that purpose is gone.)*
 

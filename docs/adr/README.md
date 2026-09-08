@@ -42,3 +42,4 @@
 | [0038](0038-cascades-apply-sequentially.md) | Cascaded transitions apply sequentially; each sees the writes of those before it | Accepted (repair D01, review pending) |
 | [0039](0039-transitions-run-at-serialisable-isolation.md) | The transition transaction runs at serialisable isolation | Accepted (repair D02/D04, review pending) |
 | [0040](0040-assertion-is-a-declared-capability-gated-transition.md) | The override is an assertion: declared, capability-gated, recorded, and never silent | Accepted (repair D03, review pending) |
+| [0041](0041-resolutions-of-six-review-contradictions.md) | Resolutions of six contradictions: only-via listing, idempotent replay, action outcomes, file bytes, constraint compilation, fan-out verdict | Accepted (repair, review pending) |

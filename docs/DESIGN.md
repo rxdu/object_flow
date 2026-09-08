@@ -96,7 +96,7 @@ Every object carries a store-assigned, globally unique, immutable, opaque id, as
 
 ### 5.2 Attributes
 
-An attribute has a declared type — string, integer, decimal with scale, money with currency, timestamp, duration, enum with declared options, reference, file, set of any of these — and is **controlled** or **free** (ADR-0006, proposed). Any attribute a guard reads must be controlled. Controlled attributes are written only by transition outcomes; free attributes are written by any permitted actor and recorded. **Derived** attributes are named expressions, never stored (ADR-0021). Attributes marked **personal** are subject to erasure (ADR-0031). A **file** attribute holds a content-addressed reference to a blob in external storage with its hash, size, media type and provenance; ObjectKeeper never touches the bytes (ADR-0017, proposed).
+An attribute has a declared type — string, integer, decimal with scale, money with currency, timestamp, duration, enum with declared options, reference, file, set of any of these — and is **controlled** or **free** (ADR-0006, proposed). Any attribute a guard reads must be controlled. Controlled attributes are written only by transition outcomes; free attributes are written by any permitted actor and recorded. **Derived** attributes are named expressions, never stored (ADR-0021). Attributes marked **personal** are subject to erasure (ADR-0031). A **file** attribute holds a content-addressed reference to a blob in external storage with its hash, size, media type and provenance; ObjectKeeper never reads, streams or serves the bytes; its only byte-level operation is deleting them during erasure, which ADR-0031 requires (ADR-0017, proposed; ADR-0041).
 
 ### 5.3 Relationships
 
@@ -106,7 +106,7 @@ Relationships are **composition** — exclusive membership and a lifetime bounde
 
 Each type binds exactly one **named** state machine, whole; two types that share a lifecycle bind the same machine (ADR-0003, ADR-0026). Every state has a **category** from a consumer-defined set, so family-wide guards and views need not know state names.
 
-A **transition** is a named, guarded, recorded request to move an object from one state to another. It is requested **by name, never by target state** (ADR-0016). Its from-state may be one state, a set, or any non-terminal state. It declares **inputs**, **guards** over current state, inputs, actor and clock, and an **outcome**. An **action** is a transition whose from- and to-state are equal; it writes controlled attributes without changing lifecycle state and is declared, listed and recorded like any transition. A same-state request that names no transition is refused; nothing is recorded for a change that did not happen.
+A **transition** is a named, guarded, recorded request to move an object from one state to another. It is requested **by name, never by target state** (ADR-0016). Its from-state may be one state, a set, or any non-terminal state. It declares **inputs**, **guards** over current state, inputs, actor and clock, and an **outcome**. An **action** is a transition whose from- and to-state are equal. Its outcome is unrestricted like any other: it may write attributes, cascade transitions and create objects, and it is declared, listed and recorded the same way (ADR-0016, ADR-0041). A same-state request that names no transition is refused; nothing is recorded for a change that did not happen.
 
 An **outcome** is straight-line: the new state, controlled writes of the form `attribute := expression`, and **cascaded** transitions and creations on objects reached through declared relationships of `this` or of an input, optionally filtered, never a choice between alternatives (ADR-0019). Branching is two transitions with distinguishing guards. A declaration may cap the fan-out of a cascaded relationship.
 
@@ -116,7 +116,7 @@ Creation is the transition from nothing into an initial state, carrying its own 
 
 ### 5.5 Guards, verdicts and remedy classes
 
-A guard is an expression that must hold for a transition to proceed. Evaluating a request yields a **verdict**: satisfied; unsatisfied with a reason and a remedy class; `stale` (ADR-0023); not found (ADR-0030); or not requestable (ADR-0020). Availability is three-way — available, available-with-input naming what must be supplied, blocked — and a transition's parameter schema is derived from its own guards, so tool schemas and validation cannot drift (ADR-0005).
+A guard is an expression that must hold for a transition to proceed. Evaluating a request yields a **verdict**: satisfied; unsatisfied with a reason and a remedy class; `stale` (ADR-0023); `not found` (ADR-0030); `not requestable` (ADR-0020), returned when a caller names an only-via transition, which is never listed; or `over-limit`, when a cascade exceeds a declared fan-out cap (ADR-0041). Availability is three-way — available, available-with-input naming what must be supplied, blocked — and a transition's parameter schema is derived from its own guards, so tool schemas and validation cannot drift (ADR-0005).
 
 | Remedy class | Meaning | Caller's next move |
 |---|---|---|
@@ -130,7 +130,7 @@ A guard that depends on facts outside the store references a **named external ev
 
 ### 5.6 Invariants
 
-A type-level property declared once; the runtime determines which transitions could violate it and enforces it at each, on either side (ADR-0009). Invariants of known shape — uniqueness, uniqueness per external source, interval exclusion per key — compile to database constraints; others run under serialisable isolation with bounded retry (ADR-0023). "No two open engagements for one unit" and "one active configuration version per SKU" are the first consumer's instances.
+A type-level property declared once; the runtime determines which transitions could violate it and enforces it at each, on either side (ADR-0009). Since transitions run at serialisable isolation (ADR-0039), invariants are enforced correctly whether or not they compile to a database constraint. Compilation is an optimisation: which shapes compile is a property of the backend, and publishing reports which of a declaration's invariants the configured backend can compile (ADR-0041). PostgreSQL compiles uniqueness, uniqueness per external source and interval exclusion per key; SQLite compiles fewer. "No two open engagements for one unit" and "one active configuration version per SKU" are the first consumer's instances.
 
 ### 5.7 The expression language
 
@@ -165,7 +165,7 @@ A request names an object, a transition, its inputs and the actor, and optionall
 
 1. If the type declares visibility and the actor cannot see the object, refuse as not found (ADR-0030).
 2. If an `expected_version` is given and differs, refuse with `stale`.
-3. If the idempotency key has been applied before, return the original result.
+3. If the idempotency key has been applied before, return the original result, marked as a replay (ADR-0041).
 4. Evaluate the parent transition's guards. A failure refuses the request, naming the guard and its remedy class.
 5. Apply the parent's outcome: its new state and its controlled writes, each value read at the moment it is applied.
 6. Then, depth-first in declaration order and over relationship elements in ascending object-id order, take each cascaded transition or creation in turn: evaluate its guards **against the state produced so far**, then apply its outcome immediately (ADR-0038). Only-via transitions contribute their non-actor guards; other cascades run as the requesting actor. Any failure aborts the whole request and rolls back.
@@ -213,7 +213,7 @@ Events are strictly ordered per object and causally ordered across a cascade; a 
 
 ## 10. The read surface
 
-One API, every operation taking an actor and applying visibility (ADR-0037): **get** by id with optional supersession following; **query** over a type or family with a filter over indexed attributes, state and category, ordering, cursor pagination and field selection; **lookup** by external identifier; **availability** of every transition for one object, with verdicts and parameter schemas; **available** objects for a given transition; **check**, the verdict a request would receive without executing; **history** with provenance and the combined timeline through supersession; **declaration**, the inspectable rule set per version, rendered also as readable text and as agent tool schemas; **pull** over a subscription's cursor; **batch**, N independent requests with N verdicts. There is no atomic batch: atomic multi-object semantics are declared cascades. The store maintains no projection it does not declare; where a scan is too slow, the type declares a counter and the cascade that maintains it.
+One API, every operation taking an actor and applying visibility (ADR-0037): **get** by id with optional supersession following; **query** over a type or family with a filter over indexed attributes, state and category, ordering, cursor pagination and field selection; **lookup** by external identifier; **availability** of the requestable transitions for one object, with verdicts and parameter schemas, excluding only-via transitions (ADR-0041); **available** objects for a given transition; **check**, the verdict a request would receive without executing; **history** with provenance and the combined timeline through supersession; **declaration**, the inspectable rule set per version, rendered also as readable text and as agent tool schemas; **pull** over a subscription's cursor; **batch**, N independent requests with N verdicts. There is no atomic batch: atomic multi-object semantics are declared cascades. The store maintains no projection it does not declare; where a scan is too slow, the type declares a counter and the cascade that maintains it.
 
 ## 11. Import and migration
 
@@ -247,7 +247,7 @@ Concrete cases the model does not cover, or covers with a caveat — splitting a
 | **Lifecycle** | The observable shape — the states an object passes through. |
 | **State machine** | The mechanism — states, transitions and guards — as a named declaration a type binds. |
 | **Transition** | A named, guarded, recorded request to move an object between states; addressed by name. |
-| **Action** | A transition whose from- and to-state are equal; writes controlled attributes without changing lifecycle state. No exit or entry semantics. |
+| **Action** | A transition whose from- and to-state are equal. Its outcome is unrestricted. No exit or entry semantics. |
 | **Guard** | An expression that must hold for a transition; returns a structured verdict. |
 | **Invariant** | A type-level property enforced at every transition that could violate it. |
 | **Outcome** | What a transition writes and records: state, attribute writes, cascaded transitions and creations, events. |
@@ -255,7 +255,7 @@ Concrete cases the model does not cover, or covers with a caveat — splitting a
 | **Only via** | A transition reachable only as a cascade from named parents. |
 | **Effect** | Something caused outside ObjectKeeper; out of scope; consumers cause effects by observing events. |
 | **Derived attribute** | A named expression, never stored, evaluated on read. |
-| **Verdict** | The result of evaluating a request: satisfied, unsatisfied with remedy class, stale, not found, not requestable. |
+| **Verdict** | The result of evaluating a request: satisfied, unsatisfied with remedy class, `stale`, `not found`, `not requestable`, `over-limit`. |
 | **Available transitions** | Transitions satisfied or satisfiable with input for an object and actor now. |
 | **Actor** | The descriptor the consumer supplies with a request: id, kind, principal, capabilities, attributes. |
 | **Visibility** | A declared predicate every read applies; failing it means not found. |

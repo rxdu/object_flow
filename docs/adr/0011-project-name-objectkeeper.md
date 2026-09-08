@@ -39,7 +39,7 @@ Considered and set aside once the requirement was stated as *immediately indicat
 
 ### Names implying lifecycle guidance (Conductor, Shepherd, Pilot)
 
-Rejected on design grounds rather than availability. Every agent-noun that carries lifecycle implies *driving the object forward*, which ADR-0004 explicitly rejects — the store gates transitions, it does not propel objects through them. Such a name would advertise behaviour that was deliberately designed out.
+Rejected on design grounds rather than availability. Every agent-noun that carries lifecycle implies *driving the object forward*, which ADR-0012 explicitly rejects — the store gates transitions, it does not propel objects through them. Such a name would advertise behaviour that was deliberately designed out.
 
 ## Residual risk
 
