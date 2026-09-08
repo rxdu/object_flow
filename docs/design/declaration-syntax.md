@@ -96,7 +96,7 @@ type Robot version 3 {
   attr retirement_reason RetirementReason?
 
   ref  model : RobotModel indexed
-  ref  binding : DeliveryItem? inverse unit indexed
+  ref  binding : Delivery? inverse units indexed
   ref  engagement_lines : EngagementLine[] inverse unit
 
   derive leasable = state == DEVELOPMENT
@@ -177,7 +177,8 @@ type ChecklistItem version 1 {
                          set checked := true }
   act untick at ACTIVE { require may: actor.has(DELIVERY_EDIT) because delegable
                          set checked := false }
-  do  delete ACTIVE -> DELETED only via Delivery.delete { }
+  do  delete ACTIVE -> DELETED only via Delivery.cancel, Delivery.complete_sale,
+                                        Delivery.complete_internal, Delivery.delete { }
 }
 ```
 
@@ -222,23 +223,77 @@ owner <name> : <Type>       inverse <name>
 type Delivery version 1 {
   tracking serial
   states   PREPARATION category live, DELIVERED category closed terminal,
-           CANCELLED category closed terminal
+           CANCELLED category closed, DELETED category closed terminal
 
   part checklist_items : ChecklistItem[] inverse delivery
-       cascade on cancel to ChecklistItem.delete limit 500
-       cascade on complete to ChecklistItem.delete limit 500
+       cascade on cancel            to ChecklistItem.delete limit 500
+       cascade on complete_sale     to ChecklistItem.delete limit 500
+       cascade on complete_internal to ChecklistItem.delete limit 500
+       cascade on delete            to ChecklistItem.delete limit 500
+  part approvals : Approval[] inverse subject
+       cascade on cancel            to Approval.discard limit 50
+       cascade on complete_sale     to Approval.discard limit 50
+       cascade on complete_internal to Approval.discard limit 50
+       cascade on delete            to Approval.discard limit 50
+
+  ref  units : Robot[] inverse binding
 
   attr approved_total money(SGD)?
+  attr internal bool default false
 
   create open -> PREPARATION { require may: actor.has(DELIVERY_EDIT) because delegable }
+
   act add_checklist_item at PREPARATION {
+    input label : string
     require may: actor.has(DELIVERY_EDIT) because delegable
+    create ChecklistItem.add(for_delivery := this, label := inputs.label)
   }
-  do complete PREPARATION -> DELIVERED {
+  act bind_slot at PREPARATION {
+    input unit : Robot
+    require may: actor.has(DELIVERY_EDIT) because delegable
+    call inputs.unit.reserve(slot := this)
+  }
+  act approve at PREPARATION {
+    require may:  actor.has(DELIVERY_COMPLETE) because delegable
+    require once: none(a in approvals where a.approver == actor.id) because delegable
+    create Approval.record(for_subject := this, approver := actor.id, at_event := this_event)
+  }
+
+  do complete_sale PREPARATION -> DELIVERED {
+    require not_internal: not internal                              because unreachable_from_here
     require settled: none(c in checklist_items where not c.checked) because dependent
+    require signed:  any(a in approvals
+                         where not changed_since([approved_total, checklist_items], a.at_event))
+                                                                    because delegable
     require may: actor.has(DELIVERY_COMPLETE) because delegable
+    for u in units limit 500 { call u.sell() }
+  }
+  do complete_internal PREPARATION -> DELIVERED {
+    require is_internal: internal because unreachable_from_here
+    require may: actor.has(DELIVERY_COMPLETE) because delegable
+    for u in units limit 500 { call u.deliver_internal() }
   }
   do cancel PREPARATION -> CANCELLED { require may: actor.has(DELIVERY_EDIT) because delegable }
+  do delete CANCELLED -> DELETED {
+    require no_referrers: none(r in referrers where r.state.category != closed) because dependent
+    require may: actor.has(DELIVERY_EDIT) because delegable
+  }
+}
+
+type Approval version 1 {
+  tracking serial
+  states   RECORDED category live, DISCARDED category closed terminal
+
+  owner subject : Delivery inverse approvals
+  attr  approver string
+  attr  at_event event
+
+  create record -> RECORDED only via Delivery.approve accepts approver, at_event {
+    input for_subject : Delivery
+    set subject := inputs.for_subject
+  }
+  do discard RECORDED -> DISCARDED only via Delivery.cancel, Delivery.complete_sale,
+                                            Delivery.complete_internal, Delivery.delete { }
 }
 ```
 
@@ -251,7 +306,7 @@ require fresh: not changed_since([approved_total, checklist_items], a.event)
                because delegable
 ```
 
-`part` and `owner` are the two ends of a composition: exclusive membership, lifetime bounded by the whole, re-parentable by writing the `owner`. **`cascade on <transition> to <Type>.<transition>` names which of the whole's transitions drives the cascade and which part transition it drives, with a bound.** A whole with several terminal transitions says which one cascades; iteration 4 named the target and the bound but not the trigger, so a type with both a reject and a withdraw had no answer. A cascade clause **counts as a call site** for the purposes of an `only via` list.
+`part` and `owner` are the two ends of a composition: exclusive membership, lifetime bounded by the whole, re-parentable by writing the `owner`. **`cascade on <transition> to <Type>.<transition>` names which of the whole's transitions drives the cascade, which part transition it drives, and a bound. A whole with several terminal transitions carries one clause each, or marks the part `survives`.** A whole with several terminal transitions says which one cascades; iteration 4 named the target and the bound but not the trigger, so a type with both a reject and a withdraw had no answer. A cascade clause **counts as a call site** for the purposes of an `only via` list.
 
 A reference may omit `inverse`, which only means no back-reference is named. It remains visible to `referrers` and to the deletion guard.
 
@@ -270,7 +325,7 @@ machine UnitLifecycle version 2 {
   requires attr label_printed_at timestamp?
   requires attr photos file[]
   requires ref  model : RobotModel
-  requires ref  binding : DeliveryItem?
+  requires ref  binding : Delivery?
   requires attr retirement_reason RetirementReason?
   requires invariant one_open_engagement
   requires capability EDIT, RETIRE, ASSERT
@@ -298,9 +353,8 @@ machine UnitLifecycle version 2 {
   }
 
   do reserve AVAILABLE -> RESERVED only via Delivery.bind_slot {
-    input slot : DeliveryItem
-    require matches:  inputs.slot.model == model  because dependent
-    require unfilled: inputs.slot.unit is null    because dependent
+    input slot : Delivery
+    require open: inputs.slot.state == Delivery.PREPARATION because dependent
     set binding := inputs.slot
   }
 
@@ -374,6 +428,8 @@ Markings follow the states and precede the body:
 do   sell RESERVED -> SOLD only via Delivery.complete_sale, Lease.convert { }
 do   approve SUBMITTED -> APPROVED proposable { … }
 ```
+
+A transition a machine supplies is named `<Binder>.<transition>`, not `<Machine>.<transition>`, because authority belongs to the type, not to the lifecycle it borrows. The same holds in a `cascade on` clause. An `owner` may name an **abstract** base, which is how one part type serves two wholes that share a machine.
 
 **`only via`** makes a transition unrequestable and names the transitions that may cascade to it. Publishing verifies the list against the call sites it derives: a `call` from a transition not named is an error, and a name that never calls it is an error too.
 
@@ -517,6 +573,21 @@ type BugInPlatform extends Bug version 1 { machine PlatformWorkflow  … }
 ## 7. Quantity tracking
 
 ```text
+type Order version 1 {
+  tracking serial
+  states   PLACED category live, SHIPPED category closed terminal
+
+  attr placed_at timestamp
+
+  create place -> PLACED accepts placed_at {
+    input stock : Stock
+    input qty   : int
+    require may: actor.has(INVENTORY_CREATE) because delegable
+    call inputs.stock.reserve(qty := inputs.qty)
+  }
+  do ship PLACED -> SHIPPED { require may: actor.has(INVENTORY_CREATE) because delegable }
+}
+
 type Stock version 1 {
   tracking quantity
   states   ACTIVE category live, CLOSED category closed terminal
@@ -567,13 +638,11 @@ Precedence, highest first: paths and calls; unary `not`; `* /`; `+ -`; compariso
 
 ## 9. Lexical rules
 
-**Reserved words** may not be used as names:
+**Reserved words** may not begin a declaration or clause, and a type name may not be used where a type is expected. Everywhere else — an attribute name, a relationship end, a state, a transition — any of them may be used, since no keyword can appear in those positions. The words are:
 
-`module use capability category enum sequence evaluator machine type version inputs tracking serial quantity states state abstract requires provides attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because eager deferred set add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh string bool int decimal money timestamp duration event file verdict`
+`module use capability category enum sequence evaluator machine type version inputs survives tracking serial quantity states state abstract requires provides attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because eager deferred set add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh string bool int decimal money timestamp duration event file verdict`
 
 `min` and `h` and `days` are duration units only after a numeric literal, which is the one position the aggregate `min` cannot occupy.
-
-**Reserved words are contextual.** A word is reserved only where it could be misread: a keyword at the start of a declaration or clause, and a type name in a type position. The same word may name an attribute or a relationship end, since neither position can hold a keyword. So `attr event event` and `owner.id` are legal, which matters because the model writes both.
 
 **Symbols.** `->` is a to-state, an assertable-state set and a migration mapping; never implication, never a reference type. `implies` is implication. `inputs.<name>` reads an input. `:=` assigns and binds an argument; `=` binds a created name and defines a derivation; `==` compares. `{a, b}` is a collection literal and `{ … }` a block; the two never occupy the same position. `:` ascribes a type and names a guard or invariant. `in` is a binder and membership, both meaning "element of".
 
@@ -605,7 +674,7 @@ Each check names the file, line and declaration. Checks 22 and 23 need the previ
 | 18 | A `part`/`owner` pair disagreeing on name or cardinality; a `create` of a part that never writes its `owner`; a `part` whose `cascade` names a transition the child does not have |
 | 19 | A capability, category, state, attribute, transition, relationship end, enum member or evaluator function that is not declared |
 | 20 | An unnamed guard; a `default` on an optional input; a declared remedy class the checker's own inference contradicts |
-| 21 | A `for` without `limit`; a bare `null` in a comparison; an unbound aggregate; a reserved word as a name; `if` outside a derived attribute |
+| 21 | A `for` without `limit`; a bare `null` in a comparison; an unbound aggregate; a keyword beginning a clause it does not belong to; `if` outside a derived attribute |
 | 22 | A version that did not advance while its content changed; a type whose machine, enum, sequence, evaluator or base type advanced without it |
 | 23 | A state removed, or an attribute renamed, with no mapping |
 | 24 | An expression that does not type |
@@ -621,7 +690,7 @@ Each check names the file, line and declaration. Checks 22 and 23 need the previ
 | 34 | A type with no creation transition |
 | 35 | A machine body naming a type-level attribute, reference, part, invariant or capability it does not `require` |
 | 36 | A `part`/`owner` pair whose types disagree |
-| 37 | A `part … cascade` whose trigger names a transition the whole does not have, or a whole with several terminal transitions and no trigger named |
+| 37 | A `part … cascade` whose trigger names a transition the whole does not have; a terminal transition of the whole covered by neither a `cascade on` clause nor `survives` |
 | 38 | An `assert` with `may admit` but no `admits` input, or with no `state`-typed target input |
 | 39 | An `erase` that does not reach a part type holding personal attributes |
 | 40 | An `act` declared at a terminal state |

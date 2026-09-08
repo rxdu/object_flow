@@ -27,6 +27,7 @@ class Decl:
         self.requires = []      # (kind, name, line)
         self.provides = set()
         self.invariants = set()
+        self.derives = set()
 
 
 def parse(text, base=0):
@@ -47,6 +48,8 @@ def parse(text, base=0):
         if m := re.match(r"^tracking\s+(\w+)", s):           cur.tracking = m.group(1)
         if s.startswith("provides capability"):
             for nm in re.findall(r"(\w+)\s*=", s): cur.provides.add(nm)
+            cur.provided_from = getattr(cur, "provided_from", []) + \
+                [(rhs, ln) for rhs in re.findall(r"=\s*(\w+)", s)]
         if m := re.match(r"^requires\s+(\w+)\s+(.+)$", s):
             kind, rest = m.group(1), m.group(2)
             names = re.findall(r"\w+", rest) if kind == "capability" \
@@ -54,6 +57,7 @@ def parse(text, base=0):
             for nm in names:
                 cur.requires.append((kind, nm, ln))
         if m := re.match(r"^invariant\s+(\w+)", s):          cur.invariants.add(m.group(1))
+        if m := re.match(r"^derive\s+(\w+)", s):             cur.derives.add(m.group(1))
         if m := re.match(r"^state\s+(\w+)(.*)$", s):         cur.states[m.group(1)] = (m.group(2), ln)
         if s.startswith("states "):
             acc, j = s[7:], i
@@ -66,7 +70,11 @@ def parse(text, base=0):
         if m := re.match(r"^attr\s+(\w+)\s*(.*)$", s):       cur.attrs[m.group(1)] = (m.group(2), ln)
         if m := re.match(r"^counter\s+(\w+)", s):            cur.counters.add(m.group(1))
         if m := re.match(r"^(ref|part|owner)\s+(\w+)\s*:(.*)$", s):
-            cur.rels[m.group(2)] = (m.group(1), m.group(3), ln)
+            spec, j = m.group(3), i
+            while j + 1 < len(lines) and re.match(r"^\s+(cascade|survives)\b", lines[j + 1]):
+                j += 1; spec += " " + lines[j].strip()
+            cur.rels[m.group(2)] = (m.group(1), spec, ln)
+            i = j + 1; continue
         if m := re.match(r"^(create|do|act|assert|erase)\s+(\w+)(.*)$", s):
             head = m.group(3)
             sets = re.findall(r"\{[^{}]*\}", head)
@@ -109,6 +117,9 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                         add(16, f"{d.name} binds {mach.name} requiring capability {rn}, provides none", d.start)
                 elif rn not in attrs and rn not in rels and rn not in d.invariants and rn not in d.counters:
                     add(16, f"{d.name} binds {mach.name} requiring {rn}, not declared on the binder", d.start)
+        for rhs, rln in getattr(d, "provided_from", []):
+            if capdecl and rhs not in capdecl:
+                add(19, f"{d.name} provides from undeclared capability {rhs}", rln)
         if d.kind == "type" and not d.abstract:
             if not d.machine and not d.states:
                 add(16, f"{d.name} neither binds a machine nor declares states", d.start)
@@ -126,18 +137,20 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
             out_s, in_s = set(), set()
             for kind, tn, head, body, ln in trans:
                 froms, tos = set(), set()
-                for g in re.findall(r"\{\s*([A-Z_,\s]+?)\s*\}\s*->", head):
+                for g in re.findall(r"\{\s*([A-Z_0-9,\s]+?)\s*\}\s*->", head):
                     froms |= {x for x in re.split(r"[,\s]+", g) if x}
-                for one in re.findall(r"^\s*([A-Z][A-Z_]*)\s*->", head): froms.add(one)
-                for g in re.findall(r"->\s*\{\s*([A-Z_,\s]+?)\s*\}", head):
+                for one in re.findall(r"^\s*([A-Z][A-Z_0-9]*)\s*->", head): froms.add(one)
+                for g in re.findall(r"->\s*\{\s*([A-Z_0-9,\s]+?)\s*\}", head):
                     tos |= {x for x in re.split(r"[,\s]+", g) if x}
-                for one in re.findall(r"->\s*([A-Z][A-Z_]*)", head): tos.add(one)
+                for one in re.findall(r"->\s*([A-Z][A-Z_0-9]*)", head): tos.add(one)
                 ats = set()
-                for g in re.findall(r"\bat\s*\{\s*([A-Z_,\s]+?)\s*\}", head):
+                for g in re.findall(r"\bat\s*\{\s*([A-Z_0-9,\s]+?)\s*\}", head):
                     ats |= {x for x in re.split(r"[,\s]+", g) if x}
-                for one in re.findall(r"\bat\s+([A-Z][A-Z_]*)", head): ats.add(one)
+                for one in re.findall(r"\bat\s+([A-Z][A-Z_0-9]*)", head): ats.add(one)
+                if re.search(r"^\s*any\s*->", head) or re.search(r"\bat\s+any\b", head):
+                    froms |= {k for k, v in states.items() if "terminal" not in v[0]}
                 for x in froms | tos | ats:
-                    if x not in states and x != "ANY":
+                    if x not in states and x.lower() != "any":
                         add(19, f"{d.name}.{tn} names undeclared state {x}", ln)
                 out_s |= {x for x in froms if x in states}
                 in_s |= {x for x in tos if x in states}
@@ -161,7 +174,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
 
         # parts and owners
         owner = next(((n, v) for n, v in d.rels.items() if v[0] == "owner"), None)
-        for kind, tn, head, body, ln in d.trans:
+        for kind, tn, head, body, ln in (trans if d.kind == "type" else d.trans):
             written = set(re.findall(r"\bset\s+(\w+)\s*:=", body)) | \
                       {x for g in re.findall(r"accepts\s+([\w,\s]+)", head) for x in re.split(r"[,\s]+", g) if x}
             if kind == "create":
@@ -173,7 +186,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 for an, (spec, aln) in attrs.items():
                     if "?" in spec.split()[0] if spec.split() else False: continue
                     if spec and not spec.split()[0].endswith("?") and "[]" not in spec.split()[0] \
-                       and "default" not in spec and an not in written:
+                       and "default" not in spec and "identifier" not in spec and an not in written:
                         add(8, f"{d.name}.{tn} never writes required attribute '{an}'", ln)
             if kind == "assert":
                 if not re.search(r"actor\.\w+\(", body): add(29, f"{d.name}.{tn} asserts with no capability guard", ln)
@@ -186,7 +199,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
             for tgt in re.findall(r"^\s*(?:set|add|remove)\s+([\w.]+)\s*:=", body, flags=re.M):
                 if "." in tgt: add(17, f"{d.name}.{tn} writes through a path '{tgt}'", ln)
                 elif tgt not in attrs and tgt not in rels and tgt not in d.counters \
-                     and tgt not in {n for _, n, _ in d.requires}:
+                     and tgt not in d.derives and tgt not in {n for _, n, _ in d.requires}:
                     add(19, f"{d.name}.{tn} writes undeclared name '{tgt}'", ln)
             for tgt in re.findall(r"^\s*(?:add|remove)\s+(\w+)\s*:=", body, flags=re.M):
                 spec = attrs.get(tgt, ("", 0))[0]
@@ -198,8 +211,8 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 if "?" in inp[1] and "default" in inp[1]:
                     add(20, f"{d.name}.{tn} gives a default to optional input '{inp[0]}'", ln)
             # 26 — supersession
-            to_states = set(re.findall(r"->\s*([A-Z][A-Z_]*)", head))
-            sup = re.search(r"^\s*supersede\s+(.*)$", body, flags=re.M)
+            to_states = set(re.findall(r"->\s*([A-Z][A-Z_0-9]*)", head))
+            sup = re.search(r"^\s*supersede\s+([^}\n]*)", body, flags=re.M)
             if sup and not any("superseding" in states.get(t, ("", 0))[0] for t in to_states):
                 add(26, f"{d.name}.{tn} supersedes into a non-superseding state", ln)
             if sup and sup.group(1).strip() == "this":
@@ -221,6 +234,22 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                             add(2, f"{d.name}.{tn} calls {tgt}.{tn2} without required '{miss}'", ln)
                     else:
                         add(19, f"{d.name}.{tn} calls undeclared transition {tgt}.{tn2}", ln)
+        # 13 — only via: the named parents must exist, and must reach this transition
+        for kind, tn, head, body, ln in d.trans:
+            for parent in re.findall(r"only via ([\w.,\s]+?)(?:\{|$)", head):
+                for ty, tr in re.findall(r"(\w+)\.(\w+)", parent):
+                    t = by_name.get(ty)
+                    if t is None:
+                        add(13, f"{d.name}.{tn} names unknown parent type {ty}", ln); continue
+                    pt = next((x for x in t.trans if x[1] == tr), None)
+                    if pt is None:
+                        add(13, f"{d.name}.{tn} names parent {ty}.{tr}, which does not exist", ln); continue
+                    reaches = re.search(rf"\b(?:call|create)\s+[\w.$]*\.?{tn}\s*\(", pt[3]) \
+                              or re.search(rf"cascade on {tr}\b[^\n]*to\s+{d.name}\.{tn}\b", "\n".join(
+                                  v[1] for v in t.rels.values()))
+                    if not reaches:
+                        add(13, f"{d.name}.{tn} names parent {ty}.{tr}, which never reaches it", ln)
+
         # 35 — machine requires completeness
         if d.kind == "machine":
             req = {n for _, n, _ in d.requires}
@@ -257,7 +286,7 @@ def line_checks(text, base, capdecl, reserved, machine_caps):
 
 # ── fixtures: every claimed check must fire on one of these ─────────────────
 FIXTURES = {
-  2:  "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { call B.take() }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T { }\n do take T -> U { input amount : int\n }\n}",
+  2:  "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { create B.mk2() }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T { input amount : int\n }\n do take T -> U { }\n}",
   8:  "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr name string\n create mk -> S { }\n do go S -> D { }\n}",
   11: "type P version 1 {\n tracking serial\n states S category live, D category closed terminal\n owner w : W inverse parts\n create mk -> S { set w := inputs.w }\n do go S -> D { }\n}",
   15: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go D -> S { }\n}",
@@ -272,6 +301,7 @@ FIXTURES = {
   31: "type A version 1 {\n tracking quantity\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}",
   34: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n do go S -> D { }\n}",
   35: "machine M version 1 {\n state S category live\n state D category closed terminal\n create mk -> S { }\n do go S -> D { set mystery := 1 }\n}",
+  13: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D only via B.nope { }\n}",
   38: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } { input reason : string\n require may: actor.has(Q) because delegable\n may admit inv }\n}",
   40: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n act poke at D { }\n}",
 }
@@ -304,7 +334,7 @@ def main():
     reserved = set()
     if rw := re.search(r"\n`(module use .+?)`\n", src, flags=re.S):
         reserved = set(rw.group(1).split())
-    machine_caps = {w for m in re.findall(r"requires capability ([^\n]+)", src) for w in re.findall(r"\w+", m)}
+    machine_caps = {w for m in re.findall(r"^\s*requires capability ([^\n]+)$", src, flags=re.M) for w in re.findall(r"[A-Z][A-Z_0-9]*", m)}
 
     world = {}
     for bstart, blk in blocks:
@@ -314,8 +344,7 @@ def main():
     for bstart, blk in blocks:
         findings += analyse(blk, bstart, capdecl, catdecl, reserved, world)
         findings += line_checks(blk, bstart, capdecl, reserved, machine_caps)
-    nums = [int(x) for x in re.findall(r"^\| (\d+) \|", src, flags=re.M)]
-    if nums != sorted(nums): findings.append((0, f"check table misordered: {nums}", 1))
+
     if rw:
         w = rw.group(1).split()
         if dups := {x for x in w if w.count(x) > 1}: findings.append((21, f"duplicate reserved words {sorted(dups)}", 1))
@@ -323,10 +352,14 @@ def main():
             if re.search(rf"(^|\s|`){kw}\b", src) and kw not in w:
                 findings.append((21, f"keyword '{kw}' used but not reserved", 1))
 
+    nums = [int(x) for x in re.findall(r"^\| (\d+) \|", src, flags=re.M)]
+    if nums != sorted(nums): findings.append((0, f"check table misordered: {nums}", 1))
     ok = self_test()
     covered = sorted(FIXTURES)
+    ndefined = max(nums) if nums else 0
     print(f"{DOC.name}: {len(blocks)} blocks, {ndecl} declarations")
-    print(f"enforces checks {covered} of 40 defined; each is demonstrated by a fixture above")
+    print(f"partially enforces {len(covered)} of {ndefined} defined checks: {covered}")
+    print("each is proven by a fixture; most implement one clause of a multi-clause check, so this is a floor, not coverage")
     seen, uniq = set(), []
     for c, d, ln in sorted(findings, key=lambda f: (f[2], f[0])):
         if (c, d) in seen: continue
