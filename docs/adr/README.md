@@ -7,7 +7,7 @@
 | [0003](0003-one-state-machine-per-object-type.md) | One state machine per object type; composition rather than parallel regions | Accepted |
 | [0004](0004-composite-state-is-gated-not-derived.md) | Composite state is gated by its parts, not derived from them | Accepted |
 | [0005](0005-guards-evaluate-over-state-plus-inputs.md) | Guards evaluate over current state plus transition inputs | Accepted |
-| [0006](0006-controlled-and-free-attributes.md) | Attributes are classified controlled or free | Proposed |
+| [0006](0006-controlled-and-free-attributes.md) | Attributes are classified controlled or free | **Superseded by ADR-0042** |
 | [0007](0007-decide-and-record-not-compute-or-effect.md) | The store decides and records; it does not compute or cause effects | Accepted |
 | [0008](0008-guard-escape-hatch-is-a-named-external-evaluator.md) | The guard escape hatch is a named external evaluator | Proposed |
 | [0009](0009-invariants-declared-at-type-level.md) | Invariants are declared at type level, enforced at transitions | Accepted |
@@ -43,3 +43,7 @@
 | [0039](0039-transitions-run-at-serialisable-isolation.md) | The transition transaction runs at serialisable isolation | Accepted (repair D02/D04, review pending) |
 | [0040](0040-assertion-is-a-declared-capability-gated-transition.md) | The override is an assertion: declared, capability-gated, recorded, and never silent | Accepted (repair D03, review pending) |
 | [0041](0041-resolutions-of-six-review-contradictions.md) | Resolutions of six contradictions: only-via listing, idempotent replay, action outcomes, file bytes, constraint compilation, fan-out verdict | Accepted (repair, review pending) |
+| [0042](0042-all-attributes-are-controlled-editing-is-an-action.md) | There are no free attributes; every write is a transition and editing is an action | Accepted (repair D09, review pending) |
+| [0043](0043-subscription-progress-is-runtime-state-and-lag-is-derived.md) | Subscription progress is runtime state; lag and death are derived, so nothing initiates | Accepted (repair D07, review pending) |
+| [0044](0044-proposals-execute-under-the-current-declaration-and-can-be-invalidated.md) | A proposal executes under the current declaration and is invalidated when that becomes impossible | Accepted (repair D08, review pending) |
+| [0045](0045-invariant-enforcement-is-dynamic-and-invariants-traverse-declared-inverses.md) | Invariant enforcement is dynamic; invariants may only traverse declared inverses | Accepted (repair D10, review pending) |

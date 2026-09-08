@@ -1,6 +1,7 @@
 # ADR-0006: Attributes are classified controlled or free
 
-- **Status:** Proposed — working assumption, not yet confirmed
+- **Status:** **Superseded by ADR-0042** (2026-09-08). The free class had no write path, no permission model, no provenance class and no event shape; once ADR-0016 made an action a self-transition, making every write a transition became cheap. Retained for the reasoning and the rejected alternatives.
+- **Previous status:** Proposed — working assumption, not yet confirmed
 - **Date:** 2026-09-07
 
 ## Context

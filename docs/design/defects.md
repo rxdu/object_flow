@@ -14,10 +14,10 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D04](#d04) | The lock set cannot be computed when the spec says | **resolved by ADR-0039** |
 | [D05](#d05) | Availability both does and does not list only-via transitions | **resolved by ADR-0041** |
 | [D06](#d06) | Idempotent replay is specified as both refuse and replay | **resolved by ADR-0041** |
-| [D07](#d07) | The built-in Subscription cannot be operated under its own rules | open |
-| [D08](#d08) | Proposals across declaration versions are undefined | open |
-| [D09](#d09) | Free attributes have no write path | open |
-| [D10](#d10) | Two different invariant-enforcement specifications | open |
+| [D07](#d07) | The built-in Subscription cannot be operated under its own rules | **resolved by ADR-0043** |
+| [D08](#d08) | Proposals across declaration versions are undefined | **resolved by ADR-0044** |
+| [D09](#d09) | Free attributes have no write path | **resolved by ADR-0042** |
+| [D10](#d10) | Two different invariant-enforcement specifications | **resolved by ADR-0045** |
 | [D11](#d11) | Cascaded transitions cannot take inputs | open |
 | [D12](#d12) | An outcome cannot name an object it creates | open |
 | [D13](#d13) | `this_event` is undefined and chronologically impossible | open |
@@ -120,9 +120,13 @@ Three defects in one place.
 2. `docs/adr/0034:20` advances the `lagging` and `dead-lettered` states "by the delivery worker", which is part of an ObjectKeeper deployment (`docs/DESIGN.md:30`). `docs/adr/0012-objectkeeper-does-not-initiate-transitions.md:17` forbids any path by which an object moves without an external actor. Same problem for `Proposal.expired` (`docs/adr/0036-proposals-are-a-built-in-type-and-delegation-is-supplied.md:17`).
 3. Every acknowledgement is an action, so it records an event, and the log is never pruned (`docs/adr/0033-current-state-is-stored-and-the-log-is-permanent-history.md:15`). Subscription acknowledgements become permanent history at delivery rate.
 
+**Resolved by ADR-0043.** Progress is runtime state outside the object model; lag and death are derived, so nothing initiates and acknowledgements never enter the log.
+
 ### D08
 **Proposals across declaration versions are undefined.**
 `docs/adr/0036:16` re-evaluates guards at execution but never says under which declaration version. Consequences unhandled: a version that adds a required input makes the stored request unexecutable, and `0036:14` offers no terminal state for it, so it pends forever; `docs/adr/0027:15` says removing a transition affects no object, but it strands a proposal naming it; a migration can move the target out of the proposal's from-state.
+
+**Resolved by ADR-0044.** Execution uses the current declaration; a new terminal state `invalidated` catches requests the declaration can no longer express.
 
 ### D09
 **Free attributes have no write path.**
@@ -134,6 +138,8 @@ Three defects in one place.
 
 ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bearing." It is now load-bearing in ADR-0016, 0017, 0021, 0031, 0033, 0034 and 0035.
 
+**Resolved by ADR-0042.** The free class is removed. Every attribute is controlled, and editing is a declared action, which costs one line and buys a guard, an actor and an event.
+
 ### D10
 **Two different invariant-enforcement specifications.**
 `docs/adr/0009-invariants-declared-at-type-level.md:12` is static: "The runtime determines which transitions could violate them and enforces there." `docs/DESIGN.md:168` is dynamic: "Check every invariant the written objects could violate." Different algorithms, different cost, different coverage. Neither is marked normative, and `0009:27` concedes the static analysis is "a real piece of machinery" without specifying it.
@@ -141,6 +147,8 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 ---
 
 ## Severity 2: cannot be expressed, or has no algorithm
+
+**Resolved by ADR-0045.** Dynamic enforcement is normative; the static analysis becomes a publish-time report; invariants may traverse only declared inverses.
 
 ### D11
 **Cascaded transitions cannot take inputs.** Used in every case study (`walkthrough:135`, `:191`, `:198`; `crm:46-48`; `orders:16`). Neither `docs/DESIGN.md:108` nor `docs/adr/0019:14` permits it, and ADR-0019's only example passes none.

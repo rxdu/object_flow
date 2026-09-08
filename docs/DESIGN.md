@@ -33,7 +33,7 @@ ObjectKeeper is a layer over a database, not a database (ADR-0001). The core is 
 
 | Property | Meaning | Why it matters |
 |---|---|---|
-| **Mediated** | No path to the data except through ObjectKeeper. State changes pass through declared transitions and their guards; every other write is recorded with provenance | The peace-of-mind guarantee |
+| **Mediated** | No path to the data except through declared transitions and their guards. There is no second write path (ADR-0042) | The peace-of-mind guarantee |
 | **Declared** | What is allowed is data, inspectable at runtime — not code (ADR-0010) | UI, API and agent tools are projections of one declaration |
 | **Recorded** | Every change is attributed, caused and reconstructable | Trust after the fact, not only while watching |
 
@@ -52,13 +52,11 @@ ObjectType            declared under a version (§5.9); may extend a base for
                       attributes, relationships, invariants, derived attributes
   id                store-assigned, globally unique, immutable, opaque (ADR-0018)
   version           incremented on every recorded change (ADR-0023)
-  attributes
-    controlled      referenced by guards; written only via transitions
+  attributes        all written only via transitions (ADR-0042)
       identifier    optionally minted from a named, scoped sequence (ADR-0029)
       external      optionally marked with a source; unique per source (ADR-0037)
       personal      optionally marked; subject to erasure (ADR-0031)
       file          a content-addressed reference; bytes external (ADR-0017, proposed)
-    free            editable by any permitted actor; recorded, not gated
     derived         a named expression, never stored, evaluated on read (ADR-0021)
     indexed         declared per attribute; scans and query filters use these
     summary         the attribute set returned by default in listings
@@ -96,7 +94,7 @@ Every object carries a store-assigned, globally unique, immutable, opaque id, as
 
 ### 5.2 Attributes
 
-An attribute has a declared type — string, integer, decimal with scale, money with currency, timestamp, duration, enum with declared options, reference, file, set of any of these — and is **controlled** or **free** (ADR-0006, proposed). Any attribute a guard reads must be controlled. Controlled attributes are written only by transition outcomes; free attributes are written by any permitted actor and recorded. **Derived** attributes are named expressions, never stored (ADR-0021). Attributes marked **personal** are subject to erasure (ADR-0031). A **file** attribute holds a content-addressed reference to a blob in external storage with its hash, size, media type and provenance; ObjectKeeper never reads, streams or serves the bytes; its only byte-level operation is deleting them during erasure, which ADR-0031 requires (ADR-0017, proposed; ADR-0041).
+An attribute has a declared type: string, integer, decimal with scale, money with currency, timestamp, duration, enum with declared options, reference, file, or a set of any of these. **Every attribute is written only by a transition outcome** (ADR-0042); there is no ungated write. A type makes attributes editable by declaring an action for them, which costs one declaration and gives the edit a guard, an actor, an event and a place in the availability listing. **Derived** attributes are named expressions, never stored (ADR-0021). Attributes marked **personal** are subject to erasure (ADR-0031). A **file** attribute holds a content-addressed reference to a blob in external storage with its hash, size, media type and provenance; ObjectKeeper never reads, streams or serves the bytes; its only byte-level operation is deleting them during erasure, which ADR-0031 requires (ADR-0017, proposed; ADR-0041).
 
 ### 5.3 Relationships
 
@@ -130,7 +128,7 @@ A guard that depends on facts outside the store references a **named external ev
 
 ### 5.6 Invariants
 
-A type-level property declared once; the runtime determines which transitions could violate it and enforces it at each, on either side (ADR-0009). Since transitions run at serialisable isolation (ADR-0039), invariants are enforced correctly whether or not they compile to a database constraint. Compilation is an optimisation: which shapes compile is a property of the backend, and publishing reports which of a declaration's invariants the configured backend can compile (ADR-0041). PostgreSQL compiles uniqueness, uniqueness per external source and interval exclusion per key; SQLite compiles fewer. "No two open engagements for one unit" and "one active configuration version per SKU" are the first consumer's instances.
+A type-level property declared once. Enforcement is dynamic: after a request applies its outcomes, every invariant the written objects could violate is checked (ADR-0045). An invariant may traverse only relationships with declared inverses, so the affected set is found by reverse traversal rather than a type scan; publishing rejects a declaration that breaks this and reports, per invariant, which transitions could violate it. Since transitions run at serialisable isolation (ADR-0039), invariants are enforced correctly whether or not they compile to a database constraint. Compilation is an optimisation: which shapes compile is a property of the backend, and publishing reports which of a declaration's invariants the configured backend can compile (ADR-0041). PostgreSQL compiles uniqueness, uniqueness per external source and interval exclusion per key; SQLite compiles fewer. "No two open engagements for one unit" and "one active configuration version per SKU" are the first consumer's instances.
 
 ### 5.7 The expression language
 
@@ -195,7 +193,7 @@ Events are strictly ordered per object and causally ordered across a cascade; a 
   a cursor                 calls subscribers
 ```
 
-**Subscriptions** are a built-in object type: a filter over a type or family, transition names and `changes_state`; a cursor and an acknowledged position; a lifecycle `active → lagging → dead-lettered` driven by acknowledgement lag and revivable at any position because nothing is pruned (ADR-0034). Delivery is **at-least-once with idempotent handling**; exactly-once *effect* comes from deduplicating on the event id at the receiver, and transitions accept an idempotency key so the common case — an event causing a transition — deduplicates centrally and records causal lineage (ADR-0014). Acknowledgements track progress and lag; they are not a correctness mechanism.
+**Subscriptions** are a built-in object type holding a filter over a type or family, transition names and `changes_state`, plus lag thresholds and a lifecycle of `active → revoked`. Delivery progress is **runtime state, not object state**: the acknowledged position is stored beside the idempotency record, is not versioned and emits no events, so a poll never lands in the permanent log. Lag and death are **derived** from that position and the thresholds, so nothing has to move a subscription into them and ADR-0012 is untouched. A subscription may be revived at any position because nothing is pruned (ADR-0034, ADR-0043). Delivery is **at-least-once with idempotent handling**; exactly-once *effect* comes from deduplicating on the event id at the receiver, and transitions accept an idempotency key so the common case — an event causing a transition — deduplicates centrally and records causal lineage (ADR-0014). Acknowledgements track progress and lag; they are not a correctness mechanism.
 
 **Time.** `now` is a value in guards. A time-driven transition is an ordinary one — `expire: ACTIVE → EXPIRED, guard end_date <= now` — and ObjectKeeper never requests it; a scheduler above asks the availability query and requests each answer with a periodic idempotency key (ADR-0022). The guard is the timing rule, in one place. ObjectKeeper initiates nothing (ADR-0012).
 
@@ -209,7 +207,7 @@ Events are strictly ordered per object and causally ordered across a cascade; a 
 
 ## 9. Built-in types
 
-`Subscription` (§7) and `Proposal` are built in and not user-definable. A **Proposal** holds a request a caller lacked authority for — target, transition, inputs, proposer — with a lifecycle `pending → executed | rejected | withdrawn | expired`; an authorised actor's approval executes the recorded request as that actor with the approval as cause, re-evaluating every non-actor guard (ADR-0036).
+`Subscription` (§7) and `Proposal` are built in and not user-definable. A **Proposal** holds a request a caller lacked authority for — target, transition, inputs, proposer — with a lifecycle `pending → executed | rejected | withdrawn | expired | invalidated`; an authorised actor's approval executes the recorded request as that actor with the approval as cause, re-evaluating every non-actor guard under the **current** declaration. A guard that fails leaves it pending; a declaration that can no longer express the request invalidates it (ADR-0036, ADR-0044). `expired` is derived, not driven.
 
 ## 10. The read surface
 
