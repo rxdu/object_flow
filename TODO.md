@@ -6,28 +6,23 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 
 | | |
 |---|---|
-| ADRs | 64, none Proposed |
+| ADRs | 72, none Proposed |
 | Defect register | 168 entries, none open; seven carried to open questions ([`docs/design/defects.md`](docs/design/defects.md)) |
 | Declaration syntax | **iteration 16, ready for author review**; checker clean, 24 of 52 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
-| Open questions | thirteen, raised by writing the syntax against four domains ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
-| Awaiting author review | ADR-0019 to ADR-0064, DESIGN.md as a whole, and the declaration syntax |
+| Open questions | none. All thirteen answered by the author 2026-09-08, ADR-0065 to ADR-0072 ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
+| Awaiting author review | ADR-0019 to ADR-0064 (ADR-0065 to ADR-0072 are the author's own), DESIGN.md as a whole, and the declaration syntax |
 
 The design was built in six autonomous iterations, then reviewed for implementation readiness, then repaired. The review found 42 defects, ten of which broke the model or a running system; re-expressing the case studies against the repaired grammar found five more. ADR-0038 to ADR-0054 are that repair, and none has been reviewed by the author.
 
 **Three of them changed decisions the author had made.** ADR-0042 removes the free-attribute class, superseding ADR-0006. ADR-0047 withdraws ADR-0005's claim that a transition's input schema is derived from its guards. ADR-0029 withdrew a consequence of ADR-0018. Everything else adds to the model or corrects a contradiction inside it.
 
-## Decisions waiting on you
+## What the author decided
 
-Thirteen open questions, in [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md) §11 with the evidence that raised each **and a recommendation against each**, written after surveying the first consumer's production code. Five say change it, three say refuse it, one is already decided by an earlier ADR, four are defer or low priority. The survey moved two of them: per-attribute confidentiality has no need in the first consumer at all, and the money-counter question turned out to rest on a mechanism that consumer does not use. Two independent reviewers, asked where your attention is worth spending, both said here rather than on the check list. Grouped by what a decision would change:
+All thirteen open questions were ruled on 2026-09-08, recorded as ADR-0065 to ADR-0072 and marked Accepted rather than pending. The table in [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md) §11 gives each answer and where it lives; §12 says what remains unestablished.
 
-- **One is a silent weakening, and both auditors put it first.** 13, what a replacing creation owes the machine whose creation it replaced. A binder's own `create` replaces the machine's (ADR-0064), and the required *data* survives, because the replacement is held to every required attribute and part. The *guards* do not: a screening or velocity guard on the shared creation is simply not applied. That is the same shape the design rejects by name when it argues against an unlisted `only via` — a construct granting by construction what the model asks to be declared. Every other question is an acknowledged limit; this one is a hole nobody would see.
-- **Four say a whole domain cannot be expressed.** 9 and 10 together mean a payments ledger cannot be: `money` fixes its currency at declaration, and a balance cannot be a counter, so the design's own remedy for a slow invariant scan is closed to every quantity that is money. 12 asks whether `serial` and `quantity` are the right two tracking modes, since a payment, a posting and an account are neither. 6 asks whether confidentiality should be per-attribute, hiding one field currently costing a whole type.
-- **Two would change the storage schema, so they want answering before implementation.** 10, above, and 5, whether declaring an inverse should imply an index on the stored end.
-- **Three are friction the model should ratify or reject.** 4, whether mandatory `limit` and mandatory guard names earn their cost, which now carries evidence against: a reviewer's model reported a worst-case fan-out of thirty-three thousand from bounds they said they invented. 7, whether a cascade should carry arguments. 11, whether `only via` needs a form naming a family.
-- **One is the cost of a decision made this week.** 13, what a replacing creation owes the machine whose creation it replaced. Since a binder's own `create` replaces the machine's (ADR-0064), the required *data* is still guaranteed, because the replacement is held to every required attribute and part. The *guards* are not: a screening or velocity guard on the machine's creation simply does not apply to a binder that declares its own. One domain has asked for this, which is the bar that rejected a general suppression marking, so it is recorded rather than built.
-- **Three are smaller.** 1, 2 and 3.
+Five changed the language: a machine's creation guards bind any creation that replaces it, a cascade clause carries arguments, a third tracking mode for types that track no physical thing, a comparable type name on a reverse reference, and both state spellings in both places. Three refused a change: money keeps its currency in the declaration, evaluators stay verdict-only with a mirror for anything that assigns, and an authority list stays optional at a closed state. One closed a question already answered. Four are deferrals recorded with their evidence.
 
-One decision is already recorded and worth flagging separately: check 52 verifies that a normative statement cites the check enforcing it, and its own row now records that running it against the four defects that motivated it catches one. Whether a presence-only check belongs in the table at all is a judgement a reviewer explicitly left to you.
+**Two answers moved because of evidence rather than argument.** Per-attribute confidentiality looked likely and turned out to have no need in the first consumer at all. The money counter turned out to rest on a mechanism that consumer does not use, since it stores no stock level and computes availability instead.
 
 ## Author review queue
 
@@ -38,7 +33,7 @@ Nothing here is blocked on it, and none of it is settled without it.
 - [ ] **The model additions** — ADR-0026 extends and families, ADR-0027 versioning, ADR-0028 supersession, ADR-0029 sequences, ADR-0030 visibility, ADR-0031 and ADR-0051 erasure, ADR-0050 tracking mode.
 - [ ] **The surfaces** — ADR-0034 and ADR-0043 subscriptions, ADR-0036 and ADR-0044 proposals, ADR-0037 and ADR-0048 the read surface, ADR-0049 external evaluators.
 - [ ] **The decisions that changed yours** — ADR-0042, ADR-0047 §6, ADR-0029.
-- [ ] **A payments case study** — `docs/design/` has five case studies and none that is high-volume, short-lived or money-carrying. The third syntax review wrote one and it produced four open questions (9 to 12) that nothing else in the record would have raised. Writing it up is how those questions stay attached to their evidence.
+- [ ] **A payments case study** — `docs/design/` has five case studies and none that is high-volume, short-lived or money-carrying. The third syntax review wrote one and it produced four of the thirteen questions the author has now answered, so their evidence lives in a review transcript rather than in the repository. Writing it up is how those questions stay attached to their evidence.
 - [ ] **The declaration syntax** — [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md), and the model amendments writing it forced: ADR-0055 to ADR-0064. This is the surface every consumer writes against, so it is the part worth reading slowest.
 - [ ] **DESIGN.md as a whole**, rewritten from scratch on 2026-09-08 rather than patched further.
 

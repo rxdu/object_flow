@@ -73,3 +73,11 @@ The repair added several checks that reject a declaration rather than accept one
 - **Applying a transition twice to one object in one request** is not special-cased: the second evaluation sees the first's result and usually fails, so two delivery slots bound to one unit block completion rather than selling it twice (ADR-0038).
 - **A pending proposal the current declaration cannot express** is invalidated at publish rather than left pending (ADR-0044).
 - **Changing a type's tracking mode** is a new type; objects move by supersession one at a time (ADR-0050).
+
+## From the author's rulings on the open questions (2026-09-08)
+
+- **A multi-currency balance in one attribute.** Not covered, by decision. `money(ccy)` fixes its currency at declaration so a mismatch is a publish error; a model holding several currencies declares an account per currency, which is what double-entry systems do anyway (ADR-0068).
+- **An external system that assigns a value.** Covered, by a different mechanism than the one people reach for. An evaluator returns a verdict and never a value; a system that decides — a randomisation service, a pricing service, Xero minting a contact id — is a mirror object with an external identifier (ADR-0069).
+- **Confidentiality of one field within a visible row.** Not covered. Visibility is per object. Hiding one attribute from one role costs a separate type with its own lifecycle, its own visibility predicate and a cascade clause per terminal transition of the whole (ADR-0072).
+- **Authority attached to undoing a commitment.** Not distinguished. The first consumer gates the reversal of a decision that has become real — cancelling a placed order, reverting a committed intake — and treats every correction before that point as ordinary. Nothing in the model tells a transition that undoes a commitment from any other transition, and a capability guard is what expresses it today (ADR-0070).
+- **A consumer that maintains a counter.** None in the record. The design offers a counter and a maintaining cascade as the remedy when an invariant's scan is too slow, and the first consumer stores no stock level at all, computing availability on demand. The remedy is untested against a real user (ADR-0072).
