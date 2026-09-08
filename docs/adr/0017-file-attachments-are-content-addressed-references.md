@@ -1,6 +1,6 @@
 # ADR-0017: File attachments are content-addressed references; the bytes are out of scope
 
-- **Status:** Proposed — raised 2026-09-07; scope not yet decided
+- **Status:** **Accepted** — confirmed by the author 2026-09-08, after the readiness review
 - **Date:** 2026-09-07
 
 ## Context
@@ -9,7 +9,7 @@ The first consumer stores photos (robot, delivery, service and intake-confirmati
 
 The author's stated preference is links to file objects in an S3-like store or on a filesystem. The open question is where ObjectKeeper's responsibility ends.
 
-## Decision (provisional)
+## Decision
 
 ObjectKeeper defines a **`file` attribute type** (single or list): a reference to a blob held in external storage, carrying the storage key, a content hash, size, media type, and provenance — who attached it, when, and through which transition. It is a controlled attribute: written only as the outcome of a transition or action whose inputs include the reference, so guards can read it (presence, count, media type) and history records it.
 
@@ -29,7 +29,7 @@ Pros: nothing to build; ObjectKeeper stays exactly a layer over a database.
 
 Cons: a guard can check only that a string is non-empty, not that it names a file, what type it is, or who attached it. The evidence trail — the reason the first consumer keeps photos at all — has no provenance. Dangling references are invisible. The port has to invent a convention per consumer for what the string means.
 
-### B. Content-addressed reference, bytes external (chosen provisionally)
+### B. Content-addressed reference, bytes external (chosen)
 
 Pros: guards see presence, count, type and provenance; history records who attached what; the blob store is pluggable and can be the deployment's existing bucket; the guarantee is stated honestly as covering the reference and its provenance, not the bytes; content addressing makes references verifiable and the port deterministic.
 
@@ -43,7 +43,7 @@ Pros: one trust boundary; existence is guaranteed by the store; deletion and arc
 
 Cons: ObjectKeeper becomes a file server. Bytes flow through a write path designed for small transactional records; photos and PDFs bring streaming, resumable upload, size limits and CDN concerns that are a different engineering problem. ADR-0001 positions the project as a layer over a database, not a database; this would make it a layer over a database *and* an object store. The additional guarantee — that the bytes exist — is available more cheaply as an external evaluator under B.
 
-## Consequences (if accepted)
+## Consequences
 
 - The model block in DESIGN.md gains `file` as an attribute type with the fields above.
 - ADR-0015's open item on what "preserved" covers is closed: files migrate to the deployment's blob store under content-addressed keys, and each legacy photo row becomes a `file` reference on its object with provenance `asserted` from the legacy row.
@@ -51,7 +51,8 @@ Cons: ObjectKeeper becomes a file server. Bytes flow through a write path design
 - A sweep for unreferenced keys is an operational tool, not a runtime feature.
 - Whether "the blob exists" is ever a guard, and whether it is eager or deferred, is decided per declaration under ADR-0008.
 
-## Open
+## Questions closed since
 
-- Whether a `file` attribute may be free rather than controlled — a photo on a note, say — or whether every file is controlled because every file is potential evidence.
-- Retention: whether ObjectKeeper's history retention and the blob store's lifecycle rules must agree, and who enforces it.
+- **Free versus controlled** is moot: ADR-0042 removed the free class, so every file attribute is controlled and every attachment is written by a declared transition with a guard, an actor and an event. That is the stricter of the two readings this ADR offered, and the right one, since a file is potential evidence.
+- **Erasure deletes bytes.** ADR-0031 requires it and ADR-0041 states it plainly: ObjectKeeper never reads, streams or serves blob content, and deleting during erasure is its only byte-level operation. The absolute "never touches the bytes" that once appeared in DESIGN.md was false.
+- **Retention.** The log is permanent (ADR-0033) and a reference outlives any expiry policy, so **the blob store's own lifecycle expiry must be disabled for an ObjectKeeper artifact store**. Deletion happens only through erasure. A deployment that leaves expiry enabled will produce references whose content is gone; that is an operational misconfiguration, and a periodic reference-versus-store audit is the control that catches it. *(Derived 2026-09-08 from ADR-0033's permanence; pending author review.)*

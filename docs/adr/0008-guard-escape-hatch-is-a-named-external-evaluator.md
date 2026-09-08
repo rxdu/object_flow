@@ -1,13 +1,14 @@
 # ADR-0008: The guard escape hatch is a named external evaluator returning a structured verdict
 
-- **Status:** Proposed
+- **Status:** **Accepted** — confirmed by the author 2026-09-08, after the readiness review
+- **Confirmed as decided, with one reinterpretation:** ADR-0049 moved evaluators outside the write transaction and gave their verdict an as-of time, so *eager* and *deferred* now mark **when in a caller's workflow** an evaluator is consulted, not where in the transaction. ADR-0048 additionally excludes evaluators from the `available` sweep entirely.
 - **Date:** 2026-09-07
 
 ## Context
 
 Some guards depend on facts the store does not hold: parts availability in a supplier system, payment status in Xero. These cannot be expressed over the object graph, but excluding them entirely would push users out of the model at the first genuinely awkward rule.
 
-## Decision (provisional)
+## Decision
 
 The object definition references a guard **by name**. An external evaluator answers it, and is contractually required to return a structured verdict — satisfied, or unsatisfied with a reason and a remedy class — in exactly the same shape as a built-in guard.
 
@@ -33,7 +34,7 @@ The discipline that keeps a generic system generic is a rule about its escape ha
 
 ## Consequences
 
-- Listing available transitions must stay cheap and frequent; a guard that round-trips to a third party would otherwise make the primary read path slow and dependent on someone else's uptime. Hence the eager/deferred distinction.
+- Listing available transitions must stay cheap and frequent; a guard that round-trips to a third party would otherwise make the primary read path slow and dependent on someone else's uptime. *ADR-0048 settles this more firmly than the eager/deferred distinction did: `available` and `check` call no evaluator at all and report which guards they did not evaluate.*
 - An alternative to deferring is to mirror the external fact locally as a maintained attribute, trading read-time cost for write-time projection and a cache that can silently lie.
 
 ## Evidence from the first consumer

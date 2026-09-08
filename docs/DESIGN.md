@@ -57,7 +57,7 @@ ObjectType            declared under a version (§5.9); may extend a base for
       identifier    optionally minted from a named, scoped sequence (ADR-0029)
       external      optionally marked with a source; unique per source (ADR-0037)
       personal      optionally marked; subject to erasure (ADR-0031)
-      file          a content-addressed reference; bytes external (ADR-0017, proposed)
+      file          a content-addressed reference; bytes external (ADR-0017)
     derived         a named expression, never stored, evaluated on read (ADR-0021)
     indexed         declared per attribute; scans and query filters use these
     summary         the attribute set returned by default in listings
@@ -95,7 +95,7 @@ Every object carries a store-assigned, globally unique, immutable, opaque id, as
 
 ### 5.2 Attributes
 
-An attribute has a declared type: string, integer, decimal with scale, money with currency, timestamp, duration, enum with declared options, reference, event reference, file, or a set of any of these. **Every attribute is written only by a transition outcome** (ADR-0042); there is no ungated write. A type makes attributes editable by declaring an action for them, which costs one declaration and gives the edit a guard, an actor, an event and a place in the availability listing. **Derived** attributes are named expressions, never stored (ADR-0021). Attributes marked **personal** are subject to erasure (ADR-0031). A **file** attribute holds a content-addressed reference to a blob in external storage with its hash, size, media type and provenance; ObjectKeeper never reads, streams or serves the bytes; its only byte-level operation is deleting them during erasure, which ADR-0031 requires (ADR-0017, proposed; ADR-0041).
+An attribute has a declared type: string, integer, decimal with scale, money with currency, timestamp, duration, enum with declared options, reference, event reference, file, or a set of any of these. **Every attribute is written only by a transition outcome** (ADR-0042); there is no ungated write. A type makes attributes editable by declaring an action for them, which costs one declaration and gives the edit a guard, an actor, an event and a place in the availability listing. **Derived** attributes are named expressions, never stored (ADR-0021). Attributes marked **personal** are subject to erasure (ADR-0031). A **file** attribute holds a content-addressed reference to a blob in external storage with its hash, size, media type and provenance; ObjectKeeper never reads, streams or serves the bytes; its only byte-level operation is deleting them during erasure, which ADR-0031 requires (ADR-0017, ADR-0041). A deployment must disable its blob store's own lifecycle expiry, since the log is permanent and a reference outlives any expiry policy.
 
 ### 5.3 Relationships
 
@@ -125,7 +125,7 @@ A guard is an expression that must hold for a transition to proceed. Evaluating 
 | `dependent` | Another object must change state; names it | Work on that first |
 | `unreachable-from-here` | Wrong state; another transition or action comes first, or this one is only-via | Take a different path |
 
-A guard that depends on facts outside the store references a **named external evaluator** that must return the same verdict shape (ADR-0008, proposed). Evaluators are consulted **before** the write transaction opens, never inside it, and their verdict carries an as-of time recorded on the event; a declaration may set a freshness bound, past which the verdict is refused as `temporal` (ADR-0049). The guarantee for an external fact is therefore as of that time, not at commit. An invariant violation names the conflicting objects.
+A guard that depends on facts outside the store references a **named external evaluator** that must return the same verdict shape (ADR-0008). Evaluators are consulted **before** the write transaction opens, never inside it, and their verdict carries an as-of time recorded on the event; a declaration may set a freshness bound, past which the verdict is refused as `temporal` (ADR-0049). The guarantee for an external fact is therefore as of that time, not at commit. An invariant violation names the conflicting objects.
 
 ### 5.6 Invariants
 

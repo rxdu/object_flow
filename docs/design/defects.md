@@ -41,7 +41,7 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D31](#d31) | Constraint compilation is mis-cited and backend-dependent | **resolved by ADR-0041** |
 | [D32](#d32) | External evaluators have no slot in the execution sequence | **resolved by ADR-0049** |
 | [D33](#d33) | Quantity and serial tracking are incompatible | **resolved by ADR-0050** |
-| [D34](#d34) | Three Proposed ADRs are load-bearing | **partly resolved; two author confirmations outstanding** |
+| [D34](#d34) | Three Proposed ADRs are load-bearing | **resolved** |
 | [D35](#d35) | Erasure has no taint rule and may collide with uniqueness | **resolved by ADR-0051** |
 | [D36](#d36) | `self-serviceable` is misused for the fan-out cap | **resolved by ADR-0041** |
 | [D37](#d37) | Iteration cannot take a collection-valued expression | **resolved by ADR-0052** |
@@ -277,7 +277,7 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 ### D34
 **Three Proposed ADRs are load-bearing.** ADR-0006, ADR-0008 and ADR-0017 are Proposed. `docs/DESIGN.md` states their content in the model block, the language table and the import path, marked "proposed" only in §5.2 and §5.5 prose. `docs/adr/0037:49` and `TODO.md:48` claim no open model questions remain while `TODO.md:105-108` still lists confirming all three.
 
-**Partly resolved.** ADR-0006 is superseded by ADR-0042 rather than confirmed, so the free-attribute question is closed. **ADR-0008 (external evaluators) and ADR-0017 (files) remain Proposed and remain load-bearing**, and both are author decisions rather than review findings. ADR-0008 is depended on by ADR-0021, ADR-0032, ADR-0022, ADR-0037, ADR-0048 and ADR-0049; ADR-0017 by ADR-0031, ADR-0051 and the import path. Until they are confirmed or rejected, the claim in ADR-0037 and TODO.md that no open model questions remain is still false.
+**Resolved.** ADR-0006 is superseded by ADR-0042 rather than confirmed, and the author confirmed ADR-0008 and ADR-0017 on 2026-09-08. No ADR is now Proposed while being depended on. ADR-0008 is depended on by ADR-0021, ADR-0032, ADR-0022, ADR-0037, ADR-0048 and ADR-0049; ADR-0017 by ADR-0031, ADR-0051 and the import path. The claim in ADR-0037 and TODO.md that no open model questions remain is now true.
 
 ### D35
 **Erasure has no taint rule and may collide with uniqueness.** Nothing forbids `display_name := contact.email` where the source is personal and the target is not; erasure then misses the copy, in the row and in the event that wrote it. Separately, `docs/adr/0031:17` defines the redaction marker only at expression level, while `docs/adr/0037:29` makes external-identifier uniqueness an automatic invariant compiled to a constraint. Erasing two records whose personal attribute is also an external identifier writes the marker twice, and a sentinel would make a legally mandated operation impossible.

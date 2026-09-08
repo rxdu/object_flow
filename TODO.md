@@ -68,7 +68,7 @@ The port of the first consumer's production data is a designed path (ADR-0015, D
 - [ ] **Legacy history.** Specify the read-only `legacy` history entry: payload, attachment to the object, and whether the read path presents it inline with ObjectKeeper's own history or separately.
 - [x] **Soft-deleted rows.** Land in the type's declared deleted terminal state with provenance `asserted` (ADR-0024). Per-type naming of that state is import mapping work, not design.
 - [x] **Legacy keys.** Preserved as `external: legacy` attributes with `lookup` by them (ADR-0018, ADR-0037).
-- [ ] **Files.** The first consumer stores photos (robot, delivery, service, intake), packing-list PDFs and label templates. The author's preference is links to file objects in an S3-like store or a filesystem, with ObjectKeeper's scope undecided. Analysed in [ADR-0017](docs/adr/0017-file-attachments-are-content-addressed-references.md), proposed as a content-addressed `file` attribute type with the bytes out of scope. If accepted, closes ADR-0015's open item and fixes how legacy photos port.
+- [x] **Files.** Content-addressed `file` attributes with the bytes in the deployment's blob store ([ADR-0017](docs/adr/0017-file-attachments-are-content-addressed-references.md), confirmed 2026-09-08). Legacy photos, packing-list PDFs and label templates port as controlled attributes written by the import's asserting transition. The blob store's own lifecycle expiry must be disabled.
 - [ ] **Cutover.** Big-bang or staged by object type with ObjectKeeper read-only for the remainder. A project-plan decision that the design must not preclude.
 
 ## Defect repair
@@ -77,7 +77,7 @@ An implementation-readiness review on 2026-09-08 found **36 verified defects**, 
 
 **Status 2026-09-08: 35 of 36 resolved by ADR-0038 to ADR-0051; D34 is partly resolved and leaves two author confirmations.** The repair changed the execution model (sequential cascades, serialisable isolation, a declared assertion path), removed the free-attribute class, and gave the outcome and expression languages a semantics. Every resolution is marked pending author review.
 
-The one thing the repair could not do is decide ADR-0008 and ADR-0017, which are the author's to confirm or reject. Both are load-bearing.
+**ADR-0008 and ADR-0017 were confirmed by the author on 2026-09-08**, and ADR-0006 was superseded rather than confirmed by ADR-0042. No ADR is Proposed while being depended on, and the register is closed at 41 defects, all resolved. What remains is author review of the repair itself and the artefacts below.
 
 **The case studies were re-expressed on 2026-09-08** against the repaired grammar. Doing so found five further gaps (D37 to D41), all resolved by ADR-0052; the declarations in the five studies are now current and their banners are lifted. The register stands at 41 defects, 40 resolved, D34 leaving two author confirmations.
 
@@ -112,10 +112,7 @@ These artefacts are needed once the register is clear. These are the artefacts t
 
 ## Confirmations outstanding
 
-- [ ] Confirm or reject ADR-0006 (controlled vs free attributes) — recorded as a working assumption only. First-consumer evidence now attached to the ADR. Author undecided as of 2026-09-07.
-- [ ] Confirm or reject ADR-0008 (named external evaluator as the guard escape hatch). First-consumer evidence now attached to the ADR. Author undecided as of 2026-09-07.
 - [ ] Confirm the import-path properties derived in ADR-0015 Consequences: provenance `asserted`; validate-and-report with per-class disposition by a person; legacy history as read-only entries of kind `legacy`; external identifiers preserved. Derived 2026-09-07, not individually confirmed.
-- [ ] Confirm or reject ADR-0017 (file attachments as content-addressed references, bytes out of scope), or decide that files are outside ObjectKeeper entirely.
 - [ ] **Open-source library or not.** Undecided as of 2026-09-07. Nothing recorded depends on it; it should get an ADR when it is decided, because it changes what the first version must include.
 
 ## Validation

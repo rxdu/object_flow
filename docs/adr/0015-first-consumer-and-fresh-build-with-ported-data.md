@@ -71,5 +71,5 @@ The import-path properties above were derived in discussion on 2026-09-07 as con
 ## Open
 
 - **Whether the project is an open-source library** was left undecided on 2026-09-07. Nothing in this ADR depends on it.
-- **What "preserved" covers beyond object rows.** The existing system stores photos (robot, delivery, service, intake), packing-list PDFs and label templates. ObjectKeeper does not store blobs. Whether it holds references to files kept elsewhere, and who migrates the files, is analysed in ADR-0017 (proposed) and not yet decided.
+- ~~**What "preserved" covers beyond object rows.**~~ **Closed by ADR-0017, accepted 2026-09-08.** Files are content-addressed into the deployment's blob store and each becomes a controlled `file` attribute on its object, written by the import's asserting transition like any other value.
 - **Cutover staging**: big-bang or per object type.
