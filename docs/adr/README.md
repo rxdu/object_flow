@@ -64,3 +64,4 @@
 | [0060](0060-decisions-from-the-iteration-11-syntax-review.md) | Twelve decisions from the iteration-11 syntax review | Accepted (repair D63-D96, review pending) |
 | [0061](0061-decisions-from-the-payments-ledger-review.md) | Ten decisions from the payments-ledger review | Accepted (repair D114-D133, review pending) |
 | [0062](0062-a-normative-statement-must-cite-its-check.md) | A normative statement must cite the check that enforces it | Accepted (repair D134-D148, review pending) |
+| [0063](0063-the-swap-test-is-a-decision-procedure.md) | The swap test names its normalisations, and check 52's claim is retracted | Accepted (repair D149-D158, review pending) |

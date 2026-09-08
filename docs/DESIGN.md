@@ -100,24 +100,13 @@ Each type binds exactly one **named** state machine, whole; two types that share
 
 A **transition** is a named, guarded, recorded request to move an object from one state to another. It is requested **by name, never by target state**. Its from-state may be one state, a set, or any non-terminal state. It declares **inputs** with types and optionality, **guards**, and an **outcome**. An **action** is a transition whose from- and to-state are equal; its outcome is unrestricted like any other (ADR-0016, ADR-0041). A request naming no declared transition is refused, so nothing is recorded for a change that did not happen.
 
-An **outcome** is an ordered sequence of steps (ADR-0046, ADR-0052):
-
-```text
-  <attribute> := <expression>                        write on this object
-  add    <attribute> := <expression>                 insert into a set-valued attribute
-  remove <attribute> := <expression>                 delete from a set-valued attribute
-  supersede <expression>                             name this object's successor
-  let <name> = create <Type>.<transition>(…)         create, bound for later steps
-  <path>.<transition>(<input> := <expression>, …)    cascade, with inputs
-  for <name> in <collection expression> [where …]:   iterate, binding the element
-  for <name> in 1..<expression>:                     repeat over a count
-```
+An **outcome** is an ordered sequence of steps that write this object, create another, reach another by `call`, supersede, or loop over a bounded collection (ADR-0046, ADR-0052). **The grammar is `docs/design/declaration-syntax.md` §5.2, which owns it**; this section states what an outcome is and not how it is spelled, because two statements of one grammar drift and the syntax document is the one publishing checks. Until iteration 14 the grammar was restated here and had gone stale in three of its six lines.
 
 Rules that make an outcome readable and safe:
 
-- **Straight-line.** No step chooses between alternatives. Where behaviour differs by a value, declare one transition per case, each guarded on that value, so the applicable one appears in the availability listing and a value matching none is visibly stuck.
+- **Straight-line.** No *step* chooses between alternatives, and no step is conditional. Where the **behaviour** differs by a value — a different set of writes, a different object created — declare one transition per case, each guarded on that value, so the applicable one appears in the availability listing and a value matching none is visibly stuck. Where only a **value** differs, a conditional expression is allowed on the right of a write (`docs/design/declaration-syntax.md` §8.3), since it changes what is written and not what happens.
 - **Sets change element-wise.** `add` and `remove` are read-modify-write like any outcome write, so two adds in one request accumulate and two concurrent adds serialise. The expression language gains no set algebra; `set` on a set-valued attribute still replaces it wholly (ADR-0055).
-- **Optional inputs skip.** A write whose right-hand side is an unsupplied optional input is skipped, not applied. Clearing a value deliberately is a separate input or a separate action (ADR-0052).
+- **Absence skips, in two places only.** A write whose right-hand side is an unsupplied optional input is skipped, not applied, and a `call` whose path runs through an absent optional end is skipped because there is no object to reach. Everywhere else absence in a path is an error. Clearing a value deliberately is a separate input or a separate action (ADR-0052).
 - **`this` and `this_event` are available**, including inside a creation outcome: the new object's id and its event's identity are allocated before the outcome runs (ADR-0046, ADR-0052).
 - **Bounded.** A declaration may cap iteration fan-out; exceeding it is refused with `over-limit`. The graph of transitions that reference each other in outcomes must be acyclic (ADR-0019).
 

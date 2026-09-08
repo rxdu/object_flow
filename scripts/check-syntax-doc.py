@@ -444,8 +444,13 @@ def doc_checks(src):
     a10, b10 = src.index(H1), src.index(H10)
     body = re.sub(r"```text\n.*?```",
                   lambda m: "\n" * m.group(0).count("\n"), src[a10:b10], flags=re.S)
-    norm = re.compile(r"\b(is a publish error|is rejected|are rejected|publishing rejects"
-                      r"|Publishing rejects|is an error|are both rejected)\b")
+    norm = re.compile(
+        r"\b(is a publish error|are publish errors|is rejected|are rejected"
+        r"|[Pp]ublishing rejects|[Pp]ublishing enforces|[Pp]ublishing verifies"
+        r"|[Pp]ublishing checks|which publishing checks|is an error|are both rejected"
+        r"|is mandatory|may not be|may not name|may not call|may not read|may not traverse"
+        r"|may declare no|must be present|must reach|must be marked|must be declared"
+        r"|is not allowed|is not permitted|What is not allowed)\b")
     for m in norm.finditer(body):
         win = body[max(0, m.start() - 260): m.end() + 260]
         if not re.search(r"check \d+|checks \d+|§10", win):

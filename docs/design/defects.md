@@ -923,3 +923,57 @@ Three reviewers re-read their own findings against the repair. Two returned non-
 **Two wording residues.** Check 11 said the whole "declares" the part where the example inherits it, and open question 8's rationale had been left attached to question 12 when the two were split.
 
 **Resolved.**
+
+## Found by the iteration-14 review
+
+Two of three reviewers non-blocking; the payments declaration that could not be written four rounds ago now publishes clean. The round's result is that **the instrument added in iteration 14 was itself the least-checked thing in the document**, and both reviewers went at it directly.
+
+### D149
+**The swap test rejected the two shapes it claimed to accept.** §3.4 defined symmetry as the swapped predicate being "the same up to the order of its conjuncts", and asserted that overlap and shared-key equality pass. Swapping `b.start < end` yields `start < b.end`, which is the same comparison only once direction is discounted, and swapping `b.resource == resource` reverses its operands. Under the stated relation both fail, including §3.4's own worked example. The relation was therefore either too weak, rejecting what it blessed, or it meant semantic equivalence, which is unbounded and gives an implementer nothing.
+
+**Resolved.** Four normalisations are named — conjuncts as a set, `==`/`!=` modulo operand order, the four inequalities modulo direction, and a member of `this` modulo its spelling — and nothing else is normalised, so the test is a decision procedure rather than an equivalence to argue about.
+
+### D150
+**Check 52 claimed to catch the defects it was built for, and catches one of four.** A reviewer ran the implemented predicate over the four historical rule-and-check divergences: it fires on one, misses two for want of a trigger phrase, and cannot see the fourth at all, since that was a contradiction between two checks rather than between a rule and a check. The two it misses are the two that produced blocking defects.
+
+**Resolved by retraction in the document**, not by softening. Check 52's row now states what it does — enforce the discipline going forward for the phrasings it recognises — and names its two mechanical bounds: one citation shields every statement within 260 characters, and the phrasing list is fixed.
+
+### D151
+**Check 52's detector recognised seven phrasings and missed seventeen normative statements in this document.** Rules stated as "publishing enforces", "is mandatory", "may not be", "must reach", "is not allowed" and "are publish errors" were invisible to it, so the document did not pass the check it had just introduced.
+
+**Resolved.** The detector covers twenty phrasings, runtime refusals are excluded as not being publish-time rules, and all seventeen statements now cite their check.
+
+### D152
+**Two normative rules had no check to cite.** A `visible when` predicate may not call an evaluator, read an unindexed derivation or traverse a set-valued end; and a state, category or transition may not be named `any`, `terminal` or `superseding`. Both were stated as rules and enforced by nothing.
+
+**Resolved.** The first is check 7, the second check 33. This is check 52's most useful result: run properly, the first thing it found was rules that were never enforced at all.
+
+### D153
+**A scale mismatch on a write cited a check about expressions that type.** The expression types perfectly well; it is the assignment that mismatches, and no check named assignment compatibility. The rule was load-bearing, having repaired D106.
+
+**Resolved.** Check 17 covers a write whose value does not fit its target, and the citation points there.
+
+### D154
+**Check 53's verdict on a legitimate cascade could not be predicted.** "Every non-terminal state its part can be in when the trigger fires" was carrying the decision and was undefined. The cheap reading rejects a correct model; the expensive one requires propagating a guard on a different transition two states earlier, which is not decidable from the text.
+
+**Resolved.** The strict form, reported without failing, naming the uncovered states. It moves out of the check table into the report, since a report is what an undecidable-in-general risk deserves.
+
+### D155
+**The design document's outcome grammar had gone stale in three of six lines**, still showing forms the syntax document had replaced, and its straight-line rule contradicted the syntax document's conditional outcome value.
+
+**Resolved.** The syntax document owns the grammar and the design document says so; the straight-line rule now distinguishes a conditional *step*, which is forbidden, from a conditional *value*, which is not.
+
+### D156
+**Check 8's two clauses used different quantifiers, and the weaker one was silent.** A required attribute was checked per creation and a required singular part per type, so a binder whose machine-supplied creation did not fill its part published clean and failed soft at runtime.
+
+**Resolved.** Both are per creation, and §2.1 now names references and parts alongside attributes as things a machine-supplied creation cannot provide.
+
+### D157
+**Two paragraphs each claimed to state the only skip rule and contradicted each other on `call`.** Both cited a check, so check 52 passed them: the defect was disagreement between two statements, which no citation rule detects.
+
+**Resolved.** One is a skip on account of state and belongs to a cascade; the other is a skip because a path does not resolve. Each now names the other.
+
+### D158
+**A clause left behind by the swap-test rewrite gave a false reason.** It said the `id` exclusion "is not one of the symmetric shapes below" when there are no longer shapes below and the clause passes the swap test.
+
+**Resolved.** The ground is redundancy, which is what check 6 rejects it on.
