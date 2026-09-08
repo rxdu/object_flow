@@ -2,7 +2,7 @@
 
 A governed object store: your data, and the rules that constrain how it changes.
 
-> **Status: design only, under review.** Nothing is implemented. This repository contains the design record: the model, the decisions taken, and a defect register from an implementation-readiness review whose 47 findings have been resolved but not yet reviewed by the author.
+> **Status: design only, under review.** Nothing is implemented. This repository contains the design record: the model, the declaration syntax consumers write against, the decisions taken, and a defect register whose 62 findings have been resolved but not yet reviewed by the author.
 
 ## What it is
 
@@ -40,6 +40,7 @@ A practical consequence: a single business rule today is expressed as a storage 
 |---|---|
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Purpose, position in the stack, the model, scope boundaries, known limits |
 | [`docs/adr/`](docs/adr/) | Decisions taken, each with the alternatives rejected and why |
+| [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md) | The language a type is declared in, and the checks publishing runs over it |
 | [`docs/design/`](docs/design/) | The first-consumer walkthrough, four case studies, the catalogue of edge cases, and the defect register from the readiness review |
 | [`docs/LESSONS.md`](docs/LESSONS.md) | Operational lessons |
 | [`TODO.md`](TODO.md) | Open questions and outstanding confirmations |

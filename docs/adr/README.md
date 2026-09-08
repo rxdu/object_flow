@@ -60,3 +60,4 @@
 | [0056](0056-model-amendments-found-by-writing-the-syntax.md) | Ten model amendments found by writing the declaration syntax | Accepted (repair D50-D59, review pending) |
 | [0057](0057-changed-since-reaches-parts.md) | `changed_since` may name a part relationship, so an approval is invalidated by an edit to a part | Accepted (repair D60, review pending) |
 | [0058](0058-composition-lifetime-and-re-parenting.md) | Every terminal transition disposes of its parts; re-parenting is checked against both wholes | Accepted (repair D61-D62, review pending) |
+| [0059](0059-which-end-of-a-relationship-stores-the-value.md) | Both ends of a relationship are declared; cardinality decides which one stores the value | Accepted (repair of the iteration-9 syntax review, review pending) |
