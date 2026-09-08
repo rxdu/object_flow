@@ -7,7 +7,7 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 | | |
 |---|---|
 | ADRs | 73, none Proposed |
-| Defect register | 170 entries and five cosmetics, all closed; seven were carried to open questions the author has since ruled on ([`docs/design/defects.md`](docs/design/defects.md)) |
+| Defect register | 180 entries and five cosmetics, all closed; seven were carried to open questions the author has since ruled on ([`docs/design/defects.md`](docs/design/defects.md)) |
 | Declaration syntax | **iteration 18, ready for author review**; checker clean, 24 of 52 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
 | Open questions | none. All thirteen answered by the author 2026-09-08, ADR-0065 to ADR-0072 ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
 | Awaiting author review | ADR-0019 to ADR-0064, DESIGN.md as a whole, and the declaration syntax. ADR-0065 to ADR-0073 are settled: ADR-0065 to ADR-0072 are the author's own rulings, ADR-0073 confirmed 2026-09-08 |
@@ -45,6 +45,7 @@ Nothing here is blocked on it, and none of it is settled without it.
 | Readiness review, 2026-09-08 | 41 defects across four independent passes, D01 to D36 and five cosmetics; the design was not implementable |
 | Repair, 2026-09-08 | ADR-0038 to ADR-0053; the register closed |
 | Re-expression, 2026-09-08 | Four case studies and the walkthrough rewritten in the repaired grammar, which found D37 to D41 |
+| Corpus coherence review, 2026-09-08 | Four parallel audits after the rulings: the decision set, the model against the language, the case studies, the status documents. D171 to D180; `scripts/check-corpus.py` |
 | Coherence pass, 2026-09-08 | ADR-0054; DESIGN.md rewritten; 20 statements corrected across the ADR set; D42 to D47 |
 | Declaration syntax, 2026-09-08 | Eighteen iterations against reviewers reading as a first-time user and as the implementer of the checker; ADR-0055 to ADR-0064; D48 to D168; `scripts/check-syntax-doc.py` runs the document's examples against its own rules |
 

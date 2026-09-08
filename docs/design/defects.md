@@ -101,9 +101,9 @@ Findings from every review of this design. It began as the implementation-readin
 | [D87](#d87) | `visible when` has no typing, traversal or indexing rules | Resolved |
 | [D88](#d88) | `sweepable` is reported by the publish report and defined nowhere | Resolved |
 | [D89](#d89) | The identifier rule contradicts itself on scope | Resolved |
-| [D90](#d90) | Mandatory `limit` produces invented numbers and an unactionable report | Recorded as evidence for open question 4 |
-| [D91](#d91) | Confidentiality is per-object, and the common need is per-attribute | Recorded as open question 6 |
-| [D92](#d92) | An evaluator cannot return a value, and the common integration assigns one | Recorded as open question 8 |
+| [D90](#d90) | Mandatory `limit` produces invented numbers and an unactionable report | Recorded as evidence for open question 4, and resolved by the ruling |
+| [D91](#d91) | Confidentiality is per-object, and the common need is per-attribute | Recorded as open question 6, and refused by the ruling |
+| [D92](#d92) | An evaluator cannot return a value, and the common integration assigns one | Recorded as open question 8, and refused by the ruling |
 | [D93](#d93) | The §10 preamble's decidability claim is wrong in three ways | Resolved |
 | [D94](#d94) | Fourteen checks are ambiguous, fire on the document's own examples, or cannot be built | Resolved |
 | [D95](#d95) | Eleven terms are used by §10 and defined nowhere in §1–9 | Resolved by ADR-0060 |
@@ -128,7 +128,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D114](#d114) | The abstract-base part pattern had no spelling that publishes | Resolved |
 | [D115](#d115) | A wrapped `provides capability` line was read as declaring only its first line | Resolved |
 | [D116](#d116) | `money` had no scale and no rounding rule | Resolved |
-| [D117](#d117) | `money` fixes its currency at declaration, so a multi-currency ledger cannot be typed | Recorded as open question 9 |
+| [D117](#d117) | `money` fixes its currency at declaration, so a multi-currency ledger cannot be typed | Recorded as open question 9, and refused by the ruling |
 | [D118](#d118) | Idempotency, an advertised runtime capability, had no declarable form | Resolved |
 | [D119](#d119) | The negative of an external verdict did not type | Resolved |
 | [D120](#d120) | A required reference or singular part was unchecked at creation | Resolved |
@@ -140,9 +140,9 @@ Findings from every review of this design. It began as the implementation-readin
 | [D126](#d126) | `tracking` was not inherited and an abstract type had to declare it | Resolved |
 | [D127](#d127) | No remedy class distinguished a window that has not opened from one that has closed | Resolved |
 | [D128](#d128) | A single two-valued branch multiplied into four transitions | Resolved |
-| [D129](#d129) | A money balance cannot be a counter | Recorded as open question 10 |
-| [D130](#d130) | `only via` on a shared child scales as binders times triggers | Recorded as open question 11 |
-| [D131](#d131) | `serial` and `quantity` fit neither a payment, a posting nor an account | Recorded as open question 12 |
+| [D129](#d129) | A money balance cannot be a counter | Recorded as open question 10, and deferred by the ruling |
+| [D130](#d130) | `only via` on a shared child scales as binders times triggers | Recorded as open question 11, and agreed but not built |
+| [D131](#d131) | `serial` and `quantity` fit neither a payment, a posting nor an account | Recorded as open question 12, and resolved by the ruling |
 | [D132](#d132) | Whether an `enum` body may wrap was unclear | Resolved |
 | [D133](#d133) | The prohibition on marking a stored end `indexed` lived only in §8.1 and a check | Resolved |
 | [D134](#d134) | Check 21 rejected the construct §8.3 had just been rewritten to permit | Resolved |
@@ -180,8 +180,18 @@ Findings from every review of this design. It began as the implementation-readin
 | [D166](#d166) | Two checks were not updated alongside the two that were | Resolved |
 | [D167](#d167) | Inserting an open question renumbered four others and invalidated six references | Resolved |
 | [D168](#d168) | A rename invented a new word for an established concept and redefined it | Resolved |
-| [D169](#d169) | Twenty-five findings across the five case studies and the walkthrough, none of which had ever been checked | Resolved |
+| [D169](#d169) | Twenty-five findings across the five older case studies and the walkthrough, none of which had ever been checked | Resolved |
 | [D170](#d170) | `DESIGN.md` promised a construct the language did not have | Resolved by ADR-0073 |
+| [D171](#d171) | A scripted edit put four answer paragraphs in the wrong lists | Resolved |
+| [D172](#d172) | Fifty refinement links were one-way, over twenty-six records | Resolved |
+| [D173](#d173) | Five decisions were reversed on one side only | Resolved |
+| [D174](#d174) | Six of thirty-two rules stated in both the model document and the specification had drifted to the superseded version | Resolved |
+| [D175](#d175) | The defect index listed 62 of 170 entries | Resolved |
+| [D176](#d176) | Most counts in the status documents were wrong | Resolved |
+| [D177](#d177) | Seven register entries read "Not resolved" after the author had ruled on the question each was carried to | Resolved |
+| [D178](#d178) | The mediated guarantee named one exception and there are two | Resolved |
+| [D179](#d179) | Nine case-study statements described the model as it no longer is | Resolved |
+| [D180](#d180) | Two pairs of documents contradicted each other on substance | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -1154,3 +1164,57 @@ The cause is worse than drift. Those blocks were never written in the declaratio
 `Bug.reopen` in the ticket study needs it: a bug moved back to in-progress that still reads `resolution = FIXED` is wrong in the way the model exists to prevent. It had been written as `resolution := null` in the unchecked notation, which is how the gap survived.
 
 **Resolved by ADR-0073.** A `clear` step writes absence to an optional attribute, and is a write like any other so that it invalidates an approval that read the attribute.
+
+## Found by the corpus coherence review
+
+Four parallel audits on 2026-09-08 after the author's rulings: the decision set against itself, the model against the language, the case studies against the model, and the status documents against the filesystem. Sixty-one findings.
+
+### D171
+**A scripted edit put four answer paragraphs in the wrong lists.** The script that recorded a recommendation under each open question matched a numbered item anywhere in the document. One landed inside design goal 1, which lost its explanation; three split the five-step name-resolution order that check 19 depends on. Every line stayed valid, both checkers reported clean, and it survived four commits.
+
+**Resolved.** Removed, and the corpus checker verifies where an answer paragraph may be. It deliberately does not attempt the general case: an inserted indented paragraph between two list items is structurally identical to a legitimate continuation. The real correction is in `docs/LESSONS.md` — a scripted edit must assert where it matched.
+
+### D172
+**Fifty refinement links were one-way, over twenty-six records.** The corpus checker verified `Amends` and not `Refines` or `Supersedes`, so a reader of ADR-0052 learned nothing of the five later decisions that refine it, including the one that superseded its symmetric-shape whitelist. The decision index had also stopped recording refinements after ADR-0059.
+
+**Resolved.** Every back-link is generated from the refining record's own title; thirty-seven index rows say what refined them; the checker covers all three relations.
+
+### D173
+**Five decisions were reversed on one side only.** A ruling moved a counter's non-negativity into an invariant while the pending decision still said counters are never negative. ADR-0052's whitelist was superseded in substance by two later decisions and carried nothing. ADR-0034 rejected consumer-managed cursors and ADR-0043 substantially adopted them. ADR-0023's verdict taxonomy predates two additions. ADR-0028 said in one paragraph that a duplicate is not superseded and in the next that merge is the same mechanism.
+
+**Resolved.** Each annotated where the reader will meet it.
+
+### D174
+**Six of thirty-two rules stated in both the model document and the specification had drifted to the superseded version.** Whether a bound machine is whole, what a composition's cascade covers, how symmetry is decided, where a conditional may appear, whether a reference is an attribute type, and whether a bound is optional. Two further claims were false about the repository itself: that the declaration syntax does not exist, and that a payments case study is still needed.
+
+**Resolved**, and the division of ownership is now stated at the top of the model document, since assuming it has failed twice.
+
+### D175
+**The defect index listed 62 of 170 entries.** The register's most-skimmed artefact was 64 per cent incomplete, which is exactly what `docs/LESSONS.md` predicts of a summary maintained beside its body.
+
+**Resolved.** Generated from the entries, with a corpus check that fails when one is missing.
+
+### D176
+**Most counts in the status documents were wrong.** The register held 47 entries in one place and 170 in another, the readiness review was 42 defects and found 41, the syntax was eleven iterations and is eighteen, five case studies were re-expressed and it was four and the walkthrough, and the thirteen rulings tallied as 5/3/1/4 and are 5/4/1/1/1/1. Three completed tasks were still open, including the licence, which is Apache-2.0 in the tree and undecided in two records.
+
+**Resolved.** Each verified by counting rather than reading.
+
+### D177
+**Seven register entries read "Not resolved" after the author had ruled on the question each was carried to**, and the README's claim that all 170 findings were resolved rested on them.
+
+**Resolved.** Each says what the ruling was.
+
+### D178
+**The mediated guarantee named one exception and there are two.** The README and the model document both said the only way to set state without satisfying a guard is a declared assertion; import and migration use a built-in one, gated on a deployment capability. This is the absolute-claim lesson recurring in the sentence that lesson was written about.
+
+**Resolved.** Both carve-outs are named in the same sentence as the guarantee.
+
+### D179
+**Nine case-study statements described the model as it no longer is**, of which one was factually false about the production system and two would have produced a declaration that does not publish. The catalogue of edge cases had gone stale in both directions and was missing eight publish refusals added since it was last touched.
+
+**Resolved.** Listed in the commit; the audit's citations are the record.
+
+### D180
+**Two pairs of documents contradicted each other on substance.** Whether a contended row queues or retries, which ADR-0039 itself answered both ways; and whether an input may be a set of objects, which the specification's own assert example uses and its grammar line omitted.
+
+**Resolved.** The decision rule wins over its own consequence in the first; the grammar gains the form in the second, and the real limit is restated as a set of anonymous structures, which no input can be.
