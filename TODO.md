@@ -75,7 +75,11 @@ The port of the first consumer's production data is a designed path (ADR-0015, D
 
 An implementation-readiness review on 2026-09-08 found **36 verified defects**, recorded with evidence in [`docs/design/defects.md`](docs/design/defects.md). Ten break the model or a running system. The design is **not** implementation-ready until at least those ten are resolved, and three of them (D01 cascade semantics, D02 isolation, D03 the override) change the execution model rather than adding to it.
 
-Repair order: D01, D02, D03 first, since they change §6 and would otherwise force a rewrite; then the remaining severity-1 items; then the expression language (D11 to D26 are largely one body of work); then the contradictions.
+**Status 2026-09-08: 35 of 36 resolved by ADR-0038 to ADR-0051; D34 is partly resolved and leaves two author confirmations.** The repair changed the execution model (sequential cascades, serialisable isolation, a declared assertion path), removed the free-attribute class, and gave the outcome and expression languages a semantics. Every resolution is marked pending author review.
+
+The one thing the repair could not do is decide ADR-0008 and ADR-0017, which are the author's to confirm or reject. Both are load-bearing.
+
+**The case studies are no longer evidence.** They are written in a notation ADR-0046 and ADR-0047 replaced, and must be re-expressed before their conclusions can be relied on.
 
 ## Toward implementation
 

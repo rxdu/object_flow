@@ -14,7 +14,7 @@ Status: maintained by the design iterations; started 2026-09-07. Each entry says
 - **One unit becomes two, or two become one.** *Now covered by ADR-0046:* an outcome may create the new object, bind it to a name and re-parent parts to it. History stays on the originals, which is what a split means.
 - **Correcting the past.** Covered with caveat. History is immutable; a wrong delivery date is corrected by a recorded action that writes the corrected value with provenance `corrected` and a reason. The read surface shows the current value and the correction; nothing rewrites the earlier event.
 - **The physical world diverges from the record** (a unit is stolen, or found in a state the machine cannot reach). Covered: the administrative override of ADR-0001 asserts the state with provenance `asserted`, an actor and a reason. It is a transition, recorded and gated on authority, not a database edit.
-- **Quantity-tracked consumables** (spare parts counted, not serialised). Deferred to iteration 4; the first consumer serialises everything, so it has not needed this.
+- **Quantity-tracked consumables** (spare parts counted, not serialised). *Now covered by ADR-0050:* a type declares its tracking mode, and a slot declares which fill form it takes, so one delivery may carry a serialised robot and a counted quantity of cable ties.
 
 ## From issue tracking (iteration 2)
 

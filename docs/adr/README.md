@@ -49,3 +49,7 @@
 | [0045](0045-invariant-enforcement-is-dynamic-and-invariants-traverse-declared-inverses.md) | Invariant enforcement is dynamic; invariants may only traverse declared inverses | Accepted (repair D10, review pending) |
 | [0046](0046-the-outcome-grammar.md) | The outcome grammar: cascade inputs, named creations, bound iteration, repeat, `this_event`, part re-parenting | Accepted (repair D11-D15/D18/D29, review pending) |
 | [0047](0047-expression-semantics.md) | Expression semantics: three-valued logic, explicit binding, aggregates over types, declared inputs and remedy classes, acyclic derivation | Accepted (repair D16-D24, review pending) |
+| [0048](0048-the-read-path-must-be-answerable.md) | Sweepable guards, a per-attribute write index, and time-dependent predicates rewritten to their operands | Accepted (repair D25/D26/D30, review pending) |
+| [0049](0049-external-evaluators-run-outside-the-transaction.md) | External evaluators run outside the write transaction; their verdict carries an as-of time | Accepted (repair D32, review pending) |
+| [0050](0050-a-type-declares-its-tracking-mode.md) | A type declares whether it is serial-tracked or quantity-tracked | Accepted (repair D33, review pending) |
+| [0051](0051-erasure-integrity.md) | Personal values may not be copied into non-personal attributes; the redaction marker is absence | Accepted (repair D35, review pending) |

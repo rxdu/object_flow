@@ -49,7 +49,8 @@ The model was then tested against four further shapes, each recorded as a case s
 
 ```text
 ObjectType            declared under a version (§5.9); may extend a base for
-                      attributes, relationships, invariants, derived attributes
+                      attributes, relationships, invariants, derived attributes;
+                      declares a tracking mode, serial or quantity (ADR-0050)
   id                store-assigned, globally unique, immutable, opaque (ADR-0018)
   version           incremented on every recorded change (ADR-0023)
   attributes        all written only via transitions (ADR-0042)
@@ -124,7 +125,7 @@ A guard is an expression that must hold for a transition to proceed. Evaluating 
 | `dependent` | Another object must change state; names it | Work on that first |
 | `unreachable-from-here` | Wrong state; another transition or action comes first, or this one is only-via | Take a different path |
 
-A guard that depends on facts outside the store references a **named external evaluator** that must return the same verdict shape, and is marked eager or deferred (ADR-0008, proposed). An invariant violation names the conflicting objects.
+A guard that depends on facts outside the store references a **named external evaluator** that must return the same verdict shape (ADR-0008, proposed). Evaluators are consulted **before** the write transaction opens, never inside it, and their verdict carries an as-of time recorded on the event; a declaration may set a freshness bound, past which the verdict is refused as `temporal` (ADR-0049). The guarantee for an external fact is therefore as of that time, not at commit. An invariant violation names the conflicting objects.
 
 ### 5.6 Invariants
 
@@ -212,7 +213,7 @@ Events are strictly ordered per object and causally ordered across a cascade; a 
 
 ## 10. The read surface
 
-One API, every operation taking an actor and applying visibility (ADR-0037): **get** by id with optional supersession following; **query** over a type or family with a filter over indexed attributes, state and category, ordering, cursor pagination and field selection; **lookup** by external identifier; **availability** of the requestable transitions for one object, with verdicts and parameter schemas, excluding only-via transitions (ADR-0041); **available** objects for a given transition; **check**, the verdict a request would receive without executing; **history** with provenance and the combined timeline through supersession; **declaration**, the inspectable rule set per version, rendered also as readable text and as agent tool schemas; **pull** over a subscription's cursor; **batch**, N independent requests with N verdicts. There is no atomic batch: atomic multi-object semantics are declared cascades. The store maintains no projection it does not declare; where a scan is too slow, the type declares a counter and the cascade that maintains it.
+One API, every operation taking an actor and applying visibility (ADR-0037): **get** by id with optional supersession following; **query** over a type or family with a filter over indexed attributes, state and category, ordering, cursor pagination and field selection; **lookup** by external identifier; **availability** of the requestable transitions for one object, with verdicts and parameter schemas, excluding only-via transitions (ADR-0041); **available** objects for a given transition, which requires that transition to be **sweepable**, meaning its guards decompose into an indexable prefilter and a residual, as publishing reports (ADR-0048); **check**, the verdict a request would receive without executing; **history** with provenance and the combined timeline through supersession; **declaration**, the inspectable rule set per version, rendered also as readable text and as agent tool schemas; **pull** over a subscription's cursor; **batch**, N independent requests with N verdicts. There is no atomic batch: atomic multi-object semantics are declared cascades. Neither `available` nor `check` calls an external evaluator, and both say which guards they did not evaluate. Time-dependent derived attributes are queried by filtering the stored operand they compare against `now`, and a per-attribute last-written index makes `changed_since` a constant-time comparison (ADR-0048). Beyond those, the store maintains no projection it does not declare; where a scan is too slow, the type declares a counter and the cascade that maintains it.
 
 ## 11. Import and migration
 
@@ -269,6 +270,8 @@ Concrete cases the model does not cover, or covers with a caveat — splitting a
 | **Supersession** | Ending an object in a terminal state naming its successor. |
 | **Erasure** | Redaction of personal attributes across an object and its history; recorded, irreversible. |
 | **Assertion** | A declared, capability-gated transition that may set a state without satisfying the type's other guards, recording its reason and what it stepped over (ADR-0040). |
+| **Tracking mode** | Whether a type is serial-tracked, one object per physical thing, or quantity-tracked, counters on a stock object (ADR-0050). |
+| **Sweepable** | A transition whose guards decompose into an indexable prefilter and a residual, so `available` can answer for it (ADR-0048). |
 | **Provenance** | What an event records about itself: actor, principal, context, cause, declaration version, source. |
 | **Subscription** | A built-in object holding a filter and a cursor over the log, with its own lifecycle. |
 | **Expression language** | The one language of guards, invariants, derived attributes, visibility, outcome values and filters. |

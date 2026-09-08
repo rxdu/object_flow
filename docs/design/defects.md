@@ -32,17 +32,17 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D22](#d22) | Expression scoping and name resolution are unstated | **resolved by ADR-0047** |
 | [D23](#d23) | Parameter-schema derivation has no algorithm | **resolved by ADR-0047** |
 | [D24](#d24) | Remedy-class assignment has no rule | **resolved by ADR-0047** |
-| [D25](#d25) | The availability query has unbounded cost | open |
-| [D26](#d26) | `changed_since` has no index story | open |
+| [D25](#d25) | The availability query has unbounded cost | **resolved by ADR-0048** |
+| [D26](#d26) | `changed_since` has no index story | **resolved by ADR-0048** |
 | [D27](#d27) | The spec's definition of an action is the option ADR-0016 rejected | **resolved by ADR-0041** |
 | [D28](#d28) | Files are both never touched and deleted | **resolved by ADR-0041** |
 | [D29](#d29) | Splitting is both uncovered and expressible | **resolved by ADR-0046** |
-| [D30](#d30) | Derived attributes cannot be queried | open |
+| [D30](#d30) | Derived attributes cannot be queried | **resolved by ADR-0048** |
 | [D31](#d31) | Constraint compilation is mis-cited and backend-dependent | **resolved by ADR-0041** |
-| [D32](#d32) | External evaluators have no slot in the execution sequence | open |
-| [D33](#d33) | Quantity and serial tracking are incompatible | open |
-| [D34](#d34) | Three Proposed ADRs are load-bearing | open |
-| [D35](#d35) | Erasure has no taint rule and may collide with uniqueness | open |
+| [D32](#d32) | External evaluators have no slot in the execution sequence | **resolved by ADR-0049** |
+| [D33](#d33) | Quantity and serial tracking are incompatible | **resolved by ADR-0050** |
+| [D34](#d34) | Three Proposed ADRs are load-bearing | **partly resolved; two author confirmations outstanding** |
+| [D35](#d35) | Erasure has no taint rule and may collide with uniqueness | **resolved by ADR-0051** |
 | [D36](#d36) | `self-serviceable` is misused for the fan-out cap | **resolved by ADR-0041** |
 
 ---
@@ -223,12 +223,16 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 ### D25
 **The availability query has unbounded cost.** `docs/adr/0037:20` returns objects for which a transition is available. Guards may contain type scans, aggregates and `changed_since`, so cost is O(candidates × unbounded). Only *deferred* external evaluators are excluded (`0037:20`, `0022:14`), so an eager one (`docs/adr/0008-guard-escape-hatch-is-a-named-external-evaluator.md:14`) means a third-party round trip per object. Visibility is an arbitrary actor predicate and cannot generally be indexed. Cursor pagination over a computed predicate needs a stable total order that is not specified. `docs/adr/0037:51` calls the operation cheap.
 
+**Resolved by ADR-0048.** A transition is sweepable or `available` refuses it; publishing reports which; external evaluators are never called in a sweep.
+
 ### D26
 **`changed_since` has no index story.** `docs/adr/0035:14` reads the log. Every indexing statement in the record is about the object row (`docs/adr/0033:12`, `docs/adr/0037:27`). Answering "which event last wrote attribute X of object O" requires per-attribute writes to be queryable in the log, which the storage schema does not yet exist to say.
 
 ---
 
 ## Severity 3: contradictions and scope errors
+
+**Resolved by ADR-0048.** A per-attribute last-written index, maintained in the writing transaction, makes `changed_since` a constant-time comparison.
 
 ### D27
 **The spec's definition of an action is the option ADR-0016 rejected.** `docs/DESIGN.md:106` and `:242` say an action "writes controlled attributes without changing lifecycle state", which is the shape of ADR-0016's rejected option B (`docs/adr/0016:45`, "an outcome restricted to attribute writes"). ADR-0035 requires actions to create Approvals (`0035:12`) and the CRM merge requires an action to cascade (`crm:47`).
@@ -248,6 +252,8 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 ### D30
 **Derived attributes cannot be queried.** `docs/adr/0037:17` restricts query filters to indexed attributes, state and category; `docs/adr/0021:12` makes derived attributes never stored; `now`-dependent ones can never be indexed because the value changes with no write. ADR-0022's consequences say the automation layer polls such predicates "through the ordinary read surface". Overdue and low-stock alerts therefore have no path. The same unsupported claim appears at `case-study-tickets.md:40` and `case-study-approvals-and-bookings.md:25`.
 
+**Resolved by ADR-0048.** Time-dependent derived attributes are queried by filtering the stored operand; static ones over indexed attributes are themselves indexable.
+
 ### D31
 **Constraint compilation is mis-cited and backend-dependent.** `docs/DESIGN.md:130` and `docs/adr/0001-store-owns-persistence.md:34` attribute a three-shape list to ADR-0023, which names only "uniqueness, a partial unique index" (`0023:14`). "Uniqueness per external source" comes from `docs/adr/0037:29`; "interval exclusion per key" appears only in `case-study-approvals-and-bookings.md:70`, which itself mis-cites ADR-0023. SQLite, a stated target (`docs/adr/0001:16`), has no exclusion constraint, so the same declaration gives different guarantees per backend with no caveat. `docs/adr/0002-requiredness-attaches-to-transitions.md:35` still asserts unannotated that "the database is not a safety net".
 
@@ -256,14 +262,22 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 ### D32
 **External evaluators have no slot in the execution sequence.** `docs/DESIGN.md:161-169` never mentions them. A deferred guard is "checked only at execution" (`docs/adr/0008:14`), which places a third-party network call inside the write transaction while holding row locks, the cost ADR-0014 rejected in-process handlers for (`0014:45`).
 
+**Resolved by ADR-0049.** Evaluators are consulted before the transaction opens; the verdict carries an as-of time and an optional freshness bound.
+
 ### D33
 **Quantity and serial tracking are incompatible.** `docs/design/edge-cases.md:17` defers quantity-tracked consumables to iteration 4; iteration 4 modelled quantity as counters on a Product (`orders:14`, `:20`) and never met a serialised unit. `docs/DESIGN.md:44` names SparePart among the types the model must carry and `walkthrough:9` serialises it. Nothing says how a delivery slot binds to a quantity, or how `reserve` means two things per tracking mode.
+
+**Resolved by ADR-0050.** A type declares serial or quantity tracking, and a slot declares its fill form, so one kit may carry both.
 
 ### D34
 **Three Proposed ADRs are load-bearing.** ADR-0006, ADR-0008 and ADR-0017 are Proposed. `docs/DESIGN.md` states their content in the model block, the language table and the import path, marked "proposed" only in §5.2 and §5.5 prose. `docs/adr/0037:49` and `TODO.md:48` claim no open model questions remain while `TODO.md:105-108` still lists confirming all three.
 
+**Partly resolved.** ADR-0006 is superseded by ADR-0042 rather than confirmed, so the free-attribute question is closed. **ADR-0008 (external evaluators) and ADR-0017 (files) remain Proposed and remain load-bearing**, and both are author decisions rather than review findings. ADR-0008 is depended on by ADR-0021, ADR-0032, ADR-0022, ADR-0037, ADR-0048 and ADR-0049; ADR-0017 by ADR-0031, ADR-0051 and the import path. Until they are confirmed or rejected, the claim in ADR-0037 and TODO.md that no open model questions remain is still false.
+
 ### D35
 **Erasure has no taint rule and may collide with uniqueness.** Nothing forbids `display_name := contact.email` where the source is personal and the target is not; erasure then misses the copy, in the row and in the event that wrote it. Separately, `docs/adr/0031:17` defines the redaction marker only at expression level, while `docs/adr/0037:29` makes external-identifier uniqueness an automatic invariant compiled to a constraint. Erasing two records whose personal attribute is also an external identifier writes the marker twice, and a sentinel would make a legally mandated operation impossible.
+
+**Resolved by ADR-0051.** Personal values are tainted and the taint is checked at publish; the redaction marker is absence, so uniqueness constraints do not collide.
 
 ### D36
 **`self-serviceable` is misused for the fan-out cap.** `docs/design/edge-cases.md:39` refuses an oversized cascade with `self-serviceable`, defined at `docs/DESIGN.md:120` as "Satisfiable by a transition argument". A fan-out cap is satisfiable by no argument, and for order placement "split the request" means creating two orders, a different business fact.
