@@ -149,11 +149,13 @@ An unsatisfied verdict's **remedy class** tells a caller what to do next:
 
 Availability is therefore three-way for a listing: available, available-with-input naming what must be supplied, or blocked with a verdict.
 
+**Approval** is not a separate mechanism. An approval is a recorded part of the approved object, carrying the approver, a kind, a decision and the event that recorded it, created by an `approve` action. "Needs approval" is then an ordinary guard counting the approvals that are still valid, where validity is `not changed_since([…], a.event)`, so a material edit invalidates an approval without every editing action having to remember a reset. N-of-M, sequential chains, thresholds and separation of duties are guards of that shape, and a missing approval reports `delegable` (ADR-0035).
+
 A guard that depends on facts outside the store references a **named external evaluator**, which must return the same verdict shape (ADR-0008). Evaluators are consulted **before** the write transaction opens, never inside it, and their verdict carries an as-of time recorded on the event; a declaration may set a freshness bound, past which the verdict is refused as `temporal` (ADR-0049). The guarantee for an external fact is as of that time, not at commit.
 
 ### 5.6 Invariants
 
-A type-level property, declared once. **Enforcement is dynamic**: after a request applies its outcomes, every invariant the written objects could violate is checked (ADR-0045). Two forms are permitted, and each has a rule that makes the affected set computable:
+A type-level property, declared once against the type rather than restated on every transition that could break it (ADR-0009). **Enforcement is dynamic**: after a request applies its outcomes, every invariant the written objects could violate is checked (ADR-0045). Two forms are permitted, and each has a rule that makes the affected set computable:
 
 - an invariant that **traverses relationships** may traverse only ones with **declared inverses**, so the affected objects are found by reverse traversal;
 - an invariant that **scans a type** must be **symmetric**, so the predicate that finds a conflict from a written object is the same one that would find it from the other side (ADR-0052). Overlap and equality on a shared key are symmetric; the booking-overlap and one-active-version invariants are of this form.
@@ -335,6 +337,7 @@ Concrete cases the model does not cover, or covers with a caveat, are catalogued
 | **Proposable** | A transition a caller lacking authority may file a Proposal for. |
 | **Asserting** | A transition that may set a declared set of states without satisfying the type's other guards, gated on a capability and recording what it stepped over. |
 | **Guard** | An expression that must hold for a transition, carrying a declared remedy class. |
+| **Approval** | A recorded part of the approved object; "needs approval" is a guard counting approvals still valid under `changed_since` (ADR-0035). |
 | **Verdict** | The result of evaluating a request: satisfied, unsatisfied with a remedy class, `stale`, `not found`, `not requestable`, `over-limit`, or invariant violated. |
 | **Remedy class** | What an unsatisfied guard tells the caller to do: supply, ask, wait, work elsewhere, or take another path. |
 | **Invariant** | A type-level property, checked after every request against the objects it wrote. |
