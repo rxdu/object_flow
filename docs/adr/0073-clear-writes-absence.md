@@ -1,6 +1,6 @@
 # ADR-0073: `clear` writes absence, and is the only way to
 
-- **Status:** Accepted — repair found by re-expressing the case studies, 2026-09-08; pending author review
+- **Status:** **Accepted** — confirmed by the author 2026-09-08, having been found by re-expressing the case studies
 - **Date:** 2026-09-08
 - **Refines:** ADR-0052, ADR-0053
 
@@ -28,6 +28,6 @@ Publishing rejects a `clear` on a required attribute, on a counter, or on a rela
 
 ## Consequences
 
-- `docs/design/declaration-syntax.md` §5.2 gains the step, §9.5 the reserved word, and check 17 the rejection.
+- `docs/design/declaration-syntax.md` §5.2 gains the step, §9.5 the reserved word, and check 17 the rejection — **implemented**, with all five failure modes confirmed by probe: a required attribute, a counter, a relationship end, an undeclared name and a path. The clause was claimed and unenforced for the first hour of its existence, which is the defect class ADR-0062 is about, so it was checked before the ADR was confirmed rather than after.
 - `docs/DESIGN.md` §5.4 stops promising a construct that did not exist and names this one.
 - `case-study-tickets.md` is expressible, and it is the only document in the repository that needed it, which is a fair measure of how often clearing a value is the right answer.

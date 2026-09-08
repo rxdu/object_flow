@@ -344,6 +344,18 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 elif tgt not in attrs and tgt not in rels and tgt not in d.counters \
                      and tgt not in d.derives and tgt not in {n for _, n, _ in d.requires}:
                     add(19, f"{d.name}.{tn} writes undeclared name '{tgt}'", ln)
+            for tgt in re.findall(r"^\s*clear\s+([\w.]+)\s*$", body, flags=re.M):
+                if "." in tgt:
+                    add(17, f"{d.name}.{tn} clears through a path '{tgt}'", ln)
+                elif tgt in d.counters:
+                    add(17, f"{d.name}.{tn} clears counter '{tgt}'", ln)
+                elif tgt in rels:
+                    add(17, f"{d.name}.{tn} clears relationship end '{tgt}'; "
+                            "write the optional reference instead", ln)
+                elif tgt not in attrs:
+                    add(19, f"{d.name}.{tn} clears undeclared name '{tgt}'", ln)
+                elif not attrs[tgt][0].split()[0].endswith("?"):
+                    add(17, f"{d.name}.{tn} clears required attribute '{tgt}'", ln)
             for tgt in re.findall(r"^\s*(?:add|remove)\s+(\w+)\s*:=", body, flags=re.M):
                 spec = attrs.get(tgt, ("", 0))[0]
                 if spec and "[]" not in spec: add(17, f"{d.name}.{tn} adds to non-set '{tgt}'", ln)

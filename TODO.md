@@ -10,7 +10,7 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 | Defect register | 170 entries, none open; seven carried to open questions ([`docs/design/defects.md`](docs/design/defects.md)) |
 | Declaration syntax | **iteration 16, ready for author review**; checker clean, 24 of 52 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
 | Open questions | none. All thirteen answered by the author 2026-09-08, ADR-0065 to ADR-0072 ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
-| Awaiting author review | ADR-0019 to ADR-0064 (ADR-0065 to ADR-0072 are the author's own), DESIGN.md as a whole, and the declaration syntax |
+| Awaiting author review | ADR-0019 to ADR-0064, DESIGN.md as a whole, and the declaration syntax. ADR-0065 to ADR-0073 are settled: ADR-0065 to ADR-0072 are the author's own rulings, ADR-0073 confirmed 2026-09-08 |
 
 The design was built in six autonomous iterations, then reviewed for implementation readiness, then repaired. The review found 42 defects, ten of which broke the model or a running system; re-expressing the case studies against the repaired grammar found five more. ADR-0038 to ADR-0054 are that repair, and none has been reviewed by the author.
 
