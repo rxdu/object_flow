@@ -76,7 +76,7 @@ Everything in this table is a comparison, a null test, a membership test, a `cou
 
 ### 2.5 What the model as written cannot express
 
-Two rows above have no mechanism in DESIGN.md today.
+Two rows above had no mechanism in the model as it stood when this was written. Both were closed in iteration 1, by ADR-0019 and ADR-0046.
 
 1. **`sell` and `convert_lease` are "only via" another object's transition.** `RESERVED → SOLD` happens when the Delivery completes, in the same transaction, for every bound unit at once. The model routes cross-object consequences to consumers through events (ADR-0007, ADR-0012, ADR-0013). That is neither atomic nor able to block the delivery when a unit's guard fails. And if `sell` were requestable directly, a unit could be `SOLD` with no delivery — the backdoor the first consumer's ADR-0002 refused for `DEVELOPMENT → SOLD`.
 2. **The outcome of `reserve` writes the other end of the binding.** `slot.unit := this` is a write on a *part* of a different object (the Delivery). The outcome of a transition must be allowed to reach across a declared relationship.
@@ -165,7 +165,7 @@ A transition may declare that it is **not requestable by callers** and may occur
 
 ### D. Derived attributes
 
-A named expression in the guard language, declared on a type, **never stored**, evaluated on read. Guards may read it; the read surface returns it. Examples: `slot.state` above; `unit.leasable := state == DEVELOPMENT and none(open engagement lines) and none(open blocking services)`; `engagement.overdue := state == OUT and expected_return < now`.
+A named expression in the guard language, declared on a type, **never stored**, evaluated on read. Guards may read it; the read surface returns it. Examples: `slot.fill` above; `unit.leasable := state == DEVELOPMENT and none(open engagement lines) and none(open blocking services)`; `engagement.overdue := state == OUT and expected_return < now`.
 
 This is not the computation ADR-0007 excludes. Nothing is stored, so nothing can drift, and the expression is as inspectable as a guard. It resolves challenge 3 by wording: ADR-0004 rejects derived *lifecycle state* — a state with transitions nobody requested — and a derived attribute has no transitions.
 
@@ -173,7 +173,7 @@ Boundary to confirm: the guard language observed in the first consumer needs com
 
 ### E. Time is a value in guards, not a scheduler in the store
 
-`now` is available to guards. A time-driven transition is an ordinary one — `WarrantyContract.expire: ACTIVE → EXPIRED, guard end_date ≤ now` — and ObjectKeeper never initiates it (ADR-0012). What it provides instead is a read query: **the objects for which transition T is currently available.** A scheduler above asks that question and requests `expire` on each answer. One declared rule; no scheduler in the store; no drift between the type and its timing rule. This answers TODO.md's "inspectable but unexecuted timing metadata" — the guard *is* the metadata — and closes challenge 5.
+`now` is available to guards. A time-driven transition is an ordinary one — `WarrantyContract.expire: ACTIVE → EXPIRED, guard end_date ≤ now` — and ObjectKeeper never initiates it (ADR-0012). What it provides instead is a read query: **the objects for which transition T is currently available** — and only where T is *sweepable*, its guards decomposing into an indexable prefilter (ADR-0048). A time-driven transition that is not sweepable is refused by the query rather than scanned, which is a real constraint on how such a guard is written. A scheduler above asks that question and requests `expire` on each answer. One declared rule; no scheduler in the store; no drift between the type and its timing rule. This answers TODO.md's "inspectable but unexecuted timing metadata" — the guard *is* the metadata — and closes challenge 5.
 
 ### F. Locking and versions
 
@@ -185,7 +185,7 @@ Each deletable type declares a terminal state (`DELETED`, or a domain word such 
 
 ### H. The actor is a value supplied by the consumer
 
-A request carries an actor: an identity, a kind (human, agent, service), the principal it acts for, and a set of capabilities. ObjectKeeper does not authenticate or manage users; the consumer's auth does, and hands the descriptor in. Guards test it: `actor.has(DELIVERY_COMPLETE)`, `actor.kind == human`. Where a guard needs a referenced person — `Service.create` requires an engineer who is a human user — that person is an ordinary object in the store and the guard reads its attributes. Delegation and proposals are deferred: the first consumer's authority-versus-capability list is two items long.
+A request carries an actor: an identity, a kind (human, agent, service), the principal it acts for, and a set of capabilities. ObjectKeeper does not authenticate or manage users; the consumer's auth does, and hands the descriptor in. Guards test it: `actor.has(DELIVERY_COMPLETE)`, `actor.kind == human`. Where a guard needs a referenced person — `Service.create` requires an engineer who is a human user — that person is an ordinary object in the store and the guard reads its attributes. Delegation is deferred; proposals became a built-in type (ADR-0036): the first consumer's authority-versus-capability list is two items long.
 
 ## 5. The operations extension against A–H
 

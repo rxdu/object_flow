@@ -21,14 +21,14 @@ The Jira vocabulary below is used because the author's first consumer already re
 | Transition screen (fields shown on transition) | the transition's **declared** inputs; ADR-0047 withdrew the claim that the list could be derived from the guards, and publishing instead checks the two against each other |
 | Condition ("only assignee may execute") | actor guard: `actor.id == assignee.id` (ADR-0025) |
 | Validator ("resolution required", "fix version required to close") | guard over inputs; requiredness attaches to the transition (ADR-0002) |
-| Post-function: set resolution, clear resolution on reopen, set resolved date | outcome writes: `resolution := inputs.resolution`, `resolution := null`, `resolved_at := now` (ADR-0021 amendment) |
+| Post-function: set resolution, clear resolution on reopen, set resolved date | outcome writes: `set resolution := inputs.resolution`, `clear resolution`, `set resolved_at := now` (ADR-0021 amendment) |
 | Post-function: assign to project lead | outcome write from a related attribute: `assignee := project.lead` |
 | Post-function: fire event | the event log (ADR-0013) |
 | Post-function that computes or reaches outside (send mail, call a webhook) | an effect; a consumer subscribed to the event (ADR-0007) |
 | Update on the same status (edit fields without transitioning) | action — a self-transition (ADR-0016) |
 | Subtask; "parent cannot be Done while subtasks open" | composition; collection guard `none(t in subtasks where t.state.category != done)` |
 | Epic link, parent link | reference to another issue |
-| Issue link with type and direction (blocks / is blocked by, duplicates, relates to) | a declared relationship with a name and a declared inverse; adding or removing a link is an action; guards read it: `none(blocked_by where state.category != done)` |
+| Issue link with type and direction (blocks / is blocked by, duplicates, relates to) | a **link object** with a reference to each side, since a many-to-many pair has no end to be stored on and publishing rejects it (check 41); adding or removing a link is an action; guards read it: `none(blocked_by where state.category != done)` |
 | Resolve as duplicate | a terminal transition recording a `duplicate_of` reference; **not** an identity merge |
 | Version (unreleased → released → archived), Component, Sprint (future → active → closed) | objects with their own small state machines; issues reference them; "cannot add to a closed sprint" is a guard on the action |
 | Comment, worklog | parts — small objects with an author, a timestamp and a posted → edited → removed lifecycle |
@@ -92,4 +92,4 @@ Requiredness on transitions (ADR-0002) is Jira's validator model exactly. Condit
 - Splitting one issue into two with shared history. The objects are expressible since ADR-0046 allows part re-parenting and named creations; history is still not shared, and each successor references the source.
 - Gapless key sequences. Sequences are monotonic, not gapless; a rolled-back creation leaves a gap, as it does in Jira.
 - A workflow edit that changes what a *past* transition meant. History is interpreted under the version it was recorded under; the readable rule set for an old version remains printable, but no tool will re-derive "what would have been allowed then".
-- Issue-level security. A read-visibility predicate per object is needed for this and is deferred to the read-surface design.
+- Issue-level security. Covered by ADR-0030: a declared visibility predicate, where failing it means *not found* rather than blocked.

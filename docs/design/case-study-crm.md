@@ -5,7 +5,7 @@ Status: design iteration 3, 2026-09-08. Companion to [`first-consumer-walkthroug
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
 ## 1. Why this case
 
-A CRM stresses what the previous two did not. Its objects are **joined many-to-many with labelled, attributed links** — a contact is the decision maker on one deal and the billing contact on another, and has one primary company among several. Its lifecycle is thin and its data is thick: most of the work is property edits, not transitions. It is the natural home of **duplicate merging**, of **record ownership** that governs who may see and edit what, and of **legal erasure** that must reach into history — the first requirement anywhere in these studies that pushes against the recorded property. And its first consumer overlap is real: the inventory system already mirrors its customers from Xero (`wr:docs/adr/0003`).
+A CRM stresses what the previous two did not. Its objects are **joined many-to-many with labelled, attributed links** — a contact is the decision maker on one deal and the billing contact on another, and has one primary company among several. Its lifecycle is thin and its data is thick: most of the work is property edits, not transitions. It is the natural home of **duplicate merging**, of **record ownership** that governs who may see and edit what, and of **legal erasure** that must reach into history — the first requirement anywhere in these studies that pushes against the recorded property. And its first consumer overlap is real: the inventory system has decided to mirror its customers from Xero and has not built it — `wr:docs/adr/0003` is accepted design intent with no external-id column and no Xero code (`wr:docs/adr/0003`).
 
 ## 2. Mapping
 
@@ -67,7 +67,7 @@ act merge_in at ACTIVE accepts email, phone, company {
 
 ## 5. What held without change
 
-Pipelines are named machines bound by per-pipeline types. Stage requirements are transition requiredness. Ownership guards are actor guards. Associations are link objects with a type-level invariant. Merge is an action cascading a supersession and re-points. Rollup counts are derived attributes. Import, idempotency and provenance applied as designed. The availability query changed twice afterwards: only-via transitions are no longer listed (ADR-0041), and it now requires a transition to be sweepable (ADR-0048).
+Pipelines are named machines bound by per-pipeline types. Stage requirements are transition requiredness. Ownership guards are actor guards. Associations are link objects with a type-level invariant. Merge is an action cascading a supersession and re-points. Rollup counts are derived attributes. Import, idempotency and provenance applied as designed. The availability query changed twice afterwards: only-via transitions are no longer listed (ADR-0041), and the sweep `available(type, transition)` now requires the transition to be sweepable (ADR-0048), which `availability(id)`, listing one object's transitions, does not.
 
 ## 6. Rare cases, recorded in `edge-cases.md`
 
