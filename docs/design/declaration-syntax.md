@@ -1,6 +1,6 @@
 # The declaration syntax
 
-Status: **draft, iteration 5** (2026-09-08). The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
+Status: **draft, iteration 6** (2026-09-08). The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
 
 Two goals shape every choice, and where they conflict the second wins.
 
@@ -17,7 +17,25 @@ Five drafts, four review rounds: three engineers building real systems in it, on
 
 **4** merged a model audit: a machine now says what it requires of a binding type, `tracking` is explicit again, deletion cascades name a transition and a bound, and `default` became sugar rather than an ungated write.
 
-**5** fixes what the model audit found still wrong, and the three things it said not to publish:
+**5** fixed what a model audit said not to publish: runtime-maintained inverses were a second write path, the unlisted authority marking re-opened a closed guarantee, and an optional input carrying a default could never be unsupplied.
+
+**6** fixes what an engineer found by building a 243-line purchasing model in iteration 4, and adds a checker that runs this document's own examples against its own rules:
+
+| Problem | Change |
+|---|---|
+| `int × money` did not type, so a line total was unwritable and the model's own canonical example was rejected | `*` and `/` are scalar; `money * money` is the error instead (§8) |
+| An evaluator call yields a `verdict` and a guard had to be `bool`, so the escape hatch could not be used | A verdict is a whole guard clause, never an operand (§8) |
+| A shared machine could not require a `part`, and its guards named one type's capabilities, so two types could share a lifecycle only by sharing an authority model | `requires part` and `requires capability`, mapped per binder by `provides` (§4.1) |
+| Whether a type binding a shared machine may declare its own transitions was never stated, and both answers broke something | It may; they are private to it, and reachability is checked per binder (§2.1) |
+| A part's delete cascade named a target but no trigger, so a whole with two terminal transitions had no answer | `cascade on <transition> to <Type>.<transition>` (§3.2) |
+| An accepted attribute with a default, left unsupplied, yielded absence rather than the default | It takes the default (§5.1) |
+| A part's creation was independently requestable, so a line could be added to an approved order | Parts are created `only via` their whole (check 11) |
+| `limit` bounded the request, so no author could tell which number to raise | It bounds its loop; publishing reports the worst-case product (§5.2) |
+| An `act` at a terminal state was legal, contradicting the rule that a deleted object takes no further transitions | Forbidden, and `at any` means non-terminal (§4.2) |
+| An erasure could return success and leave the person's identity in the parts | An `erase` must reach every part type holding personal attributes (§6.4) |
+| Check 7 rejected local invariants, which read their own row and need no index; check 11 was unreachable | Both rewritten; seven checks added |
+
+**5** fixed what the model audit found wrong, and the three things it said not to publish:
 
 | Problem | Change |
 |---|---|
@@ -44,7 +62,8 @@ module inventory
 use   commerce.{Customer}
 
 capability INVENTORY_CREATE, INVENTORY_RETIRE, INVENTORY_ASSERT,
-           ERASE_PERSONAL, DELIVERY_EDIT, DELIVERY_COMPLETE, DEAL_VIEW_ALL
+           ERASE_PERSONAL, DELIVERY_EDIT, DELIVERY_COMPLETE, DEAL_VIEW_ALL,
+           PO_EDIT, CLAIM_EDIT
 category   inbound, live, closed
 
 enum      RetirementReason version 1 { FAILED, DAMAGED, OBSOLETE, LOST }
@@ -92,6 +111,10 @@ type Robot version 3 {
 ### 2.1 Every type has an explicit lifecycle
 
 A type either **binds** a shared machine or **declares one inline** with `states`, which declares a machine named after the type. Exactly one of the two, unless the type is `abstract`, which has no objects and so needs no lifecycle.
+
+**A type that binds a shared machine may also declare its own transitions.** They are private to it and may read anything it declares. The shared machine's transitions are the shared lifecycle; the type's are what only that type does. This is what lets two types share a lifecycle without being identical, and it is why `requires` (§4.1) constrains only the machine body: a type-local transition needs no permission from the machine.
+
+Reachability, name scoping and the terminal-state rule are checked **per binder**, over the machine's transitions plus that type's own.
 
 ```text
 type ChecklistItem version 1 {
@@ -145,11 +168,11 @@ References are `ref`, `part` or `owner`, never an attribute type. Inputs may be 
 
 ```text
 ref   <name> : <Type>[?|[]] [inverse <name>] [marking …]
-part  <name> : <Type>[?|[]] inverse <name> cascade <Type>.<transition> limit <n>
+part  <name> : <Type>[?|[]] inverse <name> cascade on <transition> to <Type>.<transition> limit <n>
 owner <name> : <Type>       inverse <name>
 ```
 
-`part` and `owner` are the two ends of a composition: exclusive membership, lifetime bounded by the whole, re-parentable by writing the `owner`. **`cascade` names the part transition the whole's deletion drives, and its bound.**
+`part` and `owner` are the two ends of a composition: exclusive membership, lifetime bounded by the whole, re-parentable by writing the `owner`. **`cascade on <transition> to <Type>.<transition>` names which of the whole's transitions drives the cascade and which part transition it drives, with a bound.** A whole with several terminal transitions says which one cascades; iteration 4 named the target and the bound but not the trigger, so a type with both a reject and a withdraw had no answer. A cascade clause **counts as a call site** for the purposes of an `only via` list.
 
 A reference may omit `inverse`, which only means no back-reference is named. It remains visible to `referrers` and to the deletion guard.
 
@@ -169,6 +192,7 @@ machine UnitLifecycle version 2 {
   requires attr photos file[]
   requires ref  model : RobotModel
   requires invariant one_open_engagement
+  requires capability EDIT
 
   state REQUESTED   category inbound
   state PROCUREMENT category inbound
@@ -200,6 +224,9 @@ machine UnitLifecycle version 2 {
   }
 
   do sell RESERVED -> SOLD only via Delivery.complete_sale { }
+  do accept_return SOLD -> AVAILABLE {
+    require may: actor.has(INVENTORY_RETIRE) because delegable
+  }
   do deliver_internal RESERVED -> DEVELOPMENT only via Delivery.complete_internal { }
 
   do retire DEVELOPMENT -> RETIRED accepts retirement_reason {
@@ -226,7 +253,19 @@ machine UnitLifecycle version 2 {
 
 ### 4.1 `requires`
 
-A machine states what a binding type must provide: the attributes, references and invariants its transitions and admissions name. Publishing verifies every binder supplies them with compatible types. Without it a shared machine reads names that live on the type, so a second binder had to coincidentally declare the same ones.
+A machine states what a binding type must provide: the attributes, references, **parts**, invariants and **capabilities** its transitions and admissions name. Publishing verifies every binder supplies them with compatible types, and separately that the machine body names nothing it does not require — a completeness check, without which the requirement list drifts from the body it describes.
+
+A required **capability** is a name the machine uses in its guards and each binder maps to its own:
+
+```text
+requires capability EDIT                    # in the machine
+provides capability EDIT = PO_EDIT          # in one binder
+provides capability EDIT = CLAIM_EDIT       # in another
+```
+
+Without this, two types sharing a lifecycle must share an authority model, and the only workaround, `actor.has(PO_EDIT) or actor.has(CLAIM_EDIT)`, silently grants every editor of one authority over the other.
+
+A required **part** whose element type differs per binder is declared against an `abstract` base the binders' part types extend, which is also what lets the part's `owner` name a single type.
 
 ### 4.2 Transition kinds and markings
 
@@ -251,7 +290,7 @@ Iteration 2 offered an unlisted variant instead, and iteration 4 kept it. Both d
 
 An `only via` transition carries no actor guards, since the parent's authority is its authority; writing one is a publish error rather than a guard silently dropped. It may not be `proposable`, since an unrequestable transition can never yield the verdict that makes a proposal meaningful.
 
-`terminal` means no `do` may leave the state.
+`terminal` means no `do` may leave the state, and no `act` may be declared at one, since a deleted object admits no further transitions. `at any` therefore means any non-terminal state, and `erase` is the single carve-out.
 
 ## 5. Inside a transition
 
@@ -268,11 +307,13 @@ require <name>: <expression> [eager|deferred] [because <remedy class>]
 
 **A `default` may not be given for an optional input.** An optional input carrying a default is never unsupplied, so the skip rule below could never fire for it, and a partial edit would clear the field it meant to leave alone.
 
-**`accepts`** declares that these attributes are supplied by the caller and written directly. `accepts comment` is exactly `input comment : <the attribute's type>` plus `set comment := inputs.comment`, optionality included. It is available on `create`, `do` and `act`.
+**`accepts`** declares that these attributes are supplied by the caller and written directly. `accepts comment` is exactly `input comment : <the attribute's type>` plus `set comment := inputs.comment`, optionality included. It is available on `create`, `do` and `act`, and it accepts a reference as readily as an attribute.
+
+An accepted attribute that carries a `default` and is not supplied takes **the default**, not absence. Without that rule the two features combine into a silent trap: the caller omits a field with a documented default and gets an absent value, which then makes every guard reading it evaluate to unknown and fail.
 
 **Guard names are always required.** A verdict carries the failing clause's name, and that name should not appear or change shape when someone adds a second guard.
 
-**`eager` or `deferred`** marks a guard that calls an external evaluator, not the evaluator itself, so two guards over one function may differ. Omitted, a guard is eager.
+**`eager` or `deferred`** marks a guard that calls an external evaluator, not the evaluator itself, so two guards over one function may differ. It says *when in a caller's workflow* the evaluator is consulted: an eager guard is consulted whenever the transition's availability is computed, a deferred one only when the transition is actually requested. Neither runs inside the write transaction. Omitted, a guard is eager.
 
 `because` is optional; omitted, the checker infers the remedy class and reports what it inferred.
 
@@ -295,7 +336,7 @@ A path may be rooted at `this`, a relationship, a loop binder or an input.
 
 **Optional inputs.** A step or argument whose expression is *exactly* an unsupplied optional input is skipped. Any larger expression containing one is a publish error, so `set amount := inputs.amount` and `set amount := inputs.amount + 0` cannot be confused. A skipped write does not stamp the attribute's last-written index, so a no-op edit does not invalidate an approval.
 
-`limit` is mandatory on every loop and bounds the whole request rather than each loop.
+`limit` is mandatory on every loop and bounds **that loop**. Publishing reports the worst-case product across nested loops and cascades, so a request's total fan-out is visible without being a number an author has to compute. A request exceeding a loop's bound is refused with `over-limit` naming that loop.
 
 ## 6. The remaining constructs
 
@@ -344,7 +385,7 @@ act correct_delivery_date at any {
 }
 ```
 
-An `erase` transition erases every `personal` attribute of its object, runs from **any** state including a terminal one, since erasure requests arrive for closed accounts, and may cascade into parts. Declaring one is optional. `corrects <attribute>, …` produces the `corrected` provenance; the outcome must write exactly the attributes named, and a `reason` input is required.
+An `erase` transition erases every `personal` attribute of its object, runs from **any** state including a terminal one, since erasure requests arrive for closed accounts, and may cascade into parts. Declaring one is optional, but if a type declares one it must reach every part type that holds personal attributes, which publishing checks. Otherwise an erasure returns success and leaves the person's identity in the parts. `corrects <attribute>, …` produces the `corrected` provenance; the outcome must write exactly the attributes named, and a `reason` input is required.
 
 ### 6.5 Deletion guards
 
@@ -393,7 +434,7 @@ type Stock version 1 {
   create open -> ACTIVE accepts model {
     require may: actor.has(INVENTORY_CREATE) because delegable
   }
-  do reserve at ACTIVE only via Order.place {
+  act reserve at ACTIVE only via Order.place {
     input qty : int
     require enough: on_hand - reserved >= inputs.qty because dependent
     set reserved := reserved + inputs.qty
@@ -413,9 +454,10 @@ A `quantity` type declares at least one `counter`. A `derive` may be `indexed` w
 
 The expression language is DESIGN.md §5.7. Its types are the attribute types of §3.1 plus `verdict`, and the checker types every expression:
 
-- arithmetic is `int` with `int`, `decimal` with `decimal` of the same scale, `money` with `money` of the same currency, `timestamp ± duration`, and `timestamp - timestamp` yielding a `duration`;
+- `+` and `-` take two operands of one type: `int`, `decimal` of one scale, `money` of one currency, or `timestamp - timestamp` yielding a `duration`; `timestamp ± duration` yields a `timestamp`;
+- `*` and `/` are **scalar**: `int` or `decimal` on one side, and `int`, `decimal`, `money` or `duration` on the other, yielding the non-scalar type. `money * money` is an error, as is `duration * duration`;
 - comparison needs both sides of one type; `is null` and `is not null` take anything and yield `bool`;
-- `and`, `or`, `not`, `implies` take and yield `bool`; a guard must be `bool` or `verdict`;
+- `and`, `or`, `not`, `implies` take and yield `bool`. An evaluator call yields a `verdict`, which is usable **only as a whole guard clause**, never as an operand, so a guard clause is a `bool` or a single evaluator call;
 - `count` yields `int`, `sum`/`min`/`max` the element type, `all`/`any`/`none` `bool`;
 - `changed_since(<attribute>, …, <event expression>)` yields `bool`, its attributes naming `this`;
 - `if <bool> then <a> else <b>` yields the common type of `a` and `b`, and is allowed only in a derived attribute.
@@ -431,6 +473,8 @@ Precedence, highest first: paths and calls; unary `not`; `* /`; `+ -`; compariso
 `module use capability category enum sequence evaluator machine type version tracking serial quantity states state abstract requires attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because eager deferred set add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh string bool int decimal money timestamp duration event file verdict`
 
 `min` and `h` and `days` are duration units only after a numeric literal, which is the one position the aggregate `min` cannot occupy.
+
+**Reserved words are contextual.** A word is reserved only where it could be misread: a keyword at the start of a declaration or clause, and a type name in a type position. The same word may name an attribute or a relationship end, since neither position can hold a keyword. So `attr event event` and `owner.id` are legal, which matters because the model writes both.
 
 **Symbols.** `->` is a to-state, an assertable-state set and a migration mapping; never implication, never a reference type. `implies` is implication. `inputs.<name>` reads an input. `:=` assigns and binds an argument; `=` binds a created name and defines a derivation; `==` compares. `{a, b}` is a collection literal and `{ … }` a block; the two never occupy the same position. `:` ascribes a type and names a guard or invariant. `in` is a binder and membership, both meaning "element of".
 
@@ -448,11 +492,11 @@ Each check names the file, line and declaration. Checks 22 and 23 need the previ
 | 4 | An invariant traverses a relationship with no declared inverse |
 | 5 | An invariant fits none of the three forms; the report says which it decided |
 | 6 | A type-scan invariant that is not symmetric |
-| 7 | An invariant or type-scan guard reading an unindexed attribute |
-| 8 | A required attribute a creation never writes, one a later transition sets to absent, or one written only from an optional input |
+| 7 | A **traversal or type-scan** invariant, or a type-scan guard, reading an unindexed attribute. A local invariant reads its own row and needs no index |
+| 8 | A required attribute a creation never writes, one a later transition sets to absent, or one written only from an optional input. A set-valued attribute is present-and-empty unless written, so it needs no creation write |
 | 9 | A required attribute marked `personal` |
 | 10 | A personal value reaching a non-personal attribute by write, cascade argument or derivation |
-| 11 | A personal attribute declared as a required external identifier |
+| 11 | A `create` of a part that is not `only via` a transition of its whole, so a part could be added to a settled whole |
 | 12 | A cascade cycle across transitions, including `part … cascade` targets |
 | 13 | A `call` to an `only via` transition from a parent it does not name; a named parent that never calls it; an `only via` transition nothing reaches |
 | 14 | An actor guard on an `only via` transition; `only via` with `proposable` |
@@ -460,8 +504,8 @@ Each check names the file, line and declaration. Checks 22 and 23 need the previ
 | 16 | A non-abstract type that neither binds a machine nor declares `states`, or does both; a machine `requires` a binder does not satisfy |
 | 17 | A write whose target is not an attribute or stored relationship end of `this`; an `add` or `remove` on a target that is not set-valued |
 | 18 | A `part`/`owner` pair disagreeing on name or cardinality; a `create` of a part that never writes its `owner`; a `part` whose `cascade` names a transition the child does not have |
-| 19 | A capability, category, state, attribute, enum member or evaluator function that is not declared |
-| 20 | An unnamed guard; a `default` on an optional input |
+| 19 | A capability, category, state, attribute, transition, relationship end, enum member or evaluator function that is not declared |
+| 20 | An unnamed guard; a `default` on an optional input; a declared remedy class the checker's own inference contradicts |
 | 21 | A `for` without `limit`; a bare `null` in a comparison; an unbound aggregate; a reserved word as a name; `if` outside a derived attribute |
 | 22 | A version that did not advance while its content changed; a type whose machine, enum, sequence, evaluator or base type advanced without it |
 | 23 | A state removed, or an attribute renamed, with no mapping |
@@ -473,6 +517,13 @@ Each check names the file, line and declaration. Checks 22 and 23 need the previ
 | 29 | An `assert` with no capability guard or no `reason` input; an `erase` with no `reason` input |
 | 30 | A family member whose machine lacks a transition another member's cascade calls |
 | 31 | A `quantity` type with no `counter`; a `counter` on a `serial` type |
+| 34 | A type with no creation transition |
+| 35 | A machine body naming a type-level attribute, reference, part, invariant or capability it does not `require` |
+| 36 | A `part`/`owner` pair whose types disagree |
+| 37 | A `part … cascade` whose trigger names a transition the whole does not have, or a whole with several terminal transitions and no trigger named |
+| 38 | An `assert` with `may admit` but no `admits` input, or with no `state`-typed target input |
+| 39 | An `erase` that does not reach a part type holding personal attributes |
+| 40 | An `act` declared at a terminal state |
 | 32 | An invariant reading `now`, which no after-write check can enforce |
 | 33 | Duplicate transition, state, attribute or guard names within one scope |
 

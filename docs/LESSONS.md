@@ -50,3 +50,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** When a property has an exception, state the exception in the same sentence as the property. A guarantee with its exception named is weaker and true; without it the document is wrong and the exception is undesigned, which is how the assertion path came to exist for months with no declaration, no gate and no audit.
 - **Context:** Design records making guarantees; the stronger the claim, the more it needs its carve-out written next to it.
 
+
+### A specification's examples must be run against its own rules, mechanically
+
+- **Pattern:** Three successive drafts of a declaration language shipped worked examples that violated checks the same document defined. Each time a reviewer found them by hand, and each time the next draft introduced fresh ones: a state reachable by nothing, an authority list naming the wrong parent, a transition reading an input it never declared, a required attribute no creation wrote. Hand review caught them, but only after a full review round, and never all of them.
+- **Correction:** When a document defines rules and also contains examples, write the checker before the third draft and run it on every edit. `scripts/check-syntax-doc.py` parses the fenced examples and runs the mechanically decidable subset; it caught two real defects on its first run and three of four deliberately injected ones on its second, and the fourth exposed a bug in the checker rather than in the document. A checker that has never been shown to fail is not evidence.
+- **Context:** Any specification carrying examples: a language, an API reference, a schema. The cost is an hour; the alternative is one review round per defect.
