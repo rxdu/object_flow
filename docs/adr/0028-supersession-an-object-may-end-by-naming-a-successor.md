@@ -9,7 +9,7 @@ Real systems change an object's kind: an issue moves to another project and take
 
 ## Decision
 
-1. A type may declare a terminal state as **superseding**. Its transition takes a `successor` input, an object id of the same or another type, and records `superseded_by`. The successor may declare the inverse, `supersedes`.
+1. A type may declare a terminal state as **superseding**. Its transition takes a `successor` input, an object id of the same or another type, or a name bound to an object the same outcome created (ADR-0046, which resolved the contradiction between this clause and clause 2), and records `superseded_by`. The successor may declare the inverse, `supersedes`.
 2. The old object keeps its id and its whole history. The successor is created, or already exists, by an ordinary transition; the superseding transition may cascade that creation (ADR-0019).
 3. **The read surface follows supersession on request.** Resolving a superseded id returns the old object with its pointer; a caller may ask to follow to the live successor. External identifiers (a ticket key) are re-pointed to the successor by the consumer or by declared cascade.
 4. References from other objects are re-pointed only where the superseding transition declares a cascaded action on the inverse relationship; otherwise they remain, pointing at the superseded object and its pointer.

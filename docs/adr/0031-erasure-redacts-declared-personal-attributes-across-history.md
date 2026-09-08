@@ -14,7 +14,7 @@ A right-to-erasure request requires that a person's data be removed, including f
 3. Erasure **replaces every personal value** with a redaction marker on the object and in every recorded event that carried the value — inputs, outcome writes, before-and-after values. It **deletes the content** of any `file` reference held in a personal attribute (ADR-0017) and redacts the reference.
 4. Erasure **keeps the event skeleton**: identifiers, timestamps, actors, transition names, states, causes, and non-personal values. History remains reconstructable in shape.
 5. Erasure is **recorded** as an event carrying the actor, the reason, and the names of the attributes erased — never their values — and is **irreversible**: no override restores an erased value.
-6. The redaction marker reads as null in the expression language, so a guard that depended on the value fails with its usual remedy class rather than being satisfied.
+6. The redaction marker is absence, stored as SQL NULL (ADR-0051), and reads as unknown in the expression language (ADR-0047), so a guard that depended on the value fails with its usual remedy class rather than being satisfied.
 
 Erasure is not deletion (ADR-0024). A deleted object keeps its values; an erased object may keep its state.
 

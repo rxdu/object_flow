@@ -20,5 +20,5 @@ Rejected because it requires callers to mutate the object before requesting the 
 ## Consequences
 
 - Availability becomes three-way rather than binary: **available**, **available-with-input** (naming what must be supplied), **blocked** (nothing the caller can supply will help).
-- A transition's parameter list is derived from its own guards rather than declared separately, so the tool schema exposed to an agent and the validation rules cannot drift apart.
+- ~~A transition's parameter list is derived from its own guards rather than declared separately.~~ **Superseded by ADR-0047**: recovering an input schema from an arbitrary boolean guard is abduction and has no algorithm. Inputs are declared, and the anti-drift property is preserved because inputs and guards live in one declaration, checked against each other at publish.
 - The middle case is what makes the interface useful to an agent: "blocked: missing field" invites guessing, while "available if you provide these" names the work to do.

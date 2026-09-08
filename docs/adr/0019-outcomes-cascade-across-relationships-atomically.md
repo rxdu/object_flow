@@ -16,10 +16,10 @@ A transition's **outcome** may contain, besides its own new state and controlled
 
 Execution:
 
-- **All guards first.** The parent's guards, then each cascaded transition's guards, depth-first in declaration order, are evaluated before anything is written. If any fails, the whole request is blocked and the verdict names the failing object, transition and guard, with that guard's remedy class.
+- ~~**All guards first.**~~ **Superseded by ADR-0038**, which applies cascades sequentially so each sees the writes of those before it. The original text: the parent's guards, then each cascaded transition's guards, depth-first in declaration order, are evaluated before anything is written. If any fails, the whole request is blocked and the verdict names the failing object, transition and guard, with that guard's remedy class.
 - **One transaction.** If all pass, every outcome commits atomically.
 - **Recorded with cause.** Each cascaded transition is recorded as its own event, carrying the parent transition's event as its cause — the causal-lineage mechanism of ADR-0014, now used inside a single transaction. The log receives N+1 events from one request.
-- **Straight-line.** An outcome may iterate a relationship, optionally filtered by a predicate (`for each slot with unit != null`), but may not choose between alternative outcomes. Where behaviour differs by a value, declare one transition per case, each guarded on that value; the availability list then shows the applicable one, and a value that matches no transition is visibly stuck rather than silently mishandled.
+- **Straight-line.** *(The grammar is given by ADR-0046.)* An outcome may iterate a relationship, optionally filtered by a predicate (`for each slot with unit != null`), but may not choose between alternative outcomes. Where behaviour differs by a value, declare one transition per case, each guarded on that value; the availability list then shows the applicable one, and a value that matches no transition is visibly stuck rather than silently mishandled.
 - **Finite.** The graph of transitions that reference each other in outcomes must be acyclic; a cycle is a declaration error. Depth is visible from the declaration.
 - **Same actor.** A cascaded transition runs as the requesting actor. Its actor guards apply unless it is *only-via* (ADR-0020), in which case the parent's guards are its authority.
 - **Nothing initiates.** The caller requested the parent; the cascade is its declared consequence. ADR-0012 is untouched.

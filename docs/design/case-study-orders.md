@@ -2,6 +2,7 @@
 
 Status: design iteration 4, 2026-09-08. Companion to the earlier case studies. Decisions taken here are ADR-0032 to ADR-0034 plus two clarifications, all pending author review. No sibling repository holds an order system, so this study uses the standard order-to-cash shape rather than observed code; it is the second structurally different case TODO.md asked for — many, short-lived objects — and the one that forced the arithmetic decision.
 
+> **Superseded notation.** This study was written before ADR-0046 gave outcomes a grammar and ADR-0047 gave the expression language a semantics. Several constructs it uses do not exist in the model as it now stands, and its conclusions are not evidence until it is re-expressed. See `defects.md` D11 to D24 and TODO.md.
 ## 1. Why this case
 
 Every earlier case has few, long-lived, richly related objects. An order system has millions of small ones that live for days, arrive in bursts, and are written by anonymous callers who retry. Stock is a **quantity**, not a serialised unit, so a guard compares numbers and an outcome subtracts them. Money is everywhere, and money means sums. Payment truth lives in a **gateway**, not the store. The event log becomes the busiest table in the system, which forces the ordering, retention and stored-versus-folded questions TODO.md had left open.

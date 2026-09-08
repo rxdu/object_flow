@@ -2,6 +2,7 @@
 
 Status: design iteration 5, 2026-09-08. Companion to the earlier case studies. Decisions taken here are ADR-0035 and ADR-0036, all pending author review. The shapes are the common ones — purchase-request approval, document review, leave requests, room and equipment booking — and the first consumer's own engagement axis (`wr:docs/adr/0002`) is a booking system it has not yet built.
 
+> **Superseded notation.** This study was written before ADR-0046 gave outcomes a grammar and ADR-0047 gave the expression language a semantics. Several constructs it uses do not exist in the model as it now stands, and its conclusions are not evidence until it is re-expressed. See `defects.md` D11 to D24 and TODO.md.
 ## 1. Why this case
 
 Every earlier case had a single actor per transition. Approval is the case where a transition's guard is satisfied by **other actors having acted**, in a stated number, order or role, and where that satisfaction can be **invalidated by a later edit**. Delegation asks where authority comes from and whether the store must know. A proposal asks what happens when a caller lacks authority: an error, or a pending request someone else can carry. Bookings add **interval conflicts**, the one invariant shape that is easy to state and hard to enforce concurrently, and future-dated state, which the first consumer explicitly deferred.

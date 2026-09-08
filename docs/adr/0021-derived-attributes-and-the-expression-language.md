@@ -9,7 +9,7 @@ The first consumer computes slot state (`UNFILLED` / `FILLED` / `FULFILLED`) fro
 
 ## Decision
 
-**Derived attributes.** A type may declare a named expression over its own attributes, its relationships and the clock. It is never stored; it is evaluated on read and when a guard references it. It has no transitions and cannot be written. ADR-0004 stands as rejecting derived *lifecycle state* — a state with transitions nobody requested; a derived attribute is a view.
+**Derived attributes.** *(Semantics and the acyclicity requirement are given by ADR-0047; queryability by ADR-0048.)* A type may declare a named expression over its own attributes, its relationships and the clock. It is never stored; it is evaluated on read and when a guard references it. It has no transitions and cannot be written. ADR-0004 stands as rejecting derived *lifecycle state* — a state with transitions nobody requested; a derived attribute is a view.
 
 **The expression language, version 1.** Guards, derived attributes, invariants and outcome filters share one language:
 

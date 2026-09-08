@@ -2,6 +2,7 @@
 
 Status: design iteration 2, 2026-09-07. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md). Decisions taken here are ADR-0026 to ADR-0029 and an amendment to ADR-0021, all pending author review.
 
+> **Superseded notation.** This study was written before ADR-0046 gave outcomes a grammar and ADR-0047 gave the expression language a semantics. Several constructs it uses do not exist in the model as it now stands, and its conclusions are not evidence until it is re-expressed. See `defects.md` D11 to D24 and TODO.md.
 ## 1. Why this case
 
 Issue tracking differs from the inventory system in ways that stress different parts of the model. Nothing is physical, so no guard reads a photo or a serial. The lifecycle is **user-configured per context**: the same issue type has a different workflow in different projects. Objects are joined by **typed, directional links** that guards read. Objects change kind — a subtask becomes an issue, an issue moves to another project. Workflows are **edited while thousands of issues are live**. And every issue carries a human-readable key that is minted, not supplied.

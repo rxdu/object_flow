@@ -10,11 +10,11 @@ Double-booking was one of the first consumer's three motivating pains. Its fix w
 ## Decision
 
 1. **One transaction per request.** A transition request — the parent and every cascaded transition and creation (ADR-0019) — runs in one database transaction.
-2. **Lock what is written.** Every object the request will write is locked for update before any guard is evaluated. Concurrent conflicting requests serialise; the later one evaluates its guards against the earlier one's committed result and fails or succeeds honestly.
+2. ~~**Lock what is written.**~~ **Superseded by ADR-0039**: the lock set cannot be computed in advance, so locks are taken as objects are reached and correctness comes from serialisable isolation. Original text: every object the request will write is locked for update before any guard is evaluated. Concurrent conflicting requests serialise; the later one evaluates its guards against the earlier one's committed result and fails or succeeds honestly.
 3. **Guards read a consistent snapshot.** Objects that are only read are not locked. A type-level invariant (ADR-0009) that a concurrent request could violate from the other side is enforced by a database constraint where one can express it (uniqueness, a partial unique index), and otherwise under serialisable isolation with a bounded retry.
 4. **Every object carries a version**, incremented on every recorded change and returned by every read.
 5. **A request may carry `expected_version`.** If the object's version differs, the request is refused with a **`stale`** verdict before any guard runs. `stale` is a distinct verdict class, not a guard failure: its remedy is "re-read and decide again", which is neither supply, wait, ask, nor work on another object.
-6. Locks are taken in a fixed order (by object id) so cascades cannot deadlock against each other.
+6. ~~Locks are taken in a fixed order (by object id) so cascades cannot deadlock against each other.~~ **Withdrawn by ADR-0039**: created objects have no id to order by, and the set is discovered by traversal. Deadlock is handled by retry.
 
 ## Alternatives rejected
 

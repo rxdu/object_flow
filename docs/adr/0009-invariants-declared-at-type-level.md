@@ -24,7 +24,7 @@ Rejected for two reasons. It is duplication, so the copies drift. More important
 ## Consequences
 
 - This is the same relationship a database `UNIQUE` constraint has to insert paths: the property is stated, not its enforcement points.
-- Requires the runtime to analyse which transitions can affect an invariant, which is a real piece of machinery rather than a notation convenience.
+- ~~Requires the runtime to analyse which transitions can affect an invariant.~~ **Superseded by ADR-0045**: enforcement is dynamic, the static analysis is demoted to a publish-time report, and invariants may traverse only relationships with declared inverses so the affected set is computable.
 - If it turns out that everything worth enforcing attaches naturally to a specific transition, this concept should be dropped rather than carried.
 
 ## Evidence from the first consumer
