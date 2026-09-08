@@ -99,6 +99,19 @@ def check_amendments():
                                     f"which does not say so in return")
 
 
+def check_defect_index():
+    """Every register entry must appear in the register's own index table.
+
+    The index reached 62 of 170 before anyone noticed, which is what
+    LESSONS.md predicts of a summary maintained beside its body.
+    """
+    reg = ROOT / "docs/design/defects.md"
+    text = reg.read_text()
+    for m in re.finditer(r"^### ([DC]\d+)", text, re.M):
+        if f"[{m.group(1)}](#" not in text:
+            findings.append(f"defects.md: {m.group(1)} is not in the index table")
+
+
 def check_answer_blocks():
     """Recommendation paragraphs belong only in the answers section.
 
@@ -145,6 +158,7 @@ def main():
     check_adr_headers(nums)
     check_amendments()
     check_answer_blocks()
+    check_defect_index()
     check_declarations()
 
     print(f"corpus: {len(nums)} decision records, {maxcheck} checks defined")

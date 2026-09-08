@@ -1,80 +1,187 @@
 # Defect register
 
-Findings from the implementation-readiness review of 2026-09-08. Every entry was verified against the file cited; the review ran as four independent passes (one direct, three delegated) and only findings confirmed by reading the source are recorded here.
+Findings from every review of this design. It began as the implementation-readiness review of 2026-09-08 and has since absorbed eight further rounds — re-expression, a coherence pass, sixteen review rounds on the declaration syntax, and the corpus audit that follows the author's rulings. Each provenance section below says which round found its entries. Every entry was verified against the file cited; the review ran as four independent passes (one direct, three delegated) and only findings confirmed by reading the source are recorded here.
 
 **A note on citations.** Every `file:line` below was correct when the defect was recorded. The documents have since been repaired and re-expressed, so line numbers have drifted; the quoted text is the reliable locator.
 
 **Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
 
-**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. Status is `open`, `resolved by ADR-xxxx`, or `wontfix` with a reason.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. Nothing is open. The index above is generated from the entries, so it cannot fall behind them again.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
-| ID | Defect | Status |
+| ID | Defect | Closure |
 |---|---|---|
-| [D01](#d01) | Cascaded transitions cannot see each other's writes | **resolved by ADR-0038** |
-| [D02](#d02) | Reads outside the lock set are unisolated | **resolved by ADR-0039** |
-| [D03](#d03) | The guarantee is false as written; the override is undeclared | **resolved by ADR-0040** |
-| [D04](#d04) | The lock set cannot be computed when the spec says | **resolved by ADR-0039** |
-| [D05](#d05) | Availability both does and does not list only-via transitions | **resolved by ADR-0041** |
-| [D06](#d06) | Idempotent replay is specified as both refuse and replay | **resolved by ADR-0041** |
-| [D07](#d07) | The built-in Subscription cannot be operated under its own rules | **resolved by ADR-0043** |
-| [D08](#d08) | Proposals across declaration versions are undefined | **resolved by ADR-0044** |
-| [D09](#d09) | Free attributes have no write path | **resolved by ADR-0042** |
-| [D10](#d10) | Two different invariant-enforcement specifications | **resolved by ADR-0045** |
-| [D11](#d11) | Cascaded transitions cannot take inputs | **resolved by ADR-0046** |
-| [D12](#d12) | An outcome cannot name an object it creates | **resolved by ADR-0046** |
-| [D13](#d13) | `this_event` is undefined and chronologically impossible | **resolved by ADR-0046** |
-| [D14](#d14) | Repeat-N creation is not expressible | **resolved by ADR-0046** |
-| [D15](#d15) | Map-typed inputs and dynamic writes are not expressible | **refused by ADR-0046** |
-| [D16](#d16) | `sum` over a type is required but not granted | **resolved by ADR-0047** |
-| [D17](#d17) | Grouped aggregation is used but undefined | **refused by ADR-0047** |
-| [D18](#d18) | There is no event-reference attribute type | **resolved by ADR-0046** |
-| [D19](#d19) | Division by zero yields a verdict, not a value | **resolved by ADR-0047** |
-| [D20](#d20) | Null semantics are unstated | **resolved by ADR-0047** |
-| [D21](#d21) | Derived attributes are not required to be acyclic | **resolved by ADR-0047** |
-| [D22](#d22) | Expression scoping and name resolution are unstated | **resolved by ADR-0047** |
-| [D23](#d23) | Parameter-schema derivation has no algorithm | **resolved by ADR-0047** |
-| [D24](#d24) | Remedy-class assignment has no rule | **resolved by ADR-0047** |
-| [D25](#d25) | The availability query has unbounded cost | **resolved by ADR-0048** |
-| [D26](#d26) | `changed_since` has no index story | **resolved by ADR-0048** |
-| [D27](#d27) | The spec's definition of an action is the option ADR-0016 rejected | **resolved by ADR-0041** |
-| [D28](#d28) | Files are both never touched and deleted | **resolved by ADR-0041** |
-| [D29](#d29) | Splitting is both uncovered and expressible | **resolved by ADR-0046** |
-| [D30](#d30) | Derived attributes cannot be queried | **resolved by ADR-0048** |
-| [D31](#d31) | Constraint compilation is mis-cited and backend-dependent | **resolved by ADR-0041** |
-| [D32](#d32) | External evaluators have no slot in the execution sequence | **resolved by ADR-0049** |
-| [D33](#d33) | Quantity and serial tracking are incompatible | **resolved by ADR-0050** |
-| [D34](#d34) | Three Proposed ADRs are load-bearing | **resolved** |
-| [D35](#d35) | Erasure has no taint rule and may collide with uniqueness | **resolved by ADR-0051** |
-| [D36](#d36) | `self-serviceable` is misused for the fan-out cap | **resolved by ADR-0041** |
-| [D37](#d37) | Iteration cannot take a collection-valued expression | **resolved by ADR-0052** |
-| [D38](#d38) | A creation does not name which creation transition it uses | **resolved by ADR-0052** |
-| [D39](#d39) | A write from an unsupplied optional input clears the field | **resolved by ADR-0052** |
-| [D40](#d40) | `this` is not stated to be available in a creation outcome | **resolved by ADR-0052** |
-| [D41](#d41) | Type-scan invariants have no affected-set rule | **resolved by ADR-0052** |
-| [D42](#d42) | Three-valued logic left no way to test for absence | **resolved by ADR-0053** |
-| [D43](#d43) | ADR-0038 never says when the parent's own outcome applies | **resolved by ADR-0054** |
-| [D44](#d44) | `check` both simulates the real verdict and skips evaluators | **resolved by ADR-0054** |
-| [D45](#d45) | A type without a declared assertion cannot be imported or migrated | **resolved by ADR-0054** |
-| [D46](#d46) | An admitted invariant violation freezes the object | **resolved by ADR-0054** |
-| [D47](#d47) | Superseded rules restated as current across the record | **resolved by the coherence pass** |
-| [D48](#d48) | Single-object invariants are rejected by the model | **resolved by ADR-0055** |
-| [D49](#d49) | A set-valued attribute can only be replaced wholly | **resolved by ADR-0055** |
-| [D50](#d50) | Runtime-maintained inverses were a second write path | **resolved by ADR-0056** |
-| [D51](#d51) | `supersede` was missing from the outcome grammar | **resolved by ADR-0056** |
-| [D52](#d52) | A composition's delete cascade had no declaration site | **resolved by ADR-0056** |
-| [D53](#d53) | Versions did not propagate from a machine to its binders | **resolved by ADR-0056** |
-| [D54](#d54) | A machine could not state what it requires of a binding type | **resolved by ADR-0056** |
-| [D55](#d55) | A deletion guard had to hand-enumerate every referencing type | **resolved by ADR-0056** |
-| [D56](#d56) | Erasure could not run on a deleted object | **resolved by ADR-0056** |
-| [D57](#d57) | The conditional `? :` collided with `?` as optionality | **resolved by ADR-0056** |
-| [D58](#d58) | Implication `→` collided with the to-state arrow in ASCII | **resolved by ADR-0056** |
-| [D59](#d59) | Remedy class names contain hyphens, which lex as subtraction | **resolved by ADR-0056** |
-| [D60](#d60) | An approval could not be invalidated by an edit to a part | **resolved by ADR-0057** |
-| [D61](#d61) | A part is orphaned by any terminal transition its cascade does not name | **resolved by ADR-0058** |
-| [D62](#d62) | Re-parenting escapes the source whole's invariants | **resolved by ADR-0058** |
-
+| [D01](#d01) | Cascaded transitions cannot see each other's writes | Resolved by ADR-0038 |
+| [D02](#d02) | Reads outside the lock set are unisolated | Resolved by ADR-0039 |
+| [D03](#d03) | The guarantee is false as written, and the override path is undeclared | Resolved by ADR-0040 |
+| [D04](#d04) | The lock set cannot be computed when the spec says | Resolved by ADR-0039 |
+| [D05](#d05) | Availability both does and does not list only-via transitions | Resolved by ADR-0041 |
+| [D06](#d06) | Idempotent replay is specified as both refuse and replay | Resolved by ADR-0041 |
+| [D07](#d07) | The built-in Subscription cannot be operated under its own rules | Resolved by ADR-0043 |
+| [D08](#d08) | Proposals across declaration versions are undefined | Resolved by ADR-0044 |
+| [D09](#d09) | Free attributes have no write path | Resolved by ADR-0042 |
+| [D10](#d10) | Two different invariant-enforcement specifications | Resolved by ADR-0045 |
+| [D11](#d11) | Cascaded transitions cannot take inputs | Resolved by ADR-0046 |
+| [D12](#d12) | An outcome cannot name an object it creates | Resolved by ADR-0046 |
+| [D13](#d13) | `this_event` is undefined and chronologically impossible | Resolved by ADR-0046 |
+| [D14](#d14) | Repeat-N creation is not expressible | Resolved by ADR-0046 |
+| [D15](#d15) | Map-typed inputs and dynamic writes are not expressible | Resolved by ADR-0046 |
+| [D16](#d16) | `sum` over a type is required but not granted | Resolved by ADR-0047 |
+| [D17](#d17) | Grouped aggregation is used but undefined | Resolved by ADR-0047 |
+| [D18](#d18) | There is no event-reference attribute type | Resolved by ADR-0046 |
+| [D19](#d19) | Division by zero yields a verdict, not a value | Resolved by ADR-0047 |
+| [D20](#d20) | Null semantics are unstated | Resolved by ADR-0047 |
+| [D21](#d21) | Derived attributes are not required to be acyclic | Resolved by ADR-0047 |
+| [D22](#d22) | Expression scoping and name resolution are unstated | Resolved by ADR-0047 |
+| [D23](#d23) | Parameter-schema derivation has no algorithm | Resolved by ADR-0047 |
+| [D24](#d24) | Remedy-class assignment has no rule | Resolved by ADR-0047 |
+| [D25](#d25) | The availability query has unbounded cost | Resolved by ADR-0048 |
+| [D26](#d26) | `changed_since` has no index story | Resolved by ADR-0048 |
+| [D27](#d27) | The spec's definition of an action is the option ADR-0016 rejected | Resolved by ADR-0041 |
+| [D28](#d28) | Files are both never touched and deleted | Resolved by ADR-0041 |
+| [D29](#d29) | Splitting is both uncovered and expressible | Resolved by ADR-0046 |
+| [D30](#d30) | Derived attributes cannot be queried | Resolved by ADR-0048 |
+| [D31](#d31) | Constraint compilation is mis-cited and backend-dependent | Resolved by ADR-0041 |
+| [D32](#d32) | External evaluators have no slot in the execution sequence | Resolved by ADR-0049 |
+| [D33](#d33) | Quantity and serial tracking are incompatible | Resolved by ADR-0050 |
+| [D34](#d34) | Three Proposed ADRs are load-bearing | Resolved |
+| [D35](#d35) | Erasure has no taint rule and may collide with uniqueness | Resolved by ADR-0051 |
+| [D36](#d36) | `self-serviceable` is misused for the fan-out cap | Resolved by ADR-0041 |
+| [D37](#d37) | Iteration cannot take a collection-valued expression | Resolved by ADR-0052 |
+| [D38](#d38) | A creation does not name which creation transition it uses | Resolved by ADR-0052 |
+| [D39](#d39) | A write from an unsupplied optional input clears the field | Resolved by ADR-0052 |
+| [D40](#d40) | `this` is not stated to be available in a creation outcome | Resolved by ADR-0052 |
+| [D41](#d41) | Type-scan invariants have no affected-set rule | Resolved by ADR-0052 |
+| [D42](#d42) | Three-valued logic left no way to test for absence | Resolved by ADR-0053 |
+| [D43](#d43) | ADR-0038 never says when the parent's own outcome applies | Resolved by ADR-0054 |
+| [D44](#d44) | `check` both simulates the real verdict and skips evaluators | Resolved by ADR-0054 |
+| [D45](#d45) | A type without a declared assertion cannot be imported or migrated | Resolved by ADR-0054 |
+| [D46](#d46) | An admitted invariant violation freezes the object | Resolved by ADR-0054 |
+| [D47](#d47) | Superseded rules restated as current across the record | Resolved by the coherence pass of 2026-09-08 |
+| [D48](#d48) | Single-object invariants are rejected by the model | Resolved by ADR-0055 |
+| [D49](#d49) | A set-valued attribute can only be replaced wholly | Resolved by ADR-0055 |
+| [D50](#d50) | Runtime-maintained inverses were a second write path | Resolved by ADR-0056 |
+| [D51](#d51) | `supersede` was missing from the outcome grammar | Resolved by ADR-0056 |
+| [D52](#d52) | A composition's delete cascade had no declaration site | Resolved by ADR-0056 |
+| [D53](#d53) | Versions did not propagate from a machine to its binders | Resolved by ADR-0056 |
+| [D54](#d54) | A machine could not state what it requires of a binding type | Resolved by ADR-0056 |
+| [D55](#d55) | A deletion guard had to hand-enumerate every referencing type | Resolved by ADR-0056 |
+| [D56](#d56) | Erasure could not run on a deleted object | Resolved by ADR-0056 |
+| [D57](#d57) | The conditional `? :` collided with `?` as optionality | Resolved by ADR-0056 |
+| [D58](#d58) | Implication `→` collided with the to-state arrow in ASCII | Resolved by ADR-0056 |
+| [D59](#d59) | Remedy class names contain hyphens, which lex as subtraction | Resolved by ADR-0056 |
+| [D60](#d60) | An approval could not be invalidated by an edit to a part | Resolved by ADR-0057 |
+| [D61](#d61) | A part is orphaned by any terminal transition its cascade does not name | Resolved by ADR-0058 |
+| [D62](#d62) | Re-parenting escapes the source whole's invariants | Resolved by ADR-0058 |
+| [D63](#d63) | `accepts` is documented in two mutually exclusive positions | Resolved by ADR-0060 decision 2 |
+| [D64](#d64) | The line-continuation rule does not admit a trailing comma | Resolved by ADR-0060 decision 1 |
+| [D65](#d65) | Seven continuation lines begin with an operator after a line that ends in an identifier | Resolved by ADR-0060 decision 1 |
+| [D66](#d66) | Braces mean three things and the cascade group is written two ways | Resolved |
+| [D67](#d67) | A bare state literal is indistinguishable from an attribute of the same name | Resolved |
+| [D68](#d68) | A state may legally be named `any`, which collides with the wildcard | Resolved |
+| [D69](#d69) | Operator associativity is never stated | Resolved |
+| [D70](#d70) | Header clause order is contradicted by adjacent examples | Resolved |
+| [D71](#d71) | The compilation unit is undefined | Resolved by ADR-0060 decision 12 |
+| [D72](#d72) | There is no syntax for an enum member literal | Resolved by ADR-0060 decision 10 |
+| [D73](#d73) | `.state` and `.category` are read in five guards and granted by no member rule | Resolved by ADR-0060 decisions 9 and 10 |
+| [D74](#d74) | Three-valued evaluation is absent from §8 | Resolved by ADR-0060 decision 4 |
+| [D75](#d75) | Duration units, currencies and decimal precision are given by example only | Resolved |
+| [D76](#d76) | `this.id` and `identity` arguments to an evaluator are unstated | Resolved |
+| [D77](#d77) | `referrers` has a heterogeneous element type on which `.state` is read | Resolved |
+| [D78](#d78) | `counter` has no marking slot in the grammar and no stated relation to `attr` | Resolved by ADR-0060 decision 8 |
+| [D79](#d79) | `owner` has no marking slot, and nothing says whether the state and stored reference ends are indexed | Resolved by ADR-0060 decision 9 |
+| [D80](#d80) | A part declared in an abstract base cannot declare its cascades | Resolved by ADR-0060 decision 7 |
+| [D81](#d81) | `survives` is all-or-nothing where the need is per-transition | Resolved by ADR-0060 decision 7 |
+| [D82](#d82) | A cascade clause is repeated once per terminal transition | Resolved by ADR-0060 decision 7 |
+| [D83](#d83) | `terminal` and `closed` pull in opposite directions with no warning | Resolved |
+| [D84](#d84) | No personal attribute can be required, and no invariant can assert one is present | Resolved by ADR-0060 decision 5 |
+| [D85](#d85) | `may admit` cannot name the invariant an assertion actually breaches | Resolved by ADR-0060 decision 6 |
+| [D86](#d86) | `accepts` plus `default` silently resets a value on a non-creation transition | Resolved by ADR-0060 decision 3 |
+| [D87](#d87) | `visible when` has no typing, traversal or indexing rules | Resolved |
+| [D88](#d88) | `sweepable` is reported by the publish report and defined nowhere | Resolved |
+| [D89](#d89) | The identifier rule contradicts itself on scope | Resolved |
+| [D90](#d90) | Mandatory `limit` produces invented numbers and an unactionable report | Recorded as evidence for open question 4 |
+| [D91](#d91) | Confidentiality is per-object, and the common need is per-attribute | Recorded as open question 6 |
+| [D92](#d92) | An evaluator cannot return a value, and the common integration assigns one | Recorded as open question 8 |
+| [D93](#d93) | The §10 preamble's decidability claim is wrong in three ways | Resolved |
+| [D94](#d94) | Fourteen checks are ambiguous, fire on the document's own examples, or cannot be built | Resolved |
+| [D95](#d95) | Eleven terms are used by §10 and defined nowhere in §1–9 | Resolved by ADR-0060 |
+| [D96](#d96) | Seventeen rules stated in §1–9 have no check | Resolved |
+| [D97](#d97) | The new indentation rule does not parse the document's own compressed bodies | Resolved |
+| [D98](#d98) | A sentence surviving the cascade rewrite contradicted the example six lines above it | Resolved |
+| [D99](#d99) | A part with an abstract `owner` could be declared, given cascades, and never created | Resolved |
+| [D100](#d100) | The worked example teaching the unknown trap used the enum syntax the same iteration made mandatory | Resolved |
+| [D101](#d101) | Three stored relationship ends carried `indexed` after the same iteration said stored ends are never marked | Resolved |
+| [D102](#d102) | `survives on { … }` was justified by an example its own rules reject, and had no subtype form | Resolved |
+| [D103](#d103) | Check 50 was filed among the checks needing the previous declaration | Resolved |
+| [D104](#d104) | DESIGN.md contradicted the syntax document on the rule the unknown fix depends on | Resolved |
+| [D105](#d105) | The unknown rule was stated for two of the four contexts | Resolved |
+| [D106](#d106) | Decimal accumulation could never publish | Resolved |
+| [D107](#d107) | The list of clauses taking bare comma-separated lists omitted four that the examples use | Resolved |
+| [D108](#d108) | The literal list omitted numbers | Resolved |
+| [D109](#d109) | Check 33 put transitions in one namespace with attributes | Resolved |
+| [D110](#d110) | Whether a cascade skips a part whose guard fails was answered differently in two documents | Resolved |
+| [D111](#d111) | Nine checks retained gaps after the §10 rewrite | Resolved |
+| [D112](#d112) | A claimed check clause was not demonstrated by any fixture | Resolved |
+| [D113](#d113) | The new-invariant scan was named in the §10 preamble and absent from the report list | Resolved |
+| [D114](#d114) | The abstract-base part pattern had no spelling that publishes | Resolved |
+| [D115](#d115) | A wrapped `provides capability` line was read as declaring only its first line | Resolved |
+| [D116](#d116) | `money` had no scale and no rounding rule | Resolved |
+| [D117](#d117) | `money` fixes its currency at declaration, so a multi-currency ledger cannot be typed | Recorded as open question 9 |
+| [D118](#d118) | Idempotency, an advertised runtime capability, had no declarable form | Resolved |
+| [D119](#d119) | The negative of an external verdict did not type | Resolved |
+| [D120](#d120) | A required reference or singular part was unchecked at creation | Resolved |
+| [D121](#d121) | A `ref` with only one end declared had no stored-end rule | Resolved |
+| [D122](#d122) | Whether a family member satisfies a base-typed input was never stated | Resolved |
+| [D123](#d123) | The cascade skip rule did not say whether it governs a `call` | Resolved |
+| [D124](#d124) | "Terminal transition" was never defined | Resolved |
+| [D125](#d125) | A sequence could be scoped only by a reference | Resolved |
+| [D126](#d126) | `tracking` was not inherited and an abstract type had to declare it | Resolved |
+| [D127](#d127) | No remedy class distinguished a window that has not opened from one that has closed | Resolved |
+| [D128](#d128) | A single two-valued branch multiplied into four transitions | Resolved |
+| [D129](#d129) | A money balance cannot be a counter | Recorded as open question 10 |
+| [D130](#d130) | `only via` on a shared child scales as binders times triggers | Recorded as open question 11 |
+| [D131](#d131) | `serial` and `quantity` fit neither a payment, a posting nor an account | Recorded as open question 12 |
+| [D132](#d132) | Whether an `enum` body may wrap was unclear | Resolved |
+| [D133](#d133) | The prohibition on marking a stored end `indexed` lived only in §8.1 and a check | Resolved |
+| [D134](#d134) | Check 21 rejected the construct §8.3 had just been rewritten to permit | Resolved |
+| [D135](#d135) | The symmetric-shape whitelist excluded the commonest type-scan there is | Resolved |
+| [D136](#d136) | The booking case study still carried the `id` exclusion the same day's rule made an error | Resolved |
+| [D137](#d137) | Check 8's new singular-`part` clause was unsatisfiable | Resolved |
+| [D138](#d138) | A type-scan `count` silently changed meaning | Resolved |
+| [D139](#d139) | `tracking` inheritance was stated twice and implemented nowhere | Resolved |
+| [D140](#d140) | A wrapped `enum` body was legal by §9.3 and rejected by check 51 | Resolved |
+| [D141](#d141) | The terminal-transition gloss reasoned from the wrong type | Resolved |
+| [D142](#d142) | Four defects across three iterations were a rule changed without its check, and nothing linked the two | Resolved by check 52 |
+| [D143](#d143) | Five smaller gaps from the same audit | Resolved |
+| [D144](#d144) | A decimal product could never be assigned | Resolved |
+| [D145](#d145) | Time-gated was a static report line with a runtime condition | Resolved |
+| [D146](#d146) | A cascade's target was checked for existence and not for from-state coverage | Resolved as a publish report |
+| [D147](#d147) | The abstract-base worked example had one concrete whole | Resolved |
+| [D148](#d148) | Two wording residues | Resolved |
+| [D149](#d149) | The swap test rejected the two shapes it claimed to accept | Resolved |
+| [D150](#d150) | Check 52 claimed to catch the defects it was built for, and catches one of four | Resolved by retraction in the document |
+| [D151](#d151) | Check 52's detector recognised seven phrasings and missed seventeen normative statements in this document | Resolved |
+| [D152](#d152) | Two normative rules had no check to cite | Resolved |
+| [D153](#d153) | A scale mismatch on a write cited a check about expressions that type | Resolved |
+| [D154](#d154) | The cascade-coverage check's verdict on a legitimate cascade could not be predicted | Resolved |
+| [D155](#d155) | The design document's outcome grammar had gone stale in three of six lines | Resolved |
+| [D156](#d156) | Check 8's two clauses used different quantifiers, and the weaker one was silent | Resolved |
+| [D157](#d157) | Two paragraphs each claimed to state the only skip rule and contradicted each other on `call` | Resolved |
+| [D158](#d158) | A clause left behind by the swap-test rewrite gave a false reason | Resolved |
+| [D159](#d159) | A binder's own `create` did not replace the machine's, so the document's own remedy could not be spelled | Resolved |
+| [D160](#d160) | Check 52's proximity window gave a live false pass | Resolved |
+| [D161](#d161) | A check widened to satisfy a citation came out forbidding more than its rule did | Resolved |
+| [D162](#d162) | The overlap illustration defending the normalisation table was wrong on its own terms | Resolved |
+| [D163](#d163) | Check 8's two clauses still stated their quantifier with different precision | Resolved |
+| [D164](#d164) | Two smaller items | Resolved |
+| [D165](#d165) | The creation-replacement rule broke its own motivating example | Resolved |
+| [D166](#d166) | Two checks were not updated alongside the two that were | Resolved |
+| [D167](#d167) | Inserting an open question renumbered four others and invalidated six references | Resolved |
+| [D168](#d168) | A rename invented a new word for an established concept and redefined it | Resolved |
+| [D169](#d169) | Twenty-five findings across the five case studies and the walkthrough, none of which had ever been checked | Resolved |
+| [D170](#d170) | `DESIGN.md` promised a construct the language did not have | Resolved by ADR-0073 |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -318,10 +425,10 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 ## Cosmetic
 
 - **C01** `docs/adr/0013-events-are-recorded-to-a-durable-log-in-the-transition-transaction.md:34` diagram still reads "consumer holds a cursor", which ADR-0034 explicitly rejected at `0034:35`. **Resolved: diagram corrected.**
-- **C02** `docs/DESIGN.md:83` lays out `actions` as a sibling of `transitions`, the visual shape of ADR-0016's rejected option B, though the text is correct.
+- **C02** `docs/DESIGN.md:83` lays out `actions` as a sibling of `transitions`, the visual shape of ADR-0016's rejected option B, though the text is correct. **Resolved: `actions` is now indented under `transitions` in the model block, so the layout says what the text says.**
 - **C03** `docs/adr/0011-project-name-objectkeeper.md:42` attributes "gates rather than propels" to ADR-0004; it is ADR-0012's decision. **Resolved: citation corrected to ADR-0012.**
 - **C04** `docs/adr/0004-composite-state-is-gated-not-derived.md:26` says a cascade-close "proposes" terminal transitions; since ADR-0036 "propose" is a reserved concept. **Resolved: reworded to "cascades".**
-- **C05** The iteration-4 clarifications (outcomes may iterate an input's relationships; declared indexes; the fan-out cap) and the request `context` field live only in DESIGN.md and TODO.md with no ADR, against the convention that decisions live in ADRs.
+- **C05** The iteration-4 clarifications (outcomes may iterate an input's relationships; declared indexes; the fan-out cap) and the request `context` field live only in DESIGN.md and TODO.md with no ADR, against the convention that decisions live in ADRs. **Resolved: each has a home — iterating an input's relationship is ADR-0046, declared indexes are ADR-0048, the fan-out cap is ADR-0041 and now ADR-0071, and the request `context` field is ADR-0033.**
 
 
 ---
@@ -555,7 +662,7 @@ The dominant finding is a recurrence of the defect fixed the same day as D48: **
 ### D77
 **`referrers` has a heterogeneous element type on which `.state` is read.** `:534` defines it as every object holding a live reference, across types, and the guard at `:529` reads `r.state.category`. The element type is unstated, so check 24 cannot type the document's own deletion guard.
 
-**Resolved.** §8.1 gives a `referrers` element `.id` and `.state` and nothing else, which types the deletion guard and no more; filtering by type stays open question 2.
+**Resolved.** §8.1 gives a `referrers` element `.id` and `.state` and nothing else, which types the deletion guard and no more. Filtering by type was open question 2, answered by ADR-0072 §1: an element gains a comparable `.type`.
 
 ### D78
 **`counter` has no marking slot in the grammar and no stated relation to `attr`.** `:163` is bare `counter <name>`; the example at `:579` writes `counter on_hand indexed`. Whether a counter is an "attribute" for the purposes of checks 7, 8, 10, 17, 19 and 33 is never said, and one reading makes check 17 fire on the document's own `set reserved := reserved + inputs.qty` at `:590`. The partial checker special-cases counters, which is evidence the ambiguity is real.
@@ -620,17 +727,17 @@ The dominant finding is a recurrence of the defect fixed the same day as D48: **
 ### D90
 **Mandatory `limit` produces invented numbers and an unactionable report.** A reviewer's model reached a reported worst-case fan-out around thirty-three thousand from limits they acknowledged inventing. Open question 4 already asks whether mandatory `limit` is worth its friction; this is the first evidence.
 
-**Recorded as evidence for open question 4.** Not resolved; mandatory `limit` stands until the author rules on it.
+**Recorded as evidence for open question 4, and resolved by the ruling.** ADR-0071 kept mandatory bounds and dropped the reported worst-case product, which is the half this defect was about.
 
 ### D91
 **Confidentiality is per-object, and the common need is per-attribute.** Hiding a treatment allocation from an investigator while the rest of the subject stays visible required splitting one string into its own type with its own lifecycle and four cascade clauses. The document does not name this cost.
 
-**Recorded as open question 6.** Not resolved; per-attribute confidentiality is a model change, not a syntax one.
+**Recorded as open question 6, and refused by the ruling.** ADR-0072 §4 keeps confidentiality per object; the survey found no field-level restriction in the first consumer and no cost or margin column to protect. The cost of the workaround is recorded in `edge-cases.md`.
 
 ### D92
 **An evaluator cannot return a value, and the common integration assigns one.** `:490` returns only a verdict. A randomisation service assigns the arm; the model must accept the arm from the caller and separately ask whether an allocation exists, so the store cannot check that the supplied value is the one the external system chose.
 
-**Recorded as open question 8.** Not resolved; an evaluator returning a value crosses the decide-and-record boundary of ADR-0007 and needs the author.
+**Recorded as open question 8, and refused by the ruling.** ADR-0069 keeps evaluators verdict-only; an external system that assigns is a mirror, which is what the first consumer's own Xero design intent proposes.
 
 ### D93
 **The §10 preamble's decidability claim is wrong in three ways.** `:635`. Check 23's rename clause is undecidable in principle, since a rename with no mapping is textually identical to a drop plus an add. The report list at `:681` does not contain the new-invariant scan the preamble places in it. "Which invariants compile to a database constraint on this backend" needs the backend configuration, a third external input the preamble does not mention.
@@ -763,7 +870,7 @@ The third review, on the first domain that is high-volume, short-lived and money
 ### D117
 **`money` fixes its currency at declaration, so a multi-currency ledger cannot be typed.** The alternatives are one attribute per currency, or a `decimal` beside a currency string, which discards every check the type exists to provide.
 
-**Recorded as open question 9.** Not resolved; runtime currency is a model change.
+**Recorded as open question 9, and refused by the ruling.** ADR-0068 keeps the currency in the declaration, so a mismatch is a publish error; a multi-currency model declares an account per currency.
 
 ### D118
 **Idempotency, an advertised runtime capability, had no declarable form.** `unique` was global, sequence-scoped or partial, with no compound key. Written as a type-scan, nothing said whether the scanned set includes the object being written; read the obvious way it matched itself, so no object could ever be created. Adding `p.id != this.id` fixed that and violated check 6, since an inequality is not one of the symmetric shapes.
@@ -823,17 +930,17 @@ The third review, on the first domain that is high-volume, short-lived and money
 ### D129
 **A money balance cannot be a counter.** DESIGN.md offers a counter and a maintaining cascade as the remedy when an invariant's scan is too slow, and a counter is a non-negative `int`, so the remedy is closed to every quantity that is money.
 
-**Recorded as open question 10.** Not resolved.
+**Recorded as open question 10, and deferred by the ruling.** ADR-0072 §5 found the counter mechanism unexercised by the first consumer, which stores no stock level at all. Non-negativity did move out of `counter` and into an invariant.
 
 ### D130
 **`only via` on a shared child scales as binders times triggers.** Eight parents for one disposal transition, duplicated in each subtype's cascade clauses, with check 13 making both directions an error so three lists must agree exactly.
 
-**Recorded as open question 11.** Not resolved.
+**Recorded as open question 11, and agreed but not built.** ADR-0072 §6: no family in the first consumer needs it, and when it is built the family must be named explicitly.
 
 ### D131
 **`serial` and `quantity` fit neither a payment, a posting nor an account.** Each declares `serial` because the alternative demands a counter, so the declaration states something untrue about the domain.
 
-**Recorded as open question 12.** Not resolved; this is ADR-0050's decision to revisit.
+**Recorded as open question 12, and resolved by the ruling.** ADR-0067 adds a third tracking mode, `record`, amending ADR-0050. Twelve or more of the first consumer's entities are records.
 
 ### D132
 **Whether an `enum` body may wrap was unclear**, since §9.3's list of comma-taking clauses omitted it and check 51 now makes a wrong guess a publish error.
@@ -978,7 +1085,7 @@ Two of three reviewers non-blocking; the payments declaration that could not be 
 
 **Resolved.** The ground is redundancy, which is what check 6 rejects it on.
 
-## Found by the iteration-15 review
+## Found by the iteration-15 and iteration-17 reviews
 
 All three reviewers non-blocking, and one wrote "the document is ready for the author". These are their residuals.
 
@@ -1035,11 +1142,11 @@ All three reviewers non-blocking, and one wrote "the document is ready for the a
 ## Found by pointing the checker at the other documents
 
 ### D169
-**Twenty-five findings across the five case studies and the walkthrough, none of which had ever been checked.** The checker was hardcoded to the specification, so every other document's declarations were verified by reading alone. Pointed at them it reported 2 to 8 findings each.
+**Twenty-five findings across the five older case studies and the walkthrough, none of which had ever been checked.** The payments study was born in the syntax and was checked from its first commit. The checker was hardcoded to the specification, so every other document's declarations were verified by reading alone. Pointed at them it reported 2 to 8 findings each.
 
 The cause is worse than drift. Those blocks were never written in the declaration syntax at all: they use a pre-syntax pseudo-notation with `guards:` and `outcome:` labels, a unicode arrow, bracketed remedy classes, `for x in y:` with no bound, and a bare `<path>.<transition>(…)` where `call` is now required. The "re-express the case studies in the new grammar" pass of September rewrote the tables and the prose and left the code blocks in the old notation, which is the same scoping failure `docs/LESSONS.md` records — and it survived because nothing could see them.
 
-**Resolved.** All six documents are rewritten in the current syntax and all six are clean. The checker takes a path, so they are checked on every run from now on.
+**Resolved.** The five that needed it are rewritten in the current syntax, and all six documents are clean. The checker takes a path, so they are checked on every run from now on.
 
 ### D170
 **`DESIGN.md` promised a construct the language did not have.** §5.4 said "clearing a value deliberately is a separate input or a separate action". An unsupplied optional input skips its write rather than clearing, there is no assignable `null`, and iteration 15 had removed a check-8 clause for naming exactly this unwritable write. Six iterations passed without notice because no example needed it.
