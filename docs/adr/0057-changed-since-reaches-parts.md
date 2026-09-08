@@ -14,7 +14,7 @@ The workaround a reviewer had to invent was three moving parts: an extra timesta
 
 ## Decision
 
-**`changed_since` accepts a part relationship name alongside attribute names.** `changed_since([amount, vendor, lines], a.event)` is true if any of those attributes of `this` changed after the event, **or if any object in the `lines` composition was created, changed or removed after it.**
+**`changed_since` accepts a part relationship name alongside attribute names.** `changed_since([amount, vendor, lines], a.at_event)` is true if any of those attributes of `this` changed after the event, **or if any object in the `lines` composition was created, changed or removed after it.**
 
 It reaches parts and not references, because a part's lifetime is bounded by its whole and a part is conceptually a piece of it, whereas a referenced object is a separate thing whose changes are its own business. A guard that must react to a referenced object's change reads that object's state directly.
 

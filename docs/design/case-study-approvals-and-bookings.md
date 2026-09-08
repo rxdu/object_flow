@@ -16,7 +16,7 @@ Every earlier case had a single actor per transition. Approval is the case where
 | An approval | a **part** of the approved object: `Approval { approver, principal, decision, kind, comment, event }` created by an `approve` or `reject` action on the parent (ADR-0016, ADR-0019) |
 | Who may approve | actor guards on the action: `actor.has(APPROVE_PURCHASE)` (ADR-0025) |
 | Separation of duties | `actor.id != requested_by.id`; `none(a in approvals where a.approver == actor.id)`. Under three-valued logic an erased requester makes the first clause unknown, so it fails rather than passing (ADR-0047) |
-| "Needs approval" gate on the real transition | a guard counting valid approvals: `count(a in approvals where a.decision == APPROVED and not changed_since([amount, vendor], a.event)) >= 1` (ADR-0035, ADR-0047) |
+| "Needs approval" gate on the real transition | a guard counting valid approvals: `count(a in approvals where a.decision == APPROVED and not changed_since([amount, vendor], a.at_event)) >= 1` (ADR-0035, ADR-0047) |
 | N-of-M | `>= N` |
 | All of a set | one guard per required `kind` |
 | Sequential chain (manager, then finance) | the finance `approve` action is guarded on a valid manager approval existing |

@@ -25,7 +25,7 @@ outcome:
 ```
 
 1. **Cascades take inputs.** `slot.unit.reserve(slot := s)`. Inputs are evaluated in the state prevailing when that step runs.
-2. **Creations may be bound.** `let w = create WarrantyContract(...)` makes `w` usable in later steps of the same outcome. Names are single-assignment and scoped to the outcome. This is what makes ADR-0028's cascaded successor expressible: `let d2 = create Delivery(...)` then `supersede(successor := d2)`.
+2. **Creations may be bound.** `let w = create WarrantyContract(...)` makes `w` usable in later steps of the same outcome. Names are single-assignment and scoped to the outcome. This is what makes ADR-0028's cascaded successor expressible: `let d2 = create Delivery(...)` then `supersede(successor := d2)`. *(Spelled `create w = WarrantyContract.issue(…)` and `supersede d2` in the current grammar: ADR-0052 moved the binding into the `create` step and required the creation transition to be named, since a type may have several.)*
 3. **Iteration binds an element name explicitly.** `for s in slots where s.unit is not null: s.unit.sell()`. There is no implicit rebinding of `this`, which removes the scoping ambiguity of D22. Order is ascending object id (ADR-0038).
 4. **Repeat over a count.** `for i in 1..inputs.quantity: create Unit(...)`, bounded by the same declared fan-out cap as any iteration, refused with `over-limit` (ADR-0041). This makes procurement expressible.
 5. **`this_event` is available.** An event's identity is allocated when its transition begins applying, and its content is completed at commit, so an outcome may reference the event that will record it. `event` becomes an attribute type, which is what lets a consumer declare `Approval.event` and write the guards of ADR-0035.
