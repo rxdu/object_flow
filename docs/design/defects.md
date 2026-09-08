@@ -652,3 +652,91 @@ The dominant finding is a recurrence of the defect fixed the same day as D48: **
 
 
 **Resolved.** Checks 42 to 50 close sixteen of the seventeen. The seventeenth, type-body clause order, is demoted to a readability convention, since a declaration with shuffled clauses is no less well defined.
+## Found by the iteration-11 review
+
+The same two reviewers re-read their own findings against the repair. Both returned blocking again. Nine of the sixteen entries below are defects the **repair itself introduced**, which is the useful result: rewriting three sections wholesale fixed the class of defect that prompted it and created a new crop in the examples the rewrite did not reach.
+
+### D97
+**The new indentation rule does not parse the document's own compressed bodies.** `:153` — `act tick at ACTIVE { require may: … because delegable` opens at indent 2 and its continuation `set checked := true }` sits at indent 25, so §9.1 reads the write as continuing the guard. Two sites, both introduced before iteration 11 and both missed by the rule written to replace the one that broke on them.
+
+**Resolved.** A body that does not close on its opening line begins its clauses on the next line, which is the one layout §9.1's examples never showed. The two examples are reformatted.
+
+### D98
+**A sentence surviving the cascade rewrite contradicted the example six lines above it.** `:299` still read "which is why the delivery above repeats four" after the delivery was rewritten to a single grouped clause.
+
+**Resolved.** Rewritten to describe the grouped form.
+
+### D99
+**A part with an abstract `owner` could be declared, given cascades, and never created.** Check 36 failed any transition writing an `owner` of abstract type; check 18 failed a part creation that never writes its `owner`. Between them no such part was constructible, while check 11, §3.2 and §4.2 were all rewritten in the same iteration to enable exactly that construct. ADR-0058's decision concerned re-parenting, which has a source whole; a creation has none.
+
+**Resolved.** Check 36 applies to a re-parent, not to a creation.
+
+### D100
+**The worked example teaching the unknown trap used the enum syntax the same iteration made mandatory.** `:685` wrote `severity == SEVERE`, four times, while `:669` requires `<Enum>.<MEMBER>` and §9.2's resolution order does not reach enum members.
+
+**Resolved.** Qualified in the example.
+
+### D101
+**Three stored relationship ends carried `indexed` after the same iteration said stored ends are never marked.** `:71`, `:72`, `:626`.
+
+**Resolved.** Stripped, and check 7 now rejects the redundant marking rather than leaving it undecided.
+
+### D102
+**`survives on { … }` was justified by an example its own rules reject, and had no subtype form.** The justification, an adverse event outliving a subject's withdrawal, requires the withdrawal to be terminal, which check 15 then forbids the later archive from leaving. Separately, §3.2 gave a subtype form for `cascade` and none for `survives`, so an inherited part could be cascaded by a subtype and not survived by one.
+
+**Resolved.** Justified instead by a delivery's audit photographs outliving its deletion, which is genuinely terminal, and the subtype `survives <part> …` form is added.
+
+### D103
+**Check 50 was filed among the checks needing the previous declaration.** `:766`. Both its clauses are decidable from the current closure.
+
+**Resolved.**
+
+### D104
+**DESIGN.md contradicted the syntax document on the rule the unknown fix depends on.** DESIGN.md §5.7 said flatly "unknown propagates" while §8.2 gives the two Kleene exceptions, without which the prescribed presence test does not work. The verdict table also had no way to report a clause as unknown rather than false, which §8.2 promises.
+
+**Resolved.** Both corrected in DESIGN.md.
+
+### D105
+**The unknown rule was stated for two of the four contexts.** Guards and invariants had answers; a `visible when` predicate and a derivation did not, and visibility is reachable with an unknown because `actor.principal` is optional on the descriptor.
+
+**Resolved.** All four are now in one table: guards fail, invariants hold, visibility fails closed, a derivation reads as absent.
+
+### D106
+**Decimal accumulation could never publish.** `decimal(p1,s) + decimal(p2,s)` yielded `decimal(max+1, s)` and a `set` whose result did not fit the target's precision was a publish error, so `set total := total + inputs.amount` on a `decimal(8,2)` was rejected. Introduced in iteration 11 and hit on the first decimal counter a reviewer wrote. `int` and `money` were unaffected, so it bit exactly the type used for doses, weights and lab values.
+
+**Resolved.** Addition keeps the wider precision, scale is the publish-time rule, and precision overflow refuses the request at runtime.
+
+### D107
+**The list of clauses taking bare comma-separated lists omitted four that the examples use.** `:750` named five; `states`, `only via`, `provides capability` and `requires capability` also take them, and `may admit` was undecidable.
+
+**Resolved.**
+
+### D108
+**The literal list omitted numbers.** `:669` enumerated durations, money, strings, booleans and collections, and not the bare integers and decimals used throughout.
+
+**Resolved**, with the rule that a bare number without a point is an `int`.
+
+### D109
+**Check 33 put transitions in one namespace with attributes.** A machine declaring `requires attr answer` and `do answer` — the natural shape for a review flow — was a duplicate.
+
+**Resolved.** The scopes are separate per kind.
+
+### D110
+**Whether a cascade skips a part whose guard fails was answered differently in two documents.** §3.2 said a cascade drives its transition "on each part for which it is available", which reads as a guard test; ADR-0038 and DESIGN.md say any failure aborts the request. Silent skipping is the failure mode the model forbids by name.
+
+**Resolved.** The terminal-state skip is the only skip; a failing guard aborts. The related finding, that a cascade cannot pass arguments and a reviewer declared three transitions solely to work around it, is recorded as open question 7.
+
+### D111
+**Nine checks retained gaps after the §10 rewrite.** Check 8 named a write with no syntax; check 19 cited a resolution order that covers only expression positions; check 21 needed a grammar that sixteen forms did not have; check 24 left multiplication of two scalars, integer division and division by zero untyped; check 30 named a mechanism that does not match the one §3.2 describes; check 39 defined reaching over the relationship graph, which inverts it; check 42's version clause did not say which forms are versioned; check 44 said "the creation" for a type that may have several; and check 29 used "capability guard" for what §4.2 defines as an actor guard.
+
+**Resolved.** All nine reworded, and §9.4 gains productions for the sixteen forms that had none.
+
+### D112
+**A claimed check clause was not demonstrated by any fixture.** Check 42's version clause was in the table and not in the checker, and the fixture mechanism allowed only one fixture per check, so a multi-clause check could not prove more than one clause.
+
+**Resolved.** A check may now carry several fixtures, the version clause is implemented, and the self-test reports fixtures rather than checks so the difference is visible.
+
+### D113
+**The new-invariant scan was named in the §10 preamble and absent from the report list.** Reported against iteration 10 and survived the rewrite of §10 verbatim.
+
+**Resolved.** The report now lists how many live objects a new invariant would violate.

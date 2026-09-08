@@ -134,7 +134,7 @@ Evaluating a request yields one **verdict**:
 | Verdict | Meaning |
 |---|---|
 | satisfied | The request proceeds |
-| unsatisfied | A guard failed; carries the failing clause, its object and a remedy class |
+| unsatisfied | A guard failed; carries the failing clause, its object, a remedy class, and whether the clause was **false or unknown**, so a caller can tell a refusal from a value nobody has yet |
 | `stale` | The caller's `expected_version` is out of date, or the transaction exhausted its serialisation retries (ADR-0023, ADR-0039) |
 | `not found` | Visibility hides the object; existence is not disclosed (ADR-0030) |
 | `not requestable` | The transition is only via named parents, which are named in the verdict (ADR-0020, ADR-0041) |
@@ -182,7 +182,7 @@ One language serves guards, invariants, derived attributes, visibility predicate
 | conditional expression, in derived attributes only | `if unit is null then UNFILLED else FILLED` |
 | a declared external evaluator | `xero.invoice_valid(order_id)` |
 
-Evaluation is **three-valued**: comparison with an absent value, and division by zero, yield unknown; unknown propagates; and a guard that evaluates to unknown **fails**, naming the clause. An **invariant** that evaluates to unknown **holds**, which is the rule a database `CHECK` follows and the only one under which a partially filled object is workable. Presence is therefore tested with `is null` and `is not null`, and comparing against a bare `null` literal is a publish error (ADR-0053). Over an empty set, `count` and `sum` are zero, `all` and `none` are true, `any` is false, and `min` and `max` are unknown. `this` always means the object the expression is declared on and never rebinds, so every aggregate binds its element explicitly.
+Evaluation is **three-valued**: comparison with an absent value, and division by zero, yield unknown. Unknown propagates, with the two Kleene exceptions that make presence tests useful — `and` is false if either side is false, `or` is true if either side is true — and a guard that evaluates to unknown **fails**, naming the clause and reporting the value as unknown rather than false. An **invariant** that evaluates to unknown **holds**, which is the rule a database `CHECK` follows and the only one under which a partially filled object is workable. Presence is therefore tested with `is null` and `is not null`, and comparing against a bare `null` literal is a publish error (ADR-0053). Over an empty set, `count` and `sum` are zero, `all` and `none` are true, `any` is false, and `min` and `max` are unknown. `this` always means the object the expression is declared on and never rebinds, so every aggregate binds its element explicitly.
 
 Not in the language: grouped aggregation, string operations beyond equality and membership, user-defined functions, recursion or transitive closure, any call other than a declared evaluator.
 

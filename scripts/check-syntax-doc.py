@@ -112,6 +112,11 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
     catdecl = catdecl if catdecl is not None else set()
     reserved = reserved or set()
 
+    for i, raw in enumerate(text.split("\n")):
+        m = re.match(r"^(enum|sequence|evaluator|machine|type)\s+(\w+)(.*)$", raw)
+        if m and "…" not in raw and not re.search(r"\bversion\s+\d", m.group(3)):
+            out.append((42, f"{m.group(1)} {m.group(2)} has no version", base + i))
+
     for d in decls:
         mach = by_name.get(d.machine) if d.machine else None
         trans = d.trans + (mach.trans if mach else [])
@@ -187,7 +192,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
             if not any("terminal" in v[0] for v in states.values()):
                 add(15, f"{d.name} has no terminal state", d.start)
 
-        # 42 — tracking and version present
+        # 42 — tracking present
         if d.kind == "type" and not d.abstract and d.tracking not in ("serial", "quantity"):
             add(42, f"{d.name} has tracking {d.tracking!r}, which is not serial or quantity", d.start)
 
@@ -371,7 +376,8 @@ FIXTURES = {
   35: "machine M version 1 {\n state S category live\n state D category closed terminal\n create mk -> S { }\n do go S -> D { set mystery := 1 }\n}",
   13: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D only via B.nope { }\n}",
   38: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } { input reason : string\n require may: actor.has(Q) because delegable\n may admit inv }\n}",
-  42: "type A version 1 {\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}",
+  42: ["enum E { A, B }",
+       "type A version 1 {\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}"],
   43: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\ntype B extends A version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T { }\n do go2 T -> U { }\n}",
   47: "type W version 1 {\n tracking serial\n states S category live, D category closed terminal\n part ps : C[] inverse w\n      cascade on go to C.del\n create mk -> S { }\n do go S -> D { }\n}",
   41: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref bs : B[] inverse as\n create mk -> S { }\n do go S -> D { }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n ref as : A[] inverse bs\n create mk2 -> T { }\n do go2 T -> U { }\n}",
@@ -381,14 +387,17 @@ FIXTURES = {
 
 def self_test():
     bad = []
-    for check, fixture in sorted(FIXTURES.items()):
-        found = {c for c, _, _ in analyse(fixture, 0, {"X", "Q"}, {"live", "closed"}, set())}
-        found |= {c for c, _, _ in line_checks(fixture, 0, {"X", "Q"}, set(), set())}
-        if check not in found:
-            bad.append((check, sorted(found)))
+    n = 0
+    for check, fixtures in sorted(FIXTURES.items()):
+        for fixture in (fixtures if isinstance(fixtures, list) else [fixtures]):
+            n += 1
+            found = {c for c, _, _ in analyse(fixture, 0, {"X", "Q"}, {"live", "closed"}, set())}
+            found |= {c for c, _, _ in line_checks(fixture, 0, {"X", "Q"}, set(), set())}
+            if check not in found:
+                bad.append((check, sorted(found)))
     for c, got in bad:
         print(f"  FIXTURE FAILS: check {c} never fired (got {got})")
-    print(f"self-test: {len(FIXTURES) - len(bad)}/{len(FIXTURES)} claimed checks demonstrably fire")
+    print(f"self-test: {n - len(bad)}/{n} fixtures fire their check, over {len(FIXTURES)} checks")
     return not bad
 
 
