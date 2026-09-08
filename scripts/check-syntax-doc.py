@@ -569,8 +569,12 @@ def main():
     covered = sorted(set(FIXTURES) | set(DOC_FIXTURES))
     ndefined = max(nums) if nums else 0
     print(f"{DOC.name}: {len(blocks)} blocks, {ndecl} declarations")
-    print(f"partially enforces {len(covered)} of {ndefined} defined checks: {covered}")
-    print("each is proven by a fixture; most implement one clause of a multi-clause check, so this is a floor, not coverage")
+    if is_spec:
+        print(f"partially enforces {len(covered)} of {ndefined} defined checks: {covered}")
+        print("each is proven by a fixture; most implement one clause of a multi-clause check, "
+              "so this is a floor, not coverage")
+    else:
+        print(f"checked against {len(covered)} implemented checks: {covered}")
     seen, uniq = set(), []
     for c, d, ln in sorted(findings, key=lambda f: (f[2], f[0])):
         if (c, d) in seen: continue

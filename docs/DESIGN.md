@@ -45,7 +45,7 @@ An ORM abstracts *mechanism*: it hides SQL and faithfully executes whatever the 
 
 The first consumer is an extended version of the Weston Robot inventory management system: an operations platform covering procurement, allocation, pre-delivery inspection, leasing and customer identity mirrored from Xero. The existing system is in production at `~/RduWs/wr_inventory_management`, already contains a hand-built version of every concern below, and will be rebuilt on ObjectKeeper with its production data ported and preserved (ADR-0015).
 
-The model was tested against four further shapes, each recorded with what it forced: issue tracking, customer records, orders at volume, and approvals with bookings, in [`design/`](design/). The worked walkthrough of the first consumer's own lifecycles is [`design/first-consumer-walkthrough.md`](design/first-consumer-walkthrough.md).
+The model was tested against five further shapes, each recorded with what it forced: issue tracking, customer records, orders at volume, approvals with bookings, and a payments ledger, in [`design/`](design/). The ledger is the one written after the model rather than before it, and it is the only case that is high-volume, short-lived and money-carrying; four of the thirteen questions the author ruled on came from it. The worked walkthrough of the first consumer's own lifecycles is [`design/first-consumer-walkthrough.md`](design/first-consumer-walkthrough.md).
 
 ## 5. The model
 

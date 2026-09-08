@@ -81,3 +81,9 @@ The repair added several checks that reject a declaration rather than accept one
 - **Confidentiality of one field within a visible row.** Not covered. Visibility is per object. Hiding one attribute from one role costs a separate type with its own lifecycle, its own visibility predicate and a cascade clause per terminal transition of the whole (ADR-0072).
 - **Authority attached to undoing a commitment.** Not distinguished. The first consumer gates the reversal of a decision that has become real — cancelling a placed order, reverting a committed intake — and treats every correction before that point as ordinary. Nothing in the model tells a transition that undoes a commitment from any other transition, and a capability guard is what expresses it today (ADR-0070).
 - **A consumer that maintains a counter.** None in the record. The design offers a counter and a maintaining cascade as the remedy when an invariant's scan is too slow, and the first consumer stores no stock level at all, computing availability on demand. The remedy is untested against a real user (ADR-0072).
+
+## From a payments ledger (written after the model)
+
+- **An N-leg posting whose leg count comes from the request.** Not expressible. There is no set-of-object input, and a counted loop carries no per-leg data, so each posting shape is declared as its own creation. A three-leg capture with a fee and a two-leg reversal are two transitions.
+- **Exact allocation of an amount into parts that must sum back.** Not expressible, deliberately. Who absorbs the remainder is a decision rather than a calculation, and ADR-0007 puts it with the consumer.
+- **A compensating entry as a correction.** Not what `corrects` is. `corrects` rewrites an attribute of one object in place with provenance; a ledger forbids that, and its compensating entry is an ordinary new posting linked to the original by a reference.

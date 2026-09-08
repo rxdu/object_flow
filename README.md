@@ -41,7 +41,7 @@ A practical consequence: a single business rule today is expressed as a storage 
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Purpose, position in the stack, the model, scope boundaries, known limits |
 | [`docs/adr/`](docs/adr/) | Decisions taken, each with the alternatives rejected and why |
 | [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md) | The language a type is declared in, and the checks publishing runs over it |
-| [`docs/design/`](docs/design/) | The first-consumer walkthrough, four case studies, the catalogue of edge cases, and the defect register from the readiness review |
+| [`docs/design/`](docs/design/) | The first-consumer walkthrough, five case studies, the catalogue of edge cases, and the defect register |
 | [`docs/LESSONS.md`](docs/LESSONS.md) | Operational lessons |
 | [`TODO.md`](TODO.md) | Where the design stands, what the author has decided, and what is still open |
 
