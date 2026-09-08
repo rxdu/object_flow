@@ -1008,7 +1008,7 @@ All three reviewers non-blocking, and one wrote "the document is ready for the a
 **Resolved**, and the part clause is now implemented: a creation that does not fill a required singular part is reported, per creation, which was the silent gap D156 named and did not close in the tool.
 
 ### D164
-**Two smaller items.** `.state` is described as sitting "alongside" an object's declared members while the swap test and the resolution order both need it to count as one; and a dangling reference to check 53 survived its demotion to a report, in a file check 52 does not read.
+**Two smaller items.** `.state` is described as sitting "alongside" an object's declared members while the swap test and the resolution order both need it to count as one; and a dangling reference to the cascade-coverage check survived its demotion to a report, in a file check 52 does not read.
 
 **Resolved.**
 

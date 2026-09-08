@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D09, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Amended by:** ADR-0056 §10 — remedy class names are single tokens.
 - **Supersedes:** ADR-0006
 
 ## Context

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 3 (2026-09-08); pending author review
 - **Date:** 2026-09-08
+- **Amended by:** ADR-0056 §7 — erasure runs from any state including terminal, and stays optional. ADR-0060 §5 adds that erasure admits the invariants it breaks.
 
 ## Context
 

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 2 (2026-09-07); pending author review
 - **Date:** 2026-09-07
+- **Amended by:** ADR-0056 §5 — a machine declares what it requires of its binders. ADR-0064 makes a binder's own creations replace the machine's rather than add to them, and ADR-0065 keeps the machine's creation guards binding on the replacement.
 
 ## Context
 

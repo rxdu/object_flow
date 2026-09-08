@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D10, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Amended by:** ADR-0052 — the affected-set rule amended where the case studies found it underspecified.
 - **Refines:** ADR-0009
 
 ## Context

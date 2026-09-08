@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D16, D17, D19 to D24, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Amended by:** ADR-0052 — expression semantics amended where re-expressing the case studies found them underspecified. ADR-0063 replaces the remedy-class inference with a priority order that never contradicts a declared class.
 - **Refines:** ADR-0021, ADR-0032, ADR-0005
 
 ## Context

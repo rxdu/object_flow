@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 2 (2026-09-07); pending author review
 - **Date:** 2026-09-07
+- **Amended by:** ADR-0056 §4 — an object records its type's version and dependencies propagate.
 
 ## Context
 

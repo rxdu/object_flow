@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
 - **Date:** 2026-09-07
+- **Amended by:** ADR-0056 §3 — a composition declares its delete cascade. ADR-0058 then requires every terminal transition of the whole to be covered, and ADR-0066 lets the cascade carry arguments.
 
 ## Context
 
