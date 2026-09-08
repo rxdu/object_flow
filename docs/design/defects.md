@@ -18,25 +18,25 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D08](#d08) | Proposals across declaration versions are undefined | **resolved by ADR-0044** |
 | [D09](#d09) | Free attributes have no write path | **resolved by ADR-0042** |
 | [D10](#d10) | Two different invariant-enforcement specifications | **resolved by ADR-0045** |
-| [D11](#d11) | Cascaded transitions cannot take inputs | open |
-| [D12](#d12) | An outcome cannot name an object it creates | open |
-| [D13](#d13) | `this_event` is undefined and chronologically impossible | open |
-| [D14](#d14) | Repeat-N creation is not expressible | open |
-| [D15](#d15) | Map-typed inputs and dynamic writes are not expressible | open |
-| [D16](#d16) | `sum` over a type is required but not granted | open |
-| [D17](#d17) | Grouped aggregation is used but undefined | open |
-| [D18](#d18) | There is no event-reference attribute type | open |
-| [D19](#d19) | Division by zero yields a verdict, not a value | open |
-| [D20](#d20) | Null semantics are unstated | open |
-| [D21](#d21) | Derived attributes are not required to be acyclic | open |
-| [D22](#d22) | Expression scoping and name resolution are unstated | open |
-| [D23](#d23) | Parameter-schema derivation has no algorithm | open |
-| [D24](#d24) | Remedy-class assignment has no rule | open |
+| [D11](#d11) | Cascaded transitions cannot take inputs | **resolved by ADR-0046** |
+| [D12](#d12) | An outcome cannot name an object it creates | **resolved by ADR-0046** |
+| [D13](#d13) | `this_event` is undefined and chronologically impossible | **resolved by ADR-0046** |
+| [D14](#d14) | Repeat-N creation is not expressible | **resolved by ADR-0046** |
+| [D15](#d15) | Map-typed inputs and dynamic writes are not expressible | **resolved by ADR-0046** |
+| [D16](#d16) | `sum` over a type is required but not granted | **resolved by ADR-0047** |
+| [D17](#d17) | Grouped aggregation is used but undefined | **resolved by ADR-0047** |
+| [D18](#d18) | There is no event-reference attribute type | **resolved by ADR-0046** |
+| [D19](#d19) | Division by zero yields a verdict, not a value | **resolved by ADR-0047** |
+| [D20](#d20) | Null semantics are unstated | **resolved by ADR-0047** |
+| [D21](#d21) | Derived attributes are not required to be acyclic | **resolved by ADR-0047** |
+| [D22](#d22) | Expression scoping and name resolution are unstated | **resolved by ADR-0047** |
+| [D23](#d23) | Parameter-schema derivation has no algorithm | **resolved by ADR-0047** |
+| [D24](#d24) | Remedy-class assignment has no rule | **resolved by ADR-0047** |
 | [D25](#d25) | The availability query has unbounded cost | open |
 | [D26](#d26) | `changed_since` has no index story | open |
 | [D27](#d27) | The spec's definition of an action is the option ADR-0016 rejected | **resolved by ADR-0041** |
 | [D28](#d28) | Files are both never touched and deleted | **resolved by ADR-0041** |
-| [D29](#d29) | Splitting is both uncovered and expressible | open |
+| [D29](#d29) | Splitting is both uncovered and expressible | **resolved by ADR-0046** |
 | [D30](#d30) | Derived attributes cannot be queried | open |
 | [D31](#d31) | Constraint compilation is mis-cited and backend-dependent | **resolved by ADR-0041** |
 | [D32](#d32) | External evaluators have no slot in the execution sequence | open |
@@ -153,44 +153,72 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 ### D11
 **Cascaded transitions cannot take inputs.** Used in every case study (`walkthrough:135`, `:191`, `:198`; `crm:46-48`; `orders:16`). Neither `docs/DESIGN.md:108` nor `docs/adr/0019:14` permits it, and ADR-0019's only example passes none.
 
+**Resolved by ADR-0046.** Resolved by the outcome grammar.
+
 ### D12
 **An outcome cannot name an object it creates.** `docs/adr/0019:15` shows `create WarrantyContract(...)` with no binding. This makes `docs/adr/0028-supersession-an-object-may-end-by-naming-a-successor.md` self-contradictory: `:1` takes the successor as an input object id, `:2` permits the transition to cascade its creation. Both cannot hold for move and convert, which is supersession's headline use. It also blocks split (see D29).
+
+**Resolved by ADR-0046.** Creations may be bound to a name, which also resolves ADR-0028's internal contradiction.
 
 ### D13
 **`this_event` is undefined and chronologically impossible.** Used once, at `docs/design/case-study-approvals-and-bookings.md:40`, and defined nowhere. Every guard in ADR-0035 keys on the approval carrying it. Events are written at `docs/DESIGN.md:169` step 7, after the outcome that would read it.
 
+**Resolved by ADR-0046.** An event's identity is allocated before its outcome runs, so `this_event` is well defined.
+
 ### D14
 **Repeat-N creation is not expressible.** `docs/design/first-consumer-walkthrough.md:187` raises a procurement order "cascading `create Unit(...)` ×N". `docs/adr/0019:22` permits iterating a relationship only, and `:46` forbids iterating a query over a type. An integer input has nothing to iterate.
+
+**Resolved by ADR-0046.** Resolved by the outcome grammar.
 
 ### D15
 **Map-typed inputs and dynamic writes are not expressible.** `docs/design/case-study-crm.md:45` writes `<each attribute in values> := inputs.values.<attribute>`. `docs/DESIGN.md:96` gives a closed attribute-type list with no map, and `:108` fixes outcome writes as static `attribute := expression`. The merge is that study's centrepiece.
 
+**Resolved by ADR-0046.** Refused by decision: a transition writes the attributes it names; the merge declares its fields.
+
 ### D16
 **`sum` over a type is required but not granted.** `docs/adr/0032-expression-language-version-2-adds-arithmetic.md:18` and `docs/DESIGN.md:141` grant `sum`/`min`/`max` over a relationship. `docs/adr/0032:37` states as its own consequence that available-to-promise needs "a type-scan sum over inbound units".
+
+**Resolved by ADR-0047.** Resolved by the expression semantics.
 
 ### D17
 **Grouped aggregation is used but undefined.** `docs/design/case-study-orders.md:24` declares the invariant `sum(shipments.qty for a line) <= line.qty`. No `for a <group>` construct exists in ADR-0021 or ADR-0032.
 
+**Resolved by ADR-0047.** Refused by decision: grouping belongs to the read surface; declare a relationship aggregate on the other end.
+
 ### D18
 **There is no event-reference attribute type.** `docs/adr/0035-approval-is-a-guard-over-recorded-approval-parts.md:12` requires an Approval to carry "the event that recorded it", and `docs/DESIGN.md:143` reads `approval.event`. The closed list at `docs/DESIGN.md:96` has no event reference, and `docs/DESIGN.md:204` makes only Subscription and Proposal built in, so Approval must be consumer-declared. It cannot be.
+
+**Resolved by ADR-0046.** Resolved by the outcome grammar.
 
 ### D19
 **Division by zero yields a verdict, not a value.** `docs/adr/0032:16` — "division by zero is a guard failure, never a value." Expression evaluation is therefore not compositional: the rule is undefined inside `none(...)`, inside an implication's antecedent, and inside a derived attribute the read surface returns.
 
+**Resolved by ADR-0047.** Resolved by the expression semantics.
+
 ### D20
 **Null semantics are unstated.** `docs/adr/0021-derived-attributes-and-the-expression-language.md:19` has a null test and `docs/DESIGN.md:144` compares against null, but nothing says whether comparison with null is three-valued. `docs/adr/0031-erasure-redacts-declared-personal-attributes-across-history.md:17` makes the redaction marker read as null. Under a two-valued reading, erasing a person makes `actor.id != requested_by.id` and `none(approvals where approver == actor.id)` true (`docs/design/case-study-approvals-and-bookings.md:17`), granting the erased person self-approval and repeat-approval. `docs/design/edge-cases.md:31` claims "Erasure never silently satisfies a guard", which is false for exclusionary guards.
+
+**Resolved by ADR-0047.** Three-valued logic; a guard evaluating to unknown fails, which closes the erasure/separation-of-duties hole.
 
 ### D21
 **Derived attributes are not required to be acyclic.** `docs/adr/0019:23` and `docs/DESIGN.md:171` require the cascade graph to be acyclic. `docs/adr/0021:12` imposes nothing, so `a := b + 1; b := a + 1` is a legal declaration and non-terminating.
 
+**Resolved by ADR-0047.** Resolved by the expression semantics.
+
 ### D22
 **Expression scoping and name resolution are unstated.** `docs/adr/0035:14` defines `changed_since` over "the named attributes of `this`", `docs/DESIGN.md:143` qualifies the element (`approval.event`), and `docs/design/case-study-approvals-and-bookings.md:37`,`:42` use a bare `event` inside `none(approvals where ...)` while `relevant` is declared on the parent. Whether `this` rebinds inside a predicate is never stated, and the two readings give opposite results.
+
+**Resolved by ADR-0047.** Resolved by the expression semantics.
 
 ### D23
 **Parameter-schema derivation has no algorithm.** `docs/adr/0005-guards-evaluate-over-state-plus-inputs.md:23` asserts a transition's parameter list is derived from its guards, and `docs/adr/0037:19` returns it. Deriving input constraints from an arbitrary boolean guard such as `inputs.qty <= on_hand - reserved` is abduction, not extraction. ADR-0010's headline claim that tool schemas and validation cannot drift rests on this. Related inconsistency: `docs/DESIGN.md:76` says a transition declares `inputs` while `:116` says the schema is derived, and under the derived reading an input used only in an outcome write is invisible to callers.
 
+**Resolved by ADR-0047.** Inputs are declared, not derived; ADR-0005's derived-schema claim is withdrawn and anti-drift is preserved by publish-time checks.
+
 ### D24
 **Remedy-class assignment has no rule.** `docs/DESIGN.md:120-124` defines five classes. `docs/adr/0022:12` implies inference from expression shape, but `end_date <= now` is `temporal` when stored and `self-serviceable` when supplied, and a conjunction of clauses with different classes has no stated rule. Whether the class is declared per guard or inferred is never said.
+
+**Resolved by ADR-0047.** Resolved by the expression semantics.
 
 ### D25
 **The availability query has unbounded cost.** `docs/adr/0037:20` returns objects for which a transition is available. Guards may contain type scans, aggregates and `changed_since`, so cost is O(candidates × unbounded). Only *deferred* external evaluators are excluded (`0037:20`, `0022:14`), so an eager one (`docs/adr/0008-guard-escape-hatch-is-a-named-external-evaluator.md:14`) means a third-party round trip per object. Visibility is an arbitrary actor predicate and cannot generally be indexed. Cursor pagination over a computed predicate needs a stable total order that is not specified. `docs/adr/0037:51` calls the operation cheap.
@@ -214,6 +242,8 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 
 ### D29
 **Splitting is both uncovered and expressible.** Recorded as not covered at `docs/design/edge-cases.md:14`, `:22` and `docs/DESIGN.md:233`; asserted as expressible at `docs/design/first-consumer-walkthrough.md:201`. It appeared in three of five case studies, it is the one-to-many mirror of supersession, and it needs exactly D12 plus a declared write path for a composition part's owner.
+
+**Resolved by ADR-0046.** Part re-parenting makes split expressible; the edge-case entries are updated.
 
 ### D30
 **Derived attributes cannot be queried.** `docs/adr/0037:17` restricts query filters to indexed attributes, state and category; `docs/adr/0021:12` makes derived attributes never stored; `now`-dependent ones can never be indexed because the value changes with no write. ADR-0022's consequences say the automation layer polls such predicates "through the ordinary read surface". Overdue and low-stock alerts therefore have no path. The same unsupported claim appears at `case-study-tickets.md:40` and `case-study-approvals-and-bookings.md:25`.

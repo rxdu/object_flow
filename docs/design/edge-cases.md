@@ -11,7 +11,7 @@ Status: maintained by the design iterations; started 2026-09-07. Each entry says
 
 ## From the inventory system (iteration 1)
 
-- **One unit becomes two, or two become one.** Not covered. Supersession (ADR-0028) records one successor; a physical split or merge of serialised units is two creations or one creation plus two supersessions, with history staying on the originals.
+- **One unit becomes two, or two become one.** *Now covered by ADR-0046:* an outcome may create the new object, bind it to a name and re-parent parts to it. History stays on the originals, which is what a split means.
 - **Correcting the past.** Covered with caveat. History is immutable; a wrong delivery date is corrected by a recorded action that writes the corrected value with provenance `corrected` and a reason. The read surface shows the current value and the correction; nothing rewrites the earlier event.
 - **The physical world diverges from the record** (a unit is stolen, or found in a state the machine cannot reach). Covered: the administrative override of ADR-0001 asserts the state with provenance `asserted`, an actor and a reason. It is a transition, recorded and gated on authority, not a database edit.
 - **Quantity-tracked consumables** (spare parts counted, not serialised). Deferred to iteration 4; the first consumer serialises everything, so it has not needed this.
@@ -19,16 +19,21 @@ Status: maintained by the design iterations; started 2026-09-07. Each entry says
 ## From issue tracking (iteration 2)
 
 - **Changing an object's type in place.** Not covered. A type has one machine; a history read under two machines is unreadable. Supersession (ADR-0028) creates the successor and links it.
-- **Splitting an issue into two with shared history.** Not covered. Two creations that reference the source; the source's history stays on the source.
+- **Splitting an issue into two with shared history.** *Now covered by ADR-0046* for the objects; history is still not shared, and each successor references the source.
 - **Gapless sequences.** Not covered. ADR-0029 sequences are monotonic and never reuse a value, but a rolled-back creation leaves a gap. A jurisdiction that requires gapless invoice numbers must assign the number in a later action, after the object exists, and accept that the assignment is serialised.
 - **Re-deriving what was allowed under an older declaration version.** Covered with caveat. Each event records the declaration version in force (ADR-0027); the rule set for that version remains printable; no tool will replay a historical request against it.
 - **Per-object read visibility** (issue-level security). Deferred to the read-surface design (TODO.md).
+
+## From the expression language
+
+- **Dynamic attribute writes.** Not covered, by decision (ADR-0046). A transition writes the attributes it names, so a merge declares the fields it resolves. An attribute set chosen at request time could not be checked at publish or printed in a rule set.
+- **Grouped aggregation.** Not covered, by decision (ADR-0047). Group-by belongs to the read surface; a guard that appears to need it usually wants a relationship aggregate declared on the other end.
 
 ## From customer records (iteration 3)
 
 - **Unmerge.** Not built in. A merge is a supersession plus re-pointed links, each recorded with its previous target; a consumer can reverse it from history by creating a new record and re-pointing back, but the original id does not return to life, because a superseding state is terminal.
 - **Acyclicity of a self-referential hierarchy** (a company cannot be its own ancestor). Not covered in version 1: the expression language has no transitive closure. A depth-bounded guard (`parent != this and parent.parent != this …`) is a workaround, not a guarantee.
-- **Erasing a value another object's guard or derived attribute depends on.** Covered with caveat. After erasure the value reads as the redaction marker, which compares as null; a guard that needed it will fail with its usual remedy class. Erasure never silently satisfies a guard.
+- **Erasing a value another object's guard or derived attribute depends on.** Covered. Under the three-valued semantics of ADR-0047 the redacted value reads as absent, any comparison with it is unknown, and a guard evaluating to unknown fails. This holds for exclusionary guards too, so erasing a requester does not grant them self-approval, which an earlier two-valued reading would have.
 - **Erasure and content-addressed files.** Covered with caveat. The blob is deleted; the reference's content hash remains in the event skeleton. A hash of a personal document is not the document, but a deployment that treats it as personal must declare the whole `file` attribute `personal` so the reference is redacted too.
 - **Moving a deal between pipelines yields a new object id.** Covered with caveat. Supersession creates a new object; links that consumers hold to the old id resolve through the pointer, but any external system that stored the id must follow it.
 

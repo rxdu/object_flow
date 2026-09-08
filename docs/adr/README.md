@@ -47,3 +47,5 @@
 | [0043](0043-subscription-progress-is-runtime-state-and-lag-is-derived.md) | Subscription progress is runtime state; lag and death are derived, so nothing initiates | Accepted (repair D07, review pending) |
 | [0044](0044-proposals-execute-under-the-current-declaration-and-can-be-invalidated.md) | A proposal executes under the current declaration and is invalidated when that becomes impossible | Accepted (repair D08, review pending) |
 | [0045](0045-invariant-enforcement-is-dynamic-and-invariants-traverse-declared-inverses.md) | Invariant enforcement is dynamic; invariants may only traverse declared inverses | Accepted (repair D10, review pending) |
+| [0046](0046-the-outcome-grammar.md) | The outcome grammar: cascade inputs, named creations, bound iteration, repeat, `this_event`, part re-parenting | Accepted (repair D11-D15/D18/D29, review pending) |
+| [0047](0047-expression-semantics.md) | Expression semantics: three-valued logic, explicit binding, aggregates over types, declared inputs and remedy classes, acyclic derivation | Accepted (repair D16-D24, review pending) |

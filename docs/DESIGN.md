@@ -94,7 +94,7 @@ Every object carries a store-assigned, globally unique, immutable, opaque id, as
 
 ### 5.2 Attributes
 
-An attribute has a declared type: string, integer, decimal with scale, money with currency, timestamp, duration, enum with declared options, reference, file, or a set of any of these. **Every attribute is written only by a transition outcome** (ADR-0042); there is no ungated write. A type makes attributes editable by declaring an action for them, which costs one declaration and gives the edit a guard, an actor, an event and a place in the availability listing. **Derived** attributes are named expressions, never stored (ADR-0021). Attributes marked **personal** are subject to erasure (ADR-0031). A **file** attribute holds a content-addressed reference to a blob in external storage with its hash, size, media type and provenance; ObjectKeeper never reads, streams or serves the bytes; its only byte-level operation is deleting them during erasure, which ADR-0031 requires (ADR-0017, proposed; ADR-0041).
+An attribute has a declared type: string, integer, decimal with scale, money with currency, timestamp, duration, enum with declared options, reference, event reference, file, or a set of any of these. **Every attribute is written only by a transition outcome** (ADR-0042); there is no ungated write. A type makes attributes editable by declaring an action for them, which costs one declaration and gives the edit a guard, an actor, an event and a place in the availability listing. **Derived** attributes are named expressions, never stored (ADR-0021). Attributes marked **personal** are subject to erasure (ADR-0031). A **file** attribute holds a content-addressed reference to a blob in external storage with its hash, size, media type and provenance; ObjectKeeper never reads, streams or serves the bytes; its only byte-level operation is deleting them during erasure, which ADR-0031 requires (ADR-0017, proposed; ADR-0041).
 
 ### 5.3 Relationships
 
@@ -106,7 +106,7 @@ Each type binds exactly one **named** state machine, whole; two types that share
 
 A **transition** is a named, guarded, recorded request to move an object from one state to another. It is requested **by name, never by target state** (ADR-0016). Its from-state may be one state, a set, or any non-terminal state. It declares **inputs**, **guards** over current state, inputs, actor and clock, and an **outcome**. An **action** is a transition whose from- and to-state are equal. Its outcome is unrestricted like any other: it may write attributes, cascade transitions and create objects, and it is declared, listed and recorded the same way (ADR-0016, ADR-0041). A same-state request that names no transition is refused; nothing is recorded for a change that did not happen.
 
-An **outcome** is straight-line: the new state, controlled writes of the form `attribute := expression`, and **cascaded** transitions and creations on objects reached through declared relationships of `this` or of an input, optionally filtered, never a choice between alternatives (ADR-0019). Branching is two transitions with distinguishing guards. A declaration may cap the fan-out of a cascaded relationship.
+An **outcome** is an ordered sequence of steps (ADR-0046): attribute writes `attribute := expression`; creations, optionally bound to a name later steps may use; cascaded transitions with their own inputs; and iteration over a relationship or a count, binding its element explicitly. It is straight-line: no step chooses between alternative outcomes, and branching is two transitions with distinguishing guards. A declaration may cap iteration fan-out, and exceeding it is refused with `over-limit`. A composition part may be re-parented by a transition that writes its owner, which is what makes splitting an object expressible.
 
 A transition may be **only via** named parent transitions: not requestable, reachable only as their cascade, carrying no actor guards of its own (ADR-0020). It may be **proposable**: a caller lacking authority may file a Proposal instead of receiving an error (ADR-0036).
 
@@ -114,7 +114,7 @@ Creation is the transition from nothing into an initial state, carrying its own 
 
 ### 5.5 Guards, verdicts and remedy classes
 
-A guard is an expression that must hold for a transition to proceed. Evaluating a request yields a **verdict**: satisfied; unsatisfied with a reason and a remedy class; `stale` (ADR-0023); `not found` (ADR-0030); `not requestable` (ADR-0020), returned when a caller names an only-via transition, which is never listed; or `over-limit`, when a cascade exceeds a declared fan-out cap (ADR-0041). Availability is three-way — available, available-with-input naming what must be supplied, blocked — and a transition's parameter schema is derived from its own guards, so tool schemas and validation cannot drift (ADR-0005).
+A guard is an expression that must hold for a transition to proceed. Evaluating a request yields a **verdict**: satisfied; unsatisfied with a reason and a remedy class; `stale` (ADR-0023); `not found` (ADR-0030); `not requestable` (ADR-0020), returned when a caller names an only-via transition, which is never listed; or `over-limit`, when a cascade exceeds a declared fan-out cap (ADR-0041). Availability is three-way: available, available-with-input naming what must be supplied, blocked. A transition **declares** its inputs, and its guards reference them (ADR-0047); publishing rejects a guard naming an undeclared input and warns on an input nothing uses, so the tool schema and the validation rules cannot drift because they are one declaration. Each guard clause declares its remedy class, inferred where the shape is unambiguous.
 
 | Remedy class | Meaning | Caller's next move |
 |---|---|---|
@@ -138,14 +138,15 @@ One language serves guards, invariants, derived attributes, visibility predicate
 |---|---|
 | literals; attribute paths across relationships; `this`, `inputs.*`, `actor.*`, `now` | `binding.delivery.state`, `actor.has(DELIVERY_COMPLETE)` |
 | comparison, null test, membership; boolean logic and implication | `reason in CancellationReason`, `required → count(photos) >= 1` |
-| `count`, `all`, `any`, `none` over a relationship or a type, with a predicate | `none(Service where unit == this and state != CANCELLED)` |
-| `sum`, `min`, `max` over a relationship, with an expression | `sum(lines.qty * lines.unit_price)` |
+| `count`, `all`, `any`, `none`, `sum`, `min`, `max` over a relationship or a type, binding the element | `none(s in Service where s.unit == this and s.state != CANCELLED)`, `sum(l in lines: l.qty * l.unit_price)` |
 | arithmetic on numbers; durations, and `+ -` with timestamps | `on_hand - reserved >= inputs.qty`, `placed_at + 30 min <= now` |
 | `changed_since(attributes, event)` over the object's history | `not changed_since(relevant, approval.event)` |
 | conditional expression, in derived attributes only | `unit == null ? UNFILLED : …` |
 | a declared external evaluator | `xero.invoice_valid(order_id)` |
 
-Not in the language: string operations beyond equality and membership, user-defined functions, recursion or transitive closure, any call other than a declared evaluator. The line with computation (ADR-0007, ADR-0032): the store evaluates **declared arithmetic over its own data**; it does not own **domain formulas** — tax, pricing, discounts, scoring, conversion — which consumers compute and supply as inputs for guards to check. The language grows only by an ADR naming the case that forced it.
+Evaluation is **three-valued** (ADR-0047): comparison with an absent value, and division by zero, yield unknown; unknown propagates; and a guard that evaluates to unknown **fails**, naming the clause. `this` always means the object the expression is declared on and never rebinds, so every aggregate binds its element explicitly. Derived attributes must form an acyclic graph, checked at publish.
+
+Not in the language: grouped aggregation, string operations beyond equality and membership, user-defined functions, recursion or transitive closure, any call other than a declared evaluator. The line with computation (ADR-0007, ADR-0032): the store evaluates **declared arithmetic over its own data**; it does not own **domain formulas** — tax, pricing, discounts, scoring, conversion — which consumers compute and supply as inputs for guards to check. The language grows only by an ADR naming the case that forced it.
 
 ### 5.8 Actors and visibility
 
