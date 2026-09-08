@@ -844,3 +844,82 @@ The third review, on the first domain that is high-volume, short-lived and money
 **The prohibition on marking a stored end `indexed` lived only in §8.1 and a check.** §3.1's marking table and §3.2's grammar both still invited it, and the document's own examples carried it until iteration 12.
 
 **Resolved.** Stated in the marking table where a reader meets it, and check 7 rejects it rather than leaving it undecided.
+
+## Found by the iteration-13 review
+
+Three reviewers re-read their own findings against the repair. Two returned non-blocking. Almost every remaining defect is one shape, which the decidability audit named: **a rule changed in §1 to §9 with its check in §10 left alone.** It had happened four times across three iterations, and nothing linked the two halves.
+
+### D134
+**Check 21 rejected the construct §8.3 had just been rewritten to permit.** `if` in an outcome value expression was argued for at length in the body and still listed as an error in the check list. Following the document produced a declaration that does not publish.
+
+**Resolved**, and the class of defect is now checked: see D142.
+
+### D135
+**The symmetric-shape whitelist excluded the commonest type-scan there is.** "Overlap of two ranges, equality on a shared key, and conjunctions of those" left out "at most one open X per Y", which DESIGN.md names as canonical. Three documents gave three answers, and check 5 reports which form it decided only after a publish.
+
+**Resolved.** Symmetry is decided by a **swap test** — exchange the two objects and require the same predicate back — and the named shapes become examples rather than the whitelist. The consequence worth having is that a status filter must be applied to both objects, and the test names the member that appears on one side only.
+
+### D136
+**The booking case study still carried the `id` exclusion the same day's rule made an error.** `docs/design/case-study-approvals-and-bookings.md:94`, the exact example ADR-0052's symmetry rule was derived from, unedited by ADR-0061.
+
+**Resolved.** Rewritten to the swap-symmetric form with the filter on both sides.
+
+### D137
+**Check 8's new singular-`part` clause was unsatisfiable.** It required a creation to write a required singular part while check 17 forbids writing a `part` end, which is derived. Separately a machine could not require one at all, since `requires part` was set-valued only, so a binder needing a part from birth had no legal declaration.
+
+**Resolved.** A creation **fills** a part with a `create` step for the child, which is how the model already worked and was nowhere stated, and `requires part` admits a singular type.
+
+### D138
+**A type-scan `count` silently changed meaning.** Self-exclusion is right for uniqueness and wrong for cardinality: `count(v in Version where …) <= 10` now counts every other object and permits eleven. The prohibition on the old exclusion idiom had no check behind it.
+
+**Resolved.** The counting rule is stated with a worked example, a traversal is recommended for any cardinality bound over related objects, and check 6 covers the prohibition.
+
+### D139
+**`tracking` inheritance was stated twice and implemented nowhere.** The body said a family states it once on the base and check 42 said "inherited or declared"; the checker walked no base chain, so a family written the way the document prescribes failed to publish, naming a clause the author had satisfied.
+
+**Resolved.** The checker walks the chain, and the §3.2 worked example now inherits its tracking, so the document's own text is the regression test.
+
+### D140
+**A wrapped `enum` body was legal by §9.3 and rejected by check 51.** §9.3 listed it among the wrapping forms in the same iteration that check 51 began rejecting a brace line carrying a clause.
+
+**Resolved.** An enum body is a braced list rather than a block of clauses, so §9.1's layout rule does not reach it, in the document and in the checker.
+
+### D141
+**The terminal-transition gloss reasoned from the wrong type.** It concluded that a born-final part asks nothing of its wholes, when the coverage rule is about the whole's terminal transitions. A journal of posted entries has a terminal transition, no cascade is available because the child has no such transition, so `survives` is forced — and the text called that a modelling error.
+
+**Resolved.** Named as the one shape where `survives` is the only correct answer, with the journal, statement and audit-log cases given.
+
+### D142
+**Four defects across three iterations were a rule changed without its check, and nothing linked the two.** Twelve normative statements in §1 to §9 cited no check at all.
+
+**Resolved by check 52**, the first check on the document rather than on a declaration: a statement that something is rejected or is a publish error must cite the check enforcing it. Twelve citations added, and the check was confirmed by removing one and watching it fire.
+
+### D143
+**Five smaller gaps from the same audit.** `/` did not say which side takes the scalar, so `int / money` had two answers; a bare decimal literal's scale was ambiguous in a comparison; check 44 did not cover the attribute scope §3.1 had just permitted; whether a type-scan **guard** excludes the object being transitioned was undefined, which changes runtime meaning rather than publish behaviour; and a `call` through an absent optional part had no rule, which an erasure needs.
+
+**Resolved**, each in the section that defines it.
+
+### D144
+**A decimal product could never be assigned.** Multiplication widened the scale and a scale mismatch on `set` was a publish error, with no rounding or cast, so no decimal product was writable to a decimal attribute.
+
+**Resolved.** A product or quotient rounds half to even to the target's scale, as money does; addition of mismatched scales stays an error, so rounding is permitted exactly where it is unavoidable.
+
+### D145
+**Time-gated was a static report line with a runtime condition.** "Every guard that can currently fail" cannot be evaluated at publish, and read literally no transition carrying an actor guard could ever appear, which is nearly all of them.
+
+**Resolved.** Computed from the declaration: at least one guard declared `temporal` and none declared `unreachable_from_here`.
+
+### D146
+**A cascade's target was checked for existence and not for from-state coverage.** Since a failing cascade now aborts the whole request, a mis-specified one is a production abort rather than a publish error, and the coverage is decidable from the text.
+
+**Resolved by check 53.** Not yet implemented.
+
+### D147
+**The abstract-base worked example had one concrete whole.** It demonstrated the mechanism the checker verifies rather than the case the paragraph is about, a part serving *two* wholes with different transition names.
+
+**Resolved.** A second member with its own transition names and its own cascade clause.
+
+### D148
+**Two wording residues.** Check 11 said the whole "declares" the part where the example inherits it, and open question 8's rationale had been left attached to question 12 when the two were split.
+
+**Resolved.**

@@ -135,6 +135,8 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
     clause_col = None
     for i, raw in enumerate(text.split("\n")):
         line = raw.split("#", 1)[0].rstrip()
+        if re.match(r"^\s*enum\b", line):
+            clause_col = None; continue
         if "{" in line:
             after = line.split("{", 1)[1]
             if after.strip() and "}" not in after and not line.lstrip().startswith(("<", "|")):
@@ -229,8 +231,14 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 add(15, f"{d.name} has no terminal state", d.start)
 
         # 42 — tracking present
-        if d.kind == "type" and not d.abstract and d.tracking not in ("serial", "quantity"):
-            add(42, f"{d.name} has tracking {d.tracking!r}, which is not serial or quantity", d.start)
+        if d.kind == "type" and not d.abstract:
+            tr, anc42, seen42 = d.tracking, d, set()
+            while tr is None and anc42 is not None and anc42.base and anc42.base not in seen42:
+                seen42.add(anc42.base); anc42 = by_name.get(anc42.base)
+                tr = anc42.tracking if anc42 else None
+            if tr not in ("serial", "quantity"):
+                add(42, f"{d.name} has tracking {tr!r}, declared or inherited, "
+                        "which is not serial or quantity", d.start)
 
         # 43 — extends resolves to an abstract base, acyclically
         if d.base:
@@ -427,6 +435,31 @@ FIXTURES = {
 }
 
 
+def doc_checks(src):
+    """Checks over the document itself rather than over a declaration."""
+    out = []
+    H1, H10 = "## 1. Shape of a file", "## 10. What the checker verifies"
+    if H1 not in src or H10 not in src:
+        return out
+    a10, b10 = src.index(H1), src.index(H10)
+    body = re.sub(r"```text\n.*?```",
+                  lambda m: "\n" * m.group(0).count("\n"), src[a10:b10], flags=re.S)
+    norm = re.compile(r"\b(is a publish error|is rejected|are rejected|publishing rejects"
+                      r"|Publishing rejects|is an error|are both rejected)\b")
+    for m in norm.finditer(body):
+        win = body[max(0, m.start() - 260): m.end() + 260]
+        if not re.search(r"check \d+|checks \d+|§10", win):
+            ln = src[:a10 + m.start()].count("\n") + 1
+            quote = re.sub(r"\s+", " ", body[max(0, m.start() - 60):m.end() + 30]).strip()
+            out.append((52, f"normative statement cites no check: \u2026{quote}\u2026", ln))
+    return out
+
+
+DOC_FIXTURES = {
+  52: "## 1. Shape of a file\n\nA duplicate name is rejected.\n\n## 10. What the checker verifies\n",
+}
+
+
 def self_test():
     bad = []
     n = 0
@@ -437,9 +470,13 @@ def self_test():
             found |= {c for c, _, _ in line_checks(fixture, 0, {"X", "Q"}, set(), set())}
             if check not in found:
                 bad.append((check, sorted(found)))
+    for check, fixture in sorted(DOC_FIXTURES.items()):
+        n += 1
+        if check not in {c for c, _, _ in doc_checks(fixture)}:
+            bad.append((check, []))
     for c, got in bad:
         print(f"  FIXTURE FAILS: check {c} never fired (got {got})")
-    print(f"self-test: {n - len(bad)}/{n} fixtures fire their check, over {len(FIXTURES)} checks")
+    print(f"self-test: {n - len(bad)}/{n} fixtures fire their check, over {len(FIXTURES) + len(DOC_FIXTURES)} checks")
     return not bad
 
 
@@ -475,11 +512,13 @@ def main():
             if re.search(rf"(^|\s|`){kw}\b", src) and kw not in w:
                 findings.append((21, f"keyword '{kw}' used but not reserved", 1))
 
+    findings += doc_checks(src)
+
     sec = src[src.index("## 10. What the checker verifies"):] if "## 10. What the checker verifies" in src else src
     nums = [int(x) for x in re.findall(r"^\| (\d+) \|", sec, flags=re.M)]
     if nums != sorted(nums): findings.append((0, f"check table misordered: {nums}", 1))
     ok = self_test()
-    covered = sorted(FIXTURES)
+    covered = sorted(set(FIXTURES) | set(DOC_FIXTURES))
     ndefined = max(nums) if nums else 0
     print(f"{DOC.name}: {len(blocks)} blocks, {ndecl} declarations")
     print(f"partially enforces {len(covered)} of {ndefined} defined checks: {covered}")

@@ -1,6 +1,6 @@
 # The declaration syntax
 
-Status: **draft, iteration 13** (2026-09-08). The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
+Status: **draft, iteration 14** (2026-09-08). The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
 
 Two goals shape every choice, and where they conflict the second wins.
 
@@ -9,7 +9,7 @@ Two goals shape every choice, and where they conflict the second wins.
 
 ## Iterations
 
-Thirteen drafts, twelve review rounds: engineers building real systems in it, and audits against the model. Each round is summarised by what it changed, because most changes were reversals of the round before.
+Fourteen drafts, thirteen review rounds: engineers building real systems in it, and audits against the model. Each round is summarised by what it changed, because most changes were reversals of the round before.
 
 | # | What it changed |
 |---|---|
@@ -23,8 +23,9 @@ Thirteen drafts, twelve review rounds: engineers building real systems in it, an
 | 9 | Eight parser bugs, two of which made the tool unusable on any model with a numbered state; joined the delivery and unit examples so the cascades are real |
 | 10 | A wrapped transition head parsed with an empty body, so every body check silently passed; `only via` did not resolve machine-supplied parents; the reserved-word rule the document had abandoned was still enforced |
 | 11 | Two reviews, both blocking, both finding the same shape of defect: a term used only by the check list. Eleven of them were defined; the line-continuation rule was replaced by indentation after seven of this document's own lines broke it; `accepts` was pinned to the head it had always been written in; three-valued evaluation was stated, having been the trap a first-time user actually fell into; enum literals, `.state` and `.category` acquired the syntax five guards already assumed |
-| 13 | A payments ledger, the first domain reviewed that is high-volume and short-lived. The pattern §3.2 recommends for a part serving two wholes was rejected by the checker in both spellings, so prose and tool were drifting in opposite directions on one construct. Uniqueness over two attributes could not be written at all: a type-scan matched the object against itself, and the clause that repaired it was not a symmetric shape. `money` had no scale or rounding. The negative of an external verdict, which the document prescribes for a decline, did not type |
 | 12 | Defects the previous repair introduced. A part with an abstract owner could be declared, given cascades and never created, because one check forbade what three others enabled. Decimal accumulation could not publish, since every addition widened the result past its target. The new indentation rule mis-parsed two of this document's own lines, the new unknown rule was illustrated with the enum syntax the same iteration had just required, and three stored ends carried a marking the same iteration had just said they never carry |
+| 13 | A payments ledger, the first domain reviewed that is high-volume and short-lived. The pattern §3.2 recommends for a part serving two wholes was rejected by the checker in both spellings, so prose and tool were drifting in opposite directions on one construct. Uniqueness over two attributes could not be written at all: a type-scan matched the object against itself, and the clause that repaired it was not a symmetric shape. `money` had no scale or rounding. The negative of an external verdict, which the document prescribes for a decline, did not type |
+| 14 | Three reviewers re-read their own findings; two returned non-blocking. The remaining defects were all one shape, and the audit named it: a rule changed in the body with its check left alone, four times across three iterations. Check 52 now fails a publish when a normative statement in §1 to §9 cites no check, which is the first check on the document rather than on a declaration |
 
 ## 1. Shape of a file
 
@@ -292,17 +293,17 @@ A cascade drives its transition on each part, and **skips a part already in a te
 | `survives` | the part outlives the whole through **every** terminal transition |
 | `survives on { withdraw }` | it outlives those, and the rest must still be covered by a cascade |
 
-The middle form is deliberately awkward to write, because a part outliving its whole is usually a modelling error. The third exists because the distinction is real: a delivery's audit photographs are kept when it is deleted, while its checklist items are not, so one part survives `delete` and the other does not. Publishing rejects a terminal transition covered by neither form, and rejects a transition named by both.
+The middle form is deliberately awkward to write, because a part outliving its whole is usually a modelling error. The third exists because the distinction is real: a delivery's audit photographs are kept when it is deleted, while its checklist items are not, so one part survives `delete` and the other does not. Publishing rejects a terminal transition covered by neither form, and rejects a transition named by both (check 37).
 
 **A part declared in an `abstract` base carries no cascade clauses**, since the base has no transitions to trigger them. Each concrete subtype supplies its own with the top-level `cascade <part> on …` and `survives <part> …` forms, and publishing holds the subtype, not the base, to the coverage rule. The part's `owner` names the base; its creation's `only via` names the concrete subtypes' transitions, since the base has none; and the top-level `cascade` clause counts as a call site exactly as the inline form does:
 
 ```text
 type Whole version 1 abstract {
+  tracking serial                     # inherited by both members of the family
   part notes : Note[] inverse subject
 }
 
 type Ticket extends Whole version 1 {
-  tracking serial
   states OPEN category live, CLOSED category closed terminal
   cascade notes on { close } to Note.file limit 100
   create raise -> OPEN { require may: actor.has(DEAL_VIEW_ALL) because delegable }
@@ -314,16 +315,28 @@ type Ticket extends Whole version 1 {
   do close OPEN -> CLOSED { require may: actor.has(DEAL_VIEW_ALL) because delegable }
 }
 
+type Incident extends Whole version 1 {
+  states LIVE category live, RESOLVED category closed terminal
+  cascade notes on { resolve } to Note.file limit 100
+  create report -> LIVE { require may: actor.has(DEAL_VIEW_ALL) because delegable }
+  act annotate at LIVE {
+    input body : string
+    require may: actor.has(DEAL_VIEW_ALL) because delegable
+    create Note.add(on := this, body := inputs.body)
+  }
+  do resolve LIVE -> RESOLVED { require may: actor.has(DEAL_VIEW_ALL) because delegable }
+}
+
 type Note version 1 {
   tracking serial
   states DRAFT category live, FILED category closed terminal
   owner subject : Whole inverse notes
   attr  body string
-  create add -> DRAFT only via Ticket.annotate accepts body {
+  create add -> DRAFT only via Ticket.annotate, Incident.annotate accepts body {
     input on : Whole
     set subject := inputs.on
   }
-  do file DRAFT -> FILED only via Ticket.close { }
+  do file DRAFT -> FILED only via Ticket.close, Incident.resolve { }
 }
 ```
 
@@ -349,8 +362,8 @@ Both ends of a relationship are declared, each in its own type, so a type reads 
 | `part` / `owner` | the `owner`. The child holds the parent, which is what makes re-parenting one write |
 | `ref` with one singular end (`T` or `T?`) and one set end (`T[]`) | the singular end |
 | `ref` with two singular ends | ambiguous; exactly one must be marked `stored` |
-| `ref` with two set ends | neither end can hold it. Declare a type for the association carrying a `ref` to each side; publishing rejects the pair |
-| `ref` with **no `inverse`**, so only one end is declared | that end, which must be singular. A set-valued `ref` with no `inverse` has nowhere to live and is rejected |
+| `ref` with two set ends | neither end can hold it. Declare a type for the association carrying a `ref` to each side; publishing rejects the pair (check 41) |
+| `ref` with **no `inverse`**, so only one end is declared | that end, which must be singular. A set-valued `ref` with no `inverse` has nowhere to live and is rejected (check 41) |
 
 So `Robot.binding : Delivery?` stores, and `Delivery.units : Robot[] inverse binding` reads "the robots whose binding is this". Only the stored end is writable: `set binding := inputs.slot` is one write with one event, and the far object's view changes because what it reads changed, not because anything wrote to it. A write naming a derived end is rejected (check 17), and so is a pair with no stored end or two (check 41).
 
@@ -372,7 +385,29 @@ An invariant is checked after every write to the object, and after a write to an
 | **traversal** | through a declared relationship end | this object is written, or any object reachable through that end |
 | **type-scan** | every object of a named type | any object of that type is written |
 
-A type-scan names a **type** where an aggregate names a collection — `none(v in Visit where …)` rather than `none(v in visits where …)`. **It ranges over every _other_ object of that type**: the object being written is never in the set, so no `v.id != this.id` clause is needed and writing one is an error. Without that rule the obvious uniqueness invariant matches the object against itself and is false for every object ever created, and the exclusion clause that repairs it is not one of the symmetric shapes below, so there was no way to write uniqueness over two attributes at all. It is the expensive form, and it can be enforced without locking the whole type only if it is **symmetric**: true or false of a *pair* of objects regardless of which one is being written. Overlap of two ranges, equality on a shared key, and conjunctions of those are the recognised symmetric shapes. Anything else is rejected, because an asymmetric scan admits a pair that each object accepts on its own turn.
+A type-scan names a **type** where an aggregate names a collection — `none(v in Visit where …)` rather than `none(v in visits where …)`. **It ranges over every _other_ object of that type**: the object being written is never in the set — and the same holds for a type-scan in a **guard**, where the object being transitioned is excluded, so identical syntax means the same thing in both places — so no `v.id != this.id` clause is needed and writing one is an error (check 6).
+
+That is right for uniqueness and it changes what a **count** means, so the count has to be read as "how many others":
+
+```text
+invariant at_most_ten: count(v in Version where v.product == product) < 10   # ten in total
+```
+
+Prefer a traversal for a cardinality bound whenever the objects are related — `count(v in product.versions) <= 10` says the same thing over a relationship, reads as the number it is, and is far cheaper than a scan of the type. A type-scan is for when there is no relationship to count over. Without that rule the obvious uniqueness invariant matches the object against itself and is false for every object ever created, and the exclusion clause that repairs it is not one of the symmetric shapes below, so there was no way to write uniqueness over two attributes at all. It is the expensive form, and it can be enforced without locking the whole type only if it is **symmetric**: true or false of a *pair* of objects whichever of them is being written. An asymmetric scan admits a pair that each object accepts on its own turn, and reports a violation on a write that did not cause one.
+
+Symmetry is decided by the **swap test**, not by a list of blessed shapes. Exchange every bare member reference with the corresponding one on the bound variable, and the bound variable's with the bare one. If the predicate that comes back is the same up to the order of its conjuncts, the invariant is symmetric.
+
+```text
+invariant one_open_per_kind:                         # symmetric: passes the swap test
+          none(v in Visit
+               where v.subject == subject and v.kind == kind
+                 and v.state.category != closed
+                 and   state.category != closed)
+```
+
+The consequence worth stating is that **a status filter has to be applied to both objects**. Writing only `v.state.category != closed` is the natural first attempt and it is asymmetric: with one visit planned and one cancelled, cancelling the second reports a conflict with the first, while planning the first saw no conflict with the second. The swap test rejects it and names the member that appears on one side only, which is the whole content of the mistake.
+
+Overlap of two ranges and equality on a shared key pass the test, which is why they were the shapes iterations 1 to 13 listed. They were listed as the *only* shapes, which excluded "at most one open X per Y" — the commonest type-scan there is, and the one DESIGN.md §5.6 names as canonical.
 
 A traversal invariant needs the far end of what it traverses to be declared, or the write that breaks it has no way to find it and re-check (check 4).
 
@@ -451,7 +486,7 @@ A machine states what a binding type must provide, one requirement per line:
 ```text
 requires attr <name> <type>[?]
 requires ref  <name> : <Type>[?|[]]
-requires part <name> : <Type>[]
+requires part <name> : <Type>[?|[]]
 requires invariant <name>
 requires capability <NAME>
 ```
@@ -468,7 +503,7 @@ provides capability EDIT = CLAIM_EDIT       # in another
 
 Without this, two types sharing a lifecycle must share an authority model, and the only workaround, `actor.has(PO_EDIT) or actor.has(CLAIM_EDIT)`, silently grants every editor of one authority over the other.
 
-A required **part** whose element type differs per binder is declared against an `abstract` base the binders' part types extend, which is also what lets the part's `owner` name a single type.
+A required **part** whose element type differs per binder is declared against an `abstract` base the binders' part types extend, which is also what lets the part's `owner` name a single type. A required part may be singular, since a type that must hold exactly one of something from birth is ordinary; a machine whose creation cannot write it obliges the binder to declare its own `create` (§2.1).
 
 ### 4.2 Transition kinds and markings
 
@@ -489,13 +524,15 @@ do   approve SUBMITTED -> APPROVED proposable { … }
 
 A transition a machine supplies is named `<Binder>.<transition>`, not `<Machine>.<transition>`, because authority belongs to the type, not to the lifecycle it borrows. The same holds in a `cascade on` clause. An `owner` may name an **abstract** base, which is how one part type serves two wholes. The wholes need not share a machine, and each supplies its own cascade clauses for the inherited part (§3.2). An `only via` on the part's creation names the concrete wholes' transitions, not the base's, since the base has none.
 
-**`only via`** makes a transition unrequestable and names the transitions that may cascade to it. Publishing verifies the list against the call sites it derives: a `call` from a transition not named is an error, and a name that never calls it is an error too.
+**`only via`** makes a transition unrequestable and names the transitions that may cascade to it. Publishing verifies the list against the call sites it derives: a `call` from a transition not named is an error, and a name that never calls it is an error too (check 13).
 
 Iteration 2 offered an unlisted variant instead, and iteration 4 kept it. Both deleted the guarantee: with no declared list, every call site becomes an authorised parent by construction, so a new module could write `call unit.sell()` and grant itself the power to sell a unit with no delivery, and no publish could refuse it. There is now no unlisted form. A transition either states who may cause it, or anyone may request it.
 
-An `only via` transition carries no **actor guard** — a guard whose expression calls `actor.has` — since the parent's authority is its authority; writing one is a publish error rather than a guard silently dropped. A guard that reads `actor.id` to compare identities, such as a one-approval-per-person test, is not an actor guard and stays legal. It may not be `proposable`, since an unrequestable transition can never yield the verdict that makes a proposal meaningful.
+An `only via` transition carries no **actor guard** — a guard whose expression calls `actor.has` — since the parent's authority is its authority; writing one is a publish error rather than a guard silently dropped (check 14). A guard that reads `actor.id` to compare identities, such as a one-approval-per-person test, is not an actor guard and stays legal. It may not be `proposable`, since an unrequestable transition can never yield the verdict that makes a proposal meaningful.
 
-`terminal` means no `do` may leave the state and no `act` may be declared at one, since a disposed object admits no further transitions. A **terminal transition** is a `do` whose to-state is terminal — a creation into a terminal state is not one, so a type whose objects are born final, such as a ledger entry, has no terminal transitions and the cascade coverage rule asks nothing of its wholes. `at any` therefore means any non-terminal state, and `erase` is the single carve-out.
+`terminal` means no `do` may leave the state and no `act` may be declared at one, since a disposed object admits no further transitions. A **terminal transition** is a `do` whose to-state is terminal; a creation into a terminal state is not one. The coverage rule of §3.2 is about **the whole's** terminal transitions, so a type whose objects are born final has none of its own and asks nothing of anything it owns.
+
+It says nothing about being *owned*. A whole with a terminal transition whose parts are born final has no cascade available — check 18 rejects a cascade naming a transition the child does not have — so that part is marked `survives`, and that is the one shape where `survives` is not a modelling error but the only correct answer. A journal of posted entries, a statement of settled lines, an audit log under the thing it audits: the records outlive the container by design. `at any` therefore means any non-terminal state, and `erase` is the single carve-out.
 
 **`terminal` is not the same as `closed`, and choosing it early is the mistake this rule invites.** A category says where in the lifecycle a state sits; `terminal` says nothing further will ever be recorded. An object that is finished operationally but must still accept recorded activity — a trial subject who has completed and may still have an adverse event reported against them, an order that is delivered and may still be reviewed — belongs in a `closed` state that is **not** terminal, with a genuinely final state after it if one is needed. Marking the first closed state terminal and discovering the conflict at the first `act` costs a lifecycle restructure and a fresh set of cascade clauses.
 
@@ -551,7 +588,7 @@ for    <name> in 1..<expression> limit <n> { … }
 
 A path may be rooted at `this`, a relationship, a loop binder or an input.
 
-**Optional inputs.** A step or argument whose expression is *exactly* an unsupplied optional input is skipped. Any larger expression containing one is a publish error, so `set amount := inputs.amount` and `set amount := inputs.amount + 0` cannot be confused. A skipped write does not stamp the attribute's last-written index, so a no-op edit does not invalidate an approval.
+**Absence skips a step, and only in two places.** A step or argument whose expression is *exactly* an unsupplied optional input is skipped, and a `call` whose path runs through an absent optional relationship end is skipped. The second is what makes an erasure's `call card.forget(…)` correct when the card is optional and absent; everywhere else absence in a path is an error, since it would otherwise hide a missing write (check 48). Any larger expression containing one is a publish error (check 48), so `set amount := inputs.amount` and `set amount := inputs.amount + 0` cannot be confused. A skipped write does not stamp the attribute's last-written index, so a no-op edit does not invalidate an approval.
 
 `limit` is mandatory on every loop and bounds **that loop**. Publishing reports the worst-case product across nested loops and cascades, so a request's total fan-out is visible without being a number an author has to compute. A request exceeding a loop's bound is refused with `over-limit` naming that loop.
 
@@ -713,7 +750,7 @@ Every attribute type of §3.1, and four more that only expressions have, plus `i
 
 **Every object has `.state`**, of type `state`, alongside its declared members. It is readable, never writable, and always available to a query filter, a type-scan and a visibility predicate without being marked `indexed`. The same holds for a stored relationship end, which the store indexes because it is how the object is found. `indexed` is therefore a marking for attributes, counters and derivations only.
 
-**Literals.** A state of another type is `<Type>.<STATE>`; an enum member is `<Enum>.<MEMBER>`; an invariant on another type, which only `may admit` and an `admits` argument name, is `<Type>.<invariant>`. All three are qualified for the same reason, that a bare name would be ambiguous across declarations. A bare state name of *this* type's machine is legal and resolves by §9.2. A category is written bare, since categories are one global vocabulary. Also `42`, `19.99`, `30 min`, `USD 19.99`, `"text"`, `true`, `false`, `{A, B}`. A bare number is an `int` if it has no point and a `decimal` of the scale it is written to if it has one.
+**Literals.** A state of another type is `<Type>.<STATE>`; an enum member is `<Enum>.<MEMBER>`; an invariant on another type, which only `may admit` and an `admits` argument name, is `<Type>.<invariant>`. All three are qualified for the same reason, that a bare name would be ambiguous across declarations. A bare state name of *this* type's machine is legal and resolves by §9.2. A category is written bare, since categories are one global vocabulary. Also `42`, `19.99`, `30 min`, `USD 19.99`, `"text"`, `true`, `false`, `{A, B}`. A bare number with no point is an `int`. One with a point is a `decimal`, and it takes the scale of whatever it is compared or combined with, so `balance > 0.5` types against a `decimal(10,4)` without the literal having to be written to four places.
 
 `actor` has the shape of DESIGN.md §5.8's descriptor, and a declaration may read four members of it: `.id` of type `identity`, `.kind` of a fixed enum, `.principal` of type `string`, and `.has(<capability>)` yielding `bool`. The descriptor's optional attributes are deliberately not readable, since they carry no declared types and a guard over an untyped value cannot be checked at publish time. `this` is a reference to the object being transitioned, so `this.id` is its identity and is what an evaluator is passed when it must name the object.
 
@@ -741,9 +778,9 @@ This is the trap the language most invites, so it is worth stating in the shape 
 ### 8.3 Operators
 
 - `+` and `-` take two operands of one type: `int`, `decimal` of one scale, `money` of one currency, or `timestamp - timestamp` yielding a `duration`; `timestamp ± duration` yields a `timestamp`. On `decimal(p1,s)` and `decimal(p2,s)` the result is `decimal(max(p1,p2), s)`.
-- `*` and `/` take a scalar — `int` or `decimal` — on at least one side. With one non-scalar operand the result is that operand's type, scale preserved. With two scalars, `int * int` is `int`, `decimal(p1,s1) * decimal(p2,s2)` is `decimal(p1+p2, s1+s2)`, and `int * decimal(p,s)` is `decimal(p+19, s)`. `money * money` is an error, as is `duration * duration`.
-- `/` yields the left operand's type. **`int / int` is `int` and discards the remainder**, which is stated because it is a trap in any domain where the quotient is money; divide a `decimal` if you need the fraction. Division by zero yields `unknown` (§8.2), never an error, so a guard containing one is unsatisfied rather than a failed request.
-- A `set` whose result **scale** differs from the target's is a publish error. Precision is checked at runtime instead, and a value that overflows its declared precision refuses the request the way an over-limit loop does. Making precision a publish rule looked stricter and meant that `set total := total + inputs.amount` on a `decimal(8,2)` could never publish, since every addition widened the result. A running total is the commonest thing a decimal is for.
+- `*` and `/` take a scalar — `int` or `decimal` — on at least one side. With one non-scalar operand the result is that operand's type, scale preserved. With two scalars, `int * int` is `int`, `decimal(p1,s1) * decimal(p2,s2)` is `decimal(p1+p2, s1+s2)`, and `int * decimal(p,s)` is `decimal(p+19, s)`. `money * money` is an error, as is `duration * duration` (check 24).
+- `/` takes its scalar on the **right** and yields the left operand's type, so `money / int` is money and `int / money` is an error (check 24). **`int / int` is `int` and discards the remainder**, which is stated because it is a trap in any domain where the quotient is money; divide a `decimal` if you need the fraction. Division by zero yields `unknown` (§8.2), never an error, so a guard containing one is unsatisfied rather than a failed request.
+- A `set` whose result **scale** differs from the target's is a publish error (check 24), except that a product or quotient rounds half to even to the target's scale, as money does. Rounding is permitted exactly where it is unavoidable and refused where it would be silent loss: addition of two scales is already an error, so nothing is quietly truncated. Precision is checked at runtime instead, and a value that overflows its declared precision refuses the request the way an over-limit loop does. Making precision a publish rule looked stricter and meant that `set total := total + inputs.amount` on a `decimal(8,2)` could never publish, since every addition widened the result. A running total is the commonest thing a decimal is for.
 - Comparison needs both sides of one type and is not associative. `is null` and `is not null` take anything.
 - `and`, `or`, `not`, `implies` take and yield `bool`. An evaluator call yields a `verdict`, usable **only as a whole guard clause** or under a single `not`, so a guard is a `bool`, an evaluator call, or a negated evaluator call, and never a mixture. A conditional external check is therefore written as two transitions with opposite guards, and `not` is what lets the second one exist: without it a decline could not be gated on the authority having said no, only on nobody having asked. A verdict too stale to use is refused as `temporal` whichever way it is written, since `not stale` is not `satisfied`.
 - `count` yields `int`, `sum`/`min`/`max` the element type, `all`/`any`/`none` `bool`.
@@ -817,7 +854,7 @@ The order is a resolution rule, not a disambiguation rule: publishing rejects a 
 
 `{a, b}` is a **collection literal** and `{ … }` a **block**. Where the two are adjacent, as in `assert fix -> { RECORDED } { … }` and `act poke at { A, B } { … }`, the first group is the collection and the second is the body. A body is always written, empty as `{ }` if the transition has no clauses, which is what makes the rule decidable by position alone. Iteration 10 claimed the two never occupy the same position; these two forms are where they do.
 
-Bare comma-separated lists are taken by `summary`, `accepts`, `corrects`, `capability`, `category`, `states`, `only via`, `may admit`, `unique with`, `provides capability`, `requires capability` and an `enum` body. All of them wrap by §9.1 like anything else. `changed_since` brackets its list, matching the model, and a trigger set in a `cascade on` or a from-state set is braced.
+Bare comma-separated lists are taken by `summary`, `accepts`, `corrects`, `capability`, `category`, `states`, `only via`, `may admit`, `unique with`, `provides capability` and `requires capability`. All of them wrap by §9.1 like anything else. An **`enum` body is a braced list**, not a block of clauses, so it wraps the same way and the layout rule of §9.1 — which is about clauses — does not apply to it. `changed_since` brackets its list, matching the model, and a trigger set in a `cascade on` or a from-state set is braced.
 
 ### 9.4 Notation, and every form
 
@@ -850,7 +887,7 @@ Where a grammar line and an example disagree, the example is authoritative and t
 
 ### 9.5 The reserved words
 
-`module use capability category enum sequence evaluator machine type version inputs survives tracking serial quantity states state abstract requires provides attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because eager deferred set add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh stored string bool int decimal money timestamp duration event file identity verdict`
+`module use capability category enum sequence evaluator machine type version inputs survives tracking serial quantity states state abstract requires provides attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because eager deferred set add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh stored with string bool int decimal money timestamp duration event file identity verdict`
 
 `s`, `min`, `h`, `days` and `weeks` are duration units only directly after a numeric literal, which is the one position the aggregate `min` cannot occupy.
 
@@ -867,12 +904,12 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 3 | Derived attributes form a cycle |
 | 4 | A traversal invariant (§3.4) reading through a relationship end whose far end is not declared, so a write to the far object cannot find the invariant to re-check |
 | 5 | An invariant fitting none of the three forms of §3.4; the report says which form it decided |
-| 6 | A type-scan invariant that is not one of the symmetric shapes of §3.4 |
+| 6 | A type-scan invariant that fails the swap test of §3.4; the report names the member that appears on one side only. Also a type-scan carrying an `id` exclusion, which the self-exclusion rule makes redundant |
 | 7 | A traversal or type-scan invariant, a type-scan guard, or a `visible when` predicate reading an attribute that is not `indexed`; an `indexed` marking on a stored relationship end, which already is one. A local invariant reads its own row and needs none, and `.state` and stored relationship ends never need one (§8.1) |
-| 8 | A required attribute, singular `part` or non-optional `ref` that a creation never writes, or one written only from an optional input. Set-valued attributes and counters begin present and need no creation write; a creation supplied by the bound machine counts as one |
+| 8 | A required attribute or non-optional `ref` a creation never writes, or one written only from an optional input; a required singular `part` no creation **fills**, filling meaning a `create` step for the child in the same outcome, since the `part` end is derived and check 17 forbids assigning it. Set-valued attributes and counters begin present and need no creation write; a creation supplied by the bound machine counts as one |
 | 9 | A required attribute marked `personal` |
 | 10 | A personal value reaching a non-personal attribute, by a write, by an argument to a `call` or `create`, or through a derivation. The taint follows values transitively |
-| 11 | A `create` of a part that is not `only via` a transition of its whole, so a part could be added to a settled whole. Where the `owner` names an abstract base, the whole is each concrete type that declares the part |
+| 11 | A `create` of a part that is not `only via` a transition of its whole, so a part could be added to a settled whole. Where the `owner` names an abstract base, the whole is each concrete type in its family, which declares the part or inherits it |
 | 12 | A cascade cycle. The edges are `call` steps, `create` steps, `part … cascade` clauses and loop bodies |
 | 13 | A `call` to an `only via` transition from a transition it does not name; a named transition that neither calls, creates nor cascades to it; an `only via` transition nothing reaches; an `only via` naming `<Machine>.<transition>` where it must name `<Binder>.<transition>` (§4.2) |
 | 14 | An actor guard (§4.2) on an `only via` transition; `only via` with `proposable` |
@@ -882,7 +919,7 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 18 | A `part`/`owner` pair disagreeing on name; a `create` of a part that never writes its `owner`; a `part` whose `cascade` names a transition the child does not have. An `owner` is always singular and required, so there is no cardinality to compare |
 | 19 | A name that resolves to nothing under §9.2: a capability, category, state, attribute, counter, relationship end, derivation, enum member, type, machine, sequence, evaluator, invariant, remedy class or imported name |
 | 20 | An unnamed guard; a `default` on an optional input; a `because` that is not one of the five classes of §5.1 |
-| 21 | A `for` without `limit`; a bare `null` in a comparison; an unbound aggregate; a keyword beginning a clause it does not belong to; `if` outside a derived attribute |
+| 21 | A `for` without `limit`; a bare `null` in a comparison; an unbound aggregate; a keyword beginning a clause it does not belong to; `if` in a guard, which would hide which clause failed; `if` anywhere but a derived attribute or an outcome value (§8.3) |
 | 22 | A version that did not advance while its content changed, content being the declaration's text without comments or blank lines; a type whose machine, enum, sequence, evaluator or base type advanced without it |
 | 23 | A state removed with no mapping. A **rename is reported, not failed**: a rename with no mapping is textually identical to a drop plus an add, and no information in either declaration distinguishes them, so publishing lists each dropped and added pair and asks |
 | 24 | An expression that does not type (§8) |
@@ -905,7 +942,7 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 41 | A `ref` pair with two set ends; two singular ends with neither or both marked `stored`; a `stored` on a set end; an `inverse` the far type does not declare, or whose far end names a different near end |
 | 42 | A non-abstract type with no `tracking`, inherited or declared, or one that is neither `serial` nor `quantity`; an `enum`, `sequence`, `evaluator`, `machine` or `type` with no `version` |
 | 43 | An `extends` naming a base that is undeclared, not `abstract`, or part of a cycle |
-| 44 | An `identifier` naming an undeclared sequence; a `scoped by` naming a reference that any one of the type's creations does not write; a `format` with no `{n}`; `unique in scope` with no `scoped by` |
+| 44 | An `identifier` naming an undeclared sequence; a `scoped by` naming a reference or attribute that any one of the type's creations does not write, or an attribute that is not `indexed`; a `format` with no `{n}`; `unique in scope` with no `scoped by` |
 | 45 | An `eager` or `deferred` on a guard that calls no evaluator |
 | 46 | An `indexed` derivation reading a clock, an unindexed attribute, or another object (§7) |
 | 47 | A `sum`, `min` or `max` with no body; a cascade clause with no `limit` |
@@ -913,8 +950,10 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 49 | A `supersede` whose operand is neither an input nor a name bound by an earlier `create` |
 | 50 | A `use` importing a name its module does not declare; a `default` expression reading an input or another attribute, which would make the expansion order-dependent |
 | 51 | A body that does not close on its opening line and puts a clause on that line; a line that can only be a continuation and is not indented deeper than the clause it continues (§9.1) |
+| 52 | A normative statement in §1 to §9 — anything the text says is rejected or is a publish error — that does not cite the check enforcing it. Four defects across three iterations were a rule changed in the body with its check left alone, and nothing linked the two. This is a check on the document rather than on a declaration, and it is the one that would have caught them |
+| 53 | A `cascade` whose target transition's from-states do not cover every non-terminal state its part can be in when the trigger fires. Since a failing cascade aborts the whole request (§3.2), an uncovered state turns a mis-specified cascade into a production abort, and it is decidable from the text |
 
-Reported without failing: how many live objects would violate an invariant this publish adds, and a sample of them; a declared input nothing reads; a guard whose remedy class was inferred, and what was inferred; a guard whose value can be `unknown` through an optional it never tests (§8.2); which invariants compile to a database constraint on this backend; which transitions are **time-gated**, meaning every guard that can currently fail is `temporal` **as declared**, never as inferred, so a consumer polls a list that excludes deadlines which have passed; which derived attributes are queryable; the worst-case fan-out across nested loops and cascades; each dropped-and-added attribute pair that may be a rename; and how many pending proposals a publish would invalidate.
+Reported without failing: how many live objects would violate an invariant this publish adds, and a sample of them; a declared input nothing reads; a guard whose remedy class was inferred, and what was inferred; a guard whose value can be `unknown` through an optional it never tests (§8.2); which invariants compile to a database constraint on this backend; which transitions are **time-gated**, meaning at least one guard is declared `temporal` and none is declared `unreachable_from_here` — computed from the declaration, so an actor guard does not disqualify a transition and the list is the same for every caller. A consumer polls it for work that has become due, and a deadline that has passed is excluded because its guard is declared `unreachable_from_here` (§5.1); which derived attributes are queryable; the worst-case fan-out across nested loops and cascades; each dropped-and-added attribute pair that may be a rename; and how many pending proposals a publish would invalidate.
 
 ## 11. Open questions
 
@@ -925,8 +964,8 @@ Reported without failing: how many live objects would violate an invariant this 
 5. Whether a derived inverse is fast enough without an index on the stored end, or whether declaring an inverse should imply one.
 6. Whether confidentiality should be per-attribute as well as per-object. Hiding one field from one role — a treatment allocation from an investigator — currently costs a separate type with its own lifecycle, its own visibility and a cascade clause per terminal transition of the whole.
 7. Whether a `cascade on` clause should carry arguments, as an outcome-level `call` does. A reviewer modelling a clinical trial declared three transitions — `close_ongoing`, `close_with_parent`, `close_at_archive` — that exist only because a cascade cannot pass a reason to the part it disposes of. DESIGN.md §4 already calls the outcome-level step "cascade, with inputs", which is the same word for a construct that does take them.
-8. Whether an evaluator should return a value and not only a verdict.
+8. Whether an evaluator should return a value and not only a verdict. The integrations that assign something — a randomisation service choosing an arm, a pricing service quoting — cannot be checked today, only asked a second time about a value the caller supplied, which is precisely the assertion the store exists to avoid trusting.
 9. Whether `money` should carry its currency at runtime rather than in its declaration. A payments ledger cannot be typed today: one attribute holds one currency, so a multi-currency model either declares an attribute per currency or falls back to a `decimal` beside a currency string and loses every check the type exists to provide.
 10. Whether a `counter` should hold `money` and be allowed to go negative. DESIGN.md offers a counter and a maintaining cascade as the remedy when a scan is too slow, and that remedy is closed to every quantity that is money. The consequence is that a ledger balance is an ordinary attribute with nothing tying it to the entries that produced it, and the one error a ledger exists to prevent is the one the store cannot check.
 11. Whether `only via` needs a form that names a family rather than each binder. A shared child of two types bound to one machine lists binders times triggers — eight parents for one disposal transition — repeated in each subtype's cascade clauses, and check 13 makes both directions an error, so three lists must be kept exactly in step.
-12. Whether `serial` and `quantity` are the right two tracking modes. A payment, a posting and a ledger account are neither: they are not one object per physical thing and they hold no stock. Every such type declares `serial` because the alternative demands a counter, which makes the declaration say something untrue about the domain. The integrations that assign something — a randomisation service choosing an arm, a pricing service quoting — cannot be checked today, only asked a second time about a value the caller supplied, which is precisely the assertion the store exists to avoid trusting.
+12. Whether `serial` and `quantity` are the right two tracking modes. A payment, a posting and a ledger account are neither: they are not one object per physical thing and they hold no stock. Every such type declares `serial` because the alternative demands a counter, which makes the declaration say something untrue about the domain.
