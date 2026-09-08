@@ -25,6 +25,7 @@ Nothing here is blocked on it, and none of it is settled without it.
 - [ ] **The model additions** — ADR-0026 extends and families, ADR-0027 versioning, ADR-0028 supersession, ADR-0029 sequences, ADR-0030 visibility, ADR-0031 and ADR-0051 erasure, ADR-0050 tracking mode.
 - [ ] **The surfaces** — ADR-0034 and ADR-0043 subscriptions, ADR-0036 and ADR-0044 proposals, ADR-0037 and ADR-0048 the read surface, ADR-0049 external evaluators.
 - [ ] **The decisions that changed yours** — ADR-0042, ADR-0047 §6, ADR-0029.
+- [ ] **A payments case study** — `docs/design/` has five case studies and none that is high-volume, short-lived or money-carrying. The third syntax review wrote one and it produced four open questions (9 to 12) that nothing else in the record would have raised. Writing it up is how those questions stay attached to their evidence.
 - [ ] **The declaration syntax** — [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md), and the model amendments writing it forced: ADR-0055 to ADR-0061. This is the surface every consumer writes against, so it is the part worth reading slowest.
 - [ ] **DESIGN.md as a whole**, rewritten from scratch on 2026-09-08 rather than patched further.
 
