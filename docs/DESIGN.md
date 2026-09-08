@@ -16,7 +16,7 @@ Genericity is a requirement from the start. The first consumer is the author's o
 
 ## 2. Position in the stack and deployment shapes
 
-```text
+```
 agents · applications · human UI          consumers
 ─────────────────────────────────────
 ObjectKeeper                              this project
@@ -49,7 +49,7 @@ The model was tested against five further shapes, each recorded with what it for
 
 ## 5. The model
 
-```text
+```
 ObjectType            declared under a version (§5.9); may extend a base;
                       declares a tracking mode, serial or quantity (§5.10)
   id                store-assigned, globally unique, immutable, opaque
@@ -236,7 +236,7 @@ Every event carries `changes_state`, true when from and to differ, and its **pro
 
 The log is **never pruned**; retention is archival tiering that keeps events readable and reachable by erasure. Events are strictly ordered per object and causally ordered across a cascade; a global position serves cursors and is monotonic but not a commit order, and the pull interface states the window a cursor must tolerate (ADR-0034).
 
-```text
+```
             recorded transition
                     │
          permanent ordered log        written in the same transaction
