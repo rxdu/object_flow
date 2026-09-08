@@ -104,6 +104,8 @@ An **outcome** is an ordered sequence of steps (ADR-0046, ADR-0052):
 
 ```text
   <attribute> := <expression>                        write on this object
+  add    <attribute> := <expression>                 insert into a set-valued attribute
+  remove <attribute> := <expression>                 delete from a set-valued attribute
   let <name> = create <Type>.<transition>(…)         create, bound for later steps
   <path>.<transition>(<input> := <expression>, …)    cascade, with inputs
   for <name> in <collection expression> [where …]:   iterate, binding the element
@@ -113,6 +115,7 @@ An **outcome** is an ordered sequence of steps (ADR-0046, ADR-0052):
 Rules that make an outcome readable and safe:
 
 - **Straight-line.** No step chooses between alternatives. Where behaviour differs by a value, declare one transition per case, each guarded on that value, so the applicable one appears in the availability listing and a value matching none is visibly stuck.
+- **Sets change element-wise.** `add` and `remove` are read-modify-write like any outcome write, so two adds in one request accumulate and two concurrent adds serialise. The expression language gains no set algebra; `set` on a set-valued attribute still replaces it wholly (ADR-0055).
 - **Optional inputs skip.** A write whose right-hand side is an unsupplied optional input is skipped, not applied. Clearing a value deliberately is a separate input or a separate action (ADR-0052).
 - **`this` and `this_event` are available**, including inside a creation outcome: the new object's id and its event's identity are allocated before the outcome runs (ADR-0046, ADR-0052).
 - **Bounded.** A declaration may cap iteration fan-out; exceeding it is refused with `over-limit`. The graph of transitions that reference each other in outcomes must be acyclic (ADR-0019).
@@ -155,12 +158,13 @@ A guard that depends on facts outside the store references a **named external ev
 
 ### 5.6 Invariants
 
-A type-level property, declared once against the type rather than restated on every transition that could break it (ADR-0009). **Enforcement is dynamic**: after a request applies its outcomes, every invariant the written objects could violate is checked (ADR-0045). Two forms are permitted, and each has a rule that makes the affected set computable:
+A type-level property, declared once against the type rather than restated on every transition that could break it (ADR-0009). **Enforcement is dynamic**: after a request applies its outcomes, every invariant the written objects could violate is checked (ADR-0045). Three forms are permitted, and each has a rule that makes the affected set computable (ADR-0055):
 
-- an invariant that **traverses relationships** may traverse only ones with **declared inverses**, so the affected objects are found by reverse traversal;
-- an invariant that **scans a type** must be **symmetric**, so the predicate that finds a conflict from a written object is the same one that would find it from the other side (ADR-0052). Overlap and equality on a shared key are symmetric; the booking-overlap and one-active-version invariants are of this form.
+- a **local** invariant reads only the object's own attributes and state, so the affected set is the object just written. This is the commonest and cheapest form;
+- a **traversal** invariant reads related objects, and may traverse only relationships with **declared inverses**, so the affected objects are found by reverse traversal;
+- a **type-scan** invariant reads other objects of a type and must be **symmetric**, so the predicate that finds a conflict from a written object is the same one that would find it from the other side (ADR-0052). Overlap and equality on a shared key are symmetric; the booking-overlap and one-active-version invariants are of this form.
 
-Publishing rejects anything else, and reports per invariant which transitions could violate it. Correctness comes from serialisable isolation (ADR-0039), so an invariant is enforced whether or not it compiles to a database constraint. Compilation is an optimisation whose available shapes depend on the backend, and publishing reports which of a declaration's invariants the configured backend can compile (ADR-0041).
+Publishing classifies each invariant, reports which form it decided and which transitions could violate it, and rejects anything that fits none. Correctness comes from serialisable isolation (ADR-0039), so an invariant is enforced whether or not it compiles to a database constraint. Compilation is an optimisation whose available shapes depend on the backend, and publishing reports which of a declaration's invariants the configured backend can compile (ADR-0041).
 
 ### 5.7 The expression language
 

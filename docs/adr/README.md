@@ -56,3 +56,4 @@
 | [0052](0052-grammar-amendments-from-re-expressing-the-case-studies.md) | Grammar amendments found by re-expressing the case studies | Accepted (repair D37-D41, review pending) |
 | [0053](0053-a-definite-null-test.md) | `is null` and `is not null` are definite predicates; comparison with null stays unknown | Accepted (repair D42, review pending) |
 | [0054](0054-four-semantics-the-repair-left-open.md) | Parent ordering, partial `check`, built-in assertion for import, and discharged admissions | Accepted (repair D43-D46, review pending) |
+| [0055](0055-local-invariants-and-set-writes.md) | A third invariant form for single-object properties, and outcome steps that add to and remove from a set | Accepted (repair D48-D49, review pending) |

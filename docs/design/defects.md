@@ -59,6 +59,8 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D45](#d45) | A type without a declared assertion cannot be imported or migrated | **resolved by ADR-0054** |
 | [D46](#d46) | An admitted invariant violation freezes the object | **resolved by ADR-0054** |
 | [D47](#d47) | Superseded rules restated as current across the record | **resolved by the coherence pass** |
+| [D48](#d48) | Single-object invariants are rejected by the model | **resolved by ADR-0055** |
+| [D49](#d49) | A set-valued attribute can only be replaced wholly | **resolved by ADR-0055** |
 
 ---
 
@@ -375,3 +377,19 @@ These five were found by writing the case studies' declarations in the grammar o
 **Superseded rules restated as current across the record.** The repair annotated the ADRs it changed and rewrote the fenced declaration blocks, and left the same superseded rules standing in guard tables, mapping tables, prose, "what held without change" sections and the specification's own model block and glossary. Instances included the all-guards-first rule and the pre-computed lock set presented as current in the walkthrough, the free-attribute class in a mapping table, the three-state subscription lifecycle, and the pre-repair Mediated property in the README.
 
 **Resolved by the coherence pass of 2026-09-08**, which rewrote DESIGN.md from scratch rather than patching it further, revisited every table and prose section in the five case studies, and corrected twenty statements across the ADR set. The lesson is recorded in `LESSONS.md`.
+
+---
+
+## Found by writing the declaration syntax
+
+Both were invisible while the model was described in prose, and became obvious the moment someone tried to write a real type in it.
+
+### D48
+**Single-object invariants are rejected by the model.** DESIGN.md §5.6 admitted exactly two forms, traversal and type scan, each with a rule that makes the affected set computable, and said publishing rejects anything else. The commonest invariant of all reads only the object's own attributes — "a unit in `RESERVED` has exactly one binding" — and is neither. It was overlooked precisely because it needs no rule: the affected set is the object just written.
+
+**Resolved by ADR-0055.** A third, local form, which publishing classifies and reports like the others.
+
+### D49
+**A set-valued attribute can only be replaced wholly.** The outcome grammar had one write step, `attribute := expression`, and the expression language has no set operators by design. So attaching an intake photo, adding a watcher or adding a typed link cannot be written. Replacing the whole set makes a concurrent second attachment silently discard the first, which is the lost update the design's concurrency work exists to prevent.
+
+**Resolved by ADR-0055.** `add` and `remove` outcome steps, read-modify-write like any other write, with no set algebra added to the expression language.
