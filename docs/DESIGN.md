@@ -1,8 +1,12 @@
 # ObjectKeeper — Design
 
-**Status: under review.** The model is settled and 46 defects found by an implementation-readiness review have been resolved; every resolution is recorded in [`design/defects.md`](design/defects.md) and marked pending author review in [`../TODO.md`](../TODO.md). Nothing is implemented. The declaration syntax exists and is ready for review ([`design/declaration-syntax.md`](design/declaration-syntax.md)), with a checker over its own examples; the storage schema, the library API and the publish tooling do not exist yet.
+**Status: under review.** The model is settled. Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 170 entries and five cosmetics, all closed. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064 are written and await review.
 
-This document is the single description of the model. Each decision, with the alternatives it rejected, is an ADR in [`adr/`](adr/); the case studies that shaped it and the catalogue of what it deliberately does not cover are in [`design/`](design/).
+This document is the single description of the **model**: what an object is, what a transition guarantees, how a request executes, what the store refuses. The **language** those things are written in belongs to [`design/declaration-syntax.md`](design/declaration-syntax.md), which owns every grammar, every spelling and the fifty-two publish checks.
+
+Where a rule appears in both, this document states what it means and the syntax document states how it is written. That division exists because it failed twice: the outcome grammar was restated here and had gone stale in three of six lines, and a later audit found thirty-two rules stated in both documents of which six had drifted to the superseded version. When the two disagree, the syntax document is the one with a checker.
+
+Each decision, with the alternatives it rejected, is an ADR in [`adr/`](adr/); the case studies that shaped it and the catalogue of what it deliberately does not cover are in [`design/`](design/).
 
 ## 1. Purpose
 
@@ -99,7 +103,7 @@ References carry no attributes. A relation with labels, dates or a lifecycle of 
 
 Each type binds exactly one **named** state machine, or declares its lifecycle inline; two types that share a lifecycle bind the same machine (ADR-0003, ADR-0026). A binder may add transitions of its own, and its own **creations replace the machine's** rather than adding to them, since birth is where a type's obligations are established (ADR-0064). The machine's creation **guards** still bind the replacement, so a lifecycle's entry condition cannot be dropped by declaring a creation (ADR-0065). Every state has a **category** from a consumer-defined set, so guards and views that span a family need not know state names, and at least one state is terminal.
 
-A **transition** is a named, guarded, recorded request to move an object from one state to another. It is requested **by name, never by target state**. Its from-state may be one state, a set, or any non-terminal state. It declares **inputs** with types and optionality, **guards**, and an **outcome**. An **action** is a transition whose from- and to-state are equal; its outcome is unrestricted like any other (ADR-0016, ADR-0041). A request naming no declared transition is refused, so nothing is recorded for a change that did not happen.
+A **transition** is a named, guarded, recorded request to move an object from one state to another. It is requested **by name, never by target state**. Its from-state may be one state, a set, or any non-terminal state. It declares **inputs** with types and optionality, **guards**, and an **outcome**. An **action** is a transition whose from- and to-state are equal; its outcome is unrestricted like any other, and there are **no exit or entry semantics** for a state, so an action neither leaves nor re-enters one (ADR-0016, ADR-0041). A request naming no declared transition is refused, so nothing is recorded for a change that did not happen.
 
 An **outcome** is an ordered sequence of steps that write this object, create another, reach another by `call`, supersede, or loop over a bounded collection (ADR-0046, ADR-0052). **The grammar is `docs/design/declaration-syntax.md` §5.2, which owns it**; this section states what an outcome is and not how it is spelled, because two statements of one grammar drift and the syntax document is the one publishing checks. Until iteration 14 the grammar was restated here and had gone stale in three of its six lines.
 
@@ -225,7 +229,7 @@ An **asserting** transition (§8) differs in two ways: step 4 evaluates only its
 
 **Current state is stored**, one row per object with its attributes, state, version, declaration version and last event. **The event log is the permanent history**, written in the transition's transaction; a fold of the log reproduces the row, never the reverse (ADR-0033). A per-attribute index of the event that last wrote it makes `changed_since` a constant-time comparison (ADR-0048), and a **last-part-event position** per object that has parts does the same for the half of `changed_since` that reaches a composition (ADR-0057).
 
-Every event carries `changes_state`, true when from and to differ, and its **provenance**: actor, principal, `context`, cause, declaration version, and a `source` of
+Every event carries `changes_state`, true when from and to differ, and its **provenance**: actor, principal, `context`, cause, declaration version, the version of the taint check that passed the write, so a later audit can tell which rules were in force (ADR-0051), and a `source` of
 
 | Source | Produced by |
 |---|---|

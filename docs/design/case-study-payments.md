@@ -1,6 +1,6 @@
 # Case study: a payments ledger
 
-Written 2026-09-08, after the model. The declaration below is checked on every run by `scripts/check-syntax-doc.py`, which reads this file as it reads the specification.
+Written 2026-09-08, after the model. The declaration below is checked by `scripts/check-corpus.py`, which runs the syntax checker over every design document, this one included.
 
 ## 1. Why this case
 

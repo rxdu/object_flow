@@ -33,7 +33,7 @@ Nothing here is blocked on it, and none of it is settled without it.
 - [ ] **The model additions** — ADR-0026 extends and families, ADR-0027 versioning, ADR-0028 supersession, ADR-0029 sequences, ADR-0030 visibility, ADR-0031 and ADR-0051 erasure, ADR-0050 tracking mode.
 - [ ] **The surfaces** — ADR-0034 and ADR-0043 subscriptions, ADR-0036 and ADR-0044 proposals, ADR-0037 and ADR-0048 the read surface, ADR-0049 external evaluators.
 - [ ] **The decisions that changed yours** — ADR-0042, ADR-0047 §6, ADR-0029.
-- [x] **A payments case study** — [`docs/design/case-study-payments.md`](docs/design/case-study-payments.md), written 2026-09-08. The four questions it raised now have their evidence in the repository rather than in a review transcript. Its declaration is checked on every run, being the first case study written after the checker could read one. Writing it up is how those questions stay attached to their evidence.
+- [x] **A payments case study** — [`docs/design/case-study-payments.md`](docs/design/case-study-payments.md), written 2026-09-08. The four questions it raised now have their evidence in the repository rather than in a review transcript. Its declaration is checked by `scripts/check-corpus.py`, being the first case study written after the checker could read one. Writing it up is how those questions stay attached to their evidence.
 - [ ] **The declaration syntax** — [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md), and the model amendments writing it forced: ADR-0055 to ADR-0064. This is the surface every consumer writes against, so it is the part worth reading slowest.
 - [ ] **DESIGN.md as a whole**, rewritten from scratch on 2026-09-08 rather than patched further.
 

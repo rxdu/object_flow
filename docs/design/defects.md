@@ -1146,7 +1146,7 @@ All three reviewers non-blocking, and one wrote "the document is ready for the a
 
 The cause is worse than drift. Those blocks were never written in the declaration syntax at all: they use a pre-syntax pseudo-notation with `guards:` and `outcome:` labels, a unicode arrow, bracketed remedy classes, `for x in y:` with no bound, and a bare `<path>.<transition>(…)` where `call` is now required. The "re-express the case studies in the new grammar" pass of September rewrote the tables and the prose and left the code blocks in the old notation, which is the same scoping failure `docs/LESSONS.md` records — and it survived because nothing could see them.
 
-**Resolved.** The five that needed it are rewritten in the current syntax, and all six documents are clean. The checker takes a path, so they are checked on every run from now on.
+**Resolved.** The five that needed it are rewritten in the current syntax, and all six documents are clean. The checker takes a path, and `scripts/check-corpus.py` runs it over every design document.
 
 ### D170
 **`DESIGN.md` promised a construct the language did not have.** §5.4 said "clearing a value deliberately is a separate input or a separate action". An unsupplied optional input skips its write rather than clearing, there is no assignable `null`, and iteration 15 had removed a check-8 clause for naming exactly this unwritable write. Six iterations passed without notice because no example needed it.
