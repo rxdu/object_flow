@@ -80,6 +80,9 @@ ObjectType            declared under a version (§5.9); may extend a base for
                     relationships, all in one transaction (ADR-0019)
       only via      reachable only as a cascade from named parents (ADR-0020)
       proposable    a caller lacking authority may file a Proposal (ADR-0036)
+      asserting     may set a declared set of states without satisfying the
+                    type's other guards; capability-gated, reason required,
+                    records what it stepped over (ADR-0040)
     actions         transitions whose from-state equals their to-state (ADR-0016)
 
 Actor                 supplied by the consumer with every request: id, kind
@@ -158,15 +161,20 @@ A type may **extend** a base declaration for attributes, relationships, invarian
 
 ## 6. Transition execution
 
-A request names an object, a transition, its inputs and the actor, and optionally the version the caller last read, an idempotency key (ADR-0014), and a free-form `context` recorded on the event. It executes in one transaction (ADR-0023):
+A request names an object, a transition, its inputs and the actor, and optionally the version the caller last read, an idempotency key (ADR-0014), and a free-form `context` recorded on the event. It runs in one transaction at **serialisable isolation** (ADR-0039):
 
-1. If the type declares visibility and the actor cannot see the object, refuse as not found.
+1. If the type declares visibility and the actor cannot see the object, refuse as not found (ADR-0030).
 2. If an `expected_version` is given and differs, refuse with `stale`.
 3. If the idempotency key has been applied before, return the original result.
-4. Lock, in id order, every object the outcome will write: the target and every object reached by a cascaded transition or creation.
-5. Evaluate every guard — the parent's, then each cascaded transition's, depth-first in declaration order — over a consistent snapshot. Any failure blocks the whole request; the verdict names the object, transition and guard with its remedy class. Only-via transitions contribute their non-actor guards; cascaded transitions run as the requesting actor.
-6. Check every invariant the written objects could violate; database-constraint invariants are enforced by the database.
-7. Write all outcomes; increment each written object's version; record one event per transition, each cascaded event carrying the parent's event as cause; append all events to the log in the same transaction (ADR-0013). Commit.
+4. Evaluate the parent transition's guards. A failure refuses the request, naming the guard and its remedy class.
+5. Apply the parent's outcome: its new state and its controlled writes, each value read at the moment it is applied.
+6. Then, depth-first in declaration order and over relationship elements in ascending object-id order, take each cascaded transition or creation in turn: evaluate its guards **against the state produced so far**, then apply its outcome immediately (ADR-0038). Only-via transitions contribute their non-actor guards; other cascades run as the requesting actor. Any failure aborts the whole request and rolls back.
+7. Check every invariant the written objects could violate; those compiled to constraints are enforced by the database (ADR-0009).
+8. Increment each written object's version; record one event per transition, each cascaded event carrying the parent's event as its cause; append them to the log in the same transaction (ADR-0013). Commit.
+
+Row locks are taken as objects are reached, for contention rather than correctness: serialisable isolation is what makes a guard's reads safe, including reads of objects the request never writes. A serialisation failure is retried to a declared bound and then refused with `stale` (ADR-0039).
+
+An **asserting** transition (ADR-0040) follows the same sequence with two differences: step 4 evaluates only its own guards, which are its capability and reason requirements rather than the type's; and step 7 refuses on any invariant violation the request did not explicitly admit.
 
 The cascade graph declared across transitions must be acyclic (ADR-0019).
 
@@ -193,7 +201,7 @@ Events are strictly ordered per object and causally ordered across a cascade; a 
 
 ## 8. Ends of life: deletion, supersession, erasure
 
-**Deletion** is a terminal transition gated on there being no live object referencing this one; parts cascade, references block with `dependent` naming them; deleted objects stay readable by id and in history and take no further transitions; there is no bypass, and repair is the recorded override of ADR-0001 (ADR-0024).
+**Deletion** is a terminal transition gated on there being no live object referencing this one; parts cascade, references block with `dependent` naming them; deleted objects stay readable by id and in history and take no further transitions; there is no silent bypass, and repair is a declared asserting transition (ADR-0040).
 
 **Supersession** ends an object in a terminal state that names its successor; id and history stay; the read surface follows the pointer on request; references are re-pointed only by declared cascade. It is how an object changes kind — moved, converted, merged (ADR-0028). A duplicate is closed with a reference, not superseded.
 
@@ -209,7 +217,7 @@ One API, every operation taking an actor and applying visibility (ADR-0037): **g
 
 ## 11. Import and migration
 
-The first consumer's production data is ported by a designed path (ADR-0015). Every imported object receives a new id and keeps its legacy key as `external: legacy`; cross-references are re-pointed through that mapping (ADR-0018). Imported state is asserted through the override path with provenance `asserted`; the importer evaluates the declaration and reports every violated invariant and unsatisfied structural guard, and a person decides each class; legacy history is preserved as read-only entries of kind `legacy`; soft-deleted rows land in the type's deleted state; files are content-addressed into the deployment's blob store. Import is declaration migration from version zero (ADR-0027). Cutover cannot be dual-write.
+The first consumer's production data is ported by a designed path (ADR-0015). Every imported object receives a new id and keeps its legacy key as `external: legacy`; cross-references are re-pointed through that mapping (ADR-0018). Imported state is written by an asserting transition with provenance `asserted` (ADR-0040); the importer evaluates the declaration and reports every violated invariant and unsatisfied structural guard, and a person decides each class; legacy history is preserved as read-only entries of kind `legacy`; soft-deleted rows land in the type's deleted state; files are content-addressed into the deployment's blob store. Import is declaration migration from version zero (ADR-0027). Cutover cannot be dual-write.
 
 ## 12. Scope boundaries
 
@@ -226,7 +234,7 @@ Preconditions and permissions have the same shape across domains; formulas, effe
 
 ## 13. Known limits
 
-The guarantee is that **no state change bypassed the guards**; it cannot guarantee that **the guards say what was meant**. Risk relocates from scattered implementation bugs to specification gaps in one readable place. Hence: the rule set for a type must be printable for review by someone who knows the process, and acceptance testing must be adversarial in the threat model's sense — a fallible actor that guesses, retries and skips steps, trying every route to an invalid state.
+The guarantee is that **no state change bypasses the guards except through a declared, capability-gated, recorded assertion** (ADR-0040), and that the objects holding asserted state or admitted invariant violations are queryable at any time. It cannot guarantee that **the guards say what was meant**. Risk relocates from scattered implementation bugs to specification gaps in one readable place. Hence: the rule set for a type must be printable for review by someone who knows the process, and acceptance testing must be adversarial in the threat model's sense — a fallible actor that guesses, retries and skips steps, trying every route to an invalid state.
 
 The mediated property is an operational commitment: anything else that can reach the database — a migration script, `psql`, a reporting job — voids it. Administrative repair is the recorded override, and the data import is its first use at scale.
 
@@ -261,6 +269,7 @@ Concrete cases the model does not cover, or covers with a caveat — splitting a
 | **Declaration version** | The version of a type's declaration, recorded on every object and event. |
 | **Supersession** | Ending an object in a terminal state naming its successor. |
 | **Erasure** | Redaction of personal attributes across an object and its history; recorded, irreversible. |
+| **Assertion** | A declared, capability-gated transition that may set a state without satisfying the type's other guards, recording its reason and what it stepped over (ADR-0040). |
 | **Provenance** | What an event records about itself: actor, principal, context, cause, declaration version, source. |
 | **Subscription** | A built-in object holding a filter and a cursor over the log, with its own lifecycle. |
 | **Expression language** | The one language of guards, invariants, derived attributes, visibility, outcome values and filters. |

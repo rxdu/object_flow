@@ -39,3 +39,6 @@
 | [0035](0035-approval-is-a-guard-over-recorded-approval-parts.md) | An approval is a recorded part; "needs approval" is a guard over those parts, invalidated by content change | Accepted (iteration 5, review pending) |
 | [0036](0036-proposals-are-a-built-in-type-and-delegation-is-supplied.md) | Proposals are a built-in, opt-in type; delegation and attenuation arrive in the actor descriptor | Accepted (iteration 5, review pending) |
 | [0037](0037-the-read-surface.md) | The read surface: get, query, lookup, availability, check, history, declaration, pull, batch; declared indexes and external identifiers; no hidden projections | Accepted (iteration 6, review pending) |
+| [0038](0038-cascades-apply-sequentially.md) | Cascaded transitions apply sequentially; each sees the writes of those before it | Accepted (repair D01, review pending) |
+| [0039](0039-transitions-run-at-serialisable-isolation.md) | The transition transaction runs at serialisable isolation | Accepted (repair D02/D04, review pending) |
+| [0040](0040-assertion-is-a-declared-capability-gated-transition.md) | The override is an assertion: declared, capability-gated, recorded, and never silent | Accepted (repair D03, review pending) |

@@ -8,10 +8,10 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 
 | ID | Defect | Status |
 |---|---|---|
-| [D01](#d01) | Cascaded transitions cannot see each other's writes | open |
-| [D02](#d02) | Reads outside the lock set are unisolated | open |
-| [D03](#d03) | The guarantee is false as written; the override is undeclared | open |
-| [D04](#d04) | The lock set cannot be computed when the spec says | open |
+| [D01](#d01) | Cascaded transitions cannot see each other's writes | **resolved by ADR-0038** |
+| [D02](#d02) | Reads outside the lock set are unisolated | **resolved by ADR-0039** |
+| [D03](#d03) | The guarantee is false as written; the override is undeclared | **resolved by ADR-0040** |
+| [D04](#d04) | The lock set cannot be computed when the spec says | **resolved by ADR-0039** |
 | [D05](#d05) | Availability both does and does not list only-via transitions | open |
 | [D06](#d06) | Idempotent replay is specified as both refuse and replay | open |
 | [D07](#d07) | The built-in Subscription cannot be operated under its own rules | open |
@@ -60,6 +60,8 @@ Breaks three things:
 
 **Resolution required:** a decision on sequential versus simultaneous cascade application, and on repeated writes to one attribute.
 
+**Resolved by ADR-0038.** Sequential application: each cascade's guards see the writes of those before it; failure aborts before commit; iteration in ascending id order; writes are read-modify-write.
+
 ### D02
 **Reads outside the lock set are unisolated.**
 `docs/adr/0023-transitions-execute-under-locks-and-may-carry-an-expected-version.md:13` locks only what is written; `:14` states "Objects that are only read are not locked" and grants serialisable isolation to *invariants* alone. No document states the isolation level of the transition transaction.
@@ -69,6 +71,8 @@ Defeats ADR-0024 by construction. Its delete guard is `none(<referencing type> w
 Applies to every cross-object guard, including `none(Service where unit == this and state != CANCELLED)` (`docs/DESIGN.md:140`).
 
 **Resolution required:** the isolation level, and what the store does about reads the lock set does not cover.
+
+**Resolved by ADR-0039.** The transition transaction runs at serialisable isolation, so guard reads outside the lock set are protected; serialisation failures retry then refuse with `stale`.
 
 ### D03
 **The guarantee is false as written, and the override path is undeclared.**
@@ -83,11 +87,15 @@ It also collides with `docs/adr/0016-actions-are-self-transitions.md:18` ("Trans
 
 **Resolution required:** declare the override as a first-class element, and qualify the guarantee.
 
+**Resolved by ADR-0040.** The override is declared as an asserting transition: named, capability-gated, reason required, invariants admitted explicitly, and the guarantee in §13 is restated truthfully.
+
 ### D04
 **The lock set cannot be computed when the spec says.**
 `docs/DESIGN.md:166` locks "every object the outcome will write" before guards run; `docs/adr/0023:17` requires locks in id order. The cascade target set is a filtered iteration (`docs/adr/0019:22`), so it is discovered by reading, and `0023:14` does not lock what is read. Three rules cannot all hold.
 
 Two further problems: a created object has no id to sort by, and `docs/adr/0018-every-object-carries-a-store-assigned-globally-unique-identifier.md:57` leaves time-ordering undecided, so deadlock freedom rests on an open storage choice. Sequence values are taken atomically inside the transaction (`docs/adr/0029-named-sequences-mint-business-identifiers.md:12`) but sequences are not objects and sit outside the id-ordered discipline.
+
+**Resolved by ADR-0039.** The lock set is no longer computed in advance. Locks are taken as objects are reached; ADR-0023's id-ordering rule is withdrawn and deadlock is handled by retry.
 
 ### D05
 **Availability both does and does not list only-via transitions.**
