@@ -49,6 +49,7 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D39](#d39) | A write from an unsupplied optional input clears the field | **resolved by ADR-0052** |
 | [D40](#d40) | `this` is not stated to be available in a creation outcome | **resolved by ADR-0052** |
 | [D41](#d41) | Type-scan invariants have no affected-set rule | **resolved by ADR-0052** |
+| [D42](#d42) | Three-valued logic left no way to test for absence | **resolved by ADR-0053** |
 
 ---
 
@@ -329,3 +330,12 @@ These five were found by writing the case studies' declarations in the grammar o
 **Type-scan invariants have no affected-set rule.** ADR-0045 restricted invariants to relationships with declared inverses so the affected set is computable by reverse traversal. The booking overlap invariant scans a type and traverses no relationship, so the restriction does not reach it, and reversing an arbitrary scan predicate is not generally possible.
 
 **Resolved by ADR-0052.** A type-scan invariant must be symmetric, which the recognised shapes are and which makes the reverse the same predicate.
+
+---
+
+## Found by the coherence review
+
+### D42
+**Three-valued logic left no way to test for absence.** ADR-0047 made comparison with an absent value yield unknown, which was right and closed a real hole. It also broke every null test: `reason != null` in ADR-0021, and `s.unit != null`, `s.warranty_product != null` and `inputs.fix_version != null` in the re-expressed case studies, are all unknown whether or not the value is present, so any guard containing one fails permanently. ADR-0047's own rejected alternatives name the problem and leave no replacement.
+
+**Resolved by ADR-0053.** `is null` and `is not null` are definite predicates; comparing against a `null` literal is a publish error. A mechanical sweep of every declaration block found these four lines and no other grammar violation.

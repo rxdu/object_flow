@@ -16,7 +16,7 @@ The first consumer computes slot state (`UNFILLED` / `FILLED` / `FULFILLED`) fro
 | Construct | Example |
 |---|---|
 | literals; attribute paths across relationships | `model.label_photo_required`, `binding.delivery.state` |
-| comparison, null test, membership | `end_date <= now`, `reason != null`, `reason in CancellationReason` |
+| comparison, null test, membership | `end_date <= now`, `reason in CancellationReason` — *the `reason != null` example that stood here is broken under ADR-0047's three-valued comparison; ADR-0053 replaces it with `reason is not null`* |
 | boolean logic and implication | `a and b`, `not a`, `a → b` |
 | `count`, `all`, `any`, `none` over a relationship, with a predicate | `none(slots where role in (PRIMARY, INCLUDED) and unit == null)` |
 | the same over a type, with a predicate (a type scan) | `none(Service where unit == this and state != CANCELLED)` |

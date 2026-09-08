@@ -120,16 +120,16 @@ complete_sale: PREPARATION → DELIVERED
   guards:
     type == DIRECT_SALE                                                    [unreachable-from-here]
     all(c in checklist_items: c.checked)                                   [self-serviceable]
-    none(s in slots where s.role in (PRIMARY, INCLUDED) and s.unit == null)[dependent]
+    none(s in slots where s.role in (PRIMARY, INCLUDED) and s.unit is null)[dependent]
     all(r in check_records where r.required: r.result == PASS)             [dependent]
     xero.invoice_valid(order_id)                                           [dependent]
         external, consulted before the transaction, verdict carries an as-of time (ADR-0049)
     actor.has(DELIVERY_COMPLETE)                                           [delegable]
   outcome:
     state := DELIVERED
-    for s in slots where s.unit != null:
+    for s in slots where s.unit is not null:
       s.unit.sell()                                only via this transition (ADR-0020)
-    for s in slots where s.warranty_product != null:
+    for s in slots where s.warranty_product is not null:
       create WarrantyContract.issue(robot    := s.unit,
                                     product  := s.warranty_product,
                                     customer := customer)

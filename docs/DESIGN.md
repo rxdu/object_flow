@@ -138,14 +138,15 @@ One language serves guards, invariants, derived attributes, visibility predicate
 | Construct | Example |
 |---|---|
 | literals; attribute paths across relationships; `this`, `inputs.*`, `actor.*`, `now` | `binding.delivery.state`, `actor.has(DELIVERY_COMPLETE)` |
-| comparison, null test, membership; boolean logic and implication | `reason in CancellationReason`, `required → count(photos) >= 1` |
+| comparison, membership; boolean logic and implication | `reason in CancellationReason`, `required → count(p in photos) >= 1` |
+| `is null`, `is not null` — definite presence tests, never unknown | `s.unit is not null` |
 | `count`, `all`, `any`, `none`, `sum`, `min`, `max` over a relationship or a type, binding the element | `none(s in Service where s.unit == this and s.state != CANCELLED)`, `sum(l in lines: l.qty * l.unit_price)` |
 | arithmetic on numbers; durations, and `+ -` with timestamps | `on_hand - reserved >= inputs.qty`, `placed_at + 30 min <= now` |
 | `changed_since(attributes, event)` over the object's history | `not changed_since([amount, vendor], a.event)` |
-| conditional expression, in derived attributes only | `unit == null ? UNFILLED : …` |
+| conditional expression, in derived attributes only | `unit is null ? UNFILLED : …` |
 | a declared external evaluator | `xero.invoice_valid(order_id)` |
 
-Evaluation is **three-valued** (ADR-0047): comparison with an absent value, and division by zero, yield unknown; unknown propagates; and a guard that evaluates to unknown **fails**, naming the clause. `this` always means the object the expression is declared on and never rebinds, so every aggregate binds its element explicitly. Derived attributes must form an acyclic graph, checked at publish.
+Evaluation is **three-valued** (ADR-0047): comparison with an absent value, and division by zero, yield unknown; unknown propagates; and a guard that evaluates to unknown **fails**, naming the clause. Presence is therefore tested with `is null` and `is not null`, which always return true or false; comparing against a `null` literal is a publish error (ADR-0053). `this` always means the object the expression is declared on and never rebinds, so every aggregate binds its element explicitly. Derived attributes must form an acyclic graph, checked at publish.
 
 Not in the language: grouped aggregation, string operations beyond equality and membership, user-defined functions, recursion or transitive closure, any call other than a declared evaluator. The line with computation (ADR-0007, ADR-0032): the store evaluates **declared arithmetic over its own data**; it does not own **domain formulas** — tax, pricing, discounts, scoring, conversion — which consumers compute and supply as inputs for guards to check. The language grows only by an ADR naming the case that forced it.
 
