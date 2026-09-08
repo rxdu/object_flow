@@ -19,7 +19,7 @@ A CRM stresses what the previous two did not. Its objects are **joined many-to-m
 | Required properties when entering a stage | requiredness on the transition (ADR-0002) |
 | Closed won / closed lost, reopenable | states whose terminality the type author chooses |
 | Moving a deal to another pipeline | supersession (ADR-0028): a new deal in the other type, the old one ending with a pointer |
-| Association with labels ("decision maker", "billing") and a primary flag | a **link object** — a type with two references and its own attributes (clarification C1); "at most one primary company per contact" is a type-level invariant on it (ADR-0009, enforced by partial unique index per ADR-0023) |
+| Association with labels ("decision maker", "billing") and a primary flag | a **link object** — a type with two references and its own attributes (clarification C1); "at most one primary company per contact" is a type-level invariant on it (ADR-0009), enforced by serialisable isolation and additionally compiled to a partial unique index where the backend supports one (ADR-0039, ADR-0041) |
 | Timeline activity (email, call, meeting, note) associated to several records | an object with references whose only transitions are creation and `invalidate`, which is what append-only means here; not a part, because it is not exclusive to one record |
 | Record owner; teams | a reference to a user object; guards `actor.id == owner.id or actor.has(EDIT_ALL)` (ADR-0025) |
 | "View only owned or team records" | a **read visibility predicate** on the type (ADR-0030) |
@@ -74,7 +74,7 @@ Contact.merge_in: ACTIVE → ACTIVE                        an action on the surv
 
 ## 5. What held without change
 
-Pipelines are named machines bound by per-pipeline types. Stage requirements are transition requiredness. Ownership guards are actor guards. Associations are link objects with a type-level invariant. Merge is an action cascading a supersession and re-points. Rollup counts are derived attributes. Import, idempotency, provenance and the availability query all applied as designed.
+Pipelines are named machines bound by per-pipeline types. Stage requirements are transition requiredness. Ownership guards are actor guards. Associations are link objects with a type-level invariant. Merge is an action cascading a supersession and re-points. Rollup counts are derived attributes. Import, idempotency and provenance applied as designed. The availability query changed twice afterwards: only-via transitions are no longer listed (ADR-0041), and it now requires a transition to be sweepable (ADR-0048).
 
 ## 6. Rare cases, recorded in `edge-cases.md`
 

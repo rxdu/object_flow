@@ -7,13 +7,13 @@ Status: maintained by the design iterations; started 2026-09-07. Each entry says
 - **Atomicity across ObjectKeeper and an external system.** Not covered. A transition and a call to Xero, a payment gateway or a mail server cannot commit together. The design's answer is the mirror-plus-idempotency pattern: the external system is recorded as a mirror object, the consumer performs the external action on observing the event and reports back with the external event id as idempotency key (ADR-0008, ADR-0014). The window between the two is real and visible in the record.
 - **The clock.** Covered with caveat. `now` in a guard is the database's transaction time, not the caller's clock; a guard such as `end_date <= now` is evaluated at commit. A caller that reasons about time from its own clock can be refused by a few seconds either way.
 - **Several ObjectKeeper stores.** Not covered as one system. Each store guarantees its own data; references across stores are external identifiers, and no invariant spans them.
-- **Very long histories on one object.** Covered with caveat. `changed_since` and `history` read an object's events; an object with millions of events (a counter, a queue) is a modelling smell — the events belong on the things being counted.
+- **Very long histories on one object.** Covered with caveat. `history` reads an object's events, and since ADR-0042 every edit is a transition, an ordinary record accrues events at edit rate rather than at lifecycle rate. That is the honest cost of the recorded property. `changed_since` is unaffected, being a constant-time comparison against a per-attribute index (ADR-0048). An object with millions of events, such as a counter or a queue, is still a modelling smell.
 
 ## From the inventory system (iteration 1)
 
 - **One unit becomes two, or two become one.** *Now covered by ADR-0046:* an outcome may create the new object, bind it to a name and re-parent parts to it. History stays on the originals, which is what a split means.
 - **Correcting the past.** Covered with caveat. History is immutable; a wrong delivery date is corrected by a recorded action that writes the corrected value with provenance `corrected` and a reason. The read surface shows the current value and the correction; nothing rewrites the earlier event.
-- **The physical world diverges from the record** (a unit is stolen, or found in a state the machine cannot reach). Covered: the administrative override of ADR-0001 asserts the state with provenance `asserted`, an actor and a reason. It is a transition, recorded and gated on authority, not a database edit.
+- **The physical world diverges from the record** (a unit is stolen, or found in a state the machine cannot reach). Covered: a declared asserting transition sets the state with provenance `asserted`, an actor and a reason (ADR-0040). It is a transition, recorded and gated on a capability, not a database edit.
 - **Quantity-tracked consumables** (spare parts counted, not serialised). *Now covered by ADR-0050:* a type declares its tracking mode, and a slot declares which fill form it takes, so one delivery may carry a serialised robot and a counted quantity of cable ties.
 
 ## From issue tracking (iteration 2)
@@ -22,7 +22,7 @@ Status: maintained by the design iterations; started 2026-09-07. Each entry says
 - **Splitting an issue into two with shared history.** *Now covered by ADR-0046* for the objects; history is still not shared, and each successor references the source.
 - **Gapless sequences.** Not covered. ADR-0029 sequences are monotonic and never reuse a value, but a rolled-back creation leaves a gap. A jurisdiction that requires gapless invoice numbers must assign the number in a later action, after the object exists, and accept that the assignment is serialised.
 - **Re-deriving what was allowed under an older declaration version.** Covered with caveat. Each event records the declaration version in force (ADR-0027); the rule set for that version remains printable; no tool will replay a historical request against it.
-- **Per-object read visibility** (issue-level security). Deferred to the read-surface design (TODO.md).
+- **Per-object read visibility** (issue-level security). *Now covered by ADR-0030:* a declared predicate every read applies, where failing it means not found.
 
 ## From the expression language
 
@@ -39,7 +39,7 @@ Status: maintained by the design iterations; started 2026-09-07. Each entry says
 
 ## From orders at volume (iteration 4)
 
-- **Hot rows.** Covered with caveat. Every reservation on one product takes that product's row lock (ADR-0023), which is what prevents overselling and also what serialises a flash sale. Throughput on a single SKU is bounded by lock hold time. Sharding stock into several bucket objects, each with its own quantity, is a modelling choice the consumer makes; the store does not do it.
+- **Hot rows.** Covered with caveat. Overselling is prevented by serialisable isolation (ADR-0039), not by the row lock, which now exists so that contention blocks rather than aborts. Throughput on a single SKU is therefore bounded by the serialisation-failure rate: a contended product retries to a declared bound and then refuses with `stale`, and a rising exhaustion rate is the signal that a declaration has a contention problem. Sharding stock into several bucket objects, each with its own quantity, is a modelling choice the consumer makes; the store does not do it.
 - **Multi-warehouse or multi-region stock.** Not covered as one store. ObjectKeeper is one database; stock split across regions that must not share a transaction is several stores, and reconciling them is a consumer concern outside the mediated guarantee.
 - **Very large cascades.** Covered with caveat. A placement that creates thousands of lines and reserves thousands of products is one transaction and one lock set; it will succeed, slowly, and hold locks meanwhile. A declaration may state a maximum fan-out for a cascaded relationship; a request exceeding it is refused with the `over-limit` verdict naming the relationship and the cap (ADR-0041).
 - **Gapless order numbers.** Not covered; see iteration 2. A rolled-back placement leaves a gap in the sequence.
@@ -56,3 +56,20 @@ Status: maintained by the design iterations; started 2026-09-07. Each entry says
 - **Waitlist promotion.** Consumer logic: "the first in the queue" is a selection with an ordering the language does not express.
 - **Business hours and local time.** Not covered. Timestamps are absolute; calendar arithmetic is a consumer input.
 - **Substitution bookings** ("any robot of this model"). Consumer logic: choosing the unit is a selection; once chosen, the booking is ordinary.
+
+## Refused at publish, or refused by decision
+
+The repair added several checks that reject a declaration rather than accept one that cannot be enforced. A type author meeting one of these is not looking at a bug.
+
+- **An invariant traversing a one-way relationship** is rejected; declare the inverse (ADR-0045).
+- **A non-symmetric type-scan invariant** is rejected. "At most three live bookings across the type" is not symmetric and must be restated against a relationship (ADR-0052).
+- **A declaration whose derived attributes form a cycle** is rejected (ADR-0047).
+- **A guard naming an undeclared input**, and a bare `null` in a comparison, are rejected (ADR-0047, ADR-0053).
+- **A personal value written into a non-personal attribute** is rejected, because erasure could not reach the copy (ADR-0051).
+- **A personal attribute declared as a required external identifier** is rejected, because erasure would have to violate the requirement (ADR-0051).
+- **A bare `create <Type>` where the type has several creation transitions** is rejected (ADR-0052).
+- **A non-sweepable transition** is refused by `available` rather than scanned, so a time-driven transition whose guards cannot be prefiltered has nothing to find its objects (ADR-0048). This is the sharpest of these: an automation can be declared and then have no way to run.
+- **A transition gated on an external evaluator can never be swept**, since `available` calls no evaluator (ADR-0048, ADR-0049).
+- **Applying a transition twice to one object in one request** is not special-cased: the second evaluation sees the first's result and usually fails, so two delivery slots bound to one unit block completion rather than selling it twice (ADR-0038).
+- **A pending proposal the current declaration cannot express** is invalidated at publish rather than left pending (ADR-0044).
+- **Changing a type's tracking mode** is a new type; objects move by supersession one at a time (ADR-0050).

@@ -9,7 +9,7 @@ Source material: `wr:app/core/state_registry.py`, `wr:docs/proposals/operations-
 
 Take the two object types that carry most of the first consumer's rules — the inventory **unit** (Robot, Accessory and SparePart share one lifecycle) and the **Delivery** — and write their transitions, guards and outcomes as the model would declare them. Where a declaration cannot be written, that is a gap. Then check the operations extension (procurement, allocation, intake, inspection, engagement, leasing) against the same mechanisms, and see whether anything else is needed.
 
-Guards below are written in a placeholder syntax. The guard language is not designed; the point is what it must be able to say.
+Guards and outcomes below are written in the grammar of ADR-0046 and ADR-0052 and the semantics of ADR-0047, ADR-0053 and DESIGN.md §5.7.
 
 ## 2. The unit
 
@@ -39,9 +39,9 @@ Terminal states: `RETIRED`, `CANCELLED`. Every transition is named and requested
 | `id` | store-assigned | ObjectKeeper, at creation or import (ADR-0018); never the serial |
 | `serial` | controlled | the creation transitions, as input; uniqueness is an invariant |
 | `model` | controlled reference | the creation transitions |
-| `manufacturer_serial` | controlled | action `capture_manufacturer_serial`, in `INTAKE` |
-| `label_printed_at` | controlled | action `record_label_print`, in `INTAKE` |
-| `photos` | controlled, `file[]` | action `attach_photo`, in `INTAKE` (ADR-0017, proposed) |
+| `manufacturer_serial` | attribute | action `capture_manufacturer_serial`, in `INTAKE` |
+| `label_printed_at` | attribute | action `record_label_print`, in `INTAKE` |
+| `photos` | `file[]` | action `attach_photo`, in `INTAKE` (ADR-0017) |
 | `cancellation_reason`, `retirement_reason` | controlled | `cancel`, `retire`, as input |
 | `procurement_order`, `shipment` | controlled references | `request`, `ship` |
 | `binding` — the slot this unit is promised to | controlled reference | `reserve` / `release`, and the pegging action while inbound |
@@ -51,18 +51,18 @@ Terminal states: `RETIRED`, `CANCELLED`. Every transition is named and requested
 
 | Transition | Guard | Reads | Remedy class on failure |
 |---|---|---|---|
-| `inventorize` INTAKE → AVAILABLE | `label_printed_at != null` | own attribute | `unreachable-from-here` — do `record_label_print` |
-| | `model.manufacturer_serial_required → manufacturer_serial != null` | own + referenced model | `unreachable-from-here` |
+| `inventorize` INTAKE → AVAILABLE | `label_printed_at is not null` | own attribute | `unreachable-from-here` — do `record_label_print` |
+| | `model.manufacturer_serial_required → manufacturer_serial is not null` | own + referenced model | `unreachable-from-here` |
 | | `model.label_photo_required → count(p in photos) >= 1` | own + model | `unreachable-from-here` |
 | `reserve(slot)` AVAILABLE → RESERVED | `slot.model == model` | input + referenced | `self-serviceable` — choose another slot |
-| | `slot.unit == null` | input | `dependent` |
+| | `slot.unit is null` | input | `dependent` |
 | | `slot.delivery.state == PREPARATION` | referenced | `dependent` |
 | | `actor.has(DELIVERY_EDIT)` | actor | `delegable` |
 | `retire(reason)` DEVELOPMENT → RETIRED | `actor.role == ADMIN` | actor | `delegable` |
-| | `reason != null` | input | `self-serviceable` |
+| | `reason is not null` | input | `self-serviceable` |
 | `sell` RESERVED → SOLD | *only via* `Delivery.complete_sale` | — | not requestable |
 | `convert_lease` DEVELOPMENT → SOLD | *only via* `Lease.convert` | — | not requestable |
-| `revert_intake` AVAILABLE → INTAKE | `binding == null or binding.delivery.state == PREPARATION` | referenced | `dependent` |
+| `revert_intake` AVAILABLE → INTAKE | `binding is null or binding.delivery.state == PREPARATION` | referenced | `dependent` |
 | | `none(s in Service where s.unit == this and s.state != CANCELLED)` | collection over a type | `dependent` |
 | `cancel(reason)` | `reason in CancellationReason` | input | `self-serviceable` |
 
@@ -71,7 +71,7 @@ Everything in this table is a comparison, a null test, a membership test, a `cou
 ### 2.4 Invariants
 
 - `serial` is unique within the type.
-- At most one open engagement line per unit: `count(l in engagement_lines where l.engagement.state != CLOSED) <= 1`. Symmetric on the unit key, so it satisfies ADR-0052.
+- At most one open engagement line per unit: `count(l in engagement_lines where l.engagement.state != CLOSED) <= 1`. It traverses two relationships, so ADR-0045 governs it and both hops need declared inverses; it is not the type-scan form of ADR-0052.
 - A unit in `RESERVED` has exactly one `binding`; a unit in any other state has at most one (a soft peg).
 
 ### 2.5 What the model as written cannot express
@@ -79,7 +79,7 @@ Everything in this table is a comparison, a null test, a membership test, a `cou
 Two rows above have no mechanism in DESIGN.md today.
 
 1. **`sell` and `convert_lease` are "only via" another object's transition.** `RESERVED → SOLD` happens when the Delivery completes, in the same transaction, for every bound unit at once. The model routes cross-object consequences to consumers through events (ADR-0007, ADR-0012, ADR-0013). That is neither atomic nor able to block the delivery when a unit's guard fails. And if `sell` were requestable directly, a unit could be `SOLD` with no delivery — the backdoor the first consumer's ADR-0002 refused for `DEVELOPMENT → SOLD`.
-2. **The outcome of `reserve` writes the other end of the binding.** `slot.unit := this` is a controlled write on a *part* of a different object (the Delivery). The outcome of a transition must be allowed to reach across a declared relationship.
+2. **The outcome of `reserve` writes the other end of the binding.** `slot.unit := this` is a write on a *part* of a different object (the Delivery). The outcome of a transition must be allowed to reach across a declared relationship.
 
 Both are the same gap seen from two sides: an outcome confined to one object.
 
@@ -135,9 +135,9 @@ complete_sale: PREPARATION → DELIVERED
                                     customer := customer)
 ```
 
-Slot state afterwards is a **derived view**, never stored: `slot.state := unit == null ? UNFILLED : unit.state in (SOLD, DEVELOPMENT) ? FULFILLED : FILLED`. Guards and the read surface evaluate it.
+Slot fill afterwards is a **derived view**, never stored: `slot.fill := unit is null ? UNFILLED : unit.state in (SOLD, DEVELOPMENT) ? FULFILLED : FILLED`. It is named `fill` rather than `state` so that it cannot be mistaken for lifecycle state, which ADR-0004 keeps distinct. Guards and the read surface evaluate it.
 
-`cancel_delivered` mirrors the outcome: `for s in slots where s.unit != null: s.unit.accept_return()` and `for c in warranty_contracts: c.void()`. `reopen` cascades `s.unit.reserve(slot := s)` on each slot's remembered unit — and if any unit is no longer `AVAILABLE`, the whole `reopen` is blocked with a `dependent` verdict naming that unit. Today the inventory system's `_reserve_delivery_items` side effect raises part-way through.
+`cancel_delivered` mirrors the outcome: `for s in slots where s.unit is not null: s.unit.accept_return()` and `for c in warranty_contracts: c.void()`. `reopen` cascades `s.unit.reserve(slot := s)` on each slot's remembered unit — and if any unit is no longer `AVAILABLE`, the whole `reopen` is blocked with a `dependent` verdict naming that unit. Today the inventory system's `_reserve_delivery_items` side effect raises part-way through.
 
 ## 4. Proposed mechanisms
 
@@ -147,13 +147,13 @@ Eight additions, each the smallest that closes a gap in §2.5 and §3 or a chall
 
 A transition's outcome may include, besides its own state and attribute writes, **transitions on objects reached through declared relationships** (`for s in slots: s.unit.sell()`) and **creation of new objects** (`create WarrantyContract.issue(...)`). The full grammar is ADR-0046 as amended by ADR-0052.
 
-Every guard — the parent's and each cascaded transition's — is evaluated before anything is written. If any fails, the whole request is blocked and the verdict names the object and the guard. If all pass, every outcome commits in one transaction, and every cascaded transition is recorded as *caused by* the parent — the causal-lineage mechanism of ADR-0014, now used inside one transaction. Nothing initiates: the caller requested the parent, and the cascade is its declared consequence.
+**Superseded by ADR-0038**, which applies cascades sequentially: the parent's outcome lands first, then each cascade's guards are evaluated against the state produced so far. The original proposal here was that every guard be evaluated before anything is written, which made this walkthrough's own auto-fill example inexpressible. If all pass, every outcome commits in one transaction, and every cascaded transition is recorded as *caused by* the parent — the causal-lineage mechanism of ADR-0014, now used inside one transaction. Nothing initiates: the caller requested the parent, and the cascade is its declared consequence.
 
 Consequences: ADR-0004's "a cascade-close proposes terminal transitions on each part" generalises from parts to any related object. ADR-0007's boundary is unchanged — a cascaded transition is inside the store; an *effect* is outside it. ADR-0013's log receives N+1 events from one transaction. Challenge 1 closes. Challenge 2 closes too, because auto-fill on receipt is `IntakeBatch.commit`'s cascade (§5), not a trigger.
 
 ### B. Outcomes are straight-line; branching lives in guards
 
-An outcome may iterate any collection-valued expression, optionally filtered (`for s in slots where s.unit != null`), but may not choose between different outcomes. Where behaviour differs by a value, declare one transition per case, each guarded on that value. The availability list then shows the applicable one, and a value that matches no transition is visible as an object with no way forward rather than a silent fall-through.
+An outcome may iterate any collection-valued expression, optionally filtered (`for s in slots where s.unit is not null`), but may not choose between different outcomes. Where behaviour differs by a value, declare one transition per case, each guarded on that value. The availability list then shows the applicable one, and a value that matches no transition is visible as an object with no way forward rather than a silent fall-through.
 
 Optional declaration-time check: for an attribute with a closed value set, warn when some value matches no transition out of a state.
 
@@ -167,7 +167,7 @@ A named expression in the guard language, declared on a type, **never stored**, 
 
 This is not the computation ADR-0007 excludes. Nothing is stored, so nothing can drift, and the expression is as inspectable as a guard. It resolves challenge 3 by wording: ADR-0004 rejects derived *lifecycle state* — a state with transitions nobody requested — and a derived attribute has no transitions.
 
-Boundary to confirm: the guard language observed in the first consumer needs comparison, null tests, membership, `count`, `all`/`any`/`none` over a relationship or a type, the actor, and `now`. It does not need arithmetic. Available-to-promise (on-hand − allocated + inbound) is arithmetic over a whole type and stays a consumer query over the read surface, which is how the first consumer already treats it (`wr:app/services/atp.py`).
+Boundary to confirm: the guard language observed in the first consumer needs comparison, null tests, membership, `count`, `all`/`any`/`none` over a relationship or a type, the actor, and `now`. It did not need arithmetic *in this domain*, which is unit-tracked. ADR-0032 added arithmetic once three later case studies needed it, and ADR-0047 granted aggregates over types specifically so that available-to-promise is a derived attribute rather than a consumer query.
 
 ### E. Time is a value in guards, not a scheduler in the store
 
@@ -175,7 +175,7 @@ Boundary to confirm: the guard language observed in the first consumer needs com
 
 ### F. Locking and versions
 
-A transition request runs in one transaction that locks every object it will write — the target and every cascaded object — evaluates all guards under those locks, then writes. Concurrent conflicting requests serialise, and the second sees the first's result and fails its guards honestly. A request may also carry the version of the object the caller last read; if the object has moved since, the request is refused with a **stale** verdict, a distinct class from a guard failure because the remedy is "re-read", not "supply / wait / ask". Closes challenge 4.
+**Superseded by ADR-0039.** The lock set cannot be computed in advance, because it is discovered by evaluating filters; locks are taken as objects are reached and correctness comes from serialisable isolation. The original proposal here was to lock every object the request would write before evaluating any guard. Concurrent conflicting requests serialise, and the second sees the first's result and fails its guards honestly. A request may also carry the version of the object the caller last read; if the object has moved since, the request is refused with a **stale** verdict, a distinct class from a guard failure because the remedy is "re-read", not "supply / wait / ask". Closes challenge 4.
 
 ### G. Deletion is a terminal transition gated on live references
 
@@ -193,7 +193,7 @@ A request carries an actor: an identity, a kind (human, agent, service), the pri
 | Group units into a shipment | `ShippingRecord.create(units)` cascading `unit.ship` on each (A) |
 | Receive a shipment | `ShippingRecord.arrive` cascading `unit.receive` on each reconciled unit; `unit.flag_missing` is an action that leaves it `PROCUREMENT` (A, B) |
 | Intake work | actions on the unit in `INTAKE`: `record_label_print`, `attach_photo`, `capture_manufacturer_serial` (ADR-0016) |
-| Commit a batch, auto-fill pegs | `for i in items: i.unit.inventorize()` then `for i in items where i.unit.binding != null: i.unit.reserve(slot := i.unit.binding)`. Sequential application (ADR-0038) is what makes the second loop's from-state guard pass |
+| Commit a batch, auto-fill pegs | `for i in items: i.unit.inventorize()` then `for i in items where i.unit.binding is not null: i.unit.reserve(slot := i.unit.binding)`. Sequential application (ADR-0038) is what makes the second loop's from-state guard pass |
 | Revert a batch | `IntakeBatch.revert` cascading `unit.revert_intake`; blocked with the pinning unit named if any is not pristine (A, F) |
 | Soft-peg an inbound unit | action `unit.peg(slot)` allowed in `REQUESTED`/`PROCUREMENT`/`INTAKE`/`AVAILABLE`; writes `binding` (ADR-0016) |
 | Removing a slot frees inventory | two transitions, `remove_filled_slot` cascading `s.unit.release()` and `remove_pegged_slot` clearing the peg, each guarded on the slot's state. The "or" was a branch, which outcomes exclude |
@@ -205,11 +205,11 @@ A request carries an actor: an identity, a kind (human, agent, service), the pri
 | Jira reflection, alerts | consumers subscribed to the event log; overdue is a derived attribute queried by filtering its stored operand against the supplied time, and low stock by filtering the counter (ADR-0048) |
 | Split delivery | `let d2 = create Delivery.open(...)` then `for s in inputs.slots: s.reparent(delivery := d2)` (ADR-0046, ADR-0052). Exclusive membership holds at every instant |
 
-Nothing in the table needs a mechanism beyond A–H.
+Every row is expressible, though several need mechanisms A–H did not have: the grammar of ADR-0046 and ADR-0052, sequential application (ADR-0038) and the read-path rules of ADR-0048. The rows above name them.
 
 ## 6. Still open after this
 
-- **Identifier minting — closed by ADR-0018.** ObjectKeeper assigns every object a globally unique id; serials are business identifiers the consumer mints and supplies as creation input, with uniqueness an invariant. No sequence primitive.
-- **Guard language size.** D states the observed floor. Confirm "no arithmetic" before the language is designed; the first counter-example decides it.
+- **Identifier minting — closed by ADR-0018 and ADR-0029.** ObjectKeeper assigns every object a globally unique id, and a business identifier such as a serial is minted from a named, scoped sequence at creation. ADR-0029 withdrew ADR-0018's "no sequence primitive" consequence.
+- **Guard language size — closed.** The floor stated here was the unit-tracked domain's. ADR-0032 added arithmetic, durations and aggregates; ADR-0047 fixed the semantics; ADR-0053 added the presence tests. DESIGN.md §5.7 is the current language.
 - **Cascade depth and cycles — closed by ADR-0019.** The transition-reference graph must be acyclic; depth is visible in the declaration.
 - **Which of A–H become ADRs — done.** ADR-0019 to ADR-0025.

@@ -16,11 +16,11 @@ The read surface is one API with these operations. Every operation takes an acto
 | **get**(id, follow?) | the object; if superseded and `follow`, the live successor with the chain (ADR-0028); deleted and superseded objects are returned by id, never by query |
 | **query**(type or family, filter, order, cursor, fields) | a page of objects; `filter` is an expression over the object (ADR-0021, ADR-0032) restricted to indexed attributes, state and category; `order` over indexed attributes; `fields` selects attributes to reduce payload; a type's declared `summary` set is the default |
 | **lookup**(source, value) | the object whose declared external identifier for `source` equals `value` |
-| **availability**(id) | every *requestable* transition of the object's type, excluding only-via ones per ADR-0020 and ADR-0041, with its three-way availability for this actor and, for unavailable ones, the verdict with remedy class and, for `available-with-input`, the derived parameter schema (ADR-0005) |
+| **availability**(id) | every *requestable* transition of the object's type, excluding only-via ones per ADR-0020 and ADR-0041, with its three-way availability for this actor and, for unavailable ones, the verdict with remedy class and, for `available-with-input`, the transition's declared input schema (ADR-0047 withdrew ADR-0005's derived-schema claim) |
 | **available**(type or family, transition, cursor) | the objects for which that transition is available or available-with-input now (ADR-0022), which requires the transition to be sweepable (ADR-0048); no external guard, eager or deferred, is evaluated, and the result says so |
 | **check**(id, transition, inputs) | the verdict a request would receive, without executing: `validate(object, intent)`; evaluated on a snapshot without locks, so it is advice, not a reservation |
 | **history**(id, follow?) | the object's events with provenance (ADR-0033), legacy entries (ADR-0015), and, with `follow`, the combined timeline through `supersedes` |
-| **declaration**(type, version?) | the inspectable declaration (ADR-0010): attributes, relationships, invariants, derived attributes, the bound machine, every transition with its guards and derived parameter schema, only-via and proposable flags; also rendered as the readable rule set and as agent tool schemas |
+| **declaration**(type, version?) | the inspectable declaration (ADR-0010): attributes, relationships, invariants, derived attributes, the bound machine, every transition with its guards and declared input schema, only-via and proposable flags; also rendered as the readable rule set and as agent tool schemas |
 | **pull**(subscription, cursor) | a page of events per the subscription's filter (ADR-0034) |
 | **batch**(requests) | N independent requests each in its own transaction, N verdicts in order; there is no atomic batch — atomic multi-object semantics are declared cascades (ADR-0019) |
 
@@ -48,5 +48,5 @@ Rejected: it would let a caller compose multi-object transactions the declaratio
 
 - TODO.md's read-surface, global-queries and external-identifiers items are closed; no open model questions remain.
 - The agent-facing tool schema is a rendering of `declaration` plus `availability`; it is not a separate artefact.
-- `check` and `availability` are the two operations agents call before every request; both are cheap and lock-free.
+- `check` and `availability` are the two operations agents call before every request; both are lock-free and side-effect-free. *ADR-0054 withdraws "cheap" for `check`: simulating a cascade costs what the cascade costs.*
 - A `summary` attribute set per type is declaration metadata for payload control.

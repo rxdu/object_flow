@@ -69,7 +69,7 @@ PurchaseRequest: DRAFT → SUBMITTED → APPROVED → ORDERED | REJECTED | WITHD
       vendor := inputs.vendor
 ```
 
-Editing `lines` after a manager approved does not delete the approval and does not need a reset in `edit_lines`; `mark_approved` simply stops being available, and the verdict says which approval is now stale. That is ADR-0009's argument again: the rule is stated once, at the type, not repeated in every editing action.
+Editing `amount` after a manager approved does not delete the approval and needs no reset in `edit`; `mark_approved` simply stops being available, and the verdict says which approval is now stale. That is ADR-0009's argument again: the rule is stated once, at the type, not repeated in every editing action.
 
 ## 3. Delegation
 
@@ -93,7 +93,7 @@ The first consumer's list of transitions where authority differs from capability
 | Booking for an interval `[start, end)` | an object referencing the resource; lifecycle `requested → confirmed → active → returned → closed`, plus `cancelled` and `no_show` — the first consumer's engagement (`SCHEDULED → OUT → RETURNING → CLOSED`) is one |
 | No two live bookings of one resource overlap | a type-level invariant: `none(b in Booking where b.resource == this.resource and b.state.category == live and b.start < this.end and b.end > this.start and b.id != this.id)`. It is **symmetric**, which is what ADR-0052 requires of a type-scan invariant so the affected set is computable. Concurrent safety comes from serialisable isolation (ADR-0039); on PostgreSQL it also compiles to an exclusion constraint, which is an optimisation, not the guarantee (ADR-0041) |
 | "Is it free from X to Y?" | the check operation on the read surface: evaluate `book(resource, start, end)` without executing (DESIGN.md, `validate(object, intent)`) |
-| Capacity bookings (10 seats) | a quantity, as stock (ADR-0032) |
+| Capacity bookings (10 seats) | a quantity-tracked resource, which ADR-0050 makes a declared tracking mode rather than an improvisation |
 | No-show after start plus grace | `no_show: confirmed → no_show, guard start + 15 min <= now`, requested by a scheduler (ADR-0022) |
 | Recurring series | a `Series` object; instances are bookings the consumer generates and creates, each referencing the series |
 | Waitlist | a queue of `Waitlist` objects; who is promoted on a cancellation is a **selection** the consumer makes (ADR-0007) |

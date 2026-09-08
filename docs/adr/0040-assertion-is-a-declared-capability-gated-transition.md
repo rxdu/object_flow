@@ -21,7 +21,7 @@ An **assertion** is a transition declared on a type and marked `asserting`. It i
 4. **Invariants are not bypassed by default.** An assertion that would violate an invariant is refused. An assertion declared `may_admit` accepts an explicit list of the invariants the caller is knowingly violating; anything not listed still refuses. Each admitted violation is recorded on the object and remains queryable until it no longer holds.
 5. **Recorded with what it skipped.** The event carries source `asserted`, the actor, the principal, the reason, the guards that would have failed, and any admitted invariant violations. History says not only that state was set but what was stepped over.
 6. **Auditable in aggregate.** The read surface answers, per type, which objects hold asserted state and which carry admitted violations. An escape hatch nobody can count is an escape hatch nobody controls.
-7. **Import and migration are the same mechanism.** Import is bulk assertion with source `asserted` (ADR-0015). A declaration migration is bulk assertion with source `migrated` (ADR-0027). Both are recorded per object.
+7. **Import and migration use a built-in assertion**, not a declared one, so rule 1 cannot make a type unimportable by omission (ADR-0054). It is gated on a deployment-level capability, and records source `asserted` for import (ADR-0015) or `migrated` for a declaration migration (ADR-0027), per object.
 
 **The guarantee is restated.** No state change bypasses the guards except through a declared, capability-gated, recorded assertion; every assertion names its reason and what it stepped over, and the set of objects holding asserted state is queryable at any time. That is weaker than the original sentence and it is true, which the original was not.
 

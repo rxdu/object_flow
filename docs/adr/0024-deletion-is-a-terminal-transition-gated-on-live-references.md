@@ -10,7 +10,7 @@ DESIGN.md never said what deletion is. The first consumer has a soft-delete flag
 ## Decision
 
 1. A type that can be deleted declares a **terminal state** for it — `DELETED`, or a domain word such as `RETIRED` or `CANCELLED` — and an ordinary transition into it, with guards like any other.
-2. That transition is guarded on **no live references**: `none(<referencing type> where <reference> == this and state not terminal)`, for every declared inverse relationship. A Customer with live deliveries is blocked with remedy class `dependent`, naming them.
+2. That transition is guarded on **no live references**: `none(r in <referencing type> where r.<reference> == this and r.state.category != closed)`, using a state category (ADR-0026) rather than terminality, which has no expression form, for every declared inverse relationship. A Customer with live deliveries is blocked with remedy class `dependent`, naming them.
 3. **Parts are cascaded** (ADR-0019): the whole's delete transition cascades the part's, because a part cannot outlive its whole (ADR-0003). **References are never cascaded** by deletion.
 4. A deleted object stays readable in history and by id, is excluded from default reads and from availability queries, and admits no further transitions.
 5. There is no `force_transition`. Administrative repair is a declared asserting transition (ADR-0040), which carries its own capability and reason guards rather than the type's.

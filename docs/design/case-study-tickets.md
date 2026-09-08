@@ -32,13 +32,13 @@ The Jira vocabulary below is used because the author's first consumer already re
 | Resolve as duplicate | a terminal transition recording a `duplicate_of` reference; **not** an identity merge |
 | Version (unreleased → released → archived), Component, Sprint (future → active → closed) | objects with their own small state machines; issues reference them; "cannot add to a closed sprint" is a guard on the action |
 | Comment, worklog | parts — small objects with an author, a timestamp and a posted → edited → removed lifecycle |
-| Attachment | `file` attribute (ADR-0017, proposed) |
-| Watchers, labels | free set-valued attributes; recorded |
+| Attachment | `file` attribute (ADR-0017) |
+| Watchers, labels | set-valued attributes edited by a declared action; recorded (ADR-0042 removed the free class) |
 | History tab | the object's recorded events |
 | Custom field; field configuration (required / hidden per context) | attributes on the type; per-context differences are per-type differences (ADR-0026) |
-| Permission scheme; issue-level security | capabilities in the actor descriptor; read visibility is a read-surface concern (TODO.md) |
-| Bulk transition | a batch of independent requests with per-item verdicts (TODO.md, read and request surface) |
-| Automation rule ("when X then Y"), SLA breach | a consumer subscribed to events (ADR-0012); a derived `breached := now > due` polled through the read surface (ADR-0022) |
+| Permission scheme; issue-level security | capabilities in the actor descriptor; issue-level security is a declared visibility predicate (ADR-0030) |
+| Bulk transition | the `batch` operation: N independent requests, each in its own transaction, N verdicts (ADR-0037) |
+| Automation rule ("when X then Y"), SLA breach | a consumer subscribed to events (ADR-0012); breach is found by querying the stored `due` against the supplied time, since a clock-dependent derived value cannot be indexed (ADR-0048) |
 | Issue key `PROJ-123` | a business identifier minted from a **named sequence** scoped by project (ADR-0029); monotonic, not gapless |
 | Move issue to another project; convert subtask ↔ issue | **supersession**: the old object ends in a terminal superseding state naming its successor (ADR-0028) |
 | Clone | a creation transition whose inputs are read from another object |
@@ -60,7 +60,6 @@ Bug.resolve: IN_PROGRESS → DONE
     resolution  := inputs.resolution
     fix_version := inputs.fix_version          skipped when not supplied (ADR-0052)
     resolved_at := now
-    assignee    := assignee
 
 Bug.reopen: DONE → IN_PROGRESS
   inputs: reason (string)
@@ -87,12 +86,14 @@ Two Jira post-functions appear here as ordinary outcome writes, `resolved_at := 
 
 ## 4. What held without change
 
-Requiredness on transitions (ADR-0002) is Jira's validator model exactly. Conditions are actor guards; post-functions that write are outcomes; post-functions that reach outside are effects for subscribers. Subtasks are composition; links are typed references with inverses; parent-blocked-by-children is a collection guard; typed-link blocking is a collection guard over a relationship. Comments are parts. Global transitions are from-state sets. Self-transitions are actions. The availability query answers "what can I do to this issue". The event log is the history tab. Nothing in the core mechanisms of ADR-0019 to ADR-0025 had to change.
+*Revisited after the repair: the mechanisms below held, but four of them changed shape. Guards gained three-valued semantics and declared remedy classes (ADR-0047); an action's outcome is explicitly unrestricted (ADR-0041); only-via transitions are no longer listed in availability (ADR-0041); and the verdict set gained `over-limit` (ADR-0041).*
+
+Requiredness on transitions (ADR-0002) is Jira's validator model exactly. Conditions are actor guards; post-functions that write are outcomes; post-functions that reach outside are effects for subscribers. Subtasks are composition; links are typed references with inverses; parent-blocked-by-children is a collection guard; typed-link blocking is a collection guard over a relationship. Comments are parts. Global transitions are from-state sets. Self-transitions are actions. The availability query answers "what can I do to this issue". The event log is the history tab. The core mechanisms of ADR-0019 to ADR-0025 all applied, and the repair later changed how three of them work without changing what this study needed from them: ADR-0038 replaced ADR-0019's guard ordering, ADR-0046 replaced its outcome description, and ADR-0039 replaced ADR-0023's locking.
 
 ## 5. Rare cases, recorded in `edge-cases.md`
 
 - Changing an object's type in place. Not supported; supersession is the path.
-- Splitting one issue into two with shared history. Supersession names one successor; a split is two creations that reference the source, and the source's history stays on the source.
+- Splitting one issue into two with shared history. The objects are expressible since ADR-0046 allows part re-parenting and named creations; history is still not shared, and each successor references the source.
 - Gapless key sequences. Sequences are monotonic, not gapless; a rolled-back creation leaves a gap, as it does in Jira.
 - A workflow edit that changes what a *past* transition meant. History is interpreted under the version it was recorded under; the readable rule set for an old version remains printable, but no tool will re-derive "what would have been allowed then".
 - Issue-level security. A read-visibility predicate per object is needed for this and is deferred to the read-surface design.

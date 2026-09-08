@@ -13,7 +13,7 @@ Version 2 of the language adds:
 
 | Construct | Example |
 |---|---|
-| `+ - * /` on numbers, with the usual precedence; division by zero is a guard failure, never a value | `on_hand - reserved >= inputs.qty` |
+| `+ - * /` on numbers, with the usual precedence; division by zero yields unknown (ADR-0047 corrected this row, which read "a guard failure, never a value") | `on_hand - reserved >= inputs.qty` |
 | durations as literals, and `+ -` between a timestamp and a duration, and between two timestamps | `placed_at + 30 min <= now`, `now - last_activity > 14 days` |
 | `sum`, `min`, `max` over a relationship, with an expression per element | `sum(lines.qty * lines.unit_price)`, `max(activities.at)` |
 | comparison and equality on the results of the above | `payment.amount == total` |

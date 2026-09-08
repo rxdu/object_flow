@@ -16,7 +16,7 @@ Real catalogues have both. Capital equipment is serialised because each unit has
    - **Quantity-tracked**: one stock object per (model, location), with `on_hand` and `reserved` counters and actions that adjust them under the guards of ADR-0032's arithmetic.
 2. **A slot declares which fill form it takes.** A serial slot binds an object. A quantity slot holds a number and references a stock object. A configuration may contain both, which is the ordinary case: a robot slot and a cable-tie quantity in one kit.
 3. **Reserve means the same thing in both**: the thing is spoken for and another order cannot have it. Only the representation differs, and the difference is visible in the declaration rather than implied.
-4. **Neither mode is a migration path to the other.** Changing a type's tracking mode is a new type and a supersession (ADR-0028), because the identity of the things being tracked changes.
+4. **Neither mode is a migration path to the other.** Changing a type's tracking mode is a new type, and every object moves to it by supersession one at a time (ADR-0028), because the identity of the things being tracked changes. There is no type-level supersession.
 
 ## Alternatives rejected
 

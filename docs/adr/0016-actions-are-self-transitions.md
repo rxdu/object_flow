@@ -26,10 +26,10 @@ A from-state may be a set of states, or any non-terminal state. That is not an a
 
 Pros:
 
-- **One mechanism.** Guards, structured verdicts, remedy classes, inputs, the derived parameter schema, recording, the event log, idempotency keys, availability listing, invariant analysis and the printable rule set all apply with no second implementation. ADR-0010's one-declaration-many-projections holds for actions for free.
+- **One mechanism.** Guards, structured verdicts, remedy classes, inputs, the declared input schema, recording, the event log, idempotency keys, availability listing, invariant analysis and the printable rule set all apply with no second implementation. ADR-0010's one-declaration-many-projections holds for actions for free.
 - **State scoping falls out.** "Allowed only in `INTAKE`" is the from-state. Nothing new to declare.
 - **Availability is one list.** "What can I do to this object now" returns transitions and actions with the same three-way availability, which is what an agent needs — one tool shape.
-- **Invariants stay covered.** ADR-0009's runtime analysis of which transitions could violate an invariant covers self-transitions on the same path. A second element would need a second analysis, which is the one-side-covered-other-side-missed hazard ADR-0009 exists to close.
+- **Invariants stay covered.** Invariant enforcement covers self-transitions on the same path. *(This read "ADR-0009's runtime analysis"; ADR-0045 made enforcement dynamic and demoted that analysis to a publish-time report, which does not weaken the argument.)* A second element would need a second analysis, which is the one-side-covered-other-side-missed hazard ADR-0009 exists to close.
 - **Smaller language, smaller runtime, smaller test surface.**
 
 Cons:

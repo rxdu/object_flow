@@ -2,7 +2,7 @@
 
 A governed object store: your data, and the rules that constrain how it changes.
 
-> **Status: design only.** Nothing is implemented. This repository currently contains the design record — the model, the decisions taken, and the questions still open.
+> **Status: design only, under review.** Nothing is implemented. This repository contains the design record: the model, the decisions taken, and a defect register from an implementation-readiness review whose 47 findings have been resolved but not yet reviewed by the author.
 
 ## What it is
 
@@ -26,7 +26,7 @@ Three properties carry that:
 
 | Property | Meaning |
 |---|---|
-| **Mediated** | No path to the data except through ObjectKeeper; state changes pass through declared transitions and their guards, every other write is recorded |
+| **Mediated** | No path to the data except through declared transitions and their guards. There is no second write path, and the one way to set state without satisfying a guard is a declared, capability-gated, recorded assertion |
 | **Declared** | What is allowed is data, inspectable at runtime — not code |
 | **Recorded** | Every change is attributed and reconstructable |
 
@@ -40,7 +40,7 @@ A practical consequence: a single business rule today is expressed as a storage 
 |---|---|
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Purpose, position in the stack, the model, scope boundaries, known limits |
 | [`docs/adr/`](docs/adr/) | Decisions taken, each with the alternatives rejected and why |
-| [`docs/design/`](docs/design/) | The first-consumer walkthrough, four case studies, and the catalogue of edge cases the model does not cover |
+| [`docs/design/`](docs/design/) | The first-consumer walkthrough, four case studies, the catalogue of edge cases, and the defect register from the readiness review |
 | [`docs/LESSONS.md`](docs/LESSONS.md) | Operational lessons |
 | [`TODO.md`](TODO.md) | Open questions and outstanding confirmations |
 
@@ -48,7 +48,7 @@ A practical consequence: a single business rule today is expressed as a storage 
 
 The first consumer is the author's own robotics operations platform, rebuilt on ObjectKeeper with its production data ported; see [`docs/DESIGN.md`](docs/DESIGN.md#first-consumer).
 
-ObjectKeeper **decides and records**. It does not compute values, cause external effects, orchestrate long-running processes, or render a user interface — those belong to the consumers above it. See [ADR-0007](docs/adr/0007-decide-and-record-not-compute-or-effect.md) for why that boundary is where it is.
+ObjectKeeper **decides and records**. It evaluates declared arithmetic over its own data, and it does not own domain formulas such as tax or pricing, cause external effects, orchestrate long-running processes, or render a user interface — those belong to the consumers above it. See [ADR-0007](docs/adr/0007-decide-and-record-not-compute-or-effect.md) for why that boundary is where it is.
 
 ## License
 

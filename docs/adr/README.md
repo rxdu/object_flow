@@ -6,11 +6,11 @@
 | [0002](0002-requiredness-attaches-to-transitions.md) | Requiredness attaches to transitions, not to attributes | Accepted |
 | [0003](0003-one-state-machine-per-object-type.md) | One state machine per object type; composition rather than parallel regions | Accepted |
 | [0004](0004-composite-state-is-gated-not-derived.md) | Composite state is gated by its parts, not derived from them | Accepted |
-| [0005](0005-guards-evaluate-over-state-plus-inputs.md) | Guards evaluate over current state plus transition inputs | Accepted |
+| [0005](0005-guards-evaluate-over-state-plus-inputs.md) | Guards evaluate over current state plus transition inputs | Accepted · partly superseded by ADR-0047 |
 | [0006](0006-controlled-and-free-attributes.md) | Attributes are classified controlled or free | **Superseded by ADR-0042** |
 | [0007](0007-decide-and-record-not-compute-or-effect.md) | The store decides and records; it does not compute or cause effects | Accepted |
-| [0008](0008-guard-escape-hatch-is-a-named-external-evaluator.md) | The guard escape hatch is a named external evaluator | Accepted |
-| [0009](0009-invariants-declared-at-type-level.md) | Invariants are declared at type level, enforced at transitions | Accepted |
+| [0008](0008-guard-escape-hatch-is-a-named-external-evaluator.md) | The guard escape hatch is a named external evaluator | Accepted (author-confirmed) · refined by ADR-0049 |
+| [0009](0009-invariants-declared-at-type-level.md) | Invariants are declared at type level, enforced at transitions | Accepted · partly superseded by ADR-0045 |
 | [0010](0010-the-declaration-is-inspectable-at-runtime.md) | The declaration is data, inspectable at runtime | Accepted |
 | [0011](0011-project-name-objectkeeper.md) | The project is named ObjectKeeper | Accepted |
 | [0012](0012-objectkeeper-does-not-initiate-transitions.md) | ObjectKeeper does not initiate transitions | Accepted |
@@ -18,13 +18,13 @@
 | [0014](0014-delivery-is-at-least-once-with-idempotency-keys.md) | Delivery is at-least-once; exactly-once effect comes from idempotency keys | Accepted |
 | [0015](0015-first-consumer-and-fresh-build-with-ported-data.md) | The first consumer is the Weston Robot operations platform, rebuilt with its production data ported | Accepted |
 | [0016](0016-actions-are-self-transitions.md) | Actions are self-transitions | Accepted |
-| [0017](0017-file-attachments-are-content-addressed-references.md) | File attachments are content-addressed references; the bytes are out of scope | Accepted |
+| [0017](0017-file-attachments-are-content-addressed-references.md) | File attachments are content-addressed references; the bytes are out of scope | Accepted (author-confirmed) |
 | [0018](0018-every-object-carries-a-store-assigned-globally-unique-identifier.md) | Every object carries a store-assigned, globally unique identifier | Accepted |
-| [0019](0019-outcomes-cascade-across-relationships-atomically.md) | A transition's outcome may cascade transitions and creations across relationships, atomically | Accepted (iteration 1, review pending) |
+| [0019](0019-outcomes-cascade-across-relationships-atomically.md) | A transition's outcome may cascade transitions and creations across relationships, atomically | Accepted (iteration 1, review pending) · partly superseded by ADR-0038 and ADR-0046 |
 | [0020](0020-a-transition-may-be-reachable-only-via-named-parents.md) | A transition may be reachable only via named parent transitions | Accepted (iteration 1, review pending) |
-| [0021](0021-derived-attributes-and-the-expression-language.md) | Derived attributes are never stored; the expression language is small and grows only by decision | Accepted (iteration 1, review pending) |
-| [0022](0022-time-is-a-guard-value-and-availability-is-queryable.md) | Time is a guard value; the read surface answers which objects have a transition available | Accepted (iteration 1, review pending) |
-| [0023](0023-transitions-execute-under-locks-and-may-carry-an-expected-version.md) | Transitions execute under locks; a request may carry an expected version | Accepted (iteration 1, review pending) |
+| [0021](0021-derived-attributes-and-the-expression-language.md) | Derived attributes are never stored; the expression language is small and grows only by decision | Accepted (iteration 1, review pending) · refined by ADR-0032, ADR-0047, ADR-0053 |
+| [0022](0022-time-is-a-guard-value-and-availability-is-queryable.md) | Time is a guard value; the read surface answers which objects have a transition available | Accepted (iteration 1, review pending) · refined by ADR-0048 |
+| [0023](0023-transitions-execute-under-locks-and-may-carry-an-expected-version.md) | One transaction per request, versions, and the `stale` verdict; its locking rules superseded by ADR-0039 | Accepted (iteration 1, review pending) |
 | [0024](0024-deletion-is-a-terminal-transition-gated-on-live-references.md) | Deletion is a terminal transition gated on live references; parts cascade, references block | Accepted (iteration 1, review pending) |
 | [0025](0025-the-actor-is-a-value-supplied-by-the-consumer.md) | The actor is a value supplied by the consumer; ObjectKeeper does not authenticate | Accepted (iteration 1, review pending) |
 | [0026](0026-declarations-compose-by-extends-and-bind-a-named-state-machine.md) | Declarations compose by `extends` and bind a named state machine; states carry a category | Accepted (iteration 2, review pending) |
@@ -35,10 +35,10 @@
 | [0031](0031-erasure-redacts-declared-personal-attributes-across-history.md) | Erasure redacts declared personal attributes across history; recorded, irreversible, not deletion | Accepted (iteration 3, review pending) |
 | [0032](0032-expression-language-version-2-adds-arithmetic.md) | The expression language gains arithmetic, durations and sum/min/max; domain formulas stay outside | Accepted (iteration 4, review pending) |
 | [0033](0033-current-state-is-stored-and-the-log-is-permanent-history.md) | Current state is stored; the log is permanent history, never pruned; provenance attaches to events | Accepted (iteration 4, review pending) |
-| [0034](0034-event-ordering-and-subscriptions-as-a-built-in-type.md) | Events are ordered per object and per cause; subscriptions are a built-in type with a filter and lifecycle | Accepted (iteration 4, review pending) |
+| [0034](0034-event-ordering-and-subscriptions-as-a-built-in-type.md) | Events are ordered per object and per cause; subscriptions are a built-in type (their shape superseded by ADR-0043) | Accepted (iteration 4, review pending) |
 | [0035](0035-approval-is-a-guard-over-recorded-approval-parts.md) | An approval is a recorded part; "needs approval" is a guard over those parts, invalidated by content change | Accepted (iteration 5, review pending) |
-| [0036](0036-proposals-are-a-built-in-type-and-delegation-is-supplied.md) | Proposals are a built-in, opt-in type; delegation and attenuation arrive in the actor descriptor | Accepted (iteration 5, review pending) |
-| [0037](0037-the-read-surface.md) | The read surface: get, query, lookup, availability, check, history, declaration, pull, batch; declared indexes and external identifiers; no hidden projections | Accepted (iteration 6, review pending) |
+| [0036](0036-proposals-are-a-built-in-type-and-delegation-is-supplied.md) | Proposals are a built-in, opt-in type; delegation and attenuation arrive in the actor descriptor | Accepted (iteration 5, review pending) · refined by ADR-0044 |
+| [0037](0037-the-read-surface.md) | The read surface: get, query, lookup, availability, check, history, declaration, pull, batch; declared indexes and external identifiers; no hidden projections | Accepted (iteration 6, review pending) · refined by ADR-0048, ADR-0054 |
 | [0038](0038-cascades-apply-sequentially.md) | Cascaded transitions apply sequentially; each sees the writes of those before it | Accepted (repair D01, review pending) |
 | [0039](0039-transitions-run-at-serialisable-isolation.md) | The transition transaction runs at serialisable isolation | Accepted (repair D02/D04, review pending) |
 | [0040](0040-assertion-is-a-declared-capability-gated-transition.md) | The override is an assertion: declared, capability-gated, recorded, and never silent | Accepted (repair D03, review pending) |
@@ -55,3 +55,4 @@
 | [0051](0051-erasure-integrity.md) | Personal values may not be copied into non-personal attributes; the redaction marker is absence | Accepted (repair D35, review pending) |
 | [0052](0052-grammar-amendments-from-re-expressing-the-case-studies.md) | Grammar amendments found by re-expressing the case studies | Accepted (repair D37-D41, review pending) |
 | [0053](0053-a-definite-null-test.md) | `is null` and `is not null` are definite predicates; comparison with null stays unknown | Accepted (repair D42, review pending) |
+| [0054](0054-four-semantics-the-repair-left-open.md) | Parent ordering, partial `check`, built-in assertion for import, and discharged admissions | Accepted (repair D43-D46, review pending) |

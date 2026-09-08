@@ -16,12 +16,12 @@ The rule was chosen so that a request could fail before any write. That property
 
 ## Decision
 
-1. **Sequential application.** The parent's guards are evaluated first. Then, depth-first in declaration order, each cascaded transition's guards are evaluated **against the state produced by everything applied before it**, and its outcome is applied immediately.
+1. **Sequential application.** The parent's guards are evaluated first, then its own outcome is applied in full (ADR-0054). Then, depth-first in declaration order, each cascaded transition's guards are evaluated **against the state produced by everything applied before it**, and its outcome is applied immediately.
 2. **Any failure aborts the whole request.** The transaction rolls back, nothing is committed, and the verdict names the failing object, transition and guard. The guarantee is *fail before commit*, not *fail before write*, and outside the transaction the two are indistinguishable.
 3. **Iteration order is defined.** A cascade over a relationship applies to its elements in ascending object-id order. A request is therefore reproducible, and a declaration's behaviour does not depend on storage order.
 4. **Accumulation is read-modify-write.** An outcome write reads the current value at the moment it is applied. Two cascaded increments from zero yield twelve, not six.
 5. **Applying a transition twice to one object in one request is not special-cased.** The second evaluation sees the first's result and fails if its guards no longer hold. Two delivery slots bound to one unit therefore block completion rather than selling it twice, which is the correct outcome for what is a modelling error.
-6. **`check` simulates the same sequence** (ADR-0037) so that the verdict it returns is the verdict a real request would receive.
+6. **`check` simulates the same sequence** (ADR-0037) for everything it can evaluate internally, and reports the external guards it did not evaluate, so its verdict is explicitly partial (ADR-0054).
 
 ## Alternatives rejected
 

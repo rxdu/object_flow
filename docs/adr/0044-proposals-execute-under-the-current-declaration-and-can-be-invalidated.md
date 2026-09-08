@@ -11,7 +11,7 @@ ADR-0036 re-evaluates a proposal's non-actor guards at execution but never says 
 ## Decision
 
 1. **Execution uses the declaration version in force at execution time**, not at submission. A proposal is a request waiting for authority, and the rules that apply to a request are the rules that apply now. The submission version is recorded for history.
-2. **The lifecycle gains a terminal state `invalidated`**: `pending → executed | rejected | withdrawn | expired | invalidated`.
+2. **The lifecycle gains a terminal state `invalidated`**: `pending → executed | rejected | withdrawn | invalidated`. `expired` is not a state; see rule 5.
 3. **A proposal is invalidated, not left pending, when the current declaration cannot express it**: its transition no longer exists, it now requires an input the proposal does not carry, or its target state is no longer reachable from where the object now stands. The invalidating event records which of these it was.
 4. **A guard failure still leaves it `pending`**, with the verdict attached. The distinction is between "not yet" and "not any more": a guard that fails today may pass tomorrow, whereas a removed transition will not return.
 5. **`expired` is derived, not driven** (ADR-0043): a proposal past its expiry is reported as expired by the read surface, and nothing has to move it there.

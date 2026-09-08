@@ -12,7 +12,7 @@ A ticket system gives the same issue type different workflows in different proje
 1. **`extends`.** A type declaration may extend a base declaration, inheriting its attributes, relationships, invariants and derived attributes, and adding its own. A base may be abstract (no objects of it exist) or concrete.
 2. **State machines are named declarations.** A type binds exactly one, whole. Machines are not inherited or partially overridden; two types that need the same lifecycle bind the same named machine. ADR-0003 stands.
 3. **Type family.** The read surface accepts a base declaration as a query target and returns objects of every type extending it, each carrying its concrete type.
-4. **State category.** Every state in a machine declares a category from a small set the consumer defines (for example `open`, `in_progress`, `done`), in addition to being terminal or not. Guards, invariants and queries that span a family use categories, so they need not know each machine's state names: `none(blocked_by where state.category != done)`.
+4. **State category.** Every state in a machine declares a category from a small set the consumer defines (for example `open`, `in_progress`, `done`), in addition to being terminal or not. Guards, invariants and queries that span a family use categories, so they need not know each machine's state names: `none(b in blocked_by where b.state.category != done)`.
 
 ## Alternatives rejected
 

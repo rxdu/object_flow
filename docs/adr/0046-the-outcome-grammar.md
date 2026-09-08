@@ -25,7 +25,7 @@ outcome:
 
 1. **Cascades take inputs.** `slot.unit.reserve(slot := s)`. Inputs are evaluated in the state prevailing when that step runs.
 2. **Creations may be bound.** `let w = create WarrantyContract(...)` makes `w` usable in later steps of the same outcome. Names are single-assignment and scoped to the outcome. This is what makes ADR-0028's cascaded successor expressible: `let d2 = create Delivery(...)` then `supersede(successor := d2)`.
-3. **Iteration binds an element name explicitly.** `for s in slots where s.unit != null: s.unit.sell()`. There is no implicit rebinding of `this`, which removes the scoping ambiguity of D22. Order is ascending object id (ADR-0038).
+3. **Iteration binds an element name explicitly.** `for s in slots where s.unit is not null: s.unit.sell()`. There is no implicit rebinding of `this`, which removes the scoping ambiguity of D22. Order is ascending object id (ADR-0038).
 4. **Repeat over a count.** `for i in 1..inputs.quantity: create Unit(...)`, bounded by the same declared fan-out cap as any iteration, refused with `over-limit` (ADR-0041). This makes procurement expressible.
 5. **`this_event` is available.** An event's identity is allocated when its transition begins applying, and its content is completed at commit, so an outcome may reference the event that will record it. `event` becomes an attribute type, which is what lets a consumer declare `Approval.event` and write the guards of ADR-0035.
 6. **Dynamic attribute writes are not supported.** A transition writes the attributes it names. The CRM merge, which wrote `<each attribute in values>`, declares the fields it resolves, exactly as any edit action does under ADR-0042. A merge that must cover every attribute is a code generator's job, not the runtime's.
@@ -51,5 +51,5 @@ Rejected once re-parenting turned out to cost nothing. Split appeared in three o
 - ADR-0028's contradiction is resolved: the successor may be an existing id or a name bound earlier in the same outcome.
 - `event` joins the attribute types in DESIGN.md §5.2, and `Approval` becomes declarable, so ADR-0035 works.
 - The case studies must be re-expressed in this grammar. Their claims are not evidence until they are.
-- `docs/design/edge-cases.md` loses the two split entries and the merge entry, and gains an entry for dynamic writes.
+- `docs/design/edge-cases.md` rewrites its two split entries as covered and gains an entry for dynamic writes.
 - D11, D12, D13, D14, D15, D18 and D29 are resolved.

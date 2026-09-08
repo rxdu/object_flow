@@ -1,47 +1,40 @@
 # TODO
 
-Status: design only. See [`docs/DESIGN.md`](docs/DESIGN.md) for the model and [`docs/adr/`](docs/adr/) for decisions taken. File references of the form `wr:path:line` point into the first consumer's repository at `~/RduWs/wr_inventory_management` (ADR-0015); they were verified on 2026-09-07 and that codebase moves, so re-check before relying on a line number.
+Status: design only, under author review. The model is described in [`docs/DESIGN.md`](docs/DESIGN.md); decisions are ADRs in [`docs/adr/`](docs/adr/); what the model does not cover is in [`docs/design/edge-cases.md`](docs/design/edge-cases.md). File references of the form `wr:path` point into the first consumer's repository at `~/RduWs/wr_inventory_management`.
 
-## Design iteration log
+## Where this stands
 
-An autonomous design-iteration loop was started on 2026-09-07 with the brief: iterate the design from the inventory system outward to other common information-management systems until it covers the common cases, document the rare ones it cannot, and leave DESIGN.md cohesive and implementation-ready. Each iteration is one commit. Decisions taken inside the loop carry the status "accepted in autonomous iteration, pending author review" and are listed under Author review queue below.
+| | |
+|---|---|
+| ADRs | 54, none Proposed |
+| Defect register | 47 entries, none open ([`docs/design/defects.md`](docs/design/defects.md)) |
+| Open model questions | none |
+| Awaiting author review | ADR-0019 to ADR-0054, and DESIGN.md as a whole |
 
-| # | Scope | Status |
-|---|---|---|
-| 1 | Adopt the walkthrough's mechanisms A–H as ADR-0019 to ADR-0025; close the six challenges | [x] 2026-09-07 |
-| 2 | Jira-style tickets: workflow variants per project, typed links, subtasks, required-on-transition fields, moving an issue between types | [x] 2026-09-07 — `docs/design/case-study-tickets.md`; ADR-0026 to ADR-0029; ADR-0021 amended; `docs/design/edge-cases.md` started |
-| 3 | HubSpot-style CRM: pipelines, associations, duplicate merge, ownership, right to erasure versus the recorded property | [x] 2026-09-08 — `docs/design/case-study-crm.md`; ADR-0030, ADR-0031; three clarifications folded into DESIGN.md |
-| 4 | High-volume short-lived domain (e-commerce orders): quantity stock and arithmetic, payment as external system, ordering, retention, stored versus folded state | [x] 2026-09-08 — `docs/design/case-study-orders.md`; ADR-0032 to ADR-0034; five open model questions closed |
-| 5 | Approvals and bookings: multi-actor approval, delegation, proposals, interval conflicts | [x] 2026-09-08 — `docs/design/case-study-approvals-and-bookings.md`; ADR-0035, ADR-0036; approval defined; delegation and proposals closed |
-| 6 | Consolidation: rewrite DESIGN.md as one cohesive spec; edge-cases document; coherence pass over all ADRs | [x] 2026-09-08 — ADR-0037 read surface; DESIGN.md rewritten (§1–§14); superseded statements in ADR-0001, 0007, 0012, 0013, 0014, 0015, 0018, 0023, 0025 marked; edge-cases general section; two lessons recorded |
+The design was built in six autonomous iterations, then reviewed for implementation readiness, then repaired. The review found 42 defects, ten of which broke the model or a running system; re-expressing the case studies against the repaired grammar found five more. ADR-0038 to ADR-0054 are that repair, and none has been reviewed by the author.
+
+**Three of them changed decisions the author had made.** ADR-0042 removes the free-attribute class, superseding ADR-0006. ADR-0047 withdraws ADR-0005's claim that a transition's input schema is derived from its guards. ADR-0029 withdrew a consequence of ADR-0018. Everything else adds to the model or corrects a contradiction inside it.
 
 ## Author review queue
 
-Decisions taken in the loop, not yet reviewed by the author. Each ADR carries the same marker.
+Nothing here is blocked on it, and none of it is settled without it.
 
-- [ ] ADR-0019 cascaded outcomes, straight-line outcomes
-- [ ] ADR-0020 only-via
-- [ ] ADR-0021 derived attributes and the version-1 expression language (no arithmetic)
-- [ ] ADR-0022 time as a guard value; the availability query
-- [ ] ADR-0023 locks, versions, the `stale` verdict
-- [ ] ADR-0024 deletion as a gated terminal transition
-- [ ] ADR-0025 the actor descriptor
-- [ ] ADR-0026 `extends`, named state machines, type families, state categories
-- [ ] ADR-0027 declaration versioning and migration mappings
-- [ ] ADR-0028 supersession
-- [ ] ADR-0029 named sequences — **withdraws a consequence of the author's ADR-0018**
-- [ ] ADR-0021 amendment: outcome writes are `attribute := expression`
-- [ ] ADR-0030 read visibility predicates
-- [ ] ADR-0031 erasure of personal attributes across history — **the one place the log is rewritten**
-- [ ] Clarifications from iteration 3 in DESIGN.md: references carry no attributes (link objects); request `context`; invariant verdicts name conflicting objects
-- [ ] ADR-0032 expression language version 2 — arithmetic, durations, sum/min/max; **refines ADR-0007's computation boundary**
-- [ ] ADR-0033 stored current state; permanent, never-pruned log; provenance on events
-- [ ] ADR-0034 per-object and causal ordering; subscriptions as a built-in type with filter and lifecycle
-- [ ] Clarifications from iteration 4 in DESIGN.md: outcomes may iterate an input's relationships; declared indexes; cascade fan-out cap
-- [ ] ADR-0035 approval as recorded parts plus a guard; `changed_since` added to the language
-- [ ] ADR-0036 proposals as a built-in opt-in type; no delegation mechanism in the store
-- [ ] ADR-0037 the read surface; declared indexes; no hidden projections; no atomic batch
-- [ ] DESIGN.md rewritten in iteration 6 as the consolidated specification — review as a whole
+- [ ] **The execution model** — ADR-0038 sequential cascades, ADR-0039 serialisable isolation, ADR-0040 the assertion path, ADR-0054 parent ordering and admissions. These changed how the store runs, not just what it says.
+- [ ] **The languages** — ADR-0046 outcome grammar, ADR-0047 expression semantics, ADR-0052 grammar amendments, ADR-0053 the presence tests, ADR-0032 arithmetic.
+- [ ] **The model additions** — ADR-0026 extends and families, ADR-0027 versioning, ADR-0028 supersession, ADR-0029 sequences, ADR-0030 visibility, ADR-0031 and ADR-0051 erasure, ADR-0050 tracking mode.
+- [ ] **The surfaces** — ADR-0034 and ADR-0043 subscriptions, ADR-0036 and ADR-0044 proposals, ADR-0037 and ADR-0048 the read surface, ADR-0049 external evaluators.
+- [ ] **The decisions that changed yours** — ADR-0042, ADR-0047 §6, ADR-0029.
+- [ ] **DESIGN.md as a whole**, rewritten from scratch on 2026-09-08 rather than patched further.
+
+## History
+
+| Phase | Outcome |
+|---|---|
+| Iterations 1–6, 2026-09-07/08 | The model, from the first consumer outward through four case studies; ADR-0019 to ADR-0037 |
+| Readiness review, 2026-09-08 | 42 defects across four independent passes; the design was not implementable |
+| Repair, 2026-09-08 | ADR-0038 to ADR-0053; the register closed |
+| Re-expression, 2026-09-08 | The five case studies rewritten in the repaired grammar, which found D37 to D41 |
+| Coherence pass, 2026-09-08 | ADR-0054; DESIGN.md rewritten; 20 statements corrected across the ADR set; D42 to D47 |
 
 ## Open model questions
 
@@ -63,9 +56,9 @@ Evidence from `~/RduWs/wr_inventory_management` that bore on accepted ADRs. Reco
 
 The port of the first consumer's production data is a designed path (ADR-0015, DESIGN.md "Data import"). Its properties were derived in discussion and are listed under Confirmations outstanding; the design work is here.
 
-- [ ] **Override path.** Specify the authorised, recorded override transition that DESIGN.md's Known limits requires, such that import is its bulk use rather than a separate mechanism. Who may invoke it, what it records, and how it appears in history.
+- [x] **Override path.** Decided by ADR-0040 and ADR-0054: a declared asserting transition for repair, gated on a capability with a mandatory reason and recording what it stepped over; a built-in assertion for import and migration, so no type is unimportable by omission.
 - [ ] **Validation report.** Specify what the importer evaluates per object (invariants, the structural guards of the creation transition, referential integrity) and the shape of the report. Decide the per-class disposition mechanism: clean upstream, or admit with a recorded flag that later transitions can see.
-- [ ] **Legacy history.** Specify the read-only `legacy` history entry: payload, attachment to the object, and whether the read path presents it inline with ObjectKeeper's own history or separately.
+- [x] **Legacy history.** Read-only entries of kind `legacy` carrying their original payload, attached to the object and returned by `history` alongside ObjectKeeper's own events (DESIGN.md §11).
 - [x] **Soft-deleted rows.** Land in the type's declared deleted terminal state with provenance `asserted` (ADR-0024). Per-type naming of that state is import mapping work, not design.
 - [x] **Legacy keys.** Preserved as `external: legacy` attributes with `lookup` by them (ADR-0018, ADR-0037).
 - [x] **Files.** Content-addressed `file` attributes with the bytes in the deployment's blob store ([ADR-0017](docs/adr/0017-file-attachments-are-content-addressed-references.md), confirmed 2026-09-08). Legacy photos, packing-list PDFs and label templates port as controlled attributes written by the import's asserting transition. The blob store's own lifecycle expiry must be disabled.
@@ -73,13 +66,7 @@ The port of the first consumer's production data is a designed path (ADR-0015, D
 
 ## Defect repair
 
-An implementation-readiness review on 2026-09-08 found **36 verified defects**, recorded with evidence in [`docs/design/defects.md`](docs/design/defects.md). Ten break the model or a running system. The design is **not** implementation-ready until at least those ten are resolved, and three of them (D01 cascade semantics, D02 isolation, D03 the override) change the execution model rather than adding to it.
-
-**Status 2026-09-08: 35 of 36 resolved by ADR-0038 to ADR-0051; D34 is partly resolved and leaves two author confirmations.** The repair changed the execution model (sequential cascades, serialisable isolation, a declared assertion path), removed the free-attribute class, and gave the outcome and expression languages a semantics. Every resolution is marked pending author review.
-
-**ADR-0008 and ADR-0017 were confirmed by the author on 2026-09-08**, and ADR-0006 was superseded rather than confirmed by ADR-0042. No ADR is Proposed while being depended on, and the register is closed at 41 defects, all resolved. What remains is author review of the repair itself and the artefacts below.
-
-**The case studies were re-expressed on 2026-09-08** against the repaired grammar. Doing so found five further gaps (D37 to D41), all resolved by ADR-0052; the declarations in the five studies are now current and their banners are lifted. The register stands at 41 defects, 40 resolved, D34 leaving two author confirmations.
+Closed. The register at [`docs/design/defects.md`](docs/design/defects.md) holds 47 entries with none open, and records for each what was decided and by which ADR. Two entries are refusals rather than resolutions: dynamic attribute writes and grouped aggregation, both declined by decision and recorded in the edge-case catalogue.
 
 ## Toward implementation
 
@@ -100,7 +87,6 @@ These artefacts are needed once the register is clear. These are the artefacts t
 - [x] **Library or service** — the core is library-shaped; only push delivery requires a background worker ([ADR-0012](docs/adr/0012-objectkeeper-does-not-initiate-transitions.md), [ADR-0013](docs/adr/0013-events-are-recorded-to-a-durable-log-in-the-transition-transaction.md)).
 - [x] **First consumer named** — the extended Weston Robot inventory system, rebuilt on ObjectKeeper with its production data ported and preserved ([ADR-0015](docs/adr/0015-first-consumer-and-fresh-build-with-ported-data.md)). The Deployment/Site names in earlier ADRs are illustrative only.
 - [x] **Threat model** — mistakes, not malice; the purpose in the author's words is recorded in DESIGN.md, Purpose.
-- [x] **Iteration 6 (2026-09-08, pending author review)** — the read surface (ADR-0037) closes the last three open model questions; DESIGN.md rewritten as one specification with numbered sections and a terminology appendix; coherence pass marked every statement in the early ADRs that a later decision superseded, with strikethrough and a pointer rather than deletion; the walkthrough is now a worked example; `edge-cases.md` gained a general section. The loop's brief is complete.
 - [x] **Iteration 5 (2026-09-08, pending author review)** — approvals and bookings: approval as recorded parts with a guard invalidated through `changed_since` (ADR-0035); proposals as a built-in opt-in type and delegation supplied in the descriptor (ADR-0036). Bookings needed nothing new; known-shape invariants compile to database constraints.
 - [x] **Iteration 4 (2026-09-08, pending author review)** — orders at volume: expression language version 2 with arithmetic, durations and aggregates, restating the computation boundary (ADR-0032); stored current state, a permanent never-pruned log, provenance on events (ADR-0033); per-object and causal ordering, subscriptions as a built-in type with filter and lifecycle (ADR-0034). Closes five open model questions. Second structurally different case study done.
 - [x] **Iteration 3 (2026-09-08, pending author review)** — CRM case study: read visibility predicates (ADR-0030); erasure of personal attributes across history (ADR-0031); references carry no attributes, link objects carry them; request `context` on events; invariant verdicts name conflicting objects. Arithmetic in the expression language now requested by three cases (ATP, deal totals, activity recency); decided in iteration 4.

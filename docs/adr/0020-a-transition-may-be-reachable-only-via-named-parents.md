@@ -16,7 +16,7 @@ A transition may declare `only via` a list of parent transitions on other types.
 - carries **no actor guards of its own** — the parent's guards are its authority;
 - keeps its other guards, which are evaluated in the cascade like any other.
 
-A direct request for it is refused with remedy class `unreachable-from-here`, naming the parent transitions that lead to it.
+A direct request for it is refused with the **`not requestable`** verdict, naming the parent transitions that lead to it (ADR-0041 fixed this; the ADR originally said remedy class `unreachable-from-here`).
 
 ## Alternatives rejected
 
@@ -26,7 +26,7 @@ Leave `sell` requestable and trust callers not to call it. Rejected: the mediate
 
 ### A guard on the parent's proposed state
 
-`sell` guarded on `binding.delivery.state == DELIVERED`. Rejected: within the cascade the Delivery is still `PREPARATION` until commit, so the guard would need to see proposed state, which makes guard semantics depend on evaluation order.
+`sell` guarded on `binding.delivery.state == DELIVERED`. Rejected because only-via states *who may cause* a transition, directly and inspectably, whereas a state comparison encodes the same authority indirectly and admits any other route that can produce that state. *(This originally argued that the Delivery is still `PREPARATION` within the cascade; ADR-0054 applies the parent's outcome before any cascade, so that mechanical objection no longer holds and the argument above is the one that does.)*
 
 ## Consequences
 

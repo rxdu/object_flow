@@ -2,6 +2,10 @@
 
 Findings from the implementation-readiness review of 2026-09-08. Every entry was verified against the file cited; the review ran as four independent passes (one direct, three delegated) and only findings confirmed by reading the source are recorded here.
 
+**A note on citations.** Every `file:line` below was correct when the defect was recorded. The documents have since been repaired and re-expressed, so line numbers have drifted; the quoted text is the reliable locator.
+
+**Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
+
 **How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. Status is `open`, `resolved by ADR-xxxx`, or `wontfix` with a reason.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
@@ -22,9 +26,9 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D12](#d12) | An outcome cannot name an object it creates | **resolved by ADR-0046** |
 | [D13](#d13) | `this_event` is undefined and chronologically impossible | **resolved by ADR-0046** |
 | [D14](#d14) | Repeat-N creation is not expressible | **resolved by ADR-0046** |
-| [D15](#d15) | Map-typed inputs and dynamic writes are not expressible | **resolved by ADR-0046** |
+| [D15](#d15) | Map-typed inputs and dynamic writes are not expressible | **refused by ADR-0046** |
 | [D16](#d16) | `sum` over a type is required but not granted | **resolved by ADR-0047** |
-| [D17](#d17) | Grouped aggregation is used but undefined | **resolved by ADR-0047** |
+| [D17](#d17) | Grouped aggregation is used but undefined | **refused by ADR-0047** |
 | [D18](#d18) | There is no event-reference attribute type | **resolved by ADR-0046** |
 | [D19](#d19) | Division by zero yields a verdict, not a value | **resolved by ADR-0047** |
 | [D20](#d20) | Null semantics are unstated | **resolved by ADR-0047** |
@@ -50,6 +54,11 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D40](#d40) | `this` is not stated to be available in a creation outcome | **resolved by ADR-0052** |
 | [D41](#d41) | Type-scan invariants have no affected-set rule | **resolved by ADR-0052** |
 | [D42](#d42) | Three-valued logic left no way to test for absence | **resolved by ADR-0053** |
+| [D43](#d43) | ADR-0038 never says when the parent's own outcome applies | **resolved by ADR-0054** |
+| [D44](#d44) | `check` both simulates the real verdict and skips evaluators | **resolved by ADR-0054** |
+| [D45](#d45) | A type without a declared assertion cannot be imported or migrated | **resolved by ADR-0054** |
+| [D46](#d46) | An admitted invariant violation freezes the object | **resolved by ADR-0054** |
+| [D47](#d47) | Superseded rules restated as current across the record | **resolved by the coherence pass** |
 
 ---
 
@@ -149,12 +158,12 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 ### D10
 **Two different invariant-enforcement specifications.**
 `docs/adr/0009-invariants-declared-at-type-level.md:12` is static: "The runtime determines which transitions could violate them and enforces there." `docs/DESIGN.md:168` is dynamic: "Check every invariant the written objects could violate." Different algorithms, different cost, different coverage. Neither is marked normative, and `0009:27` concedes the static analysis is "a real piece of machinery" without specifying it.
+**Resolved by ADR-0045.** Dynamic enforcement is normative; the static analysis becomes a publish-time report; invariants may traverse only declared inverses.
 
 ---
 
 ## Severity 2: cannot be expressed, or has no algorithm
 
-**Resolved by ADR-0045.** Dynamic enforcement is normative; the static analysis becomes a publish-time report; invariants may traverse only declared inverses.
 
 ### D11
 **Cascaded transitions cannot take inputs.** Used in every case study (`walkthrough:135`, `:191`, `:198`; `crm:46-48`; `orders:16`). Neither `docs/DESIGN.md:108` nor `docs/adr/0019:14` permits it, and ADR-0019's only example passes none.
@@ -233,12 +242,12 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 
 ### D26
 **`changed_since` has no index story.** `docs/adr/0035:14` reads the log. Every indexing statement in the record is about the object row (`docs/adr/0033:12`, `docs/adr/0037:27`). Answering "which event last wrote attribute X of object O" requires per-attribute writes to be queryable in the log, which the storage schema does not yet exist to say.
+**Resolved by ADR-0048.** A per-attribute last-written index, maintained in the writing transaction, makes `changed_since` a constant-time comparison.
 
 ---
 
 ## Severity 3: contradictions and scope errors
 
-**Resolved by ADR-0048.** A per-attribute last-written index, maintained in the writing transaction, makes `changed_since` a constant-time comparison.
 
 ### D27
 **The spec's definition of an action is the option ADR-0016 rejected.** `docs/DESIGN.md:106` and `:242` say an action "writes controlled attributes without changing lifecycle state", which is the shape of ADR-0016's rejected option B (`docs/adr/0016:45`, "an outcome restricted to attribute writes"). ADR-0035 requires actions to create Approvals (`0035:12`) and the CRM merge requires an action to cascade (`crm:47`).
@@ -287,6 +296,7 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 
 ### D36
 **`self-serviceable` is misused for the fan-out cap.** `docs/design/edge-cases.md:39` refuses an oversized cascade with `self-serviceable`, defined at `docs/DESIGN.md:120` as "Satisfiable by a transition argument". A fan-out cap is satisfiable by no argument, and for order placement "split the request" means creating two orders, a different business fact.
+**Resolved by ADR-0041.** A new `over-limit` verdict replaces the misuse of `self-serviceable`.
 
 ---
 
@@ -298,7 +308,6 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 - **C04** `docs/adr/0004-composite-state-is-gated-not-derived.md:26` says a cascade-close "proposes" terminal transitions; since ADR-0036 "propose" is a reserved concept. **Resolved: reworded to "cascades".**
 - **C05** The iteration-4 clarifications (outcomes may iterate an input's relationships; declared indexes; the fan-out cap) and the request `context` field live only in DESIGN.md and TODO.md with no ADR, against the convention that decisions live in ADRs.
 
-**Resolved by ADR-0041.** A new `over-limit` verdict replaces the misuse of `self-serviceable`.
 
 ---
 
@@ -338,4 +347,31 @@ These five were found by writing the case studies' declarations in the grammar o
 ### D42
 **Three-valued logic left no way to test for absence.** ADR-0047 made comparison with an absent value yield unknown, which was right and closed a real hole. It also broke every null test: `reason != null` in ADR-0021, and `s.unit != null`, `s.warranty_product != null` and `inputs.fix_version != null` in the re-expressed case studies, are all unknown whether or not the value is present, so any guard containing one fails permanently. ADR-0047's own rejected alternatives name the problem and leave no replacement.
 
-**Resolved by ADR-0053.** `is null` and `is not null` are definite predicates; comparing against a `null` literal is a publish error. A mechanical sweep of every declaration block found these four lines and no other grammar violation.
+**Resolved by ADR-0053.** `is null` and `is not null` are definite predicates; comparing against a `null` literal is a publish error.
+
+*The first fix was incomplete, and instructively so. It swept fenced declaration blocks and corrected four lines; a coherence review then found nine more in guard tables and prose, plus four in the ADRs themselves. Scoping a fix to one syntactic form is how the same defect survives a repair — see `LESSONS.md`.*
+
+### D43
+**ADR-0038 never says when the parent's own outcome applies.** It sequenced the cascades against each other and left the parent's state change and attribute writes unplaced, which decides whether a cascade reads the parent before or after its transition. ADR-0020's rejected alternative also rested on the answer.
+
+**Resolved by ADR-0054.** The parent's outcome applies in full before the first cascade's guards, and ADR-0020's rationale is restated on the argument that survives.
+
+### D44
+**`check` both simulates the real verdict and skips evaluators.** ADR-0038 said `check` returns the verdict a real request would receive; ADR-0049 said it calls no external evaluator. For any transition with an external guard both cannot hold.
+
+**Resolved by ADR-0054.** `check` returns an explicitly partial verdict naming the guards it did not evaluate, and ADR-0037's claim that it is cheap is withdrawn.
+
+### D45
+**A type without a declared assertion cannot be imported or migrated.** ADR-0040 rule 1 says a type with no asserting transition cannot be overridden at all; rule 7 makes import and migration bulk assertion. Together a type author could make their type unimportable by omission, discovered at cutover.
+
+**Resolved by ADR-0054.** Import and migration use a built-in assertion gated on a deployment capability, distinct from the declared one that governs repair.
+
+### D46
+**An admitted invariant violation freezes the object.** ADR-0027 and ADR-0040 both admit violations; neither says what the next ordinary transition does, and ADR-0045 checks every invariant the written objects could violate, so the next transition would refuse. Admission would let data in and then trap it.
+
+**Resolved by ADR-0054.** An admission names an object and an invariant, suppresses that check for that object, and is discharged automatically when the invariant holds again.
+
+### D47
+**Superseded rules restated as current across the record.** The repair annotated the ADRs it changed and rewrote the fenced declaration blocks, and left the same superseded rules standing in guard tables, mapping tables, prose, "what held without change" sections and the specification's own model block and glossary. Instances included the all-guards-first rule and the pre-computed lock set presented as current in the walkthrough, the free-attribute class in a mapping table, the three-state subscription lifecycle, and the pre-repair Mediated property in the README.
+
+**Resolved by the coherence pass of 2026-09-08**, which rewrote DESIGN.md from scratch rather than patching it further, revisited every table and prose section in the five case studies, and corrected twenty statements across the ADR set. The lesson is recorded in `LESSONS.md`.
