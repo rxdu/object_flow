@@ -5,6 +5,9 @@ Status: **draft, iteration 17** (2026-09-08). Three reviewers returned non-block
 Two goals shape every choice, and where they conflict the second wins.
 
 1. **The common case should cost nothing to write and nothing to read.**
+
+    **Recommended: no.** The first consumer's own machine has requestable transitions into closed states that must stay requestable, `retire` and `cancel` among them. Its real authority boundary is not entry into a closed state but the **undo of a committed decision**: `wr:docs/design/procurement-error-recovery.md` states it as "correct freely before it's real; gate the undo of a committed decision", and only two operations carry the admin gate, cancelling a placed order and reverting a committed intake. Report at publish which transitions enter a closed state with no authority list, and leave the choice visible.
+
 2. **Everything the design promises to check must be decidable from the text.** §10 lists the checks.
 
 ## Iterations
@@ -854,10 +857,18 @@ A name is a letter or `_` followed by letters, digits or `_`. **Reserved words m
 
 A bare name in an expression resolves in this order, the first match winning:
 
+    **Recommended: the smallest version.** Give a `referrers` element a comparable type name rather than full filtering. The case is real — `wr:app/models/note.py:37` is a polymorphic note with no foreign key, so notes are orphaned when their subject goes — and a type name is enough for a deletion guard to treat one referencing type differently without opening heterogeneous member access.
+
 1. a loop binder in scope;
 2. one of `inputs`, `actor`, `this`, `now`, `referrers`, `this_event`;
 3. `state`, or an attribute, counter, derivation or relationship end of `this`, inherited ones included;
+
+    **Recommended: yes.** Accept both spellings in both places. Friction with no compensating clarity.
+
 4. a state of this type's machine;
+
+    **Recommended: keep both, and drop the reported product.** Guard names carry the failing clause into the verdict, which the remedy classes rest on. Bounds are real protection where a loop repeats over a caller-supplied count, which the first consumer does when raising a procurement order and in `wr:app/api/robots.py:48` batch creation. What is worthless is the worst-case product across nested loops, which multiplies invented numbers into a precise and meaningless total. Report each loop's own bound, and the observed maximum from live objects, which the publish report already reads.
+
 5. a category.
 
 Outside an expression a name resolves to a declaration **of the kind the grammar requires in that position** — a machine after `machine`, a sequence after `from`, a type after `:`, an evaluator before a `.` in a guard call, an invariant after `requires invariant` — which is why those kinds appear in check 19 and not in the list above.
@@ -976,18 +987,46 @@ Reported without failing: which of a machine's creations a binder has replaced b
 
 Addressed by number elsewhere in the repository, so a new one is appended rather than inserted.
 
+Each carries a **recommendation**, written on 2026-09-08 after surveying the first consumer's production code for evidence, and **pending the author's ruling** like everything else here. `wr:` citations point into `~/RduWs/wr_inventory_management`. Five say change it, three say refuse it, one is already decided, and the rest are defer or low priority. Question 13 is the one with a live example in production.
+
+    **Recommended: already decided; close it.** §3.1 says a stored relationship end is always available to a query filter and rejects marking it `indexed`. That is an index. State it and remove the question.
+
 1. Whether `only via` should be mandatory on any transition entering a closed-category state, which is where authority matters most.
 2. Whether `referrers` should be filterable by type, so a deletion guard can treat one referencing type differently.
 3. Whether inline `states` and a shared `machine` should look more alike than they do.
 4. Whether mandatory `limit` and mandatory guard names are worth their friction; both are deviations the model should ratify or reject. First evidence against: a reviewer's model produced a reported worst-case fan-out around thirty-three thousand from limits they said they invented, so the number is precise and means nothing.
 5. Whether a derived inverse is fast enough without an index on the stored end, or whether declaring an inverse should imply one.
 6. Whether confidentiality should be per-attribute as well as per-object. Hiding one field from one role — a treatment allocation from an investigator — currently costs a separate type with its own lifecycle, its own visibility and a cascade clause per terminal transition of the whole.
+
+    **Recommended: no, and record the cost.** No evidence of need in the first consumer: it has no field-level access control, and no cost, margin, supplier-terms or salary column exists at all (`wr:app/core/permissions.py:23-52`, `wr:app/schemas/spare_parts.py:22`). Every role that may read a row reads all of it. The only case is a reviewer's trial-blinding model. Per-object visibility stands; the cost of the workaround is one extra type with its own lifecycle.
+
 7. Whether a `cascade on` clause should carry arguments, as an outcome-level `call` does. A reviewer modelling a clinical trial declared three transitions — `close_ongoing`, `close_with_parent`, `close_at_archive` — that exist only because a cascade cannot pass a reason to the part it disposes of. Until iteration 14 DESIGN.md called the outcome-level step "cascade, with inputs", using one word for two constructs of which only one takes them.
+
+    **Recommended: yes.** The strongest evidence in the repository. `first-consumer-walkthrough.md` §5 already writes `unit.retire` cascading `engagement_line.close(reason)`, and the syntax cannot express it. The production system's cascades carry behaviour for the same reason: cancelling a customer sets each delivery to cancelled **and releases its reserved inventory** (`wr:app/core/cascade_registry.py:64-95`), and cancelling a delivered delivery voids the warranties it created (`wr:app/core/state_registry.py:443-460`). A clinical-trial reviewer independently declared three transitions that exist only to work around the gap.
+
 8. Whether an evaluator should return a value and not only a verdict. The integrations that assign something — a randomisation service choosing an arm, a pricing service quoting — cannot be checked today, only asked a second time about a value the caller supplied, which is precisely the assertion the store exists to avoid trusting.
+
+    **Recommended: no, and the case is already covered.** Every live integration in the first consumer is confirm-only: Jira verifies an issue key the operator supplied and its create call is retained but deliberately unused (`wr:app/services/procurement_order_service.py:301`), the label server returns a status, S3 is passive storage. The one system that would *assign* a value is Xero, and that repository's own ADR-0003 proposes storing its contact id as a mirrored column — which is this design's mirror pattern, not an evaluator return. Adding a return value would create a second way to import external truth, and the mirror is the one that leaves a record.
+
 9. Whether `money` should carry its currency at runtime rather than in its declaration. A payments ledger cannot be typed today: one attribute holds one currency, so a multi-currency model either declares an attribute per currency or falls back to a `decimal` beside a currency string and loses every check the type exists to provide.
+
+    **Recommended: no.** No currency concept exists in the first consumer at all (`grep currency` over its application returns nothing but two comments about a Jira field it declines to supply), and this design has already placed currency conversion outside the store. A declaration-time currency makes a mismatch a publish error; a runtime currency makes it a production failure, which moves an error later for no gain. Real ledgers hold one account per currency rather than mixing them in a column, so the constraint agrees with the domain. Worth noting the reverse: the first consumer stores money as `Float` (`wr:app/models/inventory.py:45`) while its own design document claims `Decimal(10,2)` — a typed `money` with a stated scale is exactly what would have refused that.
+
 10. Whether a `counter` should hold `money` and be allowed to go negative. DESIGN.md offers a counter and a maintaining cascade as the remedy when a scan is too slow, and that remedy is closed to every quantity that is money. The consequence is that a ledger balance is an ordinary attribute with nothing tying it to the entries that produced it, and the one error a ledger exists to prevent is the one the store cannot check.
+
+    **Recommended: defer, and note what the evidence actually shows.** The first consumer stores **no stock level at all**: availability is computed on demand as available units minus allocations plus inbound minus pegs (`wr:app/services/atp.py:9`), and its only count-based things are non-inventoried supplies with no stock record, quantities living on lines. So the counter mechanism is unexercised by the consumer the design was built from, and the money-counter question rests on one reviewer's model. If counters are kept, move non-negativity out of the counter and into an invariant, which costs one line and removes a special case.
+
 11. Whether `only via` needs a form that names a family rather than each binder. A shared child of two types bound to one machine lists binders times triggers — eight parents for one disposal transition — repeated in each subtype's cascade clauses, and check 13 makes both directions an error, so three lists must be kept exactly in step.
+
+    **Recommended: yes, low priority.** No family in the first consumer needs it; the issue-tracking study does, where one base has many members and a shared child lists members times triggers in three places that must agree. Require the family to be named explicitly so the grant stays visible in one place.
+
 12. Whether `serial` and `quantity` are the right two tracking modes. A payment, a posting and a ledger account are neither: they are not one object per physical thing and they hold no stock. Every such type declares `serial` because the alternative demands a counter, which makes the declaration say something untrue about the domain.
+
+    **Recommended: yes, add a third mode.** The evidence is in the first consumer, not in payments. Exactly three of its entities are serial-identified, twelve or more are not physical things at all — delivery, service, procurement order, shipping record, warranty contract, packing list, intake batch, note, audit log — and **zero** are quantity-tracked with stored counters. All three serial types also carry a vestigial `quantity` column fixed at one (`wr:app/models/spare_part.py:32`, annotated "Always 1 for individual tracking"), which is the declaration saying something untrue in the system this design was drawn from. A third mode for a type that tracks no physical thing keeps the declaration honest and keeps the choice explicit.
+
 13. What a replacing creation owes the machine whose creation it replaced. Since ADR-0064 a binder's own `create` replaces the machine's, and check 8 holds the replacement to every required attribute and part — so the **data** guarantee survives. The **guards** do not: a screening or velocity guard on the machine's creation is simply not applied to a binder that declares its own, and nothing says so. A machine can `require` an attribute, a part and a capability of its binders; it cannot yet require that their creations carry a guard.
 
     This is the same shape §4.2 rejects by name when it argues against an unlisted `only via`: a construct that grants by construction what the model asks to be declared. It is the one open question whose current answer is a **silent weakening** rather than an acknowledged limit, which is why it is worth reading before the other twelve. One domain has asked for it, which is the bar that rejected a general suppression marking, so it is recorded rather than built.
+
+    **Recommended: yes, close it, and treat it as the first of the thirteen.** The hole is live in production. A warranty contract is creatable two ways: through its own endpoint under `WARRANTY_CREATE`, or automatically when a delivery completes under `DELIVERY_COMPLETE` (`wr:app/api/deliveries.py:658`, `wr:app/core/state_registry.py:414-440`). A principal holding `DELIVERY_COMPLETE` and no warranty permission whatever creates warranty contracts. That is exactly the shape this question describes, in the system being ported. Make the machine's creation guards apply to any creation that replaces it, so a replacement may add conditions and not drop them, and reject the replacement when an inherited guard reads an input it does not declare.
+
