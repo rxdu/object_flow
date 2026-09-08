@@ -630,7 +630,7 @@ The dominant finding is a recurrence of the defect fixed the same day as D48: **
 ### D92
 **An evaluator cannot return a value, and the common integration assigns one.** `:490` returns only a verdict. A randomisation service assigns the arm; the model must accept the arm from the caller and separately ask whether an allocation exists, so the store cannot check that the supplied value is the one the external system chose.
 
-**Recorded as open question 7.** Not resolved; an evaluator returning a value crosses the decide-and-record boundary of ADR-0007 and needs the author.
+**Recorded as open question 8.** Not resolved; an evaluator returning a value crosses the decide-and-record boundary of ADR-0007 and needs the author.
 
 ### D93
 **The §10 preamble's decidability claim is wrong in three ways.** `:635`. Check 23's rename clause is undecidable in principle, since a rename with no mapping is textually identical to a drop plus an add. The report list at `:681` does not contain the new-invariant scan the preamble places in it. "Which invariants compile to a database constraint on this backend" needs the backend configuration, a third external input the preamble does not mention.
