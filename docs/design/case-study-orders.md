@@ -33,24 +33,23 @@ Every earlier case has few, long-lived, richly related objects. An order system 
 ## 2a. Placement, declared
 
 ```text
-Order.place: [*] → PLACED                            a creation transition
-  inputs: cart     (reference Cart)
-          customer (reference Customer)
-          address  (string)
-  guards:
-    inputs.cart.state == ACTIVE                                            [dependent]
-    count(l in inputs.cart.lines) > 0                                      [self_serviceable]
-    actor.id == inputs.cart.owner or actor.has(ORDER_CREATE_ANY)           [delegable]
-  outcome:
-    customer := inputs.customer
-    address  := inputs.address
-    for l in inputs.cart.lines:
-      create OrderLine.add(order      := this,
-                           product    := l.product,
-                           qty        := l.qty,
-                           unit_price := l.product.price)
-      l.product.reserve(qty := l.qty)
-    inputs.cart.convert(successor := this)
+capability ORDER_CREATE_ANY
+
+create place -> PLACED accepts customer, address {
+  input cart : Cart
+  require open:  inputs.cart.state == Cart.ACTIVE               because dependent
+  require lines: count(l in inputs.cart.lines) > 0              because self_serviceable
+  require may:   actor.id == inputs.cart.owner
+                 or actor.has(ORDER_CREATE_ANY)                 because delegable
+  for l in inputs.cart.lines limit 500 {
+    create OrderLine.add(order      := this,
+                         product    := l.product,
+                         qty        := l.qty,
+                         unit_price := l.product.price)
+    call l.product.reserve(qty := l.qty)
+  }
+  call inputs.cart.convert(successor := this)
+}
 ```
 
 Three things in that declaration exist only because of the repair. `this` is usable inside a creation outcome, so the order can create its own lines (ADR-0052). The reservation cascade takes an input (ADR-0046). And because cascades apply sequentially and writes are read-modify-write (ADR-0038), two lines for one product are evaluated against each other, so an order can no longer oversell itself. Under the superseded rule both guards read the same pre-write count and both passed.
@@ -65,7 +64,7 @@ The price is snapshotted onto the line rather than referenced, for the reason th
 
 **Order and subscribers.** A busy log needs a stated ordering guarantee and a subscription model that survives a dead consumer. **ADR-0034**: events are strictly ordered per object and causally ordered across a cascade; a global position exists for cursors and is monotonic, but a pull cursor must tolerate a bounded window in which a lower position becomes visible after a higher one. Subscriptions are a built-in object type with a filter over type or family, transition names, and the `changes_state` flag, and a lifecycle of `active → revoked`, with lag and death **derived** from the acknowledged position rather than states anything drives (ADR-0043 superseded the three-state form proposed here). Attribute-level filters are not offered; the consumer filters after delivery.
 
-**Two clarifications.** An outcome may iterate any collection-valued expression, including a relationship reached from an input (`for l in inputs.cart.lines: …`, ADR-0046, ADR-0052). And a type may declare which attributes are **indexed**; publishing reports which transitions are sweepable and which derived attributes are queryable, and warns where a type-scan guard or visibility predicate uses an unindexed attribute (ADR-0048).
+**Two clarifications.** An outcome may iterate any collection-valued expression, including a relationship reached from an input (`for l in inputs.cart.lines limit 500 { … }`, ADR-0046, ADR-0052). And a type may declare which attributes are **indexed**; publishing reports which transitions are sweepable and which derived attributes are queryable, and warns where a type-scan guard or visibility predicate uses an unindexed attribute (ADR-0048).
 
 ## 4. What held without change
 

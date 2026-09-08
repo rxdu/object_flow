@@ -47,27 +47,23 @@ The Jira vocabulary below is used because the author's first consumer already re
 ## 2a. Resolution, declared
 
 ```text
-Bug.resolve: IN_PROGRESS → DONE
-  inputs: resolution  (enum Resolution)
-          fix_version (reference Version, optional)
-  guards:
-    actor.id == assignee.id or actor.has(ISSUE_RESOLVE_ANY)                [delegable]
-    none(t in subtasks where t.state.category != done)                     [dependent]
-    none(b in blocked_by where b.state.category != done)                   [dependent]
-    inputs.resolution == FIXED → inputs.fix_version is not null            [self_serviceable]
-  outcome:
-    state       := DONE
-    resolution  := inputs.resolution
-    fix_version := inputs.fix_version          skipped when not supplied (ADR-0052)
-    resolved_at := now
+capability ISSUE_RESOLVE_ANY, ISSUE_REOPEN
 
-Bug.reopen: DONE → IN_PROGRESS
-  inputs: reason (string)
-  guards: actor.has(ISSUE_REOPEN)                                          [delegable]
-  outcome:
-    state       := IN_PROGRESS
-    resolution  := null
-    resolved_at := null
+do resolve IN_PROGRESS -> DONE accepts resolution, fix_version {
+  require may:      actor.id == assignee.id or actor.has(ISSUE_RESOLVE_ANY) because delegable
+  require subtasks: none(t in subtasks   where t.state.category != done)    because dependent
+  require blockers: none(b in blocked_by where b.state.category != done)    because dependent
+  require versioned: resolution == Resolution.FIXED
+                     implies inputs.fix_version is not null                 because self_serviceable
+  set resolved_at := now
+}
+
+do reopen DONE -> IN_PROGRESS {
+  input reason : string
+  require may: actor.has(ISSUE_REOPEN) because delegable
+  clear resolution
+  clear resolved_at
+}
 ```
 
 Two Jira post-functions appear here as ordinary outcome writes, `resolved_at := now` and clearing the resolution on reopen. The validator that requires a fix version for a FIXED resolution is a guard over an input, which is where requiredness belongs (ADR-0002). `blocked_by` is a declared inverse, which ADR-0045 requires of anything an invariant traverses and which a guard may traverse freely.

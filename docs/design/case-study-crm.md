@@ -38,24 +38,17 @@ A CRM stresses what the previous two did not. Its objects are **joined many-to-m
 Which value wins is domain logic, so the consumer resolves the values and the store records the merge. The surviving fields are **declared**, not passed as a map: ADR-0046 refuses a dynamic attribute set because it cannot be checked at publish or printed in a rule set, and ADR-0052 makes an unsupplied optional input skip its write rather than clear the field.
 
 ```text
-Contact.merge_in: ACTIVE → ACTIVE                        an action on the survivor
-  inputs: loser   (reference Contact)
-          email   (string, optional)
-          phone   (string, optional)
-          company (reference Company, optional)
-  guards:
-    inputs.loser != this                                                   [self_serviceable]
-    inputs.loser.state == ACTIVE                                           [dependent]
-    actor.has(CONTACT_MERGE)                                               [delegable]
-  outcome:
-    email   := inputs.email               each skipped when not supplied (ADR-0052)
-    phone   := inputs.phone
-    company := inputs.company
-    for a in inputs.loser.associations:
-      a.repoint(contact := this)
-    for v in inputs.loser.activities:
-      v.repoint(contact := this)
-    inputs.loser.merged_into(successor := this)     only via this transition (ADR-0020)
+capability CONTACT_MERGE
+
+act merge_in at ACTIVE accepts email, phone, company {
+  input loser : Contact
+  require distinct: inputs.loser != this                 because self_serviceable
+  require live:     inputs.loser.state == Contact.ACTIVE because dependent
+  require may:      actor.has(CONTACT_MERGE)             because delegable
+  for a in inputs.loser.associations limit 1000 { call a.repoint(contact := this) }
+  for v in inputs.loser.activities   limit 5000 { call v.repoint(contact := this) }
+  call inputs.loser.merged_into(successor := this)
+}
 ```
 
 `merged_into` is a superseding terminal transition (ADR-0028). The loser keeps its id and history; the survivor's history records the merge with the loser as cause; the read surface presents a combined timeline by following `supersedes`. Every re-pointed link records its previous target in its own history, which is what a later, consumer-built unmerge would read.

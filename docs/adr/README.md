@@ -74,3 +74,4 @@
 | [0070](0070-authority-is-not-mandatory-at-a-closed-state-and-the-boundary-is-the-undo.md) | An authority list is not mandatory at a closed state | Accepted by the author |
 | [0071](0071-bounds-and-guard-names-stay-and-the-worst-case-product-goes.md) | Bounds and guard names stay; the reported worst-case product goes | Accepted by the author |
 | [0072](0072-six-smaller-answers-to-the-open-questions.md) | Six smaller answers to the open questions | Accepted by the author |
+| [0073](0073-clear-writes-absence.md) | `clear` writes absence, and is the only way to | Accepted (found re-expressing the case studies, review pending) |

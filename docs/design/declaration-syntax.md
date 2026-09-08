@@ -599,6 +599,7 @@ A `default` applies **at creation only**. An accepted attribute not supplied to 
 
 ```text
 set    <attribute or relationship end> := <expression>     this object only
+clear  <optional attribute>                               write absence, this object only
 add    <attribute> := <expression>                         this object only
 remove <attribute> := <expression>                         this object only
 call   <path>.<transition>(<arg> := <expr>, …)
@@ -611,6 +612,10 @@ for    <name> in 1..<expression> limit <n> { … }
 **Every write stays on `this`**, and its target may be an attribute or a stored relationship end; writing an `owner` re-parents a part, which is what makes splitting an object expressible. Reaching another object is `call`, which runs its transition, evaluates its guards and records an event on it.
 
 A path may be rooted at `this`, a relationship, a loop binder or an input.
+
+**`clear` writes absence**, and is the only way to. An unsupplied optional input *skips* its write, leaving the stored value alone, which is what a partial edit means; `clear` is the opposite and says so, so the two cannot be confused. It is a write like any other: it stamps the attribute's last-written index, appears in the event, and invalidates an approval that read the attribute. Publishing rejects a `clear` on a required attribute, on a counter, or on a relationship end (check 17) — an end is cleared by writing the optional reference itself.
+
+Without it a bug that is reopened keeps the resolution it was closed with, which is what `case-study-tickets.md` needed and could not write.
 
 **Absence skips a step, and only in two places.** A step or argument whose expression is *exactly* an unsupplied optional input is skipped, and a `call` whose path runs through an absent optional relationship end is skipped. The second is what makes an erasure's `call card.forget(…)` correct when the card is optional and absent; everywhere else absence in a path is an error, since it would otherwise hide a missing write (check 48). Neither is the state-based skip of §3.2, which belongs to a cascade: a `call` on an object that exists and cannot take the transition fails rather than being passed over. Any larger expression containing one is a publish error (check 48), so `set amount := inputs.amount` and `set amount := inputs.amount + 0` cannot be confused. A skipped write does not stamp the attribute's last-written index, so a no-op edit does not invalidate an approval.
 
@@ -919,7 +924,7 @@ Where a grammar line and an example disagree, the example is authoritative and t
 
 ### 9.5 The reserved words
 
-`module use capability category enum sequence evaluator machine type version inputs survives tracking serial quantity states state abstract requires provides attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because eager deferred set add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh stored with string bool int decimal money timestamp duration event file identity verdict`
+`module use capability category enum sequence evaluator machine type version inputs survives tracking serial quantity states state abstract requires provides attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because eager deferred set clear add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh stored with string bool int decimal money timestamp duration event file identity verdict`
 
 `s`, `min`, `h`, `days` and `weeks` are duration units only directly after a numeric literal, which is the one position the aggregate `min` cannot occupy.
 
@@ -949,7 +954,7 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 14 | An actor guard (§4.2) on an `only via` transition; `only via` with `proposable` |
 | 15 | A non-terminal state with no outgoing `do`; a state nothing can reach, **except** one that only a creation this binder replaced used to reach, which is reported instead (§2.1); a `do` leaving a `terminal` state; a machine with no `terminal` state; a state with no category. An `act` is a self-transition and does not count as outgoing, and being an `assert` target does not count as reached |
 | 16 | A non-abstract type that neither binds a machine nor declares `states`, or does both; a machine `requires` a binder does not satisfy. A binder satisfies one by declaring a member of that name and an identical type, optionality included, directly or inherited |
-| 17 | A write whose target is not an attribute, counter or stored relationship end of `this`; a write whose value does not fit the target — a differing scale where §8.3 does not round, or a precision the target cannot hold; an `add` or `remove` on a target that is not set-valued |
+| 17 | A write whose target is not an attribute, counter or stored relationship end of `this`; a `clear` whose target is not an optional attribute of `this`; a write whose value does not fit the target — a differing scale where §8.3 does not round, or a precision the target cannot hold; an `add` or `remove` on a target that is not set-valued |
 | 18 | A `part`/`owner` pair disagreeing on name; a `create` of a part that never writes its `owner`; a `part` whose `cascade` names a transition the child does not have. An `owner` is always singular and required, so there is no cardinality to compare |
 | 19 | A name that resolves to nothing under §9.2: a capability, category, state, attribute, counter, relationship end, derivation, enum member, type, machine, sequence, evaluator, invariant, remedy class or imported name |
 | 20 | An unnamed guard; a `default` on an optional input; a `because` that is not one of the five classes of §5.1 |

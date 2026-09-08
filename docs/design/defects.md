@@ -1031,3 +1031,19 @@ All three reviewers non-blocking, and one wrote "the document is ready for the a
 **A rename invented a new word for an established concept and redefined it.** D88 reported that the publish report named `sweepable` and defined it nowhere in the syntax document. The repair renamed it to *time-gated* and defined that instead. But `sweepable` is ADR-0048's term, it appears in thirteen files, and it names a different property: guards decomposing into an indexable prefilter, which is what makes `available` able to find objects at all. *Time-gated* named only the temporal-guard subset. So the syntax document reported a different thing under a different name than the rest of the record, and the correct repair for "defined nowhere here" was to define it, not to replace it.
 
 **Resolved.** The report names `sweepable` with ADR-0048's definition, and the temporal-guard refinement is stated as which of the sweepable transitions are worth polling, which is the part that keeps a closed window off a scheduler.
+
+## Found by pointing the checker at the other documents
+
+### D169
+**Twenty-five findings across the five case studies and the walkthrough, none of which had ever been checked.** The checker was hardcoded to the specification, so every other document's declarations were verified by reading alone. Pointed at them it reported 2 to 8 findings each.
+
+The cause is worse than drift. Those blocks were never written in the declaration syntax at all: they use a pre-syntax pseudo-notation with `guards:` and `outcome:` labels, a unicode arrow, bracketed remedy classes, `for x in y:` with no bound, and a bare `<path>.<transition>(…)` where `call` is now required. The "re-express the case studies in the new grammar" pass of September rewrote the tables and the prose and left the code blocks in the old notation, which is the same scoping failure `docs/LESSONS.md` records — and it survived because nothing could see them.
+
+**Resolved.** All six documents are rewritten in the current syntax and all six are clean. The checker takes a path, so they are checked on every run from now on.
+
+### D170
+**`DESIGN.md` promised a construct the language did not have.** §5.4 said "clearing a value deliberately is a separate input or a separate action". An unsupplied optional input skips its write rather than clearing, there is no assignable `null`, and iteration 15 had removed a check-8 clause for naming exactly this unwritable write. Six iterations passed without notice because no example needed it.
+
+`Bug.reopen` in the ticket study needs it: a bug moved back to in-progress that still reads `resolution = FIXED` is wrong in the way the model exists to prevent. It had been written as `resolution := null` in the unchecked notation, which is how the gap survived.
+
+**Resolved by ADR-0073.** A `clear` step writes absence to an optional attribute, and is a write like any other so that it invalidates an approval that read the attribute.

@@ -29,44 +29,50 @@ Every earlier case had a single actor per transition. Approval is the case where
 ### 2.2 A purchase request, declared
 
 ```text
-PurchaseRequest: DRAFT → SUBMITTED → APPROVED → ORDERED | REJECTED | WITHDRAWN
+capability APPROVE_PURCHASE, APPROVE_DIRECTOR
 
-  submit: DRAFT → SUBMITTED
-    guards: actor.id == requested_by.id                                    [delegable]
+# PurchaseRequest: DRAFT -> SUBMITTED -> APPROVED -> ORDERED | REJECTED | WITHDRAWN
 
-  approve: SUBMITTED → SUBMITTED                              an action (ADR-0016)
-    inputs: kind (enum ApprovalKind), comment (string, optional)
-    guards:
-      actor.has(APPROVE_PURCHASE)                                          [delegable]
-      actor.id != requested_by.id                                          [delegable]
-      none(a in approvals where a.approver == actor.id
-                            and not changed_since([amount, vendor], a.event))
-                                                                           [delegable]
-      inputs.kind == DIRECTOR implies actor.has(APPROVE_DIRECTOR)                [delegable]
-    outcome:
-      create Approval.record(approver  := actor.id,
-                             principal := actor.principal,
-                             kind      := inputs.kind,
-                             decision  := APPROVED,
-                             comment   := inputs.comment,
-                             event     := this_event)
+do submit DRAFT -> SUBMITTED {
+  require may: actor.id == requested_by.id because delegable
+}
 
-  mark_approved: SUBMITTED → APPROVED
-    guards:
-      any(a in approvals where a.kind == MANAGER and a.decision == APPROVED
-                           and not changed_since([amount, vendor], a.event))
-                                                                           [delegable]
-      amount > 10000 implies any(a in approvals where a.kind == DIRECTOR
-                                            and a.decision == APPROVED
-                                            and not changed_since([amount, vendor], a.event))
-                                                                           [delegable]
+act approve at SUBMITTED accepts comment {
+  input kind : ApprovalKind
+  require may:      actor.has(APPROVE_PURCHASE)   because delegable
+  require not_self: actor.id != requested_by.id   because delegable
+  require once:     none(a in approvals
+                         where a.approver == actor.id
+                           and not changed_since([amount, vendor], a.at_event))
+                                                  because delegable
+  require director: inputs.kind == ApprovalKind.DIRECTOR
+                    implies actor.has(APPROVE_DIRECTOR)
+                                                  because delegable
+  create Approval.record(approver  := actor.id,
+                         principal := actor.principal,
+                         kind      := inputs.kind,
+                         decision  := Decision.APPROVED,
+                         comment   := inputs.comment,
+                         at_event  := this_event)
+}
 
-  edit: SUBMITTED → SUBMITTED                                 an action (ADR-0042)
-    inputs: amount (money, optional), vendor (reference Vendor, optional)
-    guards: actor.id == requested_by.id                                    [delegable]
-    outcome:
-      amount := inputs.amount              skipped when not supplied (ADR-0052)
-      vendor := inputs.vendor
+do mark_approved SUBMITTED -> APPROVED {
+  require manager:  any(a in approvals
+                        where a.kind == ApprovalKind.MANAGER
+                          and a.decision == Decision.APPROVED
+                          and not changed_since([amount, vendor], a.at_event))
+                                                  because delegable
+  require director: amount > SGD 10000.00
+                    implies any(a in approvals
+                                where a.kind == ApprovalKind.DIRECTOR
+                                  and a.decision == Decision.APPROVED
+                                  and not changed_since([amount, vendor], a.at_event))
+                                                  because delegable
+}
+
+act edit at SUBMITTED accepts amount, vendor {          # each write skipped when not supplied
+  require may: actor.id == requested_by.id because delegable
+}
 ```
 
 Editing `amount` after a manager approved does not delete the approval and needs no reset in `edit`; `mark_approved` simply stops being available, and the verdict says which approval is now stale. That is ADR-0009's argument again: the rule is stated once, at the type, not repeated in every editing action.

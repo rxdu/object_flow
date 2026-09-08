@@ -115,29 +115,31 @@ Two completion transitions rather than one with a branch. The inventory system's
 ### 3.3 `complete_sale`, fully declared
 
 ```text
-complete_sale: PREPARATION → DELIVERED
-  inputs: (none)
-  guards:
-    type == DIRECT_SALE                                                    [unreachable_from_here]
-    all(c in checklist_items: c.checked)                                   [self_serviceable]
-    none(s in slots where s.role in (PRIMARY, INCLUDED) and s.unit is null)[dependent]
-    all(r in check_records where r.required: r.result == PASS)             [dependent]
-    xero.invoice_valid(order_id)                                           [dependent]
-        external, consulted before the transaction, verdict carries an as-of time (ADR-0049)
-    actor.has(DELIVERY_COMPLETE)                                           [delegable]
-  outcome:
-    state := DELIVERED
-    for s in slots where s.unit is not null:
-      s.unit.sell()                                only via this transition (ADR-0020)
-    for s in slots where s.warranty_product is not null:
-      create WarrantyContract.issue(robot    := s.unit,
-                                    product  := s.warranty_product,
-                                    customer := customer)
+do complete_sale PREPARATION -> DELIVERED {
+  require direct:   type == DeliveryType.DIRECT_SALE          because unreachable_from_here
+  require checked:  all(c in checklist_items: c.checked)      because self_serviceable
+  require filled:   none(s in slots
+                         where s.role in { PRIMARY, INCLUDED } and s.unit is null)
+                                                              because dependent
+  require inspected: all(r in check_records where r.required: r.result == Result.PASS)
+                                                              because dependent
+  require invoiced: xero.invoice_valid(order_id) deferred     because dependent
+  require may:      actor.has(DELIVERY_COMPLETE)              because delegable
+
+  for s in slots where s.unit is not null limit 200 {
+    call s.unit.sell()
+  }
+  for s in slots where s.warranty_product is not null limit 200 {
+    create WarrantyContract.issue(robot    := s.unit,
+                                  product  := s.warranty_product,
+                                  customer := customer)
+  }
+}
 ```
 
-Slot fill afterwards is a **derived view**, never stored: `slot.fill := unit is null ? UNFILLED : unit.state in (SOLD, DEVELOPMENT) ? FULFILLED : FILLED`. It is named `fill` rather than `state` so that it cannot be mistaken for lifecycle state, which ADR-0004 keeps distinct. Guards and the read surface evaluate it.
+Slot fill afterwards is a **derived view**, never stored: `derive fill = if unit is null then UNFILLED else if unit.state in { Robot.SOLD, Robot.DEVELOPMENT } then FULFILLED else FILLED`. It is named `fill` rather than `state` so that it cannot be mistaken for lifecycle state, which ADR-0004 keeps distinct. Guards and the read surface evaluate it.
 
-`cancel_delivered` mirrors the outcome: `for s in slots where s.unit is not null: s.unit.accept_return()` and `for c in warranty_contracts: c.void()`. `reopen` cascades `s.unit.reserve(slot := s)` on each slot's remembered unit — and if any unit is no longer `AVAILABLE`, the whole `reopen` is blocked with a `dependent` verdict naming that unit. Today the inventory system's `_reserve_delivery_items` side effect raises part-way through.
+`cancel_delivered` mirrors the outcome with `for s in slots where s.unit is not null limit 200 { call s.unit.accept_return() }` and a second loop calling `c.void()` on each warranty contract. `reopen` cascades `call s.unit.reserve(slot := s)` on each slot's remembered unit — and if any unit is no longer `AVAILABLE`, the whole `reopen` is blocked with a `dependent` verdict naming that unit. Today the inventory system's `_reserve_delivery_items` side effect raises part-way through.
 
 ## 4. Proposed mechanisms
 
@@ -189,11 +191,11 @@ A request carries an actor: an identity, a kind (human, agent, service), the pri
 
 | Operation | Declared as |
 |---|---|
-| Raise a procurement order for N units | `for i in 1..inputs.quantity: create Unit.request(model := inputs.model, order := this)` (ADR-0046, ADR-0052) |
+| Raise a procurement order for N units | `for i in 1..inputs.quantity limit 500 { create Unit.request(model := inputs.model, order := this) }` (ADR-0046, ADR-0052) |
 | Group units into a shipment | `ShippingRecord.create(units)` cascading `unit.ship` on each (A) |
 | Receive a shipment | `ShippingRecord.arrive` cascading `unit.receive` on each reconciled unit; `unit.flag_missing` is an action that leaves it `PROCUREMENT` (A, B) |
 | Intake work | actions on the unit in `INTAKE`: `record_label_print`, `attach_photo`, `capture_manufacturer_serial` (ADR-0016) |
-| Commit a batch, auto-fill pegs | `for i in items: i.unit.inventorize()` then `for i in items where i.unit.binding is not null: i.unit.reserve(slot := i.unit.binding)`. Sequential application (ADR-0038) is what makes the second loop's from-state guard pass |
+| Commit a batch, auto-fill pegs | `for i in items limit 500 { call i.unit.inventorize() }` then a second loop calling `i.unit.reserve(slot := i.unit.binding)` where the peg is set. Sequential application (ADR-0038) is what makes the second loop's from-state guard pass |
 | Revert a batch | `IntakeBatch.revert` cascading `unit.revert_intake`; blocked with the pinning unit named if any is not pristine (A, F) |
 | Soft-peg an inbound unit | action `unit.peg(slot)` allowed in `REQUESTED`/`PROCUREMENT`/`INTAKE`/`AVAILABLE`; writes `binding` (ADR-0016) |
 | Removing a slot frees inventory | two transitions, `remove_filled_slot` cascading `s.unit.release()` and `remove_pegged_slot` clearing the peg, each guarded on the slot's state. The "or" was a branch, which outcomes exclude |
@@ -203,7 +205,7 @@ A request carries an actor: an identity, a kind (human, agent, service), the pri
 | Retire an engaged unit | `unit.retire` cascading `engagement_line.close(reason)` (A) |
 | Xero-owned customer | Customer is a mirror with an external id; `complete_sale` carries a deferred external guard (ADR-0008) |
 | Jira reflection, alerts | consumers subscribed to the event log; overdue is a derived attribute queried by filtering its stored operand against the supplied time, and low stock by filtering the counter (ADR-0048) |
-| Split delivery | `let d2 = create Delivery.open(...)` then `for s in inputs.slots: s.reparent(delivery := d2)` (ADR-0046, ADR-0052). Exclusive membership holds at every instant |
+| Split delivery | `create d2 = Delivery.open(…)` then `for s in inputs.slots limit 200 { call s.reparent(delivery := d2) }` (ADR-0046, ADR-0052). Exclusive membership holds at every instant |
 
 Every row is expressible, though several need mechanisms A–H did not have: the grammar of ADR-0046 and ADR-0052, sequential application (ADR-0038) and the read-path rules of ADR-0048. The rows above name them.
 

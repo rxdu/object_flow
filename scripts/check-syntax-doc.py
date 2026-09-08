@@ -137,7 +137,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
     # 51 — the continuation rule of §9.1
     STARTS = (r"^(module|use|capability|category|enum|sequence|evaluator|machine|type|tracking|"
               r"states|state|provides|summary|visible|attr|counter|ref|part|owner|derive|invariant|"
-              r"create|do|act|assert|erase|input|accepts|require|set|add|remove|call|supersede|for|"
+              r"create|do|act|assert|erase|input|accepts|require|set|clear|add|remove|call|supersede|for|"
               r"cascade|survives|requires|removed|renamed|fn|extends|may|corrects|only|proposable)\b")
     clause_col = None
     for i, raw in enumerate(text.split("\n")):

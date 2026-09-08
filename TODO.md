@@ -6,8 +6,8 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 
 | | |
 |---|---|
-| ADRs | 72, none Proposed |
-| Defect register | 168 entries, none open; seven carried to open questions ([`docs/design/defects.md`](docs/design/defects.md)) |
+| ADRs | 73, none Proposed |
+| Defect register | 170 entries, none open; seven carried to open questions ([`docs/design/defects.md`](docs/design/defects.md)) |
 | Declaration syntax | **iteration 16, ready for author review**; checker clean, 24 of 52 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
 | Open questions | none. All thirteen answered by the author 2026-09-08, ADR-0065 to ADR-0072 ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
 | Awaiting author review | ADR-0019 to ADR-0064 (ADR-0065 to ADR-0072 are the author's own), DESIGN.md as a whole, and the declaration syntax |
@@ -33,7 +33,6 @@ Nothing here is blocked on it, and none of it is settled without it.
 - [ ] **The model additions** — ADR-0026 extends and families, ADR-0027 versioning, ADR-0028 supersession, ADR-0029 sequences, ADR-0030 visibility, ADR-0031 and ADR-0051 erasure, ADR-0050 tracking mode.
 - [ ] **The surfaces** — ADR-0034 and ADR-0043 subscriptions, ADR-0036 and ADR-0044 proposals, ADR-0037 and ADR-0048 the read surface, ADR-0049 external evaluators.
 - [ ] **The decisions that changed yours** — ADR-0042, ADR-0047 §6, ADR-0029.
-- [ ] **Twenty-five findings across the five existing case studies and the walkthrough.** The checker was hardcoded to the specification until now; pointed at the other documents it reports 2 to 8 findings each, mostly the outcome grammar as it stood before ADR-0046 and ADR-0052 — a `for` with no bound, a bare `<path>.<transition>(…)` where `call` is now required. The case studies were re-expressed in the grammar once, in September, and the grammar has moved five times since. Found while writing the payments study; recorded rather than fixed so that one thing finishes first.
 - [x] **A payments case study** — [`docs/design/case-study-payments.md`](docs/design/case-study-payments.md), written 2026-09-08. The four questions it raised now have their evidence in the repository rather than in a review transcript. Its declaration is checked on every run, being the first case study written after the checker could read one. Writing it up is how those questions stay attached to their evidence.
 - [ ] **The declaration syntax** — [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md), and the model amendments writing it forced: ADR-0055 to ADR-0064. This is the surface every consumer writes against, so it is the part worth reading slowest.
 - [ ] **DESIGN.md as a whole**, rewritten from scratch on 2026-09-08 rather than patched further.
