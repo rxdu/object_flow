@@ -871,6 +871,7 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 48 | An unsupplied optional input appearing as a sub-expression rather than as the whole step or argument (§5.2) |
 | 49 | A `supersede` whose operand is neither an input nor a name bound by an earlier `create` |
 | 50 | A `use` importing a name its module does not declare; a `default` expression reading an input or another attribute, which would make the expansion order-dependent |
+| 51 | A body that does not close on its opening line and puts a clause on that line; a line that can only be a continuation and is not indented deeper than the clause it continues (§9.1) |
 
 Reported without failing: how many live objects would violate an invariant this publish adds, and a sample of them; a declared input nothing reads; a guard whose remedy class was inferred, and what was inferred; a guard whose value can be `unknown` through an optional it never tests (§8.2); which invariants compile to a database constraint on this backend; which transitions are **time-gated**, meaning every guard that can currently fail is `temporal`, so a consumer knows the short list it must poll for work that becomes due; which derived attributes are queryable; the worst-case fan-out across nested loops and cascades; each dropped-and-added attribute pair that may be a rename; and how many pending proposals a publish would invalidate.
 

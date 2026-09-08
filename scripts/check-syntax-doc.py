@@ -112,6 +112,27 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
     catdecl = catdecl if catdecl is not None else set()
     reserved = reserved or set()
 
+    # 51 — the continuation rule of §9.1
+    STARTS = (r"^(module|use|capability|category|enum|sequence|evaluator|machine|type|tracking|"
+              r"states|state|provides|summary|visible|attr|counter|ref|part|owner|derive|invariant|"
+              r"create|do|act|assert|erase|input|accepts|require|set|add|remove|call|supersede|for|"
+              r"cascade|survives|requires|removed|renamed|fn|extends|may|corrects|only|proposable)\b")
+    clause_col = None
+    for i, raw in enumerate(text.split("\n")):
+        line = raw.split("#", 1)[0].rstrip()
+        if "{" in line:
+            after = line.split("{", 1)[1]
+            if after.strip() and "}" not in after and not line.lstrip().startswith(("<", "|")):
+                out.append((51, "a body opens with a clause on the brace line and does not close", base + i))
+        st = line.strip()
+        if not st or st.startswith(("}", "<", "|", "\u2026")):
+            clause_col = None; continue
+        ind = len(line) - len(line.lstrip())
+        if re.match(STARTS, st):
+            clause_col = ind
+        elif clause_col is not None and ind <= clause_col:
+            out.append((51, f"continuation line not indented deeper than its clause: {st[:48]}", base + i))
+
     for i, raw in enumerate(text.split("\n")):
         m = re.match(r"^(enum|sequence|evaluator|machine|type)\s+(\w+)(.*)$", raw)
         if m and "…" not in raw and not re.search(r"\bversion\s+\d", m.group(3)):
@@ -379,6 +400,8 @@ FIXTURES = {
   42: ["enum E { A, B }",
        "type A version 1 {\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}"],
   43: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\ntype B extends A version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T { }\n do go2 T -> U { }\n}",
+  51: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n act poke at S { require may: actor.has(X) because delegable\n   set n := 1 }\n}",
+       "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D {\n require g: a == 1\n and b == 2\n }\n}"],
   47: "type W version 1 {\n tracking serial\n states S category live, D category closed terminal\n part ps : C[] inverse w\n      cascade on go to C.del\n create mk -> S { }\n do go S -> D { }\n}",
   41: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref bs : B[] inverse as\n create mk -> S { }\n do go S -> D { }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n ref as : A[] inverse bs\n create mk2 -> T { }\n do go2 T -> U { }\n}",
   40: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n act poke at D { }\n}",
