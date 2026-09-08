@@ -2,7 +2,7 @@
 
 Status: design iteration 4, 2026-09-08. Companion to the earlier case studies. Decisions taken here are ADR-0032 to ADR-0034 plus two clarifications, all pending author review. No sibling repository holds an order system, so this study uses the standard order-to-cash shape rather than observed code; it is the second structurally different case TODO.md asked for — many, short-lived objects — and the one that forced the arithmetic decision.
 
-> **Superseded notation.** This study was written before ADR-0046 gave outcomes a grammar and ADR-0047 gave the expression language a semantics. Several constructs it uses do not exist in the model as it now stands, and its conclusions are not evidence until it is re-expressed. See `defects.md` D11 to D24 and TODO.md.
+> **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
 ## 1. Why this case
 
 Every earlier case has few, long-lived, richly related objects. An order system has millions of small ones that live for days, arrive in bursts, and are written by anonymous callers who retry. Stock is a **quantity**, not a serialised unit, so a guard compares numbers and an outcome subtracts them. Money is everywhere, and money means sums. Payment truth lives in a **gateway**, not the store. The event log becomes the busiest table in the system, which forces the ordering, retention and stored-versus-folded questions TODO.md had left open.
@@ -12,23 +12,50 @@ Every earlier case has few, long-lived, richly related objects. An order system 
 | Order-system concept | In this model |
 |---|---|
 | Product, variant (SKU) | object types; a variant is a part or a separate type extending `Product` (ADR-0026) |
-| Quantity stock: on hand, reserved, available | controlled numeric attributes; `available := on_hand - reserved` is derived (ADR-0032) |
+| Quantity stock: on hand, reserved, available | a quantity-tracked type (ADR-0050); `available := on_hand - reserved` is derived and indexable, since it reads stored attributes and no clock (ADR-0048) |
 | Cart; add / remove / change line | an object in a draft-like state; lines are parts; edits are actions (ADR-0016) |
 | Place order | a creation transition on `Order` cascading `create OrderLine` from the cart's lines and `product.reserve(qty)` on each product, in one transaction (ADR-0019); the cart ends `converted`, superseded by the order (ADR-0028) |
 | Line price captured at placement | an input written to the line, never a reference to the product's current price |
 | Order total, line subtotal | derived: `sum(lines.qty * lines.unit_price)` (ADR-0032) |
 | Tax, discount, shipping cost | domain formulas: the consumer computes and supplies them as inputs; guards check ranges and consistency (`inputs.tax >= 0`) (ADR-0007) |
-| Reserve stock; oversell prevention | `Product.reserve(qty)`: guard `on_hand - reserved >= inputs.qty`; outcome `reserved := reserved + inputs.qty`; under the row lock (ADR-0023) |
+| Reserve stock; oversell prevention | `Product.reserve`: guard `on_hand - reserved >= inputs.qty`; outcome `reserved := reserved + inputs.qty`, read-modify-write at the moment it is applied, so two lines on one product cannot both pass (ADR-0038) |
 | Payment authorised / captured / refunded | a `Payment` object mirroring the gateway (ADR-0008 mirror shape); the consumer receives the gateway's webhook and requests the transition with the gateway event id as idempotency key (ADR-0014) |
 | Order paid | `Order.mark_paid` cascaded from `Payment.capture`, only-via (ADR-0020); guard `payment.amount == total` |
 | Unpaid order auto-cancels after 30 minutes | `cancel_unpaid: placed → cancelled, guard placed_at + 30 min <= now`; a scheduler requests it through the availability query (ADR-0022, ADR-0032 for the duration) |
-| Fulfilment, partial shipment | `Shipment` objects with line quantities as link objects; invariant `sum(shipments.qty for a line) <= line.qty` (ADR-0032) |
+| Fulfilment, partial shipment | `Shipment` objects with line quantities as link objects; the invariant is declared on the line as a relationship aggregate, `sum(a in allocations: a.qty) <= qty`, since ADR-0047 refuses grouped aggregation |
 | Return, refund | transitions on order lines and `Payment.refund(amount)` with `sum(refunds) <= captured` |
 | Fraud hold, manual review | states plus actor guards (ADR-0025) |
 | Guest checkout | an actor of kind `human` with an ephemeral id the consumer mints; nothing in the store cares |
 | Retrying client placing the same order twice | idempotency key on the placement request (ADR-0014); the cascade is one request, so one key |
 | Fulfilment system, email, analytics | subscribers to the log (ADR-0013); analytics exports from the log, it does not query the store |
 | Stock ledger / movement history | the event log is the ledger — each reserve, release, receive is a recorded event; no second stream (ADR-0033) |
+
+## 2a. Placement, declared
+
+```text
+Order.place: [*] → PLACED                            a creation transition
+  inputs: cart     (reference Cart)
+          customer (reference Customer)
+          address  (string)
+  guards:
+    inputs.cart.state == ACTIVE                                            [dependent]
+    count(l in inputs.cart.lines) > 0                                      [self-serviceable]
+    actor.id == inputs.cart.owner or actor.has(ORDER_CREATE_ANY)           [delegable]
+  outcome:
+    customer := inputs.customer
+    address  := inputs.address
+    for l in inputs.cart.lines:
+      create OrderLine.add(order      := this,
+                           product    := l.product,
+                           qty        := l.qty,
+                           unit_price := l.product.price)
+      l.product.reserve(qty := l.qty)
+    inputs.cart.convert(successor := this)
+```
+
+Three things in that declaration exist only because of the repair. `this` is usable inside a creation outcome, so the order can create its own lines (ADR-0052). The reservation cascade takes an input (ADR-0046). And because cascades apply sequentially and writes are read-modify-write (ADR-0038), two lines for one product are evaluated against each other, so an order can no longer oversell itself. Under the superseded rule both guards read the same pre-write count and both passed.
+
+The price is snapshotted onto the line rather than referenced, for the reason the first consumer learned about applied configurations: a delivery records what it promised, not what the catalogue says today.
 
 ## 3. What the model could not say, and what was decided
 
@@ -38,7 +65,7 @@ Every earlier case has few, long-lived, richly related objects. An order system 
 
 **Order and subscribers.** A busy log needs a stated ordering guarantee and a subscription model that survives a dead consumer. **ADR-0034**: events are strictly ordered per object and causally ordered across a cascade; a global position exists for cursors and is monotonic, but a pull cursor must tolerate a bounded window in which a lower position becomes visible after a higher one. Subscriptions are a built-in object type with a filter over type or family, transition names, and the `changes_state` flag, and a lifecycle `active → lagging → dead-lettered` driven by acknowledgement lag. Attribute-level filters are not offered; the consumer filters after delivery.
 
-**Two clarifications.** An outcome may iterate a relationship reached from an *input* as well as from `this` (`for each inputs.cart.lines: create OrderLine`). And a type may declare which attributes are **indexed**; publishing a declaration whose type-scan guard or visibility predicate uses an unindexed attribute produces a warning in the publish report (ADR-0027).
+**Two clarifications.** An outcome may iterate any collection-valued expression, including a relationship reached from an input (`for l in inputs.cart.lines: …`, ADR-0046, ADR-0052). And a type may declare which attributes are **indexed**; publishing reports which transitions are sweepable and which derived attributes are queryable, and warns where a type-scan guard or visibility predicate uses an unindexed attribute (ADR-0048).
 
 ## 4. What held without change
 

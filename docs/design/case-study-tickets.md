@@ -2,7 +2,7 @@
 
 Status: design iteration 2, 2026-09-07. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md). Decisions taken here are ADR-0026 to ADR-0029 and an amendment to ADR-0021, all pending author review.
 
-> **Superseded notation.** This study was written before ADR-0046 gave outcomes a grammar and ADR-0047 gave the expression language a semantics. Several constructs it uses do not exist in the model as it now stands, and its conclusions are not evidence until it is re-expressed. See `defects.md` D11 to D24 and TODO.md.
+> **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
 ## 1. Why this case
 
 Issue tracking differs from the inventory system in ways that stress different parts of the model. Nothing is physical, so no guard reads a photo or a serial. The lifecycle is **user-configured per context**: the same issue type has a different workflow in different projects. Objects are joined by **typed, directional links** that guards read. Objects change kind — a subtask becomes an issue, an issue moves to another project. Workflows are **edited while thousands of issues are live**. And every issue carries a human-readable key that is minted, not supplied.
@@ -18,7 +18,7 @@ The Jira vocabulary below is used because the author's first consumer already re
 | Workflow; workflow scheme (project × type → workflow) | a **named state-machine declaration**; a type binds exactly one; "Bug in project A" and "Bug in project B" with different workflows are two types extending one base (ADR-0026) |
 | Status; status category (To Do / In Progress / Done) | state; **state category** declared on the state (ADR-0026) |
 | Transition; global transition ("any → Cancelled") | transition; from-state set or any-non-terminal (ADR-0016) |
-| Transition screen (fields shown on transition) | the parameter list derived from the transition's guards (ADR-0005) |
+| Transition screen (fields shown on transition) | the transition's **declared** inputs; ADR-0047 withdrew the claim that the list could be derived from the guards, and publishing instead checks the two against each other |
 | Condition ("only assignee may execute") | actor guard: `actor.id == assignee.id` (ADR-0025) |
 | Validator ("resolution required", "fix version required to close") | guard over inputs; requiredness attaches to the transition (ADR-0002) |
 | Post-function: set resolution, clear resolution on reopen, set resolved date | outcome writes: `resolution := inputs.resolution`, `resolution := null`, `resolved_at := now` (ADR-0021 amendment) |
@@ -26,7 +26,7 @@ The Jira vocabulary below is used because the author's first consumer already re
 | Post-function: fire event | the event log (ADR-0013) |
 | Post-function that computes or reaches outside (send mail, call a webhook) | an effect; a consumer subscribed to the event (ADR-0007) |
 | Update on the same status (edit fields without transitioning) | action — a self-transition (ADR-0016) |
-| Subtask; "parent cannot be Done while subtasks open" | composition; collection guard `none(subtasks where state.category != done)` |
+| Subtask; "parent cannot be Done while subtasks open" | composition; collection guard `none(t in subtasks where t.state.category != done)` |
 | Epic link, parent link | reference to another issue |
 | Issue link with type and direction (blocks / is blocked by, duplicates, relates to) | a declared relationship with a name and a declared inverse; adding or removing a link is an action; guards read it: `none(blocked_by where state.category != done)` |
 | Resolve as duplicate | a terminal transition recording a `duplicate_of` reference; **not** an identity merge |
@@ -39,10 +39,39 @@ The Jira vocabulary below is used because the author's first consumer already re
 | Permission scheme; issue-level security | capabilities in the actor descriptor; read visibility is a read-surface concern (TODO.md) |
 | Bulk transition | a batch of independent requests with per-item verdicts (TODO.md, read and request surface) |
 | Automation rule ("when X then Y"), SLA breach | a consumer subscribed to events (ADR-0012); a derived `breached := now > due` polled through the read surface (ADR-0022) |
-| Issue key `PROJ-123` | a business identifier minted from a **named sequence** scoped by project (ADR-0029) |
+| Issue key `PROJ-123` | a business identifier minted from a **named sequence** scoped by project (ADR-0029); monotonic, not gapless |
 | Move issue to another project; convert subtask ↔ issue | **supersession**: the old object ends in a terminal superseding state naming its successor (ADR-0028) |
 | Clone | a creation transition whose inputs are read from another object |
 | Editing a live workflow: removing a status that issues are in | **declaration versioning** with a mapping applied as recorded migration transitions (ADR-0027) |
+
+## 2a. Resolution, declared
+
+```text
+Bug.resolve: IN_PROGRESS → DONE
+  inputs: resolution  (enum Resolution)
+          fix_version (reference Version, optional)
+  guards:
+    actor.id == assignee.id or actor.has(ISSUE_RESOLVE_ANY)                [delegable]
+    none(t in subtasks where t.state.category != done)                     [dependent]
+    none(b in blocked_by where b.state.category != done)                   [dependent]
+    inputs.resolution == FIXED → inputs.fix_version != null                [self-serviceable]
+  outcome:
+    state       := DONE
+    resolution  := inputs.resolution
+    fix_version := inputs.fix_version          skipped when not supplied (ADR-0052)
+    resolved_at := now
+    assignee    := assignee
+
+Bug.reopen: DONE → IN_PROGRESS
+  inputs: reason (string)
+  guards: actor.has(ISSUE_REOPEN)                                          [delegable]
+  outcome:
+    state       := IN_PROGRESS
+    resolution  := null
+    resolved_at := null
+```
+
+Two Jira post-functions appear here as ordinary outcome writes, `resolved_at := now` and clearing the resolution on reopen. The validator that requires a fix version for a FIXED resolution is a guard over an input, which is where requiredness belongs (ADR-0002). `blocked_by` is a declared inverse, which ADR-0045 requires of anything an invariant traverses and which a guard may traverse freely.
 
 ## 3. What the model could not say, and what was decided
 

@@ -141,7 +141,7 @@ One language serves guards, invariants, derived attributes, visibility predicate
 | comparison, null test, membership; boolean logic and implication | `reason in CancellationReason`, `required → count(photos) >= 1` |
 | `count`, `all`, `any`, `none`, `sum`, `min`, `max` over a relationship or a type, binding the element | `none(s in Service where s.unit == this and s.state != CANCELLED)`, `sum(l in lines: l.qty * l.unit_price)` |
 | arithmetic on numbers; durations, and `+ -` with timestamps | `on_hand - reserved >= inputs.qty`, `placed_at + 30 min <= now` |
-| `changed_since(attributes, event)` over the object's history | `not changed_since(relevant, approval.event)` |
+| `changed_since(attributes, event)` over the object's history | `not changed_since([amount, vendor], a.event)` |
 | conditional expression, in derived attributes only | `unit == null ? UNFILLED : …` |
 | a declared external evaluator | `xero.invoice_valid(order_id)` |
 

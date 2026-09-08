@@ -53,3 +53,4 @@
 | [0049](0049-external-evaluators-run-outside-the-transaction.md) | External evaluators run outside the write transaction; their verdict carries an as-of time | Accepted (repair D32, review pending) |
 | [0050](0050-a-type-declares-its-tracking-mode.md) | A type declares whether it is serial-tracked or quantity-tracked | Accepted (repair D33, review pending) |
 | [0051](0051-erasure-integrity.md) | Personal values may not be copied into non-personal attributes; the redaction marker is absence | Accepted (repair D35, review pending) |
+| [0052](0052-grammar-amendments-from-re-expressing-the-case-studies.md) | Grammar amendments found by re-expressing the case studies | Accepted (repair D37-D41, review pending) |

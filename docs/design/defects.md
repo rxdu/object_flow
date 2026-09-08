@@ -2,7 +2,7 @@
 
 Findings from the implementation-readiness review of 2026-09-08. Every entry was verified against the file cited; the review ran as four independent passes (one direct, three delegated) and only findings confirmed by reading the source are recorded here.
 
-**How to read this.** `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. Status is `open`, `resolved by ADR-xxxx`, or `wontfix` with a reason.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. Status is `open`, `resolved by ADR-xxxx`, or `wontfix` with a reason.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
@@ -44,6 +44,11 @@ Findings from the implementation-readiness review of 2026-09-08. Every entry was
 | [D34](#d34) | Three Proposed ADRs are load-bearing | **partly resolved; two author confirmations outstanding** |
 | [D35](#d35) | Erasure has no taint rule and may collide with uniqueness | **resolved by ADR-0051** |
 | [D36](#d36) | `self-serviceable` is misused for the fan-out cap | **resolved by ADR-0041** |
+| [D37](#d37) | Iteration cannot take a collection-valued expression | **resolved by ADR-0052** |
+| [D38](#d38) | A creation does not name which creation transition it uses | **resolved by ADR-0052** |
+| [D39](#d39) | A write from an unsupplied optional input clears the field | **resolved by ADR-0052** |
+| [D40](#d40) | `this` is not stated to be available in a creation outcome | **resolved by ADR-0052** |
+| [D41](#d41) | Type-scan invariants have no affected-set rule | **resolved by ADR-0052** |
 
 ---
 
@@ -293,3 +298,34 @@ ADR-0006 is still Proposed and says at `:38` "Revisit before it becomes load-bea
 - **C05** The iteration-4 clarifications (outcomes may iterate an input's relationships; declared indexes; the fan-out cap) and the request `context` field live only in DESIGN.md and TODO.md with no ADR, against the convention that decisions live in ADRs.
 
 **Resolved by ADR-0041.** A new `over-limit` verdict replaces the misuse of `self-serviceable`.
+
+---
+
+## Found by re-expressing the case studies
+
+These five were found by writing the case studies' declarations in the grammar of ADR-0046 and ADR-0047, rather than by inspection. Each blocked a declaration a study needs.
+
+### D37
+**Iteration cannot take a collection-valued expression.** ADR-0046 allowed `for <name> in <relationship>` and `for <name> in 1..<expr>`. Splitting a delivery iterates a set-valued input naming the slots to move, and the CRM merge iterates a relationship of an input. Neither is a relationship of `this`, so neither was expressible.
+
+**Resolved by ADR-0052.** The iteration source is any expression yielding a collection.
+
+### D38
+**A creation does not name which creation transition it uses.** `create Unit(...)` is ambiguous for the first consumer's unit type, which is born `REQUESTED` when procured, `INTAKE` when added by hand and `AVAILABLE` as opening stock. Creation is a transition, so the creation form has to name one.
+
+**Resolved by ADR-0052.** `create <Type>.<transition>(...)`, with the bare form legal only where the type has one creation transition.
+
+### D39
+**A write from an unsupplied optional input clears the field.** `email := inputs.email` where the input is optional and absent writes absence under three-valued semantics, silently emptying the attribute. Every partial update has this shape, including the merge of the CRM study and the edit actions ADR-0042 requires of every type.
+
+**Resolved by ADR-0052.** Such a write is skipped, which is a rule about optionality rather than a branch.
+
+### D40
+**`this` is not stated to be available in a creation outcome.** ADR-0046 allocated an event's identity before its outcome runs, so `this_event` works, but said nothing about the object. Without the same rule, an order cannot create its own lines and no creation can pass itself to a cascade.
+
+**Resolved by ADR-0052.** The new object's id is allocated before its creation outcome runs.
+
+### D41
+**Type-scan invariants have no affected-set rule.** ADR-0045 restricted invariants to relationships with declared inverses so the affected set is computable by reverse traversal. The booking overlap invariant scans a type and traverses no relationship, so the restriction does not reach it, and reversing an arbitrary scan predicate is not generally possible.
+
+**Resolved by ADR-0052.** A type-scan invariant must be symmetric, which the recognised shapes are and which makes the reverse the same predicate.

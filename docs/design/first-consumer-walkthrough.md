@@ -2,7 +2,7 @@
 
 Status: **worked example**, written 2026-09-07 as a draft and adopted in design iteration 1. It works the first consumer's real lifecycles through the model as it stood, finds where that model could not express them, and proposes the additions that became ADR-0019 to ADR-0025. It is kept as the rationale behind those ADRs; the current model is [`DESIGN.md`](../DESIGN.md).
 
-> **Superseded notation.** This study was written before ADR-0046 gave outcomes a grammar and ADR-0047 gave the expression language a semantics. Several constructs it uses do not exist in the model as it now stands, and its conclusions are not evidence until it is re-expressed. See `defects.md` D11 to D24 and TODO.md.
+> **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
 Source material: `wr:app/core/state_registry.py`, `wr:docs/proposals/operations-system-design.md` §4–§5, `wr:docs/adr/0002-unit-engagement-and-leasing-model.md`, `wr:docs/adr/0003-xero-as-source-of-truth-for-customer-identity.md`. The `wr:` prefix is defined in [`TODO.md`](../../TODO.md).
 
 ## 1. Method
@@ -45,7 +45,7 @@ Terminal states: `RETIRED`, `CANCELLED`. Every transition is named and requested
 | `cancellation_reason`, `retirement_reason` | controlled | `cancel`, `retire`, as input |
 | `procurement_order`, `shipment` | controlled references | `request`, `ship` |
 | `binding` — the slot this unit is promised to | controlled reference | `reserve` / `release`, and the pegging action while inbound |
-| `notes` | free | any permitted actor; recorded |
+| `notes` | controlled | action `edit(notes)`, guarded on a capability (ADR-0042) |
 
 ### 2.3 Guards, as the model would declare them
 
@@ -53,7 +53,7 @@ Terminal states: `RETIRED`, `CANCELLED`. Every transition is named and requested
 |---|---|---|---|
 | `inventorize` INTAKE → AVAILABLE | `label_printed_at != null` | own attribute | `unreachable-from-here` — do `record_label_print` |
 | | `model.manufacturer_serial_required → manufacturer_serial != null` | own + referenced model | `unreachable-from-here` |
-| | `model.label_photo_required → count(photos) ≥ 1` | own + model | `unreachable-from-here` |
+| | `model.label_photo_required → count(p in photos) >= 1` | own + model | `unreachable-from-here` |
 | `reserve(slot)` AVAILABLE → RESERVED | `slot.model == model` | input + referenced | `self-serviceable` — choose another slot |
 | | `slot.unit == null` | input | `dependent` |
 | | `slot.delivery.state == PREPARATION` | referenced | `dependent` |
@@ -63,7 +63,7 @@ Terminal states: `RETIRED`, `CANCELLED`. Every transition is named and requested
 | `sell` RESERVED → SOLD | *only via* `Delivery.complete_sale` | — | not requestable |
 | `convert_lease` DEVELOPMENT → SOLD | *only via* `Lease.convert` | — | not requestable |
 | `revert_intake` AVAILABLE → INTAKE | `binding == null or binding.delivery.state == PREPARATION` | referenced | `dependent` |
-| | `none(Service where unit == this and state != CANCELLED)` | collection over a type | `dependent` |
+| | `none(s in Service where s.unit == this and s.state != CANCELLED)` | collection over a type | `dependent` |
 | `cancel(reason)` | `reason in CancellationReason` | input | `self-serviceable` |
 
 Everything in this table is a comparison, a null test, a membership test, a `count`, or an `all`/`none` over a relationship or a type, with the actor as a value. There is no arithmetic.
@@ -71,7 +71,7 @@ Everything in this table is a comparison, a null test, a membership test, a `cou
 ### 2.4 Invariants
 
 - `serial` is unique within the type.
-- At most one open engagement line per unit: `count(engagement_lines where engagement.state != CLOSED) ≤ 1`.
+- At most one open engagement line per unit: `count(l in engagement_lines where l.engagement.state != CLOSED) <= 1`. Symmetric on the unit key, so it satisfies ADR-0052.
 - A unit in `RESERVED` has exactly one `binding`; a unit in any other state has at most one (a soft peg).
 
 ### 2.5 What the model as written cannot express
@@ -116,24 +116,28 @@ Two completion transitions rather than one with a branch. The inventory system's
 
 ```text
 complete_sale: PREPARATION → DELIVERED
+  inputs: (none)
   guards:
-    type == DIRECT_SALE
-    all(checklist_items, checked)
-    none(slots where role in (PRIMARY, INCLUDED) and unit == null)      "no unfilled required slot"
-    all(check_records where required, result == PASS)                   pre-delivery inspection, planned
-    xero.invoice_valid(order_id)                                        external, deferred (ADR-0008)
-    actor.has(DELIVERY_COMPLETE)
+    type == DIRECT_SALE                                                    [unreachable-from-here]
+    all(c in checklist_items: c.checked)                                   [self-serviceable]
+    none(s in slots where s.role in (PRIMARY, INCLUDED) and s.unit == null)[dependent]
+    all(r in check_records where r.required: r.result == PASS)             [dependent]
+    xero.invoice_valid(order_id)                                           [dependent]
+        external, consulted before the transaction, verdict carries an as-of time (ADR-0049)
+    actor.has(DELIVERY_COMPLETE)                                           [delegable]
   outcome:
     state := DELIVERED
-    for each slot with unit != null:        unit.sell                   cascaded transition; its own guards apply
-    for each slot with warranty_product:    create WarrantyContract(robot := slot.unit,
-                                                                     product := slot.warranty_product,
-                                                                     customer := customer)
+    for s in slots where s.unit != null:
+      s.unit.sell()                                only via this transition (ADR-0020)
+    for s in slots where s.warranty_product != null:
+      create WarrantyContract.issue(robot    := s.unit,
+                                    product  := s.warranty_product,
+                                    customer := customer)
 ```
 
 Slot state afterwards is a **derived view**, never stored: `slot.state := unit == null ? UNFILLED : unit.state in (SOLD, DEVELOPMENT) ? FULFILLED : FILLED`. Guards and the read surface evaluate it.
 
-`cancel_delivered` mirrors the outcome: `for each slot with unit: unit.accept_return`; `for each contract: contract.void`. `reopen` cascades `unit.reserve(slot)` on each slot's remembered unit — and if any unit is no longer `AVAILABLE`, the whole `reopen` is blocked with a `dependent` verdict naming that unit. Today the inventory system's `_reserve_delivery_items` side effect raises part-way through.
+`cancel_delivered` mirrors the outcome: `for s in slots where s.unit != null: s.unit.accept_return()` and `for c in warranty_contracts: c.void()`. `reopen` cascades `s.unit.reserve(slot := s)` on each slot's remembered unit — and if any unit is no longer `AVAILABLE`, the whole `reopen` is blocked with a `dependent` verdict naming that unit. Today the inventory system's `_reserve_delivery_items` side effect raises part-way through.
 
 ## 4. Proposed mechanisms
 
@@ -141,7 +145,7 @@ Eight additions, each the smallest that closes a gap in §2.5 and §3 or a chall
 
 ### A. Cascaded outcomes
 
-A transition's outcome may include, besides its own state and attribute writes, **transitions on objects reached through declared relationships** (`for each slot.unit: unit.sell`) and **creation of new objects** (`create WarrantyContract(...)`).
+A transition's outcome may include, besides its own state and attribute writes, **transitions on objects reached through declared relationships** (`for s in slots: s.unit.sell()`) and **creation of new objects** (`create WarrantyContract.issue(...)`). The full grammar is ADR-0046 as amended by ADR-0052.
 
 Every guard — the parent's and each cascaded transition's — is evaluated before anything is written. If any fails, the whole request is blocked and the verdict names the object and the guard. If all pass, every outcome commits in one transaction, and every cascaded transition is recorded as *caused by* the parent — the causal-lineage mechanism of ADR-0014, now used inside one transaction. Nothing initiates: the caller requested the parent, and the cascade is its declared consequence.
 
@@ -149,7 +153,7 @@ Consequences: ADR-0004's "a cascade-close proposes terminal transitions on each 
 
 ### B. Outcomes are straight-line; branching lives in guards
 
-An outcome may iterate a relationship, optionally filtered (`for each slot with unit != null`), but may not choose between different outcomes. Where behaviour differs by a value, declare one transition per case, each guarded on that value. The availability list then shows the applicable one, and a value that matches no transition is visible as an object with no way forward rather than a silent fall-through.
+An outcome may iterate any collection-valued expression, optionally filtered (`for s in slots where s.unit != null`), but may not choose between different outcomes. Where behaviour differs by a value, declare one transition per case, each guarded on that value. The availability list then shows the applicable one, and a value that matches no transition is visible as an object with no way forward rather than a silent fall-through.
 
 Optional declaration-time check: for an attribute with a closed value set, warn when some value matches no transition out of a state.
 
@@ -185,21 +189,21 @@ A request carries an actor: an identity, a kind (human, agent, service), the pri
 
 | Operation | Declared as |
 |---|---|
-| Raise a procurement order for N units | `ProcurementOrder.create(...)` cascading `create Unit(state := REQUESTED, serial := input)` ×N (A) |
+| Raise a procurement order for N units | `for i in 1..inputs.quantity: create Unit.request(model := inputs.model, order := this)` (ADR-0046, ADR-0052) |
 | Group units into a shipment | `ShippingRecord.create(units)` cascading `unit.ship` on each (A) |
 | Receive a shipment | `ShippingRecord.arrive` cascading `unit.receive` on each reconciled unit; `unit.flag_missing` is an action that leaves it `PROCUREMENT` (A, B) |
 | Intake work | actions on the unit in `INTAKE`: `record_label_print`, `attach_photo`, `capture_manufacturer_serial` (ADR-0016) |
-| Commit a batch, auto-fill pegs | `IntakeBatch.commit` cascading `unit.inventorize` on each unit, then `unit.reserve(binding.slot)` on each unit carrying a soft peg — no trigger, one transaction (A) |
+| Commit a batch, auto-fill pegs | `for i in items: i.unit.inventorize()` then `for i in items where i.unit.binding != null: i.unit.reserve(slot := i.unit.binding)`. Sequential application (ADR-0038) is what makes the second loop's from-state guard pass |
 | Revert a batch | `IntakeBatch.revert` cascading `unit.revert_intake`; blocked with the pinning unit named if any is not pristine (A, F) |
 | Soft-peg an inbound unit | action `unit.peg(slot)` allowed in `REQUESTED`/`PROCUREMENT`/`INTAKE`/`AVAILABLE`; writes `binding` (ADR-0016) |
-| Removing a slot frees inventory | `Delivery.remove_slot` cascading `unit.release`, or clearing the peg (A) |
+| Removing a slot frees inventory | two transitions, `remove_filled_slot` cascading `s.unit.release()` and `remove_pegged_slot` clearing the peg, each guarded on the slot's state. The "or" was a branch, which outcomes exclude |
 | Pre-delivery inspection | `CheckRecord` parts of the delivery; `record_check` action; completion guard `all(required, PASS)` (composition) |
 | Engagement out and return | `Engagement` object with its own lifecycle; invariant one-open-per-unit (ADR-0009); `unit.leasable` derived (D) |
 | Lease-to-own | `Lease.convert` cascading `unit.convert_lease`, which is only-via (A, C) |
 | Retire an engaged unit | `unit.retire` cascading `engagement_line.close(reason)` (A) |
 | Xero-owned customer | Customer is a mirror with an external id; `complete_sale` carries a deferred external guard (ADR-0008) |
-| Jira reflection, alerts | consumers subscribed to the event log; overdue and low-stock predicates are derived attributes or consumer queries polled by the automation layer (D, E) |
-| Split delivery (deferred there) | a transition on the source delivery cascading slot moves to a new delivery; exclusive membership holds at every instant (A) |
+| Jira reflection, alerts | consumers subscribed to the event log; overdue is a derived attribute queried by filtering its stored operand against the supplied time, and low stock by filtering the counter (ADR-0048) |
+| Split delivery | `let d2 = create Delivery.open(...)` then `for s in inputs.slots: s.reparent(delivery := d2)` (ADR-0046, ADR-0052). Exclusive membership holds at every instant |
 
 Nothing in the table needs a mechanism beyond A–H.
 

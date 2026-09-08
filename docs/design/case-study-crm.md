@@ -2,7 +2,7 @@
 
 Status: design iteration 3, 2026-09-08. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md) and [`case-study-tickets.md`](case-study-tickets.md). Decisions taken here are ADR-0030 and ADR-0031 plus three clarifications, all pending author review.
 
-> **Superseded notation.** This study was written before ADR-0046 gave outcomes a grammar and ADR-0047 gave the expression language a semantics. Several constructs it uses do not exist in the model as it now stands, and its conclusions are not evidence until it is re-expressed. See `defects.md` D11 to D24 and TODO.md.
+> **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
 ## 1. Why this case
 
 A CRM stresses what the previous two did not. Its objects are **joined many-to-many with labelled, attributed links** — a contact is the decision maker on one deal and the billing contact on another, and has one primary company among several. Its lifecycle is thin and its data is thick: most of the work is property edits, not transitions. It is the natural home of **duplicate merging**, of **record ownership** that governs who may see and edit what, and of **legal erasure** that must reach into history — the first requirement anywhere in these studies that pushes against the recorded property. And its first consumer overlap is real: the inventory system already mirrors its customers from Xero (`wr:docs/adr/0003`).
@@ -20,33 +20,42 @@ A CRM stresses what the previous two did not. Its objects are **joined many-to-m
 | Closed won / closed lost, reopenable | states whose terminality the type author chooses |
 | Moving a deal to another pipeline | supersession (ADR-0028): a new deal in the other type, the old one ending with a pointer |
 | Association with labels ("decision maker", "billing") and a primary flag | a **link object** — a type with two references and its own attributes (clarification C1); "at most one primary company per contact" is a type-level invariant on it (ADR-0009, enforced by partial unique index per ADR-0023) |
-| Timeline activity (email, call, meeting, note) associated to several records | an object with references, append-only by declaration; not a part, because it is not exclusive to one record |
+| Timeline activity (email, call, meeting, note) associated to several records | an object with references whose only transitions are creation and `invalidate`, which is what append-only means here; not a part, because it is not exclusive to one record |
 | Record owner; teams | a reference to a user object; guards `actor.id == owner.id or actor.has(EDIT_ALL)` (ADR-0025) |
 | "View only owned or team records" | a **read visibility predicate** on the type (ADR-0030) |
-| Duplicate detection on email | a uniqueness invariant; the creation verdict names the conflicting object (clarification C3) |
+| Duplicate detection on email | a uniqueness invariant, partial over absent values because email is personal and erasure writes absence (ADR-0051); the creation verdict names the conflicting object |
 | Merge duplicates | an action on the surviving record that takes the resolved values as inputs and cascades the loser's supersession and the re-pointing of its links (§3) |
 | Unmerge | not built in; see `edge-cases.md` |
 | GDPR delete | **erasure** — redaction of declared personal attributes across the object and its history; distinct from deletion (ADR-0031) |
-| Rollup: number of associated deals | derived attribute, `count` (ADR-0021) |
-| Rollup: total deal amount; days since last activity; most recent activity date | `sum`, date arithmetic, `max` — **not in the version-1 language**; consumer computations today; the arithmetic question is now raised by three cases and is iteration 4's |
+| Rollup: number of associated deals | derived attribute `count(d in deals)` (ADR-0021, ADR-0047) |
+| Rollup: total deal amount; days since last activity; most recent activity date | derived attributes: `sum(d in deals: d.amount)`, `now - max(v in activities: v.at)` (ADR-0032, ADR-0047). Queried by filtering the stored operand rather than the derived value (ADR-0048) |
 | Workflows, sequences, lead scoring, auto-association by email domain | consumers subscribed to events; computation and selection stay outside (ADR-0007, ADR-0012) |
 | Forms, bulk import, upsert by email | creation transitions with idempotency keys; import path (ADR-0015); upsert is two requests the consumer sequences |
 | Company hierarchy (parent company) | a self-reference; acyclicity is **not expressible** in version 1 (see edge cases) |
 
 ## 3. Merge, fully declared
 
-Which value wins is domain logic, so the consumer resolves the values and the store records the merge:
+Which value wins is domain logic, so the consumer resolves the values and the store records the merge. The surviving fields are **declared**, not passed as a map: ADR-0046 refuses a dynamic attribute set because it cannot be checked at publish or printed in a rule set, and ADR-0052 makes an unsupplied optional input skip its write rather than clear the field.
 
 ```text
-Contact.merge_in(loser, values): active → active            an action on the survivor
+Contact.merge_in: ACTIVE → ACTIVE                        an action on the survivor
+  inputs: loser   (reference Contact)
+          email   (string, optional)
+          phone   (string, optional)
+          company (reference Company, optional)
   guards:
-    loser.type == this.type; loser != this; loser.state != MERGED
-    actor.has(CONTACT_MERGE)
+    inputs.loser != this                                                   [self-serviceable]
+    inputs.loser.state == ACTIVE                                           [dependent]
+    actor.has(CONTACT_MERGE)                                               [delegable]
   outcome:
-    <each attribute in values> := inputs.values.<attribute>
-    loser.merged_into(successor := this)                      cascaded; only via Contact.merge_in
-    for each loser.associations: association.repoint(contact := this)   cascaded actions on link objects
-    for each loser.activities:   activity.repoint(contact := this)
+    email   := inputs.email               each skipped when not supplied (ADR-0052)
+    phone   := inputs.phone
+    company := inputs.company
+    for a in inputs.loser.associations:
+      a.repoint(contact := this)
+    for v in inputs.loser.activities:
+      v.repoint(contact := this)
+    inputs.loser.merged_into(successor := this)     only via this transition (ADR-0020)
 ```
 
 `merged_into` is a superseding terminal transition (ADR-0028). The loser keeps its id and history; the survivor's history records the merge with the loser as cause; the read surface presents a combined timeline by following `supersedes`. Every re-pointed link records its previous target in its own history, which is what a later, consumer-built unmerge would read.

@@ -79,7 +79,7 @@ An implementation-readiness review on 2026-09-08 found **36 verified defects**, 
 
 The one thing the repair could not do is decide ADR-0008 and ADR-0017, which are the author's to confirm or reject. Both are load-bearing.
 
-**The case studies are no longer evidence.** They are written in a notation ADR-0046 and ADR-0047 replaced, and must be re-expressed before their conclusions can be relied on.
+**The case studies were re-expressed on 2026-09-08** against the repaired grammar. Doing so found five further gaps (D37 to D41), all resolved by ADR-0052; the declarations in the five studies are now current and their banners are lifted. The register stands at 41 defects, 40 resolved, D34 leaving two author confirmations.
 
 ## Toward implementation
 
