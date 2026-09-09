@@ -144,7 +144,19 @@ Four rules make it useful rather than ceremonial.
 
 **The file is committed.** It is the record of what the data was on the day it moved, and the reasons are the only place the judgement survives.
 
-## 6. What this leaves open
+## 6. Cutover is staged by type
+
+The author chose staged over big-bang (ADR-0075), and the shape of a stage follows from the one constraint ADR-0015 set: cutover cannot be dual-write. So each type has exactly one owner at any moment, and the order is not free.
+
+**A type may migrate only after every type that references it has migrated.** A migrated type referencing a not-yet-migrated one is fine — the referent is present here as a `mirror`. The reverse is not: a legacy row whose foreign key points at rows it no longer owns needs either dual-write or a new integration inside the system being retired.
+
+**A cycle in the reference graph is one stage.** Its members have no valid order between them, so they move together or not at all. The unit of a stage is a strongly connected component, and finding those is the first thing a cutover plan needs.
+
+**A stage is three publishes, not one.** The type arrives as a `mirror` in one, is kept current by repeated import while it is one, and is cut over by a version advance that removes the marking and declares its transitions. No object changes id, because the mirror held real objects from the start.
+
+What this does **not** solve is a legacy *read* of a migrated type. Only writes are forbidden. Where the retiring system must still show data that has moved, that is a read-only projection out of the read surface, and whether each such screen earns its cost is a per-stage judgement about that codebase rather than something this design decides.
+
+## 7. What this leaves open
 
 - **The extract format.** Nothing here says whether the source produces JSON lines, CSV or a database view. It should be whatever the first consumer's Python can emit most directly, and that is a question to settle against its code rather than in the abstract.
 - **Order.** Every object must exist before any reference is written, which means two passes or a deferred-constraint pass. Which one depends on whether the backend can defer, and PostgreSQL can while SQLite cannot in the same way.

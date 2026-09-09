@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D03, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0075 — a mirror is written only by the built-in assertion the import path uses.
 
 ## Context
 

@@ -36,6 +36,7 @@ class Decl:
         self.invariants = set()
         self.derives = set()
         self.base = None
+        self.mirror = False
 
 
 def parse(text, base=0):
@@ -49,6 +50,7 @@ def parse(text, base=0):
                 cur = None; i += 1; continue
             cur = Decl(m.group(1), m.group(2), ln)
             cur.abstract = " abstract" in raw
+            cur.mirror = " mirror" in raw
             cur.base = xbase.group(1) if xbase else None
             decls.append(cur); i += 1; continue
         if cur is None:
@@ -199,7 +201,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 add(16, f"{d.name} neither binds a machine nor declares states", d.start)
             if d.machine and d.states:
                 add(16, f"{d.name} both binds a machine and declares states", d.start)
-            if not any(t[0] == "create" for t in trans):
+            if not d.mirror and not any(t[0] == "create" for t in trans):
                 add(34, f"{d.name} has no creation transition", d.start)
             if d.tracking == "quantity" and not d.counters:
                 add(31, f"{d.name} is tracking quantity with no counter", d.start)
@@ -238,14 +240,36 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                         add(15, f"{d.name}.{tn} is a do leaving terminal state {f}", ln)
             for s_, (mods, ln) in states.items():
                 if "category" not in mods: add(15, f"{d.name}.{s_} has no category", ln)
+                if d.mirror: continue
                 for c in re.findall(r"category (\w+)", mods):
                     if catdecl and c not in catdecl: add(19, f"category {c} not declared", ln)
                 if "terminal" not in mods and s_ not in out_s:
                     add(15, f"{d.name}.{s_} is non-terminal with no outgoing transition", ln)
                 if s_ not in in_s and s_ not in orphaned:
                     add(15, f"{d.name}.{s_} is reachable by nothing", ln)
-            if not any("terminal" in v[0] for v in states.values()):
+            if not d.mirror and not any("terminal" in v[0] for v in states.values()):
                 add(15, f"{d.name} has no terminal state", d.start)
+
+        # 53 — nothing here may write a type another system owns
+        if not d.mirror:
+            for kind, tn, head, body, ln in (trans if d.kind == "type" else d.trans):
+                # an input or a relationship end resolves to the type it names
+                local = {n: t.rstrip("?[]") for n, t in
+                         re.findall(r"^\s*input\s+(\w+)\s*:\s*(\S+)", body, flags=re.M)}
+                local.update({n: v[1].split()[0].rstrip("?[]")
+                              for n, v in rels.items() if v[1].split()})
+                for m53 in re.finditer(r"\b(?:create|call)\s+(?:\w+\s*=\s*)?([\w.]+)\.(\w+)\s*\(", body):
+                    root = m53.group(1).split(".")[-1]
+                    tgt = by_name.get(local.get(root, root)) or by_name.get(m53.group(1))
+                    if tgt is not None and getattr(tgt, "mirror", False):
+                        add(53, f"{d.name}.{tn} writes {tgt.name}, which is a mirror "
+                                "owned by another system", ln)
+            for rn, (rk, rspec, rln) in d.rels.items():
+                if rk in ("part", "owner") and rspec.split():
+                    far = by_name.get(rspec.split()[0].rstrip("?[]"))
+                    if far is not None and getattr(far, "mirror", False):
+                        add(53, f"{d.name}.{rn} composes with mirror {far.name}, "
+                                "whose lifetime this store does not own", rln)
 
         # 42 — tracking present
         if d.kind == "type" and not d.abstract:
@@ -465,6 +489,7 @@ FIXTURES = {
   43: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\ntype B extends A version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T { }\n do go2 T -> U { }\n}",
   51: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n act poke at S { require may: actor.has(X) because delegable\n   set n := 1 }\n}",
        "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D {\n require g: a == 1\n and b == 2\n }\n}"],
+  53: "type M version 1 mirror {\n tracking record\n states A category live\n attr k string\n}\ntype T version 1 {\n tracking record\n states S category live, D category closed terminal\n part ms : M[] inverse t\n create mk -> S { }\n do go S -> D { }\n}",
   47: "type W version 1 {\n tracking serial\n states S category live, D category closed terminal\n part ps : C[] inverse w\n      cascade on go to C.del\n create mk -> S { }\n do go S -> D { }\n}",
   41: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref bs : B[] inverse as\n create mk -> S { }\n do go S -> D { }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n ref as : A[] inverse bs\n create mk2 -> T { }\n do go2 T -> U { }\n}",
   40: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n act poke at D { }\n}",

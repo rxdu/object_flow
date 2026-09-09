@@ -76,3 +76,4 @@
 | [0072](0072-six-smaller-answers-to-the-open-questions.md) | Six smaller answers to the open questions | Accepted by the author |
 | [0073](0073-clear-writes-absence.md) | `clear` writes absence, and is the only way to | Confirmed by the author |
 | [0074](0074-an-admissible-invariant-is-not-compiled.md) | An invariant an assertion may admit is not compiled to a database constraint | Accepted (derived writing the storage schema, review pending) |
+| [0075](0075-cutover-is-staged-by-type-and-a-mirror-is-a-declared-kind.md) | Cutover is staged by object type, and a type another system still owns is a `mirror` | Accepted by the author; the mirror marking derived, review pending |
