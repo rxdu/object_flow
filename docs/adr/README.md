@@ -75,3 +75,4 @@
 | [0071](0071-bounds-and-guard-names-stay-and-the-worst-case-product-goes.md) | Bounds and guard names stay; the reported worst-case product goes | Accepted by the author |
 | [0072](0072-six-smaller-answers-to-the-open-questions.md) | Six smaller answers to the open questions | Accepted by the author |
 | [0073](0073-clear-writes-absence.md) | `clear` writes absence, and is the only way to | Confirmed by the author |
+| [0074](0074-an-admissible-invariant-is-not-compiled.md) | An invariant an assertion may admit is not compiled to a database constraint | Accepted (derived writing the storage schema, review pending) |

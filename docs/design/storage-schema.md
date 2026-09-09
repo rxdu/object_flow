@@ -353,7 +353,7 @@ Enforcement is dynamic and correctness comes from serialisable isolation; a cons
 | a traversal or type-scan invariant | none | none |
 | any invariant that an assertion may `admit` | **none, on either** | see below |
 
-The last row is a constraint on compilation that the design record does not state. An admission suppresses **one** invariant for **one** object (ADR-0054) and a database constraint cannot yield for one row. So an invariant a type's assertion names in `may admit` must not be compiled, or an admitted violation would be refused by the database after the runtime allowed it. Publishing knows both facts and can decide it; this is the schema's constraint on that decision.
+The last row is **ADR-0074**, derived here because this is the first document that had to hold ADR-0041 and ADR-0054 at once. An admission suppresses **one** invariant for **one** object (ADR-0054) and a database constraint cannot yield for one row. So an invariant a type's assertion names in `may admit` must not be compiled, or an admitted violation would be refused by the database after the runtime allowed it. Publishing knows both facts and can decide it; this is the schema's constraint on that decision.
 
 The overlap row is the one that matters and the one not executed here. A booking-overlap invariant compiles to an exclusion constraint on PostgreSQL and has no equivalent in SQLite, so the same declaration is enforced by the database on one backend and by the runtime on the other. That is legitimate under ADR-0041 and it should be measured before it is believed, because a type-scan under serialisable isolation is where contention will actually appear.
 

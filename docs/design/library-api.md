@@ -189,14 +189,6 @@ class Event:
     payload: Mapping[str, Any]
 
 
-@dataclass(frozen=True)
-class PublishReport:
-    version: int
-    accepted: bool
-    failures: Sequence[str]
-    reported: Sequence[str]
-
-
 ```
 
 `TransitionOffer.unevaluated` is what makes the read surface honest about external evaluators: `availability`, `available` and `check` never call one, and each says which guards it therefore did not evaluate (ADR-0048, ADR-0049). A caller that treats an offer as a promise is wrong, and the field is there so it cannot claim it was not told.
@@ -244,8 +236,10 @@ class Store(Protocol):
                     position: int) -> None: ...
 
     def publish(self, actor: Actor, source: str,
-                dry_run: bool = False) -> PublishReport: ...
+                dry_run: bool = False) -> "PublishReport": ...
 ```
+
+`PublishReport` is defined in [`publish-and-import.md`](publish-and-import.md) §2, which owns it: publishing is where its shape is decided and one shape should have one home.
 
 Fourteen operations: the eleven of §10, the write path of §6, and the two operational calls that are not object operations. The checker holds this list against §10 rather than trusting it.
 

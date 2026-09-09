@@ -13,6 +13,7 @@ import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs/design/library-api.md"
+ALSO = [ROOT / "docs/design/publish-and-import.md"]  # shapes, no Store protocol
 MODEL = ROOT / "docs/DESIGN.md"
 # not read operations: the write path of section 6, and the two calls section 10
 # names as "operational calls that are not object operations"
@@ -26,6 +27,17 @@ def main():
         print("no Python blocks found"); return 1
 
     ns: dict = {}
+    # the shapes another document owns are loaded first, so a forward
+    # reference from the API resolves rather than silently shadowing
+    for extra in ALSO:
+        if extra.exists():
+            more = re.findall(r"```python\n(.*?)```", extra.read_text(), flags=re.S)
+            try:
+                exec(compile("\n".join(more), str(extra), "exec"), ns)
+            except Exception as e:
+                print(f"{extra.name}: does not execute: {type(e).__name__}: {e}")
+                return 1
+            print(f"{extra.name}: {len(more)} Python blocks execute")
     try:
         exec(compile("\n".join(blocks), str(DOC), "exec"), ns)
     except Exception as e:
