@@ -80,6 +80,7 @@ Every declared type gets one table. Its identity columns are the same in every o
 | `last_event` | the store | the event that last wrote this object |
 | `last_part_event` | the store | present only on a type that declares a `part`; §5 |
 | `superseded_by` | the store | present only on a type with a `superseding` state; `get(id, follow)` walks it (ADR-0028) |
+| `state_source` | the store | the `source` of the event that last set `state`, indexed. `exceptions(type)` reads it |
 
 **Absence is SQL `NULL` and never a sentinel** (ADR-0051). That is not a stylistic choice: the erasure marker must collide with no uniqueness constraint and must read as unknown, and a sentinel does neither. It follows that every uniqueness over a `personal` or `external` attribute is **partial**, ignoring absent values.
 
@@ -120,6 +121,7 @@ CREATE TABLE t_robot (
   type_version         INTEGER NOT NULL,
   last_event           INTEGER NOT NULL REFERENCES ok_event(position),
   last_part_event      INTEGER,
+  state_source         TEXT    NOT NULL DEFAULT 'observed',
   serial               TEXT    NOT NULL,          -- identifier, unique in scope
   manufacturer_serial  TEXT,
   label_printed_at     TEXT,                      -- timestamp
@@ -134,6 +136,7 @@ CREATE TABLE t_robot (
   CONSTRAINT t_robot_serial_in_scope UNIQUE (model_id, serial)
 );
 CREATE INDEX t_robot_state_ix   ON t_robot (state);
+CREATE INDEX t_robot_asserted_ix ON t_robot (state_source);  -- exceptions(type)
 CREATE INDEX t_robot_model_ix   ON t_robot (model_id);      -- stored end
 CREATE INDEX t_robot_binding_ix ON t_robot (binding_id);    -- stored end, and the inverse `units`
 ```
@@ -189,6 +192,10 @@ Most indexes are performance. These four are not: a stated guarantee is false wi
 
 The last one is why check 7 rejects a type-scan or a visibility predicate over an unindexed attribute at publish: the schema cannot be built to satisfy it afterwards.
 
+**`exceptions(type)` reads two things and no third.** Admissions come from `ok_admission` where `discharged_position` is null. Asserted state comes from `state_source = 'asserted'` on the type table, indexed. The design record promises the operation and never says what it reads; a column is chosen over scanning the log because the query is per type and the log is the busiest table in the system. It costs one indexed column on every object and it is written by the same statement that writes the state, so it cannot disagree with the event.
+
+An ordinary transition afterwards sets `state_source` back to `observed`, which is right: an object whose state was asserted and has since moved through the machine normally is no longer an exception, and nobody has to remember to clear a flag.
+
 `ok_attribute_write` deserves its shape stated plainly. One row per object per attribute ever written, holding the position of the event that last wrote it. It grows with the object's *width*, not with its history, so it is bounded by the declaration.
 
 ## 6. The built-in tables
@@ -217,12 +224,18 @@ CREATE TABLE ok_external_id (
 );
 
 -- Idempotency. The recorded verdict is replayed verbatim.
+-- Scoped to the principal, not global: a key is unique per caller, which is
+-- what the first consumer's own evidence shows and what `unique with` was
+-- added to the declaration syntax to express. A global key space would let
+-- one caller's retry collide with another's.
 CREATE TABLE ok_idempotency (
-  key            TEXT PRIMARY KEY,
+  principal      TEXT    NOT NULL,
+  key            TEXT    NOT NULL,
   request_digest TEXT    NOT NULL,
   first_position INTEGER REFERENCES ok_event(position),
   verdict        TEXT    NOT NULL,
-  applied_at     TEXT    NOT NULL
+  applied_at     TEXT    NOT NULL,
+  PRIMARY KEY (principal, key)
 );
 
 -- Admissions: an invariant a transition was permitted to violate.
@@ -394,6 +407,5 @@ A removed attribute leaving its column in place is deliberate: the column is how
 - **Partitioning.** The log is the busiest table and nothing here partitions it. By position is the obvious axis and it interacts with archival tiering.
 - **Whether one table per type survives many types.** A hundred types is a hundred tables; the first consumer has perhaps thirty. Nothing here is per-object, so it should hold, and it is worth checking against a consumer with a family of many members.
 - **The exclusion constraint of §8 is unexecuted**, as is everything in the PostgreSQL column.
-- **How `exceptions(type)` finds an object holding asserted state.** Admissions have a table; asserted state has nothing. The model promises the operation (§10) and no record says what it reads. A column on the object row, a query over events with `source = 'asserted'`, or a third table are all possible and they differ in cost.
-- **The scope and lifetime of an idempotency key.** The record leaves both undecided, and a key that is unique per caller rather than globally implies a column this table does not have.
+- **The lifetime of an idempotency key.** Its scope is settled below; how long a record is kept is not, and it is the one table here that could be pruned without losing history.
 - **Whether an archived event stays reachable by erasure, or only events with no personal attribute are archived.** The catalogue of edge cases offers both; the schema must pick one, and picking the second means the archive is not a plain move.
