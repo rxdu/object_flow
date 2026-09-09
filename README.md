@@ -2,7 +2,7 @@
 
 A governed object store: your data, and the rules that constrain how it changes.
 
-> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax consumers write against, 75 decisions, and a register of 200 findings, 186 closed and fourteen open from the whole-record review of 2026-09-09 — together with the checkers that verify the record against itself. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064 are written and await review.
+> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax consumers write against, 76 decisions, and a register of 200 findings, 188 closed and twelve open from the whole-record review of 2026-09-09 — together with the checkers that verify the record against itself. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064 are written and await review.
 
 ## What it is
 

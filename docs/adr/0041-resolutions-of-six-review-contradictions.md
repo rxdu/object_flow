@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D05, D06, D27, D28, D31, D36, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0071 — mandatory bounds and guard names stay; the reported worst-case product goes. ADR-0074 — an invariant an assertion may admit is not compiled, since a database constraint has no per-row exemption.
+- **Refined by:** ADR-0071 — mandatory bounds and guard names stay; the reported worst-case product goes. ADR-0074 — an invariant an assertion may admit is not compiled, since a database constraint has no per-row exemption. ADR-0076 — the replay is checked before `expected_version`, so a retry carrying its original version replays rather than refusing.
 
 ## Context
 
@@ -20,7 +20,7 @@ Listing it would defeat the reason ADR-0020 exists, which it states plainly: an 
 
 DESIGN.md §6 wins over ADR-0014's "refuses a second attempt". A repeated request carrying an applied key returns the original result, with an indication that it was replayed.
 
-Refusal would make a retry after a network timeout indistinguishable from a genuine duplicate, which is the failure the key exists to prevent. ADR-0022's periodic scheduler sweep also depends on a repeat being harmless. ADR-0014's own warning against conflating request replay with transition deduplication stands: the key deduplicates the transition, and the replayed result is the transition's result, not a stored HTTP response.
+Refusal would make a retry after a network timeout indistinguishable from a genuine duplicate, which is the failure the key exists to prevent. ADR-0022's periodic scheduler sweep also depends on a repeat being harmless. ADR-0014's own warning against conflating request replay with transition deduplication stands: the key deduplicates the transition, and the replayed result is the transition's result, not a stored HTTP response. The replay check runs before the `expected_version` comparison (DESIGN.md §6, ADR-0076): a retry carries the version the original was checked against, and refusing it as `stale` would reintroduce the ambiguity this decision removes.
 
 ### 3. An action's outcome is not restricted (D27)
 

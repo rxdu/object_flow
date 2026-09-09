@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 2 (2026-09-07); pending author review. **Withdraws** the "no sequence primitive" consequence of ADR-0018.
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0076 — the allocation is outside the creating transaction, on a second connection, which on SQLite opens a separate file; the gap of rule 4 is what that buys.
 
 ## Context
 
@@ -9,7 +10,7 @@ ADR-0018 correctly separates the store's opaque id from business identifiers, an
 
 ## Decision
 
-1. The store provides **named sequences**: a declared name, an optional scope expression (`project.id`), a monotonically increasing integer per scope, taken atomically inside the creating transaction, never reused.
+1. The store provides **named sequences**: a declared name, an optional scope expression (`project.id`), a monotonically increasing integer per scope, taken atomically inside the creating transaction, never reused. *(D181 and ADR-0076 moved the allocation out of the creating transaction, onto a connection of its own that commits first, so a rolled-back creation leaves the gap rule 4 requires; atomicity and monotonicity stand.)*
 2. A business-identifier attribute may declare `from sequence <name> [scoped by <expression>] format "<literal>{n}<literal>"`. The value is minted at creation, is unique by construction within its scope, and is otherwise an ordinary controlled attribute.
 3. Formatting is declaration metadata, not expression-language arithmetic or string operations. ADR-0021's version-1 language is unchanged.
 4. Sequences are **monotonic, not gapless**: a rolled-back creation leaves a gap.

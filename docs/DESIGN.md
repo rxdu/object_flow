@@ -1,6 +1,6 @@
 # ObjectKeeper — Design
 
-**Status: under review.** The model is settled. Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 200 entries and five cosmetics; 186 are closed and fourteen, D187 to D200 from the whole-record review of 2026-09-09, are open. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064 are written and await review.
+**Status: under review.** The model is settled. Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 200 entries and five cosmetics; 188 are closed and twelve, D189 to D200 from the whole-record review of 2026-09-09, are open. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064 are written and await review.
 
 This document is the single description of the **model**: what an object is, what a transition guarantees, how a request executes, what the store refuses. The **language** those things are written in belongs to [`design/declaration-syntax.md`](design/declaration-syntax.md), which owns every grammar, every spelling and the fifty-two publish checks.
 
@@ -221,13 +221,13 @@ A type declares one of three modes (ADR-0050, ADR-0067). **Serial-tracked** is o
 
 ## 6. Transition execution
 
-A request names an object, a transition, its inputs and the actor, and optionally the version the caller last read, an idempotency key (ADR-0014), and a free-form `context` string naming the route it came by, recorded on the event. A creation request names the type and the creation transition instead of an object, and skips steps 1 and 2.
+A request names an object, a transition, its inputs and the actor, and optionally the version the caller last read, an idempotency key (ADR-0014), and a free-form `context` string naming the route it came by, recorded on the event. A creation request names the type and the creation transition instead of an object, and skips steps 1 and 3.
 
 External evaluators named by any guard in the request are consulted **first, outside the transaction**, and their verdicts carried in with their as-of times (ADR-0049). The rest runs in one transaction at **serialisable isolation** (ADR-0039):
 
 1. If the type declares visibility and the actor cannot see the object, refuse as `not found`.
-2. If an `expected_version` is given and differs, refuse with `stale`.
-3. If the idempotency key has been applied before, return the original result, marked as a replay (ADR-0041).
+2. If the idempotency key has been applied before, return the original result, marked as a replay, **whatever `expected_version` the retry carries**: a retry is the original request re-sent, and its version is the one the original was checked against (ADR-0041, ADR-0076).
+3. If an `expected_version` is given and differs, refuse with `stale`. This is possible only for a request that has not been applied.
 4. Evaluate the parent transition's guards. A failure refuses the request, naming the clause, its object and its remedy class.
 5. Apply the parent's outcome in full: its new state and its attribute writes, each value read at the moment it is applied (ADR-0054).
 6. Then, depth-first in declaration order and over collection elements in ascending object-id order, take each cascaded transition or creation in turn, **skipping a part already in a terminal state**, since its disposition has happened and that is the only skip on account of state; for each of the rest evaluate its guards **against the state produced so far**, then apply its outcome immediately (ADR-0038). Only-via transitions contribute their non-actor guards; other cascades run as the requesting actor. Any failure aborts the whole request and rolls back.

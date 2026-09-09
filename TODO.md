@@ -6,8 +6,8 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 
 | | |
 |---|---|
-| ADRs | 75, none Proposed |
-| Defect register | 200 entries and five cosmetics; 186 closed, seven of them carried to open questions the author has since ruled on; **fourteen open**, D187 to D200, from the whole-record review of 2026-09-09 ([`docs/design/defects.md`](docs/design/defects.md)) |
+| ADRs | 76, none Proposed |
+| Defect register | 200 entries and five cosmetics; 188 closed, seven of them carried to open questions the author has since ruled on; **twelve open**, D189 to D200, from the whole-record review of 2026-09-09 ([`docs/design/defects.md`](docs/design/defects.md)) |
 | Declaration syntax | **iteration 18, ready for author review**; checker clean, 24 of 52 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
 | Open questions | none. All thirteen answered by the author 2026-09-08, ADR-0065 to ADR-0072 ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
 | Awaiting author review | ADR-0019 to ADR-0064, DESIGN.md as a whole, and the declaration syntax. ADR-0065 to ADR-0073 are settled: ADR-0065 to ADR-0072 are the author's own rulings, ADR-0073 confirmed 2026-09-08 |
@@ -28,7 +28,7 @@ Five changed the language: a machine's creation guards bind any creation that re
 
 Nothing here is blocked on it, and none of it is settled without it.
 
-- [ ] **The whole-record review of 2026-09-09** — D187 to D200 in [`docs/design/defects.md`](docs/design/defects.md), fourteen open. Three need a ruling: D190 (what erasure does to legacy history), D193 (whether actor attributes are typed and readable, or attenuation is withdrawn), D194 (whether a permanently external-owned type is the `mirror` kind). The rest carry a recommendation and are repairs; D187 and D188 break a running system and come first.
+- [ ] **The whole-record review of 2026-09-09** — D187 to D200 in [`docs/design/defects.md`](docs/design/defects.md). D187 and D188, the two that broke a running system, are repaired by ADR-0076, pending review; twelve remain open. Three need a ruling: D190 (what erasure does to legacy history), D193 (whether actor attributes are typed and readable, or attenuation is withdrawn), D194 (whether a permanently external-owned type is the `mirror` kind). The rest carry a recommendation and are repairs.
 - [ ] **The execution model** — ADR-0038 sequential cascades, ADR-0039 serialisable isolation, ADR-0040 the assertion path, ADR-0054 parent ordering and admissions. These changed how the store runs, not just what it says.
 - [ ] **The languages** — ADR-0046 outcome grammar, ADR-0047 expression semantics, ADR-0052 grammar amendments, ADR-0053 the presence tests, ADR-0032 arithmetic.
 - [ ] **The model additions** — ADR-0026 extends and families, ADR-0027 versioning, ADR-0028 supersession, ADR-0029 sequences, ADR-0030 visibility, ADR-0031 and ADR-0051 erasure, ADR-0050 tracking mode.
@@ -49,6 +49,7 @@ Nothing here is blocked on it, and none of it is settled without it.
 | Corpus coherence review, 2026-09-08 | Four parallel audits after the rulings: the decision set, the model against the language, the case studies, the status documents. D171 to D180; `scripts/check-corpus.py` |
 | Coherence pass, 2026-09-08 | ADR-0054; DESIGN.md rewritten; 20 statements corrected across the ADR set; D42 to D47 |
 | Declaration syntax, 2026-09-08 | Eighteen iterations against reviewers reading as a first-time user and as the implementer of the checker; ADR-0055 to ADR-0064; D48 to D168; `scripts/check-syntax-doc.py` runs the document's examples against its own rules |
+| Whole-record review, 2026-09-09 | One reviewer over the whole record after the six documents of that day, three claims probed by running them; D187 to D200; ADR-0076 repairs the two that broke a running system, and `scripts/check-schema-doc.py` keeps the SQLite probe |
 
 ## Open model questions
 

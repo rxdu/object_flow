@@ -2,7 +2,7 @@
 
 Draft, 2026-09-09. How a published declaration becomes tables, and how the guarantees of [`../DESIGN.md`](../DESIGN.md) rest on them. The model owns what a rule means and [`declaration-syntax.md`](declaration-syntax.md) owns how it is written; this document owns only where the bytes go.
 
-**What is verified.** Every statement of SQLite DDL below was executed against SQLite 3.37 before being written down, including a cascade round trip and a refused state value. The PostgreSQL column is reasoned from its documentation and **was not executed** — there is no PostgreSQL in the environment this was written in, and the exclusion constraints of §8 are the part most worth running before anyone relies on them.
+**What is verified.** Every statement of SQLite DDL below was executed against SQLite 3.37 before being written down, including a cascade round trip and a refused state value, and so is the two-connection sequence probe of §6, which `scripts/check-schema-doc.py` runs on every corpus run. That probe is the one claim this document makes about SQLite's runtime behaviour rather than its DDL, and it was reasoned rather than run until D187 found it false as first written. The PostgreSQL column is reasoned from its documentation and **was not executed** — there is no PostgreSQL in the environment this was written in, and the exclusion constraints of §8 are the part most worth running before anyone relies on them.
 
 ## 1. Three layers, and why not fewer
 
@@ -201,12 +201,14 @@ An ordinary transition afterwards sets `state_source` back to `observed`, which 
 ## 6. The built-in tables
 
 ```sql
--- Named sequences, scoped. Allocated in its OWN transaction on its own
--- connection, committed before the request continues, so the allocation
+-- Named sequences, scoped. Allocated on a SECOND CONNECTION in its own
+-- transaction, committed before the request continues, so the allocation
 -- survives a rollback of the request and leaves the gap ADR-0029 requires.
 -- Updating this row inside the request's transaction would make sequences
 -- gapless, which that decision rejected: it serialises every creation in
--- the scope.
+-- the scope. On SQLite this table lives in a SEPARATE DATABASE FILE beside
+-- the store: SQLite's write lock is per file, so a second connection to the
+-- store's own file blocks behind the request's transaction (ADR-0076, D187).
 CREATE TABLE ok_sequence (
   name       TEXT    NOT NULL,
   scope_key  TEXT    NOT NULL,
@@ -339,7 +341,7 @@ CREATE TABLE ok_legacy_entry (
 
 `ok_declaration` is never deleted. Every event names the version whose rules applied, so deleting one makes that stretch of history unreadable.
 
-**The sequence table is the one thing here written outside the request's transaction.** Everything else — the object row, the event, the write index, the part-event position, the idempotency record — commits with the transition or not at all. The sequence is the exception because a decision requires it to be: a monotonic sequence with gaps needs its allocation to survive a rollback, and one that rolls back is gapless and serialises the scope (ADR-0029). On PostgreSQL this can be a native `SEQUENCE`, whose `nextval` is already non-transactional; on SQLite it is a second connection.
+**The sequence table is the one thing here written outside the request's transaction.** Everything else — the object row, the event, the write index, the part-event position, the idempotency record — commits with the transition or not at all. The sequence is the exception because a decision requires it to be: a monotonic sequence with gaps needs its allocation to survive a rollback, and one that rolls back is gapless and serialises the scope (ADR-0029). It is allocated on a **second connection**, and where that connection points depends on how the backend locks. PostgreSQL locks rows: the second connection opens the same database and updates the `ok_sequence` row, which the request's transaction never touches; an unscoped sequence may be a native `SEQUENCE` instead, whose `nextval` is already non-transactional. SQLite locks the **file**: once the request's connection has written anything — and it has, since the event's position is allocated before any outcome step runs — every other connection's write to that file waits out the busy timeout and fails with `database is locked`. So on SQLite `ok_sequence` lives in a **separate database file** beside the store, opened on its own connection and created by the same DDL; a write there does not contend with the store's lock, and a crash between the mint and the request's commit leaves a gap, which ADR-0029 already accepts (ADR-0076, D187). `scripts/check-schema-doc.py` runs that scenario on every corpus run, in both journal modes: a second connection to the same file blocks behind an open write transaction, one to a separate file does not, and the value it allocated survives the request's rollback.
 
 ## 7. Concurrency
 
@@ -413,6 +415,7 @@ A removed attribute leaving its column in place is deliberate: the column is how
 - **Partitioning is by position range, and the boundary is the archival boundary.** Position is monotonic, so a range partition never moves a row for reordering, and the partition that ages out is the unit that tiers — an archive becomes a partition detached and reattached rather than a row-by-row copy.
 - **Erasure reaches the archive**, rather than the archive holding only events with no personal attribute; §9 gives the reasoning.
 - **An idempotency key is scoped to the principal**, so one caller's retry cannot collide with another's.
+- **The sequence store is a second connection, and on SQLite a separate file.** SQLite locks the file rather than the row, so a second connection to the store's own file waits behind the request's own write and fails; a file beside it does not. Observed by probe, and the probe is kept in `scripts/check-schema-doc.py` (ADR-0076, D187).
 
 **Still open.**
 

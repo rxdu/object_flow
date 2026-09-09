@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0039 — serialisable isolation replaces rules 2, 3 and 6; ADR-0076 — the idempotency replay is checked before `expected_version`, so `stale` is possible only for a request that has not been applied.
 
 ## Context
 
