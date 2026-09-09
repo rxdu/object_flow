@@ -63,7 +63,7 @@ An agent is given one tool per **requestable** transition. Only-via transitions 
 ```json
 {
   "name": "delivery_complete_sale",
-  "description": "Complete a delivery as a sale. Call availability(id) first: this transition is refused unless the delivery is in PREPARATION and its guards pass, and the verdict says which guard failed and what can be done about it.",
+  "description": "Complete a delivery as a sale. Call availability(id) first: it evaluates the real guards against the real data, and its verdict says whether this transition is available now, which guard refuses it if not, and what can be done about it.",
   "input_schema": {
     "type": "object",
     "properties": {

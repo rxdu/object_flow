@@ -50,7 +50,7 @@ A practical consequence, measured rather than asserted. In the first consumer, 4
 | [`docs/design/`](docs/design/) | The first-consumer walkthrough, five case studies, the catalogue of edge cases, and the defect register |
 | [`docs/LESSONS.md`](docs/LESSONS.md) | Operational lessons |
 | [`TODO.md`](TODO.md) | Where the design stands, what the author has decided, and what is still open |
-| [`scripts/`](scripts/) | Five checkers. One runs the declaration syntax's own rules over every example in the documents; one runs the storage schema's SQL; one executes the library API and holds it against the model; one validates the agent tool schemas; the fifth checks the corpus against itself — cross-references, retired notation, decision back-links, the defect index |
+| [`scripts/`](scripts/) | Five checkers. One runs the declaration syntax's own rules over every example in the documents; one runs the storage schema's SQL; one executes the library API and holds it against the model; one validates the agent tool schemas; the fifth checks the corpus against itself — cross-references, retired notation, decision back-links, the defect index, and the counts the status lines quote |
 
 ## Scope
 

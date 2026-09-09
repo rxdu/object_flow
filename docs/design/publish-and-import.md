@@ -95,7 +95,7 @@ Every object arrives mid-lifecycle at once, which is the situation a migration i
 |---|---|
 | **Extract** | The source system produces one record per object, its legacy key, its state, its attribute values, its references by legacy key, and its history |
 | **Map** | A per-type mapping from source shape to declared shape, written by hand. This is the part no tool can infer |
-| **Dry run** | Every object is evaluated against the declaration. Nothing is written. Out comes the disposition file of §5 |
+| **Dry run** | Every object is evaluated against the declaration. Nothing is written. Out comes the disposition file of §6 |
 | **Decide** | A person resolves every class in that file: cleaning the source, supplying a value in the mapping, admitting an invariant violation, or excluding the objects (§6) |
 | **Assign ids** | Every object receives its new id from the legacy-key mapping **before any row is written**, so every reference, required or optional, resolves to an id at the moment its row is inserted, and an unresolvable legacy key is found here and not by the database (ADR-0018, ADR-0077) |
 | **Import** | Objects are created by the **built-in assertion** with provenance `asserted`, each row written complete with its references and keeping its legacy key as an external identifier with source `legacy`. Rows go in dependency order where one exists, so a failure names the first row that could not be placed; a cycle of required references has no such order and commits with its foreign keys checked at commit, which both backends do for a stored end (`storage-schema.md` §3) |
