@@ -62,7 +62,7 @@ Three things, in order of how much:
 
 ## 5. What to do with this
 
-1. **Map tables to types first.** The order above cannot be used directly, and §1 says why.
+1. **Map tables to types first.** The order above cannot be used directly, and §1 says why. `publish-and-import.md` §5 gives the rules; most of the 45 go by shape, and what needs deciding is the three judgements it names — for this system, principally whether a note outlives its subject, since notes attach polymorphically to eleven types with no foreign key and nothing in the schema answers it.
 2. **Sample the JSON columns** named in §4 against production rows.
 3. **Reflect the live schema** and compare, since none of this touched a running database.
 4. Then recompute the order over types, at which point the three findings that matter — one breakable cycle, the most-referenced types being the least-changing, and a great deal of ordering freedom — should carry over unchanged.

@@ -103,7 +103,34 @@ Every object arrives mid-lifecycle at once, which is the situation a migration i
 
 Soft-deleted rows land in the type's deleted state (ADR-0024). Cutover cannot be dual-write, because there is one write path.
 
-## 5. The disposition file
+## 5. Mapping a table to a type
+
+The per-type mapping is written by hand, but less of it than it first appears. Most of a relational schema maps by shape, and naming the rules is what leaves the genuine judgements visible instead of buried among the mechanical ones.
+
+| Shape in the source | Becomes |
+|---|---|
+| a table whose rows are things with a lifecycle | a **type**, `tracking serial` if each row is one physical thing, `record` otherwise |
+| a child table with a required parent reference and no independent existence | a **`part`**, and the parent's cascade covers its terminal transitions |
+| a child table whose rows outlive the parent | a type with a `ref`, not a part. This is the distinction that matters most and the one only a person can make |
+| a table of `(parent_id, ordinal, value)` with no other columns | a **set-valued attribute** on the parent |
+| a pure join table, two foreign keys and nothing else | a relationship: one end stored, the other derived. **No type** |
+| a join table carrying payload columns | an **association type**, since the payload needs somewhere to live and a reference carries no attributes |
+| a lookup or catalogue table | a type, usually `record`, and usually one of the last to migrate |
+| an audit or history table | the **event log**. Not a type; its rows become legacy entries (§4) |
+| a soft-delete flag | a terminal state in the machine, not an attribute |
+| a status column with an enum | the machine's states, and every value present in production must appear or the import cannot place those rows |
+| a denormalised copy kept deliberately, such as a snapshot | an attribute, and **not** a reference, because its whole purpose is to stop tracking the thing it came from |
+| a session, token or cache table | infrastructure. Not imported |
+
+Three of these are judgements rather than rules, and each is worth asking about explicitly rather than deciding by default:
+
+**Does a child outlive its parent?** A part's lifetime is bounded by its whole, so getting this wrong either orphans rows or destroys ones that should have survived. The first consumer's notes are the live example: they are append-only, attach polymorphically to eleven types, and have no foreign key, so nothing in the schema answers it.
+
+**Is a status column a lifecycle or an attribute?** Not every enum is a machine. A column that only ever moves forward through a fixed sequence is a lifecycle; one that flips freely is an attribute, and declaring it a machine invents transitions nobody performs.
+
+**Is a table a type at all?** A table can exist because the relational model needed one, not because the domain has that thing in it. Join tables are the obvious case; a table of one row holding settings is another.
+
+## 6. The disposition file
 
 The output of a dry run and the input to the import. It exists so that "a person decides each class" is a reviewable artefact in the repository rather than a conversation.
 
@@ -144,7 +171,7 @@ Four rules make it useful rather than ceremonial.
 
 **The file is committed.** It is the record of what the data was on the day it moved, and the reasons are the only place the judgement survives.
 
-## 6. Cutover is staged by type
+## 7. Cutover is staged by type
 
 The author chose staged over big-bang (ADR-0075), and the shape of a stage follows from the one constraint ADR-0015 set: cutover cannot be dual-write. So each type has exactly one owner at any moment, and the order is not free.
 
@@ -156,7 +183,7 @@ The author chose staged over big-bang (ADR-0075), and the shape of a stage follo
 
 What this does **not** solve is a legacy *read* of a migrated type. Only writes are forbidden. Where the retiring system must still show data that has moved, that is a read-only projection out of the read surface, and whether each such screen earns its cost is a per-stage judgement about that codebase rather than something this design decides.
 
-## 7. Decided since the first draft, and still open
+## 8. Decided since the first draft, and still open
 
 **Decided.** Each followed from a decision the record already carried, or from what the design made unavoidable.
 
@@ -166,5 +193,5 @@ What this does **not** solve is a legacy *read* of a migrated type. Only writes 
 
 **Still open.**
 
-- **The per-type mapping** from source shape to declared shape is written by hand and is the part no tool can infer. It is work against the first consumer's code.
+- **The three judgements of §5** — whether a child outlives its parent, whether a status column is a lifecycle or an attribute, and whether a table is a type at all. The rest of the mapping goes by shape; these do not, and each is a question to ask rather than a default to take.
 - **How much history is worth carrying.** The first consumer's audit log is 6,391 rows and its notes table 684, both append-only. Importing all of it is possible; whether every legacy entry earns its place is a judgement about that data.
