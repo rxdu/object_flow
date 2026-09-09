@@ -25,7 +25,9 @@ Take types A and B where A holds a reference to B.
 
 So the ordering follows: **a type may migrate only after every type that references it has migrated.** Referrers before referents. The most-referenced types go last, which for the first consumer means the customer moves near the end and is mirrored for longest — acceptable, since it is also the type that changes least.
 
-Where the reference graph has a cycle, its members have no valid order between them and **move as one stage**. The unit of a stage is therefore a strongly connected component of the stored-reference graph, not a single type.
+Where the reference graph has a cycle, its members have no valid order between them **unless the cycle can be broken**. A cycle every one of whose edges is optional can be: import the members with those references absent, then write them in a second pass, which is the two-pass import `publish-and-import.md` §7 already requires for every reference. Only a cycle containing a required reference forces its members into one stage.
+
+That distinction is not academic. The first consumer's graph has exactly one cycle — the soft peg on an inbound unit against the hard bind on a delivery slot, joining units and delivery items — and **all seven of its edges are nullable**, so it breaks. See `first-consumer-cutover.md`.
 
 ## Decision
 
@@ -67,5 +69,5 @@ The marking is removed and the real transitions are declared, which is an ordina
 
 - The declaration syntax gains `mirror` on a type header and check 53. `scripts/check-syntax-doc.py` implements both, confirmed by probe in each direction: a composition with a mirror and a `call` into one are refused, and a reference to one with a guard reading its state is clean.
 - **The stage order is derivable from the declaration**, since the reference graph is in it. Publishing can compute it and should: a proposed stage that migrates a type before one of its referrers is an error the tooling can name.
-- The first consumer's stage order needs computing against its real reference graph, and its cycles need finding. That is work against that repository and is recorded in `TODO.md`.
+- The first consumer's graph was extracted on 2026-09-09 and is written up in `design/first-consumer-cutover.md`: one cycle, breakable, and seven stages over its tables. The caveat there is the important one — the stage unit is an ObjectKeeper **type**, and its tables are not its types.
 - **A legacy read of a migrated type is not solved by this**, only a legacy *write*. Where the retiring system must still display data that has moved, that is a read-only projection out of the read surface, and whether each such screen is worth building is a per-stage judgement about that codebase.
