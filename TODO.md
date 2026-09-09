@@ -75,7 +75,7 @@ The port of the first consumer's production data is a designed path (ADR-0015, D
 - [x] **Soft-deleted rows.** Land in the type's declared deleted terminal state with provenance `asserted` (ADR-0024). Per-type naming of that state is import mapping work, not design.
 - [x] **Legacy keys.** Preserved as `external: legacy` attributes with `lookup` by them (ADR-0018, ADR-0037).
 - [x] **Files.** Content-addressed `file` attributes with the bytes in the deployment's blob store ([ADR-0017](docs/adr/0017-file-attachments-are-content-addressed-references.md), confirmed 2026-09-08). Legacy photos, packing-list PDFs and label templates port as controlled attributes written by the import's asserting transition. The blob store's own lifecycle expiry must be disabled.
-- [ ] **Cutover.** Big-bang or staged by object type with ObjectKeeper read-only for the remainder. A project-plan decision that the design must not preclude.
+- [x] **Cutover.** **Staged by object type**, decided by the author 2026-09-09, ADR-0075. Ownership is per type and absolute, so the order is forced: a type may migrate only after every type that references it has, and a cycle in the reference graph moves as one stage. A type held here and owned elsewhere is declared `mirror`.
 
 ## Defect repair
 
