@@ -44,10 +44,11 @@ A practical consequence: a single business rule today is expressed as a storage 
 | [`docs/design/storage-schema.md`](docs/design/storage-schema.md) | How a declaration becomes tables, and which indexes a guarantee depends on |
 | [`docs/design/library-api.md`](docs/design/library-api.md) | The fourteen operations a program calls, and the shapes they take |
 | [`docs/design/publish-and-import.md`](docs/design/publish-and-import.md) | What publishing checks and reports, and how production data arrives |
+| [`docs/design/renderers.md`](docs/design/renderers.md) | The rule set, agent tool schemas and form hints, as projections of one declaration |
 | [`docs/design/`](docs/design/) | The first-consumer walkthrough, five case studies, the catalogue of edge cases, and the defect register |
 | [`docs/LESSONS.md`](docs/LESSONS.md) | Operational lessons |
 | [`TODO.md`](TODO.md) | Where the design stands, what the author has decided, and what is still open |
-| [`scripts/`](scripts/) | Four checkers. One runs the declaration syntax's own rules over every example in the documents; one runs the storage schema's SQL; one executes the library API and holds it against the model; the fourth checks the corpus against itself — cross-references, retired notation, decision back-links, the defect index |
+| [`scripts/`](scripts/) | Five checkers. One runs the declaration syntax's own rules over every example in the documents; one runs the storage schema's SQL; one executes the library API and holds it against the model; one validates the agent tool schemas; the fifth checks the corpus against itself — cross-references, retired notation, decision back-links, the defect index |
 
 ## Scope
 

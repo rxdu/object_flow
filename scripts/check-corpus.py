@@ -160,6 +160,16 @@ def check_api_doc():
             findings.append("library-api.md:" + line.rstrip())
 
 
+def check_renderers_doc():
+    """The renderers document's JSON must parse and its schemas must validate."""
+    if not (ROOT / "docs/design/renderers.md").exists():
+        return
+    r = subprocess.run([sys.executable, str(ROOT / "scripts/check-renderers-doc.py")],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        findings.append("renderers.md: " + r.stdout.strip().split("\n")[-1])
+
+
 def check_declarations():
     """Every document that states declarations must pass the syntax checker.
 
@@ -200,6 +210,7 @@ def main():
     check_declarations()
     check_schema_doc()
     check_api_doc()
+    check_renderers_doc()
 
     print(f"corpus: {len(nums)} decision records, {maxcheck} checks defined")
     if not findings:
