@@ -20,7 +20,7 @@ A deterministic rendering of one declaration version, for a person to read and r
 
 Determinism matters more than prettiness: two renders of one version must be byte-identical, because the artefact people actually use is the diff between two versions. Attributes in declaration order, transitions in declaration order, guards in the order they are evaluated — which is the order that decides which one a verdict names.
 
-```text
+```
 Delivery — version 1
   tracking record
 
