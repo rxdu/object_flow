@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 5 (2026-09-08); pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0044 — execution under the current declaration and invalidation; ADR-0079 — attenuation is a capability or an object, never a descriptor attribute.
 
 ## Context
 
@@ -18,7 +19,7 @@ TODO.md asked whether a denied transition should produce a pending proposal rath
 
 **Delegation.**
 
-5. The store has **no delegation mechanism**. Delegated authority is a capability in the delegate's descriptor with `principal` set to the delegator; attenuation is a descriptor attribute a guard reads (`amount <= actor.attributes.approval_limit`).
+5. The store has **no delegation mechanism**. Delegated authority is a capability in the delegate's descriptor with `principal` set to the delegator; attenuation is a descriptor attribute a guard reads (`amount <= actor.attributes.approval_limit`). *(ADR-0079 withdrew the attribute: the descriptor has none. Attenuation is a capability where the limit is one of a few fixed values, and otherwise the `Delegation` object of rule 6, which is now the only pattern.)*
 6. A consumer that must govern and record delegations models them as an object type — `Delegation { delegator, delegate, capability, limit, from, until }`, `active → revoked | expired` — and its authentication reads live delegations when computing descriptors. That is a pattern, and the case study shows it.
 
 ## Alternatives rejected

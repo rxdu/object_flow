@@ -2,7 +2,7 @@
 
 - **Status:** **Accepted** — the author chose staged cutover 2026-09-09; the `mirror` marking is the consequence, derived here and pending review
 - **Date:** 2026-09-09
-- **Refined by:** ADR-0077 — import writes each row complete in one pass; the two-pass sentence below is annotated.
+- **Refined by:** ADR-0077 — import writes each row complete in one pass; the two-pass sentence below is annotated; ADR-0080 — the marking is for the duration of a cutover, and a type another system owns for good is an ordinary type the sync writes.
 - **Refines:** ADR-0015, ADR-0027, ADR-0040
 
 ## Context
@@ -47,7 +47,7 @@ type Customer version 1 mirror {
 }
 ```
 
-A mirror declares its attributes, its states and its external identifier, and **no transitions at all**. It is written only by the import path — the built-in assertion, capability-gated and recorded (ADR-0040, ADR-0054) — so every change to it is attributable to the import that made it, and none of it looks like an ordinary transition.
+For the duration of a cutover (ADR-0080), a mirror declares its attributes, its states and its external identifier, and **no transitions at all**. It is written only by the import path — the built-in assertion, capability-gated and recorded (ADR-0040, ADR-0054) — so every change to it is attributable to the import that made it, and none of it looks like an ordinary transition.
 
 Checks 15, 34 and the terminal-state rule do not apply to a mirror: they are about a lifecycle, and a mirror's lifecycle belongs to another system. **Check 53 is new** and is what makes the marking mean something. Nothing here may write a mirror: no outcome may `call` or `create` into one, and no `part` or `owner` may compose with one, because a composition binds the part's lifetime to the whole and a mirror's lifetime is not this store's to bind.
 

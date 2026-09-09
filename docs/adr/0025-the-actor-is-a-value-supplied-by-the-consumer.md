@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0079 — the descriptor has no free-form attributes; a fact about an actor is a capability or an object.
 
 ## Context
 
@@ -17,7 +18,7 @@ Every request carries an **actor descriptor** that the consumer's authentication
 | `kind` | `human`, `agent`, or `service` |
 | `principal` | optional: the party on whose behalf an agent or service acts |
 | `capabilities` | a set of opaque strings the consumer defines |
-| `attributes` | optional further values the consumer's guards may reference |
+| ~~`attributes`~~ | ~~optional further values the consumer's guards may reference~~ **Withdrawn by ADR-0079**: the descriptor has no free-form attributes; a small finite fact is a capability, a fact with a value is an object the guard reads |
 
 - ObjectKeeper validates the descriptor's shape, not its truth. Authentication, key management, roles and how capabilities are computed belong to the consumer.
 - Guards reference it through `actor.*` (ADR-0021): `actor.has(DELIVERY_COMPLETE)`, `actor.kind == human`, `actor.id == owner`.

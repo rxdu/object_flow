@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0075 — a `mirror` type is held here and owned elsewhere, so import is not the only thing that arrives mid-lifecycle.
+- **Refined by:** ADR-0075 — a `mirror` type is held here and owned elsewhere, so import is not the only thing that arrives mid-lifecycle; ADR-0078 — legacy entries are redacted with the object they are attached to, per the mapping's kept-fields list.
 
 ## Context
 

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 3 (2026-09-08); pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0072 — six smaller answers to the open questions; §4 keeps confidentiality per object and records the cost of the workaround.
+- **Refined by:** ADR-0072 — six smaller answers to the open questions; §4 keeps confidentiality per object and records the cost of the workaround; ADR-0079 — the `actor.teams` example in decision 1 read a descriptor attribute, which no longer exists.
 
 ## Context
 
@@ -10,7 +10,7 @@ Guards decide who may change an object. Nothing decided who may read one. Two ca
 
 ## Decision
 
-1. A type may declare a **visibility predicate** in the expression language (ADR-0021) over `actor.*` and the object: `actor.has(CONTACT_VIEW_ALL) or owner.id == actor.id or owner.team in actor.teams`.
+1. A type may declare a **visibility predicate** in the expression language (ADR-0021) over `actor.*` and the object: `actor.has(CONTACT_VIEW_ALL) or owner.id == actor.id or owner.team in actor.teams`. *(The last clause reads a descriptor attribute; ADR-0079 removed those. Team membership is a capability the consumer's authentication emits, `actor.has(TEAM_SALES)`, or a `Membership` object the predicate reads.)*
 2. The read surface applies it to **every** read by id, every query result, every family query, every availability result (ADR-0022), and every event delivered to a pull consumer or push subscriber acting as that actor.
 3. An object the actor cannot see is **not found**. A transition request on it is refused as not found, before guards run, so the verdict does not reveal that the object exists.
 4. Visibility is evaluated under the same snapshot as the request; a cascaded transition (ADR-0019) is not subject to visibility — the parent's guards are its authority (as with only-via, ADR-0020).

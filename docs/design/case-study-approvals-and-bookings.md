@@ -79,9 +79,9 @@ Editing `amount` after a manager approved does not delete the approval and needs
 
 ## 3. Delegation
 
-Authority arrives in the actor descriptor (ADR-0025); the consumer's authentication computes it. A manager on leave who delegates to a deputy is, to the store, a deputy whose descriptor now carries `APPROVE_PURCHASE` for two weeks, with `principal` set to the manager. Attenuation — the deputy may approve only up to a limit — is a descriptor attribute a guard reads: `amount <= actor.attributes.approval_limit`.
+Authority arrives in the actor descriptor (ADR-0025); the consumer's authentication computes it. A manager on leave who delegates to a deputy is, to the store, a deputy whose descriptor now carries `APPROVE_PURCHASE` for two weeks, with `principal` set to the manager. Attenuation — the deputy may approve only up to a limit — is not a descriptor attribute, since the descriptor has none (ADR-0079); it is the `Delegation` object below, which the guard reads: `any(d in Delegation where d.delegate == actor.id and d.state == Delegation.ACTIVE and d.limit >= amount)`.
 
-If the delegation itself must be governed and recorded, it is modelled as an object type in the store — `Delegation { delegator, delegate, capability, limit, from, until }` with a lifecycle `active → revoked | expired` — and the consumer's auth reads live delegations when computing descriptors. The store offers no delegation mechanism of its own; that pattern is enough (ADR-0036).
+The delegation is therefore an object type in the store, governed and recorded like anything else — `Delegation { delegator, delegate, capability, limit, from, until }` with a lifecycle `active → revoked | expired` — and the consumer's auth reads live delegations when computing descriptors. The store offers no delegation mechanism of its own; that pattern is enough (ADR-0036).
 
 ## 4. Proposals
 

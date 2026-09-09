@@ -99,7 +99,7 @@ Every object arrives mid-lifecycle at once, which is the situation a migration i
 | **Decide** | A person resolves every class in that file: cleaning the source, supplying a value in the mapping, admitting an invariant violation, or excluding the objects (§6) |
 | **Assign ids** | Every object receives its new id from the legacy-key mapping **before any row is written**, so every reference, required or optional, resolves to an id at the moment its row is inserted, and an unresolvable legacy key is found here and not by the database (ADR-0018, ADR-0077) |
 | **Import** | Objects are created by the **built-in assertion** with provenance `asserted`, each row written complete with its references and keeping its legacy key as an external identifier with source `legacy`. Rows go in dependency order where one exists, so a failure names the first row that could not be placed; a cycle of required references has no such order and commits with its foreign keys checked at commit, which both backends do for a stored end (`storage-schema.md` §3) |
-| **Attach** | Legacy history becomes read-only entries of kind `legacy`, returned by `history` alongside real events (ADR-0015). Files are content-addressed into the blob store |
+| **Attach** | Legacy history becomes read-only entries of kind `legacy`, returned by `history` alongside real events (ADR-0015). The mapping lists, per entry kind, the payload fields **kept** through an erasure of the object; the rest are redacted with it, and a kind with no list loses its whole payload (ADR-0078). Files are content-addressed into the blob store |
 
 Soft-deleted rows land in the type's deleted state (ADR-0024). Cutover cannot be dual-write, because there is one write path.
 
@@ -116,7 +116,7 @@ The per-type mapping is written by hand, but less of it than it first appears. M
 | a pure join table, two foreign keys and nothing else | a relationship: one end stored, the other derived. **No type** |
 | a join table carrying payload columns | an **association type**, since the payload needs somewhere to live and a reference carries no attributes |
 | a lookup or catalogue table | a type, usually `record`, and usually one of the last to migrate |
-| an audit or history table | the **event log**. Not a type; its rows become legacy entries (§4) |
+| an audit or history table | the **event log**. Not a type; its rows become legacy entries (§4), each kind with a kept-fields list for erasure. The first consumer's audit rows also carry the employee's IP address and user agent, personal data about a third person, which the mapping leaves behind |
 | a soft-delete flag | a terminal state in the machine, not an attribute |
 | a status column with an enum | the machine's states, and every value present in production must appear or the import cannot place those rows |
 | a denormalised copy kept deliberately, such as a snapshot | an attribute, and **not** a reference, because its whole purpose is to stop tracking the thing it came from |

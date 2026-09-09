@@ -335,6 +335,8 @@ CREATE TABLE t_proposal (
 CREATE INDEX t_proposal_target_ix ON t_proposal (target_id, state);
 
 -- Imported history that predates the store (ADR-0015): read-only, not events.
+-- Erasure of the object redacts every payload field the import mapping did
+-- not list as kept for the entry's kind (ADR-0078).
 CREATE TABLE ok_legacy_entry (
   object_id   TEXT    NOT NULL REFERENCES ok_object(id),
   ordinal     INTEGER NOT NULL,
@@ -383,12 +385,15 @@ The overlap row is the one that matters and the one not executed here. A booking
 
 ## 9. Erasure, and what archival tiering means
 
-Erasure (§8 of the model) does four things to storage:
+Erasure (§8 of the model) does seven things to storage:
 
 1. sets each declared `personal` column to `NULL` on the object row;
 2. rewrites the same values inside every past event's `payload`, in place, keeping the event, its position and its shape;
 3. sets `ok_file.erased_at` and deletes the content behind the hash, leaving the row so that a reference to it resolves to something that says it was erased rather than to nothing. **The blob store's own lifecycle expiry must be off** (ADR-0017): the log is permanent and a reference outlives any expiry policy, so a bucket rule that deletes after ninety days silently breaks history;
-4. records an event with source `erased`, carrying the names of the attributes erased and the files deleted and **never their values**, and an admission for every invariant that read what it erased (ADR-0060).
+4. records an event with source `erased`, carrying the names of the attributes erased and the files deleted and **never their values**, and an admission for every invariant that read what it erased (ADR-0060);
+5. redacts every legacy entry attached to the object: each payload field the import mapping did not list as **kept** for that entry kind is replaced by absence, and a kind with no list loses its whole payload; the event of step 4 records how many (ADR-0078);
+6. redacts `t_proposal.inputs` on every proposal that targets the object or carries a personal value, and invalidates the pending ones (ADR-0044, ADR-0078);
+7. in step 2, redacts personal **inputs** as well as personal attribute values — an input marked `personal`, or one that flows into a personal attribute — so a value passed only to an evaluator does not survive in a payload (ADR-0078).
 
 It does **not** touch `ok_attribute_write`. Redacting a value inside an event does not change which event last wrote the attribute, so `changed_since` answers the same after an erasure as before, and an approval that was valid stays valid. The design record does not say this; it follows from what the index means.
 

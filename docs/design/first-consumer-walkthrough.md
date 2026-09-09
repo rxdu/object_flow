@@ -109,7 +109,7 @@ Two completion transitions rather than one with a branch. The inventory system's
 | Slot (`DeliveryItem`) | **composition** | exclusive to one delivery; dies with it |
 | Checklist item, check record | **composition** | same |
 | Unit | **reference** | outlives the delivery |
-| Customer | **reference** | mirrored from Xero (first consumer's ADR-0003) |
+| Customer | **reference** | Xero-owned: an externally owned type (ADR-0080), and a `mirror` only while the legacy system still owns it (first consumer's ADR-0003) |
 | WarrantyContract | **reference**, *created by* completion | outlives the delivery |
 
 ### 3.3 `complete_sale`, fully declared
@@ -203,7 +203,7 @@ A request carries an actor: an identity, a kind (human, agent, service), the pri
 | Engagement out and return | `Engagement` object with its own lifecycle; invariant one-open-per-unit (ADR-0009); `unit.leasable` derived (D) |
 | Lease-to-own | `Lease.convert` cascading `unit.convert_lease`, which is only-via (A, C) |
 | Retire an engaged unit | `unit.retire` cascading `engagement_line.close(reason)` (A) |
-| Xero-owned customer | Customer is a mirror with an external id; `complete_sale` carries a deferred external guard (ADR-0008) |
+| Xero-owned customer | Customer is an externally owned type with an external id, whose sync transitions Xero's sync requests (ADR-0080); `complete_sale` carries a deferred external guard (ADR-0008) |
 | Jira reflection, alerts | consumers subscribed to the event log; overdue is a derived attribute queried by filtering its stored operand against the supplied time, and low stock by filtering the counter (ADR-0048) |
 | Split delivery | `create d2 = Delivery.open(…)` then `for s in inputs.slots limit 200 { call s.reparent(delivery := d2) }` (ADR-0046, ADR-0052). Exclusive membership holds at every instant |
 

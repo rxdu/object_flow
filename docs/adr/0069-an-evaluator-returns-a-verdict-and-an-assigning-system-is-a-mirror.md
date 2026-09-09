@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — recommendation accepted by the author 2026-09-08
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0080 — the thing decided here is an externally owned type, an ordinary type the sync writes; `mirror` is reserved for ADR-0075's cutover marking.
 - **Refines:** ADR-0007, ADR-0008, ADR-0014, ADR-0049
 - **Answers:** open question 8
 
@@ -20,7 +21,7 @@ The one system that would assign a value is **Xero**, and it is not integrated: 
 
 ## Decision
 
-An evaluator returns a verdict. An external system that decides or assigns a value is modelled as a **mirror**: an object here with an external identifier, written by the consumer on observing the event, reconciled with the external system's own identifier as the idempotency key (ADR-0008, ADR-0014).
+An evaluator returns a verdict. An external system that decides or assigns a value is modelled as a **mirror**: an object here with an external identifier, written by the consumer on observing the event, reconciled with the external system's own identifier as the idempotency key (ADR-0008, ADR-0014). *(ADR-0080 renamed this an **externally owned type** and reserved `mirror` for ADR-0075's cutover marking. The mechanism here is unchanged: an ordinary type whose sync-driven transitions the sync requests.)*
 
 The syntax document states this where a reader meets evaluators, so the boundary is met at the point of confusion rather than found later.
 

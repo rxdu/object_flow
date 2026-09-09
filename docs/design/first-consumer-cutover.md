@@ -46,7 +46,7 @@ Seven stages, 42 components. Referrers first, most-referenced last.
 
 **Only nine of the 42 components are pinned to a stage**; the rest have one to six stages of slack. The seven-stage depth comes from a single longest chain — a service photo, its service, the robot it names, that robot's model, and that model's default warranty product. Any linear extension of the graph is valid, so the plan has room to group stages by what is convenient to cut over together rather than by what the graph forces.
 
-`customers` and `warranty_products` migrate last and are therefore mirrored longest. That is a good outcome rather than a cost: they are also the types that change least, so the mirror is cheapest exactly where it lives longest.
+`customers` and `warranty_products` migrate last and are therefore mirrored longest. That is a good outcome rather than a cost: they are also the types that change least, so the mirror is cheapest exactly where it lives longest. For `customers` the marking is followed not by an owned type but by the Xero-synced externally owned type of ADR-0080, since Xero owns customer identity for good; the version advance is the same.
 
 ## 4. What would change the answer
 

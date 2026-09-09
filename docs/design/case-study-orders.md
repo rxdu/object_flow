@@ -19,7 +19,7 @@ Every earlier case has few, long-lived, richly related objects. An order system 
 | Order total, line subtotal | derived: `sum(l in lines: l.qty * l.unit_price)` (ADR-0032) |
 | Tax, discount, shipping cost | domain formulas: the consumer computes and supplies them as inputs; guards check ranges and consistency (`inputs.tax >= 0`) (ADR-0007) |
 | Reserve stock; oversell prevention | `Product.reserve`: guard `on_hand - reserved >= inputs.qty`; outcome `reserved := reserved + inputs.qty`, read-modify-write at the moment it is applied, so two lines on one product cannot both pass (ADR-0038) |
-| Payment authorised / captured / refunded | a `Payment` object mirroring the gateway (ADR-0008 mirror shape); the consumer receives the gateway's webhook and requests the transition with the gateway event id as idempotency key (ADR-0014) |
+| Payment authorised / captured / refunded | a `Payment` object that is an externally owned type for the gateway (ADR-0008, ADR-0080); the consumer receives the gateway's webhook and requests the transition with the gateway event id as idempotency key (ADR-0014) |
 | Order paid | `Order.mark_paid` cascaded from `Payment.capture`, only-via (ADR-0020); guard `payment.amount == total` |
 | Unpaid order auto-cancels after 30 minutes | `cancel_unpaid: placed → cancelled, guard placed_at + 30 min <= now`; a scheduler requests it through the availability query (ADR-0022, ADR-0032 for the duration) |
 | Fulfilment, partial shipment | `Shipment` objects with line quantities as link objects; the invariant is declared on the line as a relationship aggregate, `sum(a in allocations: a.qty) <= qty`, since ADR-0047 refuses grouped aggregation |
