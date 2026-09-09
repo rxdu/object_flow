@@ -61,6 +61,8 @@ CREATE TABLE ok_attribute_write (
 );
 ```
 
+`position` is both the event's **identity** and its **order**. An `event`-typed attribute stores it, `cause_position` points at it, the write index compares it and a cursor pages by it; one column serves all four because positions are assigned once and never renumbered. Nothing else in the schema needs an event id.
+
 `position` is the global order and `object_seq` the per-object one; the unique constraint on the pair is what makes "strictly ordered per object" a property of the schema rather than of the writer. `cause_position` is the parent event of a cascade, so causal order across objects is reconstructable without a separate table (§7 of the model).
 
 **The log is append-only with exactly one exception**, and the exception is why `payload` is a column rather than an immutable blob: erasure rewrites the personal values inside past events, in place, keeping the event, its shape and its position (§8 of the model). Nothing else ever updates a row of `ok_event`, and nothing ever deletes one.
@@ -77,6 +79,11 @@ Every declared type gets one table. Its identity columns are the same in every o
 | `type_version` | the declaration | which version's rules the row was last written under (ADR-0027) |
 | `last_event` | the store | the event that last wrote this object |
 | `last_part_event` | the store | present only on a type that declares a `part`; §5 |
+| `superseded_by` | the store | present only on a type with a `superseding` state; `get(id, follow)` walks it (ADR-0028) |
+
+**Absence is SQL `NULL` and never a sentinel** (ADR-0051). That is not a stylistic choice: the erasure marker must collide with no uniqueness constraint and must read as unknown, and a sentinel does neither. It follows that every uniqueness over a `personal` or `external` attribute is **partial**, ignoring absent values.
+
+A declared-required attribute takes `NOT NULL`. The database is not the backstop — a guard is (ADR-0001) — and check 8 is what actually enforces requiredness at publish. `NOT NULL` is the same second line of defence a compiled constraint is in §8: redundant when everything works, and the thing that catches a runtime with a bug in it.
 
 Then one column per stored attribute, one per counter, and one per **stored** relationship end. Nothing for a derived inverse, a derivation that is not indexed, or a `part`/`ref` whose other end stores the value — those are queries, and putting a column there would be the second write path the model refuses (ADR-0056 §1).
 
@@ -175,7 +182,7 @@ Most indexes are performance. These four are not: a stated guarantee is false wi
 
 | Index | Without it |
 |---|---|
-| the stored end of every relationship | a derived inverse becomes a table scan, so `Delivery.units` is O(all robots) and a deletion guard over `referrers` is O(the store) |
+| the stored end of every relationship | a derived inverse becomes a table scan, so `Delivery.units` is O(all robots). This index **is** the reverse index `referrers` needs, one per declared reference, covering the ends with no declared `inverse` too — which is the case that made `referrers` necessary. ADR-0056 states the cost plainly: a deployment pays index maintenance on every reference write, and takes it because deletion correctness is load-bearing and deletion is rare |
 | `ok_attribute_write (object_id, attribute)` | `changed_since` is a scan of the object's whole history, and it is the most-cited guard in the model (ADR-0035) |
 | `t_<type>.last_part_event` | the half of `changed_since` that reaches a composition has nothing to compare, so an approval cannot be invalidated by an edit to a line (ADR-0057) |
 | every attribute a type-scan invariant or a `visible when` predicate reads | the invariant's affected set is a full scan on every write, and visibility stops being a query filter and becomes a per-row test, which the read surface cannot page |
@@ -187,8 +194,12 @@ The last one is why check 7 rejects a type-scan or a visibility predicate over a
 ## 6. The built-in tables
 
 ```sql
--- Named sequences, scoped. next_value is the next to hand out; taken inside
--- the transition's transaction, so a serial is never issued twice.
+-- Named sequences, scoped. Allocated in its OWN transaction on its own
+-- connection, committed before the request continues, so the allocation
+-- survives a rollback of the request and leaves the gap ADR-0029 requires.
+-- Updating this row inside the request's transaction would make sequences
+-- gapless, which that decision rejected: it serialises every creation in
+-- the scope.
 CREATE TABLE ok_sequence (
   name       TEXT    NOT NULL,
   scope_key  TEXT    NOT NULL,
@@ -217,10 +228,11 @@ CREATE TABLE ok_idempotency (
 -- Admissions: an invariant a transition was permitted to violate.
 -- exceptions(type) is a query over this table.
 CREATE TABLE ok_admission (
-  object_id  TEXT    NOT NULL REFERENCES ok_object(id),
-  invariant  TEXT    NOT NULL,
-  position   INTEGER NOT NULL REFERENCES ok_event(position),
-  reason     TEXT    NOT NULL,
+  object_id           TEXT    NOT NULL REFERENCES ok_object(id),
+  invariant           TEXT    NOT NULL,
+  position            INTEGER NOT NULL REFERENCES ok_event(position),
+  reason              TEXT    NOT NULL,
+  discharged_position INTEGER REFERENCES ok_event(position),
   PRIMARY KEY (object_id, invariant, position)
 );
 CREATE INDEX ok_admission_by_object ON ok_admission (object_id);
@@ -269,7 +281,7 @@ CREATE TABLE t_subscription (
   changes_state_only INTEGER NOT NULL DEFAULT 0,
   endpoint       TEXT,                       -- null for a pull subscription
   lag_threshold  INTEGER,
-  CONSTRAINT t_subscription_state CHECK (state IN ('ACTIVE','PAUSED','CLOSED'))
+  CONSTRAINT t_subscription_state CHECK (state IN ('active','revoked'))
 );
 
 -- Runtime state, deliberately not an object: no version, no events, no history.
@@ -292,7 +304,9 @@ CREATE TABLE t_proposal (
   transition     TEXT    NOT NULL,
   inputs         TEXT    NOT NULL,
   proposer       TEXT    NOT NULL,
-  declaration_version INTEGER NOT NULL REFERENCES ok_declaration(version),
+  submitted_under INTEGER NOT NULL REFERENCES ok_declaration(version),
+  last_verdict   TEXT,          -- the verdict that left it pending (ADR-0044)
+  expires_at     TEXT,          -- expiry is derived from this, never a state
   CONSTRAINT t_proposal_state CHECK (state IN
     ('pending','executed','rejected','withdrawn','invalidated'))
 );
@@ -311,6 +325,8 @@ CREATE TABLE ok_legacy_entry (
 `ok_subscription_position` is the one place the model deliberately keeps runtime state outside an object: no version, no events, no history, because an acknowledged cursor moving thousands of times a minute is not something anyone wants a permanent record of, and its lag and death are derived rather than states (ADR-0043). `t_subscription` next to it is an ordinary object because its filter and endpoint are configuration someone changes and should answer for.
 
 `ok_declaration` is never deleted. Every event names the version whose rules applied, so deleting one makes that stretch of history unreadable.
+
+**The sequence table is the one thing here written outside the request's transaction.** Everything else — the object row, the event, the write index, the part-event position, the idempotency record — commits with the transition or not at all. The sequence is the exception because a decision requires it to be: a monotonic sequence with gaps needs its allocation to survive a rollback, and one that rolls back is gapless and serialises the scope (ADR-0029). On PostgreSQL this can be a native `SEQUENCE`, whose `nextval` is already non-transactional; on SQLite it is a second connection.
 
 ## 7. Concurrency
 
@@ -335,6 +351,9 @@ Enforcement is dynamic and correctness comes from serialisable isolation; a cons
 | non-negativity of a counter | `CHECK` | `CHECK` |
 | overlap of two ranges, per key | `EXCLUDE USING gist` | **none** — dynamic only |
 | a traversal or type-scan invariant | none | none |
+| any invariant that an assertion may `admit` | **none, on either** | see below |
+
+The last row is a constraint on compilation that the design record does not state. An admission suppresses **one** invariant for **one** object (ADR-0054) and a database constraint cannot yield for one row. So an invariant a type's assertion names in `may admit` must not be compiled, or an admitted violation would be refused by the database after the runtime allowed it. Publishing knows both facts and can decide it; this is the schema's constraint on that decision.
 
 The overlap row is the one that matters and the one not executed here. A booking-overlap invariant compiles to an exclusion constraint on PostgreSQL and has no equivalent in SQLite, so the same declaration is enforced by the database on one backend and by the runtime on the other. That is legitimate under ADR-0041 and it should be measured before it is believed, because a type-scan under serialisable isolation is where contention will actually appear.
 
@@ -344,8 +363,10 @@ Erasure (§8 of the model) does four things to storage:
 
 1. sets each declared `personal` column to `NULL` on the object row;
 2. rewrites the same values inside every past event's `payload`, in place, keeping the event, its position and its shape;
-3. sets `ok_file.erased_at` and deletes the content behind the hash, leaving the row so that a reference to it resolves to something that says it was erased rather than to nothing;
-4. records an event with source `erased`, and an admission for every invariant that read what it erased (ADR-0060).
+3. sets `ok_file.erased_at` and deletes the content behind the hash, leaving the row so that a reference to it resolves to something that says it was erased rather than to nothing. **The blob store's own lifecycle expiry must be off** (ADR-0017): the log is permanent and a reference outlives any expiry policy, so a bucket rule that deletes after ninety days silently breaks history;
+4. records an event with source `erased`, carrying the names of the attributes erased and the files deleted and **never their values**, and an admission for every invariant that read what it erased (ADR-0060).
+
+It does **not** touch `ok_attribute_write`. Redacting a value inside an event does not change which event last wrote the attribute, so `changed_since` answers the same after an erasure as before, and an approval that was valid stays valid. The design record does not say this; it follows from what the index means.
 
 The log is never pruned. **Archival tiering** is therefore not deletion but a second table with the same shape on cheaper storage, plus a view over both: events older than a threshold move, `pull` and `history` read the view, and erasure must reach the archive, which is the constraint that stops it being a write-once export.
 
@@ -372,3 +393,6 @@ A removed attribute leaving its column in place is deliberate: the column is how
 - **Partitioning.** The log is the busiest table and nothing here partitions it. By position is the obvious axis and it interacts with archival tiering.
 - **Whether one table per type survives many types.** A hundred types is a hundred tables; the first consumer has perhaps thirty. Nothing here is per-object, so it should hold, and it is worth checking against a consumer with a family of many members.
 - **The exclusion constraint of §8 is unexecuted**, as is everything in the PostgreSQL column.
+- **How `exceptions(type)` finds an object holding asserted state.** Admissions have a table; asserted state has nothing. The model promises the operation (§10) and no record says what it reads. A column on the object row, a query over events with `source = 'asserted'`, or a third table are all possible and they differ in cost.
+- **The scope and lifetime of an idempotency key.** The record leaves both undecided, and a key that is unique per caller rather than globally implies a column this table does not have.
+- **Whether an archived event stays reachable by erasure, or only events with no personal attribute are archived.** The catalogue of edge cases offers both; the schema must pick one, and picking the second means the archive is not a plain move.

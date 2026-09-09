@@ -192,6 +192,11 @@ Findings from every review of this design. It began as the implementation-readin
 | [D178](#d178) | The mediated guarantee named one exception and there are two | Resolved |
 | [D179](#d179) | Nine case-study statements described the model as it no longer is | Resolved |
 | [D180](#d180) | Two pairs of documents contradicted each other on substance | Resolved |
+| [D181](#d181) | The sequence table would have made sequences gapless, which a decision rejected | Resolved |
+| [D182](#d182) | Four tables were missing a column a decision requires | Resolved |
+| [D183](#d183) | A compiled constraint cannot yield to an admission, and nothing said so | Resolved |
+| [D184](#d184) | Three rules about absence and identity were unstated | Resolved |
+| [D185](#d185) | The blob store's lifecycle expiry must be disabled and the schema did not say so | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -1218,3 +1223,32 @@ Four parallel audits on 2026-09-08 after the author's rulings: the decision set 
 **Two pairs of documents contradicted each other on substance.** Whether a contended row queues or retries, which ADR-0039 itself answered both ways; and whether an input may be a set of objects, which the specification's own assert example uses and its grammar line omitted.
 
 **Resolved.** The decision rule wins over its own consequence in the first; the grammar gains the form in the second, and the real limit is restated as a set of anonymous structures, which no input can be.
+
+## Found by surveying the record for storage requirements
+
+A sweep of DESIGN.md and all 73 decision records for what they oblige storage to do, run while the schema was being written and reported after it was committed.
+
+### D181
+**The sequence table would have made sequences gapless, which a decision rejected.** `ok_sequence` was a row updated inside the request's transaction. A rolled-back creation would then roll the counter back too, so no gap would appear — and ADR-0029 requires the gap, because a gapless sequence serialises every creation in its scope, which is the reason it was rejected as the default.
+
+**Resolved.** The allocation is its own transaction on its own connection, committed before the request continues, so it survives a rollback. On PostgreSQL a native `SEQUENCE` already behaves this way; on SQLite it is a second connection. It is now the one thing in the schema written outside the request's transaction, and the document says so.
+
+### D182
+**Four tables were missing a column a decision requires.** No `superseded_by`, so `get(id, follow)` had nothing to walk; no discharge on an admission, though ADR-0054 discharges one automatically the first time the invariant holds again and records it; a proposal kept neither the verdict that left it pending nor the version it was submitted under; and the subscription states were invented rather than taken from ADR-0043's `active → revoked`.
+
+**Resolved.**
+
+### D183
+**A compiled constraint cannot yield to an admission, and nothing said so.** An admission suppresses one invariant for one object. A database constraint has no per-row exemption, so an invariant an assertion may admit must not be compiled, or the database refuses what the runtime allowed. The design record is silent on this; the schema now states it as a constraint on which invariants publishing compiles.
+
+**Resolved** in the schema, and worth an ADR if the author agrees with the reasoning.
+
+### D184
+**Three rules about absence and identity were unstated.** That absence is SQL `NULL` and never a sentinel, which is why uniqueness over a personal or external attribute is partial. That an event's position is its identity as well as its order, so nothing else needs an event id. And that erasure does not touch the per-attribute write index, since redacting a value does not change which event last wrote it — which follows from what the index means and is nowhere written.
+
+**Resolved.**
+
+### D185
+**The blob store's lifecycle expiry must be disabled and the schema did not say so.** The log is permanent and a file reference outlives any expiry policy, so a bucket rule deleting after ninety days silently breaks history (ADR-0017).
+
+**Resolved.**
