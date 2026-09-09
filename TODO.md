@@ -7,7 +7,7 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 | | |
 |---|---|
 | ADRs | 75, none Proposed |
-| Defect register | 186 entries and five cosmetics, all closed; seven were carried to open questions the author has since ruled on ([`docs/design/defects.md`](docs/design/defects.md)) |
+| Defect register | 200 entries and five cosmetics; 186 closed, seven of them carried to open questions the author has since ruled on; **fourteen open**, D187 to D200, from the whole-record review of 2026-09-09 ([`docs/design/defects.md`](docs/design/defects.md)) |
 | Declaration syntax | **iteration 18, ready for author review**; checker clean, 24 of 52 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
 | Open questions | none. All thirteen answered by the author 2026-09-08, ADR-0065 to ADR-0072 ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
 | Awaiting author review | ADR-0019 to ADR-0064, DESIGN.md as a whole, and the declaration syntax. ADR-0065 to ADR-0073 are settled: ADR-0065 to ADR-0072 are the author's own rulings, ADR-0073 confirmed 2026-09-08 |
@@ -28,6 +28,7 @@ Five changed the language: a machine's creation guards bind any creation that re
 
 Nothing here is blocked on it, and none of it is settled without it.
 
+- [ ] **The whole-record review of 2026-09-09** — D187 to D200 in [`docs/design/defects.md`](docs/design/defects.md), fourteen open. Three need a ruling: D190 (what erasure does to legacy history), D193 (whether actor attributes are typed and readable, or attenuation is withdrawn), D194 (whether a permanently external-owned type is the `mirror` kind). The rest carry a recommendation and are repairs; D187 and D188 break a running system and come first.
 - [ ] **The execution model** — ADR-0038 sequential cascades, ADR-0039 serialisable isolation, ADR-0040 the assertion path, ADR-0054 parent ordering and admissions. These changed how the store runs, not just what it says.
 - [ ] **The languages** — ADR-0046 outcome grammar, ADR-0047 expression semantics, ADR-0052 grammar amendments, ADR-0053 the presence tests, ADR-0032 arithmetic.
 - [ ] **The model additions** — ADR-0026 extends and families, ADR-0027 versioning, ADR-0028 supersession, ADR-0029 sequences, ADR-0030 visibility, ADR-0031 and ADR-0051 erasure, ADR-0050 tracking mode.
