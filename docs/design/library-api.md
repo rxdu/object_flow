@@ -251,9 +251,21 @@ Three of them are worth reading twice.
 
 **`batch` is N transactions, not one.** There is no atomic batch; atomic multi-object semantics are declared cascades. The verdicts come back in request order and any of them may differ from what a single-request caller would have seen, because the requests are independent.
 
-## 7. What this leaves open
+## 7. What is an exception
 
-- **Async.** The Protocol is synchronous. The first consumer is FastAPI, which is not, and a second binding will want `async def` throughout. Whether that is a second Protocol, a generic over the awaitable, or a sync core with an async wrapper is not decided here.
+Everything in §4 is a value. These are the four things that raise, and the list is closed so that a second binding cannot differ on it.
+
+| Raised | When |
+|---|---|
+| `DeclarationError` | the store has no usable declaration: none installed, or the installed one will not load |
+| `UnknownTransition` | the named transition does not exist on that type in the current version. Not a verdict, because a verdict answers "may I", and this is "there is no such thing" |
+| `StorageUnavailable` | the database is unreachable, or a transaction failed for a reason that is not a serialisation conflict. A serialisation conflict is retried and then becomes `stale`, which is a verdict |
+| `SchemaMismatch` | the installed declaration and the tables disagree, which means a publish did not complete |
+
+Note what is not there. An unknown object id is `NotFound`, an invisible one is also `NotFound`, and a malformed input is `Unsatisfied` on the guard that reads it. Those are answers about the domain and the caller must handle them, so they are values.
+
+## 8. What this leaves open
+
 - **Streaming.** `history` returns an iterator and everything else returns a page. An object with a very long history is the case that decides whether that is enough.
 - **Where the declaration lives.** `publish` takes source text; nothing here says how a deployment gets its declaration at startup, or whether the library loads it or is handed it.
-- **Errors.** This document says what is a value; it does not enumerate what is an exception. The list is short and should be written before a second binding exists, or the two will differ on it.
+- **Async.** The Protocol is synchronous. The first consumer is FastAPI, which is not. The recommendation is a synchronous core with an async wrapper rather than two implementations, because the core's one long operation is a database transaction and the wrapper can own the pool — but this is a fork worth confirming before either is built.

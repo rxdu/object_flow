@@ -334,7 +334,9 @@ The transition transaction runs at **serialisable isolation**, which is what mak
 
 What the schema owes that:
 
-- **`ok_event.position` must be gapless enough to page.** A sequence with gaps is fine for ordering and wrong for a pull consumer that reads "everything after position N", because a gap it can never see is indistinguishable from one not yet committed. On PostgreSQL a `BIGSERIAL` allocates out of order under concurrency; the position must therefore be assigned inside the transaction from a single counter row, or the pull path must tolerate gaps by waiting on in-flight transactions. **This is the sharpest thing in the schema and it is not settled here** — see §11.
+- **`ok_event.position` is monotonic and is not a promise of commit order.** ADR-0034 decided this and the schema implements it rather than reopening it: a `BIGSERIAL` on PostgreSQL allocates out of order under concurrency, so a lower position can become visible after a higher one, and a pull cursor must tolerate a bounded window. Assigning the position from a single counter row inside the transaction would close the window and serialise every commit through one row, which is the alternative that ADR-0034 rejected by name.
+
+  What the schema therefore owes the pull path is **the window's bound**, which is the oldest in-flight transaction's age. A consumer reading "everything after N" must not advance its acknowledged position past `head - window`, and `pull` returns that bound so it does not have to guess. On SQLite, which serialises writers, the window is empty.
 - **The idempotency row is written in the transition's transaction**, so a replay of a request that committed returns the recorded verdict and a replay of one that did not is a fresh attempt.
 - **Nothing is written outside the transaction**, including the write index and the part-event position, or a crash between them would leave a guard reading a stale answer.
 
@@ -388,7 +390,6 @@ A removed attribute leaving its column in place is deliberate: the column is how
 
 ## 11. What this leaves open
 
-- **Gapless global positions under concurrency**, §7. The pull path's correctness rests on it and the two backends behave differently. This is the first thing to settle and the first thing to measure.
 - **Whether the directory earns its row.** Every object costs two rows and every `get` costs two lookups. Encoding the type in the id would remove both, at the price of an id that is no longer opaque, which ADR-0018 chose deliberately.
 - **Partitioning.** The log is the busiest table and nothing here partitions it. By position is the obvious axis and it interacts with archival tiering.
 - **Whether one table per type survives many types.** A hundred types is a hundred tables; the first consumer has perhaps thirty. Nothing here is per-object, so it should hold, and it is worth checking against a consumer with a family of many members.
