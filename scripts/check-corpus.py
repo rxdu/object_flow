@@ -149,6 +149,17 @@ def check_schema_doc():
                         "run scripts/check-schema-doc.py")
 
 
+def check_api_doc():
+    """The library API's Python must execute and must match the model."""
+    if not (ROOT / "docs/design/library-api.md").exists():
+        return
+    r = subprocess.run([sys.executable, str(ROOT / "scripts/check-api-doc.py")],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        for line in r.stdout.strip().split("\n")[1:]:
+            findings.append("library-api.md:" + line.rstrip())
+
+
 def check_declarations():
     """Every document that states declarations must pass the syntax checker.
 
@@ -188,6 +199,7 @@ def main():
     check_defect_index()
     check_declarations()
     check_schema_doc()
+    check_api_doc()
 
     print(f"corpus: {len(nums)} decision records, {maxcheck} checks defined")
     if not findings:
