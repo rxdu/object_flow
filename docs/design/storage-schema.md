@@ -405,11 +405,17 @@ A publish is a declaration version and a set of DDL statements derived from it, 
 
 A removed attribute leaving its column in place is deliberate: the column is how history stays readable, and dropping it would make a fold of the log fail on an event the store still holds.
 
-## 11. What this leaves open
+## 11. Decided since the first draft, and still open
 
-- ~~Whether the directory earns its row.~~ **Settled by ADR-0018**, which chose an opaque id deliberately and added that a rendering may carry a type prefix but must never be parsed back into meaning. Encoding the type in the id is exactly that parsing. The directory stays, and this was listed as open by a document written from the model that missed a decision the model states.
-- **Partitioning is by position range, and the boundary is the archival boundary.** The log is the busiest table; position is monotonic, so a range partition never has to move a row for reordering, and the partition that ages out is the unit that tiers. Making them the same boundary means an archive is a partition detached and reattached to the archive table rather than a row-by-row copy. What remains genuinely open is the *size* of a partition, which is a measurement against a real event rate and not a design.
-- **Whether one table per type survives many types.** A hundred types is a hundred tables; the first consumer has perhaps thirty. Nothing here is per-object, so it should hold, and the case to check is a family with many members — an issue tracker with a type per project reaches hundreds. This is a measurement, not a decision, and it is the one that could send the whole arrangement back to a shared table.
-- **The exclusion constraint of §8 is unexecuted**, as is everything in the PostgreSQL column.
-- **The retention window for an idempotency record**, which is a number rather than a design. It is the one table here that may be pruned without losing history, since a replay only has to outlive the retries of the request that made it, and the window is a deployment setting whose default should be measured against how long a caller's retry chain actually runs.
-- **Whether an archived event stays reachable by erasure, or only events with no personal attribute are archived.** The catalogue of edge cases offers both; the schema must pick one, and picking the second means the archive is not a plain move.
+**Decided.** Each followed from a decision the record already carried, or from what the design made unavoidable.
+
+- **The directory stays.** ADR-0018 chose an opaque id and added that a rendering may carry a type prefix but must never be parsed back into meaning; encoding the type in the id is exactly that parsing. This was listed as open by a document written from the model that missed a line the model states.
+- **Partitioning is by position range, and the boundary is the archival boundary.** Position is monotonic, so a range partition never moves a row for reordering, and the partition that ages out is the unit that tiers — an archive becomes a partition detached and reattached rather than a row-by-row copy.
+- **Erasure reaches the archive**, rather than the archive holding only events with no personal attribute; §9 gives the reasoning.
+- **An idempotency key is scoped to the principal**, so one caller's retry cannot collide with another's.
+
+**Still open.**
+
+- **The size of a partition**, and the retention window for an idempotency record. Both are numbers to measure against a real event rate and a real retry chain, not designs.
+- **Whether one table per type survives many types.** A hundred types is a hundred tables; the first consumer has perhaps thirty. The case to check is a family with many members — an issue tracker with a type per project reaches hundreds. This is the measurement that could send the whole arrangement back to a shared table.
+- **The exclusion constraint of §8 is unexecuted**, as is everything in the PostgreSQL column. There is no PostgreSQL in the environment this was written in.

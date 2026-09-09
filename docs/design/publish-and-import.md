@@ -156,9 +156,15 @@ The author chose staged over big-bang (ADR-0075), and the shape of a stage follo
 
 What this does **not** solve is a legacy *read* of a migrated type. Only writes are forbidden. Where the retiring system must still show data that has moved, that is a read-only projection out of the read surface, and whether each such screen earns its cost is a per-stage judgement about that codebase rather than something this design decides.
 
-## 7. What this leaves open
+## 7. Decided since the first draft, and still open
 
-- **The extract is JSON lines, one object per line.** It streams, so a table of a million rows never has to be held in memory on either side; a failure names a line; two extracts of the same table diff usefully; and every language emits it, which matters because the extractor lives in the source system and not here. CSV cannot carry a nested value or an absent one distinguishably, and a database view would tie the importer to the source's schema, which is the thing being retired. What is genuinely open is the **per-type mapping** from source shape to declared shape, which is written by hand and is the part no tool can infer.
-- **Two passes, not deferred constraints.** Every object must exist before any reference is written. PostgreSQL can defer a constraint to commit; SQLite cannot in the same way, and a design that works on one backend and not the other is not the design. So import is two passes: create every object with its own attributes and its legacy key, then write every reference by resolving legacy keys through the mapping. It is also the more debuggable of the two, because a failure in the second pass names the reference that could not be resolved rather than failing the whole commit at the end.
-- **How much history is worth carrying.** The first consumer's audit log is 6,391 rows and its notes table 684, both append-only. Importing all of it is possible; whether every legacy entry earns its place is a judgement about that data, not about this design.
-- **An import resumes rather than being redone**, and the mechanism already exists. Every imported object keeps its legacy key as an external identifier with source `legacy` (ADR-0018), and `lookup('legacy', key)` answers whether it arrived. So a second run skips what is present and continues, which matters because the alternative — tear down and redo — turns a failure in hour three of a cutover window into starting again. What that leaves is the second pass: a reference written to an object whose referent was created in a run that then failed still resolves, since the referent exists and its legacy key is indexed.
+**Decided.** Each followed from a decision the record already carried, or from what the design made unavoidable.
+
+- **The extract is JSON lines**, one object per line: it streams, a failure names a line, two extracts diff usefully, and every language emits it — which matters because the extractor lives in the system being retired.
+- **Import is two passes**, not deferred constraints. PostgreSQL can defer to commit and SQLite cannot in the same way, and a design that works on one backend is not the design. It is also the more debuggable, since a failure names the reference that would not resolve.
+- **An import resumes rather than being redone.** Every imported object keeps its legacy key as an external identifier, so `lookup('legacy', key)` says whether it arrived and a second run continues. The alternative turns a failure in hour three of a cutover window into starting again.
+
+**Still open.**
+
+- **The per-type mapping** from source shape to declared shape is written by hand and is the part no tool can infer. It is work against the first consumer's code.
+- **How much history is worth carrying.** The first consumer's audit log is 6,391 rows and its notes table 684, both append-only. Importing all of it is possible; whether every legacy entry earns its place is a judgement about that data.

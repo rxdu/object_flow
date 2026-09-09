@@ -264,8 +264,14 @@ Everything in §4 is a value. These are the four things that raise, and the list
 
 Note what is not there. An unknown object id is `NotFound`, an invisible one is also `NotFound`, and a malformed input is `Unsatisfied` on the guard that reads it. Those are answers about the domain and the caller must handle them, so they are values.
 
-## 8. What this leaves open
+## 8. Decided since the first draft, and still open
 
-- **Streaming stays as it is: an iterator for history, a page for everything else.** History is the only unbounded result, since an ordinary object accrues events at edit rate and the design says plainly that an object with millions of them is a modelling smell. Everything else is a query with a cursor, and a cursor is what a caller can hold across a request boundary while an iterator is not.
-- **The declaration is loaded from the store, not from a file.** `publish` takes source text and writes it to `ok_declaration`; from then on the database holds it, and a process starting up reads the installed version rather than being handed one. That is what keeps a recorded event's declaration version resolvable — the rules that applied are wherever the events are — and it makes a process that disagrees with the store impossible rather than merely unlikely. A deployment still keeps its `.ok` files in version control; those are the input to a publish, not the runtime's source of truth.
-- **Async.** The Protocol is synchronous. The first consumer is FastAPI, which is not. The recommendation is a synchronous core with an async wrapper rather than two implementations, because the core's one long operation is a database transaction and the wrapper can own the pool — but this is a fork worth confirming before either is built.
+**Decided.** Each followed from a decision the record already carried, or from what the design made unavoidable.
+
+- **Streaming stays as it is:** an iterator for `history`, a page for everything else. History is the only unbounded result, and a cursor is what a caller can hold across a request boundary while an iterator is not.
+- **The declaration is loaded from the store**, not from a file. `publish` writes it to `ok_declaration` and a starting process reads the installed version, which keeps a recorded event's declaration version resolvable and makes a process that disagrees with the store impossible rather than unlikely. The `.ok` files stay in version control as the input to a publish.
+- **The exception list is closed** at the four of §7.
+
+**Still open.**
+
+- **Async.** The Protocol is synchronous and the first consumer is FastAPI, which is not. A synchronous core with an async wrapper is the recommendation, since the core's one long operation is a database transaction and the wrapper can own the pool — and the harness needs a synchronous surface anyway, to stop between statements. It is still a fork worth confirming before either is built.

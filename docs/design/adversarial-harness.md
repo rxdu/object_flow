@@ -69,7 +69,9 @@ And it does not prove anything about an actor with database access, which is the
 
 **Which backend it runs against.** Both, and they are not equivalent. SQLite serialises writers already, so the racer finds almost nothing there and a green run says little about concurrency; PostgreSQL pays for predicate tracking and is where a serialisation failure, a retry and a lock wait actually happen (ADR-0039). PostgreSQL is therefore the reference for the racer, and SQLite is the reference for the other three behaviours, being cheap enough to set up and tear down for the thousands of runs they want.
 
-## 6. What this leaves open
+## 6. Still open
 
-- **How long a run should be.** Coverage of what? Every transition, every guard clause, every pair of concurrent transitions on one type — the third is quadratic and the first is too weak. The first two are cheap and should be floors; the third is where a budget has to be chosen and no argument settles it, only measurement.
-- **Whether a fallible *model* is worth using in place of the four scripted behaviours.** It is closer to the real threat, and it makes reduction and reproducibility much harder. The scripted behaviours come first because they are reproducible.
+Two, and neither blocks building it.
+
+- **How long a run should be.** Every transition and every guard clause are cheap and should be floors. Every pair of concurrent transitions on one type is quadratic, and that is where a budget has to be chosen — no argument settles it, only measurement.
+- **Whether a fallible model is worth using in place of the four scripted behaviours.** It is closer to the real threat and it makes reduction and reproducibility much harder. The scripted behaviours come first because they are reproducible.

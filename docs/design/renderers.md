@@ -142,9 +142,14 @@ It is the same two calls. `declaration(type)` gives the input schema, its types 
 
 Nothing new is needed for this, which is the point worth making: if a third renderer had needed a new operation, the read surface would have been wrong.
 
-## 6. What this leaves open
+## 6. Decided since the first draft, and still open
 
-- **Which tool-schema dialect.** The example is shaped for a tool-use API that takes JSON Schema. There are several and they differ in small ways; picking one is a question about the agent frameworks the first consumer actually uses, not about this design.
-- **How much of a rule set is worth rendering to a model.** The rule set is for people. Whether an agent is better served by the whole declaration or by tools alone is an empirical question, and the adversarial harness is where it can be answered.
-- **Localisation: the renderer emits a structure, and English is one rendering of it.** A guard sentence comes out as its clause name, its operator and its operands, and the English above is the default rendering of that structure. A deployment substitutes its own without the renderer knowing any language, and without a translation table having to be kept in step with the declaration — the structure comes from the expression, so a guard that changes changes its sentence in every language at once.
-- **A rule-set diff is semantic, and it is not new work.** Publishing already compares the incoming declaration with the installed one to decide what needs a mapping (`publish-and-import.md` §1 step 2). The diff is a rendering of that comparison — "guard `settled` was added to `complete_sale`" — rather than a second mechanism that could disagree with it. Byte-identical rendering stays useful as the fallback and as the thing that makes the comparison reviewable.
+**Decided.** Each followed from a decision the record already carried, or from what the design made unavoidable.
+
+- **Localisation: the renderer emits a structure and English is one rendering of it.** A guard sentence comes out as its clause name, its operator and its operands. A deployment substitutes its own without the renderer knowing any language, and a guard that changes changes its sentence in every language at once.
+- **A rule-set diff is semantic, and it is not new work.** Publishing already compares the incoming declaration with the installed one to decide what needs a mapping, so the diff is a rendering of that comparison rather than a second mechanism that could disagree with it.
+
+**Still open.**
+
+- **Which tool-schema dialect.** The example is shaped for a tool-use API that takes JSON Schema, and there are several that differ in small ways. This is a question about the agent frameworks the first consumer actually uses.
+- **How much of a rule set is worth rendering to a model.** The rule set is for people. Whether an agent is better served by the whole declaration or by tools alone is empirical, and the adversarial harness is where it can be answered.
