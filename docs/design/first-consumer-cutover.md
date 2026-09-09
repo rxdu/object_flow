@@ -18,7 +18,7 @@ Draft, 2026-09-09. The stage order for `~/RduWs/wr_inventory_management`, extrac
 
 So the type graph is perhaps twenty nodes rather than forty-five, and the order must be recomputed over it once the per-type mapping exists. What follows is not that order. It is strong evidence about its **shape** — where the cycles are, what is most referenced, how much freedom there is — and every one of those findings survives the remapping, because they are properties of the domain rather than of the table layout.
 
-## 2. There is one cycle and it breaks
+## 2. There is one cycle, and it is one stage
 
 Exactly one strongly connected component with more than one member, and no self-reference anywhere:
 
@@ -28,9 +28,7 @@ Exactly one strongly connected component with more than one member, and no self-
 
 Three two-node cycles sharing `delivery_items`. The mechanism is the operations design's own: a **soft peg** lives on the inbound unit, a **hard bind** lives on the delivery slot, and the two point at each other deliberately.
 
-**All seven edges in it are nullable.** So it is not one atomic stage: import the units with their peg absent, import the delivery items with their instance references absent, then write both sides. *(ADR-0077 has since replaced the second pass: every id is assigned before any row is written and foreign keys are checked at commit, so a cycle costs nothing at import whether or not its edges are nullable. Whether nullable edges let its members sit in different stages is D201.)* The residual graph is acyclic.
-
-This is why the ADR now says a cycle forces one stage only when it contains a **required** reference. Had this cycle contained one, the four biggest tables in the system would have had to move together.
+**Its four tables move as one stage.** The first draft of this section argued that because all seven edges are nullable the cycle "breaks", and that its members could therefore sit in different stages. That answered the wrong question (D201). The stage rule rests on ownership: a legacy referrer cannot point at rows a migrated referent now owns, and a nullable column does not change that, since a delivery item that cannot bind to a new unit is broken whether or not its column admits null. Nullability mattered to the import, where a cycle once needed a second pass, and ADR-0077 removed the second pass, so a cycle now costs nothing at import either way. The cycle is one stage, which is where the table in §3 had put it all along; the reasoning now matches the table. Contracting the cycle to one node leaves the residual graph acyclic, which is what makes the order below computable.
 
 ## 3. The order, over tables
 
@@ -65,4 +63,4 @@ Three things, in order of how much:
 1. **Map tables to types first.** The order above cannot be used directly, and §1 says why. `publish-and-import.md` §5 gives the rules; most of the 45 go by shape, and what needs deciding is the three judgements it names — for this system, principally whether a note outlives its subject, since notes attach polymorphically to eleven types with no foreign key and nothing in the schema answers it.
 2. **Sample the JSON columns** named in §4 against production rows.
 3. **Reflect the live schema** and compare, since none of this touched a running database.
-4. Then recompute the order over types, at which point the three findings that matter — one breakable cycle, the most-referenced types being the least-changing, and a great deal of ordering freedom — should carry over unchanged.
+4. Then recompute the order over types, at which point the three findings that matter — one cycle that moves as one stage, the most-referenced types being the least-changing, and a great deal of ordering freedom — should carry over unchanged.

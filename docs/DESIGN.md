@@ -1,6 +1,6 @@
 # ObjectKeeper — Design
 
-**Status: under review.** The model is settled. Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 201 entries and five cosmetics; 197 are closed and 4, D190, D193, D194 and D201, are open. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064, ADR-0074 to ADR-0077 and the six implementation documents of 2026-09-09 await review.
+**Status: under review.** The model is settled. Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 201 entries and five cosmetics; 198 are closed and 3, D190, D193 and D194, are open. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064, ADR-0074 to ADR-0077 and the six implementation documents of 2026-09-09 await review.
 
 This document is the single description of the **model**: what an object is, what a transition guarantees, how a request executes, what the store refuses. The **language** those things are written in belongs to [`design/declaration-syntax.md`](design/declaration-syntax.md), which owns every grammar, every spelling and the fifty-three publish checks.
 

@@ -62,5 +62,5 @@ Time-ordered rather than random, as ADR-0018 recommended and left to storage to 
 - `adversarial-harness.md` names what the retrier tests and what reproducibility rests on.
 - `scripts/check-schema-doc.py` runs the deferred-foreign-key probe; `scripts/check-syntax-doc.py` enforces check 7's stored-end clause, which found D199's line on its first run; `scripts/check-corpus.py` holds the counts of D200 against their sources.
 - ADR-0018's open format item is decided, ADR-0056 §4 and ADR-0075's two-pass sentence are annotated, and ADR-0027, ADR-0037, ADR-0054 and ADR-0075 carry the back-link.
-- Found while repairing D191 and recorded as D201, not fixed here: ADR-0075 breaks a cycle by the optionality of its edges, which answered the import question that no longer exists and not the stage question it was asked in.
+- Found while repairing D191 and recorded as D201: ADR-0075 breaks a cycle by the optionality of its edges, which answered the import question that no longer exists and not the stage question it was asked in. *(Fixed later the same day: the exception is struck through in ADR-0075 with the reason, and the cutover document's §2 is rewritten to match its own stage table.)*
 - D189, D191, D192 and D195 to D200 are resolved.

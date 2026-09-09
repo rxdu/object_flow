@@ -7,7 +7,7 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 | | |
 |---|---|
 | ADRs | 77, none Proposed |
-| Defect register | 201 entries and five cosmetics; 197 closed, seven of them carried to open questions the author has since ruled on; **4 open**, D190, D193, D194 and D201, from the whole-record review of 2026-09-09 and its repair ([`docs/design/defects.md`](docs/design/defects.md)) |
+| Defect register | 201 entries and five cosmetics; 198 closed, seven of them carried to open questions the author has since ruled on; **3 open**, D190, D193 and D194, from the whole-record review of 2026-09-09 ([`docs/design/defects.md`](docs/design/defects.md)) |
 | Declaration syntax | **iteration 18, ready for author review**; checker clean, 26 of 53 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
 | Open questions | none. All thirteen answered by the author 2026-09-08, ADR-0065 to ADR-0072 ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
 | Awaiting author review | ADR-0019 to ADR-0064, ADR-0074 to ADR-0077, DESIGN.md as a whole, the declaration syntax, and the six implementation documents of 2026-09-09. ADR-0065 to ADR-0073 are settled: ADR-0065 to ADR-0072 are the author's own rulings, ADR-0073 confirmed 2026-09-08 |
@@ -28,7 +28,7 @@ Five changed the language: a machine's creation guards bind any creation that re
 
 Nothing here is blocked on it, and none of it is settled without it.
 
-- [ ] **The whole-record review of 2026-09-09** — D187 to D201 in [`docs/design/defects.md`](docs/design/defects.md). D187 and D188 are repaired by ADR-0076 and nine more by ADR-0077, both pending review. Three need a ruling: D190 (what erasure does to legacy history), D193 (whether actor attributes are typed and readable, or attenuation is withdrawn), D194 (whether a permanently external-owned type is the `mirror` kind). D201, found by the repair, asks whether an optional edge lets a cycle span two stages, and touches a derived paragraph of ADR-0075.
+- [ ] **The whole-record review of 2026-09-09** — D187 to D201 in [`docs/design/defects.md`](docs/design/defects.md). D187 and D188 are repaired by ADR-0076 and nine more by ADR-0077, both pending review. Three need a ruling: D190 (what erasure does to legacy history), D193 (whether actor attributes are typed and readable, or attenuation is withdrawn), D194 (whether a permanently external-owned type is the `mirror` kind). D201, found by the repair, withdrew a derived exception in ADR-0075 — a cycle is one stage regardless of the optionality of its edges — and is closed.
 - [ ] **The implementation documents of 2026-09-09** — storage schema, library API, publish and import, renderers, adversarial harness and first-consumer cutover, with ADR-0074 to ADR-0077. None has been read by the author.
 - [ ] **The execution model** — ADR-0038 sequential cascades, ADR-0039 serialisable isolation, ADR-0040 the assertion path, ADR-0054 parent ordering and admissions. These changed how the store runs, not just what it says.
 - [ ] **The languages** — ADR-0046 outcome grammar, ADR-0047 expression semantics, ADR-0052 grammar amendments, ADR-0053 the presence tests, ADR-0032 arithmetic.
@@ -82,14 +82,14 @@ The port of the first consumer's production data is a designed path (ADR-0015, D
 
 ## Defect repair
 
-The register at [`docs/design/defects.md`](docs/design/defects.md) holds 201 entries and five cosmetics, 197 closed and 4 open, and records for each what was decided and by which ADR. Two entries are refusals rather than resolutions: dynamic attribute writes and grouped aggregation, both declined by decision and recorded in the edge-case catalogue.
+The register at [`docs/design/defects.md`](docs/design/defects.md) holds 201 entries and five cosmetics, 198 closed and 3 open, and records for each what was decided and by which ADR. Two entries are refusals rather than resolutions: dynamic attribute writes and grouped aggregation, both declined by decision and recorded in the edge-case catalogue.
 
 ## Toward implementation
 
 The artefacts planning needs. Two are now done: the declaration syntax and the first consumer's types written in it. Each item is WHAT, not HOW.
 
 - [x] **Concrete declaration syntax.** A file format for types, machines, transitions, guards and outcomes that a person can read and diff, with the version-2 expression language given a grammar. The readable rule set is a rendering of it.
-- [x] **Compute the first consumer's stage order.** [`docs/design/first-consumer-cutover.md`](docs/design/first-consumer-cutover.md), 2026-09-09. Seven stages over 45 tables, one cycle, and it breaks — every edge in it is nullable, so the two-pass import already required handles it. Only nine of 42 components are pinned, so the plan has room. **The order cannot be used as it stands**: the stage unit is a type and its tables are not its types, which is the next task.
+- [x] **Compute the first consumer's stage order.** [`docs/design/first-consumer-cutover.md`](docs/design/first-consumer-cutover.md), 2026-09-09. Seven stages over 45 tables, one cycle, which moves as one stage (D201 withdrew the claim that nullable edges let it span two). Only nine of 42 components are pinned, so the plan has room. **The order cannot be used as it stands**: the stage unit is a type and its tables are not its types, which is the next task.
 - [ ] **Map the first consumer's tables to ObjectKeeper types, then recompute the stage order.** Seven photo tables become set-valued attributes, six association tables become derived ends or association types, the audit log becomes the event log and is not a type at all. Roughly twenty types from forty-five tables. Until that mapping exists the stage order is evidence about shape rather than a plan.
 - [ ] **Sample three JSON columns against production rows.** `delivery_configurations.packing_checklist` is documented as keyed by delivery-item id; if it is, that table joins the one cycle and makes it a five-member component. This is the single ambiguity with the largest effect on the order, and reading the code cannot settle it.
 - [x] **Storage schema.** [`docs/design/storage-schema.md`](docs/design/storage-schema.md), 2026-09-09. Three layers, the type-to-table mapping for both backends, the four indexes a guarantee depends on, and what publishing emits. Its SQLite statements are executed by `scripts/check-schema-doc.py` on every corpus run; the PostgreSQL column and the exclusion constraints are reasoned and unexecuted. Gapless global positions under concurrency is the open item and the first thing to measure.
