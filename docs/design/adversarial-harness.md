@@ -49,7 +49,13 @@ A run is a seed, a declaration version and a transcript, and it is reproducible 
 
 When a run fails, the artefact is the **shortest prefix that still fails**, found by replaying the transcript with requests removed. A four-thousand-request transcript is not a bug report; eleven requests are.
 
-The reduction is only sound if the run is deterministic given its seed, which is why the concurrency in §2 is scheduled by the harness rather than left to the operating system: the racer's interleavings are chosen from the seed and replayed exactly.
+The reduction is only sound if the run is deterministic given its seed, which is why the concurrency in §2 is scheduled by the harness rather than left to the operating system.
+
+**How the racer schedules.** The harness holds several database connections in **one** process and issues statements on them in an order the seed chooses. Connection A opens a transaction and runs its guard reads; the harness then makes connection B do the same before letting A write. No thread races anything: the test process decides who acts next, and the database still provides the real isolation, the real locks and the real serialisation failures.
+
+That is what makes the run both faithful and reproducible, and it is why the earlier framing of this as a choice between "a hook inside the store" and "a single-threaded simulation of the isolation level" was wrong. The hook is invasive and the simulation is unfaithful — it would be testing the harness's idea of serialisability rather than the database's. Driving real connections in a chosen order needs neither, because a connection is already a thing the test can hold and withhold.
+
+Two things follow. The interleaving points are statement boundaries, not arbitrary instruction boundaries, so the racer explores a coarser space than a thread scheduler would — which is the right space, since the guarantees are about transactions. And the harness needs the store's API to be synchronous, or to expose one, since it must be able to stop between statements.
 
 ## 5. What a passing run does not prove
 
@@ -61,9 +67,9 @@ It does not prove the guarantee for declarations unlike the fixture. It samples.
 
 And it does not prove anything about an actor with database access, which is the model this design does not defend against and says so.
 
+**Which backend it runs against.** Both, and they are not equivalent. SQLite serialises writers already, so the racer finds almost nothing there and a green run says little about concurrency; PostgreSQL pays for predicate tracking and is where a serialisation failure, a retry and a lock wait actually happen (ADR-0039). PostgreSQL is therefore the reference for the racer, and SQLite is the reference for the other three behaviours, being cheap enough to set up and tear down for the thousands of runs they want.
+
 ## 6. What this leaves open
 
-- **How the racer schedules.** Deterministic concurrency needs either a hook in the store to release transactions at chosen points, or a single-threaded simulation of the isolation level. The first is invasive and exact; the second is neither. This is the harness's one hard design problem.
-- **How long a run should be.** Coverage of what? Every transition, every guard clause, every pair of concurrent transitions on one type — the third is quadratic and the first is too weak.
-- **Whether the harness runs against SQLite, PostgreSQL or both.** They differ in exactly the place the racer probes, since one serialises writers already, so a green run on SQLite says less.
+- **How long a run should be.** Coverage of what? Every transition, every guard clause, every pair of concurrent transitions on one type — the third is quadratic and the first is too weak. The first two are cheap and should be floors; the third is where a budget has to be chosen and no argument settles it, only measurement.
 - **Whether a fallible *model* is worth using in place of the four scripted behaviours.** It is closer to the real threat, and it makes reduction and reproducibility much harder. The scripted behaviours come first because they are reproducible.

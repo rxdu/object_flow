@@ -383,7 +383,11 @@ Erasure (§8 of the model) does four things to storage:
 
 It does **not** touch `ok_attribute_write`. Redacting a value inside an event does not change which event last wrote the attribute, so `changed_since` answers the same after an erasure as before, and an approval that was valid stays valid. The design record does not say this; it follows from what the index means.
 
-The log is never pruned. **Archival tiering** is therefore not deletion but a second table with the same shape on cheaper storage, plus a view over both: events older than a threshold move, `pull` and `history` read the view, and erasure must reach the archive, which is the constraint that stops it being a write-once export.
+The log is never pruned. **Archival tiering** is therefore not deletion but a second table with the same shape on cheaper storage, plus a view over both: events older than a threshold move, and `pull` and `history` read the view.
+
+**Erasure reaches the archive.** The catalogue of edge cases offered the alternative — archive only events that carry no personal attribute — and it is rejected here. It requires knowing, at archive time, which of a future declaration's attributes will be personal, and `personal` can be added to an attribute by a later publish, at which point events already archived under the old answer are in the wrong place. Reaching the archive costs a slower erasure, which is an operation measured in minutes and performed rarely. Choosing the other way costs correctness on a schedule nobody controls.
+
+The consequence for the archive's storage is the real cost: it must support update, not only append, so a write-once object store is not enough on its own.
 
 ## 10. What publishing does
 
@@ -407,5 +411,5 @@ A removed attribute leaving its column in place is deliberate: the column is how
 - **Partitioning.** The log is the busiest table and nothing here partitions it. By position is the obvious axis and it interacts with archival tiering.
 - **Whether one table per type survives many types.** A hundred types is a hundred tables; the first consumer has perhaps thirty. Nothing here is per-object, so it should hold, and it is worth checking against a consumer with a family of many members.
 - **The exclusion constraint of §8 is unexecuted**, as is everything in the PostgreSQL column.
-- **The lifetime of an idempotency key.** Its scope is settled below; how long a record is kept is not, and it is the one table here that could be pruned without losing history.
+- **The retention window for an idempotency record**, which is a number rather than a design. It is the one table here that may be pruned without losing history, since a replay only has to outlive the retries of the request that made it, and the window is a deployment setting whose default should be measured against how long a caller's retry chain actually runs.
 - **Whether an archived event stays reachable by erasure, or only events with no personal attribute are archived.** The catalogue of edge cases offers both; the schema must pick one, and picking the second means the archive is not a plain move.
