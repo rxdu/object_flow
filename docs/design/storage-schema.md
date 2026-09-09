@@ -374,7 +374,7 @@ The log is never pruned. **Archival tiering** is therefore not deletion but a se
 
 ## 10. What publishing does
 
-A publish is a declaration version and a set of DDL statements derived from it, applied in the same transaction as the `ok_declaration` row.
+A publish is a declaration version and a set of DDL statements derived from it, applied in the same transaction as the `ok_declaration` row. **This section owns the DDL mapping only.** What publishing checks, what it reports and when it refuses is [`publish-and-import.md`](publish-and-import.md), which cites this table for the emission step.
 
 | Declaration change | DDL |
 |---|---|

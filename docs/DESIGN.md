@@ -4,6 +4,17 @@
 
 This document is the single description of the **model**: what an object is, what a transition guarantees, how a request executes, what the store refuses. The **language** those things are written in belongs to [`design/declaration-syntax.md`](design/declaration-syntax.md), which owns every grammar, every spelling and the fifty-two publish checks.
 
+Five further documents carry the parts an implementation needs, each owning what it names:
+
+| Document | Owns |
+|---|---|
+| [`design/declaration-syntax.md`](design/declaration-syntax.md) | the language, every grammar and the publish checks |
+| [`design/storage-schema.md`](design/storage-schema.md) | the tables, the indexes a guarantee rests on, and the DDL a change emits |
+| [`design/library-api.md`](design/library-api.md) | the operations a program calls and the shapes they take |
+| [`design/publish-and-import.md`](design/publish-and-import.md) | what publishing checks and reports, and how production data arrives |
+| [`design/renderers.md`](design/renderers.md) | the rule set, agent tool schemas and form hints |
+| [`design/adversarial-harness.md`](design/adversarial-harness.md) | the acceptance test, and what would falsify the guarantee |
+
 Where a rule appears in both, this document states what it means and the syntax document states how it is written. That division exists because it failed twice: the outcome grammar was restated here and had gone stale in three of six lines, and a later audit found thirty-two rules stated in both documents of which six had drifted to the superseded version. When the two disagree, the syntax document is the one with a checker.
 
 Each decision, with the alternatives it rejected, is an ADR in [`adr/`](adr/); the case studies that shaped it and the catalogue of what it deliberately does not cover are in [`design/`](design/).
