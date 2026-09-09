@@ -197,6 +197,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D183](#d183) | A compiled constraint cannot yield to an admission, and nothing said so | Resolved |
 | [D184](#d184) | Three rules about absence and identity were unstated | Resolved |
 | [D185](#d185) | The blob store's lifecycle expiry must be disabled and the schema did not say so | Resolved |
+| [D186](#d186) | Four routes to a writable mirror | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -1252,3 +1253,8 @@ A sweep of DESIGN.md and all 73 decision records for what they oblige storage to
 **The blob store's lifecycle expiry must be disabled and the schema did not say so.** The log is permanent and a file reference outlives any expiry policy, so a bucket rule deleting after ninety days silently breaks history (ADR-0017).
 
 **Resolved.**
+
+### D186
+**Four routes to a writable mirror.** ADR-0075 added the `mirror` marking and check 53 to keep such a type read-only, and the first version of the check guarded only outcomes and compositions. Probing found four more: a mirror binding a machine, which hands it every transition that machine supplies and defeats the marking completely; a mirror declaring transitions of its own; a mirror extending a type; and an ordinary type extending a mirror, which lets a type this store owns inherit the shape of one it does not.
+
+**Resolved.** All four are refused by check 53, each confirmed by probe, and the specification carries a worked mirror example so the checker verifies the pattern on every run rather than the prose merely describing it.

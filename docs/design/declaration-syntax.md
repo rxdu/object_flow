@@ -93,7 +93,34 @@ A type body's clauses are conventionally written in one order — `tracking`, `m
 
 A **family** is an `abstract` base together with every type extending it. `tracking` is inherited with everything else, so a family states it once on the base; an `abstract` type may state it and needs none, having no objects. A header is written `type <Name> [extends <Base>] version <n> [abstract|mirror]`, in that order.
 
-**`mirror`** says this store holds the type and does not own it: another system does, and here it is written only by the import path (ADR-0075). A mirror declares attributes, states and its external identifier and **no transitions at all**, so the rules about a lifecycle — a state needing an outgoing `do` (check 15), a type needing a creation (check 34), a machine needing a terminal state — do not apply to it. Check 53 is what makes the marking mean something: nothing here may write it. An ordinary type may reference a mirror, read it in a guard and require it in an invariant, which is the point — a migrated delivery can be guarded on a customer that has not migrated yet. Cutting the type over removes the marking and declares the real transitions, which is an ordinary version advance and changes no object's id. Markings elsewhere — on an attribute, a reference, a state — may appear in any order after the part that is required.
+**`mirror`** says this store holds the type and does not own it: another system does, and here it is written only by the import path (ADR-0075). A mirror declares attributes, states and its external identifier and **no transitions at all**, so the rules about a lifecycle — a state needing an outgoing `do` (check 15), a type needing a creation (check 34), a machine needing a terminal state — do not apply to it. Check 53 is what makes the marking mean something: nothing here may write it. An ordinary type may reference a mirror, read it in a guard and require it in an invariant, which is the point — a migrated delivery can be guarded on a customer that has not migrated yet. Cutting the type over removes the marking and declares the real transitions, which is an ordinary version advance and changes no object's id.
+
+```text
+type Customer version 1 mirror {
+  tracking record
+  states ACTIVE category live, ARCHIVED category closed
+  summary legacy_key, name, state
+
+  attr legacy_key string external "legacy" indexed
+  attr name       string
+}
+
+type Delivery version 2 {
+  tracking record
+  states PREPARATION category live, DONE category closed terminal
+  ref customer : Customer indexed
+
+  create open -> PREPARATION {
+    input for_customer : Customer
+    require live: inputs.for_customer.state == Customer.ACTIVE because dependent
+    require may:  actor.has(DELIVERY_EDIT) because delegable
+    set customer := inputs.for_customer
+  }
+  do finish PREPARATION -> DONE { require may: actor.has(DELIVERY_COMPLETE) because delegable }
+}
+```
+
+A mirror also **binds no machine, declares no transitions of its own, and neither extends nor is extended** — each of which would hand it a way to be written and defeat the marking. Two further consequences are worth knowing before one is declared. An **invariant over a mirror** is checked when an import writes it and there is no transition to refuse, so an admission is the only recourse; state the invariant on the type that owns the data instead, where a guard can act on it. And a mirror holding a `personal` attribute must be **erased in both places**: erasure here redacts this store's copy and its events, and the system that owns the type has to do its own. Markings elsewhere — on an attribute, a reference, a state — may appear in any order after the part that is required.
 
 `extends` inherits every attribute, relationship, derivation and invariant of the base, and nothing else: a machine is always bound explicitly, and transitions are never inherited. A base must be declared and `abstract`, and the inheritance graph must be acyclic (check 43).
 
@@ -983,7 +1010,7 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 50 | A `use` importing a name its module does not declare; a `default` expression reading an input or another attribute, which would make the expansion order-dependent |
 | 51 | A body that does not close on its opening line and puts a clause on that line; a line that can only be a continuation and is not indented deeper than the clause it continues (§9.1) |
 | 52 | A normative statement in §1 to §9 — anything the text says is rejected or is a publish error — that does not cite the check enforcing it. It verifies that a citation is **present**, never that it is **right**: two of the first twelve named a check whose text did not cover the statement, and both were found by reading rather than by running. Its reach is bounded in one way worth knowing: it recognises a fixed list of phrasings. A proximity window used to shield any statement near a citation, which gave a demonstrated false pass, so the citation must now be in the same **sentence** as the statement. An earlier draft of this row claimed it would have caught the four rule-and-check divergences that motivated it; running the predicate over those four shows it catches **one**, and the two it misses are the two that produced blocking defects. What it does is enforce the discipline going forward, for the phrasings it knows |
-| 53 | An outcome that `call`s or `create`s into a `mirror` type, or a `part`/`owner` composing with one — a composition binds the part's lifetime to the whole and a mirror's lifetime belongs to another system (§2, ADR-0075) |
+| 53 | A `mirror` that binds a machine, declares a transition, or takes part in `extends` in either direction — each would give it a way to be written; an outcome that `call`s or `create`s into a `mirror` type, or a `part`/`owner` composing with one — a composition binds the part's lifetime to the whole and a mirror's lifetime belongs to another system (§2, ADR-0075) |
 
 Reported without failing: which transitions enter a closed-category state with no `only via` list, so the choice is visible where it is made rather than mandatory (ADR-0070); which of a machine's creations a binder has replaced by declaring its own, named one by one along with the guards carried over from each, since adding a creation to a binder silently removes them and nothing in that type's own text shows it; a `cascade` whose target transition's from-states do not cover every non-terminal state of the part's machine, naming the uncovered ones — the strict form, deliberately, since whether an uncovered state is reachable when the trigger fires depends on guards on other transitions and nothing tracks that; how many live objects would violate an invariant this publish adds, and a sample of them; a declared input nothing reads; a guard whose remedy class was inferred, and what was inferred; a guard whose value can be `unknown` through an optional it never tests (§8.2); which invariants compile to a database constraint on this backend; which transitions are **sweepable** (ADR-0048), meaning their guards decompose into an indexable prefilter over stored attributes, state and category, plus a residual evaluated only on the candidates that prefilter returns — a transition that is not sweepable is refused by `available` rather than silently scanning a type, so a time-driven transition that is not sweepable has nothing to find its objects. Of those, the ones worth polling are the ones with a guard declared `temporal` and none declared `unreachable_from_here`, which is what excludes a window that has already closed (§5.1); which derived attributes are queryable; each loop's declared bound, attributed to the loop, and the **observed** maximum fan-out over the live objects, replacing the worst-case product across nested loops, which multiplied invented numbers into a total that looked authoritative and meant nothing (ADR-0071); each dropped-and-added attribute pair that may be a rename; and how many pending proposals a publish would invalidate.
 

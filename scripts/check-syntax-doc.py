@@ -251,6 +251,18 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 add(15, f"{d.name} has no terminal state", d.start)
 
         # 53 — nothing here may write a type another system owns
+        if d.mirror:
+            if d.machine:
+                add(53, f"{d.name} is a mirror and binds machine {d.machine}, "
+                        "whose transitions would make it writable", d.start)
+            if d.trans:
+                add(53, f"{d.name} is a mirror and declares {len(d.trans)} transition(s)",
+                    d.start)
+            if d.base:
+                add(53, f"{d.name} is a mirror and extends {d.base}", d.start)
+        if d.base and getattr(by_name.get(d.base), "mirror", False):
+            add(53, f"{d.name} extends mirror {d.base}, so a type this store owns "
+                    "would inherit the shape of one it does not", d.start)
         if not d.mirror:
             for kind, tn, head, body, ln in (trans if d.kind == "type" else d.trans):
                 # an input or a relationship end resolves to the type it names

@@ -46,7 +46,9 @@ type Customer version 1 mirror {
 
 A mirror declares its attributes, its states and its external identifier, and **no transitions at all**. It is written only by the import path — the built-in assertion, capability-gated and recorded (ADR-0040, ADR-0054) — so every change to it is attributable to the import that made it, and none of it looks like an ordinary transition.
 
-Checks 15, 34 and the terminal-state rule do not apply to a mirror: they are about a lifecycle, and a mirror's lifecycle belongs to another system. **Check 53 is new** and is what makes the marking mean something: no outcome may `call` or `create` into a mirror, and no `part` or `owner` may compose with one, because a composition binds the part's lifetime to the whole and a mirror's lifetime is not this store's to bind.
+Checks 15, 34 and the terminal-state rule do not apply to a mirror: they are about a lifecycle, and a mirror's lifecycle belongs to another system. **Check 53 is new** and is what makes the marking mean something. Nothing here may write a mirror: no outcome may `call` or `create` into one, and no `part` or `owner` may compose with one, because a composition binds the part's lifetime to the whole and a mirror's lifetime is not this store's to bind.
+
+Four further routes to a writable mirror were found by probing rather than by reasoning, and each is refused: a mirror binding a machine, which would hand it that machine's transitions; a mirror declaring transitions of its own; a mirror extending a type; and an ordinary type extending a mirror, which would let a type this store owns inherit the shape of one it does not. The first was the important one — a mirror with a bound machine is writable through every transition the machine supplies, which defeats the marking completely.
 
 An ordinary type may **reference** a mirror, read its attributes and its state in a guard, and require it in an invariant. That is the whole point: a migrated delivery can be guarded on its not-yet-migrated customer.
 

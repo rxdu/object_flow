@@ -6,8 +6,8 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 
 | | |
 |---|---|
-| ADRs | 73, none Proposed |
-| Defect register | 185 entries and five cosmetics, all closed; seven were carried to open questions the author has since ruled on ([`docs/design/defects.md`](docs/design/defects.md)) |
+| ADRs | 75, none Proposed |
+| Defect register | 186 entries and five cosmetics, all closed; seven were carried to open questions the author has since ruled on ([`docs/design/defects.md`](docs/design/defects.md)) |
 | Declaration syntax | **iteration 18, ready for author review**; checker clean, 24 of 52 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
 | Open questions | none. All thirteen answered by the author 2026-09-08, ADR-0065 to ADR-0072 ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
 | Awaiting author review | ADR-0019 to ADR-0064, DESIGN.md as a whole, and the declaration syntax. ADR-0065 to ADR-0073 are settled: ADR-0065 to ADR-0072 are the author's own rulings, ADR-0073 confirmed 2026-09-08 |
