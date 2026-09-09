@@ -191,6 +191,8 @@ Evaluation is **three-valued**: comparison with an absent value, and division by
 
 Not in the language: grouped aggregation, string operations beyond equality and membership, user-defined functions, recursion or transitive closure, any call other than a declared evaluator.
 
+**How far a guard actually reaches, measured.** Every guard in the first consumer was counted on 2026-09-09. Of the 205 that read data, 94 are local to the object and 111 reach beyond it. Of those 111: 27 are one hop to a single object, 31 aggregate over a collection the object owns, 30 are type-wide existence or uniqueness, and 23 are two hops — 21 of which also aggregate. **Nothing in that system reaches three hops.** So the language needs one and two hops, aggregates over an owned collection, and a type-wide existence test, and it needs no transitive closure — which is the boundary ADR-0021 drew by argument and this measures.
+
 **The line with computation** (ADR-0007, ADR-0032): the store evaluates **declared arithmetic over its own data**, where the result is a guard, a view, an invariant or a quantity an outcome writes. It does not own **domain formulas** — tax, pricing, discounts, scoring, conversion — which consumers compute and supply as inputs for guards to check. The language grows only by an ADR naming the case that forced it.
 
 ### 5.8 Actors and visibility

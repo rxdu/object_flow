@@ -32,7 +32,7 @@ Three properties carry that:
 
 The distinction from an ORM is deliberate. An ORM abstracts *mechanism* — it hides SQL, and faithfully executes whatever the caller asks. ObjectKeeper abstracts *authority*: what may change, when, and by whom.
 
-A practical consequence: a single business rule today is expressed as a storage constraint, as backend validation, as frontend form state, as error text, and now as an agent tool description — five copies in four languages, each free to drift. Declared once and inspectable, those become projections of one definition.
+A practical consequence, measured rather than asserted. In the first consumer, 454 sites refuse an operation. **176 of them are redundant** — the same rule expressed again somewhere else — and 51 distinct rules appear at more than one site, across route checks, service methods, model hooks and database constraints. One rule, "a delivery must be in preparation", is written five times in four files. Declared once and inspectable, those become projections of one definition.
 
 ## Documentation
 
