@@ -28,7 +28,7 @@ Exactly one strongly connected component with more than one member, and no self-
 
 Three two-node cycles sharing `delivery_items`. The mechanism is the operations design's own: a **soft peg** lives on the inbound unit, a **hard bind** lives on the delivery slot, and the two point at each other deliberately.
 
-**All seven edges in it are nullable.** So it is not one atomic stage: import the units with their peg absent, import the delivery items with their instance references absent, then write both sides in the second pass that ADR-0075's import already performs for every reference. The residual graph is acyclic.
+**All seven edges in it are nullable.** So it is not one atomic stage: import the units with their peg absent, import the delivery items with their instance references absent, then write both sides. *(ADR-0077 has since replaced the second pass: every id is assigned before any row is written and foreign keys are checked at commit, so a cycle costs nothing at import whether or not its edges are nullable. Whether nullable edges let its members sit in different stages is D201.)* The residual graph is acyclic.
 
 This is why the ADR now says a cycle forces one stage only when it contains a **required** reference. Had this cycle contained one, the four biggest tables in the system would have had to move together.
 

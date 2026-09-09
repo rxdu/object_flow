@@ -61,7 +61,7 @@ class Request:
     inputs: Mapping[str, Any] = field(default_factory=dict)
     expected_version: int | None = None
     idempotency_key: str | None = None
-    context: Mapping[str, Any] | None = None
+    context: str | None = None
 
 
 ```
@@ -183,13 +183,47 @@ class Event:
     to_state: str
     changes_state: bool
     source: str
-    actor: Actor
+    actor_id: str
+    actor_kind: ActorKind
+    principal: str | None
+    context: str | None
     cause: int | None
+    declaration_version: int
+    taint_version: int
     recorded_at: datetime
+    payload: Mapping[str, Any]
+    as_of: Mapping[str, datetime]     # per external guard: when its verdict was given
+
+
+@dataclass(frozen=True)
+class LegacyEntry:
+    """History that predates the store, attached at import (ADR-0015)."""
+
+    object_id: str
+    ordinal: int
+    occurred_at: datetime
     payload: Mapping[str, Any]
 
 
+@dataclass(frozen=True)
+class Checked:
+    """What `check` returns: a verdict, and the external guards it did not
+    evaluate, so the verdict is explicitly partial (ADR-0054)."""
+
+    verdict: Verdict
+    unevaluated: Sequence[str]
+
+
+@dataclass(frozen=True)
+class EventPage:
+    events: Sequence[Event]
+    cursor: str | None
+    settled: int                      # acknowledge no further than this
+
+
 ```
+
+An `Event` carries what the log stores and no more: the actor's id, kind and principal rather than a descriptor, since the log never recorded capabilities; the declaration version and taint version in force; and, per external guard, the as-of time of the verdict it was given (ADR-0049). `EventPage.settled` is the position below which no transaction is still in flight, which is as far as a consumer may acknowledge (§7 of the model, ADR-0077).
 
 `TransitionOffer.unevaluated` is what makes the read surface honest about external evaluators: `availability`, `available` and `check` never call one, and each says which guards it therefore did not evaluate (ADR-0048, ADR-0049). A caller that treats an offer as a promise is wrong, and the field is there so it cannot claim it was not told.
 
@@ -218,10 +252,10 @@ class Store(Protocol):
                   cursor: str | None = None) -> Page: ...
 
     def check(self, actor: Actor, id: str, transition: str,
-              inputs: Mapping[str, Any]) -> Verdict: ...
+              inputs: Mapping[str, Any]) -> Checked: ...
 
     def history(self, actor: Actor, id: str,
-                follow: bool = False) -> Iterator[Event]: ...
+                follow: bool = False) -> Iterator[Event | LegacyEntry]: ...
 
     def exceptions(self, actor: Actor, type: str,
                    cursor: str | None = None) -> Page: ...
@@ -230,7 +264,7 @@ class Store(Protocol):
                     version: int | None = None) -> Mapping[str, Any]: ...
 
     def pull(self, actor: Actor, subscription: str,
-             position: int) -> Page: ...
+             position: int) -> EventPage: ...
 
     def acknowledge(self, actor: Actor, subscription: str,
                     position: int) -> None: ...
@@ -245,7 +279,7 @@ Fourteen operations: the eleven of §10, the write path of §6, and the two oper
 
 Three of them are worth reading twice.
 
-**`check` is advice, not a reservation.** It simulates the same sequence internally, takes no locks and has no effect, so the answer can be stale before the caller acts on it. It also costs what the request would cost: simulating a cascade over five hundred parts evaluates five hundred guards.
+**`check` is advice, not a reservation.** It simulates the same sequence internally, takes no locks and has no effect, so the answer can be stale before the caller acts on it. It also costs what the request would cost: simulating a cascade over five hundred parts evaluates five hundred guards. It returns a `Checked`: the verdict, and the external guards it did not evaluate, since `availability`, `available` and `check` call no evaluator (ADR-0054, ADR-0077).
 
 **`available` requires the transition to be sweepable.** Its guards must decompose into an indexable prefilter plus a residual (ADR-0048). A transition that is not sweepable is refused here rather than scanned, which is a real constraint on how a time-driven guard is written, because this query is how all time-driven work in the system finds its objects.
 
@@ -253,7 +287,7 @@ Three of them are worth reading twice.
 
 ## 7. What is an exception
 
-Everything in §4 is a value. These are the four things that raise, and the list is closed so that a second binding cannot differ on it.
+Everything in §4 is a value. These are the five things that raise, and the list is closed so that a second binding cannot differ on it.
 
 | Raised | When |
 |---|---|
@@ -261,6 +295,7 @@ Everything in §4 is a value. These are the four things that raise, and the list
 | `UnknownTransition` | the named transition does not exist on that type in the current version. Not a verdict, because a verdict answers "may I", and this is "there is no such thing" |
 | `StorageUnavailable` | the database is unreachable, or a transaction failed for a reason that is not a serialisation conflict. A serialisation conflict is retried and then becomes `stale`, which is a verdict |
 | `SchemaMismatch` | the installed declaration and the tables disagree, which means a publish did not complete |
+| `KeyReused` | this actor applied the idempotency key before, to a different request. A retry is the same request, so a different body under a used key is a defect in the caller's key generation, and neither replaying the other request's result nor applying this one under its key would be honest (ADR-0077) |
 
 Note what is not there. An unknown object id is `NotFound`, an invisible one is also `NotFound`, and a malformed input is `Unsatisfied` on the guard that reads it. Those are answers about the domain and the caller must handle them, so they are values.
 
@@ -270,7 +305,7 @@ Note what is not there. An unknown object id is `NotFound`, an invisible one is 
 
 - **Streaming stays as it is:** an iterator for `history`, a page for everything else. History is the only unbounded result, and a cursor is what a caller can hold across a request boundary while an iterator is not.
 - **The declaration is loaded from the store**, not from a file. `publish` writes it to `ok_declaration` and a starting process reads the installed version, which keeps a recorded event's declaration version resolvable and makes a process that disagrees with the store impossible rather than unlikely. The `.ok` files stay in version control as the input to a publish.
-- **The exception list is closed** at the four of §7.
+- **The exception list is closed** at the five of §7.
 
 **Still open.**
 

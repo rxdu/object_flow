@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D43 to D46, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0074 — an admissible invariant is not compiled to a database constraint.
+- **Refined by:** ADR-0074 — an admissible invariant is not compiled to a database constraint; ADR-0077 — the partial verdict of `check` has a shape, `Checked`.
 - **Refines:** ADR-0038, ADR-0040, ADR-0027, ADR-0049
 
 ## Context

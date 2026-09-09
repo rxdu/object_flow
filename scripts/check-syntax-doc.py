@@ -310,6 +310,25 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 if "limit" not in cl:
                     add(47, f"{d.name}.{rn} has a cascade clause with no limit", rln)
 
+        # 7 — an `indexed` marking on a stored relationship end, which already is one
+        for rn, (rk, rspec, rln) in d.rels.items():
+            toks = rspec.split()
+            if not toks or "indexed" not in toks: continue
+            if rk == "owner":
+                stored = True
+            elif rk == "ref":
+                im7 = re.search(r"\binverse\s+(\w+)", rspec)
+                if "[]" in toks[0]: stored = False            # a set end never stores
+                elif not im7 or "stored" in toks: stored = True  # no inverse, or marked
+                else:
+                    far7 = by_name.get(toks[0].rstrip("?[]"))
+                    fe7 = far7.rels.get(im7.group(1)) if far7 else None
+                    stored = bool(fe7 and fe7[1].split() and "[]" in fe7[1].split()[0])
+            else:
+                stored = False                                   # a part end is derived
+            if stored:
+                add(7, f"{d.name}.{rn} is a stored relationship end and is marked indexed, which it already is", rln)
+
         # reference pairs: exactly one end stores the value (check 41)
         for rn, (rk, rspec, rln) in d.rels.items():
             if rk != "ref" or not rspec.split(): continue
@@ -479,6 +498,7 @@ def line_checks(text, base, capdecl, reserved, machine_caps):
 # ── fixtures: every claimed check must fire on one of these ─────────────────
 FIXTURES = {
   2:  "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { create B.mk2() }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T { input amount : int\n }\n do take T -> U { }\n}",
+  7:  "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref m : M indexed\n create mk -> S { }\n do go S -> D { }\n}",
   8:  ["type W version 1 {\n tracking serial\n states S category live, D category closed terminal\n part p : C inverse w\n create mk -> S { }\n do go S -> D { }\n}",
        "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr name string\n create mk -> S { }\n do go S -> D { }\n}"],
   11: "type P version 1 {\n tracking serial\n states S category live, D category closed terminal\n owner w : W inverse parts\n create mk -> S { set w := inputs.w }\n do go S -> D { }\n}",

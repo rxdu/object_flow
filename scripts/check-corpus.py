@@ -195,6 +195,67 @@ def check_declarations():
                             f"run scripts/check-syntax-doc.py on it")
 
 
+_ONES = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven "
+                                   "twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split())}
+_TENS = {w: 10 * i for i, w in enumerate("_ _ twenty thirty forty fifty sixty seventy eighty ninety".split())}
+
+
+def _num(s):
+    """A count written in digits or in words up to ninety-nine, else None."""
+    s = s.strip("*").lower()
+    if s.isdigit():
+        return int(s)
+    if s in _ONES:
+        return _ONES[s]
+    if s in _TENS:
+        return _TENS[s]
+    if "-" in s:
+        t, o = s.split("-", 1)
+        if t in _TENS and o in _ONES:
+            return _TENS[t] + _ONES[o]
+    return None
+
+
+def check_counts(maxcheck):
+    """The numbers the status lines quote must match what they count.
+
+    D176 corrected a set of stale counts and D200 found eight more one day
+    later, because nothing held a summary against its source.  This holds the
+    register size, the open count and the check counts against the register,
+    the check table and the syntax checker's own output.
+    """
+    reg = (ROOT / "docs/design/defects.md").read_text()
+    total = len(re.findall(r"^### D\d+$", reg, re.M))
+    open_ = len(re.findall(r"^\| \[D\d+\]\(#d\d+\) \|.*\| Open[^|]*\|$", reg, re.M))
+    closed = total - open_
+    r = subprocess.run([sys.executable, str(ROOT / "scripts/check-syntax-doc.py")],
+                       capture_output=True, text=True)
+    m = re.search(r"partially enforces (\d+) of (\d+) defined checks", r.stdout)
+    enforced = int(m.group(1)) if m else None
+    if m and int(m.group(2)) != maxcheck:
+        findings.append(f"check-syntax-doc.py counts {m.group(2)} checks, the table defines {maxcheck}")
+    want = [
+        ("README.md", r"a register of (\S+) findings, (\S+) closed and (\S+) open", (total, closed, open_)),
+        ("docs/DESIGN.md", r"(\S+) entries and five cosmetics; (\S+) are closed and (\S+),", (total, closed, open_)),
+        ("docs/DESIGN.md", r"the (\S+) publish checks", (maxcheck,)),
+        ("TODO.md", r"\| Defect register \| (\S+) entries and five cosmetics; (\S+) closed,.*?\*\*(\S+) open\*\*", (total, closed, open_)),
+        ("TODO.md", r"holds (\S+) entries", (total,)),
+        ("TODO.md", r"checker clean, (\S+) of (\S+) checks enforced", (enforced, maxcheck)),
+        ("docs/design/publish-and-import.md", r"The (\S+) checks of the syntax document", (maxcheck,)),
+        ("docs/design/declaration-syntax.md", r"\*\*(\S+) of the (\S+) are implemented today\*\*", (enforced, maxcheck)),
+        ("docs/design/defects.md", r"(\S+) are open —", (open_,)),
+    ]
+    for rel, pat, expect in want:
+        text = (ROOT / rel).read_text()
+        m = re.search(pat, text)
+        if not m:
+            findings.append(f"{rel}: no statement matches {pat!r}, so its count cannot be checked")
+            continue
+        got = tuple(_num(g) for g in m.groups())
+        if got != expect:
+            findings.append(f"{rel}: says {got} where the sources say {expect}: {m.group(0)[:80]}")
+
+
 def main():
     nums = adr_numbers()
     spec = (ROOT / "docs/design/declaration-syntax.md").read_text()
@@ -207,6 +268,7 @@ def main():
     check_amendments()
     check_answer_blocks()
     check_defect_index()
+    check_counts(maxcheck)
     check_declarations()
     check_schema_doc()
     check_api_doc()

@@ -1,8 +1,8 @@
 # ObjectKeeper — Design
 
-**Status: under review.** The model is settled. Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 200 entries and five cosmetics; 188 are closed and twelve, D189 to D200 from the whole-record review of 2026-09-09, are open. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064 are written and await review.
+**Status: under review.** The model is settled. Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 201 entries and five cosmetics; 197 are closed and 4, D190, D193, D194 and D201, are open. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064, ADR-0074 to ADR-0077 and the six implementation documents of 2026-09-09 await review.
 
-This document is the single description of the **model**: what an object is, what a transition guarantees, how a request executes, what the store refuses. The **language** those things are written in belongs to [`design/declaration-syntax.md`](design/declaration-syntax.md), which owns every grammar, every spelling and the fifty-two publish checks.
+This document is the single description of the **model**: what an object is, what a transition guarantees, how a request executes, what the store refuses. The **language** those things are written in belongs to [`design/declaration-syntax.md`](design/declaration-syntax.md), which owns every grammar, every spelling and the fifty-three publish checks.
 
 Five further documents carry the parts an implementation needs, each owning what it names:
 
@@ -50,7 +50,7 @@ ObjectKeeper is a layer over a database, not a database (ADR-0001). The core is 
 
 | Property | Meaning | Why it matters |
 |---|---|---|
-| **Mediated** | No path to the data except through declared transitions and their guards. There is no second write path (ADR-0042), and the one way to set state without satisfying a guard is a declared, recorded assertion (ADR-0040) | The peace-of-mind guarantee |
+| **Mediated** | No path to the data except through declared transitions and their guards. There is no second write path (ADR-0042), and the two ways to set state without satisfying a guard are both assertions, capability-gated and recorded: one the type declares (ADR-0040), and the built-in one import and migration use (ADR-0054) | The peace-of-mind guarantee |
 | **Declared** | What is allowed is data, inspectable at runtime, not code (ADR-0010) | UI, API and agent tools are projections of one declaration |
 | **Recorded** | Every change is attributed, caused and reconstructable | Trust after the fact, not only while watching |
 
@@ -66,7 +66,9 @@ The model was tested against five further shapes, each recorded with what it for
 
 ```
 ObjectType            declared under a version (§5.9); may extend a base;
-                      declares a tracking mode, serial, quantity or record (§5.10)
+                      declares a tracking mode, serial, quantity or record (§5.10);
+                      or is marked mirror: held here, owned elsewhere, written
+                      only by import, no transitions (§11)
   id                store-assigned, globally unique, immutable, opaque
   version           incremented on every recorded change
   attributes        written only by transition outcomes; each has a declared
@@ -75,7 +77,8 @@ ObjectType            declared under a version (§5.9); may extend a base;
   derived           named expressions, never stored, evaluated on read (§5.2)
   visibility        optional predicate over actor and object (§5.8)
   invariants        type-level properties, enforced dynamically (§5.6)
-  relationships     composition or reference; carry no attributes (§5.3)
+  relationships     composition or reference; carry no attributes; a part names
+                    a cascade or survives per terminal transition of the whole (§5.3)
   state machine     exactly one, named or inline; a binder adds its own transitions
                     and replaces the machine's creations (§5.4)
     states          each with a category; at least one terminal
@@ -88,7 +91,7 @@ Every request additionally carries an **actor** the consumer supplies (§5.8).
 
 ### 5.1 Objects and identity
 
-Every object carries a store-assigned, globally unique, immutable, opaque id, assigned at creation and at import (ADR-0018). Business identifiers such as a serial or a ticket key, and external identifiers such as a Xero contact id or a legacy primary key, are ordinary attributes, never identity. A business identifier may be minted at creation from a named, scoped, monotonic sequence, which is monotonic but not gapless (ADR-0029). An object never changes type; when it must continue as something else it is superseded (§8).
+Every object carries a store-assigned, globally unique, immutable, opaque id, assigned at creation and at import (ADR-0018). It is a UUIDv7, so ascending id order is creation order, which is what makes a cascade's iteration order deterministic (§6); its embedded time is never read back as a fact about the object, which is what `created_at` is for (ADR-0077). Business identifiers such as a serial or a ticket key, and external identifiers such as a Xero contact id or a legacy primary key, are ordinary attributes, never identity. A business identifier may be minted at creation from a named, scoped, monotonic sequence, which is monotonic but not gapless (ADR-0029). An object never changes type; when it must continue as something else it is superseded (§8).
 
 ### 5.2 Attributes
 
@@ -205,7 +208,7 @@ A type may declare a **visibility** predicate over actor and object; every read,
 
 A type may **extend** a base declaration for attributes, relationships, invariants and derived attributes; state machines are bound by name and never inherited piecemeal, though a binder adds its own transitions and replaces the machine's creations (ADR-0064). A **family** is a base and everything extending it, and is a query target (ADR-0026).
 
-Declarations are **versioned**, and every object and event records the version of its **type**. Because a type's behaviour depends on the machine, enums, sequences, evaluators and base types it uses, advancing any of those requires advancing every dependent type, which publishing enforces (ADR-0027, ADR-0056). A machine declares what it requires of its binders, and publishing verifies each one. Publishing is a designed operation with a report:
+Every type, machine, enum, sequence and evaluator carries its own **type version** in the text, and each publish installs the whole closure under one **declaration version**, per store and monotonic. Every object and event records the declaration version in force, which fixes the version of every type at that instant; a type version alone would not, since a machine or enum it depends on may have moved (ADR-0077). Because a type's behaviour depends on the machine, enums, sequences, evaluators and base types it uses, advancing any of those requires advancing every dependent type, which publishing enforces (ADR-0027, ADR-0056). A machine declares what it requires of its binders, and publishing verifies each one. Publishing is a designed operation with a report:
 
 - **additions apply forward**; a new guard bites at the next transition;
 - a **new invariant** is checked against live objects and every violation reported, then resolved by a mapping or admitted (§8);
@@ -226,11 +229,11 @@ A request names an object, a transition, its inputs and the actor, and optionall
 External evaluators named by any guard in the request are consulted **first, outside the transaction**, and their verdicts carried in with their as-of times (ADR-0049). The rest runs in one transaction at **serialisable isolation** (ADR-0039):
 
 1. If the type declares visibility and the actor cannot see the object, refuse as `not found`.
-2. If the idempotency key has been applied before, return the original result, marked as a replay, **whatever `expected_version` the retry carries**: a retry is the original request re-sent, and its version is the one the original was checked against (ADR-0041, ADR-0076).
+2. If this actor's idempotency key has been applied before to this request, return the original result, marked as a replay, **whatever `expected_version` the retry carries**: a retry is the original request re-sent, and its version is the one the original was checked against (ADR-0041, ADR-0076). A key applied before to a different request is a fault, not a verdict (ADR-0077).
 3. If an `expected_version` is given and differs, refuse with `stale`. This is possible only for a request that has not been applied.
 4. Evaluate the parent transition's guards. A failure refuses the request, naming the clause, its object and its remedy class.
 5. Apply the parent's outcome in full: its new state and its attribute writes, each value read at the moment it is applied (ADR-0054).
-6. Then, depth-first in declaration order and over collection elements in ascending object-id order, take each cascaded transition or creation in turn, **skipping a part already in a terminal state**, since its disposition has happened and that is the only skip on account of state; for each of the rest evaluate its guards **against the state produced so far**, then apply its outcome immediately (ADR-0038). Only-via transitions contribute their non-actor guards; other cascades run as the requesting actor. Any failure aborts the whole request and rolls back.
+6. Then, depth-first in declaration order and over collection elements in ascending object-id order, which is creation order (§5.1), take each cascaded transition or creation in turn, **skipping a part already in a terminal state**, since its disposition has happened and that is the only skip on account of state; for each of the rest evaluate its guards **against the state produced so far**, then apply its outcome immediately (ADR-0038). Only-via transitions contribute their non-actor guards; other cascades run as the requesting actor. Any failure aborts the whole request and rolls back.
 7. Check every invariant the written objects could violate — where a transition writes a part's `owner`, **both** the source whole and the destination whole count as written, so the source's invariants are re-checked and both have their part-event position stamped (ADR-0058), except those with an admitted violation still standing (ADR-0045, ADR-0054).
 8. Increment each written object's version; record one event per transition, each cascaded event carrying the parent's event as its cause; append them to the log in the same transaction (ADR-0013). Commit.
 
@@ -252,7 +255,7 @@ Every event carries `changes_state`, true when from and to differ, and its **pro
 | `corrected` | An action that records a corrected value for an earlier mistake, with a reason; the earlier event is not rewritten |
 | `erased` | An erasure (§8) |
 
-The log is **never pruned**; retention is archival tiering that keeps events readable and reachable by erasure. Events are strictly ordered per object and causally ordered across a cascade; a global position serves cursors and is monotonic but not a commit order, and the pull interface states the window a cursor must tolerate (ADR-0034).
+The log is **never pruned**; retention is archival tiering that keeps events readable and reachable by erasure. Events are strictly ordered per object and causally ordered across a cascade; a global position serves cursors and is monotonic but not a commit order, and `pull` returns the **settled position** below which the window is closed, which is as far as a consumer may acknowledge (ADR-0034, ADR-0077).
 
 ```
             recorded transition
@@ -301,8 +304,8 @@ One API. Every operation takes an actor and applies visibility (ADR-0037).
 | **check**(id, transition, inputs) | The verdict a request would receive, simulating the same sequence internally. Lock-free and side-effect-free, so it is advice and not a reservation, and its verdict is **partial**: it names the external guards it did not evaluate (ADR-0054) |
 | **history**(id, follow?) | Events with provenance, legacy entries, and optionally the combined timeline through supersession |
 | **exceptions**(type) | The objects holding asserted state or an admitted invariant violation, which is what keeps the escape hatch of §8 reviewable |
-| **declaration**(type, version?) | The inspectable rule set, rendered also as readable text and as agent tool schemas |
-| **pull**(subscription, position) | A page of events per the subscription's filter |
+| **declaration**(type, version?) | The inspectable rule set at a declaration version, the number an event records; rendered also as readable text and as agent tool schemas |
+| **pull**(subscription, position) | A page of events per the subscription's filter, and the settled position (§7) |
 | **batch**(requests) | N independent requests, **each in its own transaction**, returning N verdicts in order |
 
 Neither `available`, `check` nor `availability` calls an external evaluator; each says which guards it did not evaluate. Time-dependent derived attributes are queried by filtering the stored operand the expression compares against `now`, since a clock-dependent value cannot be indexed. There is **no atomic batch**: atomic multi-object semantics are declared cascades (§5.4). Beyond the indexes a type declares, the store maintains no projection; where a scan is too slow and the type is `quantity`-tracked, it declares a counter and the cascade that maintains it. That remedy is **not available to a `serial` or `record` type**, which is open question 10 and is why a ledger balance has nothing tying it to the entries that produced it (ADR-0072).
@@ -312,6 +315,8 @@ Writes go through the request of §6. Operational calls that are not object oper
 ## 11. Import and migration
 
 The first consumer's production data is ported by a designed path (ADR-0015). Every imported object receives a new id and keeps its legacy key as an external identifier with source `legacy`; cross-references are re-pointed through that mapping (ADR-0018). Imported state is written by the built-in assertion with provenance `asserted` (§8). The importer evaluates the declaration and reports every violated invariant and unsatisfied structural guard, and a person decides each class, either cleaning upstream or admitting it. Legacy history is preserved as read-only entries of kind `legacy`, which carry their original payload and are returned by `history` alongside ObjectKeeper's own events. Soft-deleted rows land in the type's deleted state. Files are content-addressed into the deployment's blob store. Cutover cannot be dual-write, because there is one write path.
+
+Import writes every row complete in one pass: every object's id is assigned from the legacy-key mapping before any row is written, so every reference resolves at insert, and a cycle of required references commits with its foreign keys checked at commit (ADR-0077). Cutover is **staged by object type**, with one owner per type at any moment. A type this store holds and does not yet own is declared **`mirror`**: attributes, states and an external identifier, no transitions, written only by the import path; it is cut over by a version advance that removes the marking and changes no object's id (ADR-0075).
 
 ## 12. Scope boundaries
 
@@ -365,7 +370,9 @@ Concrete cases the model does not cover, or covers with a caveat, are catalogued
 | **Sequence** | A named, scoped, monotonic counter that mints business identifiers; not gapless. |
 | **Tracking mode** | Whether a type is serial-tracked, one object per thing; quantity-tracked, counters on a stock object; or a record, tracking no physical thing at all (ADR-0067). |
 | **Type family** | A base declaration and everything extending it. |
-| **Declaration version** | The version of a type's declaration, recorded on every object and event. |
+| **Declaration version** | The number of a publish: one per installed closure, per store, monotonic; recorded on every object and event, and what `declaration(type, version)` takes. |
+| **Type version** | The number a type, machine, enum, sequence or evaluator carries in its text; advancing one advances every type that depends on it (check 22). |
+| **Settled position** | The highest log position below which no transaction is still in flight; the furthest a pull consumer may acknowledge. |
 | **Publish** | Installing a declaration version, with a report of migrations, admissions, compiled invariants and sweepability. |
 | **Deletion / supersession / erasure** | Ending an object; continuing it as another; removing personal values from it and its history. |
 | **Provenance** | What an event records about itself: actor, principal, context, cause, declaration version, source. |

@@ -29,7 +29,7 @@ Four behaviours, because they are the four ways real callers actually break thin
 
 **The guesser** calls transitions that `availability` did not offer, with inputs it invented, in states it did not check. It is testing that a refusal is a refusal and not a partial effect.
 
-**The retrier** repeats a request after a timeout, without an idempotency key, then with a stale one, then with one belonging to a different request. It is testing ADR-0041's replay and the boundary of the key's scope, which the record leaves undecided — so the harness is where that decision gets its evidence.
+**The retrier** repeats a request after a timeout, without an idempotency key, then with a stale one, then with one belonging to a different request. It is testing ADR-0041's replay, ADR-0076's order — the identical retry replays whatever `expected_version` it carries — and the key's scope, which is the actor's `id` (ADR-0077): a second actor sending the same key is a different request, and the same actor reusing a key with a different body is refused as `KeyReused` rather than replayed or applied.
 
 **The racer** issues concurrent requests against one object, against a pair with a shared invariant, and against a whole and its part at once. It is testing serialisable isolation, the retry bound, and whether a cascade that aborts leaves anything behind.
 
@@ -45,7 +45,7 @@ That gives, from the walkthrough and the syntax document: a unit with a nine-sta
 
 ## 4. What a run produces
 
-A run is a seed, a declaration version and a transcript, and it is reproducible from those three. The transcript is every request and its verdict, in order, with the events each produced.
+A run is a seed, a declaration version and a transcript, and it is reproducible from those three. The transcript is every request and its verdict, in order, with the events each produced. Reproducible only because the store takes its id source and its clock as injected dependencies (ADR-0077): ids are time-ordered and a cascade iterates in id order, so a run whose ids came from the wall clock would order its cascades differently each time, and the reduction below would be unsound.
 
 When a run fails, the artefact is the **shortest prefix that still fails**, found by replaying the transcript with requests removed. A four-thousand-request transcript is not a bug report; eleven requests are.
 

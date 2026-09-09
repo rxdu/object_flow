@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0077 — the id is a UUIDv7, and the store takes its id source and clock as injected dependencies.
 
 ## Context
 
@@ -54,5 +55,5 @@ The legacy database's scheme. Rejected because integers collide on import and on
 
 Representation details, not model questions:
 
-- **Format.** Random (UUID v4) or time-ordered (UUID v7 / ULID). Time-ordered gives index locality and a creation order for free; the recommendation is time-ordered, to be confirmed when storage is designed.
+- **Format.** Random (UUID v4) or time-ordered (UUID v7 / ULID). Time-ordered gives index locality and a creation order for free; the recommendation is time-ordered, to be confirmed when storage is designed. *(Decided by ADR-0077: UUIDv7, in canonical text form; storage-schema.md §2.)*
 - **Rendering.** Whether the id is shown to humans and agents with a type prefix (`robot_…`) for legibility, as a presentation of the same opaque value. Rendering must never be parsed back into meaning.

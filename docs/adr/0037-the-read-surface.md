@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 6 (2026-09-08); pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0048 and ADR-0054, per their Refines lines; ADR-0077 — `check` returns its verdict with the guards it did not evaluate, `pull` returns the settled position, and `history` yields legacy entries beside events.
 
 ## Context
 

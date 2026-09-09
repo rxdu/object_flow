@@ -2,7 +2,7 @@
 
 Draft, 2026-09-09. How a published declaration becomes tables, and how the guarantees of [`../DESIGN.md`](../DESIGN.md) rest on them. The model owns what a rule means and [`declaration-syntax.md`](declaration-syntax.md) owns how it is written; this document owns only where the bytes go.
 
-**What is verified.** Every statement of SQLite DDL below was executed against SQLite 3.37 before being written down, including a cascade round trip and a refused state value, and so is the two-connection sequence probe of §6, which `scripts/check-schema-doc.py` runs on every corpus run. That probe is the one claim this document makes about SQLite's runtime behaviour rather than its DDL, and it was reasoned rather than run until D187 found it false as first written. The PostgreSQL column is reasoned from its documentation and **was not executed** — there is no PostgreSQL in the environment this was written in, and the exclusion constraints of §8 are the part most worth running before anyone relies on them.
+**What is verified.** Every statement of SQLite DDL below was executed against SQLite 3.37 before being written down, including a cascade round trip and a refused state value, and so are the two-connection sequence probe of §6 and the deferred-foreign-key probe of §3, which `scripts/check-schema-doc.py` runs on every corpus run. Those are the two claims this document makes about SQLite's runtime behaviour rather than its DDL; the first was reasoned rather than run until D187 found it false as first written, and the second replaced a premise D191 found false. The PostgreSQL column is reasoned from its documentation and **was not executed** — there is no PostgreSQL in the environment this was written in, and the exclusion constraints of §8 are the part most worth running before anyone relies on them.
 
 ## 1. Three layers, and why not fewer
 
@@ -63,6 +63,8 @@ CREATE TABLE ok_attribute_write (
 
 `position` is both the event's **identity** and its **order**. An `event`-typed attribute stores it, `cause_position` points at it, the write index compares it and a cursor pages by it; one column serves all four because positions are assigned once and never renumbered. Nothing else in the schema needs an event id.
 
+`id` is a **UUIDv7**, stored in its canonical text form on both backends (PostgreSQL may use its `uuid` type). Time-ordered rather than random because ADR-0038 iterates a cascade in ascending id order and the harness reduces a failing run by replaying its transcript, and both need that order to be creation order; the embedded time is never read back as a fact about the object, which is what `created_at` is for. The store takes its id source and its clock as injected dependencies, so a test can make both deterministic (ADR-0077).
+
 `position` is the global order and `object_seq` the per-object one; the unique constraint on the pair is what makes "strictly ordered per object" a property of the schema rather than of the writer. `cause_position` is the parent event of a cascade, so causal order across objects is reconstructable without a separate table (§7 of the model).
 
 **The log is append-only with exactly one exception**, and the exception is why `payload` is a column rather than an immutable blob: erasure rewrites the personal values inside past events, in place, keeping the event, its shape and its position (§8 of the model). Nothing else ever updates a row of `ok_event`, and nothing ever deletes one.
@@ -76,17 +78,19 @@ Every declared type gets one table. Its identity columns are the same in every o
 | `id` | the store | primary key, and a foreign key into the directory |
 | `state` | the machine | with a `CHECK` over the declared state set, so an unreachable value is refused by the database |
 | `version` | the store | incremented on every recorded change; what `expected_version` compares against |
-| `type_version` | the declaration | which version's rules the row was last written under (ADR-0027) |
+| `declaration_version` | the declaration | the publish whose rules the row was last written under (ADR-0027, ADR-0077); the same number the event carries |
 | `last_event` | the store | the event that last wrote this object |
 | `last_part_event` | the store | present only on a type that declares a `part`; §5 |
 | `superseded_by` | the store | present only on a type with a `superseding` state; `get(id, follow)` walks it (ADR-0028) |
-| `state_source` | the store | the `source` of the event that last set `state`, indexed. `exceptions(type)` reads it |
+| `state_source` | the store | the `source` of the event that last **changed** `state`, indexed; an action leaves it alone. `exceptions(type)` reads it |
 
 **Absence is SQL `NULL` and never a sentinel** (ADR-0051). That is not a stylistic choice: the erasure marker must collide with no uniqueness constraint and must read as unknown, and a sentinel does neither. It follows that every uniqueness over a `personal` or `external` attribute is **partial**, ignoring absent values.
 
 A declared-required attribute takes `NOT NULL`. The database is not the backstop — a guard is (ADR-0001) — and check 8 is what actually enforces requiredness at publish. `NOT NULL` is the same second line of defence a compiled constraint is in §8: redundant when everything works, and the thing that catches a runtime with a bug in it.
 
 Then one column per stored attribute, one per counter, and one per **stored** relationship end. Nothing for a derived inverse, a derivation that is not indexed, or a `part`/`ref` whose other end stores the value — those are queries, and putting a column there would be the second write path the model refuses (ADR-0056 §1).
+
+The foreign key on a stored end is declared **`DEFERRABLE INITIALLY DEFERRED`** on both backends and checked at commit. The runtime resolves every reference itself and the constraint is the backstop, so checking it at commit loses nothing, and it is what lets one transaction insert two rows that require each other — an outcome that creates a whole and a part which each require the other, or an import writing a cycle of required references (ADR-0077). SQLite enforces foreign keys only with `PRAGMA foreign_keys = ON`, which the store sets on every connection it opens; `scripts/check-schema-doc.py` demonstrates the deferred case, the same pair failing without the clause, and a dangling reference still failing at commit.
 
 ### 3.1 What each declared type becomes
 
@@ -104,7 +108,7 @@ Then one column per stored attribute, one per counter, and one per **stored** re
 | `event` | `BIGINT` → `ok_event.position` | `INTEGER` | which is what makes `changed_since([…], a.at_event)` a comparison of two integers |
 | `file` | `TEXT` → `ok_file.hash` | `TEXT` | content-addressed; the store holds the reference (ADR-0017) |
 | `<T>[]` | a side table | a side table | §3.3 |
-| `ref`/`owner`, singular and stored | column + foreign key + index | same | the index is not optional; §5 |
+| `ref`/`owner`, singular and stored | column + foreign key, deferred to commit + index | same | the index is not optional; §5 |
 | `ref`/`part`, the derived end | **nothing** | **nothing** | it is a query against the other end's index |
 | `counter` | `BIGINT NOT NULL DEFAULT 0` | `INTEGER NOT NULL DEFAULT 0` | non-negativity is an invariant the type declares, not a property of the column (ADR-0072) |
 | `derive`, not indexed | **nothing** | **nothing** | evaluated on read |
@@ -118,7 +122,7 @@ CREATE TABLE t_robot (
   id                   TEXT    PRIMARY KEY REFERENCES ok_object(id),
   state                TEXT    NOT NULL,
   version              INTEGER NOT NULL,
-  type_version         INTEGER NOT NULL,
+  declaration_version  INTEGER NOT NULL,
   last_event           INTEGER NOT NULL REFERENCES ok_event(position),
   last_part_event      INTEGER,
   state_source         TEXT    NOT NULL DEFAULT 'observed',
@@ -126,8 +130,8 @@ CREATE TABLE t_robot (
   manufacturer_serial  TEXT,
   label_printed_at     TEXT,                      -- timestamp
   retirement_reason    TEXT,
-  model_id             TEXT    NOT NULL REFERENCES t_robotmodel(id),
-  binding_id           TEXT    REFERENCES t_delivery(id),
+  model_id             TEXT    NOT NULL REFERENCES t_robotmodel(id) DEFERRABLE INITIALLY DEFERRED,
+  binding_id           TEXT    REFERENCES t_delivery(id) DEFERRABLE INITIALLY DEFERRED,
   CONSTRAINT t_robot_state CHECK (state IN
     ('REQUESTED','PROCUREMENT','INTAKE','AVAILABLE','RESERVED',
      'SOLD','DEVELOPMENT','RETIRED','CANCELLED')),
@@ -175,7 +179,7 @@ A derivation that reads a clock or another object gets no column, which is why a
 
 ## 4. The event payload
 
-`payload` is the writes and the inputs of one transition, as JSON: attribute name to value, in the types of §3.1. It is JSON rather than columns because its shape is per transition, and because a fold of the log must reproduce a row written under a **declaration version that may no longer exist** — a column set fixed by today's declaration could not hold yesterday's event.
+`payload` is the writes and the inputs of one transition, as JSON: attribute name to value, in the types of §3.1, and, where a guard consulted an external evaluator, that verdict's as-of time keyed by the guard's name (ADR-0049). It is JSON rather than columns because its shape is per transition, and because a fold of the log must reproduce a row written under a **declaration version that may no longer exist** — a column set fixed by today's declaration could not hold yesterday's event.
 
 That is also why `declaration_version` is on the event and not inferred: reading history means reading each event under the rules that were in force when it was recorded.
 
@@ -194,7 +198,7 @@ The last one is why check 7 rejects a type-scan or a visibility predicate over a
 
 **`exceptions(type)` reads two things and no third.** Admissions come from `ok_admission` where `discharged_position` is null. Asserted state comes from `state_source = 'asserted'` on the type table, indexed. The design record promises the operation and never says what it reads; a column is chosen over scanning the log because the query is per type and the log is the busiest table in the system. It costs one indexed column on every object and it is written by the same statement that writes the state, so it cannot disagree with the event.
 
-An ordinary transition afterwards sets `state_source` back to `observed`, which is right: an object whose state was asserted and has since moved through the machine normally is no longer an exception, and nobody has to remember to clear a flag.
+An ordinary transition that **changes state** afterwards sets `state_source` back to `observed`, which is right: an object whose state was asserted and has since moved through the machine normally is no longer an exception, and nobody has to remember to clear a flag. An action leaves it alone: editing a note on an asserted unit does not make the unit's state any less asserted, and the object stays in `exceptions(type)` until the machine has moved it (ADR-0077).
 
 `ok_attribute_write` deserves its shape stated plainly. One row per object per attribute ever written, holding the position of the event that last wrote it. It grows with the object's *width*, not with its history, so it is bounded by the declaration.
 
@@ -226,18 +230,20 @@ CREATE TABLE ok_external_id (
 );
 
 -- Idempotency. The recorded verdict is replayed verbatim.
--- Scoped to the principal, not global: a key is unique per caller, which is
+-- Scoped to the actor's id, not global: a key is unique per caller, which is
 -- what the first consumer's own evidence shows and what `unique with` was
--- added to the declaration syntax to express. A global key space would let
--- one caller's retry collide with another's.
+-- added to the declaration syntax to express, and `id` is the one member of
+-- the descriptor that is never absent (ADR-0077). A global key space would
+-- let one caller's retry collide with another's. A key reused by the same
+-- actor with a different request_digest is refused as KeyReused.
 CREATE TABLE ok_idempotency (
-  principal      TEXT    NOT NULL,
+  actor_id       TEXT    NOT NULL,
   key            TEXT    NOT NULL,
   request_digest TEXT    NOT NULL,
   first_position INTEGER REFERENCES ok_event(position),
   verdict        TEXT    NOT NULL,
   applied_at     TEXT    NOT NULL,
-  PRIMARY KEY (principal, key)
+  PRIMARY KEY (actor_id, key)
 );
 
 -- Admissions: an invariant a transition was permitted to violate.
@@ -288,13 +294,14 @@ CREATE TABLE t_subscription (
   id             TEXT    PRIMARY KEY REFERENCES ok_object(id),
   state          TEXT    NOT NULL,
   version        INTEGER NOT NULL,
-  type_version   INTEGER NOT NULL,
+  declaration_version INTEGER NOT NULL,
   last_event     INTEGER NOT NULL REFERENCES ok_event(position),
   target_type    TEXT    NOT NULL,
   target_family  INTEGER NOT NULL DEFAULT 0,
   transitions    TEXT,                       -- null means every transition
   changes_state_only INTEGER NOT NULL DEFAULT 0,
   endpoint       TEXT,                       -- null for a pull subscription
+  deliver_as     TEXT,                       -- push only: the descriptor the worker presents, as JSON (ADR-0025)
   lag_threshold  INTEGER,
   CONSTRAINT t_subscription_state CHECK (state IN ('active','revoked'))
 );
@@ -313,7 +320,7 @@ CREATE TABLE t_proposal (
   id             TEXT    PRIMARY KEY REFERENCES ok_object(id),
   state          TEXT    NOT NULL,
   version        INTEGER NOT NULL,
-  type_version   INTEGER NOT NULL,
+  declaration_version INTEGER NOT NULL,
   last_event     INTEGER NOT NULL REFERENCES ok_event(position),
   target_id      TEXT    NOT NULL REFERENCES ok_object(id),
   transition     TEXT    NOT NULL,
@@ -351,7 +358,7 @@ What the schema owes that:
 
 - **`ok_event.position` is monotonic and is not a promise of commit order.** ADR-0034 decided this and the schema implements it rather than reopening it: a `BIGSERIAL` on PostgreSQL allocates out of order under concurrency, so a lower position can become visible after a higher one, and a pull cursor must tolerate a bounded window. Assigning the position from a single counter row inside the transaction would close the window and serialise every commit through one row, which is the alternative that ADR-0034 rejected by name.
 
-  What the schema therefore owes the pull path is **the window's bound**, which is the oldest in-flight transaction's age. A consumer reading "everything after N" must not advance its acknowledged position past `head - window`, and `pull` returns that bound so it does not have to guess. On SQLite, which serialises writers, the window is empty.
+  What the schema therefore owes the pull path is **the window's bound**, which is the oldest in-flight transaction's age. A consumer reading "everything after N" must not advance its acknowledged position past `head - window`, and `pull` returns it as the **settled position** — the highest position below which no transaction is still in flight — so it does not have to guess (ADR-0077). On SQLite, which serialises writers, the window is empty.
 - **The idempotency row is written in the transition's transaction**, so a replay of a request that committed returns the recorded verdict and a replay of one that did not is a fresh attempt.
 - **Nothing is written outside the transaction**, including the write index and the part-event position, or a crash between them would leave a guard reading a stale answer.
 
@@ -414,7 +421,9 @@ A removed attribute leaving its column in place is deliberate: the column is how
 - **The directory stays.** ADR-0018 chose an opaque id and added that a rendering may carry a type prefix but must never be parsed back into meaning; encoding the type in the id is exactly that parsing. This was listed as open by a document written from the model that missed a line the model states.
 - **Partitioning is by position range, and the boundary is the archival boundary.** Position is monotonic, so a range partition never moves a row for reordering, and the partition that ages out is the unit that tiers — an archive becomes a partition detached and reattached rather than a row-by-row copy.
 - **Erasure reaches the archive**, rather than the archive holding only events with no personal attribute; §9 gives the reasoning.
-- **An idempotency key is scoped to the principal**, so one caller's retry cannot collide with another's.
+- **An idempotency key is scoped to the actor's `id`**, the one member of the descriptor that is never absent, so one caller's retry cannot collide with another's; a key reused with a different request digest is refused as `KeyReused` (ADR-0077).
+- **The object id is a UUIDv7**, and the store takes its id source and clock as injected dependencies, so cascade order is creation order and a harness run is reproducible (ADR-0077).
+- **A stored end's foreign key is deferred to commit** on both backends, so two rows that require each other can be written in one transaction; the constraint stays a backstop, which the checker demonstrates (ADR-0077).
 - **The sequence store is a second connection, and on SQLite a separate file.** SQLite locks the file rather than the row, so a second connection to the store's own file waits behind the request's own write and fails; a file beside it does not. Observed by probe, and the probe is kept in `scripts/check-schema-doc.py` (ADR-0076, D187).
 
 **Still open.**

@@ -94,6 +94,56 @@ def probe_sequence_isolation(object_ddl, sequence_ddl):
     return failures
 
 
+def probe_deferred_foreign_keys():
+    """ADR-0077, D191: a stored end's foreign key is DEFERRABLE INITIALLY
+    DEFERRED and checked at commit, so one transaction can insert two rows that
+    require each other.  Asserted three ways: the deferred pair commits; the
+    same pair without the clause fails on its first insert, so the clause is
+    what makes it work; and a dangling reference under a deferred constraint
+    still fails, at commit, so the constraint is still a backstop."""
+    failures = []
+
+    def fresh(deferrable):
+        c = sqlite3.connect(":memory:", isolation_level=None)
+        c.execute("PRAGMA foreign_keys = ON")
+        d = " DEFERRABLE INITIALLY DEFERRED" if deferrable else ""
+        c.execute(f"CREATE TABLE t_a (id TEXT PRIMARY KEY, b_id TEXT NOT NULL REFERENCES t_b(id){d})")
+        c.execute(f"CREATE TABLE t_b (id TEXT PRIMARY KEY, a_id TEXT NOT NULL REFERENCES t_a(id){d})")
+        return c
+
+    c = fresh(True)
+    try:
+        c.execute("BEGIN")
+        c.execute("INSERT INTO t_a VALUES ('a1', 'b1')")
+        c.execute("INSERT INTO t_b VALUES ('b1', 'a1')")
+        c.execute("COMMIT")
+    except sqlite3.Error as e:
+        failures.append(f"deferred: a mutually required pair did not commit: {e}")
+
+    c = fresh(False)
+    try:
+        c.execute("BEGIN")
+        c.execute("INSERT INTO t_a VALUES ('a1', 'b1')")
+        c.execute("INSERT INTO t_b VALUES ('b1', 'a1')")
+        c.execute("COMMIT")
+        failures.append("immediate: the pair committed without the clause, so the clause is not what makes it work")
+    except sqlite3.IntegrityError:
+        pass
+
+    c = fresh(True)
+    try:
+        c.execute("BEGIN")
+        c.execute("INSERT INTO t_a VALUES ('a2', 'nowhere')")
+        c.execute("COMMIT")
+        failures.append("deferred: a dangling reference committed, so the constraint is no backstop")
+    except sqlite3.IntegrityError:
+        try:
+            c.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+    return failures
+
+
 def main():
     text = DOC.read_text()
     nblocks, stmts = statements_of(text)
@@ -132,6 +182,13 @@ def main():
     print("sequence probe: a second connection to the store's file blocks behind the "
           "request in both journal modes; a separate file does not, and its allocation "
           "survives the rollback")
+    fk = probe_deferred_foreign_keys()
+    if fk:
+        print("\n".join("  " + f for f in fk))
+        print("the deferred-foreign-key claim of §3 does not hold")
+        return 1
+    print("foreign-key probe: a deferred pair that require each other commits, the same "
+          "pair without the clause does not, and a dangling reference still fails at commit")
     return 0
 
 

@@ -57,7 +57,7 @@ Nine top-level forms: `module`, `use`, `capability`, `category`, `enum`, `sequen
 
 **`capability` and `category` declare vocabularies.** Both are otherwise bare identifiers a typo turns into silence: a mistyped capability is a guard nobody can satisfy, a mistyped category a family-wide guard that never matches. The declaration is a spell-check, not a promise: capabilities are opaque strings the consumer's authentication produces, and nothing here can verify it produces these.
 
-**Versions.** The five declarations that rules depend on carry one: `enum`, `sequence`, `evaluator`, `machine` and `type`. A `module`, a `use`, and the `capability` and `category` vocabularies do not, having no content a recorded object could be interpreted against. An object and an event record the version of their **type**, and advancing a machine, enum, sequence, evaluator or base type requires advancing every dependent type, which publishing enforces (check 22). Otherwise a recorded version would not identify the rules that applied.
+**Versions.** The five declarations that rules depend on carry one: `enum`, `sequence`, `evaluator`, `machine` and `type`. A `module`, a `use`, and the `capability` and `category` vocabularies do not, having no content a recorded object could be interpreted against. An object and an event record the **declaration version** of the publish in force, which fixes the version of every type at that instant (DESIGN.md §5.9); advancing a machine, enum, sequence, evaluator or base type requires advancing every dependent type, which publishing enforces (check 22). Otherwise a recorded version would not identify the rules that applied.
 
 ## 2. Types
 
@@ -108,7 +108,7 @@ type Customer version 1 mirror {
 type Delivery version 2 {
   tracking record
   states PREPARATION category live, DONE category closed terminal
-  ref customer : Customer indexed
+  ref customer : Customer
 
   create open -> PREPARATION {
     input for_customer : Customer
@@ -952,7 +952,7 @@ Where a grammar line and an example disagree, the example is authoritative and t
 
 Each check names the file, line and declaration. Publishing runs them over the module and the closure of its `use` imports (§1).
 
-**Twenty-four of the fifty-two are implemented today**, listed by `scripts/check-syntax-doc.py` on every run; the rest are specified and not yet built, and the document does not distinguish them in the table because which are built is a property of the tool at a moment, not of the language. Read the tool's output for that.
+**Twenty-six of the fifty-three are implemented today**, listed by `scripts/check-syntax-doc.py` on every run; the rest are specified and not yet built, and the document does not distinguish them in the table because which are built is a property of the tool at a moment, not of the language. Read the tool's output for that.
 
 Four things are needed beyond that text, and nothing else is. Checks 22 and 23 need the **previously published declaration**. The report line naming which invariants compile to a database constraint needs the **backend configuration**. The new-invariant scan and the pending-proposal count in the report need the **live objects**. Every other check is decidable from the closure alone.
 

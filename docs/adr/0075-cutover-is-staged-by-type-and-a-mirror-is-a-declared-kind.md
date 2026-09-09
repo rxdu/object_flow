@@ -2,6 +2,7 @@
 
 - **Status:** **Accepted** — the author chose staged cutover 2026-09-09; the `mirror` marking is the consequence, derived here and pending review
 - **Date:** 2026-09-09
+- **Refined by:** ADR-0077 — import writes each row complete in one pass; the two-pass sentence below is annotated.
 - **Refines:** ADR-0015, ADR-0027, ADR-0040
 
 ## Context
@@ -25,7 +26,7 @@ Take types A and B where A holds a reference to B.
 
 So the ordering follows: **a type may migrate only after every type that references it has migrated.** Referrers before referents. The most-referenced types go last, which for the first consumer means the customer moves near the end and is mirrored for longest — acceptable, since it is also the type that changes least.
 
-Where the reference graph has a cycle, its members have no valid order between them **unless the cycle can be broken**. A cycle every one of whose edges is optional can be: import the members with those references absent, then write them in a second pass, which is the two-pass import `publish-and-import.md` §7 already requires for every reference. Only a cycle containing a required reference forces its members into one stage.
+Where the reference graph has a cycle, its members have no valid order between them **unless the cycle can be broken**. A cycle every one of whose edges is optional can be: import the members with those references absent, then write them in a second pass, which is the two-pass import `publish-and-import.md` §7 already requires for every reference. Only a cycle containing a required reference forces its members into one stage. *(ADR-0077 replaced the second pass — ids are assigned first and every row is written complete, with foreign keys checked at commit — so import no longer distinguishes optional from required edges; whether optionality lets a cycle span two stages is D201.)*
 
 That distinction is not academic. The first consumer's graph has exactly one cycle — the soft peg on an inbound unit against the hard bind on a delivery slot, joining units and delivery items — and **all seven of its edges are nullable**, so it breaks. See `first-consumer-cutover.md`.
 

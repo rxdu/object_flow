@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D50 to D59, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0061 — ten decisions from the payments-ledger review; ADR-0066 — a cascade clause carries arguments.
+- **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0061 — ten decisions from the payments-ledger review; ADR-0066 — a cascade clause carries arguments; ADR-0077 — the recorded number is the declaration version, which fixes every type's version.
 - **Amends:** ADR-0024, ADR-0026, ADR-0027, ADR-0031, ADR-0042, ADR-0046, ADR-0053
 
 ## Context
@@ -26,6 +26,8 @@ DESIGN.md §5.4 lists the outcome steps and omits it, while §8 requires superse
 "Parts cascade" (ADR-0024) is asserted everywhere and declared nowhere, so the cascade names no transition, carries no bound, and is invisible to the acyclicity check. A `part` end declares the child transition the whole's deletion drives and its limit. Where a whole has several terminal transitions, each names its own cascade or none.
 
 ### 4. An object records its type's version, and dependencies propagate
+
+*(ADR-0077: the number an object and an event record is the **declaration version** of the publish in force, which fixes every type's version at that instant; the propagation rule below is about type versions and stands.)*
 
 ADR-0027 versions type declarations. But a type's behaviour depends on the machine, enums, sequences, evaluators and base types it uses, so a recorded type version that does not move when those move identifies nothing. **Advancing any of them requires advancing every dependent type**, which publishing enforces. The cost is real and is the point: changing a widely bound machine is a change to every type that binds it, and should look like one.
 

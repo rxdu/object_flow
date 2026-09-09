@@ -8,7 +8,7 @@ Draft, 2026-09-09. What `publish` does with a declaration, what it reports, and 
 
 A publish takes a module and the closure of its `use` imports, and either installs a version or installs nothing.
 
-1. **Parse and check.** The fifty-two checks of the syntax document §10. Any failure and the publish is refused with all of them, not the first.
+1. **Parse and check.** The fifty-three checks of the syntax document §10. Any failure and the publish is refused with all of them, not the first.
 2. **Compare with the installed version.** What changed, and whether each change needs a mapping.
 3. **Read the live objects.** How many violate a new invariant, how many are in a removed state, how many pending proposals the change would invalidate.
 4. **Report.** Everything above, whether or not it is fatal.
@@ -96,9 +96,9 @@ Every object arrives mid-lifecycle at once, which is the situation a migration i
 | **Extract** | The source system produces one record per object, its legacy key, its state, its attribute values, its references by legacy key, and its history |
 | **Map** | A per-type mapping from source shape to declared shape, written by hand. This is the part no tool can infer |
 | **Dry run** | Every object is evaluated against the declaration. Nothing is written. Out comes the disposition file of §5 |
-| **Decide** | A person resolves every class in that file, by cleaning the source or by admitting the violation |
-| **Import** | Objects are created by the **built-in assertion** with provenance `asserted`, each receiving a new id and keeping its legacy key as an external identifier with source `legacy` (ADR-0018) |
-| **Re-point** | Cross-references are resolved through the legacy-key mapping, which is why every object is created before any reference is written |
+| **Decide** | A person resolves every class in that file: cleaning the source, supplying a value in the mapping, admitting an invariant violation, or excluding the objects (§6) |
+| **Assign ids** | Every object receives its new id from the legacy-key mapping **before any row is written**, so every reference, required or optional, resolves to an id at the moment its row is inserted, and an unresolvable legacy key is found here and not by the database (ADR-0018, ADR-0077) |
+| **Import** | Objects are created by the **built-in assertion** with provenance `asserted`, each row written complete with its references and keeping its legacy key as an external identifier with source `legacy`. Rows go in dependency order where one exists, so a failure names the first row that could not be placed; a cycle of required references has no such order and commits with its foreign keys checked at commit, which both backends do for a stored end (`storage-schema.md` §3) |
 | **Attach** | Legacy history becomes read-only entries of kind `legacy`, returned by `history` alongside real events (ADR-0015). Files are content-addressed into the blob store |
 
 Soft-deleted rows land in the type's deleted state (ADR-0024). Cutover cannot be dual-write, because there is one write path.
@@ -138,8 +138,13 @@ The output of a dry run and the input to the import. It exists so that "a person
 class Disposition(Enum):
     UNDECIDED = "undecided"
     CLEAN_UPSTREAM = "clean_upstream"  # fix the source and re-extract
-    ADMIT = "admit"                    # import it violating, and record that
+    ADMIT = "admit"                    # import it violating, and record that; INVARIANT classes only
     EXCLUDE = "exclude"                # do not import these objects at all
+
+
+class ViolationKind(Enum):
+    INVARIANT = "invariant"            # may be admitted (ADR-0054)
+    GUARD = "guard"                    # a structural guard: nothing to admit, and NOT NULL besides
 
 
 @dataclass(frozen=True)
@@ -152,6 +157,7 @@ class ViolationClass:
 
     id: str
     type: str
+    kind: ViolationKind
     rule: str                    # an invariant name, or a guard's clause name
     shape: str                   # what is wrong, in one line
     count: int
@@ -161,11 +167,13 @@ class ViolationClass:
     reason: str | None = None    # required for ADMIT and EXCLUDE
 ```
 
-Four rules make it useful rather than ceremonial.
+Five rules make it useful rather than ceremonial.
 
 **A class is identified by its rule and its shape, never by its objects.** Cleaning the source and re-extracting must produce the same class with a smaller count, or a person cannot tell progress from churn.
 
 **`ADMIT` and `EXCLUDE` require a reason, and it is recorded.** An admitted violation becomes an admission on the object, which `exceptions(type)` returns until the invariant holds again (ADR-0054). An excluded object leaves a row in the file and nothing in the store, which is the only record that it was left behind.
+
+**A guard class cannot be admitted.** An admission names an object and an invariant (ADR-0054); a structural guard — a required attribute or reference absent, a creation guard unmet — has no admission shape, and its column is `NOT NULL` besides. A guard class is cleaned upstream, supplied by the mapping, or excluded, and the dry run refuses `ADMIT` on one rather than leaving the import to fail on it (ADR-0077).
 
 **An import will not run while any class is `UNDECIDED`.** This is the whole point of the artefact: the failure mode it exists to prevent is an import that succeeded and quietly dropped what it could not place.
 
@@ -188,7 +196,7 @@ What this does **not** solve is a legacy *read* of a migrated type. Only writes 
 **Decided.** Each followed from a decision the record already carried, or from what the design made unavoidable.
 
 - **The extract is JSON lines**, one object per line: it streams, a failure names a line, two extracts diff usefully, and every language emits it — which matters because the extractor lives in the system being retired.
-- **Import is two passes**, not deferred constraints. PostgreSQL can defer to commit and SQLite cannot in the same way, and a design that works on one backend is not the design. It is also the more debuggable, since a failure names the reference that would not resolve.
+- **Import is one pass, with every id assigned first.** The first draft had two passes — objects, then references — on the premise that SQLite cannot defer a constraint to commit. It can, `DEFERRABLE INITIALLY DEFERRED` is honoured and `scripts/check-schema-doc.py` runs it; and two passes could not have written a required reference at all, since its column is `NOT NULL` (D191). Assigning every id from the legacy-key mapping before any row is written is what makes one pass possible, and it moves the place an unresolvable reference is found to the mapping, before anything is inserted (ADR-0077).
 - **An import resumes rather than being redone.** Every imported object keeps its legacy key as an external identifier, so `lookup('legacy', key)` says whether it arrived and a second run continues. The alternative turns a failure in hour three of a cutover window into starting again.
 
 **Still open.**
