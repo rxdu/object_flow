@@ -137,6 +137,18 @@ def check_answer_blocks():
             findings.append(f"declaration-syntax.md:{i}  an answer paragraph outside §11")
 
 
+def check_schema_doc():
+    """The storage schema's SQL must execute."""
+    checker = ROOT / "scripts/check-schema-doc.py"
+    doc = ROOT / "docs/design/storage-schema.md"
+    if not doc.exists():
+        return
+    r = subprocess.run([sys.executable, str(checker)], capture_output=True, text=True)
+    if r.returncode != 0:
+        findings.append("storage-schema.md: SQL does not execute; "
+                        "run scripts/check-schema-doc.py")
+
+
 def check_declarations():
     """Every document that states declarations must pass the syntax checker.
 
@@ -150,7 +162,7 @@ def check_declarations():
             # a document that once carried declarations and no longer does is
             # more likely a retagged fence than a rewrite; say so rather than
             # silently dropping it from the checked set
-            if "```" in text and re.search(r"^\s*(type|machine)\s+\w+", text, re.M):
+            if "```" in text and re.search(r"^\s*(type|machine)\s+\w+\s+version\s+\d", text, re.M):
                 findings.append(f"{p.relative_to(ROOT)}: has declaration-shaped lines "
                                 "in a fence that is not ```text, so nothing checks them")
             continue
@@ -175,6 +187,7 @@ def main():
     check_answer_blocks()
     check_defect_index()
     check_declarations()
+    check_schema_doc()
 
     print(f"corpus: {len(nums)} decision records, {maxcheck} checks defined")
     if not findings:

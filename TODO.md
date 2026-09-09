@@ -86,7 +86,7 @@ Closed. The register at [`docs/design/defects.md`](docs/design/defects.md) holds
 The artefacts planning needs. Two are now done: the declaration syntax and the first consumer's types written in it. Each item is WHAT, not HOW.
 
 - [x] **Concrete declaration syntax.** A file format for types, machines, transitions, guards and outcomes that a person can read and diff, with the version-2 expression language given a grammar. The readable rule set is a rendering of it.
-- [ ] **Storage schema.** The object row, the event log with per-object sequence and global position, the per-attribute write index and the last-part-event position that `changed_since` needs (ADR-0048, ADR-0057), sequences, subscriptions, proposals, the idempotency table, and how declared invariants of known shape become constraints; partitioning and archival tiering for the log.
+- [x] **Storage schema.** [`docs/design/storage-schema.md`](docs/design/storage-schema.md), 2026-09-09. Three layers, the type-to-table mapping for both backends, the four indexes a guarantee depends on, and what publishing emits. Its SQLite statements are executed by `scripts/check-schema-doc.py` on every corpus run; the PostgreSQL column and the exclusion constraints are reasoned and unexecuted. Gapless global positions under concurrency is the open item and the first thing to measure.
 - [ ] **Library API.** The request and verdict shapes of §6 and the read surface of §10 as one language-level API; transport bindings come after.
 - [ ] **Publish and import tooling.** The validation report of ADR-0027 and ADR-0015, the migration-mapping format, and the per-class disposition record.
 - [ ] **Renderers.** The printable rule set per version; agent tool schemas from `declaration` plus `availability`.

@@ -1,0 +1,374 @@
+# Storage schema
+
+Draft, 2026-09-09. How a published declaration becomes tables, and how the guarantees of [`../DESIGN.md`](../DESIGN.md) rest on them. The model owns what a rule means and [`declaration-syntax.md`](declaration-syntax.md) owns how it is written; this document owns only where the bytes go.
+
+**What is verified.** Every statement of SQLite DDL below was executed against SQLite 3.37 before being written down, including a cascade round trip and a refused state value. The PostgreSQL column is reasoned from its documentation and **was not executed** — there is no PostgreSQL in the environment this was written in, and the exclusion constraints of §8 are the part most worth running before anyone relies on them.
+
+## 1. Three layers, and why not fewer
+
+| Layer | Holds | Why it is separate |
+|---|---|---|
+| **the directory**, `ok_object` | id, type, creation time | `get(id)` and `referrers` need to resolve an opaque id to a type without knowing it in advance (ADR-0018) |
+| **one table per declared type**, `t_<type>` | state, version, every stored attribute and every stored relationship end | a constraint can only span columns of one table, and §8 compiles invariants into constraints |
+| **the log**, `ok_event` | every recorded change, permanently | it is the history, and a fold of it must reproduce the row (ADR-0033) |
+
+The obvious alternative is one shared object table with the attributes in a JSON column. It was rejected on §8: a uniqueness constraint over two attributes, or an exclusion constraint over a range, needs real typed columns, and without them every invariant falls back to the dynamic check and the declaration's promise that some compile is empty.
+
+The second alternative is to put state and version in the directory rather than in the type table. Also rejected on §8, and this one is easy to get wrong: "no two **live** bookings of one resource overlap" is one constraint over `state`, `resource_id`, `start` and `end`, and it cannot be written if `state` lives in a different table from the rest. So the directory holds nothing a constraint might need, and everything else is in the type table.
+
+## 2. The directory and the log
+
+```sql
+-- The directory: the only table that knows every object exists.
+CREATE TABLE ok_object (
+  id          TEXT    PRIMARY KEY,
+  type        TEXT    NOT NULL,
+  created_at  TEXT    NOT NULL
+);
+
+-- The log. Append-only except for erasure, which rewrites payloads in place.
+CREATE TABLE ok_event (
+  position            INTEGER PRIMARY KEY AUTOINCREMENT,
+  object_id           TEXT    NOT NULL REFERENCES ok_object(id),
+  object_seq          INTEGER NOT NULL,
+  transition          TEXT    NOT NULL,
+  from_state          TEXT,
+  to_state            TEXT    NOT NULL,
+  changes_state       INTEGER NOT NULL,
+  source              TEXT    NOT NULL,
+  actor_id            TEXT    NOT NULL,
+  actor_kind          TEXT    NOT NULL,
+  actor_principal     TEXT,
+  context             TEXT,
+  cause_position      INTEGER REFERENCES ok_event(position),
+  declaration_version INTEGER NOT NULL,
+  taint_version       INTEGER NOT NULL,
+  recorded_at         TEXT    NOT NULL,
+  payload             TEXT    NOT NULL,
+  CONSTRAINT ok_event_per_object UNIQUE (object_id, object_seq),
+  CONSTRAINT ok_event_source CHECK (source IN
+    ('observed','asserted','migrated','corrected','erased'))
+);
+CREATE INDEX ok_event_by_object ON ok_event (object_id, object_seq);
+CREATE INDEX ok_event_by_cause  ON ok_event (cause_position);
+
+-- changed_since, half one: the event that last wrote each attribute.
+CREATE TABLE ok_attribute_write (
+  object_id  TEXT    NOT NULL REFERENCES ok_object(id),
+  attribute  TEXT    NOT NULL,
+  position   INTEGER NOT NULL REFERENCES ok_event(position),
+  PRIMARY KEY (object_id, attribute)
+);
+```
+
+`position` is the global order and `object_seq` the per-object one; the unique constraint on the pair is what makes "strictly ordered per object" a property of the schema rather than of the writer. `cause_position` is the parent event of a cascade, so causal order across objects is reconstructable without a separate table (§7 of the model).
+
+**The log is append-only with exactly one exception**, and the exception is why `payload` is a column rather than an immutable blob: erasure rewrites the personal values inside past events, in place, keeping the event, its shape and its position (§8 of the model). Nothing else ever updates a row of `ok_event`, and nothing ever deletes one.
+
+## 3. A type becomes a table
+
+Every declared type gets one table. Its identity columns are the same in every one:
+
+| Column | From | Note |
+|---|---|---|
+| `id` | the store | primary key, and a foreign key into the directory |
+| `state` | the machine | with a `CHECK` over the declared state set, so an unreachable value is refused by the database |
+| `version` | the store | incremented on every recorded change; what `expected_version` compares against |
+| `type_version` | the declaration | which version's rules the row was last written under (ADR-0027) |
+| `last_event` | the store | the event that last wrote this object |
+| `last_part_event` | the store | present only on a type that declares a `part`; §5 |
+
+Then one column per stored attribute, one per counter, and one per **stored** relationship end. Nothing for a derived inverse, a derivation that is not indexed, or a `part`/`ref` whose other end stores the value — those are queries, and putting a column there would be the second write path the model refuses (ADR-0056 §1).
+
+### 3.1 What each declared type becomes
+
+| Declared | PostgreSQL | SQLite | Why |
+|---|---|---|---|
+| `string` | `TEXT` | `TEXT` | |
+| `bool` | `BOOLEAN` | `INTEGER` 0/1 | |
+| `int` | `BIGINT` | `INTEGER` | |
+| `decimal(p,s)` | `NUMERIC(p,s)` | `INTEGER`, scaled by 10^s | SQLite's numeric affinity stores a decimal as a float, which is not exact; the scale is in the declaration, so the scaling is recoverable |
+| `money(ccy)` | `BIGINT`, minor units | `INTEGER`, minor units | exact, orderable and indexable on both. The currency is fixed by the declaration (ADR-0068) so it is not stored per row |
+| `timestamp` | `TIMESTAMPTZ` | `TEXT`, ISO-8601 UTC | |
+| `duration` | `BIGINT` seconds | `INTEGER` seconds | the unit set is closed and none is calendar-dependent (ADR-0061) |
+| `identity` | `TEXT` | `TEXT` | |
+| an enum | `TEXT` + `CHECK` | `TEXT` + `CHECK` | a native enum type would need a migration to add a member; a check constraint is replaced with the declaration |
+| `event` | `BIGINT` → `ok_event.position` | `INTEGER` | which is what makes `changed_since([…], a.at_event)` a comparison of two integers |
+| `file` | `TEXT` → `ok_file.hash` | `TEXT` | content-addressed; the store holds the reference (ADR-0017) |
+| `<T>[]` | a side table | a side table | §3.3 |
+| `ref`/`owner`, singular and stored | column + foreign key + index | same | the index is not optional; §5 |
+| `ref`/`part`, the derived end | **nothing** | **nothing** | it is a query against the other end's index |
+| `counter` | `BIGINT NOT NULL DEFAULT 0` | `INTEGER NOT NULL DEFAULT 0` | non-negativity is an invariant the type declares, not a property of the column (ADR-0072) |
+| `derive`, not indexed | **nothing** | **nothing** | evaluated on read |
+| `derive`, indexed | generated column + index | generated column + index | §3.4 |
+
+### 3.2 Worked, from the specification's own types
+
+```sql
+-- type Robot version 3, binding the UnitLifecycle machine
+CREATE TABLE t_robot (
+  id                   TEXT    PRIMARY KEY REFERENCES ok_object(id),
+  state                TEXT    NOT NULL,
+  version              INTEGER NOT NULL,
+  type_version         INTEGER NOT NULL,
+  last_event           INTEGER NOT NULL REFERENCES ok_event(position),
+  last_part_event      INTEGER,
+  serial               TEXT    NOT NULL,          -- identifier, unique in scope
+  manufacturer_serial  TEXT,
+  label_printed_at     TEXT,                      -- timestamp
+  retirement_reason    TEXT,
+  model_id             TEXT    NOT NULL REFERENCES t_robotmodel(id),
+  binding_id           TEXT    REFERENCES t_delivery(id),
+  CONSTRAINT t_robot_state CHECK (state IN
+    ('REQUESTED','PROCUREMENT','INTAKE','AVAILABLE','RESERVED',
+     'SOLD','DEVELOPMENT','RETIRED','CANCELLED')),
+  CONSTRAINT t_robot_retirement_reason CHECK (retirement_reason IS NULL
+     OR retirement_reason IN ('FAILED','DAMAGED','OBSOLETE','LOST')),
+  CONSTRAINT t_robot_serial_in_scope UNIQUE (model_id, serial)
+);
+CREATE INDEX t_robot_state_ix   ON t_robot (state);
+CREATE INDEX t_robot_model_ix   ON t_robot (model_id);      -- stored end
+CREATE INDEX t_robot_binding_ix ON t_robot (binding_id);    -- stored end, and the inverse `units`
+```
+
+Three things to read off it. `serial` carries `unique in scope`, and the scope is the `model` reference, so the constraint is over both columns — the declaration said "scoped by model" and the schema says the same thing in the only language the database enforces. `binding_id` is indexed because it is the stored end of `Robot.binding`, and `Delivery.units` is a query against that index; §5 explains why the index is a correctness requirement and not a tuning choice. And `engagement_lines` and `leasable` have no columns at all.
+
+### 3.3 A set-valued attribute is its own table
+
+```sql
+CREATE TABLE t_robot__photos (
+  object_id  TEXT    NOT NULL REFERENCES t_robot(id),
+  ordinal    INTEGER NOT NULL,
+  value      TEXT    NOT NULL REFERENCES ok_file(hash),
+  PRIMARY KEY (object_id, ordinal)
+);
+```
+
+An array column would hold the same data. A table is chosen because `count(p in photos)` is then an ordinary indexed count rather than a function over an array, because `add` and `remove` are read-modify-write against rows the transaction already locks, and because a set of `file` values keeps a real foreign key into the content table, which erasure walks.
+
+### 3.4 An indexed derivation is a generated column
+
+```sql
+CREATE TABLE t_stock (
+  id        TEXT PRIMARY KEY,
+  state     TEXT NOT NULL,
+  on_hand   INTEGER NOT NULL DEFAULT 0,
+  reserved  INTEGER NOT NULL DEFAULT 0,
+  available INTEGER GENERATED ALWAYS AS (on_hand - reserved) STORED
+);
+CREATE INDEX t_stock_available_ix ON t_stock (available);
+```
+
+This is the case ADR-0048 allows: a derivation over stored indexed columns of the same object, with no aggregate and no clock. The database computes it and **refuses to let anyone write it** — attempting to produces `cannot UPDATE generated column`, verified. So "derived attributes are never stored, evaluated on read" stops being a discipline the runtime has to keep and becomes something the storage layer enforces on it.
+
+A derivation that reads a clock or another object gets no column, which is why a time-dependent predicate is answered by filtering the stored operand it compares against `now` instead (ADR-0048).
+
+## 4. The event payload
+
+`payload` is the writes and the inputs of one transition, as JSON: attribute name to value, in the types of §3.1. It is JSON rather than columns because its shape is per transition, and because a fold of the log must reproduce a row written under a **declaration version that may no longer exist** — a column set fixed by today's declaration could not hold yesterday's event.
+
+That is also why `declaration_version` is on the event and not inferred: reading history means reading each event under the rules that were in force when it was recorded.
+
+## 5. The indexes the model requires to be correct
+
+Most indexes are performance. These four are not: a stated guarantee is false without them.
+
+| Index | Without it |
+|---|---|
+| the stored end of every relationship | a derived inverse becomes a table scan, so `Delivery.units` is O(all robots) and a deletion guard over `referrers` is O(the store) |
+| `ok_attribute_write (object_id, attribute)` | `changed_since` is a scan of the object's whole history, and it is the most-cited guard in the model (ADR-0035) |
+| `t_<type>.last_part_event` | the half of `changed_since` that reaches a composition has nothing to compare, so an approval cannot be invalidated by an edit to a line (ADR-0057) |
+| every attribute a type-scan invariant or a `visible when` predicate reads | the invariant's affected set is a full scan on every write, and visibility stops being a query filter and becomes a per-row test, which the read surface cannot page |
+
+The last one is why check 7 rejects a type-scan or a visibility predicate over an unindexed attribute at publish: the schema cannot be built to satisfy it afterwards.
+
+`ok_attribute_write` deserves its shape stated plainly. One row per object per attribute ever written, holding the position of the event that last wrote it. It grows with the object's *width*, not with its history, so it is bounded by the declaration.
+
+## 6. The built-in tables
+
+```sql
+-- Named sequences, scoped. next_value is the next to hand out; taken inside
+-- the transition's transaction, so a serial is never issued twice.
+CREATE TABLE ok_sequence (
+  name       TEXT    NOT NULL,
+  scope_key  TEXT    NOT NULL,
+  next_value INTEGER NOT NULL,
+  PRIMARY KEY (name, scope_key)
+);
+
+-- External identifiers, which lookup(source, value) answers from.
+CREATE TABLE ok_external_id (
+  source     TEXT NOT NULL,
+  value      TEXT NOT NULL,
+  object_id  TEXT NOT NULL REFERENCES ok_object(id),
+  attribute  TEXT NOT NULL,
+  PRIMARY KEY (source, value)
+);
+
+-- Idempotency. The recorded verdict is replayed verbatim.
+CREATE TABLE ok_idempotency (
+  key            TEXT PRIMARY KEY,
+  request_digest TEXT    NOT NULL,
+  first_position INTEGER REFERENCES ok_event(position),
+  verdict        TEXT    NOT NULL,
+  applied_at     TEXT    NOT NULL
+);
+
+-- Admissions: an invariant a transition was permitted to violate.
+-- exceptions(type) is a query over this table.
+CREATE TABLE ok_admission (
+  object_id  TEXT    NOT NULL REFERENCES ok_object(id),
+  invariant  TEXT    NOT NULL,
+  position   INTEGER NOT NULL REFERENCES ok_event(position),
+  reason     TEXT    NOT NULL,
+  PRIMARY KEY (object_id, invariant, position)
+);
+CREATE INDEX ok_admission_by_object ON ok_admission (object_id);
+
+-- Content-addressed files. The store holds the reference; erasure deletes the
+-- content and keeps the row, so a reference resolves to something that says so.
+CREATE TABLE ok_file (
+  hash        TEXT PRIMARY KEY,
+  size_bytes  INTEGER NOT NULL,
+  media_type  TEXT    NOT NULL,
+  erased_at   TEXT
+);
+
+-- The published declaration, one row per version. Never deleted: a recorded
+-- event names the version whose rules applied, and history must stay readable.
+CREATE TABLE ok_declaration (
+  version       INTEGER PRIMARY KEY,
+  module        TEXT    NOT NULL,
+  source        TEXT    NOT NULL,   -- the .ok text as published
+  parsed        TEXT    NOT NULL,   -- the checked form the runtime reads
+  published_at  TEXT    NOT NULL,
+  published_by  TEXT    NOT NULL,
+  report        TEXT    NOT NULL    -- what publishing reported, kept for audit
+);
+
+-- Migration mappings carried by a publish that removes a state or renames an attribute.
+CREATE TABLE ok_migration (
+  version     INTEGER NOT NULL REFERENCES ok_declaration(version),
+  type_name   TEXT    NOT NULL,
+  kind        TEXT    NOT NULL,     -- 'removed state' | 'renamed attr'
+  from_name   TEXT    NOT NULL,
+  to_name     TEXT    NOT NULL,
+  PRIMARY KEY (version, type_name, kind, from_name)
+);
+
+-- Subscription is a built-in object. Its progress is not (ADR-0043).
+CREATE TABLE t_subscription (
+  id             TEXT    PRIMARY KEY REFERENCES ok_object(id),
+  state          TEXT    NOT NULL,
+  version        INTEGER NOT NULL,
+  type_version   INTEGER NOT NULL,
+  last_event     INTEGER NOT NULL REFERENCES ok_event(position),
+  target_type    TEXT    NOT NULL,
+  target_family  INTEGER NOT NULL DEFAULT 0,
+  transitions    TEXT,                       -- null means every transition
+  changes_state_only INTEGER NOT NULL DEFAULT 0,
+  endpoint       TEXT,                       -- null for a pull subscription
+  lag_threshold  INTEGER,
+  CONSTRAINT t_subscription_state CHECK (state IN ('ACTIVE','PAUSED','CLOSED'))
+);
+
+-- Runtime state, deliberately not an object: no version, no events, no history.
+CREATE TABLE ok_subscription_position (
+  subscription_id  TEXT    PRIMARY KEY REFERENCES t_subscription(id),
+  acknowledged     INTEGER NOT NULL,
+  acknowledged_at  TEXT    NOT NULL,
+  last_error       TEXT,
+  last_error_at    TEXT
+);
+
+-- Proposal is a built-in object type.
+CREATE TABLE t_proposal (
+  id             TEXT    PRIMARY KEY REFERENCES ok_object(id),
+  state          TEXT    NOT NULL,
+  version        INTEGER NOT NULL,
+  type_version   INTEGER NOT NULL,
+  last_event     INTEGER NOT NULL REFERENCES ok_event(position),
+  target_id      TEXT    NOT NULL REFERENCES ok_object(id),
+  transition     TEXT    NOT NULL,
+  inputs         TEXT    NOT NULL,
+  proposer       TEXT    NOT NULL,
+  declaration_version INTEGER NOT NULL REFERENCES ok_declaration(version),
+  CONSTRAINT t_proposal_state CHECK (state IN
+    ('pending','executed','rejected','withdrawn','invalidated'))
+);
+CREATE INDEX t_proposal_target_ix ON t_proposal (target_id, state);
+
+-- Imported history that predates the store (ADR-0015): read-only, not events.
+CREATE TABLE ok_legacy_entry (
+  object_id   TEXT    NOT NULL REFERENCES ok_object(id),
+  ordinal     INTEGER NOT NULL,
+  occurred_at TEXT    NOT NULL,
+  payload     TEXT    NOT NULL,
+  PRIMARY KEY (object_id, ordinal)
+);
+```
+
+`ok_subscription_position` is the one place the model deliberately keeps runtime state outside an object: no version, no events, no history, because an acknowledged cursor moving thousands of times a minute is not something anyone wants a permanent record of, and its lag and death are derived rather than states (ADR-0043). `t_subscription` next to it is an ordinary object because its filter and endpoint are configuration someone changes and should answer for.
+
+`ok_declaration` is never deleted. Every event names the version whose rules applied, so deleting one makes that stretch of history unreadable.
+
+## 7. Concurrency
+
+The transition transaction runs at **serialisable isolation**, which is what makes a guard's reads safe whether or not the objects it read are ones the transition writes (ADR-0039). Row locks are taken as objects are reached during sequential application, for contention rather than correctness, so a contended row queues rather than aborting and retrying. Deadlock is the database's to detect; the ordering rule an earlier decision imposed was withdrawn as unimplementable, since the lock set is discovered by traversal and not known in advance.
+
+What the schema owes that:
+
+- **`ok_event.position` must be gapless enough to page.** A sequence with gaps is fine for ordering and wrong for a pull consumer that reads "everything after position N", because a gap it can never see is indistinguishable from one not yet committed. On PostgreSQL a `BIGSERIAL` allocates out of order under concurrency; the position must therefore be assigned inside the transaction from a single counter row, or the pull path must tolerate gaps by waiting on in-flight transactions. **This is the sharpest thing in the schema and it is not settled here** — see §11.
+- **The idempotency row is written in the transition's transaction**, so a replay of a request that committed returns the recorded verdict and a replay of one that did not is a fresh attempt.
+- **Nothing is written outside the transaction**, including the write index and the part-event position, or a crash between them would leave a guard reading a stale answer.
+
+## 8. Which invariants become constraints
+
+Enforcement is dynamic and correctness comes from serialisable isolation; a constraint is an optimisation, and publishing reports which ones the configured backend can take (ADR-0041).
+
+| Invariant shape | PostgreSQL | SQLite |
+|---|---|---|
+| `unique` on one attribute | `UNIQUE` | `UNIQUE` |
+| `unique in scope`, `unique with` | `UNIQUE` over the columns | same |
+| `unique where <expr>` | partial `UNIQUE` index | partial `UNIQUE` index |
+| a local invariant over columns of one row | `CHECK` | `CHECK` |
+| non-negativity of a counter | `CHECK` | `CHECK` |
+| overlap of two ranges, per key | `EXCLUDE USING gist` | **none** — dynamic only |
+| a traversal or type-scan invariant | none | none |
+
+The overlap row is the one that matters and the one not executed here. A booking-overlap invariant compiles to an exclusion constraint on PostgreSQL and has no equivalent in SQLite, so the same declaration is enforced by the database on one backend and by the runtime on the other. That is legitimate under ADR-0041 and it should be measured before it is believed, because a type-scan under serialisable isolation is where contention will actually appear.
+
+## 9. Erasure, and what archival tiering means
+
+Erasure (§8 of the model) does four things to storage:
+
+1. sets each declared `personal` column to `NULL` on the object row;
+2. rewrites the same values inside every past event's `payload`, in place, keeping the event, its position and its shape;
+3. sets `ok_file.erased_at` and deletes the content behind the hash, leaving the row so that a reference to it resolves to something that says it was erased rather than to nothing;
+4. records an event with source `erased`, and an admission for every invariant that read what it erased (ADR-0060).
+
+The log is never pruned. **Archival tiering** is therefore not deletion but a second table with the same shape on cheaper storage, plus a view over both: events older than a threshold move, `pull` and `history` read the view, and erasure must reach the archive, which is the constraint that stops it being a write-once export.
+
+## 10. What publishing does
+
+A publish is a declaration version and a set of DDL statements derived from it, applied in the same transaction as the `ok_declaration` row.
+
+| Declaration change | DDL |
+|---|---|
+| a new type | `CREATE TABLE`, its indexes, its constraints |
+| a new attribute | `ADD COLUMN`, nullable, or with the declared `default` |
+| a new indexed attribute | `ADD COLUMN` then `CREATE INDEX` |
+| a removed attribute | **nothing.** A dropped attribute hides; its recorded values stay in history (ADR-0027) |
+| a renamed attribute | `RENAME COLUMN`, carrying the mapping |
+| a removed state | no DDL; the `CHECK` is replaced, and the mapping moves live objects out of it first |
+| a new invariant of compilable shape | `ADD CONSTRAINT`, after the report says how many live objects violate it |
+
+A removed attribute leaving its column in place is deliberate: the column is how history stays readable, and dropping it would make a fold of the log fail on an event the store still holds.
+
+## 11. What this leaves open
+
+- **Gapless global positions under concurrency**, §7. The pull path's correctness rests on it and the two backends behave differently. This is the first thing to settle and the first thing to measure.
+- **Whether the directory earns its row.** Every object costs two rows and every `get` costs two lookups. Encoding the type in the id would remove both, at the price of an id that is no longer opaque, which ADR-0018 chose deliberately.
+- **Partitioning.** The log is the busiest table and nothing here partitions it. By position is the obvious axis and it interacts with archival tiering.
+- **Whether one table per type survives many types.** A hundred types is a hundred tables; the first consumer has perhaps thirty. Nothing here is per-object, so it should hold, and it is worth checking against a consumer with a family of many members.
+- **The exclusion constraint of §8 is unexecuted**, as is everything in the PostgreSQL column.

@@ -41,10 +41,11 @@ A practical consequence: a single business rule today is expressed as a storage 
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Purpose, position in the stack, the model, scope boundaries, known limits |
 | [`docs/adr/`](docs/adr/) | Decisions taken, each with the alternatives rejected and why |
 | [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md) | The language a type is declared in, and the checks publishing runs over it |
+| [`docs/design/storage-schema.md`](docs/design/storage-schema.md) | How a declaration becomes tables, and which indexes a guarantee depends on |
 | [`docs/design/`](docs/design/) | The first-consumer walkthrough, five case studies, the catalogue of edge cases, and the defect register |
 | [`docs/LESSONS.md`](docs/LESSONS.md) | Operational lessons |
 | [`TODO.md`](TODO.md) | Where the design stands, what the author has decided, and what is still open |
-| [`scripts/`](scripts/) | Two checkers. One runs the declaration syntax's own rules over every example in the documents; the other checks the corpus against itself — cross-references, retired notation, decision back-links, the defect index |
+| [`scripts/`](scripts/) | Three checkers. One runs the declaration syntax's own rules over every example in the documents; one runs the storage schema's SQL; the third checks the corpus against itself — cross-references, retired notation, decision back-links, the defect index |
 
 ## Scope
 
