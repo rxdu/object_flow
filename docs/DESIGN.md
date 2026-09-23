@@ -2,6 +2,8 @@
 
 **Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 214 entries and five cosmetics; 201 are closed and 13 are open, all from the design review of 2026-09-23, one of which (D202) the specification's own approval example fails. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 and the six implementation documents of 2026-09-09 await review, ADR-0078 to ADR-0080 first, being the three decided at the author's direction rather than by the author.
 
+**What the product must do is now stated in [`PRD.md`](PRD.md)** (draft, 2026-09-23). It adds requirements this model does not yet meet — flow-generated and user-recorded datapoints, user-defined formulas and metrics, data-driven rules, and convergence — and its §9 lists the positions below that it conflicts with. Until the design evaluation resolves them, this document describes the model as designed, not the product as required.
+
 This document is the single description of the **model**: what an object is, what a transition guarantees, how a request executes, what the store refuses. The **language** those things are written in belongs to [`design/declaration-syntax.md`](design/declaration-syntax.md), which owns every grammar, every spelling and the fifty-three publish checks.
 
 Five further documents carry the parts an implementation needs, each owning what it names:

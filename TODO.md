@@ -24,6 +24,14 @@ Five changed the language: a machine's creation guards bind any creation that re
 
 **Two answers moved because of evidence rather than argument.** Per-attribute confidentiality looked likely and turned out to have no need in the first consumer at all. The money counter turned out to rest on a mechanism that consumer does not use, since it stores no stock level and computes availability instead.
 
+## The data-driven engine
+
+The author's statements of 2026-09-23 extend the objective: the engine is the foundation on which people and agents define flows and collect data — flow-generated, user-recorded and derived by user formulas — so that business logic can be data-driven and flows converge over time. [`docs/PRD.md`](docs/PRD.md) states it as requirements and seventeen use cases.
+
+- [ ] **Author reviews the PRD**, especially the rows marked Inferred and the two questions of its §10.
+- [ ] **Evaluate designs against the PRD's use cases** and record the choices as ADRs, with the alternatives each use case rejected. The author asked for the details to be settled this way rather than by questions.
+- [ ] **Resolve the eight conflicts of PRD §9** in `DESIGN.md`, the ADRs and the design documents once the evaluation decides them.
+
 ## Author review queue
 
 Nothing here is blocked on it, and none of it is settled without it.
