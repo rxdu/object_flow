@@ -1,16 +1,16 @@
 # ObjectKeeper — Product requirements
 
-**Status: draft, 2026-09-23, awaiting the author's review.** Written from the author's statements of 2026-09-23 and the standing objective of [`DESIGN.md`](DESIGN.md) §1. It states what the product must do. It does not choose designs: [`design/data-driven-engine.md`](design/data-driven-engine.md) evaluates them against the use cases in §7, and the choices are ADR-0081 to ADR-0086, proposed and pending review.
+**Status: draft, revision 2, 2026-09-23, awaiting the author's review.** Written from the author's statements of 2026-09-23 and the standing objective of [`DESIGN.md`](DESIGN.md) §1. Revision 2 follows a review of revision 1 for validity and clarity; §11 says what changed and why. This document states what the product must do. It does not choose designs: [`design/data-driven-engine.md`](design/data-driven-engine.md) evaluates them against the use cases in §7, and the choices are ADR-0081 to ADR-0086, proposed and pending review.
 
-**How to review it.** Every requirement in §6 names its source: **Said** is the author's own statement of 2026-09-23, **Carried** is a standing requirement of the existing record, and **Inferred** is this document's reading of what the other two imply. Inferred rows are where it is most likely to be wrong. §9 lists what the current design will have to change, and §10 has the only two questions this document asks the author.
+**How to review it.** Every requirement in §6 names its source: **Said** is the author's own statement of 2026-09-23, **Carried** is a standing requirement of the existing record, and **Inferred** is this document's reading of what the other two imply. Inferred rows are where it is most likely to be wrong, and where a Said row rests on an interpretation of the author's words, the row says which. Each requirement also names the use cases that test it; the few that no use case tests say why. §10 has the only two questions this document asks the author.
 
 ## 1. Summary
 
 ObjectKeeper is the foundational layer on which people and AI agents **define flows** and **collect data** about them, so that the business logic built on top can be **driven by data**, whichever kind of actor is driving it.
 
-A flow is a set of object types with their lifecycles, transitions and rules. Data is everything the flow produces by running — every transition, every refusal, every override — together with what users choose to record, and values computed from both by formulas users define. Metrics over that data evaluate the flows continuously, and the evaluation is what lets a user start with an imperfect flow and **converge** on a good one, with the engine showing where the flow and reality disagree.
+A flow is a set of object types with their lifecycles, transitions and rules. Data is everything the flow produces by running — every transition, every refusal, every override, every change of hands — together with what users choose to record, and values computed from both by formulas users define. Metrics over that data evaluate the flows whenever anyone asks, and that evaluation is what lets a user start with an imperfect flow and **converge** on a good one, with the engine showing where the flow and reality disagree.
 
-It keeps the objective the record has had from the start: **trust under delegation**. Nothing a person or an agent does can put the governed state into a condition that has to be cleaned up afterwards, except through an override that is declared, capability-gated and recorded.
+It keeps the objective the record has had from the start: **trust under delegation**. Nothing a person or an agent does can put the governed state into a condition its rules forbid, except through an override that is declared, capability-gated and recorded.
 
 ## 2. The problem
 
@@ -33,8 +33,8 @@ It keeps the objective the record has had from the start: **trust under delegati
 | G1 | People and agents define flows declaratively, and the definition is the only authority on what may change |
 | G2 | Every flow produces data about itself with no extra effort from its author |
 | G3 | Users record their own datapoints easily, including before they have decided the data's final shape |
-| G4 | Users define formulas that turn raw data into compound datapoints and metrics, declared once and read identically by every consumer |
-| G5 | Business logic, whether executed by the engine's rules or by humans and agents deciding, can depend on that data, and every data-driven decision can be explained afterwards |
+| G4 | Users define formulas that turn raw data into derived datapoints and metrics, declared once and read identically by every consumer |
+| G5 | Business logic can depend on that data, whether the engine's rules execute it or people and agents do. Every decision the engine's rules make can be explained from the record, and every action people and agents take is recorded |
 | G6 | The engine helps users converge: it shows where a flow and reality disagree, lets a change be trialled and measured, and keeps history intact across changes |
 | G7 | Trust under delegation holds throughout (§1) |
 
@@ -46,7 +46,9 @@ It keeps the objective the record has had from the start: **trust under delegati
 | Causing external effects — sending mail, raising invoices, posting to Jira; consumers do that by observing events | Carried |
 | Initiating work by itself — schedules, timers, reacting to its own events; a scheduler or agent above it asks and acts | Carried |
 | Choosing among alternatives on a user's behalf — which engineer, which unit, which order first; the engine supplies the data and records the choice | Carried |
+| Formulas that need data or rules the store does not hold, such as a tax table or a pricing engine | Carried (ADR-0007) |
 | Open-ended exploratory analysis — ad-hoc querying, charting, notebooks; the engine exports its data in an analysable shape for tools built for that | Inferred |
+| Working-hours calendars and local-time rules in durations and time buckets, in the first release | Carried ([`design/edge-cases.md`](design/edge-cases.md), "Business hours and local time") |
 | High-rate machine telemetry — sensor streams at seconds rate; a summary of one may be recorded as a datapoint | Inferred, and §10 asks |
 
 ## 4. Who uses it
@@ -54,7 +56,7 @@ It keeps the objective the record has had from the start: **trust under delegati
 | Actor | Kind | What they do |
 |---|---|---|
 | Flow author | human | Defines and changes types, flows, rules, datapoint kinds and metrics |
-| Flow author | agent | Proposes flow changes from evidence; may publish where granted |
+| Flow author | agent | Drafts flow changes from evidence, for a person to approve |
 | Operator | human | Requests transitions and records datapoints in the course of work — an engineer running an inspection, a coordinator committing an order |
 | Operating agent | agent | The same, through the same interface and the same rules; today's first-consumer agents create deliveries, reserve units and attach service parts |
 | Owner or reviewer | human | Reads the printed rules and the metrics, approves flow changes and overrides |
@@ -67,194 +69,196 @@ The engine treats human, agent and service alike except where a rule says otherw
 | Term | Meaning in this document |
 |---|---|
 | **Flow** | The declared lifecycle of one or more object types: states, transitions, the rules on them and the outcomes they apply |
-| **Governed state** | An object's state and attributes, which only a declared transition or a recorded override may change |
-| **Datapoint** | A recorded, attributed, time-stamped fact. Three kinds follow |
-| **Flow-generated datapoint** | Produced by the engine as the flow runs: a transition, a refusal, an override, an admitted violation, a conflict, time spent in a state |
-| **Recorded datapoint** | Recorded by a user about an object: an inspection result, a measurement, an observation, a label |
-| **Derived datapoint** | Computed by a user-defined formula from other data |
-| **Metric** | A derived value aggregated over many objects or over time, such as a median, a rate or a count per month |
+| **Rule** | A condition the engine checks: a guard a transition must satisfy, or an invariant a type must keep |
+| **Governed state** | An object's state and attributes, which only a declared transition or an override may change |
+| **Override** | A change to governed state that does not satisfy the rules, available only where declared, only to actors holding a declared capability, always with a reason, and always recorded as an override |
+| **Exception** | Two senses, both in scope. An **engine exception** is a request the engine refused, overrode, found in conflict with another, or stopped at a declared limit (D2). A **business exception** is work deviating from what the flow expects: overdue, ageing, a service level breached (M7) |
+| **Datapoint** | A fact about a flow or an object, attributed and time-stamped. Three kinds follow |
+| **Flow-generated datapoint** | Produced by the engine as the flow runs: a transition, an engine exception, a change of assignee. Time spent in a state or with an assignee is derived from these |
+| **Recorded datapoint** | Recorded by a person, agent or service about an object: an inspection result, a measurement, an observation, a label |
+| **Derived datapoint** | A value a user-defined formula computes for one object, such as how long a job has waited for parts |
+| **Metric** | A value a formula computes across many objects or over time, such as median lead time per supplier per quarter. The engine supplies standard metrics; users define others |
 | **Assignee** | Whoever is responsible for an object at a given time — a service job's engineer-of-record, for instance — as distinct from whoever happens to act on it |
 | **Convergence** | Improving a flow over time from the evidence its own data provides, without losing history |
 
 ## 6. Requirements
 
-Priorities: **Must** is required for the product to meet its purpose; **Should** is expected, and its absence needs a reason; **Could** is worth having if the design makes it cheap.
+Priorities: **Must** is required for the product to meet its purpose; **Should** is expected, and its absence needs a reason; **Could** is worth having if the design makes it cheap. No Must depends on a Should.
 
 ### 6.1 Flows
 
-| ID | Requirement | Priority | Source |
-|---|---|---|---|
-| F1 | Users define object types, lifecycles, transitions and rules as a declaration that is inspectable at runtime and printable for review | Must | Said, Carried |
-| F2 | Governed state changes only through a declared transition whose rules pass, or through a declared, capability-gated, recorded override | Must | Carried |
-| F3 | Humans and agents act through one interface under one set of rules; the kind of actor matters only where a rule says so | Must | Said |
-| F4 | A refusal says which rule refused, and whether the caller should supply something, ask someone, wait, work on another object first, or take a different path | Must | Carried |
-| F5 | A flow changes by publishing a new version; objects in flight continue, and history stays readable under the rules that applied when it was written | Must | Carried |
-| F6 | Agents may author flow changes. Changing a flow is itself governed: who may propose, who may publish, and an impact report before anything applies | Should | Inferred from "users (human or AI agents) define flows" |
+| ID | Requirement | Priority | Source | Use cases |
+|---|---|---|---|---|
+| F1 | Users define object types, lifecycles, transitions and rules as a declaration that is inspectable at runtime and printable for review | Must | Said, Carried | — carried; the existing design's renderers and harness test it |
+| F2 | Governed state changes only through a declared transition whose rules pass, or through an override | Must | Carried | UC-19 |
+| F3 | People and agents act through one interface, under one set of rules, and discover through it what they may do now; the kind of actor matters only where a rule says so | Must | Said in part ("regardless of driven by human or AI agents"); Inferred in this form | UC-11, UC-16 |
+| F4 | A refusal says which rule refused, and whether the caller should supply something, ask someone, wait, work on another object first, or take a different path | Must | Carried | UC-2 |
+| F5 | A flow changes by publishing a new version. The new rules apply from publication, including to objects already in flight; an object in a state the new version removes is moved by a declared mapping; history stays readable under the rules that applied when it was written | Must | Carried | UC-13 |
+| F6 | Agents, as well as people, may draft changes to a flow | Should | Inferred from "users (human or AI agents) define flows" | UC-15 |
+| F7 | A change to a flow is governed: who may draft and who may approve are declared, the approver is not the drafter, and an impact report — what the change affects among live objects and pending work — exists before it applies | Should | Inferred | UC-14, UC-15 |
 
 ### 6.2 Data capture
 
-| ID | Requirement | Priority | Source |
-|---|---|---|---|
-| D1 | Every transition is captured with no effort from the flow's author: which object, which transition, from and to which state, who, which kind of actor, when, what caused it, and which version of the rules applied | Must | Said, Carried |
-| D2 | Every exception the flow produces is captured the same way: refusals with the rule and remedy, overrides with their reason, admitted violations, conflicts between concurrent requests, and requests over a declared limit | Must | Said |
-| D3 | Users record their own datapoints about an object easily — numbers with units, choices from a list, text, files, times — without modelling a new transition for each kind of fact | Must | Said |
-| D4 | A recorded datapoint is attributed and never edited: a mistake is corrected by a newer datapoint linked to it, and both stay visible | Must | Inferred from the recorded property |
-| D5 | A datapoint distinguishes when something happened from when it was recorded, within limits the declaration sets, because people record after the fact and durations computed from recording time are wrong | Should | Inferred |
-| D6 | Users can record information before it has been modelled — a label or a note on an object — and the engine can count it and relate it to the flow, so that it can be formalised later | Should | Inferred from "users should not need to define everything perfectly" |
-| D7 | Operators maintain catalogues of what to record — an inspection checklist per product configuration, say — as data, without a developer publishing a new declaration | Should | Inferred from the first consumer's inspection design |
-| D8 | Personal data inside datapoints is erasable, like personal data anywhere else in the store | Must | Carried |
-| D9 | Recorded datapoints cannot change governed state by being recorded; they influence a flow only through a rule that reads them (§6.5) | Must | Inferred from F2 and G7 |
-| D10 | Every change of assignee is captured from the start — at creation and at every reassignment — with who was assigned, who made the change, which kind of actor that was, and when; and ported history keeps the legacy system's reassignments where its audit trail recorded them | Must | Said, 2026-09-23: "assignee change is also important and I'd like to keep track of this kind of data from the beginning" |
-| D11 | The same holds for the other data of that kind — who, where and which bucket an object is in over time: its references to people, places and other objects, and its choices from a list — without the author having to anticipate which ones will matter | Should | Inferred from "this kind of data" |
+| ID | Requirement | Priority | Source | Use cases |
+|---|---|---|---|---|
+| D1 | Every transition is captured with no effort from the flow's author: which object, which transition, from and to which state, who, which kind of actor, when, what caused it, and which version of the rules applied | Must | Said, Carried | UC-1, UC-16 |
+| D2 | Every engine exception (§5) is captured the same way: refusals with the rule and remedy, overrides with their reason, admitted violations, conflicts between concurrent requests, and requests over a declared limit | Must | Said ("exceptions"), read in the engine's sense; the business sense is M7 | UC-2, UC-3 |
+| D3 | Users record their own datapoints about an object easily: adding a kind of datapoint is one declaration and no code, and recording one is a single request with no transition declared for it. Values may be numbers with units, choices from a list, text, files and times | Must | Said; the measure of "easily" is Inferred | UC-4, UC-5 |
+| D4 | A recorded datapoint is never edited: a mistake is corrected by a newer datapoint linked to it, and both stay visible | Must | Inferred from the recorded property | UC-4 |
+| D5 | A datapoint distinguishes when something happened from when it was recorded, within a bound the declaration sets, because people record after the fact and durations computed from recording time are wrong | Should | Inferred | UC-6, UC-19 |
+| D6 | Users can record information before it has been modelled — a label or a note on an object — and the engine can count it and relate it to the flow, so that it can be formalised later | Must | Inferred from "users should not need to define everything perfectly"; Must because V2 depends on it | UC-13 |
+| D7 | Operators maintain catalogues of what to record — an inspection checklist per product configuration, for instance — as data, without publishing a new version of the flow | Should | Inferred from the first consumer's inspection design | UC-4 |
+| D8 | Personal data inside datapoints is erasable, like personal data anywhere else in the store | Must | Carried | UC-17 |
+| D9 | Recording a datapoint does not change the state or attributes of the object it describes; it affects that object's flow only through a rule that reads it | Must | Inferred from F2 and G7 | UC-4, UC-19 |
+| D10 | Every change of assignee is captured from the start — at creation and at every reassignment — with who was assigned, who made the change, which kind of actor that was, and when | Must | Said: "assignee change is also important and I'd like to keep track of this kind of data from the beginning" | UC-18 |
+| D11 | For every reference to another object and every choice-from-a-list attribute, how long an object held each value is available without its author declaring which to track: who, where and which bucket an object was in over time | Should | Inferred from "this kind of data"; the first consumer's design asks for "an append-only movement history" answering "where did this unit go" (`wr:docs/proposals/operations-system-design.md` §3) | UC-18 |
+| D12 | Recording a datapoint is authorised and validated like any other write: who may record each kind is declared, and values are checked against their declared types and bounds when recorded | Must | Inferred from T1 | UC-19 |
 
 ### 6.3 Formulas and derived data
 
-| ID | Requirement | Priority | Source |
-|---|---|---|---|
-| C1 | Users define compound datapoints with formulas over raw data: attributes, flow-generated datapoints and recorded datapoints | Must | Said |
-| C2 | A formula is declared once, inspectable and versioned with the flow, and every consumer — a screen, an agent, a report, a rule — gets the same value from the same definition | Must | Inferred from the declared property |
-| C3 | Formulas aggregate over time windows and group by dimensions such as model, supplier, month, kind of actor and flow version | Should | Inferred from the metrics the author named |
-| C4 | A formula defined today applies to the history recorded before it existed | Should | Inferred |
-| C5 | Reading a derived value is fast enough to use interactively at the first consumer's scale (§6.8) | Should | Inferred |
+| ID | Requirement | Priority | Source | Use cases |
+|---|---|---|---|---|
+| C1 | Users define formulas over raw data — attributes, flow-generated datapoints and recorded datapoints — producing derived datapoints for one object and metrics across many | Must | Said | UC-5, UC-8 |
+| C2 | A formula is declared once, inspectable and versioned with the flow, and every consumer — a screen, an agent, a report, a rule — gets the same value from the same definition | Must | Inferred from the declared property | UC-8, UC-12 |
+| C3 | Formulas aggregate over time windows and group by dimensions such as model, supplier, month, kind of actor and flow version | Must | Inferred from the metrics the author named; Must because M7's conditions across many objects depend on it | UC-5, UC-8, UC-12 |
+| C4 | A formula defined today applies to the history recorded before it existed | Should | Inferred | UC-9 |
+| C5 | Reading a derived datapoint or a metric is fast enough for interactive use at the first consumer's scale. The target is to be set by measurement, and until it is set this requirement cannot be verified | Should | Inferred | — not yet verifiable |
+| C6 | Durations and time buckets are computed in UTC calendar time, and every metric says so | Should | Inferred; follows the working-hours non-goal | UC-1, UC-8 |
 
 ### 6.4 Metrics and evaluation
 
-| ID | Requirement | Priority | Source |
-|---|---|---|---|
-| M1 | Every flow has a standard set of metrics without declaring any: time in each state, throughput, work in progress, age of the oldest open items, how often each transition is taken, refusal and override rates per rule, and rework — returning to an earlier state | Must | Said: "metrics to constantly evaluate the flows" |
-| M2 | User-defined metrics are available through the same interface to people and agents, under the same visibility rules as the objects they are computed from | Must | Inferred |
-| M3 | Any metric can be compared across versions of a flow, so the effect of a change can be measured | Should | Inferred |
-| M4 | Any metric can be split by the kind of actor, so a flow run by agents can be compared with the same flow run by people | Should | Inferred |
-| M5 | The engine exports its data in a shape suited to exploratory analysis elsewhere, and does not attempt the exploration itself | Could | Inferred from "potentially dig insights" |
-| M6 | Every type with an assignee has assignment metrics without declaring any: open work per assignee, time unassigned, time to first assignment, time with each assignee, handoffs per object and reassignment back to an earlier assignee, and how often someone other than the assignee acts | Must | Inferred from D10 |
+| ID | Requirement | Priority | Source | Use cases |
+|---|---|---|---|---|
+| M1 | Every flow has a standard set of metrics without declaring any: time in each state, throughput, work in progress, age of the oldest open items, how often each transition is taken, refusal rates per rule, override counts per target state, and rework — returning to an earlier state | Must | Said ("metrics to constantly evaluate the flows"); the list is Inferred | UC-1, UC-2, UC-14 |
+| M2 | Metrics, standard and user-defined, are available through the same interface to people and agents, under the same visibility rules as the objects they are computed from | Must | Inferred | UC-8, UC-11 |
+| M3 | Any metric whose subject exists in both versions of a flow — cycle time, time in a state both versions keep — can be split by version, so the effect of a change can be measured | Should | Inferred | UC-13 |
+| M4 | Any metric can be split by the kind of actor that requested the transitions, or recorded the datapoints, it counts | Should | Inferred | UC-2, UC-16 |
+| M5 | The engine exports its data in a shape suited to exploratory analysis elsewhere, and does not attempt the exploration itself | Could | Inferred from "potentially dig insights" | — Could |
+| M6 | Every type with an assignee has assignment metrics without declaring any: open work per assignee, time unassigned, time to first assignment, time with each assignee, handoffs per object and reassignment back to an earlier assignee, and how often someone other than the assignee acts | Must | Inferred from D10; the priority is this document's | UC-18 |
+| M7 | Business exceptions — work overdue against a date, ageing past a threshold, a service level breached — are declared once as conditions and are answerable by a query that a scheduler or an agent runs | Must | Said ("exceptions"), in the sense the first consumer's design uses: "Exception management — proactive alerts on reorder points, late POs, aging backorders, SLA breaches" (`wr:docs/proposals/operations-system-design.md` §3) | UC-12 |
 
 ### 6.5 Data-driven logic
 
-| ID | Requirement | Priority | Source |
-|---|---|---|---|
-| L1 | A flow's rules can depend on data beyond the object's own attributes, including recorded and derived datapoints | Must | Said: "build data driven business logics" |
-| L2 | Whenever a decision depends on data, the record shows which values it used, so the decision can be explained and reproduced afterwards | Must | Inferred from the recorded property |
-| L3 | People and agents deciding outside the engine get the data they need through its interface, and the actions they take are recorded as any other | Must | Said, Carried |
-| L4 | The thresholds and parameters of a data-driven rule are declared, visible, and changed only through the governed path of F6 | Should | Inferred |
+| ID | Requirement | Priority | Source | Use cases |
+|---|---|---|---|---|
+| L1 | A flow's rules can read recorded datapoints about the object and the objects related to it, as they read attributes | Must | Said ("build data driven business logics"); grounded in the first consumer's gate on inspection results | UC-4 |
+| L2 | Whenever a rule's decision depends on data, the record holds the values it used, so the decision can be re-evaluated from the record alone | Must | Inferred from the recorded property | UC-10 |
+| L3 | People and agents deciding outside the engine get the data they need through its interface, and the actions they take are recorded as any other | Must | Said, Carried | UC-11, UC-12, UC-18 |
+| L4 | The thresholds and parameters of a data-driven rule are visible, and change only through a governed, recorded path: a flow change (F7), or a transition on the object that holds the value, such as a reorder point per model | Should | Inferred | UC-10 |
+| L5 | A flow's rules can read metrics aggregated across many objects and over time. No first-consumer use case needs this yet; UC-10 is hypothetical | Should | Inferred from "build data driven business logics" | UC-10 |
 
 ### 6.6 Convergence
 
-| ID | Requirement | Priority | Source |
-|---|---|---|---|
-| V1 | A flow can start minimal and be refined; the engine never needs the complete rules before it runs | Must | Said |
-| V2 | The engine shows where a flow and reality disagree: transitions and states never used, rules that refuse most, states reached mostly by override, unmodelled information recorded often, states where work waits longest | Must | Said: "the engine helps them converge" |
-| V3 | A new rule can be trialled before it is enforced: the refusals it would have made are recorded, and it is enforced when its author decides | Should | Inferred |
-| V4 | The engine, or an agent reading its evidence, can propose a flow change with that evidence attached; applying it goes through F6. The engine never changes a flow by itself | Should | Inferred; the second sentence is Carried |
-| V5 | Information recorded before it was modelled can be promoted into the model — a label becoming a state or a typed attribute — with its history intact | Should | Inferred |
+| ID | Requirement | Priority | Source | Use cases |
+|---|---|---|---|---|
+| V1 | A flow can start minimal and be refined; the engine never needs the complete rules before it runs | Must | Said | UC-13 |
+| V2 | The engine shows where a flow and reality disagree: transitions and states never used, rules that refuse most, states reached mostly by override, unmodelled information recorded often, states where work waits longest | Must | Said ("the engine helps them converge"); the list is Inferred | UC-3, UC-13 |
+| V3 | A new rule can be trialled before it is enforced: the refusals it would have made are recorded and countable, and enforcing it is a flow change (F7) | Should | Inferred | UC-14, UC-19 |
+| V4 | A person or an agent can draft a flow change with the engine's evidence attached (F6, F7). The engine supplies the evidence and never drafts or applies a change by itself | Should | Inferred; the second sentence is Carried | UC-15 |
+| V5 | Information recorded before it was modelled can be promoted into the model — a label becoming a state or a typed attribute — with its history intact | Should | Inferred | UC-13 |
 
 ### 6.7 Trust and governance
 
-| ID | Requirement | Priority | Source |
-|---|---|---|---|
-| T1 | Nothing a person or an agent does puts governed state into a condition needing cleanup, except through a declared, capability-gated, recorded override | Must | Carried |
-| T2 | The threat model is mistakes, not malice: actors are trusted and fallible, and one holding database credentials is out of scope | Must | Carried |
-| T3 | Every change, datapoint and flow change is attributed to an actor and reconstructable | Must | Carried |
-| T4 | Overrides and admitted violations are reviewable at any time, and a data import does not bury them | Must | Carried; the second half is `design/defects.md` D205 |
-| T5 | Visibility rules apply to every read, including datapoints and metrics; a metric does not reveal what its reader could not see | Must | Carried, extended |
+| ID | Requirement | Priority | Source | Use cases |
+|---|---|---|---|---|
+| T1 | Nothing a person or an agent does puts governed state into a condition its enforced rules forbid, except through an override. A rule being trialled (V3) is not enforced, and guarantees nothing | Must | Carried | UC-19 |
+| T2 | The threat model is mistakes, not malice: actors are trusted and fallible, and one holding database credentials is out of scope | Must | Carried; an assumption, not a behaviour | — assumption |
+| T3 | Every change to governed state, every recorded datapoint and every flow change is attributed to an actor, kept permanently and reconstructable. Refusal records are attributed too, and are kept for a retention period the deployment sets, with their counts kept permanently | Must | Carried; the retention clause is Inferred | UC-15, UC-18 |
+| T4 | Overrides and admitted violations are reviewable at any time, and a data import does not bury them | Must | Carried; the second half is `design/defects.md` D205 | UC-3 |
+| T5 | Visibility rules apply to every read, including datapoints and metrics; a metric does not reveal what its reader could not see | Must | Carried, extended | UC-11, UC-17 |
 
 ### 6.8 Non-functional
 
-| ID | Requirement | Priority | Source |
-|---|---|---|---|
-| N1 | Runs on PostgreSQL in production and SQLite for development, tests and small deployments | Must | Carried |
-| N2 | The core stays a library: correctness never depends on a background process | Must | Carried |
-| N3 | The first release is sized for the first consumer — 279 live deliveries, 81 services, 203 warranty contracts and 123 live customers as of 2026-09-01 (inventory ADR-0003), which is operations rate, not telemetry rate — without precluding the orders-at-volume case study | Must | Carried, Inferred |
-| N4 | Behaviour is deterministic under test, and the adversarial harness is the acceptance test | Must | Carried |
-| N5 | The first consumer's production data and legacy history are ported and preserved | Must | Carried |
+N1 and N2 are constraints carried from the existing design rather than behaviours a test can fail; they are listed so that a design breaking them is visibly out of bounds.
+
+| ID | Requirement | Priority | Source | Use cases |
+|---|---|---|---|---|
+| N1 | Runs on PostgreSQL in production and SQLite for development, tests and small deployments | Must | Carried; a constraint | — constraint |
+| N2 | The core stays a library: correctness never depends on a background process | Must | Carried; a constraint | UC-12 |
+| N3 | The first release is sized for the first consumer — 279 live deliveries, 81 services, 203 warranty contracts and 123 live customers as of 2026-09-01 (inventory ADR-0003), and 6,391 audit rows over the system's life: operations rate, not telemetry rate. Event and datapoint rates are to be measured before cutover. The orders-at-volume case study stays a design reference, not a release target | Must | Carried, Inferred | UC-7 |
+| N4 | Behaviour is deterministic under test, and the adversarial harness is the acceptance test | Must | Carried | — the harness is the test |
+| N5 | The first consumer's production data and legacy history are ported and preserved, including past reassignments wherever its audit trail recorded them | Must | Carried; the reassignment clause is Inferred from D10 | UC-1, UC-18 |
 
 ## 7. Use cases
 
-Each use case is drawn from the first consumer where it can be, and each is a test the design must pass. The acceptance line is what "passes" means.
+Each use case is drawn from the first consumer where it can be, and says so where it cannot. Each is a test the design must pass; the acceptance line is what "passes" means. The requirements each one tests are listed against the requirements in §6, in one place, so the two cannot disagree.
 
 ### Evaluating flows
 
-**UC-1. Where do deliveries get stuck?** An operations lead asks which delivery states hold work longest, by customer and by product configuration, and which open deliveries are oldest in their current state. Nobody declared anything to make this possible. *Acceptance:* time in each state, current age and work in progress are available for every flow from the day it is published; for imported objects, from as far back as their ported history allows. *Exercises* D1, M1.
+**UC-1. Where do deliveries get stuck?** An operations lead asks which delivery states hold work longest, by customer and by product configuration, and which open deliveries are oldest in their current state. Nobody declared anything to make this possible. *Acceptance:* time in each state, current age and work in progress are available for every flow from the day it is published; for imported objects, from as far back as their ported history allows.
 
-**UC-2. Which rule is in the way?** Deliveries are often refused at completion. The lead asks which rule refuses most, with which remedy, and whether the callers are people or agents — and learns that an agent keeps requesting completion before the checklist is done. *Acceptance:* every refusal is counted per rule, remedy and kind of actor, per week. *Exercises* D2, M1, M4.
+**UC-2. Which rule is in the way?** Deliveries are often refused at completion. The lead asks which rule refuses most, with which remedy, and whether the callers are people or agents — finding, for instance, an agent that keeps requesting completion before the checklist is done. *Acceptance:* every refusal is counted per rule, remedy and kind of actor, per week.
 
-**UC-3. Overrides as a symptom.** Units are often put into `AVAILABLE` by override rather than through `INTAKE`, because the label-and-photo rule does not fit one supplier's parts. *Acceptance:* override counts per target state and per reason, excluding the objects placed there by the data import, and each override reviewable. *Exercises* D2, T4, V2.
+**UC-3. Overrides as a symptom.** Units are often put into `AVAILABLE` by override rather than through `INTAKE`, because, say, the label-and-photo rule does not fit one supplier's parts. *Acceptance:* override counts per target state and per reason, excluding the objects placed there by the data import, and each override reviewable.
 
 ### Capturing data
 
-**UC-4. Record a pre-delivery inspection.** An engineer inspects a configured robot against its configuration's checklist — each check pass, fail or not applicable, with a measured value where the check has one, a photo and a note — and delivery is gated on every check having a result. Operations staff maintain the checklists per configuration without a developer. The first consumer's operations design states this goal in these words: "who performed which predefined check, when, and with what result — and gate delivery on their completion" (§2). *Acceptance:* results recorded without a transition per check; the gate reads them; a checklist change needs no publish. *Exercises* D3, D4, D7, L1.
+**UC-4. Record a pre-delivery inspection.** An engineer inspects a configured robot against its configuration's checklist — each check pass, fail or not applicable, with a measured value where the check has one, a photo and a note — and delivery is gated on every check having a result. Operations staff maintain the checklists per configuration. The first consumer's operations design states the goal: "who performed which predefined check, when, and with what result — and gate delivery on their completion" (§2). *Acceptance:* results are recorded without a transition per check; the gate reads them; changing a checklist needs no new version of the flow.
 
-**UC-5. Keep what used to be thrown away.** When an order is committed, the availability check's result — what is in stock and what must be procured — is recorded, and the shortfall over time becomes a metric. This is the first consumer's first pain. *Acceptance:* the check's result is a datapoint on the order, and "open shortfall by model" is a declared metric. *Exercises* D3, C1, C3.
+**UC-5. Keep what used to be thrown away.** When an order is committed, the availability check's result — what is in stock and what must be procured — is recorded, and the shortfall over time becomes a metric. This is the first consumer's first pain. *Acceptance:* the check's result is a datapoint on the order, and "open shortfall by model" is a declared metric.
 
-**UC-6. Recorded late.** An engineer records a shipment's receipt the morning after it arrived. *Acceptance:* time in `PROCUREMENT` uses when the receipt happened, within a bound the declaration sets, and both times are kept. *Exercises* D5, M1.
+**UC-6. Recorded late.** An engineer records a shipment's receipt the morning after it arrived. *Acceptance:* time in `PROCUREMENT` uses when the receipt happened, within a bound the declaration sets, and both times are kept.
 
-**UC-7. Where machine data stops.** A robot reports battery health every second. *Acceptance:* the design says where that data lives and what, if anything, is recorded here — a daily summary per unit, for instance. *Exercises* the telemetry non-goal, N3.
+**UC-7. Where machine data stops.** A robot reports battery health every second. *Acceptance:* the design says where that data lives and what, if anything, is recorded here — a daily summary per unit, for instance.
 
 ### Deriving and using data
 
-**UC-8. A formula, declared once.** A quality lead defines inspection first-pass yield per robot model per month, as checks passed at the first attempt over checks inspected; a procurement lead defines supplier lead time, ordered to received, at the median and the eightieth percentile; operations defines the on-time delivery rate. *Acceptance:* each is declared once, and a screen, an agent and a report reading it get identical values. *Exercises* C1, C2, C3, M2.
+**UC-8. A formula, declared once.** A quality lead defines first-pass yield per robot model per month: the share of inspected configured robots whose every check passed at its first recorded result. A procurement lead defines supplier lead time, ordered to received, at the median and the eightieth percentile. Operations defines the on-time delivery rate. *Acceptance:* each is declared once; a screen, an agent and a report reading it get identical values; and each says it is computed in UTC calendar time.
 
-**UC-9. A new metric over old data.** Supplier lead time is defined today, and the lead wants the last twelve months. *Acceptance:* the metric covers history recorded before it was defined, as far as the data exists. *Exercises* C4.
+**UC-9. A new metric over old data.** Supplier lead time is defined today, and the lead wants the last twelve months. *Acceptance:* the metric covers history recorded before it was defined, as far as the data exists.
 
-**UC-10. A rule that reads data.** Deliveries of a robot model whose inspection first-pass yield over the last thirty days is below a declared threshold need a second sign-off. *Acceptance:* the refusal names the value and the threshold; the record of every completion shows the value it was decided on; the threshold changes only by publishing. *Exercises* L1, L2, L4.
+**UC-10. A rule that reads a metric.** *Hypothetical; no first-consumer process asks for this yet.* Deliveries of a robot model whose first-pass yield over the last thirty days is below a threshold need a second sign-off. *Acceptance:* the refusal names the value and the threshold; the record of every completion holds the value it was decided on; the threshold changes only through a governed path.
 
-**UC-11. An agent decides with data.** A procurement agent ranks open purchase orders by risk of being late, from supplier lead-time metrics and each order's age, and escalates the riskiest. *Acceptance:* the agent reads the same metric definitions a person would, under the same visibility; its escalations are recorded as its actions; the ranking itself is the agent's, not the engine's. *Exercises* L3, M2.
+**UC-11. An agent decides with data.** A procurement agent ranks open purchase orders by risk of being late, from supplier lead-time metrics and each order's age, and escalates the riskiest. *Acceptance:* the agent reads the same metric definitions a person would, under the same visibility; its escalations are recorded as its actions; the ranking itself is the agent's, not the engine's.
 
-**UC-12. Alerts from declared thresholds.** The first consumer's alert catalogue: low stock, procurement overdue, backorder ageing, delivery date at risk, lease overdue, warranty expiring, order ready (`wr:docs/proposals/operations-system-design.md` §6). *Acceptance:* each alert's condition is declared once and answerable by a query a scheduler or agent runs; sending the alert is the consumer's. *Exercises* C2, L3, N2.
+**UC-12. Business exceptions from declared conditions.** The first consumer's alert catalogue: low stock, procurement overdue, backorder ageing, delivery date at risk, lease overdue, warranty expiring, order ready (`wr:docs/proposals/operations-system-design.md` §6). *Acceptance:* each condition is declared once and answerable by a query a scheduler or an agent runs; sending the alert is the consumer's.
 
 ### Converging
 
-**UC-13. Start coarse, then refine.** Service jobs start as `OPEN → DONE`. Engineers label jobs "waiting for parts" as it happens. After a month the engine shows how many jobs carry the label, in which state it was applied, and how long those jobs waited. The team publishes a `WAITING_PARTS` state with its transitions, and moves the jobs in flight into it. *Acceptance:* the label is countable and relatable to states from the first day; the new version moves in-flight jobs by recorded transitions; time-to-done is comparable across the two versions. *Exercises* D6, V1, V2, V5, M3.
+**UC-13. Start coarse, then refine.** Service jobs start as `OPEN → DONE`. Engineers label jobs "waiting for parts" as it happens. After a month the engine shows how many jobs carry the label, in which state it was applied, and how long those jobs waited. The team publishes a `WAITING_PARTS` state with its transitions, and moves the jobs in flight into it. *Acceptance:* the label is countable and relatable to states from the first day; the new version moves in-flight jobs by recorded transitions; time-to-done is comparable across the two versions.
 
-**UC-14. Trial a rule.** A proposed rule — a photo is required before a unit of one model becomes `AVAILABLE` — runs for two weeks without enforcing. *Acceptance:* the refusals it would have made are recorded and countable, including who would have been refused; enforcing it is a publish. *Exercises* V3, M1.
+**UC-14. Trial a rule.** A proposed rule — a photo is required before a unit of one model becomes `AVAILABLE` — runs for two weeks without enforcing. *Acceptance:* the refusals it would have made are recorded and countable, including who would have been refused; enforcing it is a flow change.
 
-**UC-15. An agent proposes a change.** An agent reads UC-2's and UC-3's evidence and drafts a flow change. The publish dry run reports what it would affect; a person holding the authority approves it; it is published and attributed to both. *Acceptance:* no flow change applies without passing the governed path; the evidence and the approval are part of the record. *Exercises* F6, V4, T3.
+**UC-15. An agent drafts a change.** An agent reads UC-2's and UC-3's evidence and drafts a flow change. The impact report says what it would affect; a person holding the authority approves it; it is published and attributed to both. *Acceptance:* no flow change applies without passing the governed path; the evidence and the approval are part of the record.
 
-**UC-16. People and agents on the same flow.** The lead compares cycle time, refusal rate and rework for deliveries driven by agents with those driven by people. *Acceptance:* every metric can be split by the kind of actor. *Exercises* M4.
-
-### Assignment
-
-**UC-18. Who has what, and where do handoffs hurt?** Service jobs have an engineer-of-record, which an agent may not be (`wr:docs/agent-operations.md` §3), and a user with active services must have them reassigned before being removed (`wr:app/models/users.py:34`). A service lead asks how much open work each engineer holds, how long jobs wait before anyone is assigned, which jobs changed hands more than once or went back to an earlier engineer, whether cycle time differs by engineer, and how often a job is completed by someone other than its assignee. An agent balancing the workload reads the same numbers before proposing a reassignment, and a person makes it. *Acceptance:* every assignment from the first day the flow runs, including the one made at creation, is recorded with who made it; every question above is a standard metric for any type that declares an assignee; the legacy system's reassignments arrive with the port where its audit trail recorded them; choosing the engineer stays with the person or agent. *Exercises* D10, D11, M6, L3.
+**UC-16. People and agents on the same flow.** The lead compares cycle time, refusal rate and rework for deliveries driven by agents with those driven by people. *Acceptance:* every metric can be split by the kind of actor.
 
 ### Governance
 
-**UC-17. Erase a customer.** A customer asks to be erased. *Acceptance:* their personal values are removed from objects, history and datapoints; metrics built from those datapoints keep their counts and expose no personal value. *Exercises* D8, T5.
+**UC-17. Erase a customer.** A customer asks to be erased. *Acceptance:* their personal values are removed from objects, history and datapoints; metrics built from those datapoints keep their counts and expose no personal value.
 
-### Coverage
+### Assignment
 
-| Requirement group | Use cases |
-|---|---|
-| Flows, F | UC-10, UC-15 |
-| Capture, D | UC-1 to UC-7, UC-13, UC-17, UC-18 |
-| Formulas, C | UC-5, UC-8, UC-9, UC-12 |
-| Metrics, M | UC-1, UC-2, UC-8, UC-11, UC-13, UC-14, UC-16, UC-18 |
-| Logic, L | UC-4, UC-10, UC-11, UC-12, UC-18 |
-| Convergence, V | UC-3, UC-13, UC-14, UC-15 |
-| Trust, T | UC-3, UC-15, UC-17 |
+**UC-18. Who has what, and where do handoffs hurt?** Service jobs have an engineer-of-record, which an agent may not be (`wr:docs/agent-operations.md` §3), and a user with active services must have them reassigned before being removed (`wr:app/models/users.py:34`). A service lead asks how much open work each engineer holds, how long jobs wait before anyone is assigned, which jobs changed hands more than once or went back to an earlier engineer, whether cycle time differs by engineer, and how often a job is completed by someone other than its assignee. An agent balancing the workload reads the same numbers before proposing a reassignment, and a person makes it. *Acceptance:* every assignment from the first day the flow runs, including the one made at creation, is recorded with who made it; every question above is a standard metric for any type that declares an assignee; the legacy system's reassignments arrive with the port wherever its audit trail recorded them; choosing the engineer stays with the person or agent.
+
+### Trust
+
+**UC-19. The new paths do not open a way around the rules.** An agent that guesses and skips steps tries the routes this document adds. It records a passing inspection result it is not permitted to record, so that a delivery's gate would open. It backdates a receipt beyond the declared bound, to shorten a supplier's lead time. It completes a transition that a rule on trial would have refused, and then relies on that rule as if it were enforced. *Acceptance:* the first is refused; the second is refused; the third proceeds, is recorded as a would-be refusal, and the printed rules show the trialled rule as not enforced. Governed state never reaches a condition an enforced rule forbids.
 
 ## 8. How we would know it works
 
 Measures to take rather than targets to meet; none of the numbers below is a goal someone has set.
 
 - The first consumer runs on the engine, and its 454 refusal sites and 51 duplicated rules become declared rules, each stated once.
-- On cutover day every flow has the metrics of M1 with no instrumentation declared by anyone.
-- UC-4, UC-5 and the seven alerts of UC-12 are expressed without a consumer computing its own copy of any metric definition.
+- On cutover day every flow has the metrics of M1, and every type with an assignee those of M6, with no instrumentation declared by anyone.
+- UC-4, UC-5 and the seven conditions of UC-12 are expressed without a consumer computing its own copy of any metric definition.
 - The time from a metric showing a problem to a published flow change, measured over the first months.
 - The share of transitions requested by agents, and how their refusal and rework rates compare with people's.
-- The adversarial harness passes: none of its eight failure conditions is reachable.
+- The adversarial harness passes: none of its failure conditions is reachable.
 
 ## 9. What this changes in the current design
 
-The existing record meets F1 to F5, T1 to T3 and most of N1 to N5. These positions of the existing record conflict with the requirements above, and the design evaluation has to resolve each one.
+The existing record meets F1 to F5, T1 to T3 and most of N1 to N5. These positions of the existing record conflict with the requirements above; `design/data-driven-engine.md` §5 resolves each one.
 
 | The record says | The requirement | Where |
 |---|---|---|
 | Analytics over the log is out of scope and belongs to a warehouse fed by a subscriber | M1 to M4 bring flow metrics in scope | [`design/edge-cases.md`](design/edge-cases.md), "Analytics over the whole log" |
 | A refused request is rolled back and nothing is recorded | D2 records every refusal | `DESIGN.md` §5.4 and §6 |
-| Every write goes through a declared transition | D3 and D6 need a lighter way to record | ADR-0042 |
+| Every write goes through a declared transition | D3 and D6 need recording to be light | ADR-0042 |
 | The store decides and records; consumers compute | C1 to C3 put user-defined formulas in the engine | ADR-0007 |
 | The expression language has no grouped aggregation and no time windows | C3 | ADR-0047 |
-| Beyond the declared indexes the store maintains no projection | M1 may need maintained flow data, such as time in state | `DESIGN.md` §10 |
-| People write the declaration, and legibility of the printed rules is the defence against rules that say the wrong thing | F6 lets agents author flow changes | `DESIGN.md` §13 |
+| Beyond the declared indexes the store maintains no projection | M1, M6 and D11 may need maintained flow data, such as time in state or with an assignee | `DESIGN.md` §10 |
+| People write the declaration, and legibility of the printed rules is the defence against rules that say the wrong thing | F6 lets agents draft flow changes | `DESIGN.md` §13 |
 | Publishing refuses on any failed check | V1 needs a minimal flow to be small and publishable, without weakening the checks that protect T1 | `design/declaration-syntax.md` §10 |
 
 Two findings of the design review of 2026-09-23 become prerequisites rather than defects to schedule: D205, since T4 and UC-3 fail while imported objects crowd the override list; and D202, since UC-10's second sign-off is an approval, and approvals do not work as stored.
@@ -266,4 +270,22 @@ Two findings of the design review of 2026-09-23 become prerequisites rather than
 The author asked for the details to be settled by evaluating designs against the use cases, not by asking. These two are about the product rather than the design, and each has a default this document already assumes.
 
 1. **Machine telemetry.** Assumed out of scope, with summaries recordable as datapoints (UC-7). If robots or other machines are to record directly at seconds rate, the storage design changes more than anything else in this document.
-2. **Release order.** Assumed: the first release is the first consumer's port with F, D1 to D3, D10, M1, M6 and T in full — assignment in the first release because the author asked for it from the beginning, and because history can only start from the day it is written through the store; formulas, user-defined metrics and data-driven rules (C, M2 to M4, L) follow; convergence tooling and agent authorship (V, F6) come third. Each later phase depends on the data the earlier one records, which is why the flow-generated data comes first.
+2. **Release order.** Assumed, in three releases, each depending on data the one before records:
+   - **First:** the first consumer's port — F1 to F5, all of the data capture in D, the standard metrics of M1 and M6 readable by people and agents, the per-object conditions of M7, rules reading recorded datapoints (L1, which the inspection gate of UC-4 needs), L3, V1, T and N. Assignment is in it because the author asked for it from the beginning and history can only start on the day it is written through the store; labels are in it because the evidence for convergence starts accumulating only when recording does.
+   - **Second:** user-defined formulas and metrics (C, and M2 to M5 as they apply to them), the conditions of M7 across many objects, and rules that depend on derived values (L2, L4, L5).
+   - **Third:** convergence tooling and agents drafting flow changes — V2 to V5, F6 and F7.
+
+## 11. Revision history
+
+**Revision 2, 2026-09-23**, after a review of revision 1 for validity and clarity. What changed, and why:
+
+- **"Exceptions" had one reading, and the author's domain uses the other.** D2 read it only as the engine's refusals and overrides; the first consumer's own design means overdue, ageing and service-level breaches. Both are now in scope: D2 for the engine's sense, the new M7 for the business sense, and §5 defines both.
+- **Four "Said" attributions overstated what was said.** F3, M1, V2 and D3 each carried an inference inside a Said row; each now says which part is interpretation. D10's porting clause was not said at all and moved to N5, marked Inferred.
+- **L1 held two requirements with different evidence.** Rules reading recorded datapoints (L1) are grounded in the first consumer's inspection gate. Rules reading metrics across many objects (new L5) rest on UC-10, which is hypothetical, so L5 is a Should and UC-10 says so.
+- **Four requirements contradicted the design proposed for them, or each other.** V4 let the engine propose changes, which ADR-0085 forbids; it now says a person or agent drafts and the engine supplies evidence. L4 allowed thresholds to change only by publishing, while a reorder point per model is data; both governed paths are now named. T3 kept every datapoint permanently, while refusal records are pruned (ADR-0083); T3 now says so. §10's first release omitted the capture it most needs, labels among it.
+- **Two Musts depended on Shoulds.** V2 requires showing "unmodelled information recorded often", which needs D6; and M7's conditions across many objects, such as low stock per model, need C3's grouping. D6 and C3 are now Musts, and §6 states the rule that no Must depends on a Should.
+- **Six requirements could not be verified as written.** "Easily" (D3) now has a measure; C5 says its target is unset and so it cannot yet be verified; F5 says which rules objects in flight follow; M3 and M4 say which metrics can be split; N3 drops "without precluding", which no test could fail.
+- **Three things were missing.** Recording is authorised and validated (D12). Durations use UTC calendar time (C6), because business hours are a recorded limit (`design/edge-cases.md`). Formulas needing outside data are a non-goal.
+- **T1, the objective, had no use case,** while every new capability — recording, backdating, trial rules — adds a route to test. UC-19 tests them.
+- **Coverage was checked per group, which hid gaps.** Each requirement now lists its use cases in one place, and the six that have none say why.
+- **Smaller.** F6 split into F6 (agents draft) and F7 (governed change). §5 gains Rule, Override and Exception, and separates derived datapoints (one object) from metrics (many). UC-17 and UC-18 are in order. §8 no longer counts the harness's failure conditions, which ADR-0083 changes. G5 no longer promises to explain decisions made outside the engine.

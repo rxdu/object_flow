@@ -6,7 +6,7 @@
 
 ## Context
 
-The PRD requires users to define compound datapoints with formulas over raw data (C1). A formula must be declared once and read identically by every consumer (C2). It must aggregate over time windows and dimensions (C3), and apply to history recorded before it existed (C4). Every flow must have a standard set of metrics (M1), readable by people and agents under visibility (M2), comparable across flow versions (M3), and splittable by actor kind (M4). A flow's rules may depend on such data, with the value each decision used recorded (L1, L2).
+The PRD requires users to define compound datapoints with formulas over raw data (C1). A formula must be declared once and read identically by every consumer (C2). It must aggregate over time windows and dimensions (C3), and apply to history recorded before it existed (C4). Every flow must have a standard set of metrics (M1), readable by people and agents under visibility (M2), comparable across flow versions (M3), and splittable by actor kind (M4). A flow's rules may depend on such data, with the value each decision used recorded (L1, L2, L5). L5, rules reading metrics across many objects, is a Should resting on one hypothetical use case (UC-10).
 
 The expression language refused grouped aggregation (ADR-0047). ADR-0049 set the pattern for a guard over a value from outside the transaction. `design/data-driven-engine.md` §3.4 and §3.5 evaluate five ways to define metrics and four ways for a rule to read one.
 
@@ -30,6 +30,7 @@ Its semantics, with the grammar left to `design/declaration-syntax.md`:
 - **Dimensions:** paths up to two hops, the actor's kind, the declaration version, and time buckets over any timestamp.
 - **Aggregates:** the existing set plus `avg`, `median` and `percentile`.
 - **Values:** a value may combine aggregates arithmetically.
+- **Time:** UTC calendar time, stated by every metric (C6).
 - **Windows:** a window relative to `now` is allowed.
 - **Flags:** named conditions on the value, declared once, which a scheduler or an agent queries.
 
@@ -87,7 +88,7 @@ It returns the rows the reader may see, with any flags that hold.
 - **An external BI tool, as today.** Definitions drift, rules cannot read the results, and agents read a different definition from people.
 - **Metrics maintained incrementally at write time.** They are not retroactive without a backfill, and their stored aggregates need repair after an erasure. Every recorded datapoint also updates one aggregate row, a hot row by construction, with the cost D203 measured.
 - **A guard that evaluates a metric inside the transaction.** Under serialisable isolation its read set is every row the metric aggregates, so recording any one of them conflicts with every request reading the metric (`design/data-driven-engine.md` §3.5).
-- **No metric may be read by a guard.** That fails L1.
+- **No metric may be read by a guard.** That fails L5. L5 is a Should on a hypothetical use case, which is why point 6 is kept small and belongs to the second release.
 
 ## Consequences
 

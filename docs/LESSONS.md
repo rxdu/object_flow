@@ -32,6 +32,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** ADR-0018 records the author's decision that the store assigns object identity. Its consequences, written in the same session, added "ObjectKeeper offers no sequence primitive" — an inference, not something the author said — and the ticket case study withdrew it a few hours later (ADR-0029).
 - **Correction:** In an ADR, keep the author's decision and the reviewer's derived consequences visibly separate, and mark derived consequences as provisional so a later withdrawal reads as a correction of the inference rather than a reversal of the author.
 - **Context:** ADR writing when the decision is the author's and the consequences are drafted by an assistant.
+- **Recurrence, 2026-09-23:** in a requirements document built to prevent exactly this. The first PRD labelled each requirement Said, Carried or Inferred, and four Said rows still carried an inference: a one-interface rule read out of "regardless of human or AI agents", a metric list read out of "metrics to evaluate the flows", a measure of "easily", and a porting clause nobody said. A fifth took the author's word "exceptions" in one sense when the author's own domain uses the other. The label was right at the level of the row and wrong inside it. Split a row until each part has one source, and check a word the author used against how the author's own documents use it before choosing its meaning.
 
 ### Scoping a fix to one syntactic form leaves the same defect everywhere else
 

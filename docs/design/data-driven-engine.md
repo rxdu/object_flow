@@ -1,6 +1,6 @@
 # The data-driven engine: design evaluation
 
-Draft, 2026-09-23, written at the author's direction. The requirements and the eighteen use cases are [`../PRD.md`](../PRD.md)'s. This document owns the **evaluation**: for each design question, the options considered, how each fared against the use cases, and why the chosen one was chosen. The **decisions** are ADR-0081 to ADR-0086, which own them; where this document and an ADR disagree, the ADR wins.
+Draft, 2026-09-23, written at the author's direction. The requirements and the nineteen use cases are [`../PRD.md`](../PRD.md)'s. This document owns the **evaluation**: for each design question, the options considered, how each fared against the use cases, and why the chosen one was chosen. The **decisions** are ADR-0081 to ADR-0086, which own them; where this document and an ADR disagree, the ADR wins.
 
 **All six ADRs are Proposed, not accepted.** Accepting them rewrites about ten sections of [`../DESIGN.md`](../DESIGN.md) and four implementation documents (§8), and those edits should follow the author's reading of the direction rather than precede it. The two defaults of PRD §10 are taken as given: machine telemetry is out of scope, and the release order is the one the PRD proposes.
 
@@ -79,6 +79,7 @@ and the subject names the collection in one line, `part inspections : Inspection
 - **It is a part because approvals already are.** ADR-0035's approval is a recorded part carrying who, a decision and the event that recorded it — an observation kind in all but name. Being a part also makes erasure reach it through the subject's `erase` (check 39), and makes it visible to `changed_since` once D202's repair records part positions per relationship, so a sign-off can name `inspections` and be invalidated by a later failing result.
 - **Two part rules bend, and the reasons behind them hold.** Check 11 requires a part's creation to be `only via` its whole, so that nothing is added to a settled whole. An observation is recordable directly, and instead may not be recorded on a subject in a **terminal** state — which is what "settled" means, since a terminal state "says nothing further will ever be recorded" (`declaration-syntax.md` §4.2). And a born-final part cannot be driven by a cascade, so the language supplies `survives` for it (check 37).
 - **Recording does not write the subject**, so it does not bump the subject's version and does not conflict with a concurrent transition on it. Where a flow needs a recorded fact to matter, a guard reads it (§3.5).
+- **Recording is validated** (D12). An observation kind's fields are typed, and a kind may declare invariants over its own fields — a voltage within a range — checked when it is recorded like any local invariant. Who may record it is its `recorded by` guard.
 - **Nothing is edited.** A correction is a new observation of the same kind and subject that names the one it corrects, and aggregates read the effective ones by default. Both stay in history (D4).
 - **A transition can record what it decided on**, with an ordinary `create` step in its outcome. That is UC-5: order commitment records the availability check it just made.
 - **Operator-maintained catalogues are objects.** The checklist is `InspectionCheck` objects per product configuration, created by an ordinary transition; the kind references one. Changing a checklist is data, not a publish (D7).
@@ -157,6 +158,7 @@ The grammar is the syntax document's to write; what is decided here is the seman
 - **Dimensions:** paths up to two hops, which is the reach the first consumer's guards were measured to need (`DESIGN.md` §5.7); the actor's kind; the declaration version; and time buckets over any timestamp.
 - **Aggregates:** the existing set plus `avg`, `median` and `percentile`. Lead time is skewed, and a mean alone misleads. A value may combine aggregates arithmetically, as a rate does, and division by zero is unknown, as it already is.
 - **Flags:** named conditions on a value, declared once, which a scheduler or an agent queries. That is UC-12's alert catalogue. The store never sends one.
+- **Time** is UTC calendar time, and every metric says so (C6); working-hours calendars are out of scope for the first release, as `edge-cases.md` already records.
 - **Windows** relative to `now` are allowed in a metric. No invariant may read a metric, for check 32's reason.
 - **Computation:** each metric compiles to SQL over the store's tables and is evaluated on read, under the reader's visibility. Source rows are filtered by the source type's `visible when` predicate, which check 7 already requires to be expressible as a query filter; observations, intervals and attempts inherit their subject's. A metric is retroactive by construction. A cache may come later, keyed by visibility, if measurement asks for one.
 - **Percentile on SQLite.** SQLite 3.37.2 has no percentile function. Nearest-rank computed with `ROW_NUMBER()` and `COUNT(*)` over a partition gave the right eightieth percentile on two test groups (ten values and three), and PostgreSQL has `percentile_cont`. Probed, not yet in a checker.
@@ -167,7 +169,7 @@ The grammar is the syntax document's to write; what is decided here is the seman
 
 ### 3.5 How does a rule depend on data?
 
-Touches L1 to L4 and T1; UC-4, UC-10, UC-12.
+Touches L1 to L5 and T1; UC-4, UC-10, UC-12. L5, rules reading metrics, is a Should, and its one use case, UC-10, is hypothetical: nothing in the first consumer asks for it yet. The choice below is made so that the mechanism stays small if it is built, and it belongs to the second release.
 
 Most data-driven rules need nothing new. UC-4's gate reads the configured robot's own inspections, an aggregate over a part, which guards do today. The question is UC-10: a guard over a metric, an aggregate across many objects over a window.
 
@@ -176,7 +178,7 @@ Most data-driven rules need nothing new. UC-4's gate reads the configured robot'
 | **A.** The guard evaluates the metric inside the transaction | partial | **fails** | no | none |
 | **B.** The metric is consulted before the transaction, like an evaluator, and its value and as-of time go on the event | passes | passes | no | small |
 | **C.** A snapshot: a declared transition writes the metric's value to an attribute, and guards read that | passes | passes | yes | a refresher per rule |
-| **D.** Guards never read metrics | fails L1 | — | — | — |
+| **D.** Guards never read metrics | fails L5 | — | — | — |
 
 **A manufactures contention.** Under serialisable isolation the guard's read set is every inspection result of that model in the window, so recording any one of them conflicts with every delivery completion reading it: the wait-then-retry cost D203 measured, created on purpose.
 
@@ -219,7 +221,7 @@ Nothing in it guesses at intent. Agents build proposals on top of it.
 
 **Changing a flow.**
 
-| Option | UC-15 | F6 |
+| Option | UC-15 | F6 and F7 |
 |---|---|---|
 | **A.** People publish, through tooling only | fails | fails |
 | **B.** Any actor holding a publish capability publishes | partial: no evidence attached, no second pair of eyes | partial |
@@ -243,7 +245,7 @@ Touches M2, L3 and F3; UC-11.
 
 ### 3.9 How is assignment kept from the beginning?
 
-Touches D10, D11, M6 and L3; UC-18. Added the same day, when the author named assignee changes as data to keep from the beginning.
+Touches D10, D11, M6, L3 and N5; UC-18. Added the same day, when the author named assignee changes as data to keep from the beginning.
 
 **The evidence.** A first-consumer service job has a required engineer-of-record, `engineer_id` (`wr:app/models/service.py:44`). A reassignment is validated like a creation and recorded in the audit log with before-and-after snapshots (`wr:app/services/service_service.py:357-372`). An agent may not be engineer-of-record (`wr:docs/agent-operations.md` §3). A user with active services must have them reassigned before being removed (`wr:app/models/users.py:34`).
 
@@ -302,6 +304,7 @@ Touches D10, D11, M6 and L3; UC-18. Added the same day, when the author named as
 | UC-16 people and agents compared | the actor-kind dimension; "driven by" is the kind of actor that created the object, stated in the metric | passes |
 | UC-17 erase a customer | no inputs in attempts, nothing stored in metrics, observations erased through the subject (§3.1, §3.3, §3.4) | passes |
 | UC-18 who has what, and where handoffs hurt | value intervals and the `assignee` marking; legacy reassignments ported as intervals (§3.9) | passes; how far the legacy audit trail reaches is to be sampled |
+| UC-19 the new paths do not open a way around the rules | an observation's `recorded by` guard and typed fields (§3.1); the backdating bound (§3.3); an observing clause shown and treated as not enforced (§3.6) | passes |
 
 ## 5. The conflicts of PRD §9, resolved
 
