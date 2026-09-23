@@ -45,6 +45,8 @@ An observation therefore has an actor, an event, an idempotency key and a place 
 
 Recording does not write the subject, so it neither bumps the subject's version nor conflicts with a concurrent transition on it.
 
+A guard that aggregates over observations **records, on its event, the observations it read**, so the decision can be re-evaluated from the record (PRD L2). Deriving that set from positions instead would be wrong on PostgreSQL, where a position is not commit order (D210): an observation allocated a lower position can commit after the deciding request's snapshot.
+
 ### 4. Nothing is edited
 
 A correction is a new observation of the same kind and subject that names the one it corrects, and aggregates read the uncorrected ones by default. Both stay in history.

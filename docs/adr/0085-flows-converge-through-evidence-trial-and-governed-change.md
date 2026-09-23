@@ -40,7 +40,7 @@ Any actor holding the drafting capability creates one, carrying:
 - the dry-run publish report;
 - links to its evidence.
 
-A **different** actor holding the publish capability approves it, and approval publishes it. It is superseded when the installed version moves under it. **By default, a change an agent drafted is approved by a human.** A deployment may require that of every change. Being a built-in object like `Proposal` and `Subscription`, every step has an actor and an event, the loop from evidence to change is measurable, and the publish event has its object, which resolves D212.
+A **different** actor holding the publish capability approves it, and approval publishes it. It is superseded when the installed version moves under it. **A change an agent drafted is approved by a person** (PRD F7); a deployment may require a person for every change. Being a built-in object like `Proposal` and `Subscription`, every step has an actor and an event, the loop from evidence to change is measurable, and the publish event has its object, which resolves D212.
 
 ### 4. The engine never drafts a change
 

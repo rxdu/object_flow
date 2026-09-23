@@ -61,7 +61,7 @@ They are listed with the type like any declared metric. A type with an assignee 
 
 ### 5. Per-object derived attributes stay, and gain time over the object's own intervals
 
-`entered_at(STATE)` and `time_in(STATE)`. A per-object alert, such as a backorder ageing past a threshold, is a derived attribute queried as ADR-0048 allows.
+`entered_at(STATE)` and `time_in(STATE)` read the state's intervals. `entered_at(member)` reads when any tracked attribute or reference took its current value (ADR-0083, ADR-0086), so a slot's reference to a unit that has been empty for two weeks is `unit is null and entered_at(unit) + 14 days <= now`. A per-object business exception (PRD M7) is such a derived attribute. **`query` may filter on the entry time of a tracked value's current interval**, which is stored and indexed. That extends ADR-0048's rule — a clock-reading predicate is answered by filtering its stored operand — from the type's own row to the interval index; without it, an ageing condition could not be found by one query.
 
 ### 6. A guard may read a metric, consulted before the transaction as an evaluator is
 
