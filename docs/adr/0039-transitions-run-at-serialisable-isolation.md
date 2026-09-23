@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D02 and D04, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0090 — a contended row waits and then retries on PostgreSQL; row locks end the loser sooner, they do not queue it.
 - **Refines:** ADR-0023
 
 ## Context
@@ -16,7 +17,7 @@ Defect D04 established a second problem: the lock set is discovered by evaluatin
 
 1. **The transition transaction runs at serialisable isolation.** Reads a guard performs are then protected by the database's own conflict detection, whether or not the objects read are in the lock set.
 2. **A serialisation failure is retried**, bounded by a declared attempt count. On exhaustion the request is refused with the `stale` verdict, whose remedy of re-read and decide again is exactly right.
-3. **Row locks remain**, taken as objects are reached during sequential application (ADR-0038), not computed in advance. They serve contention rather than correctness: they make hot-row conflicts block instead of aborting and retrying, which is cheaper for the flash-sale case.
+3. **Row locks remain**, taken as objects are reached during sequential application (ADR-0038), not computed in advance. They serve contention rather than correctness: they make hot-row conflicts block instead of aborting and retrying, which is cheaper for the flash-sale case. *(Corrected by ADR-0090, 2026-09-23: probed on PostgreSQL 16.8, a contended request at serialisable isolation waits for the lock and then fails with a serialisation error. The lock makes the loser fail sooner; it does not make it queue.)*
 4. **Deadlock is handled by the database**, not avoided by lock ordering. ADR-0023's fixed-id ordering rule is withdrawn: it was unimplementable, since the set is discovered by traversal and created objects have no id yet. A deadlock surfaces as a serialisation failure and is retried under rule 2.
 5. **Constraint-compiled invariants stay** (ADR-0009, ADR-0023) as an optimisation and a second line of defence, not as the only protection for concurrent violation.
 6. **The isolation level is not a deployment choice.** A deployment that lowers it loses the mediated guarantee, and the declaration cannot express that it has.

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-09 at the author's direction ("rule on D190"), with the recommendation and its evidence below; pending author review
 - **Date:** 2026-09-09
+- **Refined by:** ADR-0087 — "wherever it was recorded" is made true by the cause chain and the taint analysis; the proposal clause names whose values.
 - **Refines:** ADR-0015, ADR-0031, ADR-0044, ADR-0051
 
 ## Context
@@ -25,6 +26,8 @@ Fields the mapping does not import are never a problem. The employee's IP addres
 Erasure redacts `t_proposal.inputs` on every proposal whose target is the erased object or whose inputs carry a personal value, and **invalidates** the pending ones. That is a fourth invalidation cause for ADR-0044, joining a removed transition, a newly required input and an unreachable target: *its inputs carried a value the erasure removed*. Executed, rejected and withdrawn proposals keep their skeleton with the inputs redacted, as an event does.
 
 ### 3. An input may be marked `personal`, and a personal input is redacted wherever it was recorded
+
+*(As first written, "wherever it was recorded" was not what the design did; ADR-0087 makes it so through the erased object's cause chain and check 10's taint analysis.)*
 
 `input <name> : <type>[?|[]] [personal]`. An input is personal if it is marked, or if it flows into a personal attribute — the taint check 10 already follows. A marked input written to a non-personal attribute is a check 10 error, like any personal value. Erasure redacts personal inputs from every payload that recorded them, including a payload where the input went only to an evaluator or a `call` argument.
 

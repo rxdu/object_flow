@@ -1,8 +1,10 @@
 # The first consumer's cutover
 
-Draft, 2026-09-09. The stage order for `~/RduWs/wr_inventory_management`, extracted from its schema. ADR-0075 decided that cutover is staged by object type and that a type migrates only after every type referencing it has; this is that order for this system, and what it depends on.
+Draft, 2026-09-09, amended 2026-09-23. The stage order for `~/RduWs/wr_inventory_management`, extracted from its schema. ADR-0075 decided that cutover is staged by object type and that a type migrates only after every type referencing it has; this is that order for this system, and what it depends on.
 
 **How it was obtained.** The SQLAlchemy metadata was imported and walked programmatically rather than read: 45 tables, 67 declared foreign keys, verified by asserting set equality between the extraction and a hand-typed list. Cross-checked against the Alembic chain, which is linear with a single head. **The live database was not reachable**, so everything here comes from source and a reflection of the running schema is the right check before anyone commits to an order.
+
+**Amended 2026-09-23 for ADR-0093.** The order below counts references only, and the rule now counts the legacy system's writes too: a type that a legacy transition writes as a side effect migrates no earlier than the writer. §4a says what that does to this system. The table-level order of §3 is **superseded** until it is recomputed over types, with both kinds of edge, once the per-type mapping exists; its findings about shape stand except where §4a overturns them.
 
 ## 1. The caveat that governs everything below
 
@@ -58,9 +60,19 @@ Three things, in order of how much:
 
 **Two tables that exist in the models and in no migration.** The accessory-model and spare-part-model photo tables are declared, wired into the API, and created by no revision in the chain. A rebuild from migrations would not produce them. Worth understanding before an extract depends on them.
 
+## 4a. The write edges, and the core they collapse
+
+Counting references alone, §3 put `warranty_contracts` in stage 3 and `deliveries` in stage 6. But completing a delivery marks its units sold and creates their warranty contracts (`wr:app/core/state_registry.py:771`, side effects `_update_delivery_items_to_sold` and `_create_delivery_warranties`), and cancelling reverts the units and voids the warranties (`:779`, `:788`). While deliveries are legacy-owned, so must those be.
+
+A write edge from deliveries to warranty contracts, and the reference from `warranty_contracts.delivery_id` back to deliveries (`wr:app/models/warranty.py:112`), put the two in one stage. The same holds for the unit cycle of §2, which the completion writes, and so for `delivery_configurations`, which lies on the reference path between that cycle and `deliveries`. At least seven tables therefore move together: `deliveries`, `delivery_items`, `delivery_configurations`, `robots`, `accessories`, `spare_parts` and `warranty_contracts` — most of the operational core (ADR-0093, D206).
+
+That changes the finding of §3 that "the plan has room": around the core it does not. Staging still separates the periphery — the photo and association tables, users, the catalogues, customers — from the core, and whether that is worth the mirror machinery against a big-bang cutover is the author's choice, which ADR-0075 made under the reference-only rule and ADR-0093 leaves with the author.
+
+The service side has write edges too (`_update_service_parts_to_sold`, `_reserve_service_parts`, `_revert_service_parts_to_available`, lines 818 to 843), which tie spare parts to services; they point the same way as the references already do, so they add no collapse here, and the recomputation over types will confirm it.
+
 ## 5. What to do with this
 
 1. **Map tables to types first.** The order above cannot be used directly, and §1 says why. `publish-and-import.md` §5 gives the rules; most of the 45 go by shape, and what needs deciding is the three judgements it names — for this system, principally whether a note outlives its subject, since notes attach polymorphically to eleven types with no foreign key and nothing in the schema answers it.
 2. **Sample the JSON columns** named in §4 against production rows.
 3. **Reflect the live schema** and compare, since none of this touched a running database.
-4. Then recompute the order over types, at which point the three findings that matter — one cycle that moves as one stage, the most-referenced types being the least-changing, and a great deal of ordering freedom — should carry over unchanged.
+4. Then recompute the order over types, counting both references and the legacy system's writes (ADR-0093). Of the three findings that matter, two should carry over — one cycle that moves as one stage, and the most-referenced types being the least-changing — and the third does not: around the operational core there is little ordering freedom (§4a).

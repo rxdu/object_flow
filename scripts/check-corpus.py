@@ -170,6 +170,22 @@ def check_renderers_doc():
         findings.append("renderers.md: " + r.stdout.strip().split("\n")[-1])
 
 
+def check_traceability():
+    """Every PRD requirement and use case must be covered by the design.
+
+    The PRD is the baseline (DESIGN.md, preamble). The traceability map holds
+    each requirement against the sections and decisions that meet it, and a row
+    that is partial or a gap is a requirement the design does not yet meet.
+    """
+    if not (ROOT / "docs/design/traceability.md").exists():
+        return
+    r = subprocess.run([sys.executable, str(ROOT / "scripts/check-traceability.py")],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        for line in r.stdout.strip().split("\n")[1:]:
+            findings.append("traceability.md:" + line.rstrip())
+
+
 def check_declarations():
     """Every document that states declarations must pass the syntax checker.
 
@@ -273,6 +289,7 @@ def main():
     check_schema_doc()
     check_api_doc()
     check_renderers_doc()
+    check_traceability()
 
     print(f"corpus: {len(nums)} decision records, {maxcheck} checks defined")
     if not findings:

@@ -2,7 +2,7 @@
 
 - **Status:** **Accepted** — the author chose staged cutover 2026-09-09; the `mirror` marking is the consequence, derived here and pending review
 - **Date:** 2026-09-09
-- **Refined by:** ADR-0077 — import writes each row complete in one pass; the two-pass sentence below is annotated; ADR-0080 — the marking is for the duration of a cutover, and a type another system owns for good is an ordinary type the sync writes.
+- **Refined by:** ADR-0077 — import writes each row complete in one pass; the two-pass sentence below is annotated; ADR-0080 — the marking is for the duration of a cutover, and a type another system owns for good is an ordinary type the sync writes. ADR-0093 — the stage order counts the legacy system's writes as well as its references.
 - **Refines:** ADR-0015, ADR-0027, ADR-0040
 
 ## Context
@@ -24,7 +24,7 @@ Take types A and B where A holds a reference to B.
 | **migrated** | **legacy** | yes — B must be present here for A to reference, as something read-only |
 | **legacy** | **migrated** | **no** — the legacy row's foreign key points at rows it no longer owns, and making it work means either dual-write or a new integration inside the system being retired |
 
-So the ordering follows: **a type may migrate only after every type that references it has migrated.** Referrers before referents. The most-referenced types go last, which for the first consumer means the customer moves near the end and is mirrored for longest — acceptable, since it is also the type that changes least.
+So the ordering follows: **a type may migrate only after every type that references it has migrated.** Referrers before referents. The most-referenced types go last, which for the first consumer means the customer moves near the end and is mirrored for longest — acceptable, since it is also the type that changes least. *(Refined by ADR-0093: a legacy transition that writes another type is a second kind of edge, and the stage is a component of the combined graph.)*
 
 Where the reference graph has a cycle, its members have no valid order between them, so **a cycle is one stage**. ~~Unless the cycle can be broken: a cycle every one of whose edges is optional can be, by importing the members with those references absent and writing them in a second pass, which the two-pass import already requires for every reference; only a cycle containing a required reference forces its members into one stage.~~ **Withdrawn, D201 (2026-09-09).** The struck sentences answered the import question and not the stage question. The stage rule rests on ownership: a legacy referrer cannot point at rows a migrated referent now owns, and a nullable column does not change that, since the business still needs the reference filled — a legacy delivery item that cannot bind to a new unit is broken whether or not its column admits null. Nullability mattered only to the import, where a cycle once needed a second pass, and ADR-0077 removed the second pass; a cycle now costs nothing at import either way. The cutover document's stage table had already placed the one cycle in a single stage while its prose said otherwise.
 

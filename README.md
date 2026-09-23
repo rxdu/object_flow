@@ -2,7 +2,7 @@
 
 A governed object store: your data, and the rules that constrain how it changes.
 
-> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax consumers write against, 86 decisions, and a register of 215 findings, 204 closed and 11 open — together with the checkers that verify the record against itself. The open findings are from the design review and the design evaluation of 2026-09-23. [`docs/PRD.md`](docs/PRD.md) states the product's requirements and is the baseline every design choice is checked against; ADR-0081 to ADR-0086, accepted 2026-09-23, are the design that meets them. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 and the six implementation documents of 2026-09-09 await review.
+> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax consumers write against, 96 decisions, and a register of 235 findings, 235 closed and 0 open — together with the checkers that verify the record against itself. The latest findings — from the design review, the design evaluation, the mapping of the design against the PRD, and an independent review of that mapping, all on 2026-09-23 — are resolved. [`docs/PRD.md`](docs/PRD.md) states the product's requirements and is the baseline every design choice is checked against; ADR-0081 to ADR-0086, accepted 2026-09-23, and ADR-0087 to ADR-0096, decided at the author's direction the same day, are the design that meets them, and [`docs/design/traceability.md`](docs/design/traceability.md) shows each requirement met: all but C5, whose target the PRD leaves to measurement. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 and the six implementation documents of 2026-09-09 await review.
 
 ## What it is
 
@@ -41,13 +41,14 @@ A practical consequence, measured rather than asserted. In the first consumer, 4
 
 | Document | Contents |
 |---|---|
-| [`docs/PRD.md`](docs/PRD.md) | What the product must do: requirements, the use cases every design is tested against, and what they change in the current design. Draft of 2026-09-23, awaiting review |
+| [`docs/PRD.md`](docs/PRD.md) | What the product must do: requirements, the use cases every design is tested against, and what they change in the current design. The baseline every design choice is checked against: revision 3, 2026-09-23, its Inferred rows open to the author's correction |
 | [`docs/design/data-driven-engine.md`](docs/design/data-driven-engine.md) | The design evaluation: each question's options tested against the PRD's use cases, and why ADR-0081 to ADR-0086 chose as they did |
+| [`docs/design/traceability.md`](docs/design/traceability.md) | Every PRD requirement and use case, with the sections and decisions that meet it; a checker fails while any is not covered |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Purpose, position in the stack, the model, scope boundaries, known limits |
 | [`docs/adr/`](docs/adr/) | Decisions taken, each with the alternatives rejected and why |
 | [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md) | The language a type is declared in, and the checks publishing runs over it |
 | [`docs/design/storage-schema.md`](docs/design/storage-schema.md) | How a declaration becomes tables, and which indexes a guarantee depends on |
-| [`docs/design/library-api.md`](docs/design/library-api.md) | The sixteen operations a program calls, and the shapes they take |
+| [`docs/design/library-api.md`](docs/design/library-api.md) | The seventeen operations a program calls, and the shapes they take |
 | [`docs/design/publish-and-import.md`](docs/design/publish-and-import.md) | What publishing checks and reports, and how production data arrives |
 | [`docs/design/renderers.md`](docs/design/renderers.md) | The rule set, agent tool schemas and form hints, as projections of one declaration |
 | [`docs/design/adversarial-harness.md`](docs/design/adversarial-harness.md) | The acceptance test: what would falsify the guarantee, and how to try |
@@ -55,7 +56,7 @@ A practical consequence, measured rather than asserted. In the first consumer, 4
 | [`docs/design/`](docs/design/) | The first-consumer walkthrough, five case studies, the catalogue of edge cases, and the defect register |
 | [`docs/LESSONS.md`](docs/LESSONS.md) | Operational lessons |
 | [`TODO.md`](TODO.md) | Where the design stands, what the author has decided, and what is still open |
-| [`scripts/`](scripts/) | Five checkers. One runs the declaration syntax's own rules over every example in the documents; one runs the storage schema's SQL; one executes the library API and holds it against the model; one validates the agent tool schemas; the fifth checks the corpus against itself — cross-references, retired notation, decision back-links, the defect index, and the counts the status lines quote |
+| [`scripts/`](scripts/) | Six checkers and a probe. One runs the declaration syntax's own rules over every example in the documents; one runs the storage schema's SQL; one executes the library API and holds it against the model; one validates the agent tool schemas; one holds the traceability map against the PRD, failing while any requirement is not covered; the sixth checks the corpus against itself — cross-references, retired notation, decision back-links, the defect index, the counts the status lines quote — and runs the other five. `probe-metric-latency.py` measures metric reads on SQLite, as indicative evidence for PRD C5, and asserts nothing |
 
 ## Scope
 

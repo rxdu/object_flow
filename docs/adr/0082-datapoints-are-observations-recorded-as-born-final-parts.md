@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
+- **Refined by:** ADR-0088 — the observations a guard read are one case of every decision's read set. ADR-0095 — a label is readable only as a metric's source; a correction hides what it corrects from every read of the kind; `recorded by` and the subject's part are mandatory. ADR-0096 — each kind has a generated `forget`; a correction names an uncorrected observation of its own kind and subject, and may follow a finished subject.
 - **Refines:** ADR-0057, ADR-0058
 
 ## Context
@@ -45,11 +46,11 @@ An observation therefore has an actor, an event, an idempotency key and a place 
 
 Recording does not write the subject, so it neither bumps the subject's version nor conflicts with a concurrent transition on it.
 
-A guard that aggregates over observations **records, on its event, the observations it read**, so the decision can be re-evaluated from the record (PRD L2). Deriving that set from positions instead would be wrong on PostgreSQL, where a position is not commit order (D210): an observation allocated a lower position can commit after the deciding request's snapshot.
+A guard that aggregates over observations **records, on its event, the observations it read**, so the decision can be re-evaluated from the record (PRD L2). Deriving that set from positions instead would be wrong on PostgreSQL, where a position is not commit order (D210): an observation allocated a lower position can commit after the deciding request's snapshot. *(Subsumed by ADR-0088: every decision records the read set of its rules, observations included.)*
 
 ### 4. Nothing is edited
 
-A correction is a new observation of the same kind and subject that names the one it corrects, and aggregates read the uncorrected ones by default. Both stay in history.
+A correction is a new observation of the same kind and subject that names the one it corrects, and aggregates read the uncorrected ones by default. Both stay in history. *(Made exact by ADR-0095 and ADR-0096: every read of the kind sees only the uncorrected ones, not by default but always; the named observation must be on the same subject and not already corrected; and each kind has a generated `forget`, which the subject's `erase` runs.)*
 
 ### 5. Occurred time is bounded
 

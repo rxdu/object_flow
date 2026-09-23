@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 4 (2026-09-08); pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0089 — the log is read by a settled cursor ordered by transaction and position.
 
 ## Context
 
@@ -13,7 +14,7 @@ TODO.md left open the ordering scope of the log, subscription granularity, and w
 
 1. Events of one object are strictly ordered by a per-object sequence.
 2. A cascaded event is ordered after its cause (ADR-0019), so causal order holds across objects within one request.
-3. Every event has a **global position**, monotonic, used by cursors. It is not a promise of commit order under concurrency: a pull cursor must tolerate a bounded window in which a lower position becomes visible after a higher one, and the pull interface states that window. No total order across unrelated objects is promised beyond that.
+3. Every event has a **global position**, monotonic, used by cursors. It is not a promise of commit order under concurrency: a pull cursor must tolerate a bounded window in which a lower position becomes visible after a higher one, and the pull interface states that window. No total order across unrelated objects is promised beyond that. *(Refined by ADR-0089: cursors are now (transaction id, position) pairs bounded by the reader's snapshot, which cannot skip a late commit.)*
 
 **Subscriptions.**
 

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D11 to D15, D18 and D29, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0055 — a third invariant form for single-object properties, and outcome steps that add to and remove from a set; ADR-0058 — every terminal transition of a whole must dispose of its parts, and re-parenting is checked against both wholes.
+- **Refined by:** ADR-0055 — a third invariant form for single-object properties, and outcome steps that add to and remove from a set; ADR-0058 — every terminal transition of a whole must dispose of its parts, and re-parenting is checked against both wholes. ADR-0089 — an event row is inserted once, complete; its position is allocated first.
 - **Amended by:** ADR-0052 — the outcome grammar gains the forms re-expressing the case studies needed; ADR-0056 §2 makes `supersede` an outcome step, §6 adds `referrers`, §9 writes an input as `inputs.<name>`. ADR-0066 lets a cascade clause carry arguments; ADR-0073 adds `clear`.
 - **Refines:** ADR-0019
 
@@ -31,7 +31,7 @@ outcome:
 2. **Creations may be bound.** `let w = create WarrantyContract(...)` makes `w` usable in later steps of the same outcome. Names are single-assignment and scoped to the outcome. This is what makes ADR-0028's cascaded successor expressible: `let d2 = create Delivery(...)` then `supersede(successor := d2)`. *(Spelled `create w = WarrantyContract.issue(…)` and `supersede d2` in the current grammar: ADR-0052 moved the binding into the `create` step and required the creation transition to be named, since a type may have several.)*
 3. **Iteration binds an element name explicitly.** `for s in slots where s.unit is not null: s.unit.sell()`. There is no implicit rebinding of `this`, which removes the scoping ambiguity of D22. Order is ascending object id (ADR-0038).
 4. **Repeat over a count.** `for i in 1..inputs.quantity: create Unit(...)`, bounded by the same declared fan-out cap as any iteration, refused with `over-limit` (ADR-0041). This makes procurement expressible.
-5. **`this_event` is available.** An event's identity is allocated when its transition begins applying, and its content is completed at commit, so an outcome may reference the event that will record it. `event` becomes an attribute type, which is what lets a consumer declare `Approval.event` and write the guards of ADR-0035.
+5. **`this_event` is available.** An event's identity is allocated when its transition begins applying, and its content is completed at commit, so an outcome may reference the event that will record it. `event` becomes an attribute type, which is what lets a consumer declare `Approval.event` and write the guards of ADR-0035. *(Corrected by ADR-0089: the position is allocated when the transition begins, and the row is inserted once, complete, at the end of the transaction; nothing is completed at commit.)*
 6. **Dynamic attribute writes are not supported.** A transition writes the attributes it names. The CRM merge, which wrote `<each attribute in values>`, declares the fields it resolves, exactly as any edit action does under ADR-0042. A merge that must cover every attribute is a code generator's job, not the runtime's.
 7. **A composition part may be re-parented** by a transition that writes its owner reference, subject to guards like any write. Exclusive membership holds at every instant, and the part never outlives all wholes. This makes **split** expressible: create the new whole, move the chosen parts, leave the source complete. Split therefore moves out of the edge-case catalogue.
 

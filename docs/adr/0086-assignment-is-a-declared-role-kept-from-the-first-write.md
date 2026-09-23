@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
+- **Refined by:** ADR-0096 — `.held(<member>)` attributes time to whoever held the work then, and cycle time by assignee is a standard metric.
 - **Refines:** ADR-0083
 
 ## Context

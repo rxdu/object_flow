@@ -1,20 +1,22 @@
 # Publish and import
 
-Draft, 2026-09-09. What `publish` does with a declaration, what it reports, and how the first consumer's production data arrives. Import is not a separate mechanism: it is declaration migration from version zero (ADR-0027), and this document is written so that the two share one report and one disposition format.
+Draft, 2026-09-09, amended 2026-09-23. What `publish` does with a declaration, what it reports, and how the first consumer's production data arrives. Import is not a separate mechanism: it is declaration migration from version zero (ADR-0027), and this document is written so that the two share one report and one disposition format.
 
-**Amendment pending.** ADR-0081 to ADR-0086, accepted 2026-09-23, change this document: a publish becomes the approval of a `DeclarationChange`, whose dry run is the impact report; and the mapping may supply entry times and legacy intervals, assignment included. Until it is amended, where it disagrees with those ADRs or with `DESIGN.md`, they win (`TODO.md`).
+**Amended 2026-09-23** for ADR-0083, ADR-0085, ADR-0086 and ADR-0093: a publish is the approval of a `DeclarationChange`, whose dry run is the impact report; the report lists observing clauses; the import's state changes are recorded as `imported`; the mapping may supply entry times and legacy intervals, assignment included; and the cutover order counts the legacy system's writes.
 
 **What is verified.** The report shapes below execute and are held against the rest of the record by `scripts/check-api-doc.py`, which reads this file as well. The mapping syntax is checked by the declaration checker like any other declaration text.
 
-## 1. Publishing is a transaction
+## 1. Publishing is a transaction, and the approval of a change
 
-A publish takes a module and the closure of its `use` imports, and either installs a version or installs nothing.
+A flow changes only through a **`DeclarationChange`**, a built-in object (ADR-0085). An actor holding the drafting capability creates one with the proposed source — a module and the closure of its `use` imports — and links to the evidence behind it, such as the diagnostics or metrics that prompted it. Steps 1 to 4 below run as its **dry run**, and the report is attached to it as the impact report PRD F7 requires. An actor other than the drafter, holding the publish capability, approves it — a person, when an agent drafted it — and approval runs step 5. A change is superseded when the installed version moves under it, since its dry run no longer describes what it would do.
 
-1. **Parse and check.** The fifty-three checks of the syntax document §10. Any failure and the publish is refused with all of them, not the first.
+A publish either installs a version or installs nothing.
+
+1. **Parse and check.** The sixty-one checks of the syntax document §10. Any failure and the publish is refused with all of them, not the first.
 2. **Compare with the installed version.** What changed, and whether each change needs a mapping.
 3. **Read the live objects.** How many violate a new invariant, how many are in a removed state, how many pending proposals the change would invalidate.
 4. **Report.** Everything above, whether or not it is fatal.
-5. **If accepted**, in one transaction: write `ok_declaration`, emit the DDL of the storage schema §10, apply each mapping as a recorded migration transition per object, invalidate the pending proposals the change breaks, and record a publish event that is the cause of every one of those.
+5. **If approved**, in one transaction: run steps 1 to 4 again, and refuse the publish if what step 3 finds differs from the report the approver approved — any object violating a new invariant, in a removed state, or holding a proposal the change invalidates that the approved report did not name — returning the change with the new report to be approved again, since an approval is of the impact it was shown (ADR-0096, PRD F7). Otherwise write `ok_declaration` with the change's id, emit the DDL of the storage schema §10, apply each mapping as a recorded migration transition per object, invalidate the pending proposals the change breaks, and record the publish event on the `DeclarationChange` — which is the object it belongs to (D212) — as the cause of every one of those.
 
 Step 3 is why a publish is not purely a function of the text. A dry run performs 1 to 4 and stops, and it is the same code path, so what a dry run reports is what a publish will do.
 
@@ -68,6 +70,10 @@ class PublishReport:
     observed_fanout: Mapping[str, int] = field(default_factory=dict)
     proposals_invalidated: int = 0
     replaced_creations: Mapping[str, Sequence[str]] = field(default_factory=dict)
+    observing_clauses: Sequence[str] = ()      # guarantee nothing; listed so none is mistaken (ADR-0085)
+    change_id: str | None = None               # the DeclarationChange this report is attached to
+    affected: Mapping[str, Sequence[str]] = field(default_factory=dict)
+                                               # ids per impact, compared again at approval (ADR-0096)
 ```
 
 Three severities rather than two, because the middle one is the interesting case. A new invariant that eleven live objects violate is not a defect in the declaration and not something to wave through: it is a decision, and §4 is where it gets made. Anything a person must decide blocks the publish until the decision is recorded, and the decision is recorded in a file rather than in an argument to the command.
@@ -100,8 +106,10 @@ Every object arrives mid-lifecycle at once, which is the situation a migration i
 | **Dry run** | Every object is evaluated against the declaration. Nothing is written. Out comes the disposition file of §6 |
 | **Decide** | A person resolves every class in that file: cleaning the source, supplying a value in the mapping, admitting an invariant violation, or excluding the objects (§6) |
 | **Assign ids** | Every object receives its new id from the legacy-key mapping **before any row is written**, so every reference, required or optional, resolves to an id at the moment its row is inserted, and an unresolvable legacy key is found here and not by the database (ADR-0018, ADR-0077) |
-| **Import** | Objects are created by the **built-in assertion** with provenance `asserted`, each row written complete with its references and keeping its legacy key as an external identifier with source `legacy`. Rows go in dependency order where one exists, so a failure names the first row that could not be placed; a cycle of required references has no such order and commits with its foreign keys checked at commit, which both backends do for a stored end (`storage-schema.md` §3) |
-| **Attach** | Legacy history becomes read-only entries of kind `legacy`, returned by `history` alongside real events (ADR-0015). The mapping lists, per entry kind, the payload fields **kept** through an erasure of the object; the rest are redacted with it, and a kind with no list loses its whole payload (ADR-0078). Files are content-addressed into the blob store |
+| **Import** | Objects are created by the **built-in assertion** with provenance `asserted`, and each object's `state_source` is `imported`, so `exceptions(type)` does not list the whole legacy population as overrides (ADR-0083, D205). Each row is written complete with its references and keeps its legacy key as an external identifier with source `legacy`. Rows go in dependency order where one exists, so a failure names the first row that could not be placed; a cycle of required references has no such order and commits with its foreign keys checked at commit, which both backends do for a stored end (`storage-schema.md` §3) |
+| **Attach** | Legacy history becomes read-only entries of kind `legacy`, returned by `history` alongside real events (ADR-0015). The mapping lists, per entry kind, the payload fields **kept** through an erasure of the object; the rest are redacted with it, and a kind with no list loses its whole payload (ADR-0078). Files are content-addressed into the blob store, and each reference becomes a row of the file reference index (ADR-0087) |
+| **Created** | The mapping may supply each object's legacy creation time and the kind of actor that created it, so cycle time and a split by creator reach back past the cutover; where it supplies none, the import's own time and kind stand, and the object is counted from its port (ADR-0096) |
+| **Intervals** | The mapping may supply each object's current-state entry time, and earlier intervals of state and of tracked members — assignment included — derived from legacy history, all marked `legacy` in the interval index (ADR-0083, ADR-0086). For the first consumer, a service's past engineers come from its audit rows' before-and-after snapshots of `engineer_id` (`wr:app/services/service_service.py:357-372`); how far back those reach is to be sampled. Where the legacy data says nothing, the current interval begins at the import, and a metric says so rather than inventing an earlier start |
 
 Soft-deleted rows land in the type's deleted state (ADR-0024). Cutover cannot be dual-write, because there is one write path.
 
@@ -187,7 +195,9 @@ The author chose staged over big-bang (ADR-0075), and the shape of a stage follo
 
 **A type may migrate only after every type that references it has migrated.** A migrated type referencing a not-yet-migrated one is fine — the referent is present here as a `mirror`. The reverse is not: a legacy row whose foreign key points at rows it no longer owns needs either dual-write or a new integration inside the system being retired.
 
-**A cycle in the reference graph is one stage.** Its members have no valid order between them, so they move together or not at all. The unit of a stage is a strongly connected component, and finding those is the first thing a cutover plan needs.
+**And a type the legacy system writes as a side effect migrates no earlier than the writer** (ADR-0093). Completing a delivery marks its units sold and creates their warranty contracts (`wr:app/core/state_registry.py:771`), so while deliveries stay legacy-owned, so must units and warranty contracts. The store's side is the same, since check 53 forbids an owned type's outcome from reaching a mirror. The write edges are extracted from the legacy registry's `side_effects=` lists and from each declaration's `call` and `create` steps.
+
+**A cycle in the combined graph — references and writes — is one stage.** Its members have no valid order between them, so they move together or not at all. The unit of a stage is a strongly connected component of that graph, and finding those is the first thing a cutover plan needs. For the first consumer it puts at least seven tables of the operational core in one stage (`first-consumer-cutover.md`).
 
 **A stage is three publishes, not one.** The type arrives as a `mirror` in one, is kept current by repeated import while it is one, and is cut over by a version advance that removes the marking and declares its transitions. No object changes id, because the mirror held real objects from the start.
 
@@ -199,6 +209,9 @@ What this does **not** solve is a legacy *read* of a migrated type. Only writes 
 
 - **The extract is JSON lines**, one object per line: it streams, a failure names a line, two extracts diff usefully, and every language emits it — which matters because the extractor lives in the system being retired.
 - **Import is one pass, with every id assigned first.** The first draft had two passes — objects, then references — on the premise that SQLite cannot defer a constraint to commit. It can, `DEFERRABLE INITIALLY DEFERRED` is honoured and `scripts/check-schema-doc.py` runs it; and two passes could not have written a required reference at all, since its column is `NOT NULL` (D191). Assigning every id from the legacy-key mapping before any row is written is what makes one pass possible, and it moves the place an unresolvable reference is found to the mapping, before anything is inserted (ADR-0077).
+- **A publish is the approval of a `DeclarationChange`** (ADR-0085), and the publish event belongs to it.
+- **Imported state is `imported`, not `asserted`, in `state_source`** (ADR-0083), and legacy intervals are marked as such (ADR-0086).
+- **The stage order counts writes as well as references** (ADR-0093).
 - **An import resumes rather than being redone.** Every imported object keeps its legacy key as an external identifier, so `lookup('legacy', key)` says whether it arrived and a second run continues. The alternative turns a failure in hour three of a cutover window into starting again.
 
 **Still open.**

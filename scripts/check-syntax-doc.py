@@ -37,6 +37,9 @@ class Decl:
         self.derives = set()
         self.base = None
         self.mirror = False
+        self.subject = None     # an observation kind's `on` type
+        self.clauses = {}       # observation / metric clause keyword -> [(text, line)]
+        self.generated = []     # an observation kind's generated `record` creation
 
 
 def parse(text, base=0):
@@ -44,6 +47,13 @@ def parse(text, base=0):
     i = 0
     while i < len(lines):
         raw, ln = lines[i], base + i
+        if m := re.match(r"^(observation|metric)\s+(\w+)(.*)$", raw):
+            if "…" in raw:                     # elided placeholder
+                cur = None; i += 1; continue
+            cur = Decl(m.group(1), m.group(2), ln)
+            on = re.search(r"\bon\s+(\w+)", m.group(3))
+            cur.subject = on.group(1) if on else None
+            decls.append(cur); i += 1; continue
         if m := re.match(r"^(machine|type)\s+(\w+)", raw):
             xbase = re.search(r"\bextends\s+(\w+)", raw)
             if "…" in raw:                     # elided placeholder
@@ -56,6 +66,12 @@ def parse(text, base=0):
         if cur is None:
             i += 1; continue
         s = raw.strip()
+        if cur.kind in ("observation", "metric"):       # §6.8, §6.9: clauses, not members
+            if m := re.match(r"^field\s+(\w+)\s*:\s*(.*)$", s):
+                cur.attrs[m.group(1)] = (m.group(2), ln)
+            elif m := re.match(r"^(recorded by|occurred within|invariant|from|by|window on|value|flag)\b\s*(.*)$", s):
+                cur.clauses.setdefault(m.group(1), []).append((m.group(2), ln))
+            i += 1; continue
         if m := re.match(r"^machine\s+(\w+)", s):            cur.machine = m.group(1)
         if m := re.match(r"^tracking\s+(\w+)", s):           cur.tracking = m.group(1)
         if s.startswith("provides capability"):
@@ -122,6 +138,13 @@ def parse(text, base=0):
             cur.trans.append((m.group(1), m.group(2), head, body, ln))
             i = j + 1; continue
         i += 1
+    for d in decls:                              # §6.8: the creation a kind expands into
+        if d.kind == "observation":
+            body = "".join(f"\n  input {n} : {sp.split()[0] if sp.split() else ''}"
+                           for n, (sp, _l) in d.attrs.items())
+            body += (f"\n  input subject : {d.subject}\n  input corrects : {d.name}?"
+                     "\n  input occurred_at : timestamp?")
+            d.generated = [("create", "record", "-> RECORDED", body, d.start)]
     return decls
 
 
@@ -140,7 +163,8 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
     STARTS = (r"^(module|use|capability|category|enum|sequence|evaluator|machine|type|tracking|"
               r"states|state|provides|summary|visible|attr|counter|ref|part|owner|derive|invariant|"
               r"create|do|act|assert|erase|input|accepts|require|set|clear|add|remove|call|supersede|for|"
-              r"cascade|survives|requires|removed|renamed|fn|extends|may|corrects|only|proposable)\b")
+              r"cascade|survives|requires|removed|renamed|fn|extends|may|corrects|only|proposable|"
+              r"observation|metric|field|recorded|occurred|from|by|window|value|flag|labels)\b")
     clause_col = None
     for i, raw in enumerate(text.split("\n")):
         line = raw.split("#", 1)[0].rstrip()
@@ -160,7 +184,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
             out.append((51, f"continuation line not indented deeper than its clause: {st[:48]}", base + i))
 
     for i, raw in enumerate(text.split("\n")):
-        m = re.match(r"^(enum|sequence|evaluator|machine|type)\s+(\w+)(.*)$", raw)
+        m = re.match(r"^(enum|sequence|evaluator|machine|type|observation|metric)\s+(\w+)(.*)$", raw)
         if m and "…" not in raw and not re.search(r"\bversion\s+\d", m.group(3)):
             out.append((42, f"{m.group(1)} {m.group(2)} has no version", base + i))
 
@@ -435,7 +459,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
             for tgt, tn2, args in re.findall(r"\b(?:call|create)\s+([\w.$]+)\.(\w+)\(([^)]*)\)", body):
                 callee = by_name.get(tgt) or by_name.get(tgt.split(".")[-1])
                 if callee:
-                    ct = next((t for t in callee.trans if t[1] == tn2), None)
+                    ct = next((t for t in callee.trans + callee.generated if t[1] == tn2), None)
                     if ct:
                         need = {n for n, sp in re.findall(r"^\s*input\s+(\w+)\s*:\s*([^\n]*)$", ct[3], flags=re.M)
                                 if "?" not in sp}
@@ -475,7 +499,214 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 for n in names:
                     if n and n not in req and n not in capdecl and n != "state":
                         add(35, f"{d.name}.{tn} names '{n}', which the machine does not require", ln)
+    out += data_checks(decls, by_name, text)
     return out
+
+
+UNITS = r"(?:s|min|h|days|weeks)"
+GENERATED = ("subject", "corrects", "occurred_at", "recorded_at", "recorded_by_kind",
+             "created_at", "created_by_kind")
+SOURCES = ("labels", "intervals", "transitions", "attempts", "attempt_counts")
+
+
+def stores(d, spec, by_name):
+    """Whether a singular `ref` end stores its value (§3.3), as check 7 decides it."""
+    toks = spec.split()
+    if not toks or "[]" in toks[0]:
+        return False
+    im = re.search(r"\binverse\s+(\w+)", spec)
+    if not im or "stored" in toks:
+        return True
+    far = by_name.get(toks[0].rstrip("?[]"))
+    fe = far.rels.get(im.group(1)) if far else None
+    return bool(fe and fe[1].split() and "[]" in fe[1].split()[0])
+
+
+def data_checks(decls, by_name, text):
+    """Checks 54 to 61: the constructs of ADR-0082 to ADR-0087 and ADR-0092."""
+    out = []
+    def add(c, d, l): out.append((c, d, l))
+    evaluators = set(re.findall(r"^evaluator\s+(\w+)", text, flags=re.M)) | \
+        {n for n, x in by_name.items() if x.kind == "evaluator"}
+    everything = list(by_name.values())
+
+    # 54 — observation kinds
+    for d in decls:
+        if d.kind != "observation":
+            continue
+        if "recorded by" not in d.clauses:
+            add(54, f"observation {d.name} has no 'recorded by'", d.start)
+        for fn, (spec, fln) in d.attrs.items():
+            toks = spec.split()
+            if fn in GENERATED:
+                add(54, f"{d.name}.{fn} is named as a member every observation already has", fln)
+            if "unit" in toks and not (toks and re.match(r"(int|decimal)\b", toks[0])):
+                add(54, f"{d.name}.{fn} declares a unit and is not int or decimal", fln)
+        for inv, iln in d.clauses.get("invariant", []):
+            expr = inv.split(":", 1)[1] if ":" in inv else inv
+            if re.search(r"\b(subject|actor|inputs|now|this|referrers)\b|\b[a-z_]\w*\.\w", expr):
+                add(54, f"{d.name}: invariant reads beyond its own fields: {inv.strip()[:48]}", iln)
+        subj = by_name.get(d.subject) if d.subject else None
+        if d.subject is None:
+            add(54, f"observation {d.name} names no subject with 'on'", d.start)
+        elif subj is None:
+            add(19, f"observation {d.name} is on undeclared type {d.subject}", d.start)
+        else:
+            mine = [rn for rn, (rk, sp, _l) in subj.rels.items()
+                    if rk == "part" and sp.split() and sp.split()[0].rstrip("?[]") == d.name]
+            if len(mine) != 1:
+                add(54, f"{d.subject} declares {len(mine)} parts of observation {d.name}, not one", d.start)
+    for d in decls:
+        for rn, (rk, sp, rln) in d.rels.items():
+            if rk != "part" or not sp.split():
+                continue
+            kind = by_name.get(sp.split()[0].rstrip("?[]"))
+            if kind is not None and kind.kind == "observation" and \
+               (not sp.split()[0].endswith("[]") or not re.search(r"\binverse\s+subject\b", sp)):
+                add(54, f"{d.name}.{rn} holds observation {kind.name} and is not a set with 'inverse subject'", rln)
+
+    # 56 — metrics; 58 — the members they read
+    for d in decls:
+        if d.kind != "metric":
+            continue
+        for need in ("from", "value"):
+            if need not in d.clauses:
+                add(56, f"metric {d.name} has no '{need}'", d.start)
+        src_decl, binder = None, None
+        for fr, fln in d.clauses.get("from", []):
+            m = re.match(r"(\w+)\s+in\s+(\w+)(?:\.(\w+)(?:\((\w+)\))?)?", fr)
+            if not m:
+                add(56, f"metric {d.name}: 'from' is not '<binder> in <source>'", fln); continue
+            binder, base_, suffix, member = m.groups()
+            src_decl = by_name.get(base_)
+            if suffix is not None and suffix not in SOURCES:
+                add(56, f"metric {d.name} reads {base_}.{suffix}, which is not a source", fln)
+            if src_decl is None:
+                add(19, f"metric {d.name} reads undeclared {base_}", fln)
+            elif suffix is None and src_decl.kind not in ("type", "observation"):
+                add(56, f"metric {d.name} reads {base_}, which is neither a type nor an observation kind", fln)
+            if member and src_decl is not None and not tracked(src_decl, member, by_name):
+                add(58, f"metric {d.name} reads intervals of {base_}.{member}, which is not tracked", fln)
+            if suffix is not None:
+                src_decl = None                  # a dataset's rows are not the type's members
+        for dims, bln in d.clauses.get("by", []):
+            for dim in dims.split(","):
+                expr = dim.split("=", 1)[1] if "=" in dim else dim
+                for path in re.findall(rf"\b{binder}((?:\.\w+)+)", expr) if binder else []:
+                    hops = path.count(".")
+                    if hops > 2:
+                        add(56, f"metric {d.name}: dimension '{dim.strip()}' is {hops} hops", bln)
+                    first = path.split(".")[1]
+                    if src_decl is not None and "personal" in src_decl.attrs.get(first, ("", 0))[0].split():
+                        add(56, f"metric {d.name}: personal member '{first}' is a dimension", bln)
+
+    # per-transition: 57, 58, 61, and a metric reference's window and dimensions (56)
+    metrics = {x.name: x for x in everything if x.kind == "metric"}
+    for d in decls:
+        mach = by_name.get(d.machine) if d.machine else None
+        states = d.states or (mach.states if mach else {})
+        for kind, tn, head, body, ln in d.trans:
+            reqs = re.findall(r"^\s*require\s+([^\n]*)$", body, flags=re.M)
+            if kind in ("assert", "erase") and any(re.search(r"\bobserve\b", r) for r in reqs):
+                add(57, f"{d.name}.{tn} is an {kind} with an observing clause", ln)
+            if "backdatable" in head:
+                if not re.search(rf"\bbackdatable\s+within\s+\d+\s*{UNITS}\b", head):
+                    add(58, f"{d.name}.{tn} is backdatable without a duration in s, min, h, days or weeks", ln)
+                if kind in ("assert", "erase") or "only via" in head:
+                    add(58, f"{d.name}.{tn} is backdatable and is {'only via' if 'only via' in head else 'an ' + kind}", ln)
+            for x in re.findall(r"\btime_in\(\s*(\w+)\s*\)", body):
+                if x not in states:
+                    add(58, f"{d.name}.{tn}: time_in({x}) names no state", ln)
+            for x in re.findall(r"\bentered_at\(\s*(\w+)\s*\)", body):
+                if x not in states and not tracked(d, x, by_name):
+                    add(58, f"{d.name}.{tn}: entered_at({x}) names neither a state nor a tracked member", ln)
+            for r in reqs:
+                for mn, margs in re.findall(r"\bmetric\(\s*(\w+)\s*((?:,[^()]*)?)\)", r):
+                    md = metrics.get(mn)
+                    if md is None:
+                        add(19, f"{d.name}.{tn} reads undeclared metric {mn}", ln); continue
+                    if "over last" in margs and "window on" not in md.clauses:
+                        add(56, f"{d.name}.{tn}: 'over last' on metric {mn}, which declares no 'window on'", ln)
+                    dims = {x.split("=")[0].strip() for c, _l in md.clauses.get("by", []) for x in c.split(",")}
+                    for bound in re.findall(r"(\w+)\s*:=", margs):
+                        if bound not in dims:
+                            add(56, f"{d.name}.{tn} binds '{bound}', not a dimension of metric {mn}", ln)
+            # 61 — an argument the calling outcome writes
+            written = set(re.findall(r"^\s*set\s+(\w+)\s*:=", body, flags=re.M))
+            for tgt, tn2, args in re.findall(r"\b(?:call|create)\s+([\w.$]+)\.(\w+)\(([^)]*)\)", body):
+                callee = by_name.get(tgt) or by_name.get(tgt.split(".")[-1])
+                ct = next((t for t in (callee.trans + callee.generated if callee else [])
+                           if t[1] == tn2), None)
+                if ct is None:
+                    continue
+                for an, aexpr in re.findall(r"(\w+)\s*:=\s*([^,]+)", args):
+                    if not any(re.search(rf"(?<![\w.])(?:this\.)?{w}\b", aexpr) for w in written):
+                        continue
+                    for r in re.findall(r"^\s*require\s+([^\n]*)$", ct[3], flags=re.M):
+                        calls = [a for e, a in re.findall(r"\b(\w+)\.\w+\(([^)]*)\)", r) if e in evaluators]
+                        calls += re.findall(r"\bmetric\(([^)]*)\)", r)
+                        if any(re.search(rf"\binputs\.{an}\b", a) for a in calls):
+                            add(61, f"{d.name}.{tn} binds {tgt}.{tn2}'s '{an}' from a value its outcome "
+                                    "writes, which an evaluator or metric guard reads", ln)
+
+    # 58 — an observation kind's bound
+    for d in decls:
+        for dur, oln in d.clauses.get("occurred within", []):
+            if not re.fullmatch(rf"\d+\s*{UNITS}", dur.strip()):
+                add(58, f"{d.name}: occurred within '{dur.strip()}' is not in s, min, h, days or weeks", oln)
+
+    # 59 — assignee and the actor identity
+    for d in decls:
+        for an, (spec, aln) in d.attrs.items():
+            toks = spec.split()
+            if "actor" in toks[1:] and toks[0].rstrip("?") != "identity":
+                add(59, f"{d.name}.{an} is marked actor and is not an identity", aln)
+        for rn, (rk, spec, rln) in d.rels.items():
+            if "assignee" not in spec.split():
+                continue
+            if rk != "ref" or not stores(d, spec, by_name):
+                add(59, f"{d.name}.{rn} is an assignee and is not a singular stored ref", rln)
+            tgt = by_name.get(spec.split()[0].rstrip("?[]"))
+            if tgt is not None:
+                ids = [a for a, (sp, _l) in tgt.attrs.items()
+                       if sp.split() and sp.split()[0].rstrip("?") == "identity" and "actor" in sp.split()[1:]]
+                if len(ids) != 1:
+                    add(59, f"{d.name}.{rn} is an assignee; {tgt.name} marks {len(ids)} actor identities, not one", rln)
+
+    # 60 — erasure follows the supersession chain (ADR-0087)
+    superseded = set()
+    for x in everything:
+        for _k, _tn, _h, b, _l in x.trans:
+            for op in re.findall(r"^\s*supersede\s+inputs\.(\w+)", b, flags=re.M):
+                if im := re.search(rf"^\s*input\s+{op}\s*:\s*(\w+)", b, flags=re.M):
+                    superseded.add(im.group(1))
+    for d in decls:
+        if d.kind != "type":
+            continue
+        mach = by_name.get(d.machine) if d.machine else None
+        states = d.states or (mach.states if mach else {})
+        attrs, anc, seen = dict(d.attrs), by_name.get(d.base), set()
+        while anc and anc.name not in seen:
+            seen.add(anc.name)
+            for k, v in anc.attrs.items(): attrs.setdefault(k, v)
+            anc = by_name.get(anc.base)
+        personal = [a for a, (sp, _l) in attrs.items() if "personal" in sp.split()]
+        chained = d.name in superseded or any("superseding" in v[0] for v in states.values())
+        erases = any(t[0] == "erase" for t in d.trans + (mach.trans if mach else []))
+        if personal and chained and not erases:
+            add(60, f"{d.name} holds personal {personal[0]!r}, takes part in supersession and declares no erase", d.start)
+    return out
+
+
+def tracked(d, member, by_name):
+    """An enum attribute or a singular stored relationship end (ADR-0083)."""
+    if member in d.attrs:
+        toks = d.attrs[member][0].split()
+        return bool(toks) and toks[0][:1].isupper() and "[]" not in toks[0]
+    if member in d.rels:
+        rk, spec, _l = d.rels[member]
+        return rk in ("ref", "owner") and (rk == "owner" or stores(d, spec, by_name))
+    return False
 
 
 def line_checks(text, base, capdecl, reserved, machine_caps):
@@ -489,6 +720,17 @@ def line_checks(text, base, capdecl, reserved, machine_caps):
         if re.search(r"\bfor\s+\w+\s+in\b", code) and "limit" not in code:
             out.append((21, f"for without limit: {code[:48]}", ln))
         if re.match(r"^\s*do\s+\w+\s+at\s", code): out.append((21, f"'do' with 'at': {code[:48]}", ln))
+        st = code.strip()
+        if re.search(r"\blabels\b", st) and not (
+                (st.startswith("labels by") and not re.search(r"\blabels\b", st[9:]))
+                or re.match(r"^from\s+\w+\s+in\s+\w+\.labels\b", st)):
+            out.append((55, f"a label read outside a metric's source: {st[:48]}", ln))
+        rule = re.match(r"^(require|invariant|derive|visible|set|add|remove|value|flag|by|from|window)\b", st)
+        if rule and "metric(" in st and rule.group(1) != "require":
+            out.append((56, f"metric(…) outside a guard: {st[:48]}", ln))
+        if rule and rule.group(1) in ("require", "invariant", "derive", "visible", "set", "add", "remove") and \
+           re.search(r"\b(avg|median|percentile|day|week|month|quarter|year)\(", st):
+            out.append((56, f"a metric-only function outside a metric: {st[:48]}", ln))
         for cap in re.findall(r"actor\.\w+\((\w+)\)", code):
             if cap not in capdecl and cap not in machine_caps:
                 out.append((19, f"capability {cap} used but not declared", ln))
@@ -525,6 +767,14 @@ FIXTURES = {
   47: "type W version 1 {\n tracking serial\n states S category live, D category closed terminal\n part ps : C[] inverse w\n      cascade on go to C.del\n create mk -> S { }\n do go S -> D { }\n}",
   41: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref bs : B[] inverse as\n create mk -> S { }\n do go S -> D { }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n ref as : A[] inverse bs\n create mk2 -> T { }\n do go2 T -> U { }\n}",
   40: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n act poke at D { }\n}",
+  54: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n part os : O[] inverse subject\n create mk -> S { }\n do go S -> D { }\n}\nobservation O version 1 on A {\n field v : int\n}",
+  55: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require quiet: count(l in labels) == 0 }\n}",
+  56: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A\n}",
+  57: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } {\n  input reason : string\n  require may: actor.has(Q) observe because delegable\n }\n}",
+  58: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D backdatable within 2 months { }\n}",
+  59: "type U version 1 {\n tracking record\n states S category live, D category closed terminal\n attr login identity\n create mk -> S accepts login { }\n do go S -> D { }\n}\ntype A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref who : U assignee\n create mk -> S accepts who { }\n do go S -> D { }\n}",
+  60: "type A version 1 {\n tracking serial\n states S category live, M category closed superseding terminal, D category closed terminal\n attr email string? personal\n create mk -> S { }\n do merge S -> M {\n  input old : A\n  supersede inputs.old\n }\n do go S -> D { }\n}",
+  61: "evaluator ev version 1 { … }\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T only via A.go {\n  input amount : int\n  require ok: ev.check(inputs.amount)\n }\n do take T -> U { }\n}\ntype A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr total int?\n create mk -> S { }\n do go S -> D {\n  set total := 1\n  create B.mk2(amount := total)\n }\n}",
 }
 
 
@@ -589,12 +839,42 @@ def self_test():
     return not bad
 
 
-def main():
-    if "--self-test" in sys.argv:
-        sys.exit(0 if self_test() else 1)
-    DOC = target()
-    is_spec = DOC.resolve() == SPEC.resolve()
-    src = DOC.read_text()
+# ── mutations: each check must catch a mistake in the document's own examples ──
+# A fixture is written in the shape its check expects, so it proves only that
+# the check can fire. A mutation breaks one of the specification's own examples
+# the way an author would, and the check that claims the rule must catch it.
+MUTATIONS = [
+  (54, "no recorded by", "  recorded by   actor.has(PDI_RECORD)\n", ""),
+  (54, "singular observation part", "part     inspections : InspectionResult[] inverse subject",
+       "part     inspections : InspectionResult inverse subject"),
+  (54, "unit on a string field", "field note    : string?", 'field note    : string? unit "V"'),
+  (54, "kind invariant reads the subject", "invariant in_range: value is null",
+       "invariant in_range: subject.photo is null"),
+  (55, "label read by a guard", "require none_failed: none(r in inspections",
+       "require none_failed: none(r in labels"),
+  (56, "three-hop dimension", "by        engineer = r.subject.engineer\n",
+       "by        engineer = r.subject.engineer.login.x\n"),
+  (56, "unknown metric source", "from      i in ServiceJob.intervals where",
+       "from      i in ServiceJob.events where"),
+  (56, "metric in a derivation", "  attr     photo file?\n",
+       "  attr     photo file?\n  derive   rate = metric(inspection_pass_rate)\n"),
+  (57, "observe on an erase", "do leave ACTIVE -> LEFT { require may: actor.has(SERVICE_ASSIGN) because delegable }",
+       "do leave ACTIVE -> LEFT { require may: actor.has(SERVICE_ASSIGN) because delegable }\n"
+       "  erase forget {\n    input reason : string\n"
+       "    require may: actor.has(ERASE_PERSONAL) observe because delegable\n  }"),
+  (58, "backdated in months", "do start OPEN -> WORKING backdatable within 2 days {",
+       "do start OPEN -> WORKING backdatable within 2 months {"),
+  (58, "occurred within months", "occurred within 7 days", "occurred within 7 months"),
+  (58, "time_in of a member", "require mine: engineer.login == actor.id because delegable\n  }\n  do finish",
+       "require mine: engineer.login == actor.id because delegable\n    require slow: time_in(photo) > 1 h\n"
+       "  }\n  do finish"),
+  (59, "assignee target with no actor", "attr     login identity actor unique", "attr     login identity unique"),
+  (59, "set-valued assignee", "ref      engineer : User assignee", "ref      engineer : User[] assignee"),
+]
+
+
+def declaration_findings(src, is_spec):
+    """Findings over every ```text block of a document, with the vocabularies it declares."""
     blocks = [(src[: m.start()].count("\n") + 2, m.group(1))
               for m in re.finditer(r"```text\n(.*?)```", src, flags=re.S)]
     vocab = src if is_spec else src + "\n" + SPEC.read_text()
@@ -616,6 +896,34 @@ def main():
     for bstart, blk in blocks:
         findings += analyse(blk, bstart, capdecl, catdecl, reserved, world)
         findings += line_checks(blk, bstart, capdecl, reserved, machine_caps)
+    return findings, blocks, ndecl, rw
+
+
+def mutation_test(src):
+    """Apply each mutation to the specification; its check must newly fire."""
+    base = {(c, d) for c, d, _ in declaration_findings(src, True)[0]}
+    out, caught = [], 0
+    for check, name, old, new in MUTATIONS:
+        if src.count(old) != 1:
+            out.append((0, f"mutation '{name}' no longer applies: its text is not in the document once", 1))
+            continue
+        got = {(c, d) for c, d, _ in declaration_findings(src.replace(old, new), True)[0]} - base
+        if any(c == check for c, _ in got):
+            caught += 1
+        else:
+            out.append((0, f"mutation '{name}' was not caught by check {check} "
+                           f"(got {sorted({c for c, _ in got})})", 1))
+    print(f"mutations: {caught}/{len(MUTATIONS)} caught by the check that claims them")
+    return out
+
+
+def main():
+    if "--self-test" in sys.argv:
+        sys.exit(0 if self_test() else 1)
+    DOC = target()
+    is_spec = DOC.resolve() == SPEC.resolve()
+    src = DOC.read_text()
+    findings, blocks, ndecl, rw = declaration_findings(src, is_spec)
 
     if rw and is_spec:
         w = rw.group(1).split()
@@ -625,6 +933,7 @@ def main():
                 findings.append((21, f"keyword '{kw}' used but not reserved", 1))
 
     findings += doc_checks(src) if is_spec else []
+    findings += mutation_test(src) if is_spec else []
 
     if is_spec and "## 10. What the checker verifies" in src:
         _a = src.index("## 10. What the checker verifies")

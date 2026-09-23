@@ -2,6 +2,7 @@
 
 - **Status:** **Accepted** — confirmed by the author 2026-09-08, after the readiness review
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0087 — a file's content is deleted when its last unerased reference goes, not when one reference does.
 
 ## Context
 
@@ -54,5 +55,5 @@ Cons: ObjectKeeper becomes a file server. Bytes flow through a write path design
 ## Questions closed since
 
 - **Free versus controlled** is moot: ADR-0042 removed the free class, so every file attribute is controlled and every attachment is written by a declared transition with a guard, an actor and an event. That is the stricter of the two readings this ADR offered, and the right one, since a file is potential evidence.
-- **Erasure deletes bytes.** ADR-0031 requires it and ADR-0041 states it plainly: ObjectKeeper never reads, streams or serves blob content, and deleting during erasure is its only byte-level operation. The absolute "never touches the bytes" that once appeared in DESIGN.md was false.
+- **Erasure deletes bytes.** ADR-0031 requires it and ADR-0041 states it plainly: ObjectKeeper never reads, streams or serves blob content, and deleting during erasure is its only byte-level operation. The absolute "never touches the bytes" that once appeared in DESIGN.md was false. *(Refined by ADR-0087: the bytes go when the last unerased reference to the hash goes, so an identical file another object holds survives.)*
 - **Retention.** The log is permanent (ADR-0033) and a reference outlives any expiry policy, so **the blob store's own lifecycle expiry must be disabled for an ObjectKeeper artifact store**. Deletion happens only through erasure. A deployment that leaves expiry enabled will produce references whose content is gone; that is an operational misconfiguration, and a periodic reference-versus-store audit is the control that catches it. *(Derived 2026-09-08 from ADR-0033's permanence; derived, not part of what the author confirmed.)*

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0086 — assignment is a declared role on a tracked reference, with its metrics generated.
+- **Refined by:** ADR-0086 — assignment is a declared role on a tracked reference, with its metrics generated. ADR-0095 — backdating is bounded by every state and tracked value the request changes, cascades share the request's occurred time, and `backdatable` is refused on an `assert`, an `erase` or an `only via` transition. ADR-0096 — an occurred time is never later than its recording; refusal counts are daily, per object and readable; legacy intervals are imported history; a personal enum's intervals are redacted at erasure.
 - **Refines:** ADR-0033, ADR-0077
 
 ## Context

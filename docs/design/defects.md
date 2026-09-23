@@ -6,7 +6,7 @@ Findings from every review of this design. It began as the implementation-readin
 
 **Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
 
-**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 11 are open — D203, D204 and D206 to D214 from the design review of 2026-09-23, and D215 from the design evaluation that followed it; D202, D205 and D212 were resolved by ADR-0082, ADR-0083 and ADR-0085, accepted the same day; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 0 are open — the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
@@ -214,19 +214,39 @@ Findings from every review of this design. It began as the implementation-readin
 | [D200](#d200) | Eight summaries are stale again, one day after D176 | Resolved |
 | [D201](#d201) | ADR-0075 breaks a cycle by the optionality of its edges, which answers the import question and not the stage question | Resolved |
 | [D202](#d202) | `changed_since` over a part is answered from one position per whole, so the specification's own approval is invalidated by its own creation | Resolved by ADR-0082 |
-| [D203](#d203) | At serialisable isolation on PostgreSQL a row lock does not make a contended row queue; the waiter blocks and is then aborted | Open |
-| [D204](#d204) | Nothing says how a SQLite transaction begins, and a deferred one turns an ordinary race into a storage fault | Open |
+| [D203](#d203) | At serialisable isolation on PostgreSQL a row lock does not make a contended row queue; the waiter blocks and is then aborted | Resolved by ADR-0090 |
+| [D204](#d204) | Nothing says how a SQLite transaction begins, and a deferred one turns an ordinary race into a storage fault | Resolved by ADR-0090 |
 | [D205](#d205) | Every imported object is listed by `exceptions(type)` until it next changes state, and a terminal one for ever | Resolved by ADR-0083 |
-| [D206](#d206) | The stage order counts references only; the legacy system's cross-type writes put the operational core in one stage | Open — needs the author |
-| [D207](#d207) | Erasing one object's file deletes every other object's identical file | Open — needs the author |
-| [D208](#d208) | Erasure stops at the object's boundary, across supersession and into a caller's event, where ADR-0078 says it follows | Open — needs the author |
-| [D209](#d209) | The deterministic racer cannot interleave a synchronous `request()`, and the async question cites the harness the wrong way round | Open — needs the author |
-| [D210](#d210) | The settled position has no mechanism in the schema | Open |
-| [D211](#d211) | An event row is completed at commit, and the schema says no event row is ever updated | Open |
+| [D206](#d206) | The stage order counts references only; the legacy system's cross-type writes put the operational core in one stage | Resolved by ADR-0093 |
+| [D207](#d207) | Erasing one object's file deletes every other object's identical file | Resolved by ADR-0087 |
+| [D208](#d208) | Erasure stops at the object's boundary, across supersession and into a caller's event, where ADR-0078 says it follows | Resolved by ADR-0087 |
+| [D209](#d209) | The deterministic racer cannot interleave a synchronous `request()`, and the async question cites the harness the wrong way round | Resolved by ADR-0091 |
+| [D210](#d210) | The settled position has no mechanism in the schema | Resolved by ADR-0089 |
+| [D211](#d211) | An event row is completed at commit, and the schema says no event row is ever updated | Resolved by ADR-0089 |
 | [D212](#d212) | The publish event has no object to belong to | Resolved by ADR-0085 |
-| [D213](#d213) | On PostgreSQL the mint's second connection can exhaust the pool it is drawn from | Open |
-| [D214](#d214) | Three verdict and schema shapes cannot carry what the model says | Open |
-| [D215](#d215) | ADR-0049 consults an evaluator before the transaction and never says what happens when its argument depends on state the transaction changes | Open |
+| [D213](#d213) | On PostgreSQL the mint's second connection can exhaust the pool it is drawn from | Resolved by ADR-0090 |
+| [D214](#d214) | Three verdict and schema shapes cannot carry what the model says | Resolved by ADR-0092 |
+| [D215](#d215) | ADR-0049 consults an evaluator before the transaction and never says what happens when its argument depends on state the transaction changes | Resolved by ADR-0092 |
+| [D216](#d216) | A read set discloses the ids of objects its reader cannot see | Resolved by ADR-0095 |
+| [D217](#d217) | A metric guard's value is not recorded on the event, only its as-of time | Resolved by ADR-0095 |
+| [D218](#d218) | An observation kind's personal fields cannot be erased | Resolved by ADR-0096 |
+| [D219](#d219) | A correction is not validated, cannot be made on a terminal subject, and cannot be made by an agent | Resolved by ADR-0096 |
+| [D220](#d220) | A metric path, an attempt's read set and a refusal's value can reveal what their reader cannot see | Resolved by ADR-0096 |
+| [D221](#d221) | A refusal does not carry the value it was decided on, and the attempt log does not record it | Resolved by ADR-0096 |
+| [D222](#d222) | Overrides cannot be counted per reason, or with the import's excluded | Resolved by ADR-0096 |
+| [D223](#d223) | Cycle time cannot be attributed to the assignee who held the work, or split by who created it | Resolved by ADR-0096 |
+| [D224](#d224) | An occurred time has no upper bound | Resolved by ADR-0096 |
+| [D225](#d225) | Permanent refusal counts are monthly and nothing reads them | Resolved by ADR-0096 |
+| [D226](#d226) | Legacy intervals contradict "the log can rebuild it" | Resolved by ADR-0096 |
+| [D227](#d227) | A failed file deletion waits on a sweep that no operation owns | Resolved by ADR-0096 |
+| [D228](#d228) | An approval publishes on the dry run's impact report, however stale | Resolved by ADR-0096 |
+| [D229](#d229) | Four statements stale after ADR-0095, three underspecified points, and five rows citing no implementation | Resolved by ADR-0096 |
+| [D230](#d230) | Two repairs of D220 and D225 still let a metric reveal what its reader cannot see | Resolved by ADR-0096 |
+| [D231](#d231) | A result on a finished subject can never be corrected | Resolved by ADR-0096 |
+| [D232](#d232) | An erased personal enum survives in the interval index | Resolved by ADR-0096 |
+| [D233](#d233) | The standard metrics' "open" and "completion" are undefined | Resolved by ADR-0096 |
+| [D234](#d234) | Six gaps left by the first repairs | Resolved by ADR-0096 |
+| [D235](#d235) | Withholding a metric group broke M2, leaked dimension values, and three smaller gaps | Resolved by ADR-0096 |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -1381,12 +1401,16 @@ One reviewer, reading the spine (`README.md`, `DESIGN.md`, `TODO.md`, `LESSONS.m
 ### D203
 **At serialisable isolation on PostgreSQL, a row lock does not make a contended row queue: the second request waits for the first to commit and is then aborted.** ADR-0039 decision 3 keeps row locks because "they make hot-row conflicts block instead of aborting and retrying, which is cheaper for the flash-sale case", and its consequences say "a popular product now queues on the row lock rather than aborting and retrying … so the failure mode is latency rather than a retry storm". `storage-schema.md` §7 says "a contended row queues rather than aborting and retrying"; `edge-cases.md` "Hot rows" says the lock "exists so that contention blocks rather than aborts"; `case-study-orders.md` §4 repeats it; and D180 resolved ADR-0039's two answers toward "queues". Observed 2026-09-23 on PostgreSQL 16.8: request A takes `SELECT … FOR UPDATE` on a row, updates it and holds its transaction three seconds; request B, a second later, issues the same `SELECT … FOR UPDATE` as its first statement. At `READ COMMITTED`, B waited and committed, and the row ended at 2. At `SERIALIZABLE`, B waited the full three seconds and then failed with `could not serialize access due to concurrent update`, and the row ended at 1. The PostgreSQL 16 manual says the same of repeatable read, which serializable builds on: a transaction that updates or locks a row modified by another transaction after it started gets a serialisation error (`transaction-iso.html`). So a hot row pays the lock wait **and** the retry, and a flash sale exhausts the retry bound into `stale`, which is the retry storm the documents say the lock prevents. Correctness is unaffected, and nothing oversells.
 
-**Open.** The claim is false in five places, and D180's resolution rests on it. What the lock is for at this isolation level needs deciding: drop it, since it adds a wait and saves no retry, or keep it for a reason that holds. A real queue needs the lock taken before the snapshot exists — for instance a session-level advisory lock on objects known before the transaction opens, which in the orders case includes the stock, an input to `Order.place` — and whether that earns its complexity is a measurement. The probe belongs beside `scripts/check-schema-doc.py` wherever a PostgreSQL is available.
+**Resolved by ADR-0090**, 2026-09-23: the design now says a contended row waits and then retries on PostgreSQL, row locks end the loser sooner, and retries are recorded per event to measure the cost.
+
+*As recorded when open:*  The claim is false in five places, and D180's resolution rests on it. What the lock is for at this isolation level needs deciding: drop it, since it adds a wait and saves no retry, or keep it for a reason that holds. A real queue needs the lock taken before the snapshot exists — for instance a session-level advisory lock on objects known before the transaction opens, which in the orders case includes the stock, an input to `Order.place` — and whether that earns its complexity is a measurement. The probe belongs beside `scripts/check-schema-doc.py` wherever a PostgreSQL is available.
 
 ### D204
 **Nothing says how the store begins a transaction on SQLite, and under SQLite's default deferred begin a request that reads and then writes fails with a storage fault when another request commits in between.** ADR-0039 says "SQLite serialises writers already, so this costs nothing there"; `storage-schema.md` §7 says "On SQLite, which serialises writers, the window is empty"; `adversarial-harness.md` §5 says "SQLite serialises writers already, so the racer finds almost nothing there". SQLite serialises writes. Whether a request's guard reads are serialised with them depends on how its transaction begins, and no document says. Observed 2026-09-23 with SQLite 3.37.2 through Python's `sqlite3`: A begins and reads a row, which stands for its guards; B begins, updates the row and commits; A updates the row. With `BEGIN DEFERRED`, the driver's default, in WAL mode, B committed and A's write failed with `database is locked`, which no busy timeout resolves because A's snapshot is already stale. In rollback-journal mode the deferred pair also ended with one side refused. With `BEGIN IMMEDIATE`, in both modes, B waited behind A and A committed. `library-api.md` §7 raises `StorageUnavailable` for "a transaction failed for a reason that is not a serialisation conflict", so a runtime that begins deferred turns an ordinary race into an exception rather than a retry and a verdict.
 
-**Open.** State that every transition transaction on SQLite begins `IMMEDIATE`, which is what makes "serialises writers" true of guards as well as commits, and say how a busy result that still occurs is classified. Keep the four-way probe beside the sequence probe in `scripts/check-schema-doc.py`.
+**Resolved by ADR-0090**, 2026-09-23: every SQLite transition transaction begins `IMMEDIATE`, and a busy result past the timeout is a serialisation failure, retried and then `stale`.
+
+*As recorded when open:*  State that every transition transaction on SQLite begins `IMMEDIATE`, which is what makes "serialises writers" true of guards as well as commits, and say how a busy result that still occurs is classified. Keep the four-way probe beside the sequence probe in `scripts/check-schema-doc.py`.
 
 ### D205
 **Every imported object is listed by `exceptions(type)` until it next changes state, and one imported in a terminal state is listed for ever.** Import writes every object's state through the built-in assertion with provenance `asserted` (`DESIGN.md` §11; `publish-and-import.md` §4). `state_source` holds the source of the event that last changed state and returns to `observed` only on an ordinary state-changing transition (`storage-schema.md` §3 and §5; ADR-0077 §6), and `exceptions(type)` returns every object whose `state_source` is `asserted`. So on the day of cutover the list holds the whole legacy population, and every delivered delivery, expired warranty and retired unit stays on it permanently, since nothing moves a terminal object again. A mirror's objects go back on the list with every refresh, since a mirror "is kept current by repeated import" (`publish-and-import.md` §7). ADR-0080 rejects an alternative on exactly this ground — "every customer would sit in `exceptions(type)` for ever" — without noticing that the adopted import path does it to every type. The list is the control that keeps the escape hatch reviewable (`DESIGN.md` §8 and §13; ADR-0040 §6), and drowned in the legacy population it cannot show the one repair someone made last week. A smaller edge in the same column: a mapping that moves an asserted object out of a removed state sets `state_source` to `migrated`, and the object leaves the list without having moved through the machine.
@@ -1398,32 +1422,44 @@ One reviewer, reading the spine (`README.md`, `DESIGN.md`, `TODO.md`, `LESSONS.m
 ### D206
 **The stage order counts reference edges only; the legacy system's own cross-type writes add edges the other way and put most of the operational core in one stage.** ADR-0075's rule is "nothing writes a type it does not own", and it derives the order from references alone: "a type may migrate only after every type that references it has migrated". A legacy transition that writes a second type also constrains the order, because while the first type is legacy-owned the second must be too. In the first consumer, completing a delivery marks its units sold and creates their warranty contracts (`wr:app/core/state_registry.py:771`, side effects `_update_delivery_items_to_sold` and `_create_delivery_warranties`), and cancelling reverts the units and voids the warranties (`:779`, `:788`) — the evidence `TODO.md` already cites for ADR-0019. `first-consumer-cutover.md` §3 puts `warranty_contracts` in stage 3 and `deliveries` in stage 6, so for three stages the legacy completion path would create rows in a type this store owns. The write edge says a warranty contract migrates no earlier than a delivery, and its reference `warranty_contracts.delivery_id` (`wr:app/models/warranty.py:112`) says no later, so they are one stage. The same holds for the unit cycle of §2, which the completion writes, and so for `delivery_configurations`, which lies on the reference path between that cycle and `deliveries` (`wr:app/models/delivery.py:155`, `wr:app/models/delivery_configuration.py:49`). At least seven tables move together: `deliveries`, `delivery_items`, `delivery_configurations`, `robots`, `accessories`, `spare_parts` and `warranty_contracts`. The store's side has the matching constraint: check 53 forbids an owned type's outcome from reaching a mirror, so a migrated type's cascade targets must migrate no later than it. Read from the legacy registry and models at commit `4109939`; the whole graph was not recomputed.
 
-**Open.** Recompute the order over references plus writes. The legacy writes can be enumerated from the registry's `side_effects=` lists, and the store's from each declaration's `call` and `create` steps; the recomputation comes after the table-to-type mapping `TODO.md` already queues. The result bears on ADR-0075 itself, which kept big-bang as "the simpler path": if the core is one stage, staging buys less than §3's "only nine of the 42 components are pinned" suggests, and the author should see that before a plan is built on it.
+**Resolved by ADR-0093**, 2026-09-23: the stage order counts the legacy system's writes as well as its references; the recomputation over types is the queued mapping work, and the choice of staging stays the author's.
+
+*As recorded when open:*  Recompute the order over references plus writes. The legacy writes can be enumerated from the registry's `side_effects=` lists, and the store's from each declaration's `call` and `create` steps; the recomputation comes after the table-to-type mapping `TODO.md` already queues. The result bears on ADR-0075 itself, which kept big-bang as "the simpler path": if the core is one stage, staging buys less than §3's "only nine of the 42 components are pinned" suggests, and the author should see that before a plan is built on it.
 
 ### D207
 **Erasing one object's file deletes every other object's identical file.** Files are content-addressed so that "duplicates collapse" (ADR-0017), `ok_file` is keyed by the hash alone (`storage-schema.md` §6), and erasure "sets `ok_file.erased_at` and deletes the content behind the hash" (`storage-schema.md` §9 step 3). Two objects that hold the same bytes — a label template attached twice, one photo attached to a delivery and to its service, a legacy photo row that was duplicated — share one row and one blob. Erasing a person's copy deletes the other object's evidence and marks it erased, even where the other attribute is not personal at all. Nothing in the record counts references to a hash, and finding them means scanning every `file` column, every set-valued side table and every event payload. Found by reading; a search of the record for deduplication, reference counts or shared files finds nothing.
 
-**Open.** One option: erasure deletes bytes only when no unerased reference remains, which ADR-0017's sweep for unreferenced keys nearly is already, provided erasure marks the reference and not the hash. The other: references stop sharing blobs, which gives up the deduplication ADR-0017 wanted. The first keeps the design, and needs the sweep to run soon enough to meet an erasure deadline, a deployment obligation to write down.
+**Resolved by ADR-0087**, 2026-09-23: a file's content is deleted when its last unerased reference goes, through a reference index per hash, with a pending set a sweep retries.
+
+*As recorded when open:*  One option: erasure deletes bytes only when no unerased reference remains, which ADR-0017's sweep for unreferenced keys nearly is already, provided erasure marks the reference and not the hash. The other: references stop sharing blobs, which gives up the deduplication ADR-0017 wanted. The first keeps the design, and needs the sweep to run soon enough to meet an erasure deadline, a deployment obligation to write down.
 
 ### D208
 **Erasure stops at the object's own boundary, and a person's data crosses it in two common ways ADR-0078 says erasure follows.** First, supersession. The CRM merge (`case-study-crm.md` §3) closes the losing contact as `merged_into` the survivor, and the loser keeps its own personal values and history. Erasing the survivor, the id a request for erasure will name, reaches its parts (check 39) and not its predecessors, and none of ADR-0031, ADR-0051 or ADR-0078 mentions supersession. Second, arguments. A personal input passed to a `call` or `create` on another object is recorded in the caller's event payload as well as the callee's. ADR-0078 decision 3 says a personal input "is redacted wherever it was recorded", but `storage-schema.md` §9 step 7 applies it "in step 2", to the erased object's own events. So, for instance, a conversion that creates a contact from an input email leaves that email in the converting object's history after the contact is erased. Relatedly, ADR-0078 §2 redacts proposals "whose inputs carry a personal value" without saying whose: read literally, erasing one person invalidates every pending proposal that carries anyone's personal value. ADR-0078 is one of the three decisions taken by delegation, first in the author's review queue.
 
-**Open.** Decide whether erasure follows the supersession chain, which the store can walk since `superseded_by` is stored. Decide whether a callee's erasure reaches the caller's event, which it can find through `cause_position` and the flow check 10 already traces. Narrow the proposal clause to the erased person's values, and bring ADR-0078's "wherever" into line with what is decided.
+**Resolved by ADR-0087**, 2026-09-23: erasure follows the supersession chain, reaches the caller's event through the cause chain and the taint analysis, and the proposal clause names whose values.
+
+*As recorded when open:*  Decide whether erasure follows the supersession chain, which the store can walk since `superseded_by` is stored. Decide whether a callee's erasure reaches the caller's event, which it can find through `cause_position` and the flow check 10 already traces. Narrow the proposal clause to the erased person's values, and bring ADR-0078's "wherever" into line with what is decided.
 
 ### D209
 **The harness's deterministic racer cannot interleave a synchronous `request()`, and the library's open question on async cites the harness the wrong way round.** `adversarial-harness.md` §4 has the racer hold several connections in one process, "no thread races anything", and "make connection B do the same before letting A write", from which "the harness needs the store's API to be synchronous". But those statements are issued inside `Store.request`, which runs to completion on its caller's thread (`library-api.md` §6), and a synchronous call cannot be stopped between two of its statements within one thread. Stopping it needs one of two things. One is a thread per request, with an injected connection whose statements wait on a barrier the harness releases, which is a hook, the thing §4 rejected as invasive, though a small one. The other is a core written as coroutines, where every database call is a suspension point that a deterministic scheduler orders in one thread. `library-api.md` §8 keeps async open and counts the harness for a synchronous core; the second option counts the other way. Either way the store must take its connection source as an injected dependency, and ADR-0077 §7 lists only the id source and the clock. Found by reading.
 
-**Open.** Settle the async question with this in view, and add the connection source to the injected dependencies.
+**Resolved by ADR-0091**, 2026-09-23: the core is synchronous and takes its connection source as an injected dependency; the harness runs each request on its own thread behind a statement barrier and releases one statement at a time.
+
+*As recorded when open:*  Settle the async question with this in view, and add the connection source to the injected dependencies.
 
 ### D210
 **The settled position has no mechanism.** `DESIGN.md` §7 and `library-api.md`'s `EventPage.settled` promise "the highest position below which no transaction is still in flight". `storage-schema.md` §7 says that what the schema owes for it is "the oldest in-flight transaction's age", and that a consumer "must not advance its acknowledged position past `head - window`", which subtracts a duration from a position. Positions are allocated when a transition begins applying (ADR-0046 §5) and committed later, and on PostgreSQL a reader computing the bound cannot see another transaction's uncommitted rows. `ok_event` carries nothing, such as the writing transaction's id, from which the bound could be computed. On SQLite, with writers serialised (D204), the window is empty and the question does not arise.
 
-**Open.** Say how the bound is computed, and add what the schema needs for it. Recording the writing transaction's id on each event and reading below the oldest one still active is a common technique on PostgreSQL, and it bounds by transaction rather than by age.
+**Resolved by ADR-0089**, 2026-09-23: the log is read by a settled cursor, (transaction, position) bounded by the reader's snapshot, which a probe on PostgreSQL 16 showed cannot skip a late commit.
+
+*As recorded when open:*  Say how the bound is computed, and add what the schema needs for it. Recording the writing transaction's id on each event and reading below the oldest one still active is a common technique on PostgreSQL, and it bounds by transaction rather than by age.
 
 ### D211
 **An event row is completed at commit, and the schema says no event row is ever updated.** ADR-0046 §5 says "An event's identity is allocated when its transition begins applying, and its content is completed at commit", and D187's diagnosis rests on that allocation being a write on SQLite. `storage-schema.md` §2 declares `position INTEGER PRIMARY KEY AUTOINCREMENT`, which SQLite assigns only on insert, with `to_state` and `payload` `NOT NULL`, and says "Nothing else ever updates a row of `ok_event`, and nothing ever deletes one", erasure excepted. Either the event is inserted with placeholder content and updated at commit, or its position comes from somewhere other than the insert. Neither is written down, and the first makes the append-only sentence false.
 
-**Open.** Say which, and correct §2 or ADR-0046 to match. It matters beyond wording if a deployment ever enforces append-only on the table.
+**Resolved by ADR-0089**, 2026-09-23: the position is allocated first and the event row inserted once, complete; nothing but erasure updates it.
+
+*As recorded when open:*  Say which, and correct §2 or ADR-0046 to match. It matters beyond wording if a deployment ever enforces append-only on the table.
 
 ### D212
 **The publish event has no object to belong to.** `publish-and-import.md` §1 records "a publish event that is the cause of every one of those" migration events, and §3 gives each migration event "the publish event as its cause". `ok_event.object_id` is `NOT NULL REFERENCES ok_object(id)` (`storage-schema.md` §2), but a publish is not an object, `ok_declaration` is not in the directory, and the only built-in types are `Subscription` and `Proposal` (`DESIGN.md` §9).
@@ -1435,12 +1471,16 @@ One reviewer, reading the spine (`README.md`, `DESIGN.md`, `TODO.md`, `LESSONS.m
 ### D213
 **On PostgreSQL the mint's second connection can exhaust the pool it is drawn from.** `storage-schema.md` §6 and ADR-0076 allocate a sequence value on a second connection while the request's own connection holds its transaction open. If both come from one pool, a burst of concurrent creations can hold every connection, each waiting for a second that none will release, until the pool's timeout fails them all. Inferred, not probed.
 
-**Open.** Say that the mint uses a dedicated connection or its own pool, sized independently of the request pool.
+**Resolved by ADR-0090**, 2026-09-23: the mint draws from a pool of its own.
+
+*As recorded when open:*  Say that the mint uses a dedicated connection or its own pool, sized independently of the request pool.
 
 ### D214
 **Three shapes still cannot carry what the model says they carry.** `Stale` is `expected: int, actual: int` (`library-api.md` §4), but `DESIGN.md` §5.5 also returns `stale` when "the transaction exhausted its serialisation retries", where no `expected_version` need have been given. `Unsatisfied` carries one `object_id`, but a `dependent` verdict names "the parts" (`DESIGN.md` §5.3) and a `delegable` one "may name a capability and, if proposable, offer a Proposal" (§5.5), and it has a field for neither. And a tool schema renders a transition's inputs as properties beside `object_id`, `expected_version` and `idempotency_key` (`renderers.md` §3), and nothing in the syntax keeps an input from taking one of those names (§9.2 reserves only `any`, `terminal` and `superseding`, and only for states, categories and transitions), so an input called `object_id` collides with the request's own field.
 
-**Open.** Make `Stale`'s fields optional or give it a cause; give `Unsatisfied` its objects and capability; either reserve the three request field names against inputs or nest inputs under a property of their own.
+**Resolved by ADR-0092**, 2026-09-23: `Unsatisfied` names its objects, capability and whether a proposal is accepted; `Stale` carries its cause; a tool schema nests inputs under `inputs`.
+
+*As recorded when open:*  Make `Stale`'s fields optional or give it a cause; give `Unsatisfied` its objects and capability; either reserve the three request field names against inputs or nest inputs under a property of their own.
 
 ## Found by the design evaluation of 2026-09-23
 
@@ -1449,4 +1489,134 @@ Found while evaluating designs against the use cases of `PRD.md`, in writing the
 ### D215
 **ADR-0049 consults an external evaluator before the write transaction and never says what happens when the evaluator's argument depends on state the transaction reads or changes.** Its decision 1: "A request that names external guards consults them first, outside the transaction, then opens the transaction and evaluates everything else." An evaluator's argument is an expression over the object (`xero.invoice_valid(order_id)`), and for a cascaded transition over an object the parent's outcome reaches (`for u in units { call u.sell() }`), the argument is a value read from committed state before the transaction and possibly different inside it — a concurrent request may have changed it, or the request's own parent outcome may have written it. The verdict is then about a different object or value than the guard it is recorded against. ADR-0084 (proposed) closes the same gap for metric guards by resolving arguments before the transaction and again inside it, consulting again within the serialisation retry bound on a mismatch. Found by reading, while writing that rule.
 
-**Open.** Apply the same rule to external evaluators, and say what an argument that the request's own outcome writes means: most likely that it is refused at publish, since no consultation before the transaction can see a value the transaction has not yet written.
+**Resolved by ADR-0092**, 2026-09-23: an evaluator's arguments are resolved before the transaction and again inside it, and one the outcome writes is refused at publish.
+
+*As recorded when open:*  Apply the same rule to external evaluators, and say what an argument that the request's own outcome writes means: most likely that it is refused at publish, since no consultation before the transaction can see a value the transaction has not yet written.
+
+## Found by mapping the design against the PRD, 2026-09-23
+
+### D216
+**A read set discloses the ids of objects its reader cannot see.** ADR-0088's read set lists "every object a guard or invariant read, with the version it read", a type-scan's matches included, and `history`, `pull` and `export` return an event under the visibility of the event's own object. A reader permitted to see a delivery therefore learns the ids of the objects its guards read, whether or not they may see those objects. ADR-0030 refuses exactly that: "existence is information". PRD T5: "Visibility rules apply to every read, including datapoints and metrics." Found while mapping T5 in `traceability.md`, by reading `DESIGN.md` §6's read-set paragraph beside §5.8.
+
+**Resolved by ADR-0095**, 2026-09-23: a read filters the read set to what the reader can see and says that something was withheld; an auditor reads as an actor that can see everything.
+
+### D217
+**A metric guard's value is not recorded on the event, only its as-of time.** ADR-0084 §6: "The value and its as-of time go on the event beside the guard's name." `storage-schema.md` §4 said the payload "holds that value's as-of time", and `library-api.md`'s `Event` had `as_of` and no field for the value. A decision over a metric could therefore not be re-evaluated from the record (PRD L2). Found while writing ADR-0095's first decision.
+
+**Resolved by ADR-0095**, 2026-09-23: the payload holds each consulted verdict or value beside its as-of time, and `Event.consulted` returns it.
+
+## Found by reviewing the coverage claims against the PRD, 2026-09-23
+
+One reviewer read every passage `traceability.md` cites against every clause of the PRD requirement it claims to cover, and tried to write the use cases in the grammar. Each finding was confirmed by reading the cited text before it was repaired.
+
+### D218
+**An observation kind's personal fields cannot be erased.** `declaration-syntax.md` §6.8 allowed "A field may be `personal`", and the expansion gave a kind no `erase`, with no way to declare one. Check 39 requires "a `call` to that type's own `erase`", so a subject with an `erase` and a personal observation field could not publish, and one without could not be erased. `DESIGN.md` §8's "It reaches observations through the subject's `erase`, since they are parts" had no mechanism behind it. PRD D8. Found by the coverage review of 2026-09-23.
+
+**Resolved by ADR-0096**, 2026-09-23: each kind expands with a generated `forget`, which the subject's `erase` runs without a step and which may be requested on one observation.
+
+### D219
+**A correction is not validated, cannot be made on a terminal subject, and cannot be made by an agent.** §6.8 defined `corrects` as "an observation of the same kind and subject" and named only the guards `recorded_by` and `subject_open`, so nothing enforced the subject. A recorder allowed on one job could name another job's FAIL and, since a corrected observation is hidden from every read, open that job's gate. `subject_open` refused every correction once the subject was terminal, and the specification's own `ServiceJob` ended in a terminal `DONE`. The observation tool in `renderers.md` §3 had no `corrects` input and `additionalProperties: false`. PRD D4, D12, UC-19.
+
+**Resolved by ADR-0096**, 2026-09-23: a third guard, `corrects_current`; `corrects` in the tool; a correction is exempt from `subject_open` (D231).
+
+### D220
+**A metric path, an attempt's read set and a refusal's value can reveal what their reader cannot see.** Metrics applied only "the source type's visibility predicate" (`DESIGN.md` §5.12), while a dimension reaches two hops, so `by x = i.object.engineer.login` read Users the reader may not see. `library-api.md` §6 filtered "an event's `reads`" and not an attempt's. A refusal's metric value, once added, would have gone to a requester who may not see the rows it aggregates. PRD T5. The same review asked how C2's "every consumer … gets the same value" reads beside T5, which no document said.
+
+**Resolved by ADR-0096**, 2026-09-23: a path through a hidden object yields absence, and every result says whether it is complete for its reader; ADR-0095's filter covers attempts and refusals (D230, D235).
+
+### D221
+**A refusal does not carry the value it was decided on, and the attempt log does not record it.** UC-10: "the refusal names the value and the threshold". `Unsatisfied` had no value field, and neither `Attempt` nor `ok_attempt` recorded a consulted metric value or evaluator verdict, so a refused data-driven decision could not be re-evaluated from the record (PRD L2).
+
+**Resolved by ADR-0096**, 2026-09-23: `consulted` on `Unsatisfied`, `Attempt` and `ok_attempt`.
+
+### D222
+**Overrides cannot be counted per reason, or with the import's excluded.** UC-3 asks for "override counts per target state and per reason, excluding the objects placed there by the data import". ADR-0084 promised "overrides by target state and reason". `DESIGN.md` §5.12 dropped the reason, and the `.transitions` rows carried neither a reason nor a way to tell the import's events, which keep provenance `asserted`.
+
+**Resolved by ADR-0096**, 2026-09-23: `.reason` for a declared-enum reason, `.imported`, and the standard metric per target state and reason with the import's excluded.
+
+### D223
+**Cycle time cannot be attributed to the assignee who held the work, or split by who created it.** UC-18 asks "whether cycle time differs by engineer" as a standard metric, and none was listed. The specification's own example grouped state intervals by `i.object.engineer`, the current assignee, which moves a reassigned job's whole history to its latest engineer. `created_at` was not readable, and UC-16's "created by agents" had no member holding the creator's kind, although `data-driven-engine.md` claimed one.
+
+**Resolved by ADR-0096**, 2026-09-23: `.held(<member>)`, `.created_at` and `.created_by_kind`, and the cycle-time standard metrics.
+
+### D224
+**An occurred time has no upper bound.** Backdating was bounded only "no further back" and `occurred within` only "how far back", so a forward-dated occurred time was accepted, which falsified "so no interval is negative" and could shorten a measured lead time. PRD D5, UC-19.
+
+**Resolved by ADR-0096**, 2026-09-23: never later than the time it is recorded.
+
+### D225
+**Permanent refusal counts are monthly and nothing reads them.** `ok_attempt_rollup` was monthly, while UC-2 counts per week, and no metric source, operation or diagnostic read it: the `.attempts` source was individual rows, which are pruned. Beyond the retention period, UC-2 could not be answered. PRD T3.
+
+**Resolved by ADR-0096**, 2026-09-23: a daily rollup per object with the verdict, written in the prune's transaction, and the `<Type>.attempt_counts` source (D230).
+
+### D226
+**Legacy intervals contradict "the log can rebuild it".** `DESIGN.md` §7, ADR-0083 and ADR-0086 said the log rebuilds the interval index and the store keeps "no projection the log cannot rebuild", while `storage-schema.md` §6 said a `legacy = 1` row is "the one kind of row the log cannot rebuild", and the harness failed any "interval the log does not reproduce". The ported reassignments N5 depends on were in conflict with the harness.
+
+**Resolved by ADR-0096**, 2026-09-23: legacy intervals are imported history, not a projection, and the harness checks them for shape (D234).
+
+### D227
+**A failed file deletion waits on a sweep that no operation owns.** ADR-0087: "A deletion that fails leaves the hash marked pending. A sweep retries it, and the pending set is readable." Neither exists among the seventeen operations, so the sweep was either a background process that erasure's completeness depends on (PRD N2) or work nobody owned.
+
+**Resolved by ADR-0096**, 2026-09-23: the next erasure request retries pending deletions, and `diagnostics` lists them.
+
+### D228
+**An approval publishes on the dry run's impact report, however stale.** `publish-and-import.md` §1: approval "runs step 5", and step 3, which reads the live objects, runs only in the dry run. Objects that began violating a new invariant after the report was attached were never reported to the approver. PRD F7.
+
+**Resolved by ADR-0096**, 2026-09-23: the publish recomputes the report in its transaction and is refused if it changed.
+
+### D229
+**Four statements stale after ADR-0095, three underspecified points, and five rows citing no implementation.** Stale: `DESIGN.md` §5.11 and ADR-0082 said corrected observations are hidden "by default"; `data-driven-engine.md` §3.3 kept the superseded backdating bound; `DESIGN.md` §5.7 bound an undeclared `model :=` dimension; `library-api.md` §5 said an `Event` carries only the as-of time. Underspecified: a metric guard leaving a declared dimension unbound; check 54 not reserving `recorded_by_kind`. And the traceability rows for D7, D9, M3, M4 and V5 cited no implementing document, against the map's own definition of covered.
+
+**Resolved by ADR-0096**, 2026-09-23: each corrected; the unbound dimension is aggregated over; the checker now requires a covered row to cite an implementing document.
+
+## Found by the second pass of the coverage review, 2026-09-23
+
+The same reviewer read the repairs of D218 to D229 against the findings they claimed to close, and against the rest of the PRD.
+
+### D230
+**Two repairs of D220 and D225 still let a metric reveal what its reader cannot see.** The daily rollup had no object column (`storage-schema.md` §6), so after a prune `<Type>.attempt_counts` could apply no subject's visibility, and the same definition gave a partial reader different values before and after a prune. And a guard's recorded metric value was shown to anyone who could see every current object of the metric's *source* type, while its paths could reach related types the reader cannot see. Found by the second pass of the coverage review; the first leak was introduced by ADR-0096's own first draft.
+
+**Resolved by ADR-0096**, 2026-09-23: the rollup keeps the object; a recorded or consulted value is tested against every type the metric reads. The first remedy here for live metrics, withholding, broke M2 and was replaced (D235).
+
+### D231
+**A result on a finished subject can never be corrected.** ADR-0096's first draft kept `subject_open` for corrections, so a wrong result on a terminal subject stayed wrong for good. PRD D4 ("a mistake is corrected by a newer datapoint linked to it") has no such exception, and no revision of it was proposed.
+
+**Resolved by ADR-0096**, 2026-09-23: a correction is exempt from `subject_open`, since it adds no new fact to a settled whole.
+
+### D232
+**An erased personal enum survives in the interval index.** `DESIGN.md` §5.2: "Every **enum** attribute … is **tracked**", and nothing forbade marking an enum `personal`. `storage-schema.md` §9 skipped `ok_interval` because "an interval over a personal attribute is never kept, since only enums and references are tracked", which does not follow. The erased value stayed readable through `intervals(<member>)` and `.held`. PRD D8, UC-17. Present since ADR-0083; both passes of the first review missed it until the second.
+
+**Resolved by ADR-0096**, 2026-09-23: erasure redacts a personal enum's values in the interval index, as in the events it is rebuilt from. A first remedy, never tracking a personal attribute, narrowed D11 and was replaced (D235).
+
+### D233
+**The standard metrics' "open" and "completion" are undefined.** Work in progress, the oldest open work, open work per assignee and cycle time at completion (`DESIGN.md` §5.12, §5.13) all need to know when work is finished. Categories are a consumer's vocabulary, and the only built-in distinction was `terminal`, which means something else: nothing further will be recorded. Yet ADR-0070's report and the observation kind's `RECORDED` state already relied on `closed` having a meaning of its own. PRD M1, M6.
+
+**Resolved by ADR-0096**, 2026-09-23: `closed` is built into every vocabulary: work is open until it enters a `closed` or a terminal state, and completes when it first does (D235).
+
+### D234
+**Six gaps left by the first repairs.**
+- The no-future bound was in `DESIGN.md` and not in the specification's §4.2, which wins where the two disagree.
+- The approval re-check compared counts, so a different set of violating objects of the same size would pass.
+- `.created_at` and `.created_by_kind` of a ported object reflected the import, not the legacy creation.
+- An ordinary type could still declare a `created_at` of its own, shadowing the built-in.
+- The harness checked legacy intervals against "the import's record", which nothing stores.
+- `diagnostics(type)` was said to list pending file deletions, which carry no type and which its row did not mention.
+
+Also, UC-3's per-reason split existed only for enum reasons, and every assertion in the specification took a free-text reason.
+
+**Resolved by ADR-0096**, 2026-09-23: each corrected: §4.2's bound; ids compared at approval; legacy creation supplied by the mapping; the built-in names reserved by check 33; legacy intervals checked for shape; pending deletions listed through `ok_file_ref`; the machine example's assertion takes an `OverrideReason`.
+
+## Found by the third pass of the coverage review, 2026-09-23
+
+### D235
+**Withholding a metric group broke M2, leaked dimension values, and three smaller gaps.** ADR-0096's second draft answered D220 by showing a metric group only to a reader who could see every row it aggregated, and returning any other group `withheld`.
+- The standard metrics group by state and week, not by whatever a reader's visibility selects, so a person or agent who could see 99 of 100 objects got nothing from any of them. PRD M2 promises metrics "under the same visibility rules as the objects they are computed from", and UC-11 held only for an agent seeing every purchase order.
+- A withheld group kept its dimension values, so a group made wholly of hidden rows disclosed an assignee, a customer or a week of activity (PRD T5).
+- `diagnostics` aggregated over the whole type under no visibility rule at all.
+- A terminal state outside `closed` left work open forever in the standard metrics, with nothing to flag it.
+- Never tracking a personal attribute, the remedy for D232, narrowed PRD D11's "every choice-from-a-list attribute" with no revision proposed.
+
+Found by the third pass, which checked only the second round's repairs.
+
+**Resolved by ADR-0096**, 2026-09-23: a metric is computed over the rows its reader can see, with a path through a hidden object yielding absence, and says whether it is complete; `diagnostics` follows the same rule; a terminal state counts as finished; a personal enum is tracked and redacted at erasure.
+

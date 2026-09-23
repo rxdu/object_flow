@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D189, D191, D192 and D195 to D200, 2026-09-09; pending author review
 - **Date:** 2026-09-09
-- **Refined by:** ADR-0083 — `state_source` gains `imported`, kept apart from `asserted`.
+- **Refined by:** ADR-0083 — `state_source` gains `imported`, kept apart from `asserted`. ADR-0089 — the settled position becomes a settled cursor; ADR-0091 — the connection source joins the injected dependencies; ADR-0092 — `Stale` carries its cause.
 - **Refines:** ADR-0018, ADR-0027, ADR-0037, ADR-0054, ADR-0056, ADR-0075
 
 ## Context

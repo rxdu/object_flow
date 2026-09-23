@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
+- **Refined by:** ADR-0095 — a metric in a guard reads every row, and its value is recorded on the event and shown only as far as a reader's visibility reaches. ADR-0096 — a path through a hidden object yields absence, and every result says whether it is complete for its reader; a refusal carries the metric value it was decided on; an unbound dimension is aggregated over.
 - **Refines:** ADR-0047, ADR-0049
 
 ## Context

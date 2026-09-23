@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D187 and D188, 2026-09-09; pending author review
 - **Date:** 2026-09-09
+- **Refined by:** ADR-0090 — SQLite transactions begin `IMMEDIATE`; the mint has a pool of its own.
 - **Refines:** ADR-0023, ADR-0029, ADR-0041
 
 ## Context

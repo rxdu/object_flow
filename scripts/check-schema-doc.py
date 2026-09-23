@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Run every SQL block in the storage schema document against SQLite, and
-probe the one claim the document makes about SQLite's runtime behaviour.
+probe the three claims the document makes about SQLite's runtime behaviour.
 
 The specification's examples are checked against its own rules; this does the
 same for the schema's.  A DDL statement that does not execute is a defect in the
@@ -67,7 +67,7 @@ def probe_sequence_isolation(object_ddl, sequence_ddl):
             # the request has begun and has written: the directory row here,
             # the event position in a real request, before any outcome step
             req.execute("BEGIN")
-            req.execute("INSERT INTO ok_object VALUES ('obj_1', 'Robot', '2026-09-09')")
+            req.execute("INSERT INTO ok_object VALUES ('obj_1', 'Robot', '2026-09-09', 'human')")
 
             try:
                 same.execute(mint)
@@ -144,6 +144,56 @@ def probe_deferred_foreign_keys():
     return failures
 
 
+def probe_transaction_mode():
+    """ADR-0090, D204: every SQLite transition transaction begins IMMEDIATE.
+
+    A request reads (its guards), another request commits a write, and the
+    first then writes (its outcome).  Asserted both ways, so the probe fails if
+    the reason for the decision ever changes: under a deferred BEGIN in WAL
+    mode the first request's write fails with 'locked', which no timeout
+    resolves, since its snapshot is stale; under BEGIN IMMEDIATE the second
+    request cannot begin while the first holds the lock, so the first commits.
+    """
+    failures = []
+    for begin in ("DEFERRED", "IMMEDIATE"):
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "store.db"
+            setup = sqlite3.connect(path, isolation_level=None)
+            setup.execute("PRAGMA journal_mode=WAL")
+            setup.execute("CREATE TABLE t_stock (id INTEGER PRIMARY KEY, reserved INTEGER)")
+            setup.execute("INSERT INTO t_stock VALUES (1, 0)")
+            setup.close()
+            a = sqlite3.connect(path, isolation_level=None, timeout=0.2)
+            b = sqlite3.connect(path, isolation_level=None, timeout=0.2)
+            a.execute(f"BEGIN {begin}")
+            a.execute("SELECT reserved FROM t_stock WHERE id = 1").fetchone()
+            b_committed = True
+            try:
+                b.execute(f"BEGIN {begin}")
+                b.execute("UPDATE t_stock SET reserved = reserved + 1 WHERE id = 1")
+                b.execute("COMMIT")
+            except sqlite3.OperationalError:
+                b_committed = False
+                try:
+                    b.execute("ROLLBACK")
+                except sqlite3.OperationalError:
+                    pass
+            try:
+                a.execute("UPDATE t_stock SET reserved = reserved + 1 WHERE id = 1")
+                a.execute("COMMIT")
+                a_committed = True
+            except sqlite3.OperationalError:
+                a_committed = False
+            if begin == "DEFERRED" and not (b_committed and not a_committed):
+                failures.append("deferred: the read-then-write request was not refused after "
+                                "another committed, so the reason to begin IMMEDIATE no longer holds")
+            if begin == "IMMEDIATE" and not (a_committed and not b_committed):
+                failures.append("immediate: the first request did not hold the lock from its "
+                                "first statement")
+            a.close(); b.close()
+    return failures
+
+
 def main():
     text = DOC.read_text()
     nblocks, stmts = statements_of(text)
@@ -189,6 +239,13 @@ def main():
         return 1
     print("foreign-key probe: a deferred pair that require each other commits, the same "
           "pair without the clause does not, and a dangling reference still fails at commit")
+    tm = probe_transaction_mode()
+    if tm:
+        print("\n".join("  " + f for f in tm))
+        print("the transaction-mode claim of §7 does not hold")
+        return 1
+    print("transaction-mode probe: under a deferred BEGIN a read-then-write fails after another "
+          "commit; under BEGIN IMMEDIATE the first holds the lock and commits")
     return 0
 
 

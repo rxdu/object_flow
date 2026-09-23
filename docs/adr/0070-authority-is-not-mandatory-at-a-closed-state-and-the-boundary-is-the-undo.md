@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — recommendation accepted by the author 2026-09-08
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0096 — `closed` is built into every vocabulary, and says when work is open and when it completes.
 - **Refines:** ADR-0020
 - **Answers:** open question 1
 

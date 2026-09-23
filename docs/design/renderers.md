@@ -1,8 +1,8 @@
 # Renderers
 
-Draft, 2026-09-09. Three projections of one declaration: text a person reads, tool schemas an agent is given, and the field-level hints a form needs. They exist because the declaration is inspectable at runtime (ADR-0010), and that property is worth nothing until something renders it.
+Draft, 2026-09-09, amended 2026-09-23. Three projections of one declaration: text a person reads, tool schemas an agent is given, and the field-level hints a form needs. They exist because the declaration is inspectable at runtime (ADR-0010), and that property is worth nothing until something renders it.
 
-**Amendment pending.** ADR-0081 to ADR-0086, accepted 2026-09-23, change this document: each observation kind gets a tool, metrics get one tool that names them, an observing clause is printed as not enforced, and the assignee is named in the rule set. Until it is amended, where it disagrees with those ADRs or with `DESIGN.md`, they win (`TODO.md`).
+**Amended 2026-09-23** for ADR-0082 to ADR-0086 and ADR-0092: the rule set prints observations, metrics, the assignee and observing clauses; each observation kind and the metrics get tools; a tool's transition inputs are nested under `inputs`, so no input can collide with a request field; and the live offer's verdict names what its remedy points at.
 
 **What is verified.** `scripts/check-renderers-doc.py` parses every JSON example, checks that the tool schema is a schema a validator accepts, and confirms it rejects a call missing a required field and a call carrying an unknown one. The rule set of §2 is prose and is not checked; nothing generates it yet.
 
@@ -56,6 +56,32 @@ Delivery — version 1
 
 The guard column on the right is the **remedy class**, which is the one thing a reader most wants: it says whether a failure is theirs to fix, someone else's, a matter of waiting, or impossible from here.
 
+The constructs of ADR-0082 to ADR-0086 render in the same deterministic order, and each says what it is rather than leaving a reader to infer it:
+
+```
+ServiceJob — version 2
+  tracking record
+  assignee           engineer : User       responsible for the job; its history is tracked
+
+  Observations
+    inspections      InspectionResult      recorded by holders of PDI_RECORD;
+                                           value in V; may be recorded up to 7 days late
+
+  finish             WORKING → DONE
+    requires
+      mine           the engineer is the one acting           delegable
+      none_failed    no inspection failed                     dependent
+      photo_taken    a photo is attached        OBSERVING — NOT ENFORCED   self-serviceable
+    then
+      photo is the one supplied, if any
+
+  Metrics
+    time_working     median time in WORKING, by engineer, by month (UTC)
+                     flag slow when over 10 days
+```
+
+An **observing clause** is printed as not enforced, on the same line as the rule, so no reader can mistake a trial for a guarantee (ADR-0085). A **metric** is printed as its definition rendered in words, exactly as a guard is, because the rule set is the one place a definition is meant to be read as the rule; everywhere else points at `metric()` (§3). The **assignee** line says which reference is the responsibility, since that is what the assignment metrics are over (ADR-0086).
+
 Guard descriptions are rendered from the expression, not written by hand. `none(c in checklist_items where not c.checked)` becomes "every checklist item is checked". That rendering is mechanical and lossy on purpose — the expression is beside it in the machine-readable form, and a person reading a rule set wants the sentence.
 
 ## 3. Tool schemas
@@ -78,6 +104,11 @@ An agent is given one tool per **requestable** transition. Only-via transitions 
       },
       "idempotency_key": {
         "type": "string"
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
       }
     },
     "required": [
@@ -90,7 +121,62 @@ An agent is given one tool per **requestable** transition. Only-via transitions 
 
 The description names the operation and directs the caller to `availability`. It does not enumerate the guards. An agent that wants to know whether it can complete a delivery asks; it does not reason from a copy of the rules that was true when the prompt was written.
 
-A transition with inputs renders them as schema properties from their declared types, with `accepts` attributes and `input` declarations treated alike, since §5.1 of the syntax makes them the same thing.
+A transition with inputs renders them as properties **of `inputs`**, from their declared types, with `accepts` attributes and `input` declarations treated alike, since §5.1 of the syntax makes them the same thing. Nesting them keeps the request's own fields — `object_id`, `expected_version`, `idempotency_key` — at the top level, so no input name can collide with one, now or when a request field is added (ADR-0092).
+
+**Each observation kind is a tool** (ADR-0082), since recording one is a creation request. The subject, the fields, the observation a correction replaces, and an occurred time within the kind's bound are its inputs (ADR-0096):
+
+```json
+{
+  "name": "record_inspection_result",
+  "description": "Record one inspection result on a service job. Who may record it, and how late, are rules the store checks; call availability(subject_id) to see whether recording is available on this subject now.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "subject_id": {
+        "type": "string",
+        "description": "the ServiceJob"
+      },
+      "idempotency_key": {
+        "type": "string"
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "check": {"type": "string", "description": "the InspectionCheck"},
+          "outcome": {"type": "string", "enum": ["PASS", "FAIL", "NOT_APPLICABLE"]},
+          "value": {"type": "number", "description": "in V"},
+          "note": {"type": "string"},
+          "corrects": {"type": "string", "description": "the InspectionResult on this service job that this one replaces"},
+          "occurred_at": {"type": "string", "format": "date-time"}
+        },
+        "required": ["check", "outcome"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["subject_id", "inputs"],
+    "additionalProperties": false
+  }
+}
+```
+
+**Metrics are one tool**, naming every metric the reader may see by name and nothing more (ADR-0084). The description does not restate a definition, for the reason a transition's description does not restate a guard: `metric()` evaluates the real definition against the real data.
+
+```json
+{
+  "name": "read_metric",
+  "description": "Read a declared or standard metric, as rows of dimensions, value and the flags that hold, in UTC calendar time, computed over the rows you may see; complete says whether those are all the rows there are. The definitions are in declaration(type); this tool does not restate them.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "name": {"type": "string", "enum": ["time_working", "inspection_pass_rate", "supplier_lead_time"]},
+      "filter": {"type": "string"},
+      "cursor": {"type": "string"}
+    },
+    "required": ["name"],
+    "additionalProperties": false
+  }
+}
+```
 
 ## 4. The live offer
 
@@ -106,7 +192,9 @@ A transition with inputs renders them as schema properties from their declared t
       "clause": "settled",
       "remedy": "dependent",
       "unknown": false,
-      "object": "dlv_8f2a"
+      "objects": ["chk_41c0", "chk_41c7"],
+      "capability": null,
+      "proposable": false
     },
     "inputs": {},
     "unevaluated": []
@@ -134,7 +222,7 @@ Three-way availability, not two. `available_with_input` is the case a form cares
 
 `unevaluated` is what keeps this honest about external evaluators. `availability` never calls one (ADR-0048, ADR-0049), so a transition gated on an external fact reports the guards it could not evaluate, and a caller that treats the offer as a promise has been told not to.
 
-`remedy` is what an agent should branch on rather than on the clause name: `delegable` means find someone with the authority, `temporal` means wait, `dependent` means change something else first, `self_serviceable` means fix the request, and `unreachable_from_here` means stop.
+`remedy` is what an agent should branch on rather than on the clause name: `delegable` means find someone with the authority, `temporal` means wait, `dependent` means change something else first, `self_serviceable` means fix the request, and `unreachable_from_here` means stop. The verdict also says **what the remedy points at** (ADR-0092): `objects` are the checklist items still unchecked, so an agent works on them rather than guessing; `capability` would name the authority a `delegable` clause asks for; `proposable` says whether filing a proposal would be accepted.
 
 ## 5. Form hints
 
@@ -149,6 +237,8 @@ Nothing new is needed for this, which is the point worth making: if a third rend
 **Decided.** Each followed from a decision the record already carried, or from what the design made unavoidable.
 
 - **Localisation: the renderer emits a structure and English is one rendering of it.** A guard sentence comes out as its clause name, its operator and its operands. A deployment substitutes its own without the renderer knowing any language, and a guard that changes changes its sentence in every language at once.
+- **Tool inputs are nested under `inputs`** (ADR-0092), each observation kind is a tool, and metrics are one tool that names them without restating a definition.
+- **An observing clause prints as not enforced**, on the line of the rule it trials (ADR-0085).
 - **A rule-set diff is semantic, and it is not new work.** Publishing already compares the incoming declaration with the installed one to decide what needs a mapping, so the diff is a rendering of that comparison rather than a second mechanism that could disagree with it.
 
 **Still open.**

@@ -1,16 +1,16 @@
 # Library API
 
-Draft, 2026-09-09. The request and verdict shapes of [`../DESIGN.md`](../DESIGN.md) §6 and the read surface of §10, as one interface a program calls. Transport bindings come after and are not here.
+Draft, 2026-09-09, amended 2026-09-23. The request and verdict shapes of [`../DESIGN.md`](../DESIGN.md) §6 and the read surface of §10, as one interface a program calls. Transport bindings come after and are not here.
 
 **What is verified.** The Python below executes, and `scripts/check-api-doc.py` compares the operations it offers against the read surface DESIGN.md §10 declares, so the two cannot drift apart silently. It is **not** typechecked — there is no mypy in the environment this was written in, and the annotations are therefore reviewed and not proven.
 
-**Amended 2026-09-23** for ADR-0084 and ADR-0085, which the author accepted: `metric`, `diagnostics`, and `publish` of a `DeclarationChange`. **Still pending** for ADR-0082 and ADR-0083: the shapes of an observation, an attempt and an interval, which no operation here returns yet, since observations are read as parts and the other two through metrics.
+**Amended 2026-09-23** for ADR-0082 to ADR-0094: `metric`, `diagnostics` and `export`; `publish` of a `DeclarationChange`; the settled cursor for `pull` and `acknowledge`; the read set, writing transaction, occurred time and retry count on an event; the attempt and interval shapes; `Unsatisfied` naming what its remedy points at, and `Stale` its cause; and the injected dependencies, including the connection source.
 
 ## 1. Why Python, and what that does not mean
 
 The core is library-shaped: a call goes in, guards evaluate, a transition and its record come out (§2 of the model). The first consumer is a FastAPI and SQLAlchemy system being rebuilt on this, so a Python interface is the one that will be exercised first and is the one written here.
 
-That is a **binding**, not the design. The operations, their arguments and their results are the API; the dataclasses are one rendering of it. A second binding should offer the same sixteen operations with the same meanings, and the checker's comparison against §10 is written against the operation set rather than against Python.
+That is a **binding**, not the design. The operations, their arguments and their results are the API; the dataclasses are one rendering of it. A second binding should offer the same seventeen operations with the same meanings, and the checker's comparison against §10 is written against the operation set rather than against Python.
 
 ## 2. Three rules the shapes follow
 
@@ -20,7 +20,7 @@ That is a **binding**, not the design. The operations, their arguments and their
 
 **Nothing returns a mutable view of stored state.** Every shape is frozen. An object returned by `get` is what was true at the moment it was read, and writing to it would be the second write path the model exists to refuse.
 
-## 3. The actor and the request
+## 3. The actor, the request, and what the store is built from
 
 ```python
 from __future__ import annotations
@@ -64,11 +64,32 @@ class Request:
     expected_version: int | None = None
     idempotency_key: str | None = None
     context: str | None = None
+    occurred_at: datetime | None = None   # only on a backdatable transition (ADR-0083)
+
+
+# ------------------------------------------- what the store is built from
+
+class IdSource(Protocol):
+    def new_id(self) -> str: ...          # a UUIDv7 in production (ADR-0077)
+
+
+class Clock(Protocol):
+    def now(self) -> datetime: ...        # read once per request, and recorded
+
+
+class ConnectionSource(Protocol):
+    """Where the store gets its database connections (ADR-0091). Production
+    passes a pool; the harness passes connections whose every statement waits
+    at a barrier it controls, which is how it interleaves requests."""
+
+    def connect(self) -> Any: ...
 
 
 ```
 
-A creation names a `type` and no `object_id`; every other transition names an `object_id`. `expected_version` is the optimistic check of ADR-0023, `idempotency_key` makes a retry safe by replaying the first result rather than refusing it (ADR-0041), and `context` is the free-form route marker that ends up in the event's provenance. A request carrying both a key and an `expected_version` is matched on its key first: a replay returns the recorded verdict whatever version the retry supplies, and `Stale` is possible only for a request that has not been applied (ADR-0076).
+A creation names a `type` and no `object_id`; every other transition names an `object_id`. `expected_version` is the optimistic check of ADR-0023, `idempotency_key` makes a retry safe by replaying the first result rather than refusing it (ADR-0041), and `context` is the free-form route marker that ends up in the event's provenance. A request carrying both a key and an `expected_version` is matched on its key first: a replay returns the recorded verdict whatever version the retry supplies, and `Stale` is possible only for a request that has not been applied (ADR-0076). `occurred_at` is accepted only by a transition marked backdatable, within its bound (ADR-0083).
+
+A store is built from a backend, an `IdSource`, a `Clock` and a `ConnectionSource`, all injected, so a test controls everything nondeterministic about a request (ADR-0077, ADR-0091). The core is **synchronous**: an operation runs to completion on its caller's thread, and an asynchronous service such as the first consumer's wraps it on a thread pool.
 
 ## 4. The verdict
 
@@ -84,6 +105,11 @@ class Remedy(Enum):
     UNREACHABLE_FROM_HERE = "unreachable_from_here"
 
 
+class StaleCause(Enum):
+    EXPECTED_VERSION = "expected_version"
+    RETRIES_EXHAUSTED = "retries_exhausted"
+
+
 @dataclass(frozen=True)
 class Satisfied:
     object_id: str
@@ -95,15 +121,22 @@ class Satisfied:
 @dataclass(frozen=True)
 class Unsatisfied:
     clause: str
-    object_id: str
     remedy: Remedy
     unknown: bool
+    objects: Sequence[str] = ()           # what a dependent remedy says to work on,
+                                          # or the object the clause read (ADR-0092)
+    capability: str | None = None         # for a clause over actor.has(C)
+    proposable: bool = False              # whether a proposal would be accepted
+    consulted: Mapping[str, Any] = field(default_factory=dict)
+                                          # the metric values and evaluator verdicts
+                                          # the clause was decided on (ADR-0096)
 
 
 @dataclass(frozen=True)
 class Stale:
-    expected: int
-    actual: int
+    cause: StaleCause
+    expected: int | None = None           # present for EXPECTED_VERSION only
+    actual: int | None = None
 
 
 @dataclass(frozen=True)
@@ -136,7 +169,9 @@ Verdict = (
 
 ```
 
-`Unsatisfied.unknown` is the one field that repays explanation. A guard whose expression evaluated to unknown, because it read something absent, is unsatisfied — but it is not the same answer as a guard that was false, and §8.2 of the syntax makes the distinction. A caller showing "you cannot do this yet" wants to know which it was.
+`Unsatisfied` says what the caller should do about it, which is what PRD F4 asks: its remedy class, and what that remedy points at — the objects to work on first, the capability that would satisfy the clause, whether a proposal would be accepted (ADR-0092). `unknown` is the one field that repays explanation: a guard that read something absent is unsatisfied, and not the same answer as a guard that was false (§8.2 of the syntax).
+
+`Stale` carries its cause. Only a stale `expected_version` has an expected and an actual version; exhausted retries — a contended row on PostgreSQL, a busy timeout on SQLite (ADR-0090) — have neither.
 
 `Satisfied.events` is the positions of every event the request appended, the parent's first. A cascade of three parts returns four.
 
@@ -166,6 +201,8 @@ class Object:
     state: str
     version: int
     declaration_version: int
+    created_at: datetime                  # from its creation event (ADR-0096)
+    created_by_kind: ActorKind
     attributes: Mapping[str, Any]
 
 
@@ -173,6 +210,17 @@ class Object:
 class Page:
     items: Sequence[Any]
     cursor: str | None
+
+
+@dataclass(frozen=True)
+class ReadSet:
+    """What the rules evaluated for an event read (ADR-0088): enough to
+    re-evaluate them from the record."""
+
+    objects: Mapping[str, int]            # object id -> the version read
+    capabilities: Mapping[str, bool]      # each actor.has(C) asked -> its answer
+    now: datetime                         # fixed once per request
+    withheld: bool = False                # something the reader cannot see was read (ADR-0095)
 
 
 @dataclass(frozen=True)
@@ -192,9 +240,14 @@ class Event:
     cause: int | None
     declaration_version: int
     taint_version: int
+    txn: str                              # the writing transaction (ADR-0089)
     recorded_at: datetime
+    occurred_at: datetime | None          # when a backdated change happened (ADR-0083)
+    retries: int                          # serialisation retries its request took
     payload: Mapping[str, Any]
-    as_of: Mapping[str, datetime]     # per external guard: when its verdict was given
+    reads: ReadSet
+    consulted: Mapping[str, Any]          # per evaluator or metric guard: the verdict or value given
+    as_of: Mapping[str, datetime]         # per evaluator or metric guard: when its value was given
 
 
 @dataclass(frozen=True)
@@ -219,8 +272,8 @@ class Checked:
 @dataclass(frozen=True)
 class EventPage:
     events: Sequence[Event]
-    cursor: str | None
-    settled: int                      # acknowledge no further than this
+    settled: str                          # the settled cursor: acknowledge this, and
+                                          # never anything past it (ADR-0089)
 
 
 @dataclass(frozen=True)
@@ -228,23 +281,83 @@ class MetricRow:
     """One row of a metric the reader may see (ADR-0084)."""
 
     dimensions: Mapping[str, Any]
-    value: Any                        # unknown is None, as division by zero is
-    flags: Sequence[str]              # the declared flags that hold for this row
-    time_basis: str = "UTC calendar"  # every metric says so (PRD C6)
+    value: Any                            # unknown is None, as division by zero is
+    flags: Sequence[str]                  # the declared flags that hold for this row
+    time_basis: str = "UTC calendar"      # every metric says so (PRD C6)
+
+
+@dataclass(frozen=True)
+class MetricPage:
+    """A metric over the rows its reader may see (ADR-0096)."""
+
+    rows: Sequence[MetricRow]
+    cursor: str | None
+    complete: bool                        # the reader sees every current object of each type
+                                          # the metric reads; otherwise the values are over
+                                          # the reader's own rows, and are not the metric's
 
 
 @dataclass(frozen=True)
 class Diagnostic:
     """One place a flow and reality disagree (ADR-0085)."""
 
-    kind: str                         # e.g. "unused_transition", "top_refusal", "reassignment_loop"
-    subject: str                      # the transition, state, clause, label or assignee it concerns
-    measure: Any                      # the count, duration or rate that put it on the list
+    kind: str                             # e.g. "unused_transition", "top_refusal", "reassignment_loop"
+    subject: str                          # the transition, state, clause, label or assignee it concerns
+    measure: Any                          # the count, duration or rate that put it on the list
+    complete: bool = True                 # computed over every object, as a metric's result says
+
+
+@dataclass(frozen=True)
+class Attempt:
+    """A request that did not apply, or an observing clause's would-be
+    refusal (ADR-0083). Never its inputs."""
+
+    at: datetime
+    actor_id: str
+    actor_kind: ActorKind
+    principal: str | None
+    context: str | None
+    type: str
+    object_id: str | None
+    transition: str | None                # None for a request naming no transition
+    verdict: str                          # the verdict kind, or the fault's name
+    clause: str | None
+    remedy: Remedy | None
+    unknown: bool
+    enforced: bool                        # False for an observing clause
+    reads: ReadSet | None                 # the failing clause's read set (ADR-0088)
+    consulted: Mapping[str, Any]          # its metric values and evaluator verdicts (ADR-0096)
+    declaration_version: int
+
+
+@dataclass(frozen=True)
+class Interval:
+    """A span during which an object held one state, or one value of a
+    tracked member (ADR-0083, ADR-0086)."""
+
+    object_id: str
+    dimension: str                        # "state", or the tracked member's name
+    value: Any                            # None for absence: time unassigned is one
+    entered_at: datetime                  # occurred time where backdated
+    left_at: datetime | None              # None while it is the current value
+    entered_by_kind: ActorKind
+    declaration_version: int
+    legacy: bool = False                  # supplied by the import mapping
+
+
+@dataclass(frozen=True)
+class ExportPage:
+    """JSON lines, one row per line, every personal value omitted (ADR-0094)."""
+
+    lines: Sequence[str]
+    cursor: str                           # the settled cursor to continue from
 
 
 ```
 
-An `Event` carries what the log stores and no more: the actor's id, kind and principal rather than a descriptor, since the log never recorded capabilities; the declaration version and taint version in force; and, per external guard, the as-of time of the verdict it was given (ADR-0049). `EventPage.settled` is the position below which no transaction is still in flight, which is as far as a consumer may acknowledge (§7 of the model, ADR-0077).
+An `Event` carries what the log stores and no more: the actor's id, kind and principal rather than a descriptor; the declaration and taint versions in force; its writing transaction; its read set; and, per evaluator or metric guard, the verdict or value it was given and that value's as-of time (ADR-0049, ADR-0088, ADR-0089, ADR-0095). The capabilities an actor held are not stored, but the ones a rule asked about are, with their answers, in `reads`.
+
+`EventPage.settled` is a **settled cursor**, not a position: the last (transaction, position) pair the reader returned, drawn only from transactions that had finished when its snapshot was taken, so a later commit can never sort before it (ADR-0089). A consumer acknowledges exactly that.
 
 `TransitionOffer.unevaluated` is what makes the read surface honest about external evaluators: `availability`, `available` and `check` never call one, and each says which guards it therefore did not evaluate (ADR-0048, ADR-0049). A caller that treats an offer as a promise is wrong, and the field is there so it cannot claim it was not told.
 
@@ -285,13 +398,16 @@ class Store(Protocol):
                     version: int | None = None) -> Mapping[str, Any]: ...
 
     def pull(self, actor: Actor, subscription: str,
-             position: int) -> EventPage: ...
+             cursor: str | None = None) -> EventPage: ...
 
     def acknowledge(self, actor: Actor, subscription: str,
-                    position: int) -> None: ...
+                    cursor: str) -> None: ...
 
     def metric(self, actor: Actor, name: str, filter: str | None = None,
-               cursor: str | None = None) -> Page: ...
+               cursor: str | None = None) -> MetricPage: ...
+
+    def export(self, actor: Actor, source: str,
+               cursor: str | None = None) -> ExportPage: ...
 
     def diagnostics(self, actor: Actor, type: str) -> Sequence[Diagnostic]: ...
 
@@ -301,11 +417,17 @@ class Store(Protocol):
 
 `PublishReport` is defined in [`publish-and-import.md`](publish-and-import.md) §2, which owns it: publishing is where its shape is decided and one shape should have one home.
 
-Sixteen operations: the thirteen of §10, the write path of §6, and the two operational calls that are not object operations. `metric` returns a `Page` of `MetricRow`s, and `diagnostics` a short fixed list. `publish` takes the id of a `DeclarationChange` (ADR-0085): with `dry_run` it produces the impact report a draft carries, and without it it installs an approved change and is refused for any other. The checker holds this list against §10 rather than trusting it.
+Seventeen operations: the fourteen of §10, the write path of §6, and the two operational calls that are not object operations. The checker holds this list against §10 rather than trusting it.
+
+- `metric` returns a `MetricPage`, and `diagnostics` a short fixed list, each computed over what the reader may see and saying whether that is everything (ADR-0096).
+- `export` takes a source — `log`, `<Type>.intervals`, `<Type>.transitions`, `<Type>.attempts`, or an observation kind — and returns JSON lines of the corresponding shape above, with every personal value omitted (ADR-0094).
+- `history`, `pull` and `export` filter the `reads` and `consulted` of an event or an attempt for the reader: an object the reader cannot see is left out and `withheld` is set, and a metric value is left out unless the reader can see every current object of each type the metric reads (ADR-0095, ADR-0096). A refusal's `Unsatisfied.consulted` follows the same rule for its requester, since a metric in a guard reads rows the requester may not see: the value is given to a requester who can see every current object of each type the metric reads, and otherwise left out.
+- `metric` aggregates the rows the reader may see, after narrowing them by `filter`, and a path through an object the reader may not see yields absence. `complete` says whether those rows are all there are, so a partial value is never taken for the metric's own (PRD C2, M2, T5, ADR-0096).
+- `publish` takes the id of a `DeclarationChange` (ADR-0085): with `dry_run` it produces the impact report a draft carries, and without it it installs an approved change and is refused for any other.
 
 Three of them are worth reading twice.
 
-**`check` is advice, not a reservation.** It simulates the same sequence internally, takes no locks and has no effect, so the answer can be stale before the caller acts on it. It also costs what the request would cost: simulating a cascade over five hundred parts evaluates five hundred guards. It returns a `Checked`: the verdict, and the external guards it did not evaluate, since `availability`, `available` and `check` call no evaluator (ADR-0054, ADR-0077).
+**`check` is advice, not a reservation.** It simulates the same sequence internally, takes no locks and has no effect, so the answer can be stale before the caller acts on it. It also costs what the request would cost: simulating a cascade over five hundred parts evaluates five hundred guards. It returns a `Checked`: the verdict, and the external guards it did not evaluate, since `availability`, `available` and `check` call no evaluator (ADR-0054, ADR-0077). It does compute internal metrics.
 
 **`available` requires the transition to be sweepable.** Its guards must decompose into an indexable prefilter plus a residual (ADR-0048). A transition that is not sweepable is refused here rather than scanned, which is a real constraint on how a time-driven guard is written, because this query is how all time-driven work in the system finds its objects.
 
@@ -319,20 +441,18 @@ Everything in §4 is a value. These are the five things that raise, and the list
 |---|---|
 | `DeclarationError` | the store has no usable declaration: none installed, or the installed one will not load |
 | `UnknownTransition` | the named transition does not exist on that type in the current version. Not a verdict, because a verdict answers "may I", and this is "there is no such thing" |
-| `StorageUnavailable` | the database is unreachable, or a transaction failed for a reason that is not a serialisation conflict. A serialisation conflict is retried and then becomes `stale`, which is a verdict |
+| `StorageUnavailable` | the database is unreachable, or a transaction failed for a reason that is neither a serialisation conflict nor, on SQLite, a busy timeout. Both of those are retried and then become `stale`, which is a verdict (ADR-0090) |
 | `SchemaMismatch` | the installed declaration and the tables disagree, which means a publish did not complete |
 | `KeyReused` | this actor applied the idempotency key before, to a different request. A retry is the same request, so a different body under a used key is a defect in the caller's key generation, and neither replaying the other request's result nor applying this one under its key would be honest (ADR-0077) |
 
-Note what is not there. An unknown object id is `NotFound`, an invisible one is also `NotFound`, and a malformed input is `Unsatisfied` on the guard that reads it. Those are answers about the domain and the caller must handle them, so they are values.
+Note what is not there. An unknown object id is `NotFound`, an invisible one is also `NotFound`, and a malformed input is `Unsatisfied` on the guard that reads it. Those are answers about the domain and the caller must handle them, so they are values. `UnknownTransition` and `KeyReused` are faults, and each is also recorded in the attempt log, since both are mistakes a caller makes (ADR-0083).
 
-## 8. Decided since the first draft, and still open
+## 8. Decided since the first draft
 
-**Decided.** Each followed from a decision the record already carried, or from what the design made unavoidable.
+Each followed from a decision the record already carried, or from what the design made unavoidable.
 
 - **Streaming stays as it is:** an iterator for `history`, a page for everything else. History is the only unbounded result, and a cursor is what a caller can hold across a request boundary while an iterator is not.
 - **The declaration is loaded from the store**, not from a file. `publish` writes it to `ok_declaration` and a starting process reads the installed version, which keeps a recorded event's declaration version resolvable and makes a process that disagrees with the store impossible rather than unlikely. The `.ok` files stay in version control as the input to a publish.
 - **The exception list is closed** at the five of §7.
-
-**Still open.**
-
-- **Async.** The Protocol is synchronous and the first consumer is FastAPI, which is not. A synchronous core with an async wrapper is the recommendation, since the core's one long operation is a database transaction and the wrapper can own the pool — and the harness needs a synchronous surface anyway, to stop between statements. It is still a fork worth confirming before either is built.
+- **The core is synchronous** (ADR-0091). The asynchronous question this section once left open is settled: a synchronous core with an asynchronous wrapper for the first consumer's FastAPI service, and the connection source injected, which is what the harness needs to interleave requests at statement boundaries.
+- **Cursors are opaque strings.** A settled cursor encodes a (transaction, position) pair on PostgreSQL and a position on SQLite, and a caller never parses it (ADR-0089).

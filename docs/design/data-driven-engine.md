@@ -2,7 +2,7 @@
 
 Draft, 2026-09-23, written at the author's direction and aligned with **revision 3** of [`../PRD.md`](../PRD.md), whose requirements and nineteen use cases it evaluates designs against. This document owns the **evaluation**: for each design question, the options considered, how each fared against the use cases, and why the chosen one was chosen. The **decisions** are ADR-0081 to ADR-0086, which own them; where this document and an ADR disagree, the ADR wins. §11 says what changed when the PRD was revised.
 
-**The author accepted all six ADRs on 2026-09-23**, and made the PRD the baseline every design choice is checked against. [`../DESIGN.md`](../DESIGN.md) was amended the same day; the implementation documents §8 lists carry notices until each is amended. The two defaults of PRD §10 are taken as given: machine telemetry is out of scope, and the release order is the one the PRD proposes (§9).
+**The author accepted all six ADRs on 2026-09-23**, and made the PRD the baseline every design choice is checked against. [`../DESIGN.md`](../DESIGN.md) and every implementation document §8 lists were amended the same day, and the design was then iterated until every PRD requirement was covered ([`traceability.md`](traceability.md)). The two defaults of PRD §10 are taken as given: machine telemetry is out of scope, and the release order is the one the PRD proposes (§9).
 
 ## 1. The shape
 
@@ -90,7 +90,7 @@ Recording is a creation request, so an observation has an actor, an event, an id
 - **Two part rules bend, and the reasons behind them hold.** Check 11 requires a part's creation to be `only via` its whole, so that nothing is added to a settled whole. An observation is recordable directly, and instead may not be recorded on a subject in a **terminal** state. That is what "settled" means, since a terminal state "says nothing further will ever be recorded" (`declaration-syntax.md` §4.2). And a born-final part cannot be driven by a cascade, so the language supplies `survives` for it (check 37).
 - **Recording does not write the subject** (D9). It does not bump the subject's version and does not conflict with a concurrent transition on it. A recorded fact matters to the flow only through a guard that reads it (§3.5).
 - **Recording is authorised and validated** (D12). Who may record a kind is its `recorded by` guard. Its fields are typed. A numeric field may state its unit, which the rule set prints and a read returns beside the value; units are not converted or checked in arithmetic. A kind may declare invariants over its own fields — a voltage within a range — checked when it is recorded, like any local invariant.
-- **Nothing is edited** (D4). A correction is a new observation of the same kind and subject that names the one it corrects, and aggregates read the uncorrected ones by default. Both stay in history. Erasure is the one exception, and it removes only personal values (D8).
+- **Nothing is edited** (D4). A correction is a new observation of the same kind and subject that names the one it corrects, and every read of the kind sees only the uncorrected ones (as made exact by ADR-0095 and ADR-0096). Both stay in history. Erasure is the one exception, and it removes only personal values (D8).
 - **A transition can record what it decided on**, with an ordinary `create` step in its outcome. That is UC-5: order commitment records the availability check it just made.
 - **Operator-maintained catalogues are objects** (D7). The checklist is `InspectionCheck` objects per product configuration, created by an ordinary transition, and the kind references one. Changing a checklist is data, not a publish.
 - **The cost is honest and small.** An observation is a directory row, a type row and an event. At an inspection rate of tens per robot that is nothing. At a sensor rate it is the wrong tool, which is one reason telemetry is not an observation (§3.7).
@@ -147,7 +147,7 @@ It is an index over the log in the sense of ADR-0048 and ADR-0057: the log can r
 
 **When it happened** (D5). With recorded time only, UC-6 fails. **Decided:** a transition may be marked `backdatable within <duration>`, and then accepts an occurred time inside that bound.
 - The event keeps both times.
-- An occurred time may not precede the object's previous state change, so no interval is negative.
+- An occurred time may not precede the start of the current interval of any state or tracked value the request changes, nor be later than the time it is recorded, so no interval is negative (as amended by ADR-0095 and ADR-0096).
 - A time past the bound is refused, which is UC-19's second route.
 - Guards still read `now` as the clock.
 - Diagnostics report how often each transition is backdated, which is the check on the mistake it invites.
@@ -197,7 +197,7 @@ The grammar is the syntax document's to write. What is decided here is the seman
 - **Flags:** named conditions on a value, declared once, which a scheduler or an agent queries — a business exception across many objects (§3.10). The store never sends one.
 - **Time** is UTC calendar time, and every metric says so (C6). Working-hours calendars are out of scope for the first release, as `edge-cases.md` already records.
 - **Windows** relative to `now` are allowed in a metric. No invariant may read a metric, for check 32's reason.
-- **Computation:** each metric compiles to SQL over the store's tables and is evaluated on read, under the reader's visibility. Source rows are filtered by the source type's `visible when` predicate, which check 7 already requires to be expressible as a query filter; observations, intervals and attempts inherit their subject's. A metric is therefore retroactive by construction (C4). A cache may come later, keyed by visibility, if measurement asks for one.
+- **Computation:** each metric compiles to SQL over the store's tables and is evaluated on read, under the reader's visibility. Source rows are filtered by the source type's `visible when` predicate, which check 7 already requires to be expressible as a query filter; observations, intervals and attempts inherit their subject's. A metric is therefore retroactive by construction (C4). A cache may come later, keyed by visibility, if measurement asks for one. *(Amended by ADR-0096: a path through an object the reader cannot see yields absence, and every result says whether it is complete for its reader, so a partial value is never taken for the metric's own, which C2 requires.)*
 - **Percentile on SQLite.** SQLite 3.37.2 has no percentile function. Nearest-rank computed with `ROW_NUMBER()` and `COUNT(*)` over a partition gave the right eightieth percentile on two test groups (ten values and three), and PostgreSQL has `percentile_cont`. Probed, not yet in a checker.
 - **Personal data:** a personal attribute or field may be counted, but may not be a dimension, a flag's operand or an unaggregated output. A metric then stores nothing personal, and erasure needs nothing from it (UC-17).
 - **Standard metrics (M1)** are generated for every type from its datasets:
@@ -445,7 +445,7 @@ Seven new constructs:
 
 To measure rather than assume:
 
-- metric latency at the first consumer's scale, on both backends, which is what sets C5's target;
+- metric latency at the first consumer's scale, on both backends, which is what sets C5's target. An indicative first measurement, `scripts/probe-metric-latency.py` on 2026-09-23: SQLite 3.37.2 in memory, synthetic data, 97,142 state intervals over 20,000 objects (roughly thirty times the first consumer's live objects), no visibility filter. Median of seven runs: 284 ms for an 80th-percentile time in state by state and month, 36 ms for work in progress with the oldest open, 16 ms for weekly throughput by actor kind. Disk, PostgreSQL and visibility are unmeasured, so this bounds nothing; it says the percentile is the metric to watch;
 - the first consumer's event and datapoint rates before cutover (N3);
 - how far back its audit trail records reassignments;
 - percentile in a checker, rather than one probe;
@@ -455,13 +455,13 @@ To measure rather than assume:
 
 ## 8. What acceptance changes
 
-Accepted 2026-09-23. `DESIGN.md`, the back-links, `library-api.md`'s two operations and `edge-cases.md` were amended the same day; the rest carry a notice and are tracked in `TODO.md`. What acceptance changes:
+Accepted 2026-09-23, and every change below was made the same day. The syntax took iteration 19, which also recorded the six decisions spelling required as ADR-0095. Mapping the design against the PRD then found and repaired more (ADR-0087 to ADR-0095, [`traceability.md`](traceability.md)). What acceptance changed:
 - **`DESIGN.md`:** §1, §3 (a fourth property: every flow produces data about itself, and users add their own), §5, §5.5, §5.7, §7, §10, §12, §13 and §14.
 - **`storage-schema.md`:** attempts, intervals, observation tables, and `ok_attribute_write` keyed per relationship.
 - **`library-api.md`:** `metric`, `diagnostics`, and the attempt and interval shapes.
 - **`renderers.md`:** observation and metric tools.
 - **`declaration-syntax.md`:** the seven constructs, check 11's exemption, and new checks.
-- **The adversarial harness:** intervals rebuilt from the log as a ninth failure condition, and observing clauses excluded from the guarantee.
+- **The adversarial harness:** intervals rebuilt from the log as a failure condition, and observing clauses excluded from the guarantee.
 - **`edge-cases.md`:** the analytics entry.
 - **Back-links:** in ADR-0007, ADR-0027, ADR-0033, ADR-0047, ADR-0049, ADR-0057, ADR-0058 and ADR-0077.
 
