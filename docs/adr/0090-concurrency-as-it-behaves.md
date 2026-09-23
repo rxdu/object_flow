@@ -1,6 +1,6 @@
 # ADR-0090: Concurrency as it actually behaves on each backend
 
-- **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` N1, N3, F4 and T1; repairs D203, D204 and D213, each observed or reasoned as stated
+- **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` N1, N3, F4 and T1; repairs D203, D204 and D213, each observed or reasoned as stated
 - **Date:** 2026-09-23
 - **Refines:** ADR-0039, ADR-0076
 
@@ -43,5 +43,5 @@ The sequence mint of ADR-0076 draws from a pool separate from the request pool. 
 - `storage-schema.md` §6 and §7 name the mint's pool and SQLite's `IMMEDIATE`.
 - `edge-cases.md`'s hot-row entry and `case-study-orders.md` §4 are corrected.
 - ADR-0039 decision 3 is annotated.
-- The two probes are kept beside `scripts/check-schema-doc.py`'s sequence probe: the SQLite one runs there on every corpus run, and the PostgreSQL one is written down to run wherever a PostgreSQL is available.
+- The SQLite probe runs in `scripts/check-schema-doc.py` on every corpus run, beside its sequence probe. The PostgreSQL probe is written down step by step in `design/defects.md` D203, to be rerun wherever a PostgreSQL is available; no script runs it, since the corpus checks run without one.
 - D203, D204 and D213 are resolved.

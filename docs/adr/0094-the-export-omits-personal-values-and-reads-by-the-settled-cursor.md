@@ -1,6 +1,6 @@
 # ADR-0094: The export pages the log and the flow data by the settled cursor, and omits every personal value
 
-- **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` M5, T5, D8 and N2
+- **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` M5, T5, D8 and N2
 - **Date:** 2026-09-23
 - **Refines:** ADR-0081
 

@@ -1,6 +1,6 @@
 # ADR-0087: Erasure reaches everything that holds the person, and destroys nothing that belongs to someone else
 
-- **Status:** Accepted — decided 2026-09-23 at the author's direction ("iterate the design until all requirements can be covered"), against `docs/PRD.md` D8, T3, N5 and UC-17; repairs D207 and D208
+- **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction ("iterate the design until all requirements can be covered"), against `docs/PRD.md` D8, T3, N5 and UC-17; repairs D207 and D208
 - **Date:** 2026-09-23
 - **Refined by:** ADR-0096 — a failed file deletion is retried by the next erasure request, not by a sweep.
 - **Refines:** ADR-0017, ADR-0031, ADR-0078
@@ -25,7 +25,7 @@ The store keeps a **reference index per hash**: one row per place a hash is writ
 
 1. Erasure marks the references it reaches as erased and commits.
 2. It then deletes the content of any hash whose references are now all erased.
-3. A deletion that fails leaves the hash marked pending. A sweep retries it, and the pending set is readable.
+3. A deletion that fails leaves the hash marked pending. A sweep retries it, and the pending set is readable. *(Replaced by ADR-0096 §11: there is no sweep, which would be a background process; every later erasure request retries the pending deletions, and `diagnostics` lists them.)*
 
 A file two objects share survives the erasure of one of them.
 

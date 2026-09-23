@@ -1,6 +1,6 @@
 # ADR-0095: Six decisions from spelling the data-driven constructs, among them what a reader is shown of a decision's record
 
-- **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` T5, L2, L5, D4, D5, D6, D12 and UC-19; repairs D216 and D217
+- **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` T5, L2, L5, D4, D5, D6, D12 and UC-19; repairs D216 and D217
 - **Date:** 2026-09-23
 - **Refined by:** ADR-0096 — the same filter applies to an attempt's read set and consulted values, and to a refusal's, and a recorded metric value is tested against every type the metric reads, not its source type alone.
 - **Refines:** ADR-0030, ADR-0082, ADR-0083, ADR-0084, ADR-0088
@@ -27,7 +27,7 @@ A metric referenced by a guard is computed over every row its source holds, not 
 
 `history`, `pull` and `export` show an event's read set, and the evaluator verdicts and metric values it records, filtered for the reader:
 - an object the reader cannot see is left out of the read set;
-- a recorded metric value is left out unless the reader can see every current object of the metric's source type;
+- a recorded metric value is left out unless the reader can see every current object of the metric's source type; *(widened by ADR-0096 §3 to every type the metric reads, its paths included)*
 - the read set says that something was withheld.
 
 The flag is kept on purpose. Without it, a partial read set re-evaluates to a different verdict and nothing says why. The flag discloses only that the decision read something the reader cannot see, and the verdict itself already disclosed that when it named the clause. An auditor who must re-evaluate every decision reads as an actor that can see everything, which is the pattern ADR-0030 already gives a subscriber that must see everything.

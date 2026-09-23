@@ -1,8 +1,8 @@
 # ADR-0096: Repairs from verifying the coverage claims against the PRD
 
-- **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` D4, D5, D8, F7, C2, L2, M1, M6, N2, N5, T3, T5 and UC-2, UC-3, UC-10, UC-16, UC-18, UC-19; repairs D218 to D235
+- **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` D4, D5, D8, F7, C2, L2, M1, M6, N2, N5, T3, T5 and UC-2, UC-3, UC-10, UC-16, UC-18, UC-19; repairs D218 to D235
 - **Date:** 2026-09-23
-- **Refines:** ADR-0070, ADR-0082, ADR-0083, ADR-0084, ADR-0085, ADR-0086, ADR-0087, ADR-0095
+- **Refines:** ADR-0070, ADR-0082, ADR-0083, ADR-0084, ADR-0085, ADR-0086, ADR-0087, ADR-0092, ADR-0095
 
 ## Context
 

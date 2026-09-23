@@ -26,7 +26,7 @@ It gets one row per request whose verdict was anything but *satisfied*, and one 
 - the failing clause, its remedy class, and whether it was unknown;
 - the declaration version.
 
-**Inputs are never recorded**, so the log holds no personal value and erasure has nothing to do there. It is written in its own short transaction after the request's rolls back, making it the second thing written outside the request's transaction, after the sequence mint. It is not history: `history` does not return it, subscriptions do not deliver it, and a deployment prunes it on a retention period while keeping monthly rollups. Observing guards record their would-be refusals here as well (ADR-0085), marked not enforced and linked to the event that applied.
+**Inputs are never recorded**, so the log holds no personal value and erasure has nothing to do there. It is written in its own short transaction after the request's rolls back, making it the second thing written outside the request's transaction, after the sequence mint. It is not history: `history` does not return it, subscriptions do not deliver it, and a deployment prunes it on a retention period while keeping monthly rollups. *(ADR-0096 §8: the rollups are daily and per object, written in the prune's transaction, and read by the `<Type>.attempt_counts` source.)* Observing guards record their would-be refusals here as well (ADR-0085), marked not enforced and linked to the event that applied.
 
 ### 2. Intervals record time in each state and in each value of a tracked attribute, as an index the log rebuilds
 
@@ -34,7 +34,7 @@ An interval table is maintained in the transition's transaction. It covers the s
 
 ### 3. A transition may be backdated within a declared bound
 
-A transition marked `backdatable within <duration>` accepts an occurred time inside that bound. The event keeps both times, and intervals use the occurred one. An occurred time may not precede the object's previous state change, so no interval is negative. Guards still read `now` as the clock.
+A transition marked `backdatable within <duration>` accepts an occurred time inside that bound. The event keeps both times, and intervals use the occurred one. An occurred time may not precede the object's previous state change, so no interval is negative. *(Made exact by ADR-0095 §3 and ADR-0096 §7: it may not precede the start of the current interval of any state or tracked value the request changes, nor be later than its recording, and a request's cascades share it.)* Guards still read `now` as the clock.
 
 ### 4. Imported state is not an override
 

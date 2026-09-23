@@ -1,7 +1,8 @@
 # ADR-0092: A verdict names what the caller needs; tool inputs cannot collide; an evaluator's arguments are resolved twice
 
-- **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` F4, F3, L5 and T1; repairs D214 and D215
+- **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` F4, F3, L5 and T1; repairs D214 and D215
 - **Date:** 2026-09-23
+- **Refined by:** ADR-0096 — `Unsatisfied` also carries `consulted`, the metric values and evaluator verdicts the failing clause was decided on, under the reader's visibility.
 - **Refines:** ADR-0049, ADR-0077
 
 ## Context

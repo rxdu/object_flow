@@ -40,6 +40,8 @@ Assignment is whatever declared transitions write the reference: a creation that
 - handoffs per object, and reassignment back to an earlier assignee;
 - how often a transition is requested by someone other than the assignee.
 
+*(ADR-0096 §5 adds cycle time by the assignee at completion, and time in each state by whoever held the object then, which UC-18's "whether cycle time differs by engineer" needs.)*
+
 Each can be split by the kind of actor that made the assignment. Diagnostics report reassignment loops and work done by non-assignees (ADR-0085).
 
 ### 6. Choosing the assignee stays outside the engine

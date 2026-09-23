@@ -1,6 +1,6 @@
 # ADR-0091: A synchronous core with an injected connection source, which is how the harness interleaves requests
 
-- **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` N4, N2 and UC-19; repairs D209 and settles `library-api.md`'s open async question
+- **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` N4, N2 and UC-19; repairs D209 and settles `library-api.md`'s open async question
 - **Date:** 2026-09-23
 - **Refines:** ADR-0077
 
