@@ -1,6 +1,6 @@
 # ADR-0084: Metrics are declared and computed on read; a guard may read one as of the start of its request
 
-- **Status:** Proposed — evaluated 2026-09-23 at the author's direction, against `docs/PRD.md`; pending author review
+- **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
 - **Refines:** ADR-0047, ADR-0049
 

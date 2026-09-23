@@ -2,13 +2,15 @@
 
 A governed object store: your data, and the rules that constrain how it changes.
 
-> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax consumers write against, 86 decisions of which six are proposed, and a register of 215 findings, 201 closed and 14 open — together with the checkers that verify the record against itself. The open findings are from the design review and the design evaluation of 2026-09-23. [`docs/PRD.md`](docs/PRD.md) states the product's requirements, and ADR-0081 to ADR-0086 propose the designs that meet them, pending review. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 and the six implementation documents of 2026-09-09 await review.
+> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax consumers write against, 86 decisions, and a register of 215 findings, 204 closed and 11 open — together with the checkers that verify the record against itself. The open findings are from the design review and the design evaluation of 2026-09-23. [`docs/PRD.md`](docs/PRD.md) states the product's requirements and is the baseline every design choice is checked against; ADR-0081 to ADR-0086, accepted 2026-09-23, are the design that meets them. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 and the six implementation documents of 2026-09-09 await review.
 
 ## What it is
 
 ObjectKeeper is a **database + business logic layer**: a reusable substrate for building business applications, where the rules about data are declared alongside the data rather than reimplemented in every consumer.
 
 You define object types — typed attributes, a state machine, guards on the transitions, invariants. ObjectKeeper stores the objects and is the only thing that may change them. Applications, human interfaces and AI agents are all consumers of the same declaration.
+
+It also collects data about the flows it runs — every transition, refusal, override and change of hands — takes the datapoints users record, and computes declared metrics over both. That lets business logic be driven by data, whether a person or an agent drives it, and lets a flow start imperfect and converge. [`docs/PRD.md`](docs/PRD.md) states the requirements, and is the baseline every design choice is checked against.
 
 ```text
 agents · applications · human UI          consumers
@@ -22,13 +24,14 @@ PostgreSQL / SQLite                       storage
 
 The objective is **trust under delegation**: being able to hand a system to people who are not supervised, and to AI agents whose behaviour cannot be fully predicted, and know that nothing they do can put the data into a state that has to be cleaned up afterwards.
 
-Three properties carry that:
+Four properties carry that:
 
 | Property | Meaning |
 |---|---|
 | **Mediated** | No path to the data except through declared transitions and their guards. There is no second write path, and there are exactly two ways to set state without satisfying a guard: a **declared** assertion the type carries, and the **built-in** assertion import and migration use, gated on a deployment capability. Both are capability-gated and both are recorded |
 | **Declared** | What is allowed is data, inspectable at runtime — not code |
-| **Recorded** | Every change is attributed and reconstructable |
+| **Recorded** | Every change and every recorded datapoint is attributed and reconstructable |
+| **Measured** | Every flow produces data about itself, users add their own, and everyone reads both through the same declared metrics |
 
 The distinction from an ORM is deliberate. An ORM abstracts *mechanism* — it hides SQL, and faithfully executes whatever the caller asks. ObjectKeeper abstracts *authority*: what may change, when, and by whom.
 
@@ -44,7 +47,7 @@ A practical consequence, measured rather than asserted. In the first consumer, 4
 | [`docs/adr/`](docs/adr/) | Decisions taken, each with the alternatives rejected and why |
 | [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md) | The language a type is declared in, and the checks publishing runs over it |
 | [`docs/design/storage-schema.md`](docs/design/storage-schema.md) | How a declaration becomes tables, and which indexes a guarantee depends on |
-| [`docs/design/library-api.md`](docs/design/library-api.md) | The fourteen operations a program calls, and the shapes they take |
+| [`docs/design/library-api.md`](docs/design/library-api.md) | The sixteen operations a program calls, and the shapes they take |
 | [`docs/design/publish-and-import.md`](docs/design/publish-and-import.md) | What publishing checks and reports, and how production data arrives |
 | [`docs/design/renderers.md`](docs/design/renderers.md) | The rule set, agent tool schemas and form hints, as projections of one declaration |
 | [`docs/design/adversarial-harness.md`](docs/design/adversarial-harness.md) | The acceptance test: what would falsify the guarantee, and how to try |
@@ -58,7 +61,7 @@ A practical consequence, measured rather than asserted. In the first consumer, 4
 
 The first consumer is the author's own robotics operations platform, rebuilt on ObjectKeeper with its production data ported; see [`docs/DESIGN.md`](docs/DESIGN.md#4-first-consumer-and-case-studies).
 
-ObjectKeeper **decides and records**. It evaluates declared arithmetic over its own data, and it does not own domain formulas such as tax or pricing, cause external effects, orchestrate long-running processes, or render a user interface — those belong to the consumers above it. See [ADR-0007](docs/adr/0007-decide-and-record-not-compute-or-effect.md) for why that boundary is where it is.
+ObjectKeeper **decides, records and measures**. It evaluates any declared formula over its own data, metrics across objects and time included. It does not own formulas that need data or rules it does not hold, such as a tax table or a pricing engine. Nor does it choose among alternatives, cause external effects, orchestrate long-running processes, or render a user interface — those belong to the consumers above it. See [ADR-0007](docs/adr/0007-decide-and-record-not-compute-or-effect.md) and [ADR-0081](docs/adr/0081-the-engine-measures-its-flows-and-computes-over-its-own-data.md) for why that boundary is where it is.
 
 ## License
 

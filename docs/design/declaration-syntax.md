@@ -2,6 +2,8 @@
 
 Status: **draft, iteration 18** (2026-09-08). Three reviewers returned non-blocking on iteration 15; this iteration is their residuals. **Ready for author review.** The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
 
+**Amendment pending.** ADR-0081 to ADR-0086, accepted 2026-09-23, change this document: it gains seven constructs — the observation kind with `unit` and `occurred within`, the label, the `metric` form with flags, the `observe` marking, the `backdatable` marking, the `assignee` marking with its `actor` identity, and the `DeclarationChange` — with check 11's exemption for observations and the checks each needs. Until it is amended, where it disagrees with those ADRs or with `DESIGN.md`, they win (`TODO.md`).
+
 Two goals shape every choice, and where they conflict the second wins.
 
 1. **The common case should cost nothing to write and nothing to read.**

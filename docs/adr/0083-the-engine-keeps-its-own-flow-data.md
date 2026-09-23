@@ -1,8 +1,8 @@
 # ADR-0083: The engine keeps its own flow data — attempts, intervals and occurred time — and keeps imported state apart from overrides
 
-- **Status:** Proposed — evaluated 2026-09-23 at the author's direction, against `docs/PRD.md`; pending author review
+- **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0086 (proposed) — assignment is a declared role on a tracked reference, with its metrics generated.
+- **Refined by:** ADR-0086 — assignment is a declared role on a tracked reference, with its metrics generated.
 - **Refines:** ADR-0033, ADR-0077
 
 ## Context

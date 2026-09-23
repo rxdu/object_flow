@@ -43,7 +43,7 @@ Status: maintained by the design iterations; started 2026-09-07. Each entry says
 - **Multi-warehouse or multi-region stock.** Not covered as one store. ObjectKeeper is one database; stock split across regions that must not share a transaction is several stores, and reconciling them is a consumer concern outside the mediated guarantee.
 - **Very large cascades.** Covered with caveat. A placement that creates thousands of lines and reserves thousands of products is one transaction and one lock set; it will succeed, slowly, and hold locks meanwhile. Every loop and every cascade clause must state a bound (ADR-0071); a request exceeding one is refused with the `over-limit` verdict naming that loop (ADR-0041).
 - **Gapless order numbers.** Not covered; see iteration 2. A rolled-back placement leaves a gap in the sequence.
-- **Analytics over the whole log.** Out of scope. The read surface answers questions about objects; questions about millions of events belong in a warehouse fed from the log by a subscriber.
+- **Analytics over the whole log.** *Reversed by ADR-0081, 2026-09-23.* Declared metrics are in scope and computed on read (ADR-0084), with standard ones for every type. What stays out is open-ended exploration, which the engine feeds by export rather than performing. This entry used to say that questions about millions of events belong in a warehouse fed by a subscriber.
 - **Erasure across archived events.** Covered with caveat. ADR-0033's archival tiering must keep archived events reachable by ADR-0031 erasure, or archive only events that carry no personal attributes.
 
 ## From approvals and bookings (iteration 5)

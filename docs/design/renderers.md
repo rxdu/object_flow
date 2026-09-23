@@ -2,6 +2,8 @@
 
 Draft, 2026-09-09. Three projections of one declaration: text a person reads, tool schemas an agent is given, and the field-level hints a form needs. They exist because the declaration is inspectable at runtime (ADR-0010), and that property is worth nothing until something renders it.
 
+**Amendment pending.** ADR-0081 to ADR-0086, accepted 2026-09-23, change this document: each observation kind gets a tool, metrics get one tool that names them, an observing clause is printed as not enforced, and the assignee is named in the rule set. Until it is amended, where it disagrees with those ADRs or with `DESIGN.md`, they win (`TODO.md`).
+
 **What is verified.** `scripts/check-renderers-doc.py` parses every JSON example, checks that the tool schema is a schema a validator accepts, and confirms it rejects a call missing a required field and a call carrying an unknown one. The rule set of §2 is prose and is not checked; nothing generates it yet.
 
 ## 1. What a renderer may not do

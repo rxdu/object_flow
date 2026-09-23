@@ -1,6 +1,6 @@
 # ADR-0085: Flows converge through evidence, trial and governed change, and the publish checks stay
 
-- **Status:** Proposed — evaluated 2026-09-23 at the author's direction, against `docs/PRD.md`; pending author review
+- **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
 - **Refines:** ADR-0027
 

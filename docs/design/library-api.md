@@ -4,11 +4,13 @@ Draft, 2026-09-09. The request and verdict shapes of [`../DESIGN.md`](../DESIGN.
 
 **What is verified.** The Python below executes, and `scripts/check-api-doc.py` compares the operations it offers against the read surface DESIGN.md §10 declares, so the two cannot drift apart silently. It is **not** typechecked — there is no mypy in the environment this was written in, and the annotations are therefore reviewed and not proven.
 
+**Amended 2026-09-23** for ADR-0084 and ADR-0085, which the author accepted: `metric`, `diagnostics`, and `publish` of a `DeclarationChange`. **Still pending** for ADR-0082 and ADR-0083: the shapes of an observation, an attempt and an interval, which no operation here returns yet, since observations are read as parts and the other two through metrics.
+
 ## 1. Why Python, and what that does not mean
 
 The core is library-shaped: a call goes in, guards evaluate, a transition and its record come out (§2 of the model). The first consumer is a FastAPI and SQLAlchemy system being rebuilt on this, so a Python interface is the one that will be exercised first and is the one written here.
 
-That is a **binding**, not the design. The operations, their arguments and their results are the API; the dataclasses are one rendering of it. A second binding should offer the same fourteen operations with the same meanings, and the checker's comparison against §10 is written against the operation set rather than against Python.
+That is a **binding**, not the design. The operations, their arguments and their results are the API; the dataclasses are one rendering of it. A second binding should offer the same sixteen operations with the same meanings, and the checker's comparison against §10 is written against the operation set rather than against Python.
 
 ## 2. Three rules the shapes follow
 
@@ -221,6 +223,25 @@ class EventPage:
     settled: int                      # acknowledge no further than this
 
 
+@dataclass(frozen=True)
+class MetricRow:
+    """One row of a metric the reader may see (ADR-0084)."""
+
+    dimensions: Mapping[str, Any]
+    value: Any                        # unknown is None, as division by zero is
+    flags: Sequence[str]              # the declared flags that hold for this row
+    time_basis: str = "UTC calendar"  # every metric says so (PRD C6)
+
+
+@dataclass(frozen=True)
+class Diagnostic:
+    """One place a flow and reality disagree (ADR-0085)."""
+
+    kind: str                         # e.g. "unused_transition", "top_refusal", "reassignment_loop"
+    subject: str                      # the transition, state, clause, label or assignee it concerns
+    measure: Any                      # the count, duration or rate that put it on the list
+
+
 ```
 
 An `Event` carries what the log stores and no more: the actor's id, kind and principal rather than a descriptor, since the log never recorded capabilities; the declaration version and taint version in force; and, per external guard, the as-of time of the verdict it was given (ADR-0049). `EventPage.settled` is the position below which no transaction is still in flight, which is as far as a consumer may acknowledge (§7 of the model, ADR-0077).
@@ -269,13 +290,18 @@ class Store(Protocol):
     def acknowledge(self, actor: Actor, subscription: str,
                     position: int) -> None: ...
 
-    def publish(self, actor: Actor, source: str,
+    def metric(self, actor: Actor, name: str, filter: str | None = None,
+               cursor: str | None = None) -> Page: ...
+
+    def diagnostics(self, actor: Actor, type: str) -> Sequence[Diagnostic]: ...
+
+    def publish(self, actor: Actor, change: str,
                 dry_run: bool = False) -> "PublishReport": ...
 ```
 
 `PublishReport` is defined in [`publish-and-import.md`](publish-and-import.md) §2, which owns it: publishing is where its shape is decided and one shape should have one home.
 
-Fourteen operations: the eleven of §10, the write path of §6, and the two operational calls that are not object operations. The checker holds this list against §10 rather than trusting it.
+Sixteen operations: the thirteen of §10, the write path of §6, and the two operational calls that are not object operations. `metric` returns a `Page` of `MetricRow`s, and `diagnostics` a short fixed list. `publish` takes the id of a `DeclarationChange` (ADR-0085): with `dry_run` it produces the impact report a draft carries, and without it it installs an approved change and is refused for any other. The checker holds this list against §10 rather than trusting it.
 
 Three of them are worth reading twice.
 

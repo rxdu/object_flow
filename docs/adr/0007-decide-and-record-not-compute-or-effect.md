@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0019 — a transition's outcome may cascade transitions on related objects inside the store; that is not an *effect*, which remains something caused outside it. ADR-0021 — derived attributes are named expressions, not the stored computation this ADR excludes. ADR-0032 — the store evaluates declared arithmetic over its own data (a stock level, an order total); what stays outside is the *domain formula* — the tax rate in the example below, pricing, scoring, conversion.; ADR-0068 — money keeps its currency in the declaration; ADR-0069 — an evaluator returns a verdict; an external system that assigns is a mirror; ADR-0081 (proposed) — any declared formula over the store's own data is in scope; outside data, selection, effects and orchestration stay out.
+- **Refined by:** ADR-0019 — a transition's outcome may cascade transitions on related objects inside the store; that is not an *effect*, which remains something caused outside it. ADR-0021 — derived attributes are named expressions, not the stored computation this ADR excludes. ADR-0032 — the store evaluates declared arithmetic over its own data (a stock level, an order total); what stays outside is the *domain formula* — the tax rate in the example below, pricing, scoring, conversion.; ADR-0068 — money keeps its currency in the declaration; ADR-0069 — an evaluator returns a verdict; an external system that assigns is a mirror; ADR-0081 — any declared formula over the store's own data is in scope; outside data, selection, effects and orchestration stay out.
 
 ## Context
 

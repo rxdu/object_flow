@@ -2,6 +2,8 @@
 
 Draft, 2026-09-09. What `publish` does with a declaration, what it reports, and how the first consumer's production data arrives. Import is not a separate mechanism: it is declaration migration from version zero (ADR-0027), and this document is written so that the two share one report and one disposition format.
 
+**Amendment pending.** ADR-0081 to ADR-0086, accepted 2026-09-23, change this document: a publish becomes the approval of a `DeclarationChange`, whose dry run is the impact report; and the mapping may supply entry times and legacy intervals, assignment included. Until it is amended, where it disagrees with those ADRs or with `DESIGN.md`, they win (`TODO.md`).
+
 **What is verified.** The report shapes below execute and are held against the rest of the record by `scripts/check-api-doc.py`, which reads this file as well. The mapping syntax is checked by the declaration checker like any other declaration text.
 
 ## 1. Publishing is a transaction

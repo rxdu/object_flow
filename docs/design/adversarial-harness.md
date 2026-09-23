@@ -2,6 +2,8 @@
 
 Draft, 2026-09-09. The acceptance test. Not "can a consumer complete the workflow" — that tests the happy path and the objective is not the happy path — but "can a fallible actor, given everything the store offers, reach a state the declaration says is impossible".
 
+**Amendment pending.** ADR-0081 to ADR-0086, accepted 2026-09-23, change this document: intervals rebuilt from the log become a ninth failure condition, observing clauses are excluded from the guarantee under test, and UC-19's three routes join the scripted behaviours. Until it is amended, where it disagrees with those ADRs or with `DESIGN.md`, they win (`TODO.md`).
+
 The threat model is **mistakes, not malice** (ADR-0015): an actor that guesses, retries, skips steps, races itself and misreads a verdict. Not one with stolen credentials or database access. A hostile actor with a `psql` prompt defeats every design in this repository and is somebody else's problem.
 
 ## 1. The claim under test

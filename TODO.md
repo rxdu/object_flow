@@ -6,8 +6,8 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 
 | | |
 |---|---|
-| ADRs | 86: ADR-0081 to ADR-0086 **Proposed**, the data-driven engine's design, pending review |
-| Defect register | 215 entries and five cosmetics; 201 closed, seven of them carried to open questions the author has since ruled on; **14 open**, D202 to D214 from the design review of 2026-09-23 and D215 from the design evaluation; ADR-0082, ADR-0083 and ADR-0085 propose resolutions for D202, D205 and D212 ([`docs/design/defects.md`](docs/design/defects.md)) |
+| ADRs | 86, none Proposed; ADR-0081 to ADR-0086, the data-driven engine, accepted by the author 2026-09-23 |
+| Defect register | 215 entries and five cosmetics; 204 closed, seven of them carried to open questions the author has since ruled on; **11 open**: D203, D204 and D206 to D214 from the design review of 2026-09-23, and D215 from the design evaluation. D202, D205 and D212 were resolved by ADR-0082, ADR-0083 and ADR-0085 ([`docs/design/defects.md`](docs/design/defects.md)) |
 | Declaration syntax | **iteration 18, ready for author review**; checker clean, 26 of 53 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
 | Open questions | none. All thirteen answered by the author 2026-09-08, ADR-0065 to ADR-0072 ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
 | Awaiting author review | ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 — of which ADR-0078 to ADR-0080 were decided at the author's direction rather than by the author and come first — DESIGN.md as a whole, the declaration syntax, and the six implementation documents of 2026-09-09. ADR-0065 to ADR-0073 are settled: ADR-0065 to ADR-0072 are the author's own rulings, ADR-0073 confirmed 2026-09-08 |
@@ -30,8 +30,13 @@ The author's statements of 2026-09-23 extend the objective: the engine is the fo
 
 - [ ] **Author reviews the PRD**, especially the rows marked Inferred and the two questions of its §10.
 - [x] **Evaluate designs against the PRD's use cases** — [`docs/design/data-driven-engine.md`](docs/design/data-driven-engine.md), 2026-09-23. Eight questions, every option walked through the use cases it touches; the choices are ADR-0081 to ADR-0086, all **Proposed**. Every one of the nineteen use cases passes under the chosen design, one of them (UC-7) by drawing the telemetry boundary. Nothing added writes governed state by a second path: a user datapoint is a creation, not a new operation. Assignment was added the same day as UC-18 and ADR-0086: every change of assignee is kept from its first write, with its metrics generated, in the first release.
-- [ ] **Author reviews ADR-0081 to ADR-0086** against the evaluation. ADR-0082 and ADR-0084 carry the most weight: observations as born-final parts, and metrics computed on read with a guard reading one before its transaction.
-- [ ] **On acceptance, amend the record** as the evaluation's §8 lists: `DESIGN.md` (ten sections, and a fourth property), the storage schema, the library API, the renderers, the syntax document with six constructs and their checker fixtures, and the harness.
+- [x] **Author accepts ADR-0081 to ADR-0086** — 2026-09-23, with a standing rule: the PRD is the baseline, and every design choice is checked against it, never the reverse.
+- [x] **`DESIGN.md` amended** for ADR-0081 to ADR-0086, 2026-09-23: the purpose, a fourth property (Measured), the model block, three new subsections (§5.11 observations and labels, §5.12 metrics and business exceptions, §5.13 assignment), execution, history, erasure, built-ins, the read surface, scope, limits and terminology. `library-api.md` gains `metric` and `diagnostics`, and `edge-cases.md`'s analytics entry is replaced.
+- [ ] **Amend `declaration-syntax.md`**: the seven constructs — observation kind with `unit` and `occurred within`, label, `metric` with flags, `observe`, `backdatable`, `assignee` with its `actor` identity, and the `DeclarationChange` — with check 11's exemption, the new checks, and checker fixtures before any is believed.
+- [ ] **Amend `storage-schema.md`**: `ok_attempt`, `ok_interval` over state and tracked values, observation tables through the ordinary type mapping, `ok_attribute_write` keyed per part relationship with `last_part_event` retired, `imported` in `state_source`, occurred time and retry count on `ok_event`; run through `scripts/check-schema-doc.py`.
+- [ ] **Amend `publish-and-import.md`**: a publish as the approval of a `DeclarationChange`; the mapping supplying entry times and legacy intervals, assignment included.
+- [ ] **Amend `renderers.md`**: a tool per observation kind, one metrics tool, observing clauses printed as not enforced, the assignee named in the rule set.
+- [ ] **Amend `adversarial-harness.md`**: intervals rebuilt from the log as a ninth failure condition, observing clauses excluded from the guarantee, and UC-19's three routes as scripted behaviours.
 - [ ] **Probe what the evaluation could not**: metric latency at the first consumer's scale on both backends, percentile kept in a checker, attempt-log volume under the harness's guessing actor.
 
 ## Author review queue
@@ -94,7 +99,7 @@ The port of the first consumer's production data is a designed path (ADR-0015, D
 
 ## Defect repair
 
-The register at [`docs/design/defects.md`](docs/design/defects.md) holds 215 entries and five cosmetics, 201 closed and 14 open, and records for each what was decided and by which ADR. Two entries are refusals rather than resolutions: dynamic attribute writes and grouped aggregation, both declined by decision and recorded in the edge-case catalogue.
+The register at [`docs/design/defects.md`](docs/design/defects.md) holds 215 entries and five cosmetics, 204 closed and 11 open, and records for each what was decided and by which ADR. Two entries are refusals rather than resolutions: dynamic attribute writes and grouped aggregation, both declined by decision and recorded in the edge-case catalogue.
 
 ## Toward implementation
 

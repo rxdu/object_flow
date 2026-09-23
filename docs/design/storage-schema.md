@@ -2,6 +2,8 @@
 
 Draft, 2026-09-09. How a published declaration becomes tables, and how the guarantees of [`../DESIGN.md`](../DESIGN.md) rest on them. The model owns what a rule means and [`declaration-syntax.md`](declaration-syntax.md) owns how it is written; this document owns only where the bytes go.
 
+**Amendment pending.** ADR-0081 to ADR-0086, accepted 2026-09-23, change this document: it gains `ok_attempt` and `ok_interval`, observation tables through the ordinary type mapping, `imported` in `state_source`, and an occurred time and retry count on `ok_event`; and `ok_attribute_write` is keyed per part relationship, retiring `last_part_event` (D202). Until it is amended, where it disagrees with those ADRs or with `DESIGN.md`, they win (`TODO.md`).
+
 **What is verified.** Every statement of SQLite DDL below was executed against SQLite 3.37 before being written down, including a cascade round trip and a refused state value, and so are the two-connection sequence probe of §6 and the deferred-foreign-key probe of §3, which `scripts/check-schema-doc.py` runs on every corpus run. Those are the two claims this document makes about SQLite's runtime behaviour rather than its DDL; the first was reasoned rather than run until D187 found it false as first written, and the second replaced a premise D191 found false. The PostgreSQL column is reasoned from its documentation and **was not executed** — there is no PostgreSQL in the environment this was written in, and the exclusion constraints of §8 are the part most worth running before anyone relies on them.
 
 ## 1. Three layers, and why not fewer

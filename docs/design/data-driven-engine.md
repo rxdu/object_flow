@@ -2,7 +2,7 @@
 
 Draft, 2026-09-23, written at the author's direction and aligned with **revision 3** of [`../PRD.md`](../PRD.md), whose requirements and nineteen use cases it evaluates designs against. This document owns the **evaluation**: for each design question, the options considered, how each fared against the use cases, and why the chosen one was chosen. The **decisions** are ADR-0081 to ADR-0086, which own them; where this document and an ADR disagree, the ADR wins. §11 says what changed when the PRD was revised.
 
-**All six ADRs are Proposed, not accepted.** Accepting them rewrites about ten sections of [`../DESIGN.md`](../DESIGN.md) and four implementation documents (§8), and those edits should follow the author's reading of the direction rather than precede it. The two defaults of PRD §10 are taken as given: machine telemetry is out of scope, and the release order is the one the PRD proposes (§9).
+**The author accepted all six ADRs on 2026-09-23**, and made the PRD the baseline every design choice is checked against. [`../DESIGN.md`](../DESIGN.md) was amended the same day; the implementation documents §8 lists carry notices until each is amended. The two defaults of PRD §10 are taken as given: machine telemetry is out of scope, and the release order is the one the PRD proposes (§9).
 
 ## 1. The shape
 
@@ -453,9 +453,9 @@ To measure rather than assume:
 - the cost of an observation as an object at the inspection rate;
 - how often backdating is used, once it can be.
 
-## 8. What acceptance would change
+## 8. What acceptance changes
 
-On acceptance:
+Accepted 2026-09-23. `DESIGN.md`, the back-links, `library-api.md`'s two operations and `edge-cases.md` were amended the same day; the rest carry a notice and are tracked in `TODO.md`. What acceptance changes:
 - **`DESIGN.md`:** §1, §3 (a fourth property: every flow produces data about itself, and users add their own), §5, §5.5, §5.7, §7, §10, §12, §13 and §14.
 - **`storage-schema.md`:** attempts, intervals, observation tables, and `ok_attribute_write` keyed per relationship.
 - **`library-api.md`:** `metric`, `diagnostics`, and the attempt and interval shapes.

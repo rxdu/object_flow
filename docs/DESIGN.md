@@ -1,8 +1,8 @@
 # ObjectKeeper — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 215 entries and five cosmetics; 201 are closed and 14 are open, all found on 2026-09-23, one of which (D202) the specification's own approval example fails. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 and the six implementation documents of 2026-09-09 await review, ADR-0078 to ADR-0080 first, being the three decided at the author's direction rather than by the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 215 entries and five cosmetics; 204 are closed and 11 are open, all found on 2026-09-23. The author accepted ADR-0081 to ADR-0086 on 2026-09-23 and has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 and the six implementation documents of 2026-09-09 await review, ADR-0078 to ADR-0080 first, being the three decided at the author's direction rather than by the author.
 
-**What the product must do is now stated in [`PRD.md`](PRD.md)** (draft, 2026-09-23). It adds requirements this model does not yet meet — flow-generated and user-recorded datapoints, user-defined formulas and metrics, data-driven rules, and convergence — and its §9 lists the positions below that it conflicts with. [`design/data-driven-engine.md`](design/data-driven-engine.md) evaluates the designs against the PRD's use cases and proposes resolutions as ADR-0081 to ADR-0086. Until the author accepts them, this document describes the model as designed, not the product as required.
+**[`PRD.md`](PRD.md) is the baseline.** It states what the product must do; this document states the model that does it. A design choice here is justified by the PRD requirement or use case it serves and is checked against the PRD, never the reverse: where the two disagree, the design changes, or the author revises the PRD first (the author, 2026-09-23). [`design/data-driven-engine.md`](design/data-driven-engine.md) records how each choice of ADR-0081 to ADR-0086 was tested against the PRD's use cases, and this document incorporates them.
 
 This document is the single description of the **model**: what an object is, what a transition guarantees, how a request executes, what the store refuses. The **language** those things are written in belongs to [`design/declaration-syntax.md`](design/declaration-syntax.md), which owns every grammar, every spelling and the fifty-three publish checks.
 
@@ -17,15 +17,17 @@ Five further documents carry the parts an implementation needs, each owning what
 | [`design/renderers.md`](design/renderers.md) | the rule set, agent tool schemas and form hints |
 | [`design/adversarial-harness.md`](design/adversarial-harness.md) | the acceptance test, and what would falsify the guarantee |
 
+**Amendments pending.** ADR-0081 to ADR-0086 also change five of the documents above: the syntax (the seven new constructs and their checks), the storage schema (attempts, intervals, observation tables, part positions per relationship), the renderers (observation and metric tools), publish and import (the `DeclarationChange`, entry times and legacy intervals) and the harness (intervals rebuilt from the log, observing clauses excluded). Each carries a notice saying so, and `TODO.md` tracks them. Until each is amended, where it disagrees with those ADRs or with this document, the ADRs win.
+
 Where a rule appears in both, this document states what it means and the syntax document states how it is written. That division exists because it failed twice: the outcome grammar was restated here and had gone stale in three of six lines, and a later audit found thirty-two rules stated in both documents of which six had drifted to the superseded version. When the two disagree, the syntax document is the one with a checker.
 
 Each decision, with the alternatives it rejected, is an ADR in [`adr/`](adr/); the case studies that shaped it and the catalogue of what it deliberately does not cover are in [`design/`](design/).
 
 ## 1. Purpose
 
-A reusable substrate for building business applications, where the rules about data are declared alongside the data rather than implemented in each consumer.
+A reusable foundation on which people and AI agents **define flows and collect data**, so that the business logic built on top can be driven by data, whichever kind of actor drives it (PRD §1). A flow is a set of object types with their lifecycles, transitions and rules, declared alongside the data rather than implemented in each consumer. Its data is what it produces by running — every transition, refusal, override and change of hands — together with what users record and what their formulas compute from both. Metrics over that data let a flow start imperfect and **converge**, with the engine showing where the flow and reality disagree (ADR-0081).
 
-The objective is **trust under delegation**: hand a system to people who are not supervised and to AI agents whose behaviour cannot be fully predicted, and know that nothing they do can put the data into a state that has to be cleaned up afterwards. As a rule: **an object's state changes only when someone requests a named transition and every condition on it is met.**
+The objective beneath all of it is **trust under delegation**: hand a system to people who are not supervised and to AI agents whose behaviour cannot be fully predicted, and know that nothing they do can put the data into a state that has to be cleaned up afterwards. As a rule: **an object's state changes only when someone requests a named transition and every enforced condition on it is met.** A condition on trial is not enforced (§5.5), and the exceptions are the recorded assertions of §8.
 
 The threat model is **mistakes, not malice**. Actors are trusted but fallible: a person who skips a step, an agent that retries a timed-out request, a script that sets a flag directly. The design defends against those by construction. It does not defend against an actor holding database credentials who intends harm; that is an access-control and deployment concern (§13).
 
@@ -44,23 +46,25 @@ siblings:  workflow orchestration (Temporal-shaped)
            external systems of record (e.g. Xero)
            agent frameworks
            file storage (S3-compatible or filesystem)
+           exploratory analysis tools, fed by export
 ```
 
-ObjectKeeper is a layer over a database, not a database (ADR-0001). The core is **library-shaped**: a call goes in, guards evaluate, a transition and its record come out; there is no scheduler, timer or background process (ADR-0012). A deployment becomes a **service** when it adds a delivery worker for push subscriptions (ADR-0013) or exposes the API over a transport (ADR-0037).
+ObjectKeeper is a layer over a database, not a database (ADR-0001). The core is **library-shaped**: a call goes in, guards evaluate, a transition and its record come out; there is no scheduler, timer or background process (ADR-0012). A deployment becomes a **service** when it adds a delivery worker for push subscriptions (ADR-0013) or exposes the API over a transport (ADR-0037). Measurement adds no background process: metrics are computed on read, and a business exception is a condition a scheduler or an agent asks about (ADR-0081, ADR-0084).
 
 ## 3. Core properties
 
 | Property | Meaning | Why it matters |
 |---|---|---|
-| **Mediated** | No path to the data except through declared transitions and their guards. There is no second write path (ADR-0042), and the two ways to set state without satisfying a guard are both assertions, capability-gated and recorded: one the type declares (ADR-0040), and the built-in one import and migration use (ADR-0054) | The peace-of-mind guarantee |
+| **Mediated** | No path to the data except through declared transitions and their guards. There is no second write path (ADR-0042): recording a datapoint is a creation request (ADR-0082). The two ways to set state without satisfying an enforced guard are both assertions — a clause on trial is not enforced, and guarantees nothing (§5.5) — capability-gated and recorded: one the type declares (ADR-0040), and the built-in one import and migration use (ADR-0054) | The peace-of-mind guarantee |
 | **Declared** | What is allowed is data, inspectable at runtime, not code (ADR-0010) | UI, API and agent tools are projections of one declaration |
-| **Recorded** | Every change is attributed, caused and reconstructable | Trust after the fact, not only while watching |
+| **Recorded** | Every change and every recorded datapoint is attributed, caused and reconstructable | Trust after the fact, not only while watching |
+| **Measured** | Every flow produces data about itself — transitions, refusals, overrides, time in each state and in each assignee's hands — users record their own, and everyone reads both through the same declared metrics (ADR-0081) | A flow can be evaluated and improved from evidence, and a person and an agent see the same numbers |
 
 An ORM abstracts *mechanism*: it hides SQL and faithfully executes whatever the caller asks. This layer abstracts *authority*: what may change, when, by whom, and what follows.
 
 ## 4. First consumer and case studies
 
-The first consumer is an extended version of the Weston Robot inventory management system: an operations platform covering procurement, allocation, pre-delivery inspection, leasing and customer identity mirrored from Xero. The existing system is in production at `~/RduWs/wr_inventory_management`, already contains a hand-built version of every concern below, and will be rebuilt on ObjectKeeper with its production data ported and preserved (ADR-0015).
+The first consumer is an extended version of the Weston Robot inventory management system: an operations platform covering procurement, allocation, pre-delivery inspection, leasing and customer identity mirrored from Xero. The existing system is in production at `~/RduWs/wr_inventory_management`, already contains a hand-built version of every concern below, and will be rebuilt on ObjectKeeper with its production data ported and preserved (ADR-0015). The PRD's use cases are drawn from it wherever they can be.
 
 The model was tested against five further shapes, each recorded with what it forced: issue tracking, customer records, orders at volume, approvals with bookings, and a payments ledger, in [`design/`](design/). The ledger is the one written after the model rather than before it, and it is the only case that is high-volume, short-lived and money-carrying; four of the thirteen questions the author ruled on came from it. The worked walkthrough of the first consumer's own lifecycles is [`design/first-consumer-walkthrough.md`](design/first-consumer-walkthrough.md).
 
@@ -80,16 +84,23 @@ ObjectType            declared under a version (§5.9); may extend a base;
   visibility        optional predicate over actor and object (§5.8)
   invariants        type-level properties, enforced dynamically (§5.6)
   relationships     composition or reference; carry no attributes; a part names
-                    a cascade or survives per terminal transition of the whole (§5.3)
+                    a cascade or survives per terminal transition of the whole;
+                    a reference may be marked assignee (§5.3, §5.13)
+  observations      recorded datapoints: born-final parts of a declared kind,
+                    recorded by a creation request; labels on every type (§5.11)
   state machine     exactly one, named or inline; a binder adds its own transitions
                     and replaces the machine's creations (§5.4)
     states          each with a category; at least one terminal
     transitions     named; declare inputs, guards and an outcome (§5.4)
-                    optional markings: only via · proposable · asserting
+                    optional markings: only via · proposable · asserting ·
+                    backdatable; a guard clause may observe instead of enforce
     actions         transitions whose from-state equals their to-state
+
+Metric                a declared formula across many objects or over time, with
+                      dimensions and flags, computed on read (§5.12)
 ```
 
-Every request additionally carries an **actor** the consumer supplies (§5.8).
+Every request additionally carries an **actor** the consumer supplies (§5.8). Beside the objects, the engine keeps an **interval index** of how long each object held each state and each tracked value, and an **attempt log** of the requests it did not apply (§7).
 
 ### 5.1 Objects and identity
 
@@ -107,7 +118,9 @@ An attribute has a declared type: string, boolean, integer, decimal with scale, 
 - **indexed**, which is what query filters, type-scan predicates and visibility predicates may use (ADR-0048);
 - part of the **summary** set, the attributes a listing returns by default.
 
-**Derived** attributes are named expressions, never stored, evaluated on read; their dependency graph must be acyclic (ADR-0021, ADR-0047). A **file** attribute holds a content-addressed reference to a blob in external storage with its hash, size, media type and provenance. ObjectKeeper never reads, streams or serves the bytes; its one byte-level operation is deleting them during erasure (ADR-0017, ADR-0041). A deployment must disable its blob store's own lifecycle expiry, since the log is permanent and a reference outlives any expiry policy.
+**Derived** attributes are named expressions, never stored, evaluated on read; their dependency graph must be acyclic (ADR-0021, ADR-0047). A derived attribute for one object is what the PRD calls a derived datapoint, and it may read the object's own intervals (§5.7). A **file** attribute holds a content-addressed reference to a blob in external storage with its hash, size, media type and provenance. ObjectKeeper never reads, streams or serves the bytes; its one byte-level operation is deleting them during erasure (ADR-0017, ADR-0041). A deployment must disable its blob store's own lifecycle expiry, since the log is permanent and a reference outlives any expiry policy.
+
+Every **enum** attribute, like every singular stored reference (§5.3), is **tracked**: how long an object held each value is kept in the interval index (§7) without its author declaring which (ADR-0083, ADR-0086). Numbers and free text are not tracked; their changes remain in the events.
 
 ### 5.3 Relationships
 
@@ -115,11 +128,13 @@ Relationships are **composition**, meaning exclusive membership and a lifetime b
 
 References carry no attributes. A relation with labels, dates or a lifecycle of its own is a **link object**: a type with two references. **One end of a relationship is stored and its declared inverse is a derived view over it** (ADR-0056), so there is only ever one write and one event; guards, invariants and outcomes traverse either direction. A composition declares, for **every terminal transition of the whole**, the child transition it drives and that cascade's bound, or marks the part `survives` to say deliberately that it outlives its whole; publishing rejects a terminal transition covered by neither (ADR-0058). A cascade clause may carry arguments (ADR-0066).
 
+**`changed_since` reaches a part relationship by its own position.** The last event on each part relationship of an object is kept per relationship, so a guard naming `checklist_items` is not invalidated by a change to `approvals` (ADR-0082, repairing D202). An **observation** is a part of a special shape (§5.11). A singular reference may be marked **`assignee`** (§5.13), and every singular stored reference is tracked (§5.2).
+
 ### 5.4 State machines, transitions and outcomes
 
 Each type binds exactly one **named** state machine, or declares its lifecycle inline; two types that share a lifecycle bind the same machine (ADR-0003, ADR-0026). A binder may add transitions of its own, and its own **creations replace the machine's** rather than adding to them, since birth is where a type's obligations are established (ADR-0064). The machine's creation **guards** still bind the replacement, so a lifecycle's entry condition cannot be dropped by declaring a creation (ADR-0065). Every state has a **category** from a consumer-defined set, so guards and views that span a family need not know state names, and at least one state is terminal.
 
-A **transition** is a named, guarded, recorded request to move an object from one state to another. It is requested **by name, never by target state**. Its from-state may be one state, a set, or any non-terminal state. It declares **inputs** with types and optionality, **guards**, and an **outcome**. An **action** is a transition whose from- and to-state are equal; its outcome is unrestricted like any other, and there are **no exit or entry semantics** for a state, so an action neither leaves nor re-enters one (ADR-0016, ADR-0041). A request naming no declared transition is refused, so nothing is recorded for a change that did not happen.
+A **transition** is a named, guarded, recorded request to move an object from one state to another. It is requested **by name, never by target state**. Its from-state may be one state, a set, or any non-terminal state. It declares **inputs** with types and optionality, **guards**, and an **outcome**. An **action** is a transition whose from- and to-state are equal; its outcome is unrestricted like any other, and there are **no exit or entry semantics** for a state, so an action neither leaves nor re-enters one (ADR-0016, ADR-0041). A request naming no declared transition is refused, so nothing is recorded in history for a change that did not happen; the refusal itself goes to the attempt log (§7), which is not history (ADR-0083).
 
 An **outcome** is an ordered sequence of steps that write this object, create another, reach another by `call`, supersede, or loop over a bounded collection (ADR-0046, ADR-0052). **The grammar is `docs/design/declaration-syntax.md` §5.2, which owns it**; this section states what an outcome is and not how it is spelled, because two statements of one grammar drift and the syntax document is the one publishing checks. Until iteration 14 the grammar was restated here and had gone stale in three of its six lines.
 
@@ -131,7 +146,7 @@ Rules that make an outcome readable and safe:
 - **`this` and `this_event` are available**, including inside a creation outcome: the new object's id and its event's identity are allocated before the outcome runs (ADR-0046, ADR-0052).
 - **Bounded.** Every loop and every cascade clause must declare a bound; exceeding one is refused with `over-limit` naming that loop (ADR-0071). The graph of transitions that reference each other in outcomes must be acyclic (ADR-0019).
 
-A transition may be marked **only via** named parent transitions, meaning it is not requestable and carries no actor guards of its own (ADR-0020); **proposable**, meaning a caller lacking authority may file a Proposal (§9); or **asserting** (§8).
+A transition may be marked **only via** named parent transitions, meaning it is not requestable and carries no actor guards of its own (ADR-0020); **proposable**, meaning a caller lacking authority may file a Proposal (§9); or **asserting** (§8). It may also be marked **backdatable within** a duration: it then accepts the time the change actually happened, within that bound and never before the object's previous state change, and the event keeps both times, because a duration computed from when someone got round to recording a change is wrong (ADR-0083).
 
 Creation is a transition from nothing into an initial state, carrying its own guards. A type with several creation transitions is named explicitly at the creation site. Requiredness attaches to transitions, so `validate(object)` has no answer and `check(object, transition, inputs)` does (ADR-0002, ADR-0005).
 
@@ -163,9 +178,13 @@ An unsatisfied verdict's **remedy class** tells a caller what to do next:
 
 Availability is therefore three-way for a listing: available, available-with-input naming what must be supplied, or blocked with a verdict.
 
-**Approval** is not a separate mechanism. An approval is a recorded part of the approved object, carrying the approver, a kind, a decision and the event that recorded it, created by an `approve` action. "Needs approval" is then an ordinary guard counting the approvals that are still valid, where validity is `not changed_since([…], a.at_event)`, so a material edit invalidates an approval without every editing action having to remember a reset. N-of-M, sequential chains, thresholds and separation of duties are guards of that shape, and a missing approval reports `delegable` (ADR-0035).
+**Approval** is not a separate mechanism. An approval is a recorded part of the approved object, carrying the approver, a kind, a decision and the event that recorded it, created by an `approve` action. "Needs approval" is then an ordinary guard counting the approvals that are still valid, where validity is `not changed_since([…], a.at_event)`, so a material edit invalidates an approval without every editing action having to remember a reset. N-of-M, sequential chains, thresholds and separation of duties are guards of that shape, and a missing approval reports `delegable` (ADR-0035). In shape an approval is an observation kind (§5.11).
+
+A guard clause may be marked **`observe`**. It is evaluated, and where it would refuse, the request proceeds and the would-be refusal is recorded in the attempt log, linked to the event that applied. An observing clause guarantees nothing: the printed rule set shows it as not enforced, the adversarial harness treats it as absent, and enforcing it is a flow change (§9, ADR-0085).
 
 A guard that depends on facts outside the store references a **named external evaluator**, which must return the same verdict shape and **never a value** (ADR-0008, ADR-0069). An external system that decides or assigns something is modelled as an **externally owned type** instead: an ordinary type with an external identifier, whose sync-driven transitions the sync consumer requests with the external system's own change identifier as idempotency key, and whose local transitions are whatever the domain needs (ADR-0080). Two ways to import external truth would differ in what they record, and the type is the one that leaves a history with transition names. Evaluators are consulted **before** the write transaction opens, never inside it, and their verdict carries an as-of time recorded on the event; a declaration may set a freshness bound, past which the verdict is refused as `temporal` (ADR-0049). The guarantee for an external fact is as of that time, not at commit.
+
+A guard may also read a **metric** (§5.12), consulted the same way: before the transaction opens, its arguments resolved against committed state then and again inside the transaction, and its value and as-of time recorded on the event beside the guard's name, with an optional freshness bound (ADR-0084). No first-consumer process needs this yet (PRD L5), so it is the least-evidenced mechanism in the model. A guard over one object's own observations needs none of this: it reads parts in the transaction, and records which observations it read (§5.11).
 
 ### 5.6 Invariants
 
@@ -175,7 +194,7 @@ A type-level property, declared once against the type rather than restated on ev
 - a **traversal** invariant reads related objects, and may traverse only relationships with **declared inverses**, so the affected objects are found by reverse traversal;
 - a **type-scan** invariant reads other objects of a type and must be **symmetric**, so the predicate that finds a conflict from a written object is the same one that would find it from the other side (ADR-0052). Symmetry is decided by a **swap test** whose four normalisations are `docs/design/declaration-syntax.md` §3.4, which owns it: exchange the two objects and require the same predicate back, comparing conjuncts as a set and comparisons modulo operand order and direction. Overlap, equality on a shared key and a status filter applied to both objects all pass, and only under those normalisations — stating the test without them rejects the shapes it is meant to accept (ADR-0063). The scan never includes the object being written (ADR-0061).
 
-Publishing classifies each invariant, reports which form it decided and which transitions could violate it, and rejects anything that fits none. An erasure admits every invariant reading an attribute it erased, and records the admission, since writing absence may break one and refusing the erasure is not available (ADR-0060). Correctness comes from serialisable isolation (ADR-0039), so an invariant is enforced whether or not it compiles to a database constraint. Compilation is an optimisation whose available shapes depend on the backend, and publishing reports which of a declaration's invariants the configured backend can compile (ADR-0041).
+Publishing classifies each invariant, reports which form it decided and which transitions could violate it, and rejects anything that fits none. An erasure admits every invariant reading an attribute it erased, and records the admission, since writing absence may break one and refusing the erasure is not available (ADR-0060). Correctness comes from serialisable isolation (ADR-0039), so an invariant is enforced whether or not it compiles to a database constraint. Compilation is an optimisation whose available shapes depend on the backend, and publishing reports which of a declaration's invariants the configured backend can compile (ADR-0041). No invariant may read a metric, as none may read `now`. An observation kind may declare invariants over its own fields, checked when an observation is recorded (§5.11).
 
 ### 5.7 The expression language
 
@@ -191,14 +210,16 @@ One language serves guards, invariants, derived attributes, visibility predicate
 | `changed_since([attributes or parts], event)` over the object's history | `not changed_since([amount, vendor, lines], a.at_event)` |
 | conditional expression, in a derived attribute or an outcome value, never in a guard | `if unit is null then UNFILLED else FILLED` |
 | a declared external evaluator | `xero.invoice_valid(order_id)` |
+| `entered_at(STATE or tracked member)`, `time_in(STATE)`, over the object's own intervals | `unit is null and entered_at(unit) + 14 days <= now` |
+| a declared metric, in a guard only (§5.12) | `metric(inspection_pass_rate, model := this.robot_model, over last 30 days) >= 0.90` |
 
 Evaluation is **three-valued**: comparison with an absent value, and division by zero, yield unknown. Unknown propagates, with the two Kleene exceptions that make presence tests useful — `and` is false if either side is false, `or` is true if either side is true — and a guard that evaluates to unknown **fails**, naming the clause and reporting the value as unknown rather than false. An **invariant** that evaluates to unknown **holds**, which is the rule a database `CHECK` follows and the only one under which a partially filled object is workable. Presence is therefore tested with `is null` and `is not null`, and comparing against a bare `null` literal is a publish error (ADR-0053). Over an empty set, `count` and `sum` are zero, `all` and `none` are true, `any` is false, and `min` and `max` are unknown. `this` always means the object the expression is declared on and never rebinds, so every aggregate binds its element explicitly.
 
-Not in the language: grouped aggregation, string operations beyond equality and membership, user-defined functions, recursion or transitive closure, any call other than a declared evaluator.
+Not in the language of guards, invariants and derived attributes: grouped aggregation, string operations beyond equality and membership, user-defined functions, recursion or transitive closure, any call other than a declared evaluator or a metric. Grouped aggregation, time windows, `avg`, `median` and `percentile` exist in the metric form alone (§5.12).
 
 **How far a guard actually reaches, measured.** Every guard in the first consumer was counted on 2026-09-09. Of the 205 that read data, 94 are local to the object and 111 reach beyond it. Of those 111: 27 are one hop to a single object, 31 aggregate over a collection the object owns, 30 are type-wide existence or uniqueness, and 23 are two hops — 21 of which also aggregate. **Nothing in that system reaches three hops.** So the language needs one and two hops, aggregates over an owned collection, and a type-wide existence test, and it needs no transitive closure — which is the boundary ADR-0021 drew by argument and this measures.
 
-**The line with computation** (ADR-0007, ADR-0032): the store evaluates **declared arithmetic over its own data**, where the result is a guard, a view, an invariant or a quantity an outcome writes. It does not own **domain formulas** — tax, pricing, discounts, scoring, conversion — which consumers compute and supply as inputs for guards to check. The language grows only by an ADR naming the case that forced it.
+**The line with computation** (ADR-0007, ADR-0032, ADR-0081): the store evaluates **any declared formula over its own data** — a guard, a view, an invariant, a quantity an outcome writes, a derived datapoint, a metric, a score built from them. It does not own a formula that needs data or rules it does not hold, such as a tax table or a pricing engine, and it does not choose, cause effects or orchestrate; consumers do those and supply results as inputs for guards to check. The language grows only by an ADR naming the case that forced it, and the case must be a PRD requirement.
 
 ### 5.8 Actors and visibility
 
@@ -216,7 +237,8 @@ Every type, machine, enum, sequence and evaluator carries its own **type version
 - a **new invariant** is checked against live objects and every violation reported, then resolved by a mapping or admitted (§8);
 - **removing a state** requires a mapping, applied as recorded migration transitions with provenance `migrated`;
 - pending **proposals** the new version cannot express are invalidated (§9);
-- the report also names which invariants compile on this backend, which transitions are sweepable, and which derived attributes are queryable (§10).
+- the report also names which invariants compile on this backend, which transitions are sweepable, which derived attributes are queryable (§10), and every guard clause that is observing rather than enforced (§5.5);
+- a flow changes only through a **`DeclarationChange`** (§9): drafted, approved by an actor other than its drafter — a person, when an agent drafted it — and published, its dry-run report being the impact report the draft carries (ADR-0085).
 
 Import is this mechanism from version zero (§11). The printable rule set is per version.
 
@@ -224,20 +246,82 @@ Import is this mechanism from version zero (§11). The printable rule set is per
 
 A type declares one of three modes (ADR-0050, ADR-0067). **Serial-tracked** is one object per physical thing with its own lifecycle. **Quantity-tracked** is a stock object carrying counters that actions adjust. **Record** tracks no physical thing at all — a delivery, a service job, an audit entry — and carries no counters, which is what most of an operations platform holds: in the first consumer, three entities are serial-identified and twelve or more are records. A slot in a configuration declares which fill form it takes, so one kit may carry a serialised robot and a counted quantity of consumables. Reserve means the same in both: the thing is spoken for. Changing a type's mode is a new type, and objects move by supersession one at a time.
 
+### 5.11 Datapoints: observations and labels
+
+A **datapoint** is a time-stamped fact about a flow or an object (PRD §5). The engine keeps the flow-generated ones — transitions, refusals, overrides, time in each state and value — without anyone declaring them (§7). **Recorded** datapoints are observations and labels (ADR-0082).
+
+An **observation kind** is declared once, `on` a subject type. It has typed fields — a numeric field may state its unit, which is printed and returned but never converted — a `recorded by` guard and an `occurred within` bound. The subject names the collection as a part: `part inspections : InspectionResult[] inverse subject`. The kind expands into what it is: a `record` type with one terminal state, an `owner` end to its subject, and a generated `record` creation carrying the `recorded by` guard. Recording is therefore an ordinary creation request, with an actor, an event, an idempotency key and a place in history, and there is still no second write path. A transition's outcome may record one with an ordinary `create` step, which is how a transition records what it decided on.
+
+- **Two part rules bend for observations.** An observation is recordable directly rather than only via its whole, and may not be recorded on a subject in a terminal state, which is what "settled" means. As a born-final part it is implied `survives`.
+- **Recording does not write the subject.** It neither bumps the subject's version nor conflicts with a concurrent transition on it; a recorded fact matters to the flow only through a guard that reads it.
+- **Recording is validated.** Fields are typed, and a kind may declare invariants over its own fields, checked when it is recorded.
+- **Nothing is edited.** A correction is a new observation of the same kind and subject, naming the one it corrects, and aggregates read the uncorrected ones by default. Erasure is the one exception, and removes only personal values.
+- **A guard that aggregates over observations records, on its event, the observations it read**, so the decision can be re-evaluated from the record. Deriving the set from positions instead would be wrong wherever a position is not commit order (§7).
+- **Catalogues of what to record are data.** An inspection checklist is objects a transition creates, and an observation references one, so changing a checklist needs no publish.
+
+A **label** is a built-in observation available on every type: a normalised name, an optional note, and the subject's state when it was applied. It records what nobody has modelled yet. Labels are read by metrics and diagnostics and **never by a guard, an invariant or a visibility predicate**, since a rule over a vocabulary nobody declared changes meaning with a typo. A label becomes logic by promotion to a state, an observation kind or an attribute, which is a publish, and objects in flight then move by ordinary requests, so history says who moved each. A label's note is treated as personal. Who may label is a deployment capability, which a type may narrow.
+
+### 5.12 Metrics and business exceptions
+
+A **metric** is a declared formula across many objects or over time (ADR-0084). It names:
+
+- a **source**: a type's current objects, an observation kind, or one of a type's three datasets — `intervals`, `transitions` and `attempts`;
+- a **filter** in the expression language;
+- **dimensions**: paths up to two hops, the kind of actor that requested a transition or recorded a datapoint, the declaration version, and time buckets over any timestamp, in UTC calendar time;
+- a **value**, which may combine `count`, `sum`, `min`, `max`, `avg`, `median` and `percentile` arithmetically, over a window relative to `now` if it wants one;
+- optional **flags**: named conditions on the value.
+
+Metrics are **computed on read**, under the reader's visibility. Source rows are filtered by the source type's visibility predicate, and datasets and observations inherit their subject's. So a metric is retroactive by construction and stores nothing, which is why erasure needs nothing from one. A personal value may be counted, and never be a dimension, a flag's operand or an unaggregated output.
+
+Every type gets **standard metrics** without declaring any:
+
+- time in each state;
+- throughput;
+- work in progress;
+- age of the oldest open objects;
+- how often each transition is taken;
+- refusal rates per rule;
+- override counts per target state;
+- rework.
+
+A type with an assignee also gets the metrics of §5.13. All of them are listed with the type, like any declared metric, so a person reading the rule set and an agent calling `metric()` see the same definitions.
+
+A **business exception** — work overdue, ageing past a threshold, a service level breached — is a declared condition and not a new construct. Over one object it is a derived attribute over a stored operand and `now`, found by `query`. Across many objects it is a metric's flag. The store never sends one: a scheduler or an agent asks and acts (ADR-0012).
+
+### 5.13 Assignment
+
+An **assignee** is whoever is responsible for an object at a given time, as distinct from whoever acts on it (ADR-0086). A singular reference marked `assignee` names that responsibility. Its target type marks one `identity` attribute as the actor's id, so the engine can tell when someone other than the assignee acts. A type may mark more than one — an engineer-of-record and a reviewer — and each is a separate dimension. The marking adds no write path: assignment is whatever declared transitions write the reference, each with its own guards on who may assign and who may be assigned.
+
+Every singular reference is tracked from its first write (§5.2), and the log can rebuild the intervals. So assignment history does not depend on the marking being present from the start; it depends on the assignee being written through the store from the start.
+
+Every assignee dimension gets metrics without declaring any:
+
+- open work per assignee;
+- time unassigned;
+- time to first assignment;
+- time with each assignee;
+- handoffs;
+- reassignment back to an earlier assignee;
+- how often someone other than the assignee acts.
+
+Choosing the assignee stays outside the store (§12).
+
 ## 6. Transition execution
 
 A request names an object, a transition, its inputs and the actor, and optionally the version the caller last read, an idempotency key (ADR-0014), and a free-form `context` string naming the route it came by, recorded on the event. A creation request names the type and the creation transition instead of an object, and skips steps 1 and 3.
 
-External evaluators named by any guard in the request are consulted **first, outside the transaction**, and their verdicts carried in with their as-of times (ADR-0049). The rest runs in one transaction at **serialisable isolation** (ADR-0039):
+External evaluators and metrics named by any guard in the request are consulted **first, outside the transaction**, and their verdicts or values carried in with their as-of times (ADR-0049, ADR-0084). A metric's arguments are resolved against committed state now and again inside the transaction; a mismatch means the world moved, and the request consults again within its retry bound. The rest runs in one transaction at **serialisable isolation** (ADR-0039):
 
 1. If the type declares visibility and the actor cannot see the object, refuse as `not found`.
 2. If this actor's idempotency key has been applied before to this request, return the original result, marked as a replay, **whatever `expected_version` the retry carries**: a retry is the original request re-sent, and its version is the one the original was checked against (ADR-0041, ADR-0076). A key applied before to a different request is a fault, not a verdict (ADR-0077).
 3. If an `expected_version` is given and differs, refuse with `stale`. This is possible only for a request that has not been applied.
-4. Evaluate the parent transition's guards. A failure refuses the request, naming the clause, its object and its remedy class.
+4. Evaluate the parent transition's guards. A failure refuses the request, naming the clause, its object and its remedy class. A clause marked `observe` that fails refuses nothing; its would-be refusal is written to the attempt log in this transaction, linked to the event of step 8 (ADR-0085).
 5. Apply the parent's outcome in full: its new state and its attribute writes, each value read at the moment it is applied (ADR-0054).
 6. Then, depth-first in declaration order and over collection elements in ascending object-id order, which is creation order (§5.1), take each cascaded transition or creation in turn, **skipping a part already in a terminal state**, since its disposition has happened and that is the only skip on account of state; for each of the rest evaluate its guards **against the state produced so far**, then apply its outcome immediately (ADR-0038). Only-via transitions contribute their non-actor guards; other cascades run as the requesting actor. Any failure aborts the whole request and rolls back.
 7. Check every invariant the written objects could violate — where a transition writes a part's `owner`, **both** the source whole and the destination whole count as written, so the source's invariants are re-checked and both have their part-event position stamped (ADR-0058), except those with an admitted violation still standing (ADR-0045, ADR-0054).
-8. Increment each written object's version; record one event per transition, each cascaded event carrying the parent's event as its cause; append them to the log in the same transaction (ADR-0013). Commit.
+8. Increment each written object's version; update the interval index for every changed state and tracked value, using the occurred time where the transition is backdatable; record one event per transition, each cascaded event carrying the parent's event as its cause and each carrying the request's serialisation retry count; append them to the log in the same transaction (ADR-0013, ADR-0083). Commit.
+
+**A request that does not apply** — refused by a guard, `stale`, `not found`, `not requestable`, over a limit, violating an invariant, naming no declared transition, or reusing a key — is written to the **attempt log** in its own short transaction after the rollback. The row holds who asked, their kind, the transition, the verdict, and the failing clause with its remedy class, and never the inputs (ADR-0083). A crash between the rollback and that write loses one row of evidence and no history.
 
 Row locks are taken as objects are reached, for contention rather than correctness: serialisable isolation is what makes a guard's reads safe, including reads of objects the request never writes. A serialisation failure is retried to a declared bound and then refused with `stale`.
 
@@ -245,9 +329,14 @@ An **asserting** transition (§8) differs in two ways: step 4 evaluates only its
 
 ## 7. History, events and delivery
 
-**Current state is stored**, one row per object with its attributes, state, version, declaration version and last event. **The event log is the permanent history**, written in the transition's transaction; a fold of the log reproduces the row, never the reverse (ADR-0033). A per-attribute index of the event that last wrote it makes `changed_since` a constant-time comparison (ADR-0048), and a **last-part-event position** per object that has parts does the same for the half of `changed_since` that reaches a composition (ADR-0057).
+**Current state is stored**, one row per object with its attributes, state, version, declaration version and last event. **The event log is the permanent history**, written in the transition's transaction; a fold of the log reproduces the row, never the reverse (ADR-0033). A per-attribute index of the event that last wrote it makes `changed_since` a constant-time comparison (ADR-0048), and the same index, keyed by part relationship, does it for the half that reaches a composition: one position per relationship rather than one per whole (ADR-0057, ADR-0082).
 
-Every event carries `changes_state`, true when from and to differ, and its **provenance**: actor, principal, `context`, cause, declaration version, the version of the taint check that passed the write, so a later audit can tell which rules were in force (ADR-0051), and a `source` of
+Beside the log the engine keeps two more records (ADR-0083):
+
+- **The interval index** records how long each object held each state and each value of each tracked attribute and reference: entry and exit by position and by occurred time, the transition that set it, its actor's kind, and the declaration version. The log can rebuild it, so it is an index and not a second source of truth, and the store maintains **no projection the log cannot rebuild**.
+- **The attempt log** records every request that did not apply, and every would-be refusal of an observing clause. It holds no inputs. It is not history: `history` does not return it, and subscriptions do not deliver it. It is pruned after a retention period the deployment sets, with its counts kept permanently.
+
+Every event carries `changes_state`, true when from and to differ, and its **provenance**: actor, principal, `context`, cause, declaration version, the version of the taint check that passed the write, so a later audit can tell which rules were in force (ADR-0051), the time a backdated change happened beside the time it was recorded, the number of serialisation retries its request took (ADR-0083), and a `source` of
 
 | Source | Produced by |
 |---|---|
@@ -282,15 +371,23 @@ Delivery is **at-least-once with idempotent handling**. Exactly-once *effect* co
 
 **Supersession** ends an object in a terminal state that names its successor, which may be an existing object or one the same outcome created. Id and history stay, the read surface follows the pointer on request, and references are re-pointed only by declared cascade. It is how an object changes kind: moved, converted, merged (ADR-0028, ADR-0046). A duplicate is closed with a reference, not superseded.
 
-**Assertion** is the only way to set state without satisfying the type's guards, and it is declared, not ambient (ADR-0040). An asserting transition names the states it may assert; is addressed by name with the target state as a constrained input, so §5.4's by-name rule holds; carries its own guards, at minimum a capability and a mandatory reason; and records what it stepped over. A type that declares none cannot be repaired this way at all. Invariants are not bypassed by default: an assertion marked `may admit` accepts an explicit list of the invariants it knowingly violates, and each **admission** names an object and an invariant, suppresses that invariant's check for that object, and is discharged automatically when the invariant holds again (ADR-0054). Import and declaration migration use a **built-in** assertion gated on a deployment capability, so no type is unimportable by omission.
+**Assertion** is the only way to set state without satisfying the type's guards, and it is declared, not ambient (ADR-0040). An asserting transition names the states it may assert; is addressed by name with the target state as a constrained input, so §5.4's by-name rule holds; carries its own guards, at minimum a capability and a mandatory reason; and records what it stepped over. A type that declares none cannot be repaired this way at all. Invariants are not bypassed by default: an assertion marked `may admit` accepts an explicit list of the invariants it knowingly violates, and each **admission** names an object and an invariant, suppresses that invariant's check for that object, and is discharged automatically when the invariant holds again (ADR-0054). Import and declaration migration use a **built-in** assertion gated on a deployment capability, so no type is unimportable by omission. `exceptions(type)` lists the objects whose state an assertion last set, and those holding an admitted violation. An import's state change is recorded as `imported` in the object's `state_source`, while its event keeps provenance `asserted`, so the list shows repairs and admissions and is not buried by the legacy population (ADR-0083, repairing D205).
 
-**Erasure** replaces the values of declared personal attributes with absence, on the object and in every event that carried them, deletes referenced file content, keeps the event skeleton, records that it happened, and is irreversible (ADR-0031). It runs from any state, terminal included, since erasure requests arrive for closed accounts; it is the one carve-out from the rule that a deleted object admits no further transitions (ADR-0056). The marker is absence rather than a sentinel, so it collides with no unique constraint and reads as unknown in the expression language, which makes a guard over an erased value fail rather than pass (ADR-0051). It is the one place the log is rewritten, and it is not deletion. It also reaches the legacy entries attached to the object, redacting every payload field the import mapping did not list as kept; the inputs of every proposal that targets the object or carries a personal value, invalidating the pending ones; and every event payload that carried a personal input, whether or not that input was written to an attribute, an input being personal by marking or by flowing into a personal attribute (ADR-0078). What it cannot reach is a personal value inside another object's free text, which is a known limit.
+**Erasure** replaces the values of declared personal attributes with absence, on the object and in every event that carried them, deletes referenced file content, keeps the event skeleton, records that it happened, and is irreversible (ADR-0031). It runs from any state, terminal included, since erasure requests arrive for closed accounts; it is the one carve-out from the rule that a deleted object admits no further transitions (ADR-0056). The marker is absence rather than a sentinel, so it collides with no unique constraint and reads as unknown in the expression language, which makes a guard over an erased value fail rather than pass (ADR-0051). It is the one place the log is rewritten, and it is not deletion. It also reaches the legacy entries attached to the object, redacting every payload field the import mapping did not list as kept; the inputs of every proposal that targets the object or carries a personal value, invalidating the pending ones; and every event payload that carried a personal input, whether or not that input was written to an attribute, an input being personal by marking or by flowing into a personal attribute (ADR-0078). It reaches observations through the subject's `erase`, since they are parts, and it redacts label notes, which are treated as personal. The attempt log holds no inputs and a metric stores nothing, so neither needs erasing (ADR-0082 to ADR-0084). What it cannot reach is a personal value inside another object's free text, which is a known limit.
 
 ## 9. Built-in types
 
-`Subscription` (§7) and `Proposal` are built in and not user-definable.
+`Subscription` (§7), `Proposal` and `DeclarationChange` are built in and not user-definable, and `label` is a built-in observation kind (§5.11).
 
 A **Proposal** holds a request a caller lacked authority for: target, transition, inputs and proposer, with a lifecycle `pending → executed | rejected | withdrawn | invalidated`. Approving it executes the recorded request **as the approver**, with the approval as cause, and every guard is re-evaluated at execution under the **current** declaration, actor guards included. An approval therefore succeeds only if the approver holds whatever authority the transition's guards demand; nothing reads a capability off a guard in advance, because the guard itself is the test. A guard that fails leaves the proposal pending with the verdict attached; a declaration that can no longer express the request invalidates it (ADR-0036, ADR-0044). Expiry is derived, not driven.
+
+A **DeclarationChange** is how a flow changes (ADR-0085). Any actor holding the drafting capability creates one, carrying:
+
+- the source;
+- the dry-run publish report, which is the impact report;
+- links to its evidence.
+
+An actor other than the drafter, holding the publish capability, approves it — a person, when an agent drafted it — and approval publishes it. It is superseded when the installed version moves under it. The engine never drafts one; an agent reading `diagnostics` usually does. Being an object, every step is attributed, and the publish event has an object to belong to (repairing D212).
 
 ## 10. The read surface
 
@@ -299,24 +396,26 @@ One API. Every operation takes an actor and applies visibility (ADR-0037).
 | Operation | Returns |
 |---|---|
 | **get**(id, follow?) | The object; optionally following supersession to the live successor |
-| **query**(type or family, filter, order, cursor, fields) | A page of objects. The filter uses indexed attributes, state and category, and derived attributes that are themselves indexable; `fields` defaults to the type's summary set |
+| **query**(type or family, filter, order, cursor, fields) | A page of objects. The filter uses indexed attributes, state and category, derived attributes that are themselves indexable, and the entry time of a tracked value's current interval (§5.13, ADR-0084); `fields` defaults to the type's summary set |
 | **lookup**(source, value) | The object whose external identifier for that source matches |
 | **availability**(id) | Each requestable transition with its three-way availability, verdict and declared input schema. Only-via transitions are not listed |
 | **available**(type, transition, cursor) | The objects for which that transition is available now. Requires the transition to be **sweepable**, meaning its guards decompose into an indexable prefilter and a residual; one that is not is refused rather than scanned (ADR-0048) |
 | **check**(id, transition, inputs) | The verdict a request would receive, simulating the same sequence internally. Lock-free and side-effect-free, so it is advice and not a reservation, and its verdict is **partial**: it names the external guards it did not evaluate (ADR-0054) |
 | **history**(id, follow?) | Events with provenance, legacy entries, and optionally the combined timeline through supersession |
-| **exceptions**(type) | The objects holding asserted state or an admitted invariant violation, which is what keeps the escape hatch of §8 reviewable |
+| **exceptions**(type) | The objects whose state an assertion last set, the data import excluded, and those holding an admitted invariant violation; what keeps the escape hatch of §8 reviewable |
 | **declaration**(type, version?) | The inspectable rule set at a declaration version, the number an event records; rendered also as readable text and as agent tool schemas |
 | **pull**(subscription, position) | A page of events per the subscription's filter, and the settled position (§7) |
 | **batch**(requests) | N independent requests, **each in its own transaction**, returning N verdicts in order |
+| **metric**(name, filter?) | The rows of a declared or standard metric the reader may see, each with its dimensions, its value and the flags that hold, in UTC calendar time (§5.12, ADR-0084) |
+| **diagnostics**(type) | Where the flow and reality disagree: transitions and states unused in a window, the clauses that refuse most, states entered mostly by override, labels by frequency and state, the longest waits, rework and reassignment loops, work done by non-assignees, backdating rates, and observing clauses' would-be refusals (ADR-0085) |
 
-Neither `available`, `check` nor `availability` calls an external evaluator; each says which guards it did not evaluate. Time-dependent derived attributes are queried by filtering the stored operand the expression compares against `now`, since a clock-dependent value cannot be indexed. There is **no atomic batch**: atomic multi-object semantics are declared cascades (§5.4). Beyond the indexes a type declares, the store maintains no projection; where a scan is too slow and the type is `quantity`-tracked, it declares a counter and the cascade that maintains it. That remedy is **not available to a `serial` or `record` type**, which is open question 10 and is why a ledger balance has nothing tying it to the entries that produced it (ADR-0072).
+Neither `available`, `check` nor `availability` calls an external evaluator; each says which guards it did not evaluate. `check` and `availability` do compute internal metrics, since no third party is involved. Time-dependent derived attributes are queried by filtering the stored operand the expression compares against `now`, since a clock-dependent value cannot be indexed. There is **no atomic batch**: atomic multi-object semantics are declared cascades (§5.4). Beyond the indexes a type declares and the interval index (§7), the store maintains no projection; where a scan is too slow and the type is `quantity`-tracked, it declares a counter and the cascade that maintains it. That remedy is **not available to a `serial` or `record` type**, which is open question 10 and is why a ledger balance has nothing tying it to the entries that produced it (ADR-0072).
 
-Writes go through the request of §6. Operational calls that are not object operations are `acknowledge`, which advances a subscription's progress (§7), and `publish`, which installs a declaration version (§5.9).
+Writes go through the request of §6. Operational calls that are not object operations are `acknowledge`, which advances a subscription's progress (§7), and `publish`, which installs the declaration version of an approved `DeclarationChange`, and whose dry run is the impact report a draft carries (§9).
 
 ## 11. Import and migration
 
-The first consumer's production data is ported by a designed path (ADR-0015). Every imported object receives a new id and keeps its legacy key as an external identifier with source `legacy`; cross-references are re-pointed through that mapping (ADR-0018). Imported state is written by the built-in assertion with provenance `asserted` (§8). The importer evaluates the declaration and reports every violated invariant and unsatisfied structural guard, grouped into classes, and a person decides each class: cleaning the source, supplying a value in the mapping, admitting an invariant violation, or excluding the objects. A guard class cannot be admitted, since an admission names an invariant (ADR-0077). Legacy history is preserved as read-only entries of kind `legacy`, which carry their original payload and are returned by `history` alongside ObjectKeeper's own events. Soft-deleted rows land in the type's deleted state. Files are content-addressed into the deployment's blob store. Cutover cannot be dual-write, because there is one write path.
+The first consumer's production data is ported by a designed path (ADR-0015). Every imported object receives a new id and keeps its legacy key as an external identifier with source `legacy`; cross-references are re-pointed through that mapping (ADR-0018). Imported state is written by the built-in assertion with provenance `asserted` (§8). The importer evaluates the declaration and reports every violated invariant and unsatisfied structural guard, grouped into classes, and a person decides each class: cleaning the source, supplying a value in the mapping, admitting an invariant violation, or excluding the objects. A guard class cannot be admitted, since an admission names an invariant (ADR-0077). Legacy history is preserved as read-only entries of kind `legacy`, which carry their original payload and are returned by `history` alongside ObjectKeeper's own events. Soft-deleted rows land in the type's deleted state. Files are content-addressed into the deployment's blob store. Cutover cannot be dual-write, because there is one write path. An import's state change is recorded as `imported` (§8). The mapping may supply each object's current-state entry time, and earlier intervals from legacy history, marked as legacy. That covers state and assignment alike: the first consumer's past reassignments come from its audit trail's before-and-after snapshots (ADR-0083, ADR-0086).
 
 Import writes every row complete in one pass: every object's id is assigned from the legacy-key mapping before any row is written, so every reference resolves at insert, and a cycle of required references commits with its foreign keys checked at commit (ADR-0077). Cutover is **staged by object type**, with one owner per type at any moment. A type this store holds and does not yet own is declared **`mirror`**: attributes, states and an external identifier, no transitions, written only by the import path; it is cut over by a version advance that removes the marking and changes no object's id (ADR-0075). The marking is for cutover only. A type another system owns for good — the first consumer's customer, which Xero owns — is an externally owned type (§5.5), and cutting the customer over means replacing the marking with that type and its sync-driven transitions (ADR-0080).
 
@@ -324,22 +423,26 @@ Import writes every row complete in one pass: every object's id is assigned from
 
 | In scope | Out of scope |
 |---|---|
-| Preconditions, permissions, approvals, visibility | Domain formulas: tax, pricing, scoring, conversion |
-| Required information per transition | External effects: raising an invoice, sending mail |
+| Preconditions, permissions, approvals, visibility | Formulas that need data or rules the store does not hold: tax tables, pricing engines |
+| Required information per transition | External effects: raising an invoice, sending mail, sending an alert |
 | Cross-object conditions and declared cascades | Selection: which engineer, which unit, who is next |
-| Type-level invariants, derived views, declared arithmetic | Long-running process orchestration |
+| Type-level invariants, derived views, any declared formula over the store's own data | Long-running process orchestration |
 | History, provenance, the event log, delivery | Deciding *when* a transition should happen |
-| Import, migration, supersession, erasure | Human UI, agent framework, blob bytes |
+| Flow data: intervals and the attempt log; recorded observations and labels; assignment | Open-ended exploratory analysis, which the export feeds |
+| Declared and standard metrics, business exceptions as declared conditions, diagnostics | High-rate machine telemetry; working-hours calendars, in the first release |
+| Import, migration, supersession, erasure; governed flow change | Human UI, agent framework, blob bytes |
 
-Preconditions and permissions have the same shape across domains; formulas, effects and selection are where domains differ irreducibly. The store decides and records; consumers compute, choose and cause (ADR-0007).
+Preconditions, permissions and the measurement of a flow have the same shape across domains; formulas that need outside rules, effects and selection are where domains differ irreducibly. The store decides, records and measures; consumers choose and cause (ADR-0007, ADR-0081).
 
 ## 13. Known limits
 
-The guarantee is that **no state change bypasses the guards except through a capability-gated, recorded assertion — either one the type declares, or the built-in one import and migration use**, and that the objects holding asserted state or admitted violations are queryable at any time (§8, §10). It cannot guarantee that **the guards say what was meant**. Risk relocates from scattered implementation bugs to specification gaps in one readable place. Hence two obligations: the rule set for a type must be printable for review by someone who knows the process, and acceptance testing must be adversarial in the threat model's sense, a fallible actor that guesses, retries and skips steps, trying every route to an invalid state.
+The guarantee is that **no state change bypasses the enforced guards except through a capability-gated, recorded assertion — either one the type declares, or the built-in one import and migration use**, and that the objects holding asserted state or admitted violations are queryable at any time (§8, §10). A guard clause on trial is not enforced and guarantees nothing, and the publish report lists every one (§5.5). A guard reading a metric is enforced against the value it was given, as of the time it was computed and not at commit, as for an external evaluator. It cannot guarantee that **the guards say what was meant**. Risk relocates from scattered implementation bugs to specification gaps in one readable place. Hence two obligations: the rule set for a type must be printable for review by someone who knows the process, and acceptance testing must be adversarial in the threat model's sense, a fallible actor that guesses, retries and skips steps, trying every route to an invalid state.
 
 The mediated property is an operational commitment. Anything else that can reach the database, a migration script, `psql`, a reporting job, voids it. Repair is a declared assertion, and the data import is its first use at scale.
 
 Concrete cases the model does not cover, or covers with a caveat, are catalogued in [`design/edge-cases.md`](design/edge-cases.md). They include in-place type change, gapless sequences, hot-row throughput, multi-region stock, acyclicity of self-referential hierarchies, unmerge, local-time rules, and the several things a declaration is refused at publish for.
+
+Two things measure less than they appear to. A metric is only as good as the recording behind it: a change recorded late distorts time in state unless its transition is backdatable, and backdating is itself reported. And references to a set of objects, such as a team, are not tracked, so assignment to a team has no intervals yet.
 
 ## 14. Terminology
 
@@ -355,7 +458,8 @@ Concrete cases the model does not cover, or covers with a caveat, are catalogued
 | **Only via** | A transition reachable only as a cascade from named parents, and never listed. |
 | **Proposable** | A transition a caller lacking authority may file a Proposal for. |
 | **Asserting** | A transition that may set a declared set of states without satisfying the type's other guards, gated on a capability and recording what it stepped over. |
-| **Guard** | An expression that must hold for a transition, carrying a declared remedy class. |
+| **Guard** | An expression that must hold for a transition, carrying a declared remedy class; enforced unless marked `observe`. |
+| **Observing clause** | A guard clause marked `observe`: evaluated, never enforced, its would-be refusals recorded in the attempt log. |
 | **Approval** | A recorded part of the approved object; "needs approval" is a guard counting approvals still valid under `changed_since` (ADR-0035). |
 | **Verdict** | The result of evaluating a request: satisfied, unsatisfied with a remedy class, `stale`, `not found`, `not requestable`, `over-limit`, or invariant violated. |
 | **Remedy class** | What an unsatisfied guard tells the caller to do: supply, ask, wait, work elsewhere, or take another path. |
@@ -377,11 +481,24 @@ Concrete cases the model does not cover, or covers with a caveat, are catalogued
 | **Declaration version** | The number of a publish: one per installed closure, per store, monotonic; recorded on every object and event, and what `declaration(type, version)` takes. |
 | **Type version** | The number a type, machine, enum, sequence or evaluator carries in its text; advancing one advances every type that depends on it (check 22). |
 | **Settled position** | The highest log position below which no transaction is still in flight; the furthest a pull consumer may acknowledge. |
-| **Publish** | Installing a declaration version, with a report of migrations, admissions, compiled invariants and sweepability. |
+| **Publish** | Installing a declaration version, as the approval of a `DeclarationChange`, with a report of migrations, admissions, compiled invariants, sweepability and observing clauses. |
+| **DeclarationChange** | A built-in object through which a flow changes: drafted with its evidence and impact report, approved by an actor other than its drafter, published. |
 | **Deletion / supersession / erasure** | Ending an object; continuing it as another; removing personal values from it and its history. |
-| **Provenance** | What an event records about itself: actor, principal, context, cause, declaration version, source. |
+| **Provenance** | What an event records about itself: actor, principal, context, cause, declaration version, source, and where they apply the time a backdated change happened and the serialisation retries its request took. |
 | **Idempotency key** | A caller-supplied key that makes a repeated request return the original result rather than acting twice. |
 | **Subscription** | A built-in object holding a filter, an endpoint and lag thresholds; its progress is runtime state, not object state. |
 | **Proposal** | A built-in object holding a request the caller lacked authority for; an authorised actor's approval executes it as themselves. |
 | **Sweepable** | A transition whose guards decompose into an indexable prefilter and a residual, so `available` can answer for it. |
 | **Effect** | Something caused outside ObjectKeeper; out of scope. Consumers cause effects by observing events. |
+| **Measured** | The fourth core property: every flow produces data about itself, users record their own, and everyone reads both through the same declared metrics. |
+| **Datapoint** | A time-stamped fact about a flow or an object: flow-generated, recorded, or derived by a formula (PRD §5). |
+| **Observation** | A recorded datapoint: a born-final part of a declared kind, recorded by a creation request. |
+| **Label** | A built-in observation recording what nobody has modelled yet; read by metrics and diagnostics, never by a rule. |
+| **Tracked** | Of an enum attribute or a singular reference: how long an object held each of its values is kept, without its author declaring it. |
+| **Interval** | A span during which an object held one state, or one value of a tracked member; kept in an index the log rebuilds. |
+| **Attempt log** | The record of requests that did not apply and of observing clauses' would-be refusals; not history, without inputs, pruned after a retention period. |
+| **Backdatable** | Of a transition: it accepts when a change actually happened, within a declared bound, and the event keeps both times. |
+| **Metric** | A declared formula across many objects or over time, computed on read under the reader's visibility; standard ones exist for every type. |
+| **Flag** | A named condition on a metric's value. |
+| **Business exception** | Work deviating from what its flow expects — overdue, ageing, a service level breached — declared as a derived attribute over one object or a metric's flag. |
+| **Assignee** | Whoever is responsible for an object at a given time, named by a reference marked `assignee`. |
