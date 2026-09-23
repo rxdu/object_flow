@@ -15,6 +15,8 @@ Guards and outcomes below are written in the grammar of ADR-0046 and ADR-0052 an
 
 ### 2.1 Lifecycle, as extended by the operations design
 
+> *Superseded 2026-09-24 by [`unit-journey.md`](unit-journey.md), which writes every unit transition production now registers as a checked module, with engagements, leases and service jobs beside the lifecycle. Production has changed since this was written: a unit flagged missing is cancelled rather than left in `PROCUREMENT`, and committing a batch releases its pegs rather than filling them (`design/defects.md` D280).*
+
 ```text
 [*] ─ request ──────────▶ REQUESTED ─ ship ─────▶ PROCUREMENT ─ receive ─▶ INTAKE
 [*] ─ add ──────────────────────────────────────────────────────────────▶ INTAKE
@@ -58,7 +60,7 @@ Terminal states: `RETIRED`, `CANCELLED`. Every transition is named and requested
 | | `slot.unit is null` | input | `dependent` |
 | | `slot.delivery.state == PREPARATION` | referenced | `dependent` |
 | | `actor.has(DELIVERY_EDIT)` | actor | `delegable` |
-| `retire(reason)` DEVELOPMENT → RETIRED | `actor.role == ADMIN` | actor | `delegable` |
+| `retire(reason)` DEVELOPMENT → RETIRED | `actor.has(ADMIN)` | actor | `delegable` |
 | | `reason is not null` | input | `self_serviceable` |
 | `sell` RESERVED → SOLD | *only via* `Delivery.complete_sale` | — | not requestable |
 | `convert_lease` DEVELOPMENT → SOLD | *only via* `Lease.convert` | — | not requestable |
@@ -188,6 +190,8 @@ Each deletable type declares a terminal state (`DELETED`, or a domain word such 
 A request carries an actor: an identity, a kind (human, agent, service), the principal it acts for, and a set of capabilities. ObjectKeeper does not authenticate or manage users; the consumer's auth does, and hands the descriptor in. Guards test it: `actor.has(DELIVERY_COMPLETE)`, `actor.kind == human`. Where a guard needs a referenced person — `Service.create` requires an engineer who is a human user — that person is an ordinary object in the store and the guard reads its attributes. Delegation is deferred; proposals became a built-in type (ADR-0036): the first consumer's authority-versus-capability list is two items long.
 
 ## 5. The operations extension against A–H
+
+> *The shipment and commit rows below describe production as it stood on 2026-09-07. [`unit-journey.md`](unit-journey.md) §5 lists what has changed since (`design/defects.md` D280).*
 
 | Operation | Declared as |
 |---|---|

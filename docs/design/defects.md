@@ -6,7 +6,7 @@ Findings from every review of this design. It began as the implementation-readin
 
 **Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
 
-**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 0 are open — the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 5 are open — an audit of the first consumer's production code on 2026-09-24 found D275 to D281, of which D280 and D281 were corrected in place and D275 to D279 are open; the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
@@ -286,6 +286,13 @@ Findings from every review of this design. It began as the implementation-readin
 | [D272](#d272) | A reader's metric collapsed its groups, and the per-object metrics were not aggregates | Resolved by ADR-0101 |
 | [D273](#d273) | A publish's migrations were counted as flow | Resolved by ADR-0101 |
 | [D274](#d274) | Observations on a mirror contradicted check 53, and four residues | Resolved by ADR-0101 |
+| [D275](#d275) | A duration cannot be divided by a duration, so a utilisation cannot be declared | Open |
+| [D276](#d276) | What an unknown filter does inside an aggregate or a loop is unsaid | Open |
+| [D277](#d277) | Idempotency records have no operation that removes them | Open |
+| [D278](#d278) | Check 15 makes a closed state need an exit that §4.2 calls optional | Open |
+| [D279](#d279) | The record says the first consumer keeps no stock level, and it does | Open |
+| [D280](#d280) | The walkthrough has drifted from the grammar and from production | Resolved in place |
+| [D281](#d281) | The syntax checker refused two legal forms | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -1864,3 +1871,41 @@ Four of the five reviewers checked their own findings against the repairs, and w
 
 **Resolved by ADR-0101**, 2026-09-23: an observation kind's collection on a mirror is exempt from check 53, and a generated `subject_owned` guard refuses a `record` or `label` request on a mirror's object; no span accrues on a finished object; the wording, annotation and shapes are corrected.
 
+## Found by auditing production against the design, 2026-09-24
+
+Four read-only audits of the first consumer's production code, one per slice, compared every rule they found with the design ([`first-consumer-audit.md`](first-consumer-audit.md)); writing the unit's full lifecycle as a module ([`unit-journey.md`](unit-journey.md)) found the rest. Each entry below was re-verified against both repositories before it was recorded.
+
+### D275
+**A duration cannot be divided by a duration, so a utilisation cannot be declared.** The first consumer's leasing decision asks first how much the pool was used (`wr:docs/adr/0002-unit-engagement-and-leasing-model.md`, "Rejected alternatives": "how much did we use it?"). Both halves are declarable as metrics — the time units spent on loan and the time they spent in the pool (`unit-journey.md` §2) — but not their ratio: `declaration-syntax.md` §8.3 allows `/` only with a scalar on the right and names no conversion from a duration to a number, and a combined metric's value is arithmetic over its parts. Every share of time — utilisation, the fraction of a job's life spent waiting, on-time share by duration — meets the same wall.
+
+**Open**, for the review against the PRD that follows the audit.
+
+### D276
+**What an unknown filter does inside an aggregate or a loop is unsaid.** `declaration-syntax.md` §8.2 defines `unknown` for operators and for the four places a whole expression is evaluated — a guard, an invariant, a visibility predicate, a derivation — but not for the `where` of an aggregate or of a `for`, which is evaluated once per element. So `none(s in slots where s.role == Role.PRIMARY and not s.filled)` with an absent `role` either counts the slot or does not, and nothing says which. Production decides it one way: a slot with no role never blocks completion (`wr:app/core/state_registry.py:544-545`).
+
+**Open**, for the review against the PRD that follows the audit.
+
+### D277
+**Idempotency records have no operation that removes them.** ADR-0100 §2 holds that nothing writes the database but the nineteen operations, and `maintain` offers two tasks, pruning attempt rows and archiving events. The idempotency record written with every keyed request (DESIGN.md §6 step 2) has neither a task nor a retention the store is constructed with; `storage-schema.md` ("Still open") leaves its retention a number to measure, which nothing could then apply. Production has the same hole and a script for it: its keys "accumulate forever unless pruned" (`wr:app/core/idempotency.py:55-58`), and `wr:scripts/maintenance/prune_idempotency_keys.py` prunes them when someone runs it.
+
+**Open**, for the review against the PRD that follows the audit.
+
+### D278
+**Check 15 makes a closed state need an exit that §4.2 calls optional.** `declaration-syntax.md` §4.2 advises an object that is finished but must still accept records to sit in "a `closed` state that is **not** terminal, with a genuinely final state after it if one is needed". Check 15 refuses any non-terminal state with no outgoing `do`, so the final state is never optional. Production lets a retired unit be edited and relabelled with no way out of `RETIRED` (`wr:app/services/inventory_item_service.py:480-536`; `wr:app/services/label_print_service.py:174-197`); here that needs an invented exit, or `RETIRED` stays terminal and loses the edits, as `unit-journey.md` chose.
+
+**Open**, for the review against the PRD that follows the audit.
+
+### D279
+**The record says the first consumer keeps no stock level, and it does.** `edge-cases.md` ("A consumer that maintains a counter") says the first consumer "stores no stock level at all", and `declaration-syntax.md` §11 question 10 defers the counter as "unexercised by the consumer the design was drawn from". Production decrements `Accessory.quantity` when a service consumes accessories and clamps it at zero (`wr:app/services/service_service.py:751-773`), on a serial-tracked row, which check 31 refuses a `counter` on.
+
+**Open**, for the review against the PRD that follows the audit.
+
+### D280
+**The walkthrough has drifted from the grammar and from production.** `first-consumer-walkthrough.md` §2.3 guards `retire` on `actor.role == ADMIN`, which ADR-0079 replaced by a capability; its §5 has `flag_missing` leave a unit in `PROCUREMENT` and a commit loop that fills pegs, where production cancels a missing unit (`wr:app/services/shipment_service.py:985-1055`) and has retired the commit-time fill (`wr:docs/design/explicit-delivery-assignment.md`; `wr:app/services/intake_batch_service.py:912-934`).
+
+**Resolved in place**, 2026-09-24: the guard reads `actor.has(ADMIN)`, and §2.1 and §5 point to `unit-journey.md`, which is read against production as it now is.
+
+### D281
+**The syntax checker refused two legal forms.** A machine's `clear` of a reference it `requires` was reported as an undeclared name (check 19), since the check looked for the name among the machine's own members, which a machine has none of; and a dataset row's `.object` was counted as a dimension hop (check 56), where §6.9 says it is not one. Neither form appears in the specification's examples, so its clean runs never exercised them. `unit-journey.md` uses both.
+
+**Resolved in place**, 2026-09-24: a machine's `clear` is held to its requirement being an optional, singular reference or attribute (a new fixture for check 17), each binder's end still being checked when the machine's transitions are analysed as the binder's; `.object` on a dataset row is not counted. Both were probed in each direction.
