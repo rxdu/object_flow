@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0047 — a transition declares its inputs rather than deriving them from its guards, which supersedes the derived-parameter consequence; the decision that guards evaluate over state plus inputs stands.
 
 ## Context
 

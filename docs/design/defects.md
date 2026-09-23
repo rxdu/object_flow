@@ -6,7 +6,7 @@ Findings from every review of this design. It began as the implementation-readin
 
 **Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
 
-**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 0 are open — the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 0 are open — the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
@@ -247,6 +247,31 @@ Findings from every review of this design. It began as the implementation-readin
 | [D233](#d233) | The standard metrics' "open" and "completion" are undefined | Resolved by ADR-0096 |
 | [D234](#d234) | Six gaps left by the first repairs | Resolved by ADR-0096 |
 | [D235](#d235) | Withholding a metric group broke M2, leaked dimension values, and three smaller gaps | Resolved by ADR-0096 |
+| [D236](#d236) | The flow change had states and no lifecycle, and its authority was named nowhere | Resolved by ADR-0097 |
+| [D237](#d237) | A stale flow change could reinstall text that drops a newer guard | Resolved by ADR-0097 |
+| [D238](#d238) | The impact report said nothing about changed guards, and the evidence was not recorded | Resolved by ADR-0097 |
+| [D239](#d239) | A proposal's actor guards were re-evaluated in the model and not in the decision | Resolved by ADR-0097 |
+| [D240](#d240) | The standard metrics were phrases, not definitions, and some could not be written | Resolved by ADR-0098 |
+| [D241](#d241) | A reader could not read the value a rule reads | Resolved by ADR-0098 |
+| [D242](#d242) | Most sources could not be split by version, and attempts had no actor | Resolved by ADR-0098 |
+| [D243](#d243) | Set-valued dimensions, distinct counts and derived attributes in rows were undefined | Resolved by ADR-0098 |
+| [D244](#d244) | C2, UC-8 and UC-10 were read in a way that departs from their wording, with no revision proposed | Resolved by ADR-0098 |
+| [D245](#d245) | Adding a datapoint kind took two edits | Resolved by ADR-0099 |
+| [D246](#d246) | An observation's occurred time had two channels, no column and no verdict | Resolved by ADR-0099 |
+| [D247](#d247) | Recording could not be discovered | Resolved by ADR-0099 |
+| [D248](#d248) | What recording writes to the subject was unsaid | Resolved by ADR-0099 |
+| [D249](#d249) | An optional reference could never be cleared | Resolved by ADR-0099 |
+| [D250](#d250) | A publish met live objects without recording what it did to them | Resolved by ADR-0099 |
+| [D251](#d251) | The import had no operation and nothing limited it | Resolved by ADR-0100 |
+| [D252](#d252) | Pruning and archiving had no operation | Resolved by ADR-0100 |
+| [D253](#d253) | Erasure missed six copies of a person | Resolved by ADR-0100 |
+| [D254](#d254) | Verdicts named objects their requester could not see | Resolved by ADR-0100 |
+| [D255](#d255) | Three execution steps were missing, and one was wrong | Resolved by ADR-0100 |
+| [D256](#d256) | The export and subscriptions still assumed positions | Resolved by ADR-0100 |
+| [D257](#d257) | Mirror reads had no as-of time, and evaluators were not injected | Resolved by ADR-0100 |
+| [D258](#d258) | The port and the cutover assumed more than the first consumer has | Resolved by ADR-0100 |
+| [D259](#d259) | Fourteen older decisions were contradicted by the current model with nothing marking it | Resolved by annotation and back-links |
+| [D260](#d260) | Smaller drift between the documents | Resolved by correction |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -1619,4 +1644,133 @@ Also, UC-3's per-reason split existed only for enum reasons, and every assertion
 Found by the third pass, which checked only the second round's repairs.
 
 **Resolved by ADR-0096**, 2026-09-23: a metric is computed over the rows its reader can see, with a path through a hidden object yielding absence, and says whether it is complete; `diagnostics` follows the same rule; a terminal state counts as finished; a personal enum is tracked and redacted at erasure.
+
+## Found by the five-slice review against the PRD, 2026-09-23
+
+Five reviewers read the record independently: the functional and datapoint requirements, the computation and convergence requirements, trust and the first consumer, the decision record, and the documents' agreement with each other. Each finding was confirmed against the files before it was repaired.
+
+### D236
+**The flow change had states and no lifecycle, and its authority was named nowhere.** `storage-schema.md` listed `DeclarationChange` states in a `CHECK` constraint, one of them (`submitted`) mentioned by no document, and no transition, guard or capability declared them. "The drafting capability" and "the publish capability" (`DESIGN.md` §9, `publish-and-import.md` §1) were never named, so PRD F7's "who may draft and who may approve are declared" failed. Nothing enforced "a person, when an agent drafted it" beyond a column. `DESIGN.md` said approval publishes while `library-api.md` had `publish()` install an approved change; a refused publish returned the change to no defined state. A reviewer writing UC-15 had to invent four transition names and two capabilities.
+
+**Resolved by ADR-0097**, 2026-09-23: a built-in type with `draft`, `revise`, `submit`, `refresh`, `publish`, `reject`, `withdraw` and `supersede`, `publish` being the approval, and six built-in capabilities.
+
+### D237
+**A stale flow change could reinstall text that drops a newer guard.** A change "is superseded when the installed version moves under it" (`DESIGN.md` §9), but nothing wrote `superseded`, and the publish refused only when the live-object findings changed. A change drafted against version 7 and approved after version 8 republished version 7's module and dropped version 8's guards, and the report the approver saw never showed it. PRD T1, F7.
+
+**Resolved by ADR-0097**, 2026-09-23: `publish` requires a change drafted against the installed version, and supersedes every older open change in its transaction.
+
+### D238
+**The impact report said nothing about changed guards, and the evidence was not recorded.** Step 3 read invariant violations, removed states and invalidated proposals only (`publish-and-import.md` §1), so a new guard, or removing an `observe` marking (UC-14 to UC-15), changed which live objects could move with nothing reported. The evidence was "links, as JSON" to metrics that are computed on read, so what the approver saw was not in the record. And the drafter/approver separation compared actor ids only, so an agent drafting for Alice could be approved by Alice. PRD F7, V4.
+
+**Resolved by ADR-0097**, 2026-09-23: the report names objects gaining or losing an available transition and those a newly enforced clause refuses; an evidence snapshot; the principal rule.
+
+### D239
+**A proposal's actor guards were re-evaluated in the model and not in the decision.** `DESIGN.md` §9: "every guard is re-evaluated at execution … actor guards included"; ADR-0036 decision 3: "Every non-actor guard is re-evaluated at execution", repeated by ADR-0044. No decision recorded the change. The ADR's reading would let an approver execute a transition they could not request themselves. PRD T1. Found by the decision-record review.
+
+**Resolved by ADR-0097**, 2026-09-23: the model's rule is recorded, and ADR-0036 annotated.
+
+### D240
+**The standard metrics were phrases, not definitions, and some could not be written.** `DESIGN.md` §5.12 and §5.13 listed them; no document gave a name `metric()` accepts, a source, dimensions or a value, and the renderers could not list them. A refusal rate needs two datasets and a metric had one `from`; "someone other than the assignee acts" needs the actor's id, which no row carried; handoffs per object needs two levels of aggregation. PRD M1, M6.
+
+**Resolved by ADR-0098**, 2026-09-23: the standard metrics are declarations in `declaration-syntax.md` §6.11, with combined metrics, per-object flow collections and `.actor_id`.
+
+### D241
+**A reader could not read the value a rule reads.** A guard could bind a metric's dimensions, window it and aggregate over an unbound dimension; `metric(actor, name, filter, cursor)` could do none of these, and its filter's grammar was unstated. A screen could not show the 30-day value a guard refused on. PRD C2, C3, UC-10, UC-11.
+
+**Resolved by ADR-0098**, 2026-09-23: `metric()` takes the same arguments as a guard's reference, and its filter is an expression over the declaration's binder.
+
+### D242
+**Most sources could not be split by version, and attempts had no actor.** Rows from a type, an observation kind, labels and `attempt_counts` had no `.declaration_version`, nor did the rollup, so M3's "any metric" failed. `<Type>.attempts` exposed neither actor nor object, so UC-2's example — one agent repeating a refused request — and UC-14's "who would have been refused" could only be answered by export.
+
+**Resolved by ADR-0098**, 2026-09-23: `.declaration_version` on every source and the rollup; `.actor_id` and `.object` on attempt rows.
+
+### D243
+**Set-valued dimensions, distinct counts and derived attributes in rows were undefined.** UC-1's "by product configuration" is a path through a set and three hops long; UC-13's "how many jobs carry the label" needs a distinct count; a derived attribute read by a metric row had no visibility rule, so UC-12's low-stock figure either leaked hidden units or varied by reader unmarked.
+
+**Resolved by ADR-0098**, 2026-09-23: a set-valued dimension counts a row once per member, hops count from the row's object, `count(distinct …)`, and derived attributes are read under the reader's visibility and count toward `complete`.
+
+### D244
+**C2, UC-8 and UC-10 were read in a way that departs from their wording, with no revision proposed.** `DESIGN.md` §5.12 narrowed C2 to "every reader who gets a complete value" and ruled that T5 prevails over UC-10's "the refusal names the value", while `traceability.md` marked both covered. The PRD's status line says a design that finds the PRD wrong proposes a revision rather than working around it.
+
+**Resolved by ADR-0098**, 2026-09-23: PRD §12 proposes revision 4 for C2, UC-8 and UC-10, and `traceability.md` marks the three rows `revision proposed`, a status its checker allows only for rows PRD §12 names.
+
+### D245
+**Adding a datapoint kind took two edits.** Check 54 required the subject to declare the kind's part, so adding a kind edited the subject's text and advanced its version (check 22). PRD D3: "adding a kind of datapoint is one declaration and no code".
+
+**Resolved by ADR-0099**, 2026-09-23: `observation … on <Type> as <collection>`, and the subject is not edited.
+
+### D246
+**An observation's occurred time had two channels, no column and no verdict.** The syntax and the tool made `occurred_at` an input of the generated `record`; `library-api.md` made it a request field "only on a backdatable transition"; the observation table had no column for it, while `<Kind>.occurred_at` was a metric member. No clause named the bound, so the refusal UC-19's second route relies on could name no rule or remedy and could not be counted. PRD D5, D2, F4.
+
+**Resolved by ADR-0099**, 2026-09-23: a request field for both, a generated guard `occurred_within`, and an `occurred_at` column on every observation table.
+
+### D247
+**Recording could not be discovered.** `availability(id)` listed only an object's own transitions and `check` needed an object id, so nothing said whether a creation — an observation, a label — was permitted. The observation tool nonetheless told agents to call `availability(subject_id)`, and put `subject_id` where `Request` has no field. PRD F3.
+
+**Resolved by ADR-0099**, 2026-09-23: `availability(subject)` offers recording and labelling, `check` accepts a type for a creation, and the tool carries `subject` as an input.
+
+### D248
+**What recording writes to the subject was unsaid.** "Recording does not write the subject" (`DESIGN.md` §5.11), yet a later result must invalidate `changed_since([inspections])`, which reads a position stamped per part relationship, and §6 step 7 counts a destination whole as written.
+
+**Resolved by ADR-0099**, 2026-09-23: recording stamps the collection's position and nothing else, and conflicts only with a transition that read the collection.
+
+### D249
+**An optional reference could never be cleared.** Check 17 rejected `clear` on a relationship end, and ADR-0073 said an end is cleared "by writing the reference itself" — but there is no `null` to write, and an unsupplied optional input skips its write. An assignee could never be removed, nor a binding released, and D10 and D11 could never record absence after creation.
+
+**Resolved by ADR-0099**, 2026-09-23: `clear` reaches an optional, singular, stored `ref` end.
+
+### D250
+**A publish met live objects without recording what it did to them.** A new attribute was added "nullable, or with the declared `default`" by DDL: with a default, every live row changed with no event and replay no longer reproduced it (T3); without one, live objects lacked a required attribute (T1). The mapping forms could not supply values, map a removed enum member, or say what removing a type means, and a field added to an observation kind could never be filled. PRD F5, T1, T3.
+
+**Resolved by ADR-0099**, 2026-09-23: DDL never writes a live row; `backfill` and `removed member` mappings applied as recorded migrations; new observation fields optional; removed types retired.
+
+### D251
+**The import had no operation and nothing limited it.** None of the seventeen operations imported, and `Request` could not carry legacy entries, intervals or creation times, so the importer either wrote tables directly — the path `DESIGN.md` §13 says voids the guarantee — or used the built-in assertion through `request`, which any holder of the deployment capability, such as a mirror's recurring refresh, could then use to set state on owned types, recorded as `imported` and hidden from `exceptions()` and the override metrics. `.imported` had no column. PRD N5, T1, T4.
+
+**Resolved by ADR-0100**, 2026-09-23: `import_batch`, limited to mirrors and types no ordinary request has written, and `ok_event.imported`.
+
+### D252
+**Pruning and archiving had no operation.** Pruning the attempt log with its rollup, and moving events to the archive, were "deployment actions" with no operation, although `DESIGN.md` §13 says anything else reaching the database voids the guarantee. PRD N2.
+
+**Resolved by ADR-0100**, 2026-09-23: `maintain`, which changes nothing any read returns and is never needed for correctness.
+
+### D253
+**Erasure missed six copies of a person.** `ok_external_id` values of a personal external identifier (ADR-0051) survived, so `lookup` still resolved an erased email; a proposal's own creation event kept its inputs; values the erased object passed down by `call` or `create` into other objects' personal attributes were not reached; corrected observations were outside every read and so outside the part's erasure; legacy payloads carried other objects' fields; and legacy creation fields were not named. PRD D8, T5, UC-17.
+
+**Resolved by ADR-0100**, 2026-09-23: each is reached, and legacy entries keep only their own object's fields.
+
+### D254
+**Verdicts named objects their requester could not see.** `Unsatisfied.objects` and `InvariantViolated.objects` come from type-scans, which ignore visibility (ADR-0030), and only read sets were filtered, so a uniqueness conflict returned the id of an object `get` reports as not found. PRD T5.
+
+**Resolved by ADR-0100**, 2026-09-23: a verdict names only visible objects and sets `withheld`.
+
+### D255
+**Three execution steps were missing, and one was wrong.** No step of `DESIGN.md` §6 wrote the idempotency record or discharged an admitted violation; nothing stopped a part being re-parented into a whole in a terminal state (a harness failure condition); and step 6's "any failure aborts" made an observing clause on a cascaded transition refuse, which check 57 allows on an `only via` transition. PRD T1, V3.
+
+**Resolved by ADR-0100**, 2026-09-23: each written: the record with the event, discharge in step 7, a generated `whole_open` guard, and observing clauses refuse nothing at any depth.
+
+### D256
+**The export and subscriptions still assumed positions.** Attempt rows had no writing transaction, so they could not be paged by the settled cursor; an interval updated when it closed was never re-emitted to a consumer that had paged past it; subscription lag was `log_head - acknowledged`, which a cursor cannot compute, against an INTEGER threshold (ADR-0043). PRD M5, T3.
+
+**Resolved by ADR-0100**, 2026-09-23: `ok_attempt.txn`, intervals paged by their last-changing event, and lag as the age of the oldest unacknowledged event with duration thresholds.
+
+### D257
+**Mirror reads had no as-of time, and evaluators were not injected.** A guard reading a mirror read whatever the last refresh left, with no as-of time or bound, unlike an evaluator's verdict (`DESIGN.md` §13 listed only evaluators and metrics). The evaluators were not among the store's injected dependencies, so a harness run with an external guard could not be reproduced. PRD N2, N4.
+
+**Resolved by ADR-0100**, 2026-09-23: `.imported_at` on every mirror object, boundable by a guard; an `EvaluatorSource` injected.
+
+### D258
+**The port and the cutover assumed more than the first consumer has.** Legacy intervals could not have gaps, though transition audit rows were not written from 2026-02-03 to 2026-07-13 (legacy commit `e675165`) and side-effect status changes were never audited (`wr:app/core/state_registry.py:85-131`); a ported reassignment lost who made it; the cutover's write edges came only from the registry's side-effect lists and missed the service layer's writes (`wr:app/services/intake_batch_service.py:848-851`, `shipment_service.py:281-285`, `service_service.py:928`); and time-driven transitions need a scheduler the legacy system does not have (`wr:app/models/warranty.py:345-372`). PRD N5, N2, UC-18.
+
+**Resolved by ADR-0100**, 2026-09-23: gaps allowed and reported, `ok_interval.entered_by`, write edges from every write, and a scheduler as a cutover prerequisite.
+
+### D259
+**Fourteen older decisions were contradicted by the current model with nothing marking it, and thirty back-links were missing.** Among them: ADR-0039 still said a hot row queues; ADR-0037 said the store keeps no undeclared projection; ADR-0031 deleted a file on any erasure; ADR-0032 and ADR-0021 put scoring and sums outside the store; ADR-0056 left `erase` optional; ADR-0026 said categories have no fixed member; ADR-0048 and ADR-0057 kept one part position per whole; ADR-0047 cited the wrong ADR; and `scripts/check-corpus.py` accepted any "Refined by" line as a back-link, whichever ADR it named. Found by the decision-record review.
+
+**Resolved**, 2026-09-23: each annotated in place with the decision that changed it, the back-links added, the ADR index's status column regenerated from the headers, and the back-link check made to require the specific ADR.
+
+### D260
+**Smaller drift between the documents.** Check 11's observation exemption sat on the iterations table's row 11, not the check table's; §9.4's type production lacked `mirror` and §5.1's head lacked `backdatable within`; `mirror`, `combine`, `as` and others were not reserved; the rendered Delivery said `tracking record` against the syntax's `tracking serial`; `ok_attempt.type` could not record a request naming an unknown id; a proposed creation had no target to store; `diagnostics` took no window; `Attempt` lacked the applied event and `Interval` its transition; `ReadSet` could not hold an empty type-scan; `DESIGN.md` counted five versioned kinds and three metric sources; the rendered rule set could not list standard metrics; and `check-api-doc.py` claimed to compare what it did not. Found by the cross-document review.
+
+**Resolved**, 2026-09-23: each corrected in place, and the API checker's message says it compares operation names only.
 

@@ -68,7 +68,23 @@ A write edge from deliveries to warranty contracts, and the reference from `warr
 
 That changes the finding of §3 that "the plan has room": around the core it does not. Staging still separates the periphery — the photo and association tables, users, the catalogues, customers — from the core, and whether that is worth the mirror machinery against a big-bang cutover is the author's choice, which ADR-0075 made under the reference-only rule and ADR-0093 leaves with the author.
 
-The service side has write edges too (`_update_service_parts_to_sold`, `_reserve_service_parts`, `_revert_service_parts_to_available`, lines 818 to 843), which tie spare parts to services; they point the same way as the references already do, so they add no collapse here, and the recomputation over types will confirm it.
+The service side has write edges too (`_update_service_parts_to_sold`, `_reserve_service_parts`, `_revert_service_parts_to_available`, lines 818 to 843), which tie spare parts to services; they point the same way as the references already do, so they add no collapse here, and the recomputation over types will confirm it. *(Corrected by ADR-0100: under ADR-0093's two-sided rule a write edge puts writer and written in one stage whichever way it points, so these tie `services` into the core as well.)*
+
+**The registry's side-effect lists are not all the writes** (ADR-0100). The service layer writes units and warranties directly, through `execute_transition` and helpers, outside those lists:
+- intake commit makes units `AVAILABLE` (`wr:app/services/intake_batch_service.py:848-851`);
+- a shipment's dispatch makes its units `PROCUREMENT` (`wr:app/services/shipment_service.py:281-285`);
+- cancelling a procurement order moves its units (`wr:app/services/procurement_order_service.py:488-491`);
+- completing a service applies its warranty deduction (`wr:app/services/service_service.py:928`).
+
+Each is a write edge. With them, the core stage takes in intake batches, shipments, procurement orders and services as well, which is most of the operational system. The recomputation over types must extract edges from every write, not from the registry alone, and staging then separates the periphery from one large core.
+
+**Time-driven transitions need a scheduler before their types migrate.** The legacy system has none, and reconciles warranty expiry when warranties are read (`wr:app/models/warranty.py:345-372`). The store never writes on read (ADR-0012), so a contract reaches `EXPIRED` only when something requests the transition, and until then work in progress and time in state are wrong for warranties. A scheduler that polls `available` for the sweepable time-driven transitions is therefore a cutover prerequisite for any type that has them (ADR-0100).
+
+**The legacy history has known holes**, which the port records as gaps rather than filling in:
+- transition audit rows were not written from 2026-02-03 to 2026-07-13 (the legacy repository's commit `e675165`);
+- unit status changes made as side effects were never audited (`wr:app/core/state_registry.py:85-131`).
+
+Intervals in those spans are missing, a metric that covers them says it is incomplete, and the harness reports the gaps (ADR-0100).
 
 ## 5. What to do with this
 

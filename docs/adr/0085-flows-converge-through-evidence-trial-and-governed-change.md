@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0096 — a publish recomputes its impact report at approval, and is refused if it changed.
+- **Refined by:** ADR-0096 — a publish recomputes its impact report at approval, and is refused if it changed. ADR-0097 — the DeclarationChange has a declared lifecycle, named built-in capabilities, a principal rule, a report of guard impact, and an evidence snapshot in place of links.
 - **Refines:** ADR-0027
 
 ## Context
@@ -39,7 +39,7 @@ Any actor holding the drafting capability creates one, carrying:
 
 - the source;
 - the dry-run publish report;
-- links to its evidence.
+- links to its evidence. *(ADR-0097 §5: a snapshot of the evidence as it read at submission, not links to values computed on read.)*
 
 A **different** actor holding the publish capability approves it, and approval publishes it. It is superseded when the installed version moves under it. **A change an agent drafted is approved by a person** (PRD F7); a deployment may require a person for every change. Being a built-in object like `Proposal` and `Subscription`, every step has an actor and an event, the loop from evidence to change is measurable, and the publish event has its object, which resolves D212.
 

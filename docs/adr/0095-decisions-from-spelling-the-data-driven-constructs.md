@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` T5, L2, L5, D4, D5, D6, D12 and UC-19; repairs D216 and D217
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0096 — the same filter applies to an attempt's read set and consulted values, and to a refusal's, and a recorded metric value is tested against every type the metric reads, not its source type alone.
+- **Refined by:** ADR-0096 — the same filter applies to an attempt's read set and consulted values, and to a refusal's, and a recorded metric value is tested against every type the metric reads, not its source type alone. ADR-0099 — the occurred time's bound is a named clause, `occurred_within`, and a request field rather than an input.
 - **Refines:** ADR-0030, ADR-0082, ADR-0083, ADR-0084, ADR-0088
 
 ## Context

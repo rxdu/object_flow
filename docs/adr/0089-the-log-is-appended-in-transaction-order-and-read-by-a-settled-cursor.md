@@ -1,5 +1,7 @@
 # ADR-0089: The log is appended complete, and read by a cursor that cannot skip a late commit
 
+*The file name, "appended in transaction order", predates this decision's final wording: the log is appended complete and read in transaction order. The name is kept because links depend on it.*
+
 - **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` T3, M5 and D1; repairs D210 and D211; the PostgreSQL mechanism observed by probe
 - **Date:** 2026-09-23
 - **Refines:** ADR-0034, ADR-0046, ADR-0077

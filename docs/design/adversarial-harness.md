@@ -25,9 +25,9 @@ That is falsifiable, which is what makes it worth a harness. A run **fails** if 
 | a stored relationship end whose far side disagrees | something wrote the derived end |
 | an event whose replay does not reproduce the row | the log stopped being the history |
 | a verdict of `satisfied` with no event | a write that was not recorded |
-| an interval the log does not reproduce, or a legacy interval that overlaps another of its dimension or does not end where the object's first recorded interval begins | the interval index stopped being an index over the log, or the port left a gap or an overlap in history (ADR-0083, ADR-0096) |
+| an interval the log does not reproduce, or a legacy interval that overlaps another of its dimension or runs past the object's first recorded interval | the interval index stopped being an index over the log, or the port changed history. A gap in legacy history is reported, not failed, since the legacy record may be silent there (ADR-0083, ADR-0096, ADR-0100) |
 | an event whose rules, re-evaluated over its read set, give a different verdict | the record no longer explains the decision (ADR-0088, PRD L2) |
-| a personal value still readable after its subject's erasure — on an object, in an event, in a predecessor, in a caller's event, in a label note — or an erased object's shared file gone for another object | erasure missed something, or took too much (ADR-0087, UC-17) |
+| a personal value still readable after its subject's erasure — on an object, in an event, in a predecessor, in a caller's event, in an event it caused or an object it copied the value into, in a label note, an observation, a legacy entry, a proposal or its event, an interval, or an external identifier `lookup` still resolves — or an erased object's shared file gone for another object | erasure missed something, or took too much (ADR-0087, ADR-0100, UC-17) |
 | any of the above reachable **without** a capability the declaration gates it on | the escape hatch is not the only escape |
 
 Every one of these is checkable against the store from outside, by reading the declaration and the read surface. That is deliberate: the harness must not need privileged access to detect a failure, or it is testing something the consumer cannot.
@@ -55,13 +55,15 @@ Five behaviours, because they are the ways real callers actually break things.
 **The route-tester** tries the routes PRD UC-19 names, each a way the data-driven features could open a door around the rules:
 - it records an observation it is not permitted to record, so that a gate reading it would open. The `recorded by` guard must refuse it (ADR-0082, PRD D12);
 - it backdates a transition beyond its declared bound, to shorten a measured duration. The bound must refuse it (ADR-0083, PRD D5);
-- it completes a transition an observing clause would have refused, and then acts as though the rule were enforced. The request must proceed, the would-be refusal must be recorded, and the printed rule set must show the clause as not enforced (ADR-0085, PRD T1).
+- it completes a transition an observing clause would have refused, and then acts as though the rule were enforced. The request must proceed, the would-be refusal must be recorded, and the printed rule set must show the clause as not enforced (ADR-0085, PRD T1);
+- it calls `import_batch` on an owned type, holding `OK_IMPORT`, to set state the type's guards would refuse. The import must refuse the type (ADR-0100, PRD T1, T4);
+- it approves its own `DeclarationChange`, or one drafted against an older version. `publish` must refuse both (ADR-0097, PRD F7).
 
 None of them is clever. Cleverness is the malice model, and this is not it.
 
 ## 3. The fixture is the first consumer's types
 
-Not a synthetic type set. The first consumer's declaration is the fixture, because a harness against types invented for it tests the harness.
+Not a synthetic type set. The first consumer's declaration is the fixture, because a harness against types invented for it tests the harness. The declarations in the walkthrough are current with the grammar, and three of them differ from production's behaviour; the fixture is built from the table-to-type mapping, which re-derives them from production (`TODO.md`).
 
 That gives, from the walkthrough and the syntax document:
 - a unit with a nine-state lifecycle and an `only via` sale;
@@ -75,7 +77,7 @@ Between them they exercise every mechanism the model has except erasure and supe
 
 ## 4. What a run produces
 
-A run is a seed, a declaration version and a transcript, and it is reproducible from those three. The transcript is every request and its verdict, in order, with the events each produced. It is reproducible only because the store takes its id source, its clock and its connection source as injected dependencies (ADR-0077, ADR-0091). Ids are time-ordered and a cascade iterates in id order, so a run whose ids came from the wall clock would order its cascades differently each time, and the reduction below would be unsound.
+A run is a seed, a declaration version and a transcript, and it is reproducible from those three. The transcript is every request and its verdict, in order, with the events each produced. It is reproducible only because the store takes its id source, its clock, its connection source and its evaluator source as injected dependencies (ADR-0077, ADR-0091, ADR-0100). Ids are time-ordered and a cascade iterates in id order, so a run whose ids came from the wall clock would order its cascades differently each time, and the reduction below would be unsound.
 
 When a run fails, the artefact is the **shortest prefix that still fails**, found by replaying the transcript with requests removed. A four-thousand-request transcript is not a bug report; eleven requests are.
 

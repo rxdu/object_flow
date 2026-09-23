@@ -3,7 +3,7 @@
 - **Status:** Accepted — repair of D114–D133, 2026-09-08; pending author review
 - **Refines:** ADR-0021, ADR-0032, ADR-0047, ADR-0050, ADR-0052, ADR-0056, ADR-0058, ADR-0060
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0062 — a normative statement must cite the check that enforces it; ADR-0063 — the swap test names its normalisations, and check 52's claim is retracted.
+- **Refined by:** ADR-0062 — a normative statement must cite the check that enforces it; ADR-0063 — the swap test names its normalisations, and check 52's claim is retracted. ADR-0068 — money keeps its currency in the declaration; a runtime currency is refused.
 
 ## Context
 

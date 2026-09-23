@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` D4, D5, D8, F7, C2, L2, M1, M6, N2, N5, T3, T5 and UC-2, UC-3, UC-10, UC-16, UC-18, UC-19; repairs D218 to D235
 - **Date:** 2026-09-23
+- **Refined by:** ADR-0097 — approval re-checks the drafted base version; ADR-0098 — standard metrics are declared, and `metric()` reads as a guard does; ADR-0099 — occurred time is a request field with a named clause; ADR-0100 — a verdict's objects and an attempt's read set are filtered like an event's.
 - **Refines:** ADR-0070, ADR-0082, ADR-0083, ADR-0084, ADR-0085, ADR-0086, ADR-0087, ADR-0092, ADR-0095
 
 ## Context

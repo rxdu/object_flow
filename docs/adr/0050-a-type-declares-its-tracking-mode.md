@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D33, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0061 — ten decisions from the payments-ledger review.
+- **Refined by:** ADR-0061 — ten decisions from the payments-ledger review. ADR-0072 — §5 defers money and signed counters, and makes a counter's non-negativity an invariant the type declares.
 - **Amended by:** ADR-0067 — a third mode, `record`, for a type that tracks no physical thing. Twelve or more of the first consumer's entities are records rather than tracked things, and none of them is quantity-tracked.
 
 ## Context

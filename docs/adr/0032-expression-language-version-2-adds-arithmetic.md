@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 4 (2026-09-08); pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0061 — ten decisions from the payments-ledger review; ADR-0068 — money keeps its currency in the declaration.
+- **Refined by:** ADR-0061 — ten decisions from the payments-ledger review; ADR-0068 — money keeps its currency in the declaration. ADR-0047 — expression semantics: three-valued logic, explicit binding and aggregates over types, with division by zero yielding unknown. ADR-0081 — any declared formula over the store's own data is in scope, scores built from it included; only formulas needing outside data or rules stay out. ADR-0084 — a declared metric is a second call a guard may make, and grouped aggregation and windows exist in the metric form.
 
 ## Context
 
@@ -19,9 +19,9 @@ Version 2 of the language adds:
 | `sum`, `min`, `max` over a relationship, with an expression per element | `sum(lines.qty * lines.unit_price)`, `max(activities.at)` |
 | comparison and equality on the results of the above | `payment.amount == total` |
 
-Unchanged: no string operations beyond equality and membership, no user-defined functions, no calls other than a declared external evaluator (ADR-0008), no iteration with an accumulator other than the four aggregates, no recursion. The language grows only by an ADR that names the case that forced it.
+Unchanged: no string operations beyond equality and membership, no user-defined functions, no calls other than a declared external evaluator (ADR-0008), no iteration with an accumulator other than the four aggregates, no recursion. *(ADR-0084 §6 adds a second call, a declared metric, readable in a guard only and consulted before the transaction as an evaluator is; grouped aggregation, time windows, `avg`, `median` and `percentile` exist in the metric form alone, never in a guard, invariant or derived attribute; `DESIGN.md` §5.7.)* The language grows only by an ADR that names the case that forced it.
 
-**The boundary with ADR-0007, restated.** The store evaluates declared arithmetic over its own data where the result is a guard, a derived view, an invariant, or an outcome write of a quantity. It does not own domain formulas — tax, pricing, discounts, currency conversion, scoring — whose inputs or rules live outside the declaration; those are computed by the consumer and supplied as inputs, and guards check them for range and consistency.
+**The boundary with ADR-0007, restated.** The store evaluates declared arithmetic over its own data where the result is a guard, a derived view, an invariant, or an outcome write of a quantity. It does not own domain formulas — tax, pricing, discounts, currency conversion, scoring — whose inputs or rules live outside the declaration; those are computed by the consumer and supplied as inputs, and guards check them for range and consistency. *(Moved by ADR-0081 §2: the store now evaluates any declared formula over its own data, aggregates across objects and over time and scores built from them included (ADR-0084). What stays outside is a formula that needs data or rules the store does not hold, such as a tax table, a pricing engine or a conversion rate, together with selection, effects, orchestration and open-ended exploration; `DESIGN.md` §5.7, §12.)*
 
 ## Alternatives rejected
 

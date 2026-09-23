@@ -23,7 +23,7 @@ Fields the mapping does not import are never a problem. The employee's IP addres
 
 ### 2. Proposals
 
-Erasure redacts `t_proposal.inputs` on every proposal whose target is the erased object or whose inputs carry a personal value, and **invalidates** the pending ones. That is a fourth invalidation cause for ADR-0044, joining a removed transition, a newly required input and an unreachable target: *its inputs carried a value the erasure removed*. Executed, rejected and withdrawn proposals keep their skeleton with the inputs redacted, as an event does.
+Erasure redacts `t_proposal.inputs` on every proposal whose target is the erased object or whose inputs carry a personal value, and **invalidates** the pending ones. *(Made exact by ADR-0087 §4: "a personal value" named no one's. It now reads every proposal targeting an erased object, and every proposal whose inputs flow into an erased object's personal attributes, by check 10's taint analysis; `DESIGN.md` §8.)* That is a fourth invalidation cause for ADR-0044, joining a removed transition, a newly required input and an unreachable target: *its inputs carried a value the erasure removed*. Executed, rejected and withdrawn proposals keep their skeleton with the inputs redacted, as an event does.
 
 ### 3. An input may be marked `personal`, and a personal input is redacted wherever it was recorded
 

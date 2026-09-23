@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0066 — a cascade clause carries arguments.
+- **Refined by:** ADR-0066 — a cascade clause carries arguments. ADR-0038 — cascades apply sequentially, each seeing the writes of those before it, superseding the "All guards first" rule. ADR-0046 — the outcome grammar replaces the outcome description; atomicity, causality and acyclicity stand.
 
 ## Context
 

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` N5; repairs D206
 - **Date:** 2026-09-23
+- **Refined by:** ADR-0100 — write edges are extracted from every legacy write, service-layer methods included.
 - **Refines:** ADR-0075
 
 ## Context
@@ -21,7 +22,7 @@ A strongly connected component of the combined graph is one stage.
 
 ### 2. The write edges are extracted, not guessed
 
-The legacy side's edges come from the first consumer's transition registry, its `side_effects=` lists, and the store's side from each declaration's `call` and `create` steps. The order is recomputed after the table-to-type mapping `TODO.md` already queues.
+The legacy side's edges come from the first consumer's transition registry, its `side_effects=` lists, and the store's side from each declaration's `call` and `create` steps. *(Widened by ADR-0100 §8: the legacy side's edges come from every write it makes, its service-layer methods included.)* The order is recomputed after the table-to-type mapping `TODO.md` already queues.
 
 ### 3. The consequence for staging is stated, and the choice stays the author's
 

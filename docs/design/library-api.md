@@ -26,7 +26,7 @@ That is a **binding**, not the design. The operations, their arguments and their
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Iterator, Mapping, Protocol, Sequence
 
@@ -64,7 +64,8 @@ class Request:
     expected_version: int | None = None
     idempotency_key: str | None = None
     context: str | None = None
-    occurred_at: datetime | None = None   # only on a backdatable transition (ADR-0083)
+    occurred_at: datetime | None = None   # a backdatable transition's, or an observation's
+                                          # record's; checked by `occurred_within` (ADR-0099)
 
 
 # ------------------------------------------- what the store is built from
@@ -85,11 +86,19 @@ class ConnectionSource(Protocol):
     def connect(self) -> Any: ...
 
 
+class EvaluatorSource(Protocol):
+    """The implementations of the declared evaluators (ADR-0100). Production
+    passes the real integrations; the harness passes deterministic ones, so a
+    run with an external guard reproduces from its seed."""
+
+    def verdict(self, evaluator: str, fn: str, args: Mapping[str, Any]) -> Any: ...
+
+
 ```
 
-A creation names a `type` and no `object_id`; every other transition names an `object_id`. `expected_version` is the optimistic check of ADR-0023, `idempotency_key` makes a retry safe by replaying the first result rather than refusing it (ADR-0041), and `context` is the free-form route marker that ends up in the event's provenance. A request carrying both a key and an `expected_version` is matched on its key first: a replay returns the recorded verdict whatever version the retry supplies, and `Stale` is possible only for a request that has not been applied (ADR-0076). `occurred_at` is accepted only by a transition marked backdatable, within its bound (ADR-0083).
+A creation names a `type` and no `object_id`; every other transition names an `object_id`. `expected_version` is the optimistic check of ADR-0023, `idempotency_key` makes a retry safe by replaying the first result rather than refusing it (ADR-0041), and `context` is the free-form route marker that ends up in the event's provenance. A request carrying both a key and an `expected_version` is matched on its key first: a replay returns the recorded verdict whatever version the retry supplies, and `Stale` is possible only for a request that has not been applied (ADR-0076). `occurred_at` is accepted by a transition marked backdatable and by an observation kind's `record`, and is checked by the generated guard `occurred_within`, so a time outside the bound is refused naming that clause (ADR-0083, ADR-0099).
 
-A store is built from a backend, an `IdSource`, a `Clock` and a `ConnectionSource`, all injected, so a test controls everything nondeterministic about a request (ADR-0077, ADR-0091). The core is **synchronous**: an operation runs to completion on its caller's thread, and an asynchronous service such as the first consumer's wraps it on a thread pool.
+A store is built from a backend, an `IdSource`, a `Clock`, a `ConnectionSource` and an `EvaluatorSource`, all injected, so a test controls everything nondeterministic about a request (ADR-0077, ADR-0091). The core is **synchronous**: an operation runs to completion on its caller's thread, and an asynchronous service such as the first consumer's wraps it on a thread pool.
 
 ## 4. The verdict
 
@@ -130,6 +139,7 @@ class Unsatisfied:
     consulted: Mapping[str, Any] = field(default_factory=dict)
                                           # the metric values and evaluator verdicts
                                           # the clause was decided on (ADR-0096)
+    withheld: bool = False                # `objects` omits some the requester cannot see
 
 
 @dataclass(frozen=True)
@@ -158,7 +168,8 @@ class OverLimit:
 @dataclass(frozen=True)
 class InvariantViolated:
     invariant: str
-    objects: Sequence[str]
+    objects: Sequence[str]                # only those the requester can see (ADR-0100)
+    withheld: bool = False                # others were involved and are not named
 
 
 Verdict = (
@@ -218,6 +229,8 @@ class ReadSet:
     re-evaluate them from the record."""
 
     objects: Mapping[str, int]            # object id -> the version read
+    scans: Mapping[str, Sequence[str]]    # each type-scan clause -> the ids it matched,
+                                          # an empty match recorded as empty (ADR-0088)
     capabilities: Mapping[str, bool]      # each actor.has(C) asked -> its answer
     now: datetime                         # fixed once per request
     withheld: bool = False                # something the reader cannot see was read (ADR-0095)
@@ -304,7 +317,7 @@ class Diagnostic:
     kind: str                             # e.g. "unused_transition", "top_refusal", "reassignment_loop"
     subject: str                          # the transition, state, clause, label or assignee it concerns
     measure: Any                          # the count, duration or rate that put it on the list
-    complete: bool = True                 # computed over every object, as a metric's result says
+    complete: bool                        # computed over every object, as a metric's result says
 
 
 @dataclass(frozen=True)
@@ -326,6 +339,7 @@ class Attempt:
     unknown: bool
     enforced: bool                        # False for an observing clause
     reads: ReadSet | None                 # the failing clause's read set (ADR-0088)
+    applied_position: int | None          # an observing clause's applied event (ADR-0085)
     consulted: Mapping[str, Any]          # its metric values and evaluator verdicts (ADR-0096)
     declaration_version: int
 
@@ -340,9 +354,47 @@ class Interval:
     value: Any                            # None for absence: time unassigned is one
     entered_at: datetime                  # occurred time where backdated
     left_at: datetime | None              # None while it is the current value
+    entered_by: str | None                # who made the change; a legacy row's where known
     entered_by_kind: ActorKind
+    transition: str | None                # the transition that set it; None if legacy
     declaration_version: int
     legacy: bool = False                  # supplied by the import mapping
+
+
+@dataclass(frozen=True)
+class ImportedObject:
+    """One object of a port, as the mapping produced it (ADR-0100)."""
+
+    type: str
+    legacy_key: str
+    state: str
+    attributes: Mapping[str, Any]         # references by legacy key
+    legacy_entries: Sequence[Mapping[str, Any]] = ()   # only this object's fields
+    legacy_intervals: Sequence[Interval] = ()
+    created_at: datetime | None = None    # the legacy creation, where known
+    created_by_kind: ActorKind | None = None
+
+
+@dataclass(frozen=True)
+class ImportBatch:
+    objects: Sequence[ImportedObject]
+    admitted: Mapping[str, Sequence[str]] = field(default_factory=dict)
+                                          # disposition: legacy key -> invariants admitted
+
+
+@dataclass(frozen=True)
+class ImportReport:
+    written: int                          # zero on a dry run
+    findings: Sequence[Any]               # the disposition classes of publish-and-import.md §6
+    refused_types: Sequence[str] = ()     # owned types, which the import may not write
+
+
+@dataclass(frozen=True)
+class MaintenanceTask:
+    """`prune_attempts` or `archive_events`, older than `before` (ADR-0100)."""
+
+    name: str
+    before: datetime
 
 
 @dataclass(frozen=True)
@@ -385,7 +437,7 @@ class Store(Protocol):
     def available(self, actor: Actor, type: str, transition: str,
                   cursor: str | None = None) -> Page: ...
 
-    def check(self, actor: Actor, id: str, transition: str,
+    def check(self, actor: Actor, id_or_type: str, transition: str,
               inputs: Mapping[str, Any]) -> Checked: ...
 
     def history(self, actor: Actor, id: str,
@@ -403,13 +455,22 @@ class Store(Protocol):
     def acknowledge(self, actor: Actor, subscription: str,
                     cursor: str) -> None: ...
 
-    def metric(self, actor: Actor, name: str, filter: str | None = None,
+    def metric(self, actor: Actor, name: str,
+               bind: Mapping[str, Any] | None = None,
+               over: timedelta | None = None,
+               filter: str | None = None,
                cursor: str | None = None) -> MetricPage: ...
 
     def export(self, actor: Actor, source: str,
                cursor: str | None = None) -> ExportPage: ...
 
-    def diagnostics(self, actor: Actor, type: str) -> Sequence[Diagnostic]: ...
+    def diagnostics(self, actor: Actor, type: str,
+                    window: timedelta) -> Sequence[Diagnostic]: ...
+
+    def import_batch(self, actor: Actor, batch: "ImportBatch",
+                     dry_run: bool = False) -> "ImportReport": ...
+
+    def maintain(self, actor: Actor, task: "MaintenanceTask") -> None: ...
 
     def publish(self, actor: Actor, change: str,
                 dry_run: bool = False) -> "PublishReport": ...
@@ -417,9 +478,11 @@ class Store(Protocol):
 
 `PublishReport` is defined in [`publish-and-import.md`](publish-and-import.md) §2, which owns it: publishing is where its shape is decided and one shape should have one home.
 
-Seventeen operations: the fourteen of §10, the write path of §6, and the two operational calls that are not object operations. The checker holds this list against §10 rather than trusting it.
+Nineteen operations: the sixteen of §10, the write path of §6, and the operational calls that are not object operations, `acknowledge` and `publish`. `import_batch` and `maintain` are the only other ways anything writes the database (ADR-0100). The checker holds this list against §10 rather than trusting it.
 
 - `metric` returns a `MetricPage`, and `diagnostics` a short fixed list, each computed over what the reader may see and saying whether that is everything (ADR-0096).
+- `import_batch` writes a port through the built-in assertion, for an actor holding `OK_IMPORT`, and only into a type that is a `mirror` or that no ordinary request has created an object of; every event it writes is marked `imported`. `maintain` requires `OK_MAINTAIN`, changes nothing any read returns, and is never needed for correctness (ADR-0100).
+- `export` pages an attempt source by its writing transaction's settled cursor, and an interval source by the cursor of the event that last opened or closed each row, so a closing re-emits the row and a consumer keeps the latest per object, dimension and entry (ADR-0100).
 - `export` takes a source — `log`, `<Type>.intervals`, `<Type>.transitions`, `<Type>.attempts`, or an observation kind — and returns JSON lines of the corresponding shape above, with every personal value omitted (ADR-0094).
 - `history`, `pull` and `export` filter the `reads` and `consulted` of an event or an attempt for the reader: an object the reader cannot see is left out and `withheld` is set, and a metric value is left out unless the reader can see every current object of each type the metric reads (ADR-0095, ADR-0096). A refusal's `Unsatisfied.consulted` follows the same rule for its requester, since a metric in a guard reads rows the requester may not see: the value is given to a requester who can see every current object of each type the metric reads, and otherwise left out.
 - `metric` aggregates the rows the reader may see, after narrowing them by `filter`, and a path through an object the reader may not see yields absence. `complete` says whether those rows are all there are, so a partial value is never taken for the metric's own (PRD C2, M2, T5, ADR-0096).

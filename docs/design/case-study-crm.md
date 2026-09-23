@@ -29,7 +29,7 @@ A CRM stresses what the previous two did not. Its objects are **joined many-to-m
 | GDPR delete | **erasure** — redaction of declared personal attributes across the object and its history; distinct from deletion (ADR-0031) |
 | Rollup: number of associated deals | derived attribute `count(d in deals)` (ADR-0021, ADR-0047) |
 | Rollup: total deal amount; days since last activity; most recent activity date | derived attributes: `sum(d in deals: d.amount)`, `now - max(v in activities: v.at)` (ADR-0032, ADR-0047). Queried by filtering the stored operand rather than the derived value (ADR-0048) |
-| Workflows, sequences, lead scoring, auto-association by email domain | consumers subscribed to events; computation and selection stay outside (ADR-0007, ADR-0012) |
+| Workflows, sequences, lead scoring, auto-association by email domain | consumers subscribed to events; selection and effects stay outside (ADR-0007, ADR-0012). *(ADR-0081: a score computed only from the store's own data is a declared formula the store may own; one needing outside data or a model stays outside.)* |
 | Forms, bulk import, upsert by email | creation transitions with idempotency keys; import path (ADR-0015); upsert is two requests the consumer sequences |
 | Company hierarchy (parent company) | a self-reference; acyclicity is **not expressible** in version 1 (see edge cases) |
 

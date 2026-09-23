@@ -2,6 +2,7 @@
 
 - **Status:** **Accepted** — confirmed by the author 2026-09-08, having been found by re-expressing the case studies
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0099 — `clear` also writes absence to an optional, singular, stored `ref` end.
 - **Refines:** ADR-0052, ADR-0053
 
 ## Context
@@ -18,7 +19,7 @@ An outcome step `clear <attribute>` writes absence to an optional attribute of `
 
 It is a write like any other: it stamps the attribute's last-written index, appears in the event, and invalidates an approval whose guard read that attribute. This matters, because the alternative reading — that clearing is a non-write — would let a reopened bug keep a standing approval that was granted against its resolution.
 
-Publishing rejects a `clear` on a required attribute, on a counter, or on a relationship end (check 17). An optional relationship end is cleared by writing the reference itself, since a reference has a value to write and an attribute does not.
+Publishing rejects a `clear` on a required attribute, on a counter, or on a relationship end (check 17). An optional relationship end is cleared by writing the reference itself, since a reference has a value to write and an attribute does not. *(Refined by ADR-0099 §6, repairing D249: there is no `null` to write and an unsupplied optional input skips its write, so an optional reference could never be cleared. `clear <reference>` now writes absence to an optional, singular, stored `ref` end, and is refused on a required end, a set, a `part` or an `owner` (check 17).)*
 
 ## Alternatives rejected
 

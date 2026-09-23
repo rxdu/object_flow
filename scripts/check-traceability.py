@@ -15,7 +15,8 @@ that the map is complete and honest in the ways a script can decide:
     definition of covered requires: DESIGN.md states a mechanism, and one of
     the implementation documents says how it is built;
   - a row is `unverifiable` only where the PRD itself says the requirement is
-    not yet verifiable, so the status cannot be used to park a hard row;
+    not yet verifiable, and `revision proposed` only where the PRD's proposed
+    revision (its last section) names it, so neither can park a hard row;
   - the "Current:" line counts the rows as they are.
 
 Exit status is non-zero if any of that fails, or if any row is partial or a gap.
@@ -30,7 +31,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PRD = ROOT / "docs/PRD.md"
 MAP = ROOT / "docs/design/traceability.md"
 DESIGN = ROOT / "docs/DESIGN.md"
-STATUSES = ("covered", "partial", "gap", "unverifiable")
+STATUSES = ("covered", "partial", "gap", "unverifiable", "revision proposed")
 OWNERS = ("declaration-syntax.md", "storage-schema.md", "library-api.md",
           "publish-and-import.md", "renderers.md", "adversarial-harness.md",
           "first-consumer-cutover.md")
@@ -48,7 +49,12 @@ def prd_ids():
     reqs = re.findall(r"^\| ([FDCMLVTN]\d+) \|", s6, re.M)
     ucs = re.findall(r"^\*\*(UC-\d+)\.", s7, re.M)
     unverifiable = set(re.findall(r"^\| ([FDCMLVTN]\d+) \|.*not yet verifiable", s6, re.M))
-    return reqs, ucs, unverifiable
+    full = PRD.read_text()
+    proposed = set()
+    if "## 12. Proposed revision" in full:
+        s12 = full[full.index("## 12. Proposed revision"):]
+        proposed = set(re.findall(r"^\| ((?:[FDCMLVTN]\d+)|(?:UC-\d+)) \|", s12, re.M))
+    return reqs, ucs, unverifiable, proposed
 
 
 def rows():
@@ -85,7 +91,7 @@ def check_citations(rid, cited, findings):
 
 def main():
     structure_only = "--structure" in sys.argv
-    reqs, ucs, prd_unverifiable = prd_ids()
+    reqs, ucs, prd_unverifiable, prd_proposed = prd_ids()
     table = rows()
     findings, counts, open_rows = [], {s: 0 for s in STATUSES}, []
 
@@ -117,37 +123,43 @@ def main():
             findings.append(f"{rid}: covered, and cites no document that owns an implementation")
         if status == "unverifiable" and rid not in prd_unverifiable:
             findings.append(f"{rid}: unverifiable, and the PRD does not say it is not yet verifiable")
+        if status == "revision proposed" and rid not in prd_proposed:
+            findings.append(f"{rid}: revision proposed, and the PRD's proposed revision does not name it")
+        if status == "revision proposed" and not any(o in cited for o in OWNERS):
+            findings.append(f"{rid}: revision proposed, and cites no document that owns an implementation")
         if status != "covered":
             open_rows.append((rid, status, remains))
             if not remains:
                 findings.append(f"{rid}: {status}, and does not say what remains")
 
-    want = (counts["covered"], counts["partial"], counts["gap"], counts["unverifiable"])
-    m = re.search(r"^Current: (\d+) covered, (\d+) partial, (\d+) gaps?, (\d+) unverifiable\.",
-                  MAP.read_text(), re.M)
+    want = (counts["covered"], counts["partial"], counts["gap"], counts["unverifiable"],
+            counts["revision proposed"])
+    m = re.search(r"^Current: (\d+) covered, (\d+) partial, (\d+) gaps?, (\d+) unverifiable, "
+                  r"(\d+) revision proposed\.", MAP.read_text(), re.M)
     if not m:
-        findings.append("no 'Current: N covered, N partial, N gaps, N unverifiable.' line")
+        findings.append("no 'Current: N covered, N partial, N gaps, N unverifiable, "
+                        "N revision proposed.' line")
     elif tuple(int(x) for x in m.groups()) != want:
         findings.append(f"the Current line says {m.groups()}, the rows say {want}")
 
     print(f"traceability: {len(reqs)} requirements and {len(ucs)} use cases; "
           f"{counts['covered']} covered, {counts['partial']} partial, {counts['gap']} gaps, "
-          f"{counts['unverifiable']} unverifiable")
+          f"{counts['unverifiable']} unverifiable, {counts['revision proposed']} revision proposed")
     for f in findings:
         print("  " + f)
     for rid, status, remains in open_rows:
-        if status == "unverifiable" or not structure_only:
+        if status in ("unverifiable", "revision proposed") or not structure_only:
             print(f"  {status:<12} {rid}: {remains}")
     if findings:
         return 1
-    blocking = [r for r in open_rows if r[1] != "unverifiable"]
+    blocking = [r for r in open_rows if r[1] not in ("unverifiable", "revision proposed")]
     if blocking and not structure_only:
         return 1
     if blocking:
         print("structure sound")
     else:
-        print("every requirement and use case is covered, "
-              "except where the PRD says it cannot yet be verified")
+        print("every requirement and use case is covered, except where the PRD says it "
+              "cannot yet be verified or proposes its own revision")
     return 0
 
 

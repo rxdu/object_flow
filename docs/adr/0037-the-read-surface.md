@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 6 (2026-09-08); pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0048 and ADR-0054, per their Refines lines; ADR-0077 — `check` returns its verdict with the guards it did not evaluate, `pull` returns the settled position, and `history` yields legacy entries beside events.
+- **Refined by:** ADR-0048 and ADR-0054, per their Refines lines; ADR-0077 — `check` returns its verdict with the guards it did not evaluate, `pull` returns the settled position, and `history` yields legacy entries beside events. ADR-0083 — the store also keeps an interval index no declaration names, so the rule is no projection the log cannot rebuild. ADR-0084 — `metric` joins the read surface. ADR-0085 — `diagnostics` joins it. ADR-0089 — `pull` returns a settled cursor rather than a position. ADR-0094 — `export` joins it.
 
 ## Context
 
@@ -25,7 +25,7 @@ The read surface is one API with these operations. Every operation takes an acto
 | **pull**(subscription, cursor) | a page of events per the subscription's filter (ADR-0034) |
 | **batch**(requests) | N independent requests each in its own transaction, N verdicts in order; there is no atomic batch — atomic multi-object semantics are declared cascades (ADR-0019) |
 
-**Indexes, not hidden projections.** A type declares which attributes are indexed. Type-scan predicates in guards, invariants and visibility, and query filters, run as queries over indexed attributes; publishing a declaration that scans an unindexed attribute produces a warning in the publish report (ADR-0027). The store maintains no projection it does not declare. Where a scan is too slow, the type author declares a counter or summary attribute and the cascaded actions that maintain it (ADR-0019) — a projection that is declared, recorded and therefore honest.
+**Indexes, not hidden projections.** A type declares which attributes are indexed. Type-scan predicates in guards, invariants and visibility, and query filters, run as queries over indexed attributes; publishing a declaration that scans an unindexed attribute produces a warning in the publish report (ADR-0027). The store maintains no projection it does not declare. *(Refined by ADR-0083 §2: the store also keeps the interval index, which no declaration names; the log can rebuild every interval it recorded, so it is an index and not a second source of truth, and the rule is now that the store maintains no projection the log cannot rebuild. Intervals an import supplies from legacy history are imported history, not a projection (ADR-0096 §10); `DESIGN.md` §7, §10.)* Where a scan is too slow, the type author declares a counter or summary attribute and the cascaded actions that maintain it (ADR-0019) — a projection that is declared, recorded and therefore honest.
 
 **External identifiers are declared.** An attribute may be declared `external: <source>`; uniqueness per source is an automatic invariant (ADR-0009) and `lookup` finds by it. The importer writes `external: legacy` for every ported key (ADR-0015, ADR-0018).
 

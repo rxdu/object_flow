@@ -3,7 +3,7 @@
 - **Status:** Accepted — repair of D16, D17, D19 to D24, 2026-09-08; pending author review
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0053 — `is null` and `is not null` are definite predicates; comparison with null stays unknown; ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0061 — ten decisions from the payments-ledger review; ADR-0071 — mandatory bounds and guard names stay; the reported worst-case product goes. ADR-0084 — grouped aggregation and time windows exist in declared metrics, not in guards or invariants.
-- **Amended by:** ADR-0052 — expression semantics amended where re-expressing the case studies found them underspecified. ADR-0063 replaces the remedy-class inference with a priority order that never contradicts a declared class.
+- **Amended by:** ADR-0052 — expression semantics amended where re-expressing the case studies found them underspecified. ADR-0060 §11 replaces the remedy-class inference with a priority order that never contradicts a declared class. *(Corrected 2026-09-23: this line cited ADR-0063, which decides the swap test and says nothing of remedy classes.)*
 - **Refines:** ADR-0021, ADR-0032, ADR-0005
 
 ## Context

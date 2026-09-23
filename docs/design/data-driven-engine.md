@@ -136,7 +136,7 @@ C cannot show UC-2's pattern of one agent repeating the same refused request.
 
 - **Inputs are never recorded**, so the attempt log holds no personal value and erasure has nothing to do there.
 - **It is not history.** `history` does not return it, and subscriptions do not deliver it.
-- **It is pruned.** A deployment keeps it for a retention period, with monthly rollups kept permanently, which is T3's clause for refusal records.
+- **It is pruned.** A deployment keeps it for a retention period, with monthly rollups kept permanently, which is T3's clause for refusal records. *(ADR-0096 and ADR-0100: the rollups are daily, per object and per version, written by `maintain`'s prune in the same transaction, and read by the `<Type>.attempt_counts` source.)*
 - **It is written outside the request's transaction**, the second thing that is after the sequence mint (`storage-schema.md` §6). A crash between the rollback and the write loses one row of evidence and no history.
 
 The first consumer arrived at the same shape on its own: its audit writer uses a separate short session so that a failed operation still leaves a row (`wr:app/core/unified_audit.py:80-110`).

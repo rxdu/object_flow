@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 4 (2026-09-08); pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0089 — the log is read by a settled cursor ordered by transaction and position.
+- **Refined by:** ADR-0089 — the log is read by a settled cursor ordered by transaction and position. ADR-0043 — subscription progress is runtime state, not object state, and lag and death are derived rather than states.
 
 ## Context
 

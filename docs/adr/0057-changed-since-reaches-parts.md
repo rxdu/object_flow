@@ -19,7 +19,7 @@ The workaround a reviewer had to invent was three moving parts: an extra timesta
 
 It reaches parts and not references, because a part's lifetime is bounded by its whole and a part is conceptually a piece of it, whereas a referenced object is a separate thing whose changes are its own business. A guard that must react to a referenced object's change reads that object's state directly.
 
-The store answers it from the per-attribute last-written index (ADR-0048) extended to carry, on each whole, the position of the last event on any of its parts. That is one more maintained position, updated in the transaction that writes the part, and it is not a second write path: it is an index over the log, like the per-attribute index beside it.
+The store answers it from the per-attribute last-written index (ADR-0048) extended to carry, on each whole, the position of the last event on any of its parts. *(Replaced by ADR-0082 §7, repairing D202: one position per part relationship, a row of the same index keyed by the relationship's name, so `changed_since` naming `lines` is not invalidated by a change to another part relationship, such as the approval's own creation; `DESIGN.md` §5.3.)* That is one more maintained position, updated in the transaction that writes the part, and it is not a second write path: it is an index over the log, like the per-attribute index beside it.
 
 ## Alternatives rejected
 
@@ -38,6 +38,6 @@ Rejected: across a reference it would make an approval on one object depend on t
 ## Consequences
 
 - The declaration syntax's `changed_since` accepts part names, and publishing rejects a name that is neither an attribute nor a part.
-- The storage schema carries a last-part-event position per object that has parts.
+- The storage schema carries a last-part-event position per object that has parts. *(Replaced by ADR-0082 §7: the schema keeps the position per part relationship in `ok_attribute_write`, and `last_part_event` is retired; `storage-schema.md`.)*
 - DESIGN.md §5.7's `changed_since` row is amended.
 - D60 is resolved.

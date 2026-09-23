@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D50 to D59, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0061 — ten decisions from the payments-ledger review; ADR-0066 — a cascade clause carries arguments; ADR-0077 — the recorded number is the declaration version, which fixes every type's version.
+- **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0061 — ten decisions from the payments-ledger review; ADR-0066 — a cascade clause carries arguments; ADR-0077 — the recorded number is the declaration version, which fixes every type's version. ADR-0087 — a type with a personal attribute that takes part in supersession must declare `erase`, so decision 7's "stays optional" no longer holds for it.
 - **Amends:** ADR-0024, ADR-0026, ADR-0027, ADR-0031, ADR-0042, ADR-0046, ADR-0053
 
 ## Context
@@ -43,7 +43,7 @@ The cost, stated plainly: this needs a reverse index over every declared referen
 
 ### 7. Erasure runs from any state, including terminal, and stays optional
 
-ADR-0024 says a deleted object admits no further transitions. Erasure requests arrive precisely for closed accounts and retired units, so **erasure is carved out of that rule**. It also stays optional: ADR-0031 says a type *may* declare an erasure transition, and a syntax draft had made it mandatory wherever a personal attribute existed.
+ADR-0024 says a deleted object admits no further transitions. Erasure requests arrive precisely for closed accounts and retired units, so **erasure is carved out of that rule**. It also stays optional: ADR-0031 says a type *may* declare an erasure transition, and a syntax draft had made it mandatory wherever a personal attribute existed. *(Narrowed by ADR-0087 §2: erasure follows the supersession chain through each member's own `erase`, so a type with a personal attribute that takes part in supersession must declare one, and publishing rejects it otherwise (check 60). Elsewhere it stays optional; `declaration-syntax.md` §6.4.)*
 
 ### 8. The conditional is `if … then … else`, and implication is `implies`
 

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0048 — `available` requires a sweepable transition and evaluates no external guard, and a time-dependent derived attribute is queried through its stored operand.
 
 ## Context
 

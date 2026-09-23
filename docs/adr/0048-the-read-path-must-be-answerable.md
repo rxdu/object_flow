@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D25, D26 and D30, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0057 — the write index also carries the last event on a whole's parts, so `changed_since` may name a part relationship. ADR-0082 §7 — that position is kept per part relationship, not one per whole. ADR-0084 §5 — decision 2's rule extends from the type's own row to the interval index, so `query` may filter on the entry time of a tracked value's current interval.
 - **Refines:** ADR-0037, ADR-0022
 
 ## Context
@@ -16,7 +17,7 @@ Derived attributes cannot be queried at all: filters take indexed attributes, de
 
 ## Decision
 
-1. **A per-attribute last-written index.** Alongside each object row the store maintains, per attribute, the position of the event that last wrote it. It is derived from the log and updated in the writing transaction, so it can never disagree. `changed_since([attributes], event)` becomes a constant-time comparison instead of a history scan. *Refined by ADR-0057: each object that has parts carries one further position, the last event on any of its parts, so the predicate reaches a composition at the same cost.*
+1. **A per-attribute last-written index.** Alongside each object row the store maintains, per attribute, the position of the event that last wrote it. It is derived from the log and updated in the writing transaction, so it can never disagree. `changed_since([attributes], event)` becomes a constant-time comparison instead of a history scan. *Refined by ADR-0057: each object that has parts carries one further position, the last event on any of its parts, so the predicate reaches a composition at the same cost.* *(Replaced by ADR-0082 §7, repairing D202: the position is kept per part relationship, as a row of the same index keyed by the relationship's name, and the single per-object position is retired, so a guard naming one part relationship is not invalidated by a change to another; `DESIGN.md` §5.3, §7.)*
 2. **Time-dependent predicates are rewritten to their operands.** A query does not evaluate `overdue`; it filters on the stored attribute the derived expression compares against `now`. `overdue := state == OUT and expected_return < now` is answered as a filter on the indexed `expected_return` with the current time supplied. Publishing reports which derived attributes are queryable this way and which are not.
 3. **Derived attributes over stored, indexed attributes of the same object, with no aggregate and no `now`, are themselves indexable** and may be queried directly.
 4. **A transition is `sweepable` or it is not, and publishing says which.** A sweepable transition's guards decompose into an indexable prefilter over stored attributes, state and category, plus a residual evaluated only on the prefiltered candidates. `available` runs the prefilter as a query. A transition that is not sweepable is refused by `available` rather than silently scanning a type.

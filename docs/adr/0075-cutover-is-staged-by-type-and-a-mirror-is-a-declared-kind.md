@@ -2,7 +2,7 @@
 
 - **Status:** **Accepted** — the author chose staged cutover 2026-09-09; the `mirror` marking is the consequence, derived here and pending review
 - **Date:** 2026-09-09
-- **Refined by:** ADR-0077 — import writes each row complete in one pass; the two-pass sentence below is annotated; ADR-0080 — the marking is for the duration of a cutover, and a type another system owns for good is an ordinary type the sync writes. ADR-0093 — the stage order counts the legacy system's writes as well as its references.
+- **Refined by:** ADR-0077 — import writes each row complete in one pass; the two-pass sentence below is annotated; ADR-0080 — the marking is for the duration of a cutover, and a type another system owns for good is an ordinary type the sync writes. ADR-0093 — the stage order counts the legacy system's writes as well as its references. ADR-0100 — the import writes a type only while it is a `mirror` or no ordinary request has created an object of it, and a guard over a mirror reads it as of its last import, `.imported_at`.
 - **Refines:** ADR-0015, ADR-0027, ADR-0040
 
 ## Context

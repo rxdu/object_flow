@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D07, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0100 — progress is an acknowledged settled cursor, and lag is the age of the oldest unacknowledged event the filter selects, with duration thresholds.
 - **Refines:** ADR-0034
 
 ## Context
@@ -13,8 +14,8 @@ The mistake was modelling delivery bookkeeping as object state. A cursor is not 
 ## Decision
 
 1. **The Subscription object holds only its declaration and its lifecycle**: the filter, the lag thresholds, and states `active → revoked`. Both transitions are ordinary and are requested by a consumer or an operator.
-2. **Progress is runtime state.** The acknowledged position lives in its own store alongside the idempotency record, is not an object, is not versioned, and emits no events. `acknowledge(position)` and `pull` write and read it directly. High-frequency bookkeeping never enters the permanent history.
-3. **Lag and death are derived, not states.** `lag := log_head - acknowledged`, `lagging := lag > warn_threshold`, `dead := lag > fail_threshold`. They are computed on read from the position and the thresholds.
+2. **Progress is runtime state.** The acknowledged position lives in its own store alongside the idempotency record, is not an object, is not versioned, and emits no events. `acknowledge(position)` and `pull` write and read it directly. *(ADR-0089: it is now an acknowledged settled cursor.)* High-frequency bookkeeping never enters the permanent history.
+3. **Lag and death are derived, not states.** `lag := log_head - acknowledged`, `lagging := lag > warn_threshold`, `dead := lag > fail_threshold`. They are computed on read from the position and the thresholds. *(Replaced by ADR-0100 §6: the lag is the age of the oldest event the filter selects after the acknowledged cursor, and the thresholds `lag_warn` and `lag_fail` are durations, since a cursor has no arithmetic.)*
 4. **Nothing initiates.** Because lag and death are derived, no actor has to move a subscription into them. An operator queries for lagging subscriptions and decides; a delivery worker reads `dead` and stops delivering. ADR-0012 is untouched, and the same reasoning applies to `Proposal.expired` (ADR-0044).
 5. **Revival needs no special case.** A revived subscription sets its acknowledged position to any value; nothing was pruned, so any position is valid (ADR-0033).
 

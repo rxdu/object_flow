@@ -90,21 +90,35 @@ def check_adr_headers(nums):
         findings.append(f"gaps in ADR numbering: {missing}")
 
 
+def _header(body):
+    """An ADR's header: everything above its first section heading."""
+    return body.split("\n## ", 1)[0]
+
+
 def check_amendments():
+    """Every Amends/Refines/Supersedes line must be answered by name.
+
+    The earlier ADR must name the later one on a back-link line of its own
+    header -- Refined by, Amended by or Superseded by, in a field or in its
+    status.  Accepting any "Refined by" anywhere in the target let a record
+    carry one back-link and silently miss every later one.
+    """
     text = {int(re.match(r"(\d+)", p.name).group(1)): p.read_text()
             for p in ADR.glob("[0-9]*.md")}
+    back = re.compile(r"(Refined|Amended|Superseded) by")
     for n, body in sorted(text.items()):
-        head = "\n".join(body.split("\n")[:12])
-        for kind, back in (("Amends", "Amended by"), ("Refines", "Refined by"),
-                           ("Supersedes", "Superseded by")):
+        head = _header(body)
+        for kind in ("Amends", "Refines", "Supersedes"):
             m = re.search(r"\*\*%s:\*\*\s*(.+)" % kind, head)
             if not m:
                 continue
             for t in re.findall(r"ADR-(\d{4})", m.group(1)):
-                target = text.get(int(t), "")
-                if back not in target and f"ADR-{n:04d}" not in target:
+                lines = [l for l in _header(text.get(int(t), "")).split("\n")
+                         if back.search(l)]
+                if not any(f"ADR-{n:04d}" in l for l in lines):
                     findings.append(f"ADR-{n:04d} {kind.lower()} ADR-{t}, "
-                                    f"which does not say so in return")
+                                    f"whose header does not name it on a "
+                                    f"Refined/Amended/Superseded by line")
 
 
 def check_defect_index():

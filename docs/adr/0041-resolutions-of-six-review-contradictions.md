@@ -44,7 +44,7 @@ Since ADR-0039 makes serialisable isolation the default, compilation is now an *
 
 `self_serviceable` was wrong: it means satisfiable by a transition argument, and no argument makes a cascade smaller. A request exceeding a declared fan-out cap is refused with the verdict **`over-limit`**, naming the relationship and the cap.
 
-It is not a guard failure. Nothing about the object is wrong; the request is too large for the declaration's stated bound. The verdict taxonomy becomes: satisfied; unsatisfied with a remedy class; `stale`; `not found`; `not requestable`; `over-limit`.
+It is not a guard failure. Nothing about the object is wrong; the request is too large for the declaration's stated bound. The verdict taxonomy becomes: satisfied; unsatisfied with a remedy class; `stale`; `not found`; `not requestable`; `over-limit`. *(`DESIGN.md` §5.5 lists seven: these six and invariant violated, which names the invariant and the conflicting objects.)*
 
 ## Consequences
 

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D08, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0078 — an erasure invalidates a pending proposal whose inputs carried a value it removed, a fourth cause.
+- **Refined by:** ADR-0078 — an erasure invalidates a pending proposal whose inputs carried a value it removed, a fourth cause. ADR-0097 — execution re-evaluates actor guards too, correcting this ADR's summary of ADR-0036.
 - **Refines:** ADR-0036
 
 ## Context

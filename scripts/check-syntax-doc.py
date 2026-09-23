@@ -38,6 +38,7 @@ class Decl:
         self.base = None
         self.mirror = False
         self.subject = None     # an observation kind's `on` type
+        self.collection = None  # an observation kind's `as` name, a part on the subject
         self.clauses = {}       # observation / metric clause keyword -> [(text, line)]
         self.generated = []     # an observation kind's generated `record` creation
 
@@ -53,6 +54,8 @@ def parse(text, base=0):
             cur = Decl(m.group(1), m.group(2), ln)
             on = re.search(r"\bon\s+(\w+)", m.group(3))
             cur.subject = on.group(1) if on else None
+            coll = re.search(r"\bas\s+(\w+)", m.group(3))
+            cur.collection = coll.group(1) if coll else None
             decls.append(cur); i += 1; continue
         if m := re.match(r"^(machine|type)\s+(\w+)", raw):
             xbase = re.search(r"\bextends\s+(\w+)", raw)
@@ -69,7 +72,7 @@ def parse(text, base=0):
         if cur.kind in ("observation", "metric"):       # §6.8, §6.9: clauses, not members
             if m := re.match(r"^field\s+(\w+)\s*:\s*(.*)$", s):
                 cur.attrs[m.group(1)] = (m.group(2), ln)
-            elif m := re.match(r"^(recorded by|occurred within|invariant|from|by|window on|value|flag)\b\s*(.*)$", s):
+            elif m := re.match(r"^(recorded by|occurred within|invariant|from|combine|by|window on|value|flag)\b\s*(.*)$", s):
                 cur.clauses.setdefault(m.group(1), []).append((m.group(2), ln))
             i += 1; continue
         if m := re.match(r"^machine\s+(\w+)", s):            cur.machine = m.group(1)
@@ -155,6 +158,11 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
     decls = parse(text, base)
     by_name = dict(world or {})
     by_name.update({d.name: d for d in decls})
+    for k in list(by_name.values()):          # §6.8: a kind adds its collection to the subject
+        subj = by_name.get(k.subject) if k.kind == "observation" else None
+        if subj is not None and k.collection and k.collection not in subj.rels:
+            subj.rels[k.collection] = ("part", f"{k.name}[] inverse subject", k.start)
+            subj.generated_parts = getattr(subj, "generated_parts", set()) | {k.collection}
     capdecl = capdecl if capdecl is not None else set()
     catdecl = catdecl if catdecl is not None else set()
     reserved = reserved or set()
@@ -164,7 +172,8 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
               r"states|state|provides|summary|visible|attr|counter|ref|part|owner|derive|invariant|"
               r"create|do|act|assert|erase|input|accepts|require|set|clear|add|remove|call|supersede|for|"
               r"cascade|survives|requires|removed|renamed|fn|extends|may|corrects|only|proposable|"
-              r"observation|metric|field|recorded|occurred|from|by|window|value|flag|labels)\b")
+              r"observation|metric|field|recorded|occurred|from|combine|by|window|value|flag|labels|"
+              r"backfill)\b")
     clause_col = None
     for i, raw in enumerate(text.split("\n")):
         line = raw.split("#", 1)[0].rstrip()
@@ -429,8 +438,11 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 elif tgt in d.counters:
                     add(17, f"{d.name}.{tn} clears counter '{tgt}'", ln)
                 elif tgt in rels:
-                    add(17, f"{d.name}.{tn} clears relationship end '{tgt}'; "
-                            "write the optional reference instead", ln)
+                    rk17, sp17, _l17 = rels[tgt]
+                    first = sp17.split()[0] if sp17.split() else ""
+                    if not (rk17 == "ref" and first.endswith("?") and stores(d, sp17, by_name)):
+                        add(17, f"{d.name}.{tn} clears relationship end '{tgt}', which is not "
+                                "an optional, singular, stored ref", ln)
                 elif tgt not in attrs:
                     add(19, f"{d.name}.{tn} clears undeclared name '{tgt}'", ln)
                 elif not attrs[tgt][0].split()[0].endswith("?"):
@@ -551,27 +563,25 @@ def data_checks(decls, by_name, text):
             add(54, f"observation {d.name} names no subject with 'on'", d.start)
         elif subj is None:
             add(19, f"observation {d.name} is on undeclared type {d.subject}", d.start)
-        else:
-            mine = [rn for rn, (rk, sp, _l) in subj.rels.items()
-                    if rk == "part" and sp.split() and sp.split()[0].rstrip("?[]") == d.name]
-            if len(mine) != 1:
-                add(54, f"{d.subject} declares {len(mine)} parts of observation {d.name}, not one", d.start)
+        if d.collection is None:
+            add(54, f"observation {d.name} names no collection with 'as'", d.start)
     for d in decls:
         for rn, (rk, sp, rln) in d.rels.items():
-            if rk != "part" or not sp.split():
+            if rk != "part" or not sp.split() or rn in getattr(d, "generated_parts", set()):
                 continue
             kind = by_name.get(sp.split()[0].rstrip("?[]"))
-            if kind is not None and kind.kind == "observation" and \
-               (not sp.split()[0].endswith("[]") or not re.search(r"\binverse\s+subject\b", sp)):
-                add(54, f"{d.name}.{rn} holds observation {kind.name} and is not a set with 'inverse subject'", rln)
+            if kind is not None and kind.kind == "observation":
+                add(54, f"{d.name}.{rn} declares a part of observation {kind.name}, "
+                        "which the kind's 'as' adds; the subject does not declare it", rln)
 
     # 56 — metrics; 58 — the members they read
     for d in decls:
         if d.kind != "metric":
             continue
-        for need in ("from", "value"):
-            if need not in d.clauses:
-                add(56, f"metric {d.name} has no '{need}'", d.start)
+        if "from" not in d.clauses and "combine" not in d.clauses:
+            add(56, f"metric {d.name} has neither 'from' nor 'combine'", d.start)
+        if "value" not in d.clauses:
+            add(56, f"metric {d.name} has no 'value'", d.start)
         src_decl, binder = None, None
         for fr, fln in d.clauses.get("from", []):
             m = re.match(r"(\w+)\s+in\s+(\w+)(?:\.(\w+)(?:\((\w+)\))?)?", fr)
@@ -767,7 +777,7 @@ FIXTURES = {
   47: "type W version 1 {\n tracking serial\n states S category live, D category closed terminal\n part ps : C[] inverse w\n      cascade on go to C.del\n create mk -> S { }\n do go S -> D { }\n}",
   41: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref bs : B[] inverse as\n create mk -> S { }\n do go S -> D { }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n ref as : A[] inverse bs\n create mk2 -> T { }\n do go2 T -> U { }\n}",
   40: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n act poke at D { }\n}",
-  54: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n part os : O[] inverse subject\n create mk -> S { }\n do go S -> D { }\n}\nobservation O version 1 on A {\n field v : int\n}",
+  54: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nobservation O version 1 on A as os {\n field v : int\n}",
   55: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require quiet: count(l in labels) == 0 }\n}",
   56: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A\n}",
   57: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } {\n  input reason : string\n  require may: actor.has(Q) observe because delegable\n }\n}",
@@ -845,8 +855,10 @@ def self_test():
 # the way an author would, and the check that claims the rule must catch it.
 MUTATIONS = [
   (54, "no recorded by", "  recorded by   actor.has(PDI_RECORD)\n", ""),
-  (54, "singular observation part", "part     inspections : InspectionResult[] inverse subject",
-       "part     inspections : InspectionResult inverse subject"),
+  (54, "kind with no collection", "observation InspectionResult version 1 on ServiceJob as inspections {",
+       "observation InspectionResult version 1 on ServiceJob {"),
+  (54, "subject declares the kind's part", "  attr     photo file?\n",
+       "  attr     photo file?\n  part     results : InspectionResult[] inverse subject\n"),
   (54, "unit on a string field", "field note    : string?", 'field note    : string? unit "V"'),
   (54, "kind invariant reads the subject", "invariant in_range: value is null",
        "invariant in_range: subject.photo is null"),

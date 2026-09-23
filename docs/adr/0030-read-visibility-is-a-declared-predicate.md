@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 3 (2026-09-08); pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0072 — six smaller answers to the open questions; §4 keeps confidentiality per object and records the cost of the workaround; ADR-0079 — the `actor.teams` example in decision 1 read a descriptor attribute, which no longer exists. ADR-0095 — a metric guard reads every row as a type-scan guard does, and a reader is shown an event's read set and recorded values only as far as their visibility reaches.
+- **Refined by:** ADR-0072 — six smaller answers to the open questions; §4 keeps confidentiality per object and records the cost of the workaround; ADR-0079 — the `actor.teams` example in decision 1 read a descriptor attribute, which no longer exists. ADR-0095 — a metric guard reads every row as a type-scan guard does, and a reader is shown an event's read set and recorded values only as far as their visibility reaches. ADR-0100 — a verdict names only objects its requester can see, and says when others were withheld.
 
 ## Context
 

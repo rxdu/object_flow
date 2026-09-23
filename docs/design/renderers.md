@@ -24,7 +24,7 @@ Determinism matters more than prettiness: two renders of one version must be byt
 
 ```
 Delivery — version 1
-  tracking record
+  tracking serial
 
   Attributes
     approved_total   money(SGD), optional
@@ -78,9 +78,15 @@ ServiceJob — version 2
   Metrics
     time_working     median time in WORKING, by engineer, by month (UTC)
                      flag slow when over 10 days
+    standard         time_in_state, throughput, work_in_progress, oldest_open,
+                     transition_counts, refusals, refusal_rate, override_counts,
+                     rework; for engineer: open_work, time_unassigned,
+                     time_to_first_assignment, time_with_assignee,
+                     cycle_time_by_assignee, time_in_state_by_holder, handoffs,
+                     reassigned_back, acted_by_non_assignee (declaration-syntax §6.11)
 ```
 
-An **observing clause** is printed as not enforced, on the same line as the rule, so no reader can mistake a trial for a guarantee (ADR-0085). A **metric** is printed as its definition rendered in words, exactly as a guard is, because the rule set is the one place a definition is meant to be read as the rule; everywhere else points at `metric()` (§3). The **assignee** line says which reference is the responsibility, since that is what the assignment metrics are over (ADR-0086).
+An **observing clause** is printed as not enforced, on the same line as the rule, so no reader can mistake a trial for a guarantee (ADR-0085). A **metric** is printed as its definition rendered in words, exactly as a guard is, because the rule set is the one place a definition is meant to be read as the rule; everywhere else points at `metric()` (§3). The **assignee** line says which reference is the responsibility, since that is what the assignment metrics are over (ADR-0086). The **standard metrics** are listed by name under every type, since each is a declaration a reader can look up (ADR-0098). The **built-in types** — `DeclarationChange`, `Proposal`, `Subscription` and the `label` kind — are rendered like any type, with the built-in capabilities that gate them, so who may draft, approve, label or import is on the page (ADR-0097).
 
 Guard descriptions are rendered from the expression, not written by hand. `none(c in checklist_items where not c.checked)` becomes "every checklist item is checked". That rendering is mechanical and lossy on purpose — the expression is beside it in the machine-readable form, and a person reading a rule set wants the sentence.
 
@@ -123,43 +129,40 @@ The description names the operation and directs the caller to `availability`. It
 
 A transition with inputs renders them as properties **of `inputs`**, from their declared types, with `accepts` attributes and `input` declarations treated alike, since §5.1 of the syntax makes them the same thing. Nesting them keeps the request's own fields — `object_id`, `expected_version`, `idempotency_key` — at the top level, so no input name can collide with one, now or when a request field is added (ADR-0092).
 
-**Each observation kind is a tool** (ADR-0082), since recording one is a creation request. The subject, the fields, the observation a correction replaces, and an occurred time within the kind's bound are its inputs (ADR-0096):
+**Each observation kind is a tool** (ADR-0082), since recording one is a creation request. The subject, the fields and the observation a correction replaces are its inputs, as the syntax declares them; the occurred time is a request field beside the idempotency key, never an input, and a time outside the kind's bound is refused naming `occurred_within` (ADR-0096, ADR-0099):
 
 ```json
 {
   "name": "record_inspection_result",
-  "description": "Record one inspection result on a service job. Who may record it, and how late, are rules the store checks; call availability(subject_id) to see whether recording is available on this subject now.",
+  "description": "Record one inspection result on a service job. Who may record it, and how late, are rules the store checks; availability(subject) offers recording beside the service job's own transitions, and says whether it is available now.",
   "input_schema": {
     "type": "object",
     "properties": {
-      "subject_id": {
-        "type": "string",
-        "description": "the ServiceJob"
-      },
       "idempotency_key": {
         "type": "string"
       },
+      "occurred_at": {"type": "string", "format": "date-time", "description": "when it happened, no more than 7 days ago"},
       "inputs": {
         "type": "object",
         "properties": {
+          "subject": {"type": "string", "description": "the ServiceJob"},
           "check": {"type": "string", "description": "the InspectionCheck"},
           "outcome": {"type": "string", "enum": ["PASS", "FAIL", "NOT_APPLICABLE"]},
           "value": {"type": "number", "description": "in V"},
           "note": {"type": "string"},
-          "corrects": {"type": "string", "description": "the InspectionResult on this service job that this one replaces"},
-          "occurred_at": {"type": "string", "format": "date-time"}
+          "corrects": {"type": "string", "description": "the InspectionResult on this service job that this one replaces"}
         },
-        "required": ["check", "outcome"],
+        "required": ["subject", "check", "outcome"],
         "additionalProperties": false
       }
     },
-    "required": ["subject_id", "inputs"],
+    "required": ["inputs"],
     "additionalProperties": false
   }
 }
 ```
 
-**Metrics are one tool**, naming every metric the reader may see by name and nothing more (ADR-0084). The description does not restate a definition, for the reason a transition's description does not restate a guard: `metric()` evaluates the real definition against the real data.
+**Metrics are one tool**, naming every metric the reader may see by name — the declared ones and the standard ones of the syntax's §6.11 — and nothing more (ADR-0084, ADR-0098). It takes the same arguments a guard's reference does: dimension values to bind, a window, and a filter. The description does not restate a definition, for the reason a transition's description does not restate a guard: `metric()` evaluates the real definition against the real data.
 
 ```json
 {
@@ -168,7 +171,9 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
   "input_schema": {
     "type": "object",
     "properties": {
-      "name": {"type": "string", "enum": ["time_working", "inspection_pass_rate", "supplier_lead_time"]},
+      "name": {"type": "string", "enum": ["time_working", "inspection_pass_rate", "ServiceJob.time_in_state", "ServiceJob.work_in_progress", "ServiceJob.open_work.engineer", "ServiceJob.cycle_time_by_assignee.engineer"]},
+      "bind": {"type": "object", "description": "dimension values to fix; any dimension left out is aggregated over"},
+      "over_last": {"type": "string", "description": "a window, such as 30 days"},
       "filter": {"type": "string"},
       "cursor": {"type": "string"}
     },

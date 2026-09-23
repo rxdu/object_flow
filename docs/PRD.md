@@ -303,3 +303,14 @@ The author asked for the details to be settled by evaluating designs against the
 - **T1, the objective, had no use case,** while every new capability — recording, backdating, trial rules — adds a route to test. UC-19 tests them.
 - **Coverage was checked per group, which hid gaps.** Each requirement now lists its use cases in one place, and the six that have none say why.
 - **Smaller.** F6 split into F6 (agents draft) and F7 (governed change). §5 gains Rule, Override and Exception, and separates derived datapoints (one object) from metrics (many). UC-17 and UC-18 are in order. §8 no longer counts the harness's failure conditions, which ADR-0083 changes. G5 no longer promises to explain decisions made outside the engine.
+
+## 12. Proposed revision 4, awaiting the author
+
+The design found three places where the requirements, read together, cannot all hold as written, and the status line above says a design that finds the PRD wrong proposes a revision rather than working around it. Nothing below is in force until the author accepts it; until then `design/traceability.md` marks each affected row **revision proposed**, and the design behaves as the proposed wording says (ADR-0096 §3, ADR-0098 §6).
+
+| ID | Proposed wording | Why |
+|---|---|---|
+| C2 | A formula is declared once, inspectable and versioned with the flow, and every consumer — a screen, an agent, a report, a rule — gets the same value from the same definition over the same data; a consumer that may see only part of the data gets the value over that part, marked as partial | As written, C2 and T5 conflict for any consumer who may not see every object a metric reads: giving them the same value reveals what they may not see, and T5 is a Must. The proposed wording keeps what C2 is for — one definition, never a reimplementation per consumer — and says what a partial reader gets |
+| UC-8 | *Acceptance:* each is declared once; a screen, an agent and a report reading it over the same data get identical values, and one that may see only part of the data gets the value over that part, marked as partial; and each says it is computed in UTC calendar time | The same conflict as C2's, in the use case that tests it |
+| UC-10 | *Acceptance:* the refusal names the threshold, and names the value wherever the requester may see what it is computed from; the record of every completion holds the value it was decided on; the threshold changes only through a governed path | A rule reads a metric over every row, so its value may aggregate objects the requester cannot see; naming it would breach T5. UC-10 is hypothetical and T5 a Must, so the acceptance should yield where they meet. The record still holds the value, for a reader who may see it |
+

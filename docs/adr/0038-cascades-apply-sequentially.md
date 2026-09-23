@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D01, 2026-09-08; pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0054 — the parent's outcome applies in full before any cascade, and `check`'s verdict is partial.
 - **Supersedes:** the "All guards first" rule of ADR-0019
 
 ## Context

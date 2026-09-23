@@ -32,6 +32,6 @@ The syntax document states this where a reader meets evaluators, so the boundary
 
 ## Consequences
 
-- A randomisation arm, a gateway's authorisation code and a quoted price are all mirrored objects. Each has a lifecycle, which is usually what the domain wanted anyway.
+- A randomisation arm, a gateway's authorisation code and a quoted price are all mirrored objects. *(In ADR-0080's terms, objects of an **externally owned type**: an ordinary type with an external identifier, whose sync-driven transitions the sync requests; `mirror` now means only the cutover marking; `DESIGN.md` §5.5, §14.)* Each has a lifecycle, which is usually what the domain wanted anyway.
 - The window between the store's transition and the external action stays real and visible, as `design/edge-cases.md` already records under atomicity.
-- The first consumer's Xero work, when it happens, is a mirror by its own design intent, so nothing in this decision is new to it.
+- The first consumer's Xero work, when it happens, is a mirror by its own design intent, so nothing in this decision is new to it. *(ADR-0080 §3: the customer is a `mirror` only while the legacy system owns it, and at its cutover stage becomes an externally owned type whose sync is Xero's; `DESIGN.md` §11.)*

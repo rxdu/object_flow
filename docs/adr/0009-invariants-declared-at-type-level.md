@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0045 — enforcement is dynamic, the static analysis is a publish-time report, and invariants may only traverse declared inverses.
 
 ## Context
 

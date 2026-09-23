@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D37 to D41, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0055 — a third invariant form for single-object properties, and outcome steps that add to and remove from a set; ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0061 — ten decisions from the payments-ledger review; ADR-0062 — a normative statement must cite the check that enforces it; ADR-0063 — the swap test names its normalisations, and check 52's claim is retracted; ADR-0073 — `clear` writes absence, and is the only way to.
+- **Refined by:** ADR-0055 — a third invariant form for single-object properties, and outcome steps that add to and remove from a set; ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0061 — ten decisions from the payments-ledger review; ADR-0062 — a normative statement must cite the check that enforces it; ADR-0063 — the swap test names its normalisations, and check 52's claim is retracted; ADR-0073 — `clear` writes absence, and is the only way to. ADR-0072 — six smaller answers to the open questions.
 - **Amends:** ADR-0046, ADR-0047, ADR-0045
 
 ## Context

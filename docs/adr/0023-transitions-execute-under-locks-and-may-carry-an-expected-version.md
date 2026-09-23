@@ -29,7 +29,7 @@ Rejected: the lock makes the request safe but says nothing about whether the cal
 
 ## Consequences
 
-- The verdict taxonomy is: satisfied; unsatisfied with a reason and remedy class; `stale`; not requestable (ADR-0020); and, since ADR-0030, not found. *(ADR-0041 is the current list, adding `over-limit`; DESIGN.md §5.5 carries all six.)*
+- The verdict taxonomy is: satisfied; unsatisfied with a reason and remedy class; `stale`; not requestable (ADR-0020); and, since ADR-0030, not found. *(ADR-0041 is the current list, adding `over-limit`; DESIGN.md §5.5 carries all six.)* *(Corrected 2026-09-23: `DESIGN.md` §5.5 carries seven, ADR-0041's six and invariant violated, which names the invariant and the conflicting objects.)*
 - The read surface returns `version` with every object.
 - The first consumer's `delivery_locking` and `reserve_inventory_item` patterns are absorbed; no consumer writes its own lock.
 - TODO.md challenge 4 and the concurrency item are closed.

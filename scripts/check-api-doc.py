@@ -64,7 +64,7 @@ def main():
         print("  the API offers, the model does not declare: " + ", ".join(extra))
     if missing or extra:
         return 1
-    print("the API offers exactly what the model declares")
+    print("the API offers the operations DESIGN.md §10 names, by name; arguments and shapes are not compared")
     return 0
 
 

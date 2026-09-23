@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 5 (2026-09-08); pending author review
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0057 — `changed_since` may name a part relationship, so an edit to a part invalidates an approval.
 
 ## Context
 

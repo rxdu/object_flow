@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 2 (2026-09-07); pending author review
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0096 — `closed` is built into every category vocabulary, and says when work is open and when it completes.
 - **Amended by:** ADR-0056 §5 — a machine declares what it requires of its binders. ADR-0064 makes a binder's own creations replace the machine's rather than add to them, and ADR-0065 keeps the machine's creation guards binding on the replacement.
 
 ## Context
@@ -13,7 +14,7 @@ A ticket system gives the same issue type different workflows in different proje
 1. **`extends`.** A type declaration may extend a base declaration, inheriting its attributes, relationships, invariants and derived attributes, and adding its own. A base may be abstract (no objects of it exist) or concrete.
 2. **State machines are named declarations.** A type binds exactly one, whole. Machines are not inherited or partially overridden; two types that need the same lifecycle bind the same named machine. ADR-0003 stands.
 3. **Type family.** The read surface accepts a base declaration as a query target and returns objects of every type extending it, each carrying its concrete type.
-4. **State category.** Every state in a machine declares a category from a small set the consumer defines (for example `open`, `in_progress`, `done`), in addition to being terminal or not. Guards, invariants and queries that span a family use categories, so they need not know each machine's state names: `none(b in blocked_by where b.state.category != done)`.
+4. **State category.** Every state in a machine declares a category from a small set the consumer defines (for example `open`, `in_progress`, `done`), in addition to being terminal or not. *(Refined by ADR-0096 §6: every vocabulary also has `closed`, whether or not a module declares it. Work is open until it enters a `closed` or a terminal state and completes when it first does, which is what the standard metrics read; `DESIGN.md` §5.12.)* Guards, invariants and queries that span a family use categories, so they need not know each machine's state names: `none(b in blocked_by where b.state.category != done)`.
 
 ## Alternatives rejected
 
@@ -33,4 +34,4 @@ Rejected: a guard or outcome in a base machine references states; an override th
 
 - "Bug in project A" and "Bug in project B" are two types extending `Bug`; a board over all bugs queries the family by category.
 - Declarations become a small module system; the printable rule set for a type resolves `extends` and shows the whole.
-- A category set is part of the consumer's declaration, not a fixed vocabulary.
+- A category set is part of the consumer's declaration, not a fixed vocabulary. *(Refined by ADR-0096 §6: the set stays the consumer's, with one member built into every vocabulary, `closed`, which carries a meaning of its own.)*

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 5 (2026-09-08); pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0044 — execution under the current declaration and invalidation; ADR-0079 — attenuation is a capability or an object, never a descriptor attribute.
+- **Refined by:** ADR-0044 — execution under the current declaration and invalidation; ADR-0079 — attenuation is a capability or an object, never a descriptor attribute. ADR-0097 — a proposal's execution re-evaluates every guard, actor guards included.
 
 ## Context
 
@@ -14,7 +14,7 @@ TODO.md asked whether a denied transition should produce a pending proposal rath
 
 1. `Proposal` is a **built-in object type**: target object, transition, inputs, proposer, and a lifecycle `pending → executed | rejected | withdrawn | expired | invalidated` (ADR-0044 added the last, and made `expired` derived rather than driven).
 2. A transition **opts in** with `proposable`. A `delegable` verdict on a proposable transition says the request may be proposed; on any other transition it does not.
-3. An authorised actor's `approve` on a proposal **executes the recorded request as that actor**, with the approval event as cause (ADR-0019 lineage). Every non-actor guard is re-evaluated at execution; if one fails, the proposal stays `pending` and carries the verdict. The proposer is recorded on the proposal, not as the execution's principal: the approver authorises, they do not act on the proposer's behalf.
+3. An authorised actor's `approve` on a proposal **executes the recorded request as that actor**, with the approval event as cause (ADR-0019 lineage). Every non-actor guard is re-evaluated at execution; if one fails, the proposal stays `pending` and carries the verdict. *(Corrected by ADR-0097 §7: every guard is re-evaluated, actor guards included, as `DESIGN.md` §9 has said since 2026-09-08; an approver without the transition's authority cannot execute it.)* The proposer is recorded on the proposal, not as the execution's principal: the approver authorises, they do not act on the proposer's behalf.
 4. ~~`expired` is time-driven through the availability query (ADR-0022).~~ **Superseded by ADR-0044 rule 5:** `expired` is *derived*, reported by the read surface, so nothing has to move a proposal into it.
 
 **Delegation.**

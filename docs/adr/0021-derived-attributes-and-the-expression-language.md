@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0061 — ten decisions from the payments-ledger review.
+- **Refined by:** ADR-0061 — ten decisions from the payments-ledger review. ADR-0032 — version 2 adds arithmetic, durations and `sum`/`min`/`max`. ADR-0047 — expression semantics: three-valued logic, explicit binding, aggregates over types, acyclic derivation. ADR-0053 — `is null` and `is not null` are definite predicates. ADR-0081 — any declared formula over the store's own data is in scope. ADR-0084 — a declared metric is a second call a guard may make.
 
 ## Context
 
@@ -22,10 +22,10 @@ The first consumer computes slot state (`UNFILLED` / `FILLED` / `FULFILLED`) fro
 | `count`, `all`, `any`, `none` over a relationship, with a predicate | `none(s in slots where s.role in (PRIMARY, INCLUDED) and s.unit is null)` |
 | the same over a type, with a predicate (a type scan) | `none(s in Service where s.unit == this and s.state != CANCELLED)` |
 | `now`, `actor.*`, `inputs.*`, `this` | `actor.has(DELIVERY_COMPLETE)` |
-| conditional expression | `if unit is null then UNFILLED else …` *(written `? :` here; ADR-0056 §8 made it `if … then … else`, and ADR-0072 later allowed it in an outcome value)* |
+| conditional expression | `if unit is null then UNFILLED else …` *(written `? :` here; ADR-0056 §8 made it `if … then … else`, and ADR-0061 §6 later allowed it in an outcome value)* *(corrected 2026-09-23: this note cited ADR-0072, which decides nothing about the conditional)* |
 | a named external evaluator (ADR-0008) | `xero.invoice_valid(order_id)` |
 
-**Not in version 1:** arithmetic, string operations, user-defined functions, and any call other than a declared external evaluator. Every guard observed in the first consumer fits without them. The language grows only by an ADR that names the use case that forced it. *Version 2 (ADR-0032, iteration 4) added arithmetic, durations and `sum`/`min`/`max` after three case studies asked for them; the rest of the exclusions stand.*
+**Not in version 1:** arithmetic, string operations, user-defined functions, and any call other than a declared external evaluator. Every guard observed in the first consumer fits without them. The language grows only by an ADR that names the use case that forced it. *Version 2 (ADR-0032, iteration 4) added arithmetic, durations and `sum`/`min`/`max` after three case studies asked for them; the rest of the exclusions stand.* *(ADR-0084 §6 later admitted a second call, a declared metric, in a guard only; `DESIGN.md` §5.7.)*
 
 ## Alternatives rejected
 
@@ -46,7 +46,7 @@ Rejected by ADR-0007's own reasoning: a language that can express tax calculatio
 - ADR-0004 is refined in wording only.
 - The read surface returns derived attributes alongside stored ones; the readable rule set prints them as definitions.
 - A type-scan predicate in a guard or invariant is a global query and needs an index; this is the "global queries versus maintained projections" question in TODO.md, now with concrete instances.
-- Available-to-promise, sums and totals remain consumer computations supplied as inputs where a guard must check them.
+- Available-to-promise, sums and totals remain consumer computations supplied as inputs where a guard must check them. *(No longer: ADR-0032 added arithmetic and `sum`, so an available quantity and an order total are declared expressions the store evaluates, and ADR-0081 §2 put any declared formula over the store's own data in scope, metrics (ADR-0084) and scores built from them included; `DESIGN.md` §5.7.)*
 - TODO.md challenge 3 is closed.
 
 ## Amendment (design iteration 2, 2026-09-07; pending author review)

@@ -3,7 +3,7 @@
 - **Status:** Accepted — repair of D63–D96, 2026-09-08; pending author review
 - **Refines:** ADR-0045, ADR-0047, ADR-0051, ADR-0052, ADR-0053, ADR-0055, ADR-0056, ADR-0058, ADR-0059
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0061 — ten decisions from the payments-ledger review; ADR-0062 — a normative statement must cite the check that enforces it; ADR-0064 — a binder's own creations replace the machine's.
+- **Refined by:** ADR-0061 — ten decisions from the payments-ledger review; ADR-0062 — a normative statement must cite the check that enforces it; ADR-0064 — a binder's own creations replace the machine's. ADR-0072 — §5 reverses decision 8's non-negative counter: non-negativity is an invariant the type declares.
 
 ## Context
 

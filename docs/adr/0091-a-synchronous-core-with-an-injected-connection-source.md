@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` N4, N2 and UC-19; repairs D209 and settles `library-api.md`'s open async question
 - **Date:** 2026-09-23
+- **Refined by:** ADR-0100 — an evaluator source is a fourth injected dependency.
 - **Refines:** ADR-0077
 
 ## Context

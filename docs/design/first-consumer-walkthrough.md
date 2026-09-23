@@ -2,7 +2,7 @@
 
 Status: **worked example**, written 2026-09-07 as a draft and adopted in design iteration 1. It works the first consumer's real lifecycles through the model as it stood, finds where that model could not express them, and proposes the additions that became ADR-0019 to ADR-0025. It is kept as the rationale behind those ADRs; the current model is [`DESIGN.md`](../DESIGN.md).
 
-> **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
+> **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current with the grammar; the surrounding prose records how the study reached them. *(A review on 2026-09-23 found three places where they differ from the production system's behaviour — `complete_sale` gates on the checklist and inspections where production does not, a unit's `CANCELLED` is terminal where production has transitions out of it, and `reserve` binds a unit only to a delivery where production also reserves for a service. They are listed in `TODO.md` for the table-to-type mapping, which re-derives the declarations from production and is what the harness fixture will be built from.)*
 Source material: `wr:app/core/state_registry.py`, `wr:docs/proposals/operations-system-design.md` §4–§5, `wr:docs/adr/0002-unit-engagement-and-leasing-model.md`, `wr:docs/adr/0003-xero-as-source-of-truth-for-customer-identity.md`. The `wr:` prefix is defined in [`TODO.md`](../../TODO.md).
 
 ## 1. Method
