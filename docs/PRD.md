@@ -1,6 +1,6 @@
 # ObjectKeeper — Product requirements
 
-**Status: draft, 2026-09-23, awaiting the author's review.** Written from the author's statements of 2026-09-23 and the standing objective of [`DESIGN.md`](DESIGN.md) §1. It states what the product must do. It does not choose designs: [`design/data-driven-engine.md`](design/data-driven-engine.md) evaluates them against the use cases in §7, and the choices are ADR-0081 to ADR-0085, proposed and pending review.
+**Status: draft, 2026-09-23, awaiting the author's review.** Written from the author's statements of 2026-09-23 and the standing objective of [`DESIGN.md`](DESIGN.md) §1. It states what the product must do. It does not choose designs: [`design/data-driven-engine.md`](design/data-driven-engine.md) evaluates them against the use cases in §7, and the choices are ADR-0081 to ADR-0086, proposed and pending review.
 
 **How to review it.** Every requirement in §6 names its source: **Said** is the author's own statement of 2026-09-23, **Carried** is a standing requirement of the existing record, and **Inferred** is this document's reading of what the other two imply. Inferred rows are where it is most likely to be wrong. §9 lists what the current design will have to change, and §10 has the only two questions this document asks the author.
 
@@ -73,6 +73,7 @@ The engine treats human, agent and service alike except where a rule says otherw
 | **Recorded datapoint** | Recorded by a user about an object: an inspection result, a measurement, an observation, a label |
 | **Derived datapoint** | Computed by a user-defined formula from other data |
 | **Metric** | A derived value aggregated over many objects or over time, such as a median, a rate or a count per month |
+| **Assignee** | Whoever is responsible for an object at a given time — a service job's engineer-of-record, for instance — as distinct from whoever happens to act on it |
 | **Convergence** | Improving a flow over time from the evidence its own data provides, without losing history |
 
 ## 6. Requirements
@@ -103,6 +104,8 @@ Priorities: **Must** is required for the product to meet its purpose; **Should**
 | D7 | Operators maintain catalogues of what to record — an inspection checklist per product configuration, say — as data, without a developer publishing a new declaration | Should | Inferred from the first consumer's inspection design |
 | D8 | Personal data inside datapoints is erasable, like personal data anywhere else in the store | Must | Carried |
 | D9 | Recorded datapoints cannot change governed state by being recorded; they influence a flow only through a rule that reads them (§6.5) | Must | Inferred from F2 and G7 |
+| D10 | Every change of assignee is captured from the start — at creation and at every reassignment — with who was assigned, who made the change, which kind of actor that was, and when; and ported history keeps the legacy system's reassignments where its audit trail recorded them | Must | Said, 2026-09-23: "assignee change is also important and I'd like to keep track of this kind of data from the beginning" |
+| D11 | The same holds for the other data of that kind — who, where and which bucket an object is in over time: its references to people, places and other objects, and its choices from a list — without the author having to anticipate which ones will matter | Should | Inferred from "this kind of data" |
 
 ### 6.3 Formulas and derived data
 
@@ -123,6 +126,7 @@ Priorities: **Must** is required for the product to meet its purpose; **Should**
 | M3 | Any metric can be compared across versions of a flow, so the effect of a change can be measured | Should | Inferred |
 | M4 | Any metric can be split by the kind of actor, so a flow run by agents can be compared with the same flow run by people | Should | Inferred |
 | M5 | The engine exports its data in a shape suited to exploratory analysis elsewhere, and does not attempt the exploration itself | Could | Inferred from "potentially dig insights" |
+| M6 | Every type with an assignee has assignment metrics without declaring any: open work per assignee, time unassigned, time to first assignment, time with each assignee, handoffs per object and reassignment back to an earlier assignee, and how often someone other than the assignee acts | Must | Inferred from D10 |
 
 ### 6.5 Data-driven logic
 
@@ -207,6 +211,10 @@ Each use case is drawn from the first consumer where it can be, and each is a te
 
 **UC-16. People and agents on the same flow.** The lead compares cycle time, refusal rate and rework for deliveries driven by agents with those driven by people. *Acceptance:* every metric can be split by the kind of actor. *Exercises* M4.
 
+### Assignment
+
+**UC-18. Who has what, and where do handoffs hurt?** Service jobs have an engineer-of-record, which an agent may not be (`wr:docs/agent-operations.md` §3), and a user with active services must have them reassigned before being removed (`wr:app/models/users.py:34`). A service lead asks how much open work each engineer holds, how long jobs wait before anyone is assigned, which jobs changed hands more than once or went back to an earlier engineer, whether cycle time differs by engineer, and how often a job is completed by someone other than its assignee. An agent balancing the workload reads the same numbers before proposing a reassignment, and a person makes it. *Acceptance:* every assignment from the first day the flow runs, including the one made at creation, is recorded with who made it; every question above is a standard metric for any type that declares an assignee; the legacy system's reassignments arrive with the port where its audit trail recorded them; choosing the engineer stays with the person or agent. *Exercises* D10, D11, M6, L3.
+
 ### Governance
 
 **UC-17. Erase a customer.** A customer asks to be erased. *Acceptance:* their personal values are removed from objects, history and datapoints; metrics built from those datapoints keep their counts and expose no personal value. *Exercises* D8, T5.
@@ -216,10 +224,10 @@ Each use case is drawn from the first consumer where it can be, and each is a te
 | Requirement group | Use cases |
 |---|---|
 | Flows, F | UC-10, UC-15 |
-| Capture, D | UC-1 to UC-7, UC-13, UC-17 |
+| Capture, D | UC-1 to UC-7, UC-13, UC-17, UC-18 |
 | Formulas, C | UC-5, UC-8, UC-9, UC-12 |
-| Metrics, M | UC-1, UC-2, UC-8, UC-11, UC-13, UC-14, UC-16 |
-| Logic, L | UC-4, UC-10, UC-11, UC-12 |
+| Metrics, M | UC-1, UC-2, UC-8, UC-11, UC-13, UC-14, UC-16, UC-18 |
+| Logic, L | UC-4, UC-10, UC-11, UC-12, UC-18 |
 | Convergence, V | UC-3, UC-13, UC-14, UC-15 |
 | Trust, T | UC-3, UC-15, UC-17 |
 
@@ -258,4 +266,4 @@ Two findings of the design review of 2026-09-23 become prerequisites rather than
 The author asked for the details to be settled by evaluating designs against the use cases, not by asking. These two are about the product rather than the design, and each has a default this document already assumes.
 
 1. **Machine telemetry.** Assumed out of scope, with summaries recordable as datapoints (UC-7). If robots or other machines are to record directly at seconds rate, the storage design changes more than anything else in this document.
-2. **Release order.** Assumed: the first release is the first consumer's port with F, D1 to D3, M1 and T in full; formulas, user-defined metrics and data-driven rules (C, M2 to M4, L) follow; convergence tooling and agent authorship (V, F6) come third. Each later phase depends on the data the earlier one records, which is why the flow-generated data comes first.
+2. **Release order.** Assumed: the first release is the first consumer's port with F, D1 to D3, D10, M1, M6 and T in full — assignment in the first release because the author asked for it from the beginning, and because history can only start from the day it is written through the store; formulas, user-defined metrics and data-driven rules (C, M2 to M4, L) follow; convergence tooling and agent authorship (V, F6) come third. Each later phase depends on the data the earlier one records, which is why the flow-generated data comes first.

@@ -87,3 +87,4 @@
 | [0083](0083-the-engine-keeps-its-own-flow-data.md) | The engine keeps its own flow data — attempts, intervals and occurred time — and keeps imported state apart from overrides | **Proposed** (evaluated at the author's direction, review pending) |
 | [0084](0084-metrics-are-declared-and-computed-on-read.md) | Metrics are declared and computed on read; a guard may read one as of the start of its request | **Proposed** (evaluated at the author's direction, review pending) |
 | [0085](0085-flows-converge-through-evidence-trial-and-governed-change.md) | Flows converge through evidence, trial and governed change, and the publish checks stay | **Proposed** (evaluated at the author's direction, review pending) |
+| [0086](0086-assignment-is-a-declared-role-kept-from-the-first-write.md) | Assignment is a declared role on a reference, kept from its first write, with its metrics generated | **Proposed** (evaluated at the author's direction, review pending) |

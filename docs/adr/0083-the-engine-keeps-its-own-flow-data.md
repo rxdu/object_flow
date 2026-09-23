@@ -2,6 +2,7 @@
 
 - **Status:** Proposed — evaluated 2026-09-23 at the author's direction, against `docs/PRD.md`; pending author review
 - **Date:** 2026-09-23
+- **Refined by:** ADR-0086 (proposed) — assignment is a declared role on a tracked reference, with its metrics generated.
 - **Refines:** ADR-0033, ADR-0077
 
 ## Context
@@ -27,9 +28,9 @@ It gets one row per request whose verdict was anything but *satisfied*, and one 
 
 **Inputs are never recorded**, so the log holds no personal value and erasure has nothing to do there. It is written in its own short transaction after the request's rolls back, making it the second thing written outside the request's transaction, after the sequence mint. It is not history: `history` does not return it, subscriptions do not deliver it, and a deployment prunes it on a retention period while keeping monthly rollups. Observing guards record their would-be refusals here as well (ADR-0085), marked not enforced and linked to the event that applied.
 
-### 2. Intervals record time in state, as an index the log rebuilds
+### 2. Intervals record time in each state and in each value of a tracked attribute, as an index the log rebuilds
 
-An interval table is maintained in the transition's transaction. Each row holds the object, the state, entry and exit (as position and occurred time), the entering transition, its actor's kind, and the declaration version. The log can rebuild it, so it is an index in the sense of ADR-0048 and ADR-0057, not a second source of truth. `DESIGN.md` §10's "no projection" becomes "no projection the log cannot rebuild". The harness checks intervals against the log as it checks rows. An import may supply each object's current-state entry time, and earlier intervals from legacy history, marked as legacy.
+An interval table is maintained in the transition's transaction. It covers the state, every enum attribute and every singular stored reference: who, where, and which bucket an object is in over time. Each row holds the object, the dimension, the value (absence being one), entry and exit (as position and occurred time), the transition that set it, that transition's actor's kind, and the declaration version. Numbers and free text are not tracked; their changes remain in the events. The log can rebuild it, so it is an index in the sense of ADR-0048 and ADR-0057, not a second source of truth — and a marking added in a later version, such as `assignee` (ADR-0086), reads intervals back to the reference's first write. `DESIGN.md` §10's "no projection" becomes "no projection the log cannot rebuild". The harness checks intervals against the log as it checks rows. An import may supply each object's current-state entry time, and earlier intervals from legacy history, marked as legacy.
 
 ### 3. A transition may be backdated within a declared bound
 
@@ -48,7 +49,8 @@ So the contention D203 measured is visible in production, per transition.
 - **Refusals as events in the permanent log.** A refusal has nothing for a fold to reproduce (ADR-0033). A refused creation has no object for the event to belong to. And a guessing agent's mistakes would become permanent history.
 - **Refusal counters only.** They cannot show one actor repeating the same refused request, which is UC-2.
 - **Record refusals with their inputs.** It would enable replaying requests against a candidate declaration, but it puts personal data in a table built to have none (`design/data-driven-engine.md` §3.6).
-- **Compute time in state from events on read.** Correct, but it makes current age and work in progress a window function over every event of a type. The index costs one update and one insert per state change.
+- **Compute time in state from events on read.** Correct, but it makes current age and work in progress a window function over every event of a type. The index costs one update and one insert per change of a tracked value.
+- **Intervals for state only.** Time with each assignee, time in each location and time at each priority are then per-type folds of event payloads, and the assignment metrics of ADR-0086 cannot be generated.
 - **Recorded time only.** Time in a state then includes however long someone took to type it in (UC-6).
 - **Identify imported objects with a query rather than a column.** The imported object and the repaired one both hold `asserted`, and the difference exists only at the moment of writing.
 

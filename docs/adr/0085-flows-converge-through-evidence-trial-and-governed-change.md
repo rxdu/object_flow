@@ -21,7 +21,8 @@ It is built on the standard metrics (ADR-0084) and reports a fixed, deterministi
 - states entered mostly by override;
 - labels by frequency and by the state they were applied in;
 - the longest waits;
-- rework loops;
+- rework loops, and reassignment back to an earlier assignee;
+- work done by someone other than the assignee;
 - backdating rates;
 - each observing guard's would-be refusals.
 

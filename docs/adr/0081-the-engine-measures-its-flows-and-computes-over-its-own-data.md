@@ -6,7 +6,7 @@
 
 ## Context
 
-On 2026-09-23 the author stated an objective the record had not captured: the engine is the foundation on which people and AI agents define flows and **collect data** — data the flow generates, data users record, and compound data from formulas users define — so that business logic can be data-driven, and so that a flow can start imperfect and converge. `docs/PRD.md` states it as requirements and seventeen use cases, and `docs/design/data-driven-engine.md` evaluates the designs against them.
+On 2026-09-23 the author stated an objective the record had not captured: the engine is the foundation on which people and AI agents define flows and **collect data** — data the flow generates, data users record, and compound data from formulas users define — so that business logic can be data-driven, and so that a flow can start imperfect and converge. `docs/PRD.md` states it as requirements and eighteen use cases, and `docs/design/data-driven-engine.md` evaluates the designs against them.
 
 Two positions of the record stand in the way. ADR-0007 keeps computation out of the store: "It does not calculate values", refined since to allow declared arithmetic over the store's own data while excluding domain formulas. And `design/edge-cases.md` puts analytics over the log out of scope, in "a warehouse fed from the log by a subscriber".
 
@@ -34,4 +34,4 @@ Two positions of the record stand in the way. ADR-0007 keeps computation out of 
 
 - On acceptance, `DESIGN.md` §1, §3, §12 and §13 state the objective, the fourth property and the boundary; `design/edge-cases.md`'s analytics entry becomes "exploration is exported; declared metrics are in scope".
 - ADR-0007 carries the back-link.
-- The decisions that implement this are ADR-0082 to ADR-0085.
+- The decisions that implement this are ADR-0082 to ADR-0086.

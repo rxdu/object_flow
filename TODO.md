@@ -6,7 +6,7 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 
 | | |
 |---|---|
-| ADRs | 85: ADR-0081 to ADR-0085 **Proposed**, the data-driven engine's design, pending review |
+| ADRs | 86: ADR-0081 to ADR-0086 **Proposed**, the data-driven engine's design, pending review |
 | Defect register | 215 entries and five cosmetics; 201 closed, seven of them carried to open questions the author has since ruled on; **14 open**, D202 to D214 from the design review of 2026-09-23 and D215 from the design evaluation; ADR-0082, ADR-0083 and ADR-0085 propose resolutions for D202, D205 and D212 ([`docs/design/defects.md`](docs/design/defects.md)) |
 | Declaration syntax | **iteration 18, ready for author review**; checker clean, 26 of 53 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
 | Open questions | none. All thirteen answered by the author 2026-09-08, ADR-0065 to ADR-0072 ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
@@ -26,11 +26,11 @@ Five changed the language: a machine's creation guards bind any creation that re
 
 ## The data-driven engine
 
-The author's statements of 2026-09-23 extend the objective: the engine is the foundation on which people and agents define flows and collect data — flow-generated, user-recorded and derived by user formulas — so that business logic can be data-driven and flows converge over time. [`docs/PRD.md`](docs/PRD.md) states it as requirements and seventeen use cases.
+The author's statements of 2026-09-23 extend the objective: the engine is the foundation on which people and agents define flows and collect data — flow-generated, user-recorded and derived by user formulas — so that business logic can be data-driven and flows converge over time. [`docs/PRD.md`](docs/PRD.md) states it as requirements and eighteen use cases.
 
 - [ ] **Author reviews the PRD**, especially the rows marked Inferred and the two questions of its §10.
-- [x] **Evaluate designs against the PRD's use cases** — [`docs/design/data-driven-engine.md`](docs/design/data-driven-engine.md), 2026-09-23. Eight questions, every option walked through the use cases it touches; the choices are ADR-0081 to ADR-0085, all **Proposed**. Every one of the seventeen use cases passes under the chosen design, one of them (UC-7) by drawing the telemetry boundary. Nothing added writes governed state by a second path: a user datapoint is a creation, not a new operation.
-- [ ] **Author reviews ADR-0081 to ADR-0085** against the evaluation. ADR-0082 and ADR-0084 carry the most weight: observations as born-final parts, and metrics computed on read with a guard reading one before its transaction.
+- [x] **Evaluate designs against the PRD's use cases** — [`docs/design/data-driven-engine.md`](docs/design/data-driven-engine.md), 2026-09-23. Eight questions, every option walked through the use cases it touches; the choices are ADR-0081 to ADR-0086, all **Proposed**. Every one of the eighteen use cases passes under the chosen design, one of them (UC-7) by drawing the telemetry boundary. Nothing added writes governed state by a second path: a user datapoint is a creation, not a new operation. Assignment was added the same day as UC-18 and ADR-0086: every change of assignee is kept from its first write, with its metrics generated, in the first release.
+- [ ] **Author reviews ADR-0081 to ADR-0086** against the evaluation. ADR-0082 and ADR-0084 carry the most weight: observations as born-final parts, and metrics computed on read with a guard reading one before its transaction.
 - [ ] **On acceptance, amend the record** as the evaluation's §8 lists: `DESIGN.md` (ten sections, and a fourth property), the storage schema, the library API, the renderers, the syntax document with six constructs and their checker fixtures, and the harness.
 - [ ] **Probe what the evaluation could not**: metric latency at the first consumer's scale on both backends, percentile kept in a checker, attempt-log volume under the harness's guessing actor.
 

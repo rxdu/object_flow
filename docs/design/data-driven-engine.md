@@ -1,8 +1,8 @@
 # The data-driven engine: design evaluation
 
-Draft, 2026-09-23, written at the author's direction. The requirements and the seventeen use cases are [`../PRD.md`](../PRD.md)'s. This document owns the **evaluation**: for each design question, the options considered, how each fared against the use cases, and why the chosen one was chosen. The **decisions** are ADR-0081 to ADR-0085, which own them; where this document and an ADR disagree, the ADR wins.
+Draft, 2026-09-23, written at the author's direction. The requirements and the eighteen use cases are [`../PRD.md`](../PRD.md)'s. This document owns the **evaluation**: for each design question, the options considered, how each fared against the use cases, and why the chosen one was chosen. The **decisions** are ADR-0081 to ADR-0086, which own them; where this document and an ADR disagree, the ADR wins.
 
-**All five ADRs are Proposed, not accepted.** Accepting them rewrites about ten sections of [`../DESIGN.md`](../DESIGN.md) and four implementation documents (§8), and those edits should follow the author's reading of the direction rather than precede it. The two defaults of PRD §10 are taken as given: machine telemetry is out of scope, and the release order is the one the PRD proposes.
+**All six ADRs are Proposed, not accepted.** Accepting them rewrites about ten sections of [`../DESIGN.md`](../DESIGN.md) and four implementation documents (§8), and those edits should follow the author's reading of the direction rather than precede it. The two defaults of PRD §10 are taken as given: machine telemetry is out of scope, and the release order is the one the PRD proposes.
 
 ## 1. The shape
 
@@ -19,8 +19,9 @@ Draft, 2026-09-23, written at the author's direction. The requirements and the s
 ├────────────────────────────────┬─────────────────────────────────┤
 │ governed state                 │ flow data the engine keeps       │
 │  objects and attributes,       │  events: history, permanent      │
-│  parts, including recorded     │  intervals: time in state,       │
-│  observations and labels       │    an index the log rebuilds     │
+│  parts, including recorded     │  intervals: time in each state,  │
+│  observations and labels       │    assignee and other value;     │
+│                                │    an index the log rebuilds     │
 │                                │  attempts: refusals and          │
 │                                │    would-be refusals, prunable   │
 ├────────────────────────────────┴─────────────────────────────────┤
@@ -30,13 +31,13 @@ Draft, 2026-09-23, written at the author's direction. The requirements and the s
                    PostgreSQL / SQLite, one store
 ```
 
-Three things are new. The engine **keeps data about its own flows** — time in each state, and the requests it refused. User datapoints are **observations**, recorded as born-final parts of the object they describe. **Metrics** are a declared construct computed on read. One thing moves: a guard may read a metric, consulted before the transaction as an external evaluator is. Two things support convergence: a guard that **observes before it enforces**, and a flow change that is **drafted, approved and published through the store's own machinery**.
+Three things are new. The engine **keeps data about its own flows** — time in each state and in each assignee's hands, and the requests it refused. User datapoints are **observations**, recorded as born-final parts of the object they describe. **Metrics** are a declared construct computed on read. One thing moves: a guard may read a metric, consulted before the transaction as an external evaluator is. Two things support convergence: a guard that **observes before it enforces**, and a flow change that is **drafted, approved and published through the store's own machinery**.
 
 Nothing added writes governed state by a second path. That was the hardest constraint and the one that decided the most (§3.1).
 
 ## 2. Method
 
-Eight questions. For each, the options are the obvious designs plus any the existing record already rejected for a reason that still applies. Each option is walked through the use cases the question touches, and it **fails** a use case when that use case's acceptance line in PRD §7 cannot be met. Ties are broken in this order: T1, the trust guarantee; then fewer new mechanisms, since the newest mechanism is the least-checked thing in a document (`LESSONS.md`); then fit with decisions already taken.
+Nine questions. For each, the options are the obvious designs plus any the existing record already rejected for a reason that still applies. Each option is walked through the use cases the question touches, and it **fails** a use case when that use case's acceptance line in PRD §7 cannot be met. Ties are broken in this order: T1, the trust guarantee; then fewer new mechanisms, since the newest mechanism is the least-checked thing in a document (`LESSONS.md`); then fit with decisions already taken.
 
 Two claims below were probed rather than reasoned, in keeping with the lesson about unprobed database claims: the size of the smallest flow the checker accepts (§3.6), and a percentile computed without a percentile function on SQLite 3.37.2 (§3.4).
 
@@ -115,9 +116,9 @@ Touches D1, D2, D5, M1 and T4; UC-1, UC-2, UC-3, UC-6, UC-14, UC-16.
 
 A fails because a fold of the log must reproduce the row (ADR-0033) and a refusal has nothing to fold; because `ok_event.object_id` has no object for a refused creation; and because a guessing agent's mistakes would become permanent history. C cannot show UC-2's pattern of one agent repeating the same refused request.
 
-**Decided: B** (ADR-0083). One row per request that returned anything but *satisfied*, written in its own short transaction after the request's rolls back. It holds the time, the actor's id, kind and principal, the context, the type, the object if there is one, the transition, the verdict kind, the failing clause, its remedy class, whether it was unknown, and the declaration version. The two faults a caller causes, `UnknownTransition` and `KeyReused`, are recorded too. **Inputs are never recorded**, so the attempt log holds no personal value and erasure has nothing to do there. It is not history: `history` does not return it and subscriptions do not deliver it, and a deployment prunes it on a retention period, keeping monthly rollups. It is the second thing written outside the request's transaction, after the sequence mint (`storage-schema.md` §6). A crash between the rollback and the write loses one row of evidence and no history.
+**Decided: B** (ADR-0083). One row per request that returned anything but *satisfied*, written in its own short transaction after the request's rolls back. It holds the time, the actor's id, kind and principal, the context, the type, the object if there is one, the transition, the verdict kind, the failing clause, its remedy class, whether it was unknown, and the declaration version. The two faults a caller causes, `UnknownTransition` and `KeyReused`, are recorded too. **Inputs are never recorded**, so the attempt log holds no personal value and erasure has nothing to do there. It is not history: `history` does not return it and subscriptions do not deliver it, and a deployment prunes it on a retention period, keeping monthly rollups. It is the second thing written outside the request's transaction, after the sequence mint (`storage-schema.md` §6). A crash between the rollback and the write loses one row of evidence and no history. The first consumer arrived at the same shape on its own: its audit writer uses a separate short session so that a failed operation still leaves a row (`wr:app/core/unified_audit.py:80-110`).
 
-**Time in state.** Computing it on read from state-changing events passes UC-1, but makes current age and work in progress a window function over every event of a type. **Decided:** an **interval** table maintained in the transition's transaction — object, state, entered and left (position and occurred time), the entering transition, its actor's kind, and the declaration version (ADR-0083). It is an index over the log in the sense of ADR-0048 and ADR-0057: the log can rebuild it, so it is not a second source of truth, and the harness can check it the way it checks a row. `DESIGN.md` §10's "the store maintains no projection" becomes "no projection the log cannot rebuild". An import may supply each object's current-state entry time, and may supply earlier intervals from legacy history marked as legacy, which is UC-1's "as far back as ported history allows".
+**Time in state.** Computing it on read from state-changing events passes UC-1, but makes current age and work in progress a window function over every event of a type. **Decided:** an **interval** table maintained in the transition's transaction — object, state, entered and left (position and occurred time), the entering transition, its actor's kind, and the declaration version (ADR-0083). It is an index over the log in the sense of ADR-0048 and ADR-0057: the log can rebuild it, so it is not a second source of truth, and the harness can check it the way it checks a row. `DESIGN.md` §10's "the store maintains no projection" becomes "no projection the log cannot rebuild". An import may supply each object's current-state entry time, and may supply earlier intervals from legacy history marked as legacy, which is UC-1's "as far back as ported history allows". §3.9 widens the same index from state to every enum attribute and singular reference, which is what makes time with each assignee a standard metric.
 
 **When it happened.** With recorded time only, UC-6 fails. **Decided:** a transition may be marked `backdatable within <duration>`, and then accepts an occurred time inside that bound. The event keeps both times. An occurred time may not precede the object's previous state change, so no interval is negative. Guards still read `now` as the clock. Diagnostics report how often each transition is backdated, which is the check on the mistake it invites. Observations do the same with `occurred within`.
 
@@ -240,6 +241,45 @@ Touches M2, L3 and F3; UC-11.
 
 **Through the one interface.** `metric(actor, name, filter?)` and `diagnostics(actor, type)` join the read surface, and recording is a creation request (ADR-0084, ADR-0085). The renderers give each observation kind a tool, and give metrics one tool that names them. Their governing rule extends unchanged: a tool description never restates a metric's definition. It names the metric and points at `metric()`, for the reason it never restates a guard (`renderers.md` §1).
 
+### 3.9 How is assignment kept from the beginning?
+
+Touches D10, D11, M6 and L3; UC-18. Added the same day, when the author named assignee changes as data to keep from the beginning.
+
+**The evidence.** A first-consumer service job has a required engineer-of-record, `engineer_id` (`wr:app/models/service.py:44`). A reassignment is validated like a creation and recorded in the audit log with before-and-after snapshots (`wr:app/services/service_service.py:357-372`). An agent may not be engineer-of-record (`wr:docs/agent-operations.md` §3). A user with active services must have them reassigned before being removed (`wr:app/models/users.py:34`).
+
+**What "from the beginning" depends on.** Every singular reference has intervals from its first write, and the log can rebuild them (§3.3), so it does **not** depend on a marking being present from the start: an `assignee` marking added in a later version has metrics back to the first version's events. It depends on the assignee being **written through the store** from the start — a reference that transitions change — rather than living in Jira, in free text, or in someone's head. So the question is how to make assignment the obvious thing to model on the first day, and how to make its metrics exist without anyone declaring them.
+
+| Option | UC-18 recorded from the first day | M6 metrics without declaring any | D11 other data of the kind | Fits ADR-0042, one role or several |
+|---|---|---|---|---|
+| **A.** An ordinary reference changed by actions, as today; metrics written per type by hand | passes | **fails** | fails | passes |
+| **B.** A built-in assignee on every object, with a built-in `assign` operation | passes | passes | fails | **fails** |
+| **C.** Intervals kept for every enum attribute and singular stored reference, not only state; and an `assignee` marking on a reference, naming it as a responsibility so assignment metrics are generated | passes | passes | passes | passes |
+
+**A fails M6.** Every type names its assignee differently — `engineer`, `owner`, `handler` — so no metric or diagnostic can be written once for all of them, and the numbers exist only for the types someone thought to instrument.
+
+**B fails on fit.**
+- Not every type has an assignee: a warranty contract has none.
+- Some have two, such as an engineer-of-record and a reviewer.
+- The first consumer's is required at creation, not assigned later.
+- A built-in `assign` operation writes a reference the type's author never declared a transition for, which is the second write path ADR-0042 refuses.
+
+**Decided: C** (ADR-0086, with ADR-0083's intervals widened).
+
+- **Value intervals.** The interval index covers state, every enum attribute and every singular stored reference: who, where, and which bucket. Absence is a value, so time unassigned is an interval like any other. Numbers and free text are not tracked. Their changes are in the events, but time-in-value over a price is not a question anyone asks, and a text field changes too freely to have meaningful intervals. Set-valued references, such as a team, are left open (§10).
+- **The `assignee` marking.** `ref engineer : User assignee` goes on a singular reference to a type that marks one `identity` attribute as the actor's id, for example `attr login : identity actor`. A type may mark more than one reference, and each is its own dimension, named by the reference. The marking adds no write path. Assignment is whatever transitions write the reference — a creation that `accepts engineer`, a `reassign` action — each with its own guards on who may assign and who may be assigned. The first consumer's rule that an agent may not be engineer-of-record is one such guard.
+- **Generated metrics (M6).** For each assignee dimension:
+  - open work per assignee;
+  - time unassigned;
+  - time to first assignment;
+  - time with each assignee;
+  - handoffs per object, and reassignment back to an earlier assignee;
+  - how often a transition is requested by someone other than the assignee — which the `actor` identity marking is what makes computable.
+
+  Every one can be split by the kind of actor who made the assignment, so an agent balancing workload can be compared with a person doing it.
+- **Choosing stays outside** (ADR-0007, ADR-0081). The engine guards and records the choice and supplies the workload data. Which engineer is chosen is a person's or an agent's decision (UC-18's agent proposes, a person reassigns).
+- **Legacy reassignments are ported as intervals.** The first consumer's service updates record `engineer_id` in before-and-after snapshots, so the import mapping can rebuild past reassignments as legacy intervals. How far back that audit trail reaches is a sample to take against production, not a claim made here.
+- **It is in the first release** (§9), because history can only start from the day it is written through the store.
+
 ## 4. The use cases, through the chosen design
 
 | Use case | Met by | Result |
@@ -261,6 +301,7 @@ Touches M2, L3 and F3; UC-11.
 | UC-15 an agent proposes a change | `DeclarationChange` (§3.6) | passes |
 | UC-16 people and agents compared | the actor-kind dimension; "driven by" is the kind of actor that created the object, stated in the metric | passes |
 | UC-17 erase a customer | no inputs in attempts, nothing stored in metrics, observations erased through the subject (§3.1, §3.3, §3.4) | passes |
+| UC-18 who has what, and where handoffs hurt | value intervals and the `assignee` marking; legacy reassignments ported as intervals (§3.9) | passes; how far the legacy audit trail reaches is to be sampled |
 
 ## 5. The conflicts of PRD §9, resolved
 
@@ -287,11 +328,12 @@ Touches M2, L3 and F3; UC-11.
 
 ## 7. What the choices cost, and what to measure
 
-Six new constructs: the observation kind, the label, the `metric` form with its flags, the `observe` marking, the `backdatable` marking, and the `DeclarationChange` type. Each is where the next defect is most likely to be, so the syntax document should grow them in one iteration, with checker fixtures, before any is believed.
+Seven new constructs: the observation kind, the label, the `metric` form with its flags, the `observe` marking, the `backdatable` marking, the `assignee` marking with its `actor` identity, and the `DeclarationChange` type. Each is where the next defect is most likely to be, so the syntax document should grow them in one iteration, with checker fixtures, before any is believed.
 
 To measure rather than assume:
 
 - metric latency at the first consumer's scale, on both backends;
+- how far back the first consumer's audit trail records reassignments;
 - percentile in a checker, rather than one probe;
 - attempt-log volume under the harness's guessing actor;
 - the cost of an observation as an object at the inspection rate;
@@ -299,19 +341,20 @@ To measure rather than assume:
 
 ## 8. What acceptance would change
 
-On acceptance, `DESIGN.md` §1, §3 (a fourth property: every flow produces data about itself, and users add their own), §5, §5.5, §5.7, §7, §10, §12, §13 and §14; `storage-schema.md` (attempts, intervals, observation tables, `ok_attribute_write` keyed per relationship); `library-api.md` (`metric`, `diagnostics`, the attempt and interval shapes); `renderers.md` (observation and metric tools); `declaration-syntax.md` (the six constructs, check 11's exemption and new checks); the adversarial harness (intervals rebuilt from the log as a ninth failure condition); `edge-cases.md`'s analytics entry; and the back-links in ADR-0007, ADR-0027, ADR-0033, ADR-0047, ADR-0049, ADR-0057, ADR-0058 and ADR-0077.
+On acceptance, `DESIGN.md` §1, §3 (a fourth property: every flow produces data about itself, and users add their own), §5, §5.5, §5.7, §7, §10, §12, §13 and §14; `storage-schema.md` (attempts, intervals, observation tables, `ok_attribute_write` keyed per relationship); `library-api.md` (`metric`, `diagnostics`, the attempt and interval shapes); `renderers.md` (observation and metric tools); `declaration-syntax.md` (the seven constructs, check 11's exemption and new checks); the adversarial harness (intervals rebuilt from the log as a ninth failure condition); `edge-cases.md`'s analytics entry; and the back-links in ADR-0007, ADR-0027, ADR-0033, ADR-0047, ADR-0049, ADR-0057, ADR-0058 and ADR-0077.
 
 ## 9. Release order, mapped
 
 | Phase | Decisions | Why this order |
 |---|---|---|
-| 1, the port | intervals, attempts, occurred time, the `imported` source, observation kinds, **labels**; the repairs of D202, D204 and D205 | Evidence for convergence can only start from the day it is recorded, so the things that record it come first, labels included, even though what uses them comes third |
+| 1, the port | intervals over state and every tracked value, the **`assignee` marking** and its metrics, attempts, occurred time, the `imported` source, observation kinds, **labels**; legacy assignment and state history ported as intervals; the repairs of D202, D204 and D205 | Evidence for convergence can only start from the day it is recorded, so the things that record it come first, labels included, even though what uses them comes third |
 | 2 | the `metric` form and flags, metric guards, `metric()` and the standard metrics | They read what phase 1 recorded |
 | 3 | `observe`, `diagnostics`, `DeclarationChange` | They act on evidence phases 1 and 2 made visible |
 
 ## 10. Still open
 
-- The grammar of the six constructs, which belongs to the syntax document.
+- The grammar of the seven constructs, which belongs to the syntax document.
+- Set-valued assignment, such as a team rather than a person: intervals of membership per element are the obvious extension, and nothing in the first consumer needs it yet.
 - The attempt log's default retention: a number to measure, not to choose.
 - Whether an observation kind ever needs a visibility predicate of its own rather than its subject's. It inherits until a case needs otherwise.
 - Whether a change a human drafted also needs a second approver, or only one an agent drafted. The proposed default requires the second approver only for an agent's draft.

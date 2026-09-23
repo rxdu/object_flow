@@ -56,7 +56,7 @@ They are generated from its datasets:
 - overrides by target state and reason;
 - rework.
 
-They are listed with the type like any declared metric.
+They are listed with the type like any declared metric. A type with an assignee also gets the assignment metrics of ADR-0086, and every tracked value gets time-in-value and change counts from the same intervals.
 
 ### 5. Per-object derived attributes stay, and gain time over the object's own intervals
 
