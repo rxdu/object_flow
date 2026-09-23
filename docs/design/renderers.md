@@ -6,6 +6,8 @@ Draft, 2026-09-09, amended 2026-09-23. Three projections of one declaration: tex
 
 **Amended again 2026-09-23** for ADR-0097 to ADR-0101, from a review of the whole record against the PRD; each change cites the decision it carries.
 
+**Amended 2026-09-24** for ADR-0103: the rule set prints the module's request rule first, and an agent's tool schemas list the fields it requires.
+
 **What is verified.** `scripts/check-renderers-doc.py` parses every JSON example, checks that the tool schema is a schema a validator accepts, and confirms it rejects a call missing a required field and a call carrying an unknown one. The rule set of §2 is prose and is not checked; nothing generates it yet.
 
 ## 1. What a renderer may not do
@@ -92,6 +94,15 @@ ServiceJob — version 2
 An **observing clause** is printed as not enforced, on the same line as the rule, so no reader can mistake a trial for a guarantee (ADR-0085). A **metric** is printed as its definition rendered in words, exactly as a guard is, because the rule set is the one place a definition is meant to be read as the rule; everywhere else points at `metric()` (§3). The **assignee** line says which reference is the responsibility, since that is what the assignment metrics are over (ADR-0086). The **standard metrics** are listed by name under every type, since each is a declaration a reader can look up (ADR-0098). The **built-in types** — `DeclarationChange`, `Proposal`, `Subscription` and the `label` kind — are rendered like any type, with the built-in capabilities that gate them, so who may draft, approve, label or import is on the page (ADR-0097).
 
 Guard descriptions are rendered from the expression, not written by hand. `none(c in checklist_items where not c.checked)` becomes "every checklist item is checked". That rendering is mechanical and lossy on purpose — the expression is beside it in the machine-readable form, and a person reading a rule set wants the sentence.
+
+**The module's request rule prints first**, before any type, since it binds every type in the closure (ADR-0103):
+
+```
+Requests by agent require an expected version and an idempotency key
+  (refused as versioned or keyed, self_serviceable)
+```
+
+An agent's tool schemas follow it: where a module requires fields of agents' requests, each tool lists `expected_version` (for a tool naming an existing object) and `idempotency_key` among its `required` properties, so an agent reading the schema knows before it asks (PRD F3).
 
 ## 3. Tool schemas
 

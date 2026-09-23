@@ -6,11 +6,11 @@ Status: design only, under author review. The model is described in [`docs/DESIG
 
 | | |
 |---|---|
-| ADRs | 101, none Proposed; ADR-0081 to ADR-0096 accepted by the author 2026-09-23 — ADR-0087 to ADR-0096, decided at the author's direction to cover every PRD requirement, after every decision was checked against the design; ADR-0097 to ADR-0101 decided at the author's direction the same day, from a five-slice review of the whole record and its verification, and awaiting acceptance |
-| Defect register | 281 entries and five cosmetics; 276 closed, seven of them carried to open questions the author has since ruled on; **5 open**. D202 to D274, found on 2026-09-23, were resolved the same day by ADR-0082, ADR-0083, ADR-0085, ADR-0087 to ADR-0093 and ADR-0095 to ADR-0101, and by in-place corrections. D275 to D281 were found on 2026-09-24 by auditing production against the design ([`docs/design/first-consumer-audit.md`](docs/design/first-consumer-audit.md)); D280 and D281 were corrected in place, and D275 to D279 are open ([`docs/design/defects.md`](docs/design/defects.md)) |
-| Declaration syntax | **iteration 19, ready for author review**; checker clean, 34 of 61 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
+| ADRs | 103, ADR-0102 Proposed; ADR-0081 to ADR-0096 accepted by the author 2026-09-23 — ADR-0087 to ADR-0096, decided at the author's direction to cover every PRD requirement, after every decision was checked against the design; ADR-0097 to ADR-0101 decided at the author's direction the same day, from a five-slice review of the whole record and its verification, and awaiting acceptance; ADR-0102, proposed 2026-09-24 from an audit of the first consumer's production code, and ADR-0103, decided at the author's direction the same day from the review against the PRD that followed, awaiting acceptance |
+| Defect register | 288 entries and five cosmetics; 288 closed, seven of them carried to open questions the author has since ruled on; **0 open**. D202 to D274, found on 2026-09-23, were resolved the same day by ADR-0082, ADR-0083, ADR-0085, ADR-0087 to ADR-0093 and ADR-0095 to ADR-0101, and by in-place corrections. D275 to D281 were found on 2026-09-24 by auditing production against the design ([`docs/design/first-consumer-audit.md`](docs/design/first-consumer-audit.md)); D280 and D281 were corrected in place; reviewing the design against the PRD with the unit's journey found D282 and D283, and verifying ADR-0103's first draft found D284 to D288; ADR-0103 resolved them with D275 to D279, and D283 was corrected in place ([`docs/design/defects.md`](docs/design/defects.md)) |
+| Declaration syntax | **iteration 21, ready for author review**; checker clean, 34 of 61 checks enforced ([`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md)) |
 | Open questions | none. All thirteen answered by the author 2026-09-08, ADR-0065 to ADR-0072 ([`declaration-syntax.md` §11](docs/design/declaration-syntax.md)) |
-| Awaiting author review | ADR-0097 to ADR-0101, decided at the author's direction on 2026-09-23 and so first; PRD revision 4 (§12); ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 — of which ADR-0078 to ADR-0080 were decided at the author's direction rather than by the author — DESIGN.md as a whole, the declaration syntax, and the six implementation documents of 2026-09-09. ADR-0065 to ADR-0073 are settled: ADR-0065 to ADR-0072 are the author's own rulings, ADR-0073 confirmed 2026-09-08 |
+| Awaiting author review | ADR-0102 and ADR-0103, from the production audit of 2026-09-24, and ADR-0097 to ADR-0101, decided at the author's direction on 2026-09-23, first; PRD revision 4 (§12); ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 — of which ADR-0078 to ADR-0080 were decided at the author's direction rather than by the author — DESIGN.md as a whole, the declaration syntax, and the six implementation documents of 2026-09-09. ADR-0065 to ADR-0073 are settled: ADR-0065 to ADR-0072 are the author's own rulings, ADR-0073 confirmed 2026-09-08 |
 
 The design was built in six autonomous iterations, then reviewed for implementation readiness, then repaired. The review found 41 defects, ten of which broke the model or a running system; re-expressing the case studies against the repaired grammar found five more. ADR-0038 to ADR-0054 are that repair, and none has been reviewed by the author.
 
@@ -22,7 +22,7 @@ All thirteen open questions were ruled on 2026-09-08, recorded as ADR-0065 to AD
 
 Five changed the language: a machine's creation guards bind any creation that replaces it, a cascade clause carries arguments, a third tracking mode for types that track no physical thing, a comparable type name on a reverse reference, and both state spellings in both places. Four refused a change: money keeps its currency in the declaration, evaluators stay verdict-only with a mirror for anything that assigns, confidentiality stays per object, and an authority list stays optional at a closed state. One closed a question already answered elsewhere. One kept a rule and changed what is reported. One deferred, and one agreed in principle without building it.
 
-**Two answers moved because of evidence rather than argument.** Per-attribute confidentiality looked likely and turned out to have no need in the first consumer at all. The money counter turned out to rest on a mechanism that consumer does not use, since it stores no stock level and computes availability instead.
+**Two answers moved because of evidence rather than argument.** Per-attribute confidentiality looked likely and turned out to have no need in the first consumer at all. The money counter turned out to rest on a mechanism that consumer was then thought not to use. *(Corrected 2026-09-24: it keeps a stock level for bulk accessories, D279.)*
 
 ## The data-driven engine
 
@@ -75,6 +75,8 @@ Nothing here is blocked on it, and none of it is settled without it.
 | Data-driven engine, 2026-09-23 | The author's widened objective as a PRD, the baseline for every design choice; designs evaluated against its use cases, ADR-0081 to ADR-0086 accepted; a design review found D202 to D215 |
 | Coverage iteration, 2026-09-23 | The design iterated against the PRD until every requirement was covered or, for C5, unverifiable by the PRD's own terms; ADR-0087 to ADR-0095, D216 and D217, declaration-syntax iteration 19; `scripts/check-traceability.py` |
 | Five-slice review, 2026-09-23 | Five independent reviewers of the PRD's requirement groups, the decision record and the documents' agreement, then three verification passes by four of them; D236 to D274; ADR-0097 to ADR-0101; PRD revision 4 proposed |
+| Production audit, 2026-09-24 | Four read-only audits of the first consumer's production code, one per slice, each gap re-read in both repositories: eleven gaps, none stopping a production transition from being declared ([`docs/design/first-consumer-audit.md`](docs/design/first-consumer-audit.md)); the unit's whole journey written from production as a checked module ([`docs/design/unit-journey.md`](docs/design/unit-journey.md), ADR-0102, proposed); D275 to D281 |
+| Review against the PRD with the journey, 2026-09-24 | Every requirement and use case read against the audit and the module: three gaps grew the language, five defects were repaired, one gap stays a known limit and one needed no rule, and the module itself was found to break UC-6; ADR-0103, whose first draft an independent verification corrected (D284 to D288); D282 and D283; check 15 corrected in the checker and check 19 extended, with fixtures |
 
 ## Open model questions
 
@@ -106,7 +108,7 @@ The port of the first consumer's production data is a designed path (ADR-0015, D
 
 ## Defect repair
 
-The register at [`docs/design/defects.md`](docs/design/defects.md) holds 281 entries and five cosmetics, 276 closed and 5 open, and records for each what was decided and by which ADR. Two entries are refusals rather than resolutions: dynamic attribute writes and grouped aggregation, both declined by decision and recorded in the edge-case catalogue.
+The register at [`docs/design/defects.md`](docs/design/defects.md) holds 288 entries and five cosmetics, 288 closed and 0 open, and records for each what was decided and by which ADR. Two entries are refusals rather than resolutions: dynamic attribute writes and grouped aggregation, both declined by decision and recorded in the edge-case catalogue.
 
 ## Toward implementation
 

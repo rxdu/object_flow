@@ -1,6 +1,6 @@
 # The unit's journey: one lifecycle, with custody and condition beside it
 
-Status: **worked example**, 2026-09-24, read against the first consumer's production code at `wr` HEAD `4109939`. It writes every transition production registers for an inventory unit, and the engagement and leasing model production's ADR-0002 accepted but has not built, as one module. `scripts/check-syntax-doc.py docs/design/unit-journey.md` checks it against the implemented checks and reports it clean. The specification's own `UnitLifecycle` (`declaration-syntax.md` §4) stays the smaller fixture its mutations are written against; this module is what the first consumer's unit becomes. It supersedes the lifecycle sketch of [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md) §2.1, which predates three production changes listed in §5. The decisions it takes are recorded in [ADR-0102](../adr/0102-the-units-journey-is-one-lifecycle-with-custody-and-condition-beside-it.md).
+Status: **worked example**, 2026-09-24, read against the first consumer's production code at `wr` HEAD `4109939`. It writes every transition production registers for an inventory unit, and the engagement and leasing model production's ADR-0002 accepted but has not built, as one module. `scripts/check-syntax-doc.py docs/design/unit-journey.md` checks it against the implemented checks and reports it clean. The specification's own `UnitLifecycle` (`declaration-syntax.md` §4) stays the smaller fixture its mutations are written against; this module is what the first consumer's unit becomes. It supersedes the lifecycle sketch of [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md) §2.1, which predates three production changes listed in §5. The decisions it takes are recorded in [ADR-0102](../adr/0102-the-units-journey-is-one-lifecycle-with-custody-and-condition-beside-it.md), and what reading it against the PRD changed in [ADR-0103](../adr/0103-what-the-production-audit-required-of-the-design.md).
 
 ## 1. The journey, and why it is three questions
 
@@ -37,7 +37,7 @@ beside it:  Engagement  SCHEDULED ─dispatch─▶ OUT ─start_return─▶ RE
 
 ## 2. The module
 
-The vocabulary. `CancellationReason` loses production's `MISSING_FROM_SHIPMENT`, which becomes a state (§4). Production records a retirement reason as free text and has not settled the vocabulary (`wr:TODO.md:243`), so `RetirementReason` is the specification's placeholder.
+The vocabulary. `CancellationReason` loses production's `MISSING_FROM_SHIPMENT`, which becomes a state (§4). Production records a retirement reason as free text and has not settled the vocabulary (`wr:TODO.md:243`), so `RetirementReason` is the specification's placeholder. The module line states production's request rule once, and more strictly than production: an agent sends an expected version and an idempotency key with every request, where production requires the key only on an agent's POSTs and the version only where a service method checks one (`wr:app/services/base_service.py:236-251`; `wr:app/core/idempotency.py:149-179`; ADR-0103 §1).
 
 ```text
 module inventory_journey
@@ -54,6 +54,8 @@ enum CancellationReason version 2 { ORDER_CANCELLED, DISCARDED, REJECTED_QA,
 enum EngagementKind version 1 { LEASE, EVENT, DEV_HOLD }
 enum ServiceKind    version 1 { REPAIR, MAINTENANCE, UPGRADE }
 sequence unit_serial version 1
+
+requests by agent require version, key
 ```
 
 **The lifecycle.** Every transition production registers for a robot (`wr:app/core/state_registry.py:859-993`), and the ones its services perform around the registry, are here; §3 maps each one. The capabilities are production's permissions, and `ADMIN` is what production's `required_role="ADMIN"` becomes, since a guard reads capabilities, not roles (ADR-0079).
@@ -82,7 +84,7 @@ machine UnitLifecycle version 3 {
   state RESERVED    category live
   state SOLD        category closed
   state DEVELOPMENT category live
-  state RETIRED     category closed terminal
+  state RETIRED     category closed
   state CANCELLED   category closed
   state DELETED     category closed terminal
 
@@ -214,8 +216,8 @@ type Robot version 4 {
                       ASSERT = INVENTORY_ASSERT, CANCEL = PROCUREMENT_CANCEL
   summary  serial, model, state
 
-  attr serial string identifier from unit_serial scoped by model
-                     format "RBT-{n}" indexed unique in scope
+  attr serial string identifier from unit_serial
+                     format "RBT-[{model.maker_code}-]{n:6}" indexed unique
   attr manufacturer_serial string?
   attr label_printed_at    timestamp?
   attr photos              file[]
@@ -252,8 +254,10 @@ type Shipment version 1 {
 
   attr tracking_no string?
   attr carrier     string?
-  attr eta         timestamp?
+  attr eta         timestamp? indexed
   ref  units : Robot[] inverse shipment
+
+  derive overdue = state == IN_TRANSIT and eta < now
 
   create dispatch -> IN_TRANSIT accepts tracking_no, carrier, eta {
     input with_units : Robot[]
@@ -280,7 +284,7 @@ type Shipment version 1 {
   do arrive IN_TRANSIT -> ARRIVED backdatable within 2 days {
     require may: actor.has(INVENTORY_CREATE) because delegable
   }
-  act receive_unit at ARRIVED {
+  act receive_unit at ARRIVED backdatable within 2 days {
     input robot : Robot
     require may:  actor.has(INVENTORY_CREATE) because delegable
     require ours: inputs.robot.shipment == this because self_serviceable
@@ -584,6 +588,13 @@ metric time_in_pool version 1 {
   value     sum(i.duration)
 }
 
+metric pool_utilisation version 1 {
+  combine   on_loan = time_on_loan, pool = time_in_pool
+  by        model
+  value     on_loan / pool
+  flag      idle when value < 0.300
+}
+
 metric engagements_overdue version 1 {
   from      e in Engagement where e.overdue
   by        kind = e.kind
@@ -592,7 +603,7 @@ metric engagements_overdue version 1 {
 }
 ```
 
-Pool utilisation, the share of a pooled unit's time spent on loan, is the question ADR-0002 asks first ("how much did we use it?"). Both halves are declared above, `time_on_loan` and `time_in_pool`, but their ratio is not: §8.3 of the specification allows `/` only with a scalar on the right, and a combined metric's value is arithmetic over its parts, so a duration cannot be divided by a duration. Recorded as `design/defects.md` D275.
+Pool utilisation, the share of a pooled unit's time spent on loan, is the question ADR-0002 asks first ("how much did we use it?"). `pool_utilisation` divides `time_on_loan` by `time_in_pool` per model, over the whole history. Writing this module found that a duration could not be divided by a duration (`design/defects.md` D275), and ADR-0103 made the quotient of two like quantities a decimal. It is not declared per month: a metric buckets a span by the month it began, so a unit that joined the pool in January would put all its pool time in January, and apportioning a span across months is a known limit (`edge-cases.md`, ADR-0103 §5).
 
 ## 3. Every transition, against production
 
@@ -605,7 +616,7 @@ Pool utilisation, the share of a pooled unit's time spent on loan, is the questi
 | `add_opening_stock` | → AVAILABLE | the opening-stock fast path, same predicate at creation (`wr:docs/proposals/operations-system-design.md:308`) | gated on `ASSERT`, as a port of existing stock |
 | `ship` | REQUESTED → PROCUREMENT | `sr:861-865`; `sh:165-317` stamps `shipment_id` | only via the shipment |
 | `unship` | PROCUREMENT → REQUESTED | `sr:867-875`, guarded to in-transit shipments in the service | only via `Shipment.remove_unit`, at `IN_TRANSIT` |
-| `receive` | PROCUREMENT → INTAKE | `sr:884-888`; `sh:757-980` | only via `Shipment.receive_unit`, at `ARRIVED` |
+| `receive` | PROCUREMENT → INTAKE | `sr:884-888`; `sh:757-980` | only via `Shipment.receive_unit`, at `ARRIVED`, which is `backdatable within 2 days`, so time in PROCUREMENT ends when the unit arrived (PRD UC-6) |
 | `unreceive` | INTAKE → PROCUREMENT | `sr:890-898` | |
 | `flag_missing` | PROCUREMENT → MISSING | `sh:985-1055`: PROCUREMENT → CANCELLED with reason `MISSING_FROM_SHIPMENT`, peg released | **a state here**, §4 |
 | `restore` | MISSING → PROCUREMENT | `sr:907-915`; `sh:1099` | production leaves a terminal state by an explicit override |
@@ -613,7 +624,7 @@ Pool utilisation, the share of a pooled unit's time spent on loan, is the questi
 | `discard` | MISSING → CANCELLED | `sh:1202-1238`: the reason changes to `DISCARDED` | |
 | `cancel` | REQUESTED, PROCUREMENT, INTAKE → CANCELLED | `sr:877-883,900-905,933-938`, each releasing the peg | one transition with a reason |
 | `peg_to`, `unpeg` | act | `wr:app/services/allocation.py:104-200` | |
-| `record_label_print` | act, any non-terminal state | production allows it in any state (`wr:app/services/label_print_service.py:174-197`) | a retired unit cannot be relabelled here; production allows it |
+| `record_label_print` | act, any non-terminal state | production allows it in any state (`wr:app/services/label_print_service.py:174-197`) | `RETIRED` is `closed` and not terminal, so a retired unit can be relabelled, as in production; only `DELETED` is final (ADR-0103 §8) |
 | `inventorize` | INTAKE → AVAILABLE | `sr:926-931`; `ib:635-910`; the peg is released at commit (`ib:912-934`) | production gates on the label only, behind `LABEL_PRINTING_ENABLED`, default off (`sr:695-724`); photos are checked per batch |
 | `revert_intake` | AVAILABLE → INTAKE | `sr:940-945`; `ib:1006-1124` | only via `Shipment.revert_commit` |
 | `reserve` | AVAILABLE → RESERVED | `sr:947-951`; `wr:app/services/inventory_helpers.py:40-80` | |
@@ -627,7 +638,7 @@ Pool utilisation, the share of a pooled unit's time spent on loan, is the questi
 | `accept_return` | SOLD → AVAILABLE | `sr:971-977`, admin | |
 | `release_to_stock` | DEVELOPMENT → AVAILABLE | `sr:979-985`, admin | refused while on loan |
 | `convert_lease` | DEVELOPMENT → SOLD | ADR-0002, "Leasing": guarded on an active lease being converted | not built in production |
-| `retire` | DEVELOPMENT → RETIRED | `sr:987-993`; `wr:app/services/inventory_item_service.py:542-681` | ends an open engagement line, ADR-0002's close-with-reason |
+| `retire` | DEVELOPMENT → RETIRED | `sr:987-993`; `wr:app/services/inventory_item_service.py:542-681` | ends an open engagement line, ADR-0002's close-with-reason. `RETIRED` has no exit, as in production, and needs none, being closed |
 | `delete` | AVAILABLE, CANCELLED → DELETED | `sr:1003`, a soft delete | |
 | `correct_state` | assert | none; production writes status directly or by `force_transition` (`wr:app/core/state_transition.py:577-619`) | the one override, with a declared reason |
 
@@ -638,6 +649,7 @@ Pool utilisation, the share of a pooled unit's time spent on loan, is the questi
 - **A cascade that cannot apply refuses.** Production's delivery revoke sets its units to AVAILABLE whatever they became since (`sr:169-187`); here `unsell` and `recall_internal` refuse, naming the unit, if it is no longer `SOLD` or `DEVELOPMENT`.
 - **Engagements and leases exist.** Production has accepted them and not built them (ADR-0002, "Open questions"). Its open questions stay open here and are listed in §6.
 - **The gates are production's intent, not its switch.** `inventorize` requires the label, the manufacturer serial where the model requires one, and a photo where the model requires one. Production enforces the label only, behind a flag that defaults to off. The equivalent of that flag is an `observe` marking on `labelled`, published to enforce once its would-be refusals are counted (ADR-0085), rather than an environment variable.
+- **The serial is production's.** One sequence per type, formatted `RBT-{maker}-{NNNNNN}`, the maker's segment dropped where a model has no manufacturer (`wr:app/services/serial_number_service.py:37-41,117-196`). Production derives the maker's code from the manufacturer's name each time; here `RobotModel` holds it as an optional `maker_code`, which the port fills with production's derivation and an operator sets for a new model, since the language has no substring. The import carries the sequence's high-water mark, so the first serial minted after cutover follows production's last (ADR-0103 §4).
 - **Simplifications.** A delivery's slots are not modelled, so `filled` reads the delivery's own units and pegs; a reopened service re-adds its parts, where production keeps part rows and re-reserves them; a reopened delivery is not modelled. Accessories and spare parts bind the same machine in production (`sr:1008-1300`) and would here, as further binders.
 
 ## 5. What changed since the walkthrough

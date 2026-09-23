@@ -8,6 +8,8 @@ Draft, 2026-09-09, amended 2026-09-23. The request and verdict shapes of [`../DE
 
 **Amended again 2026-09-23** for ADR-0097 to ADR-0101, from a review of the whole record against the PRD; each change cites the decision it carries.
 
+**Amended 2026-09-24** for ADR-0103, from an audit of the first consumer's production code: the `versioned` and `keyed` clauses and whom they bind, `prune_idempotency` and the idempotency retention, and an import batch's sequence marks.
+
 ## 1. Why Python, and what that does not mean
 
 The core is library-shaped: a call goes in, guards evaluate, a transition and its record come out (§2 of the model). The first consumer is a FastAPI and SQLAlchemy system being rebuilt on this, so a Python interface is the one that will be exercised first and is the one written here.
@@ -98,9 +100,9 @@ class EvaluatorSource(Protocol):
 
 ```
 
-A creation names a `type` and no `object_id`; every other transition names an `object_id`. `expected_version` is the optimistic check of ADR-0023, `idempotency_key` makes a retry safe by replaying the first result rather than refusing it (ADR-0041), and `context` is the free-form route marker that ends up in the event's provenance. A request carrying both a key and an `expected_version` is matched on its key first: a replay returns the recorded verdict whatever version the retry supplies, and `Stale` is possible only for a request that has not been applied (ADR-0076). `occurred_at` is accepted by a transition marked backdatable and by an observation kind's `record`, and is checked by the generated guard `occurred_within`, so a time outside the bound is refused naming that clause (ADR-0083, ADR-0099).
+A creation names a `type` and no `object_id`; every other transition names an `object_id`. `expected_version` is the optimistic check of ADR-0023, `idempotency_key` makes a retry safe by replaying the first result rather than refusing it (ADR-0041), for as long as the store's idempotency retention keeps the record (ADR-0103), and `context` is the free-form route marker that ends up in the event's provenance. A request carrying both a key and an `expected_version` is matched on its key first: a replay returns the recorded verdict whatever version the retry supplies, and `Stale` is possible only for a request that has not been applied (ADR-0076). `occurred_at` is accepted by a transition marked backdatable and by an observation kind's `record`, and is checked by the generated guard `occurred_within`, so a time outside the bound is refused naming that clause (ADR-0083, ADR-0099). Where a module declares `requests by <kind> require …`, a request by that kind of actor without the named `expected_version` or `idempotency_key` is refused as `Unsatisfied`, naming the generated clause `versioned` or `keyed`, remedy `self_serviceable` (ADR-0103). The rule applies to what the actor sends, a proposal's approval included; the recorded request an approval executes is not re-checked, and `publish` keeps its own required `expected_version` and needs no key. `check` and `availability` answer before a request is sent and do not evaluate the two clauses.
 
-A store is built from a backend, an `IdSource`, a `Clock`, a `ConnectionSource` and an `EvaluatorSource`, all injected, and the deployment's attempt retention, a duration `maintain` will not prune inside (ADR-0101); so a test controls everything nondeterministic about a request (ADR-0077, ADR-0091). The core is **synchronous**: an operation runs to completion on its caller's thread, and an asynchronous service such as the first consumer's wraps it on a thread pool.
+A store is built from a backend, an `IdSource`, a `Clock`, a `ConnectionSource` and an `EvaluatorSource`, all injected, and the deployment's attempt retention and idempotency retention, the durations `maintain` will not prune inside (ADR-0101, ADR-0103); so a test controls everything nondeterministic about a request (ADR-0077, ADR-0091). The core is **synchronous**: an operation runs to completion on its caller's thread, and an asynchronous service such as the first consumer's wraps it on a thread pool.
 
 ## 4. The verdict
 
@@ -427,6 +429,9 @@ class ImportBatch:
     objects: Sequence[ImportedObject]
     admitted: Mapping[str, Sequence["Admission"]] = field(default_factory=dict)
                                           # disposition: legacy key -> admissions
+    sequences: Mapping[str, int] = field(default_factory=dict)
+                                          # sequence -> the last value the legacy system minted;
+                                          # the store raises the sequence to it, never lowers it (ADR-0103)
 
 
 @dataclass(frozen=True)
@@ -438,7 +443,8 @@ class ImportReport:
 
 @dataclass(frozen=True)
 class MaintenanceTask:
-    """`prune_attempts` or `archive_events`, older than `before` (ADR-0100)."""
+    """`prune_attempts`, `prune_idempotency` or `archive_events`, older than
+    `before` (ADR-0100, ADR-0103)."""
 
     name: str
     before: datetime
@@ -531,7 +537,7 @@ class Store(Protocol):
 Nineteen operations: the sixteen of §10, the write path of §6, and the operational calls that are not object operations, `acknowledge` and `publish`. `import_batch` and `maintain` are the only other ways anything writes the database (ADR-0100). The checker holds this list against §10 rather than trusting it.
 
 - `metric` returns a `MetricPage`, and `diagnostics` a short fixed list, each computed over what the reader may see and saying whether that is everything (ADR-0096).
-- `import_batch` writes a port through the built-in assertion, for an actor holding `OK_IMPORT`, and only into a type declared `mirror` and the observations and labels on a mirror's objects; it never rewrites a personal value an erasure removed, redacts the legacy entries and intervals it attaches to an erased object as the erasure would have, and marks every event it writes `imported` (ADR-0100, ADR-0101). A legacy interval pages in the export by the cursor of the import event that wrote its object. `maintain` requires `OK_MAINTAIN`, refuses a prune inside the store's attempt retention, changes no governed state or history, and is never needed for correctness (ADR-0100, ADR-0101).
+- `import_batch` writes a port through the built-in assertion, for an actor holding `OK_IMPORT`, and only into a type declared `mirror` and the observations and labels on a mirror's objects; it never rewrites a personal value an erasure removed, redacts the legacy entries and intervals it attaches to an erased object as the erasure would have, and marks every event it writes `imported` (ADR-0100, ADR-0101). A legacy interval pages in the export by the cursor of the import event that wrote its object. `maintain` requires `OK_MAINTAIN`, refuses a prune inside the store's attempt or idempotency retention, changes no governed state or history, and is never needed for correctness (ADR-0100, ADR-0101, ADR-0103). The idempotency retention must cover the longest period over which any caller repeats a key, a scheduler's periodic sweep and an at-least-once consumer's re-delivery included, since a repeat after the prune is a new request.
 - `export` pages an attempt source by its writing transaction's settled cursor, and an interval source by the cursor of the event that last opened or closed each row, so a closing re-emits the row and a consumer keeps the latest per object, dimension and entry (ADR-0100).
 - `export` takes a source — `log`, `<Type>.intervals`, `<Type>.transitions`, `<Type>.attempts`, or an observation kind — and returns JSON lines of the corresponding shape above, with every personal value omitted (ADR-0094).
 - `history`, `pull` and `export` filter the `reads` and `consulted` of an event or an attempt for the reader: an object the reader cannot see is left out and `withheld` is set, and a metric value is left out unless the reader can see every current object of each type the metric reads (ADR-0095, ADR-0096). A refusal's `Unsatisfied.consulted` follows the same rule for its requester, since a metric in a guard reads rows the requester may not see: the value is given to a requester who can see every current object of each type the metric reads, and otherwise left out.

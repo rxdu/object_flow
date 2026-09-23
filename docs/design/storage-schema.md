@@ -5,6 +5,8 @@ Draft, 2026-09-09, amended 2026-09-23. How a published declaration becomes table
 **Amended 2026-09-23** for ADR-0082 to ADR-0094:
 
 **Amended again 2026-09-23** for ADR-0097 to ADR-0101, from a review of the whole record against the PRD; each change cites the decision it carries.
+
+**Amended 2026-09-24** for ADR-0103: the idempotency prune, and an import raising a sequence past the legacy system's last value.
 - the event gains its writing transaction, read set, occurred time and retry count, and is inserted once, complete, with its position allocated first;
 - part positions are kept per relationship;
 - the attempt log, the interval index, labels, the file reference index and `DeclarationChange` are new tables;
@@ -299,6 +301,9 @@ CREATE TABLE ok_sequence (
   next_value INTEGER NOT NULL,
   PRIMARY KEY (name, scope_key)
 );
+-- An import batch may carry, per sequence, the last value the legacy system
+-- minted; the import raises next_value past it and never lowers it, so a
+-- serial minted after cutover follows the last one ported (ADR-0103).
 
 -- External identifiers, which lookup(source, value) answers from.
 CREATE TABLE ok_external_id (
@@ -325,6 +330,9 @@ CREATE TABLE ok_idempotency (
   applied_at     TEXT    NOT NULL,
   PRIMARY KEY (actor_id, key)
 );
+-- maintain(prune_idempotency(before)) deletes rows applied before `before`,
+-- refusing a `before` inside the store's idempotency retention; a retry with a
+-- pruned key is then a new request (ADR-0103).
 
 -- Admissions: an invariant a transition was permitted to violate.
 -- exceptions(type) is a query over this table.
@@ -676,6 +684,6 @@ A removed attribute leaving its column in place is deliberate: the column is how
 
 **Still open.**
 
-- **The size of a partition**, the retention window for an idempotency record, and the attempt log's retention. These are numbers to measure against a real event rate and a real retry chain, not designs.
+- **The size of a partition**, the retention window for an idempotency record, and the attempt log's retention; `maintain` applies both retentions (ADR-0101, ADR-0103). These are numbers to measure against a real event rate and a real retry chain, not designs.
 - **Whether one table per type survives many types.** A hundred types is a hundred tables, and the first consumer has perhaps thirty. The case to check is a family with many members: an issue tracker with a type per project reaches hundreds. This is the measurement that could send the whole arrangement back to a shared table.
 - **The exclusion constraint of §8 is unexecuted**, as is the PostgreSQL column apart from the two probed behaviours of §7.

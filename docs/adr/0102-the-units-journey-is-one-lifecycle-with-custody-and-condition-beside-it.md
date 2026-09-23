@@ -2,6 +2,7 @@
 
 - **Status:** Proposed — written 2026-09-24 at the author's request to extend the unit's transitions from requested to serviced and loaned, from the first consumer's production code; awaiting the author's acceptance
 - **Date:** 2026-09-24
+- **Amended by:** ADR-0103 — written before the review against the PRD; amended in place, being still proposed: a closed `RETIRED`, a backdatable receipt, production's serial format, the module's request rule and a declared utilisation. Three of those needed the language to grow, in ADR-0103.
 - **Relates to:** ADR-0079 (a role is a capability), ADR-0085 (a trial clause), and the first consumer's own ADR-0002 (`wr:docs/adr/0002-unit-engagement-and-leasing-model.md`)
 
 ## Context
@@ -12,7 +13,7 @@ The author asked for the unit's transitions to be extended from requested, throu
 - Production cancels a unit it flags missing from a shipment, and then leaves `CANCELLED` by an override when the unit turns up (`wr:app/core/state_registry.py:907-925`).
 - Production marks four states terminal and leaves each of them anyway.
 
-These are decisions about the first consumer's model, not about the engine. None needs a language change. They are recorded because the harness fixture and the cutover mapping will be built from them.
+These are decisions about the first consumer's model, not about the engine. As first written, none needed a language change; the review against the PRD then found three that did — a closed state with no exit, `format` placeholders and the quotient of like quantities — which ADR-0103 decided. They are recorded because the harness fixture and the cutover mapping will be built from them.
 
 ## Decision
 
@@ -33,15 +34,15 @@ These are decisions about the first consumer's model, not about the engine. None
 
 `CANCELLED` then has no exit but `delete`. The port maps production's `(CANCELLED, MISSING_FROM_SHIPMENT)` to `MISSING`.
 
-### 3. A state that production leaves is `closed`, not `terminal`
+### 3. A state that production leaves, or still acts on, is `closed`, not `terminal`
 
 This covers:
-- the unit's `CANCELLED`;
+- the unit's `CANCELLED`, and its `RETIRED`, which production leaves no way out of but still lets people edit and relabel; a closed state needs no exit (ADR-0103 §8);
 - a delivery's `DELIVERED` and `CANCELLED`;
 - a service job's `DONE` and `CANCELLED`;
 - a shipment's `COMMITTED`.
 
-Each is followed by a terminal `DELETED` or `VOIDED` where production has one, as `declaration-syntax.md` §4.2 advises.
+Each is followed by a terminal `DELETED` or `VOIDED` where production has one, as `declaration-syntax.md` §4.2 advises. `RETIRED` has none, and production has no way out of it either: it is closed and not terminal because production still edits and relabels retired units, and a closed state needs no exit.
 
 ### 4. The hard bind and the soft peg are two references
 
@@ -71,3 +72,4 @@ A service job reserves its parts with `reserve_for_service`. `finish` consumes t
 - The table-to-type mapping in `TODO.md` takes this module as its unit slice.
 - Production's ADR-0002 open questions are unchanged and listed in `unit-journey.md` §6. Each is a publish when decided.
 - Writing the module found D275 (a utilisation ratio cannot be declared) and D281 (two checker false positives).
+- Reading it against the PRD found that the unit's receipt, being `only via` the shipment, could not be backdated, so UC-6 failed (D282). `Shipment.receive_unit` is backdatable instead, and the unit's `receive` records its parent's occurred time (ADR-0103 §10).

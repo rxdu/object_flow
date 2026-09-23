@@ -6,6 +6,8 @@ Draft, 2026-09-09, amended 2026-09-23. What `publish` does with a declaration, w
 
 **Amended again 2026-09-23** for ADR-0097 to ADR-0101, from a review of the whole record against the PRD; each change cites the decision it carries.
 
+**Amended 2026-09-24** for ADR-0103: an import raises each sequence past the legacy system's last value.
+
 **What is verified.** The report shapes below execute and are held against the rest of the record by `scripts/check-api-doc.py`, which reads this file as well. The mapping syntax is checked by the declaration checker like any other declaration text.
 
 ## 1. Publishing is a transaction, and the approval of a change
@@ -115,6 +117,7 @@ Every object arrives mid-lifecycle at once, which is the situation a migration i
 | **Attach** | Legacy history becomes read-only entries of kind `legacy`, returned by `history` alongside real events (ADR-0015). An entry keeps only fields of its own object: a field describing another object, such as a customer's name on a service's audit row, belongs to that object's history or is dropped, so no reader sees another object's values through it (ADR-0100). The mapping lists, per entry kind, the payload fields **kept** through an erasure of the object; the rest are redacted with it, and a kind with no list loses its whole payload (ADR-0078). Files are content-addressed into the blob store, and each reference becomes a row of the file reference index (ADR-0087) |
 | **Created** | The mapping may supply each object's legacy creation time and the kind of actor that created it, so cycle time and a split by creator reach back past the cutover; where it supplies none, the import's own time and kind stand, and the object is counted from its port (ADR-0096) |
 | **Intervals** | The mapping may supply each object's current-state entry time, and earlier intervals of state and of tracked members — assignment included — derived from legacy history, all marked `legacy` in the interval index, each with who made the change where the legacy record says (ADR-0083, ADR-0086, ADR-0100). Where the legacy record is silent, there is a gap and no row: a metric counts it as unknown time and says it is incomplete, and the harness reports gaps rather than failing on them. For the first consumer, a service's past engineers come from its audit rows' before-and-after snapshots of `engineer_id` (`wr:app/services/service_service.py:357-372`); how far back those reach is to be sampled. Where the legacy data says nothing, the current interval begins at the import, and a metric says so rather than inventing an earlier start |
+| **Sequences** | The batch may carry, per sequence, the last value the legacy system minted, and the store raises the sequence past it and never lowers it, so the first identifier minted after cutover follows the last one ported rather than colliding with it (ADR-0103) |
 
 Soft-deleted rows land in the type's deleted state (ADR-0024). Cutover cannot be dual-write, because there is one write path.
 

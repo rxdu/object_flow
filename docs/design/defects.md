@@ -6,7 +6,7 @@ Findings from every review of this design. It began as the implementation-readin
 
 **Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
 
-**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 5 are open — an audit of the first consumer's production code on 2026-09-24 found D275 to D281, of which D280 and D281 were corrected in place and D275 to D279 are open; the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 0 are open — an audit of the first consumer's production code on 2026-09-24 found D275 to D281, of which D280 and D281 were corrected in place, reviewing the design against the PRD with the unit's journey found D282 and D283, and verifying ADR-0103's first draft found D284 to D288; ADR-0103 resolved D275 to D279, D282 and D284 to D288, and D283 was corrected in place; the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
@@ -286,13 +286,20 @@ Findings from every review of this design. It began as the implementation-readin
 | [D272](#d272) | A reader's metric collapsed its groups, and the per-object metrics were not aggregates | Resolved by ADR-0101 |
 | [D273](#d273) | A publish's migrations were counted as flow | Resolved by ADR-0101 |
 | [D274](#d274) | Observations on a mirror contradicted check 53, and four residues | Resolved by ADR-0101 |
-| [D275](#d275) | A duration cannot be divided by a duration, so a utilisation cannot be declared | Open |
-| [D276](#d276) | What an unknown filter does inside an aggregate or a loop is unsaid | Open |
-| [D277](#d277) | Idempotency records have no operation that removes them | Open |
-| [D278](#d278) | Check 15 makes a closed state need an exit that §4.2 calls optional | Open |
-| [D279](#d279) | The record says the first consumer keeps no stock level, and it does | Open |
+| [D275](#d275) | A duration cannot be divided by a duration, so a utilisation cannot be declared | Resolved by ADR-0103 |
+| [D276](#d276) | What an unknown filter does inside an aggregate or a loop is unsaid | Resolved by ADR-0103 |
+| [D277](#d277) | Idempotency records have no operation that removes them | Resolved by ADR-0103 |
+| [D278](#d278) | Check 15 makes a closed state need an exit that §4.2 calls optional | Resolved by ADR-0103 |
+| [D279](#d279) | The record says the first consumer keeps no stock level, and it does | Resolved by ADR-0103 |
 | [D280](#d280) | The walkthrough has drifted from the grammar and from production | Resolved in place |
 | [D281](#d281) | The syntax checker refused two legal forms | Resolved in place |
+| [D282](#d282) | The unit's journey broke UC-6: its receipt could not be backdated | Resolved by ADR-0103 |
+| [D283](#d283) | The checker counted an action as a way out of a state | Resolved in place |
+| [D284](#d284) | ADR-0103's first draft let an unknown filter satisfy an exclusion in a guard, reopening D20 | Resolved by ADR-0103 |
+| [D285](#d285) | ADR-0103's first draft withheld who acted more strictly than production, and left the assignment metrics incomplete | Resolved by ADR-0103 |
+| [D286](#d286) | ADR-0103's first draft minted serials with no port path and no rule for an absent maker | Resolved by ADR-0103 |
+| [D287](#d287) | ADR-0103's first draft declared a monthly utilisation that buckets spans by when they began | Resolved by ADR-0103 |
+| [D288](#d288) | Residues of ADR-0103's first draft | Resolved by ADR-0103 |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -1878,27 +1885,27 @@ Four read-only audits of the first consumer's production code, one per slice, co
 ### D275
 **A duration cannot be divided by a duration, so a utilisation cannot be declared.** The first consumer's leasing decision asks first how much the pool was used (`wr:docs/adr/0002-unit-engagement-and-leasing-model.md`, "Rejected alternatives": "how much did we use it?"). Both halves are declarable as metrics — the time units spent on loan and the time they spent in the pool (`unit-journey.md` §2) — but not their ratio: `declaration-syntax.md` §8.3 allows `/` only with a scalar on the right and names no conversion from a duration to a number, and a combined metric's value is arithmetic over its parts. Every share of time — utilisation, the fraction of a job's life spent waiting, on-time share by duration — meets the same wall.
 
-**Open**, for the review against the PRD that follows the audit.
+**Resolved by ADR-0103**, 2026-09-24: a quotient of two durations, or of two amounts of one currency, is a `decimal(19,6)`; `unit-journey.md` declares `pool_utilisation` per model over the whole history. Per month it is not declarable, since a metric buckets a span by when it began (D287, `edge-cases.md`).
 
 ### D276
 **What an unknown filter does inside an aggregate or a loop is unsaid.** `declaration-syntax.md` §8.2 defines `unknown` for operators and for the four places a whole expression is evaluated — a guard, an invariant, a visibility predicate, a derivation — but not for the `where` of an aggregate or of a `for`, which is evaluated once per element. So `none(s in slots where s.role == Role.PRIMARY and not s.filled)` with an absent `role` either counts the slot or does not, and nothing says which. Production decides it one way: a slot with no role never blocks completion (`wr:app/core/state_registry.py:544-545`).
 
-**Open**, for the review against the PRD that follows the audit.
+**Resolved by ADR-0103**, 2026-09-24: in a metric's filter or an outcome's `for`, an element whose filter is unknown is not selected, as SQL's `WHERE` leaves out a row; inside a guard, an invariant, a visibility predicate or a derivation it leaves the aggregate unknown, so a guard fails closed (D284). Production's slot rule is written with a presence test, and the publish report lists every guard and filter that can be unknown through an optional it does not test.
 
 ### D277
 **Idempotency records have no operation that removes them.** ADR-0100 §2 holds that nothing writes the database but the nineteen operations, and `maintain` offers two tasks, pruning attempt rows and archiving events. The idempotency record written with every keyed request (DESIGN.md §6 step 2) has neither a task nor a retention the store is constructed with; `storage-schema.md` ("Still open") leaves its retention a number to measure, which nothing could then apply. Production has the same hole and a script for it: its keys "accumulate forever unless pruned" (`wr:app/core/idempotency.py:55-58`), and `wr:scripts/maintenance/prune_idempotency_keys.py` prunes them when someone runs it.
 
-**Open**, for the review against the PRD that follows the audit.
+**Resolved by ADR-0103**, 2026-09-24: `maintain` gains `prune_idempotency(before)`, refused inside the idempotency retention the store is built with; a retry with a pruned key is a new request.
 
 ### D278
 **Check 15 makes a closed state need an exit that §4.2 calls optional.** `declaration-syntax.md` §4.2 advises an object that is finished but must still accept records to sit in "a `closed` state that is **not** terminal, with a genuinely final state after it if one is needed". Check 15 refuses any non-terminal state with no outgoing `do`, so the final state is never optional. Production lets a retired unit be edited and relabelled with no way out of `RETIRED` (`wr:app/services/inventory_item_service.py:480-536`; `wr:app/services/label_print_service.py:174-197`); here that needs an invented exit, or `RETIRED` stays terminal and loses the edits, as `unit-journey.md` chose.
 
-**Open**, for the review against the PRD that follows the audit.
+**Resolved by ADR-0103**, 2026-09-24: check 15 exempts a `closed` state, which is finished work and may end a lifecycle; `unit-journey.md`'s `RETIRED` is closed and takes relabels, as in production.
 
 ### D279
 **The record says the first consumer keeps no stock level, and it does.** `edge-cases.md` ("A consumer that maintains a counter") says the first consumer "stores no stock level at all", and `declaration-syntax.md` §11 question 10 defers the counter as "unexercised by the consumer the design was drawn from". Production decrements `Accessory.quantity` when a service consumes accessories and clamps it at zero (`wr:app/services/service_service.py:751-773`), on a serial-tracked row, which check 31 refuses a `counter` on.
 
-**Open**, for the review against the PRD that follows the audit.
+**Resolved by ADR-0103**, 2026-09-24: `edge-cases.md`, question 10 and every other statement that the first consumer stores no stock level are corrected; the design would model a bulk lot as a `tracking quantity` type with a counter and `nonneg`, declared by the table-to-type mapping, and production's clamp at zero would become a refusal.
 
 ### D280
 **The walkthrough has drifted from the grammar and from production.** `first-consumer-walkthrough.md` §2.3 guards `retire` on `actor.role == ADMIN`, which ADR-0079 replaced by a capability; its §5 has `flag_missing` leave a unit in `PROCUREMENT` and a commit loop that fills pegs, where production cancels a missing unit (`wr:app/services/shipment_service.py:985-1055`) and has retired the commit-time fill (`wr:docs/design/explicit-delivery-assignment.md`; `wr:app/services/intake_batch_service.py:912-934`).
@@ -1909,3 +1916,44 @@ Four read-only audits of the first consumer's production code, one per slice, co
 **The syntax checker refused two legal forms.** A machine's `clear` of a reference it `requires` was reported as an undeclared name (check 19), since the check looked for the name among the machine's own members, which a machine has none of; and a dataset row's `.object` was counted as a dimension hop (check 56), where §6.9 says it is not one. Neither form appears in the specification's examples, so its clean runs never exercised them. `unit-journey.md` uses both.
 
 **Resolved in place**, 2026-09-24: a machine's `clear` is held to its requirement being an optional, singular reference or attribute (a new fixture for check 17), each binder's end still being checked when the machine's transitions are analysed as the binder's; `.object` on a dataset row is not counted. Both were probed in each direction.
+
+## Found by reviewing the design against the PRD with the unit's journey, 2026-09-24
+
+### D282
+**The unit's journey broke UC-6: its receipt could not be backdated.** The specification's unit had `receive … backdatable within 2 days`. `unit-journey.md` made `receive` `only via Shipment.receive_unit`, as production reaches it only through the shipment, and check 58 rightly forbids the marking on an `only via` transition. The parent `receive_unit` was not backdatable either, so a receipt recorded the morning after ended the unit's time in `PROCUREMENT` when it was recorded, which UC-6's acceptance refuses.
+
+**Resolved by ADR-0103**, 2026-09-24: `Shipment.receive_unit` is `backdatable within 2 days`, and the unit's `receive` records its parent's occurred time (ADR-0095).
+
+### D283
+**The checker counted an action as a way out of a state.** Check 15 says "an `act` is a self-transition and does not count as outgoing, and being an `assert` target does not count as reached". `scripts/check-syntax-doc.py` added every `act`'s state to both the outgoing and the reached sets, treated `at any` as a from-state list, and counted an assertion's targets as reached, so a live state with only an action, or reached only by an override, passed. Every document stayed clean once it was corrected, so no example had relied on it; a live state with only an action, and a state reached only by an assertion, are now check 15 fixtures.
+
+**Resolved in place**, 2026-09-24.
+
+## Found by verifying ADR-0103's first draft, 2026-09-24
+
+An independent reader checked the first draft against the PRD, the rest of the record and production's code; each finding below was re-read at its cited lines before it was recorded.
+
+### D284
+**An unknown filter satisfied an exclusion in a guard.** The first draft made every element whose filter is unknown unselected, in guards as elsewhere. D20 was resolved by making a guard over an erased value fail (ADR-0047): `none(a in approvals where a.approver == actor.id)` over an erased approver is unknown and refuses. Under the draft, that element would be skipped and the guard would pass, restoring self-approval by an erased person. The production rule it was written for — a slot with no role never blocks completion — did not need it, since a presence test makes the filter definite.
+
+**Resolved by ADR-0103**, 2026-09-24: an unknown filter selects nothing only in a metric's filter and an outcome's `for`; inside a guard, an invariant, a visibility predicate or a derivation it leaves the aggregate unknown.
+
+### D285
+**The draft withheld who acted more strictly than production, and left the assignment metrics incomplete.** It declared `actors visible when actor.has(AUDIT_VIEW)`, on the audit's reading that production shows its audit trail only to administrators. Production shows each record's activity, with usernames, to anyone who may view the record (`wr:app/api/deliveries.py:966-1035` under `DELIVERY_VIEW`, which every human role holds, `wr:app/core/permissions.py:23-30`), and `created_by` on every record (`wr:app/schemas/base.py:27-36`); `AUDIT_VIEW` gates only the cross-record trail (`wr:app/api/audit.py:25-290`). The rule would also have made `acted_by_non_assignee` and every metric comparing identities incomplete for ordinary readers, against M2 and M6, and still left identities readable through intervals, legacy payloads, subscriptions and attributes copying an actor's id.
+
+**Resolved by ADR-0103**, 2026-09-24: withdrawn. Who acted is shown to every reader of the object, as production shows it, and the cross-record trail is the export and `pull`, served from routes the consumer authorises.
+
+### D286
+**The draft's serial had no port path and no rule for an absent maker.** Nothing advanced the store's sequence past production's, so the first serial minted after cutover would collide with a ported one and be refused by `unique`. Production drops the maker's segment where a model has no manufacturer, which is nullable (`wr:app/services/serial_number_service.py:150-155`; `wr:app/models/robot_models.py:26`), and the draft said nothing about an absent placeholder or where `maker_code` comes from.
+
+**Resolved by ADR-0103**, 2026-09-24: an import batch carries each sequence's high-water mark, which the store raises the sequence to; `[ … ]` omits a segment whose placeholder is absent, and an optional attribute may be named only inside one (check 44); `RobotModel.maker_code` is optional and filled by the port with production's derivation.
+
+### D287
+**The draft's monthly utilisation divided the wrong numbers.** Both of its metrics bucketed a span by `month(i.entered_at)`, so a unit that joined the pool in January put all its pool time in January, and a loan in March was divided by March's pool time, which could be zero or smaller than the loan.
+
+**Resolved by ADR-0103**, 2026-09-24: `pool_utilisation` is per model over the whole history, and apportioning a span across buckets is recorded as a known limit.
+
+### D288
+**Residues of the draft.** It did not say how `requests by` treats a proposal's approval, the request an approval executes, `publish`, the agent's tool schemas, or `check` and `availability`; it claimed the rule matched production, which asks for the key only on an agent's POSTs; it asserted a bulk-lot type the record does not declare; it called a shipment past its eta production's "procurement overdue", which is an order past its expected arrival; the new vocabulary had no check; the promised report of unknown filters, §8.3's division bullet, the maintenance prose, the key's terminology, three ADR back-links, three statements that the first consumer keeps no stock, ADR-0102's context and several counts were not brought into line; `length` in an indexed derivation needed an indexed attribute, and NUL would have counted differently on the two backends.
+
+**Resolved by ADR-0103**, 2026-09-24, and in the documents it names.

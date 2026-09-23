@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 2 (2026-09-07); pending author review. **Withdraws** the "no sequence primitive" consequence of ADR-0018.
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0076 — the allocation is outside the creating transaction, on a second connection, which on SQLite opens a separate file; the gap of rule 4 is what that buys.
+- **Refined by:** ADR-0076 — the allocation is outside the creating transaction, on a second connection, which on SQLite opens a separate file; the gap of rule 4 is what that buys. ADR-0103 — a `format` may interpolate a string or enum attribute, pad the number, and omit a segment whose placeholder is absent; an import raises a sequence past the legacy system's last value.
 
 ## Context
 

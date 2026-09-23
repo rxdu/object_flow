@@ -22,6 +22,7 @@ Covered is a claim about the design, not about software: nothing here is impleme
   - their verification found D261 to D274 in three passes, the last finding nothing that breaks coverage beyond one contradiction, which ADR-0101 repaired;
   - the six implementation documents were amended;
   - declaration-syntax iteration 19 spelled the new constructs, with checks 54 to 61.
+- On 2026-09-24 an audit of the first consumer's production code (`first-consumer-audit.md`) and the unit's journey written from it (`unit-journey.md`) were read against every row. They found five defects of the design, two of the checker and the example (D280, D281), and five gaps to decide against the PRD; the review found two more (D282, D283), and an independent verification of its decision five more (D284 to D288). ADR-0103 disposed of every gap and design defect, the rest were corrected in place, and every row stayed covered.
 
 Current: 67 covered, 0 partial, 0 gaps, 1 unverifiable, 3 revision proposed.
 
@@ -31,7 +32,7 @@ Current: 67 covered, 0 partial, 0 gaps, 1 unverifiable, 3 revision proposed.
 |---|---|---|---|
 | F1 | DESIGN §5.9, §10; ADR-0010; renderers.md §2, §3; declaration-syntax.md §6.8, §6.9 | covered | |
 | F2 | DESIGN §3, §6, §8; ADR-0040, ADR-0042, ADR-0054; library-api.md §6 | covered | |
-| F3 | DESIGN §5.8, §10; ADR-0025, ADR-0037; library-api.md §6; ADR-0099 | covered |  |
+| F3 | DESIGN §5.8, §10; ADR-0025, ADR-0037; library-api.md §6; ADR-0099; declaration-syntax.md §1; ADR-0103 | covered |  |
 | F4 | DESIGN §5.5; ADR-0090, ADR-0092; library-api.md §4 | covered | |
 | F5 | DESIGN §5.9; ADR-0027; publish-and-import.md §3; ADR-0099; declaration-syntax.md §6.6; ADR-0101 | covered |  |
 | F6 | DESIGN §9; ADR-0085; publish-and-import.md §1; ADR-0097 | covered |  |
@@ -40,15 +41,15 @@ Current: 67 covered, 0 partial, 0 gaps, 1 unverifiable, 3 revision proposed.
 | D2 | DESIGN §6, §7; ADR-0083, ADR-0088; storage-schema.md §6 | covered | |
 | D3 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; storage-schema.md §3; renderers.md §3; ADR-0099 | covered |  |
 | D4 | DESIGN §5.11; ADR-0082, ADR-0095, ADR-0096; declaration-syntax.md §6.8; storage-schema.md §3; ADR-0101 | covered |  |
-| D5 | DESIGN §5.4, §5.11; ADR-0083, ADR-0095, ADR-0096; declaration-syntax.md §4.2, §6.8; storage-schema.md §2, §6; ADR-0099 | covered |  |
+| D5 | DESIGN §5.4, §5.11; ADR-0083, ADR-0095, ADR-0096; declaration-syntax.md §4.2, §6.8; storage-schema.md §2, §6; ADR-0099; ADR-0103 | covered |  |
 | D6 | DESIGN §5.11; ADR-0082, ADR-0095; declaration-syntax.md §6.8; storage-schema.md §6 | covered | |
 | D7 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8 | covered | |
 | D8 | DESIGN §8, §5.11; ADR-0031, ADR-0078, ADR-0082, ADR-0087, ADR-0096; storage-schema.md §9; ADR-0100; ADR-0101 | covered |  |
 | D9 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8 | covered | |
 | D10 | DESIGN §5.13; ADR-0086; declaration-syntax.md §6.10; storage-schema.md §6; ADR-0099; declaration-syntax.md §5.2 | covered |  |
 | D11 | DESIGN §5.2; ADR-0083, ADR-0086; storage-schema.md §6; ADR-0099, ADR-0100 | covered |  |
-| D12 | DESIGN §5.11; ADR-0082, ADR-0095, ADR-0096; declaration-syntax.md §6.8; ADR-0097 | covered |  |
-| C1 | DESIGN §5.2, §5.12; ADR-0084; declaration-syntax.md §6.9; ADR-0098 | covered |  |
+| D12 | DESIGN §5.11; ADR-0082, ADR-0095, ADR-0096; declaration-syntax.md §6.8; ADR-0097; declaration-syntax.md §8.3; ADR-0103 | covered |  |
+| C1 | DESIGN §5.2, §5.12; ADR-0084; declaration-syntax.md §6.9; ADR-0098; declaration-syntax.md §8.3; ADR-0103 | covered |  |
 | C2 | DESIGN §5.12; ADR-0084, ADR-0096, ADR-0098; declaration-syntax.md §6.9; renderers.md §2, §3; library-api.md §6 | revision proposed | as written, C2 conflicts with T5 for a consumer who may see only part of the data; PRD §12 proposes the wording the design meets |
 | C3 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9; ADR-0098 | covered |  |
 | C4 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9 | covered | |
@@ -73,14 +74,14 @@ Current: 67 covered, 0 partial, 0 gaps, 1 unverifiable, 3 revision proposed.
 | V5 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; publish-and-import.md §1 | covered | |
 | T1 | DESIGN §3, §13; adversarial-harness.md §1, §2; ADR-0097, ADR-0100; ADR-0101 | covered |  |
 | T2 | DESIGN §1; adversarial-harness.md | covered | |
-| T3 | DESIGN §7, §8; ADR-0033, ADR-0083, ADR-0089; storage-schema.md §2; ADR-0099, ADR-0100; ADR-0101 | covered |  |
+| T3 | DESIGN §7, §8; ADR-0033, ADR-0083, ADR-0089; storage-schema.md §2; ADR-0099, ADR-0100; ADR-0101; ADR-0103 | covered |  |
 | T4 | DESIGN §8, §10; ADR-0083; storage-schema.md §3.2; publish-and-import.md §4; ADR-0100; ADR-0101 | covered |  |
 | T5 | DESIGN §5.8, §5.12, §6, §10; ADR-0030, ADR-0084, ADR-0095, ADR-0096; library-api.md §6; ADR-0100; ADR-0101 | covered |  |
 | N1 | DESIGN §2; ADR-0090; storage-schema.md §7 | covered | |
-| N2 | DESIGN §2; ADR-0012, ADR-0091, ADR-0096; library-api.md §1; storage-schema.md §6, §9; ADR-0100 | covered |  |
+| N2 | DESIGN §2; ADR-0012, ADR-0091, ADR-0096; library-api.md §1; storage-schema.md §6, §9; ADR-0100; ADR-0103 | covered |  |
 | N3 | DESIGN §2; ADR-0090; storage-schema.md §7 | covered | |
 | N4 | DESIGN §13; ADR-0091; adversarial-harness.md §4; ADR-0100 | covered |  |
-| N5 | DESIGN §11; ADR-0075, ADR-0077, ADR-0093, ADR-0096; publish-and-import.md §4, §7; first-consumer-cutover.md §4a; ADR-0100; first-consumer-cutover.md §4a; ADR-0101 | covered |  |
+| N5 | DESIGN §11; ADR-0075, ADR-0077, ADR-0093, ADR-0096; publish-and-import.md §4, §7; first-consumer-cutover.md §4a; ADR-0100; first-consumer-cutover.md §4a; ADR-0101; declaration-syntax.md §3.1; ADR-0103 | covered |  |
 
 ## Use cases
 
@@ -91,7 +92,7 @@ Current: 67 covered, 0 partial, 0 gaps, 1 unverifiable, 3 revision proposed.
 | UC-3 | DESIGN §8, §10; ADR-0096; declaration-syntax.md §6.9; publish-and-import.md §4; ADR-0100 | covered |  |
 | UC-4 | DESIGN §5.11, §5.5, §6; declaration-syntax.md §6.8; ADR-0099 | covered |  |
 | UC-5 | DESIGN §5.11, §5.12; declaration-syntax.md §6.8, §6.9 | covered | |
-| UC-6 | DESIGN §5.4; declaration-syntax.md §4.2 | covered | |
+| UC-6 | DESIGN §5.4; declaration-syntax.md §4.2; ADR-0103 | covered | |
 | UC-7 | DESIGN §12; declaration-syntax.md §6.8 | covered | |
 | UC-8 | DESIGN §5.12; ADR-0098; declaration-syntax.md §6.9 | revision proposed | as C2 |
 | UC-9 | DESIGN §5.12; declaration-syntax.md §6.9 | covered | |

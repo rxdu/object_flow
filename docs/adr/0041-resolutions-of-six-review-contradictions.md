@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D05, D06, D27, D28, D31, D36, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0071 — mandatory bounds and guard names stay; the reported worst-case product goes. ADR-0074 — an invariant an assertion may admit is not compiled, since a database constraint has no per-row exemption. ADR-0076 — the replay is checked before `expected_version`, so a retry carrying its original version replays rather than refusing.
+- **Refined by:** ADR-0071 — mandatory bounds and guard names stay; the reported worst-case product goes. ADR-0074 — an invariant an assertion may admit is not compiled, since a database constraint has no per-row exemption. ADR-0076 — the replay is checked before `expected_version`, so a retry carrying its original version replays rather than refusing. ADR-0103 — the replay holds for as long as the store's idempotency retention keeps the key; `maintain` prunes past it.
 
 ## Context
 

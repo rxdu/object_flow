@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0069 — an evaluator returns a verdict; an external system that assigns is a mirror. *(ADR-0080 renamed that an externally owned type; `mirror` now means only the cutover marking.)*
+- **Refined by:** ADR-0069 — an evaluator returns a verdict; an external system that assigns is a mirror. *(ADR-0080 renamed that an externally owned type; `mirror` now means only the cutover marking.)* ADR-0103 — a module may require an agent's requests to carry an idempotency key, refused by the generated clause `keyed`; `maintain` prunes idempotency records past a declared retention.
 
 ## Context
 

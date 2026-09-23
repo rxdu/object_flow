@@ -175,7 +175,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
               r"create|do|act|assert|erase|input|accepts|require|set|clear|add|remove|call|supersede|for|"
               r"cascade|survives|requires|removed|renamed|fn|extends|may|corrects|only|proposable|"
               r"observation|metric|field|recorded|occurred|from|combine|by|window|value|flag|labels|"
-              r"backfill)\b")
+              r"backfill|requests)\b")
     clause_col = None
     for i, raw in enumerate(text.split("\n")):
         line = raw.split("#", 1)[0].rstrip()
@@ -258,16 +258,21 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 for g in re.findall(r"\bat\s*\{\s*([A-Z_0-9,\s]+?)\s*\}", head):
                     ats |= {x for x in re.split(r"[,\s]+", g) if x}
                 for one in re.findall(r"\bat\s+([A-Z][A-Z_0-9]*)", head): ats.add(one)
-                if re.search(r"^\s*any\s*->", head) or re.search(r"\bat\s+any\b", head):
+                if re.search(r"^\s*any\s*->", head):
                     froms |= {k for k, v in states.items() if "terminal" not in v[0]}
+                if re.search(r"\bat\s+any\b", head):
+                    ats |= {k for k, v in states.items() if "terminal" not in v[0]}
                 for x in froms | tos | ats:
                     if x not in states and x.lower() != "any":
                         add(19, f"{d.name}.{tn} names undeclared state {x}", ln)
-                out_s |= {x for x in froms if x in states}
-                in_s |= {x for x in tos if x in states}
+                # check 15: an act is a self-transition, so it neither leaves nor
+                # reaches a state; an assertion's targets are not reached by the flow
+                if kind == "do":
+                    out_s |= {x for x in froms if x in states}
+                if kind in ("do", "create"):
+                    in_s |= {x for x in tos if x in states}
                 for a in ats:
                     if a in states:
-                        out_s.add(a); in_s.add(a)
                         if "terminal" in states[a][0]:
                             add(40, f"{d.name}.{tn} is an act at terminal state {a}", ln)
                 for f in froms:
@@ -278,7 +283,8 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 if d.mirror: continue
                 for c in re.findall(r"category (\w+)", mods):
                     if catdecl and c not in catdecl: add(19, f"category {c} not declared", ln)
-                if "terminal" not in mods and s_ not in out_s:
+                # a closed state is finished work, and may end a lifecycle (ADR-0103 §8)
+                if "terminal" not in mods and "category closed" not in mods and s_ not in out_s:
                     add(15, f"{d.name}.{s_} is non-terminal with no outgoing transition", ln)
                 if s_ not in in_s and s_ not in orphaned:
                     add(15, f"{d.name}.{s_} is reachable by nothing", ln)
@@ -751,6 +757,14 @@ def line_checks(text, base, capdecl, reserved, machine_caps):
         if re.search(r"\bfor\s+\w+\s+in\b", code) and "limit" not in code:
             out.append((21, f"for without limit: {code[:48]}", ln))
         if re.match(r"^\s*do\s+\w+\s+at\s", code): out.append((21, f"'do' with 'at': {code[:48]}", ln))
+        # 19 — the closed vocabularies of a request rule (ADR-0103)
+        if (m := re.match(r"^\s*requests\s+by\s+(.+?)\s+require\s+(.+)$", code)) and not re.search(r"[<…]", code):
+            for k in re.split(r"\s*,\s*", m.group(1).strip()):
+                if k not in ("human", "agent", "service"):
+                    out.append((19, f"requests by names unknown actor kind '{k}'", ln))
+            for f in re.split(r"\s*,\s*", m.group(2).strip()):
+                if f not in ("version", "key"):
+                    out.append((19, f"requests by requires unknown field '{f}'", ln))
         st = code.strip()
         if re.search(r"\blabels\b", st) and not (
                 (st.startswith("labels by") and not re.search(r"\blabels\b", st[9:]))
@@ -775,12 +789,15 @@ FIXTURES = {
   8:  ["type W version 1 {\n tracking serial\n states S category live, D category closed terminal\n part p : C inverse w\n create mk -> S { }\n do go S -> D { }\n}",
        "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr name string\n create mk -> S { }\n do go S -> D { }\n}"],
   11: "type P version 1 {\n tracking serial\n states S category live, D category closed terminal\n owner w : W inverse parts\n create mk -> S { set w := inputs.w }\n do go S -> D { }\n}",
-  15: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go D -> S { }\n}",
+  15: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go D -> S { }\n}",
+       "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n act poke at S { }\n}",
+       "type A version 1 {\n tracking serial\n states S category live, R category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n do leave R -> D { }\n assert fix -> { R } {\n  input to : state\n  input reason : string\n  require may: actor.has(X) because delegable\n }\n}"],
   16: "type A version 1 {\n tracking serial\n create mk -> S { }\n}",
   17: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { set other.x := 1 }\n}",
        "machine M version 1 {\n requires ref r : R\n requires capability E\n state S category live\n state D category closed terminal\n create mk -> S { require may: actor.has(E) because delegable }\n do go S -> D {\n  clear r\n }\n}\ntype A version 1 {\n tracking serial\n machine M\n provides capability E = X\n ref r : R\n}"],
   18: "type P version 1 {\n tracking serial\n states S category live, D category closed terminal\n owner w : W inverse parts\n create mk -> S only via W.add { }\n do go S -> D { }\n}",
-  19: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> NOWHERE { }\n}",
+  19: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> NOWHERE { }\n}",
+       "requests by robot require version, token"],
   20: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require actor.has(X) }\n}",
   21: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require n: x == null }\n}",
   26: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { supersede this }\n}",
