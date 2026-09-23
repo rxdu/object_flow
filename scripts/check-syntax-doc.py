@@ -32,6 +32,7 @@ class Decl:
         self.counters = set()
         self.rels = {}          # name -> (kind, decl_text, line)
         self.requires = []      # (kind, name, line)
+        self.req_spec = {}      # a machine's required member -> (kind, text after `requires <kind>`)
         self.provides = set()
         self.invariants = set()
         self.derives = set()
@@ -92,6 +93,7 @@ def parse(text, base=0):
                     else re.findall(r"^\s*(\w+)", rest)
             for nm in names:
                 cur.requires.append((kind, nm, ln))
+                if kind != "capability": cur.req_spec[nm] = (kind, rest)
         if m := re.match(r"^invariant\s+(\w+)", s):          cur.invariants.add(m.group(1))
         if m := re.match(r"^derive\s+(\w+)", s):             cur.derives.add(m.group(1))
         if m := re.match(r"^state\s+(\w+)(.*)$", s):         cur.states[m.group(1)] = (m.group(2), ln)
@@ -451,6 +453,15 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                     if not (rk17 == "ref" and first.endswith("?") and stores(d, sp17, by_name)):
                         add(17, f"{d.name}.{tn} clears relationship end '{tgt}', which is not "
                                 "an optional, singular, stored ref", ln)
+                elif tgt in d.req_spec:
+                    # a machine clears what it requires; each binder's end is checked when
+                    # the machine's transitions are analysed as the binder's
+                    rk17, rs17 = d.req_spec[tgt]
+                    ty17 = rs17.split(":", 1)[1].split() if rk17 != "attr" else rs17.split()[1:]
+                    t17 = ty17[0] if ty17 else ""
+                    if rk17 not in ("ref", "attr") or not t17.endswith("?") or "[]" in t17:
+                        add(17, f"{d.name}.{tn} clears required '{tgt}', which is not an optional, "
+                                "singular ref or attribute", ln)
                 elif tgt not in attrs:
                     add(19, f"{d.name}.{tn} clears undeclared name '{tgt}'", ln)
                 elif not attrs[tgt][0].split()[0].endswith("?"):
@@ -590,7 +601,7 @@ def data_checks(decls, by_name, text):
             add(56, f"metric {d.name} has neither 'from' nor 'combine'", d.start)
         if "value" not in d.clauses:
             add(56, f"metric {d.name} has no 'value'", d.start)
-        src_decl, binder = None, None
+        src_decl, binder, dataset = None, None, False
         for fr, fln in d.clauses.get("from", []):
             m = re.match(r"(\w+)\s+in\s+(\w+)(?:\.(\w+)(?:\((\w+)\))?)?", fr)
             if not m:
@@ -607,11 +618,13 @@ def data_checks(decls, by_name, text):
                 add(58, f"metric {d.name} reads intervals of {base_}.{member}, which is not tracked", fln)
             if suffix is not None:
                 src_decl = None                  # a dataset's rows are not the type's members
+                dataset = True
         for dims, bln in d.clauses.get("by", []):
             for dim in dims.split(","):
                 expr = dim.split("=", 1)[1] if "=" in dim else dim
                 for path in re.findall(rf"\b{binder}((?:\.\w+)+)", expr) if binder else []:
-                    hops = path.count(".")
+                    # a dataset row's `.object` is the row's object, not a hop (§6.9)
+                    hops = path.count(".") - (1 if dataset and path.startswith(".object") else 0)
                     if hops > 2:
                         add(56, f"metric {d.name}: dimension '{dim.strip()}' is {hops} hops", bln)
                     first = path.split(".")[1]
@@ -764,7 +777,8 @@ FIXTURES = {
   11: "type P version 1 {\n tracking serial\n states S category live, D category closed terminal\n owner w : W inverse parts\n create mk -> S { set w := inputs.w }\n do go S -> D { }\n}",
   15: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go D -> S { }\n}",
   16: "type A version 1 {\n tracking serial\n create mk -> S { }\n}",
-  17: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { set other.x := 1 }\n}",
+  17: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { set other.x := 1 }\n}",
+       "machine M version 1 {\n requires ref r : R\n requires capability E\n state S category live\n state D category closed terminal\n create mk -> S { require may: actor.has(E) because delegable }\n do go S -> D {\n  clear r\n }\n}\ntype A version 1 {\n tracking serial\n machine M\n provides capability E = X\n ref r : R\n}"],
   18: "type P version 1 {\n tracking serial\n states S category live, D category closed terminal\n owner w : W inverse parts\n create mk -> S only via W.add { }\n do go S -> D { }\n}",
   19: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> NOWHERE { }\n}",
   20: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require actor.has(X) }\n}",
