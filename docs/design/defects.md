@@ -6,7 +6,7 @@ Findings from every review of this design. It began as the implementation-readin
 
 **Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
 
-**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 0 are open — the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 0 are open — the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and a further pass D269 to D273, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
@@ -280,6 +280,11 @@ Findings from every review of this design. It began as the implementation-readin
 | [D266](#d266) | A mirror could not be erased | Resolved by ADR-0101 |
 | [D267](#d267) | Four standard metrics counted the wrong thing | Resolved by ADR-0101 |
 | [D268](#d268) | Residues of the repairs | Resolved by ADR-0101 |
+| [D269](#d269) | Porting every type as a mirror contradicted check 53, so wholes, parts, families and datapoints could not be ported | Resolved by ADR-0101 |
+| [D270](#d270) | An approval's version was optional, and a publish had no verdict | Resolved by ADR-0101 |
+| [D271](#d271) | A value written after an object first closed had a negative duration | Resolved by ADR-0101 |
+| [D272](#d272) | A reader's metric collapsed its groups, and the per-object metrics were not aggregates | Resolved by ADR-0101 |
+| [D273](#d273) | A publish's migrations were counted as flow | Resolved by ADR-0101 |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -1825,4 +1830,31 @@ Four of the five reviewers checked their own findings against the repairs, and w
 **Residues of the repairs.** `whole_open` on every transition writing an owner would have refused an observation's correction on a finished subject; `ok_migration` could hold neither new mapping; the state was a tracked member in §6.9 and not in §8.3, on which `oldest_open` depended; `.open` and `.imported_at` had no spelling or reservation; §6.11 said its definitions were checked when no checker read them; `TransitionOffer` could not tell two kinds' `record` offers apart; `check` could not test an occurred time; `draft` had no inputs for its evidence; `Event` lacked `imported` and `Attempt.type` could not be absent; legacy intervals reused a shape needing fields a port cannot know; a label's note survived in its own event; and several statements and headers had drifted. Found by the verification reviewers.
 
 **Resolved by ADR-0101**, 2026-09-23: each corrected; the standard metrics are instantiated as a checked block.
+
+## Found by verifying ADR-0101's first draft, 2026-09-23
+
+### D269
+**Porting every type as a mirror contradicted check 53, so wholes, parts, families and datapoints could not be ported.** ADR-0101's first draft limited the import to mirrors and said every type is ported as one, while check 53 refused a mirror that takes part in `extends` or composes with a `part`/`owner`, and an observation kind cannot be a mirror. So no delivery with its checklist items and approvals, no family member, and no legacy datapoint could be ported by any path. PRD N5, D6. Found independently by three verification reviewers.
+
+**Resolved by ADR-0101**, 2026-09-23: mirrors may compose with and extend each other, check 53 refuses only a mix, and the import writes the observations and labels on a mirror's objects.
+
+### D270
+**An approval's version was optional, and a publish had no verdict.** `publish(…, expected_version: int | None = None, …)` let an approver omit the version and meet the race it was added to prevent, and `publish` returned only a `PublishReport`, which could carry neither the `stale` refusal nor the named refusal clauses nor a `withheld` flag. PRD F7.
+
+**Resolved by ADR-0101**, 2026-09-23: the version is required for any publish but a dry run, and `publish` returns a `PublishResult` with the verdict beside a report that carries `withheld`.
+
+### D271
+**A value written after an object first closed had a negative duration.** A current span on a finished object ran to the object's first completion, so on an object kept in a `closed`, non-terminal state for later records — as the specification advises — or reopened and closed again, a span beginning after that point ended before it began. PRD D11.
+
+**Resolved by ADR-0101**, 2026-09-23: a current span on an object now in a `closed` or terminal state runs to its entry into that state only if it began before it.
+
+### D272
+**A reader's metric collapsed its groups, and the per-object metrics were not aggregates.** `metric()` aggregated over every dimension the reader did not bind, so `handoffs_by_object` returned one value unless the reader already knew each job's id, and UC-1's "which states hold work longest" took a call per state. The two per-object metrics' values were row expressions, not aggregates over the group. PRD UC-18, UC-1.
+
+**Resolved by ADR-0101**, 2026-09-23: a reader keeps every declared dimension by default and may name fewer with `keep`; only a guard aggregates over what it leaves unbound; the values are aggregates.
+
+### D273
+**A publish's migrations were counted as flow.** Migration events carry provenance `migrated` with the publisher as actor, and ADR-0101 lets them reach terminal objects, but no row member marked them and the standard metrics excluded only the import, so a state mapping or a `backfill` inflated throughput, rework and cycle time and counted the publisher as a non-assignee. Also: stale "single carve-out" and "no transitions" statements about erasure and mirrors, "tracked from its first write", an interval row opened only on a write, a `LegacyInterval` with no actor kind, an evidence reference with no shape, the live-offer example without `creates`, and a misplaced clause about `avg`. PRD M1, M6.
+
+**Resolved by ADR-0101**, 2026-09-23: `.migrated` is a row member and every standard metric over transitions excludes it; the statements and shapes are corrected.
 

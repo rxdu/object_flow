@@ -1,6 +1,6 @@
 # ADR-0101: Closing what the repairs left: the import, the approval, migrations, a mirror's erasure, and what the standard metrics count
 
-- **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` F7, D4, D8, T1, T3, T4, T5, M1, M3, M4, M6 and UC-16, UC-17, UC-18; repairs D261 to D268
+- **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` F7, D4, D8, T1, T3, T4, T5, M1, M3, M4, M6 and UC-16, UC-17, UC-18; repairs D261 to D273
 - **Date:** 2026-09-23
 - **Refines:** ADR-0056, ADR-0075, ADR-0083, ADR-0097, ADR-0098, ADR-0099, ADR-0100
 
@@ -22,6 +22,12 @@ The five reviewers of ADR-0097 to ADR-0100 were asked to verify their findings a
   - A span still open on a finished object — an engineer on a closed job — grew with `now` for ever.
   - No standard metric named the jobs that changed hands more than once, which UC-18 asks for.
   - Most could not be split by version or actor kind, and a combined metric has no binder to filter by.
+- **D269 to D273**, found by a further verification pass over this decision's first draft:
+  - porting every type as a mirror contradicted check 53, which forbade a mirror to compose or extend, so no delivery and none of its parts could be ported, nor any legacy datapoint;
+  - `publish`'s version was optional, and its result had no verdict to carry a refusal;
+  - clipping a finished object's spans at its first completion made a value written after it negative;
+  - `metric()` aggregated over every dimension a reader left unbound, so the per-object metrics collapsed to one value, and those metrics' values were not aggregates;
+  - a publish's migrations were counted as flow.
 - **D268. Smaller residues.**
   - `whole_open` would have refused an observation's correction.
   - `ok_migration` could not store the new mappings.
@@ -34,13 +40,15 @@ The five reviewers of ADR-0097 to ADR-0100 were asked to verify their findings a
 
 ### 1. The import writes only mirrors
 
-`import_batch` writes a type only while it is declared `mirror`. Every type is ported as a mirror and cut over by the publish that removes the marking, which is ADR-0075's mechanism; a big-bang port is one such publish over every type. Once a type is owned, no import reaches it.
+`import_batch` writes a type only while it is declared `mirror`, together with the observations and labels on a mirror's objects, so legacy datapoints port with their subjects. Every type is ported as a mirror and cut over by the publish that removes the marking, which is ADR-0075's mechanism; a big-bang port is one such publish over every type. Once a type is owned, no import reaches it.
 
-Every admission in a batch carries its reason. The import never writes a personal attribute of an object whose erasure is recorded, so a refresh cannot bring back an erased person.
+Mirrors may therefore compose with and extend each other, and check 53 refuses only a mix: an owned type composing with or extending a mirror. A composition or a family is cut over by one publish.
+
+Every admission in a batch carries its reason. The import never writes a personal attribute of an object whose erasure is recorded, and redacts the legacy entries and intervals it attaches to one as the erasure would have, so a refresh cannot bring back an erased person.
 
 ### 2. An approval names the version of the change it read
 
-`publish(actor, change, expected_version)` refuses as `stale` if the change has moved since the approver read it, and `refresh` advances its version. So the report compared at commit is the report the approver was shown.
+`publish(actor, change, expected_version)` refuses as `stale` if the change has moved since the approver read it, and `refresh` advances its version. The version is required for any publish but a dry run. So the report compared at commit is the report the approver was shown. `publish` returns the verdict on the transition beside the report, so a stale or refused approval says which clause refused it.
 
 ### 3. A flow change is visible to those who draft and approve, and its report is filtered like a verdict
 
@@ -64,9 +72,9 @@ The store is constructed with the deployment's attempt retention. `maintain` ref
 
 ### 7. The standard metrics count only the store's own flow, clip finished spans, and name objects
 
-- **The import's events are excluded.** Every standard metric over transitions leaves them out (`where not t.imported`). The import's events are the port, not the flow. A ported object's history enters the metrics through its legacy intervals, which are marked as such.
-- **A finished object's open spans stop at its completion.** `.duration` of a span is its exit less its entry. A span still current on an open object runs to `now`, and one on a finished object runs to its completion. A span in the `closed` or terminal state the object finished in has no duration, and an aggregate leaves out a row whose body is absent.
-- **Two standard metrics name the objects.** `handoffs_by_object.<r>` and `returns_by_object.<r>` group by the object itself, with flags `changed_hands_more_than_once` and `returned_to_earlier`, so `metric()` returns the jobs UC-18 asks about.
+- **The import's events and a publish's migrations are excluded.** Every standard metric over transitions leaves them out (`not t.imported and not t.migrated`). They are the port and the publish, not the flow. A ported object's history enters the metrics through its legacy intervals, which are marked as such.
+- **A finished object's open spans stop where it finished.** `.duration` of a span is its exit less its entry. A span still current runs to `now`, except on an object now in a `closed` or terminal state, where one that began before the object entered that state runs to that entry. A span in that state itself has no duration, and an aggregate leaves out a row whose body is absent. So a value written after the object closed, or on an object reopened and closed again, is never negative.
+- **Two standard metrics name the objects.** `handoffs_by_object.<r>` and `returns_by_object.<r>` group by the object itself, with flags `changed_hands_more_than_once` and `returned_to_earlier`. **A reader keeps every declared dimension by default**, getting one row per group, and may name fewer with `keep`; only a guard aggregates over what it leaves unbound, since a guard needs one value. So `metric()` returns the jobs UC-18 asks about, one row each.
 - **Every standard metric can be split by version and actor kind.** Each declares `version` and `actor_kind` as dimensions, taken from its rows, which a reader leaves unbound unless splitting. A combined metric passes them through from the metrics it combines.
 - **Definitions are tightened.** `.returns` counts a transition that changes state into one the object held before, so an `act` is not rework. `avg` yields a `decimal`. Every tracked member has an interval from creation, absence included, so a job never assigned counts as waiting from its creation.
 
@@ -84,6 +92,8 @@ The store is constructed with the deployment's attempt retention. `maintain` ref
 
 ## Alternatives rejected
 
+- **Keep check 53's ban on a mirror composing or extending.** No delivery, part or family could then be ported at all, since the import writes only mirrors.
+- **Aggregate over every unbound dimension in a read, as a guard does.** A reader could then never see the groups, and would need the ids it is asking for in order to ask.
 - **Close the import once a type has had any ordinary write.** A catalogue nobody touches for months would stay importable, and "has it been written" is a fact a refresh job cannot see before it runs.
 - **Freeze the report at submission and forbid `refresh`.** A long review would then approve a report that has aged, which is what `impact_unchanged` exists to prevent. Versioning the change keeps both properties.
 - **Migrate observations like any object.** It edits a recorded datapoint, which D4 forbids, and a field added to a kind is already optional for the same reason.
@@ -98,4 +108,4 @@ The store is constructed with the deployment's attempt retention. `maintain` ref
 - `library-api.md`'s `publish`, `check`, `TransitionOffer`, `Event`, `Attempt`, the import shapes and the store's construction change.
 - `publish-and-import.md` §1 and §4 change.
 - `renderers.md` §3 changes.
-- D261 to D268 are resolved.
+- D261 to D273 are resolved.

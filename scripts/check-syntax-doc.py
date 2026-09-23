@@ -292,9 +292,16 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
             if writes:
                 add(53, f"{d.name} is a mirror and declares {len(writes)} transition(s) other than erase",
                     d.start)
-            if d.base:
-                add(53, f"{d.name} is a mirror and extends {d.base}", d.start)
-        if d.base and getattr(by_name.get(d.base), "mirror", False):
+            base53 = by_name.get(d.base) if d.base else None
+            if base53 is not None and not base53.mirror:    # mirrors may extend mirrors (ADR-0101)
+                add(53, f"{d.name} is a mirror and extends {d.base}, which this store owns", d.start)
+            for rn, (rk, rspec, rln) in d.rels.items():
+                if rk in ("part", "owner") and rspec.split():
+                    far = by_name.get(rspec.split()[0].rstrip("?[]"))
+                    if far is not None and far.kind == "type" and not far.mirror:
+                        add(53, f"{d.name}.{rn} is a mirror composing with {far.name}, "
+                                "which this store owns", rln)
+        if not d.mirror and d.base and getattr(by_name.get(d.base), "mirror", False):
             add(53, f"{d.name} extends mirror {d.base}, so a type this store owns "
                     "would inherit the shape of one it does not", d.start)
         if not d.mirror:

@@ -85,7 +85,8 @@ ServiceJob — version 2
                      rework; for engineer: open_work, time_unassigned,
                      time_to_first_assignment, time_with_assignee,
                      cycle_time_by_assignee, time_in_state_by_holder, handoffs,
-                     reassigned_back, acted_by_non_assignee (declaration-syntax §6.11)
+                     reassigned_back, acted_by_non_assignee, handoffs_by_object,
+                     returns_by_object (declaration-syntax §6.11)
 ```
 
 An **observing clause** is printed as not enforced, on the same line as the rule, so no reader can mistake a trial for a guarantee (ADR-0085). A **metric** is printed as its definition rendered in words, exactly as a guard is, because the rule set is the one place a definition is meant to be read as the rule; everywhere else points at `metric()` (§3). The **assignee** line says which reference is the responsibility, since that is what the assignment metrics are over (ADR-0086). The **standard metrics** are listed by name under every type, since each is a declaration a reader can look up (ADR-0098). The **built-in types** — `DeclarationChange`, `Proposal`, `Subscription` and the `label` kind — are rendered like any type, with the built-in capabilities that gate them, so who may draft, approve, label or import is on the page (ADR-0097).
@@ -174,7 +175,8 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
     "type": "object",
     "properties": {
       "name": {"type": "string", "enum": ["time_working", "inspection_pass_rate", "ServiceJob.time_in_state", "ServiceJob.work_in_progress", "ServiceJob.open_work.engineer", "ServiceJob.cycle_time_by_assignee.engineer"]},
-      "bind": {"type": "object", "description": "dimension values to fix; any dimension left out is aggregated over"},
+      "bind": {"type": "object", "description": "dimension values to fix"},
+      "keep": {"type": "array", "items": {"type": "string"}, "description": "the dimensions to group by; all by default, and any left out is aggregated over"},
       "over": {"type": "string", "description": "a window back from now, such as 30 days"},
       "filter": {"type": "string"},
       "cursor": {"type": "string"}
@@ -193,6 +195,7 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
 [
   {
     "transition": "complete_sale",
+    "creates": null,
     "availability": "unavailable",
     "verdict": {
       "kind": "unsatisfied",
@@ -201,13 +204,16 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
       "unknown": false,
       "objects": ["chk_41c0", "chk_41c7"],
       "capability": null,
-      "proposable": false
+      "proposable": false,
+      "consulted": {},
+      "withheld": false
     },
     "inputs": {},
     "unevaluated": []
   },
   {
     "transition": "cancel",
+    "creates": null,
     "availability": "available",
     "verdict": null,
     "inputs": {},
@@ -215,6 +221,7 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
   },
   {
     "transition": "add_checklist_item",
+    "creates": null,
     "availability": "available_with_input",
     "verdict": null,
     "inputs": {

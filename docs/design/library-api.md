@@ -376,6 +376,29 @@ class LegacyInterval:
     entered_at: datetime
     left_at: datetime | None
     entered_by: str | None = None         # who made the change, where the record says
+    entered_by_kind: ActorKind | None = None   # their kind, where the record says
+
+
+@dataclass(frozen=True)
+class EvidenceRef:
+    """A metric or diagnostic a flow change cites; `submit` snapshots what it
+    reads (ADR-0097, ADR-0101)."""
+
+    metric: str | None = None             # a metric's name, or
+    diagnostics: str | None = None        # a type whose diagnostics are cited
+    bind: Mapping[str, Any] = field(default_factory=dict)
+    keep: Sequence[str] | None = None
+    over: timedelta | None = None
+    filter: str | None = None
+
+
+@dataclass(frozen=True)
+class PublishResult:
+    """What `publish` returns: the verdict on the `publish` transition, and
+    the report it was decided on, filtered for the actor (ADR-0101)."""
+
+    verdict: Verdict                      # Stale if the change moved since it was read
+    report: "PublishReport"
 
 
 @dataclass(frozen=True)
@@ -481,6 +504,7 @@ class Store(Protocol):
 
     def metric(self, actor: Actor, name: str,
                bind: Mapping[str, Any] | None = None,
+               keep: Sequence[str] | None = None,     # dimensions to group by; all if None
                over: timedelta | None = None,
                filter: str | None = None,
                cursor: str | None = None) -> MetricPage: ...
@@ -497,8 +521,8 @@ class Store(Protocol):
     def maintain(self, actor: Actor, task: "MaintenanceTask") -> int: ...   # rows it moved or removed
 
     def publish(self, actor: Actor, change: str,
-                expected_version: int | None = None,
-                dry_run: bool = False) -> "PublishReport": ...
+                expected_version: int | None,         # required unless dry_run (ADR-0101)
+                dry_run: bool = False) -> "PublishResult": ...
 ```
 
 `PublishReport` is defined in [`publish-and-import.md`](publish-and-import.md) §2, which owns it: publishing is where its shape is decided and one shape should have one home.
@@ -506,12 +530,12 @@ class Store(Protocol):
 Nineteen operations: the sixteen of §10, the write path of §6, and the operational calls that are not object operations, `acknowledge` and `publish`. `import_batch` and `maintain` are the only other ways anything writes the database (ADR-0100). The checker holds this list against §10 rather than trusting it.
 
 - `metric` returns a `MetricPage`, and `diagnostics` a short fixed list, each computed over what the reader may see and saying whether that is everything (ADR-0096).
-- `import_batch` writes a port through the built-in assertion, for an actor holding `OK_IMPORT`, and only into a type declared `mirror`; it never rewrites a personal value an erasure removed, and every event it writes is marked `imported` (ADR-0100, ADR-0101). A legacy interval pages in the export by the cursor of the import event that wrote its object. `maintain` requires `OK_MAINTAIN`, refuses a prune inside the store's attempt retention, changes no governed state or history, and is never needed for correctness (ADR-0100, ADR-0101).
+- `import_batch` writes a port through the built-in assertion, for an actor holding `OK_IMPORT`, and only into a type declared `mirror` and the observations and labels on a mirror's objects; it never rewrites a personal value an erasure removed, redacts the legacy entries and intervals it attaches to an erased object as the erasure would have, and marks every event it writes `imported` (ADR-0100, ADR-0101). A legacy interval pages in the export by the cursor of the import event that wrote its object. `maintain` requires `OK_MAINTAIN`, refuses a prune inside the store's attempt retention, changes no governed state or history, and is never needed for correctness (ADR-0100, ADR-0101).
 - `export` pages an attempt source by its writing transaction's settled cursor, and an interval source by the cursor of the event that last opened or closed each row, so a closing re-emits the row and a consumer keeps the latest per object, dimension and entry (ADR-0100).
 - `export` takes a source — `log`, `<Type>.intervals`, `<Type>.transitions`, `<Type>.attempts`, or an observation kind — and returns JSON lines of the corresponding shape above, with every personal value omitted (ADR-0094).
 - `history`, `pull` and `export` filter the `reads` and `consulted` of an event or an attempt for the reader: an object the reader cannot see is left out and `withheld` is set, and a metric value is left out unless the reader can see every current object of each type the metric reads (ADR-0095, ADR-0096). A refusal's `Unsatisfied.consulted` follows the same rule for its requester, since a metric in a guard reads rows the requester may not see: the value is given to a requester who can see every current object of each type the metric reads, and otherwise left out.
 - `metric` aggregates the rows the reader may see, after narrowing them by `filter`, and a path through an object the reader may not see yields absence. `complete` says whether those rows are all there are, so a partial value is never taken for the metric's own (PRD C2, M2, T5, ADR-0096).
-- `publish` takes the id of a `DeclarationChange` (ADR-0085, ADR-0097): with `dry_run` it produces the impact report `submit` and `refresh` attach, and without it it requests the change's `publish` transition, which is the approval and installs the version. `expected_version` is the version of the change the approver read, and a change that has moved since, by a `refresh`, is refused as `stale` (ADR-0101).
+- `publish` takes the id of a `DeclarationChange` (ADR-0085, ADR-0097): with `dry_run` it produces the impact report `submit` and `refresh` attach, and without it it requests the change's `publish` transition, which is the approval and installs the version. `expected_version` is the version of the change the approver read, required unless `dry_run`, and a change that has moved since, by a `refresh`, is refused as `stale`. The result carries the verdict — `Satisfied`, `Stale`, or `Unsatisfied` naming `not_drafter`, `person_for_agent`, `current` or `impact_unchanged` — beside the report, whose ids are filtered for the actor (ADR-0097, ADR-0101).
 
 Three of them are worth reading twice.
 

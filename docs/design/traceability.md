@@ -19,7 +19,7 @@ Covered is a claim about the design, not about software: nothing here is impleme
   - ADR-0087 to ADR-0095 closed the gaps and the defects D202 to D217;
   - an independent review then read every cited passage against every clause of its requirement, in three passes, and found eighteen more defects, D218 to D235, which ADR-0096 repaired; since then a covered row must cite a document that owns an implementation, which the checker enforces;
   - five further reviewers, one per slice of the PRD, the decision record and the documents' agreement with each other, then found D236 to D258, which ADR-0097 to ADR-0100 repaired, and found C2, UC-8 and UC-10 unsatisfiable as written beside T5, which PRD §12 proposes to revise;
-  - their verification found D261 to D268, which ADR-0101 repaired;
+  - their verification found D261 to D273 in two passes, which ADR-0101 repaired;
   - the six implementation documents were amended;
   - declaration-syntax iteration 19 spelled the new constructs, with checks 54 to 61.
 
