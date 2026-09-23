@@ -839,7 +839,7 @@ observation InspectionResult version 1 on ServiceJob as inspections {
 
 Every observation also has `.recorded_at`, the time its event was recorded; `.recorded_by_kind`, the kind of actor that recorded it; and `.occurred_at`, when the fact happened, stored in its own column.
 
-The creation carries four guards, named in a verdict like any other:
+The creation carries five guards, named in a verdict like any other:
 - `recorded_by`, the `recorded by` expression, which reads `actor` and the inputs, `inputs.subject` included;
 - `subject_open`, that the subject is not in a terminal state, for a new observation. A correction is exempt, since it adds no fact to a settled whole but replaces one already recorded, and PRD D4 allows no exception (ADR-0096);
 - `corrects_current`, that a `corrects` names an observation of this kind on the same subject which nothing has corrected yet, so a correction can neither reach another subject's results nor branch a chain;
