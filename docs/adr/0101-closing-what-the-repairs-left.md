@@ -1,6 +1,6 @@
 # ADR-0101: Closing what the repairs left: the import, the approval, migrations, a mirror's erasure, and what the standard metrics count
 
-- **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` F7, D4, D8, T1, T3, T4, T5, M1, M3, M4, M6 and UC-16, UC-17, UC-18; repairs D261 to D273
+- **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` F7, D4, D8, T1, T3, T4, T5, M1, M3, M4, M6 and UC-16, UC-17, UC-18; repairs D261 to D274
 - **Date:** 2026-09-23
 - **Refines:** ADR-0056, ADR-0075, ADR-0083, ADR-0097, ADR-0098, ADR-0099, ADR-0100
 
@@ -42,7 +42,7 @@ The five reviewers of ADR-0097 to ADR-0100 were asked to verify their findings a
 
 `import_batch` writes a type only while it is declared `mirror`, together with the observations and labels on a mirror's objects, so legacy datapoints port with their subjects. Every type is ported as a mirror and cut over by the publish that removes the marking, which is ADR-0075's mechanism; a big-bang port is one such publish over every type. Once a type is owned, no import reaches it.
 
-Mirrors may therefore compose with and extend each other, and check 53 refuses only a mix: an owned type composing with or extending a mirror. A composition or a family is cut over by one publish.
+Mirrors may therefore compose with and extend each other, and check 53 refuses only a mix: an owned type composing with or extending a mirror. A composition or a family is cut over by one publish. An observation kind's collection on a mirror is not a mix, since an observation is this store's record about the object; but only the import writes one there, and a generated guard, `subject_owned`, refuses a `record` or a `label` request on a mirror's object, so a mirror has one writer until it is cut over.
 
 Every admission in a batch carries its reason. The import never writes a personal attribute of an object whose erasure is recorded, and redacts the legacy entries and intervals it attaches to one as the erasure would have, so a refresh cannot bring back an erased person.
 
@@ -73,9 +73,9 @@ The store is constructed with the deployment's attempt retention. `maintain` ref
 ### 7. The standard metrics count only the store's own flow, clip finished spans, and name objects
 
 - **The import's events and a publish's migrations are excluded.** Every standard metric over transitions leaves them out (`not t.imported and not t.migrated`). They are the port and the publish, not the flow. A ported object's history enters the metrics through its legacy intervals, which are marked as such.
-- **A finished object's open spans stop where it finished.** `.duration` of a span is its exit less its entry. A span still current runs to `now`, except on an object now in a `closed` or terminal state, where one that began before the object entered that state runs to that entry. A span in that state itself has no duration, and an aggregate leaves out a row whose body is absent. So a value written after the object closed, or on an object reopened and closed again, is never negative.
+- **A finished object's open spans stop where it finished.** `.duration` of a span is its exit less its entry. A span still current runs to `now` while its object is open. On an object now in a `closed` or terminal state, one that began before the object entered that state runs to that entry, and one that began after it, like a span in that state itself, has no duration; an aggregate leaves out a row whose body is absent. So nothing accrues on a finished object, and no duration is ever negative.
 - **Two standard metrics name the objects.** `handoffs_by_object.<r>` and `returns_by_object.<r>` group by the object itself, with flags `changed_hands_more_than_once` and `returned_to_earlier`. **A reader keeps every declared dimension by default**, getting one row per group, and may name fewer with `keep`; only a guard aggregates over what it leaves unbound, since a guard needs one value. So `metric()` returns the jobs UC-18 asks about, one row each.
-- **Every standard metric can be split by version and actor kind.** Each declares `version` and `actor_kind` as dimensions, taken from its rows, which a reader leaves unbound unless splitting. A combined metric passes them through from the metrics it combines.
+- **Every standard metric can be split by version and actor kind.** Each declares `version` and `actor_kind` as dimensions, taken from its rows, which a reader drops with `keep` to aggregate over them. A combined metric passes them through from the metrics it combines.
 - **Definitions are tightened.** `.returns` counts a transition that changes state into one the object held before, so an `act` is not rework. `avg` yields a `decimal`. Every tracked member has an interval from creation, absence included, so a job never assigned counts as waiting from its creation.
 
 ### 8. The residues
@@ -108,4 +108,4 @@ The store is constructed with the deployment's attempt retention. `maintain` ref
 - `library-api.md`'s `publish`, `check`, `TransitionOffer`, `Event`, `Attempt`, the import shapes and the store's construction change.
 - `publish-and-import.md` §1 and §4 change.
 - `renderers.md` §3 changes.
-- D261 to D273 are resolved.
+- D261 to D274 are resolved.

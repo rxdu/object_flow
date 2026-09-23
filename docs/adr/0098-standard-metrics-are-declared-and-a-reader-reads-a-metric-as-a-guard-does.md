@@ -45,7 +45,7 @@ They are checked like any declaration, printed with the type in the rule set, an
 
 ### 3. A reader reads a metric as a guard does
 
-`metric(actor, name, bind, over, filter, cursor)` takes the same things a guard's reference takes: dimension values to bind, an `over last` window, and a `filter`, which is a boolean expression over the declaration's own binder. A declared dimension left unbound is aggregated over. A screen, an agent and a rule therefore read one value from one definition (C2), and a guard's 30-day value is readable by the person the guard refused (UC-10, UC-11).
+`metric(actor, name, bind, over, filter, cursor)` takes the same things a guard's reference takes: dimension values to bind, an `over last` window, and a `filter`, which is a boolean expression over the declaration's own binder. A declared dimension left unbound is aggregated over. *(Refined by ADR-0101 §7: that is a guard's reading; a reader keeps every declared dimension by default, one row per group, and names fewer with `keep`.)* A screen, an agent and a rule therefore read one value from one definition (C2), and a guard's 30-day value is readable by the person the guard refused (UC-10, UC-11).
 
 ### 4. A derived attribute in a metric row is read under the reader's visibility
 
