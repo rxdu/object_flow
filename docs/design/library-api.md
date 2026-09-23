@@ -6,11 +6,13 @@ Draft, 2026-09-09, amended 2026-09-23. The request and verdict shapes of [`../DE
 
 **Amended 2026-09-23** for ADR-0082 to ADR-0094: `metric`, `diagnostics` and `export`; `publish` of a `DeclarationChange`; the settled cursor for `pull` and `acknowledge`; the read set, writing transaction, occurred time and retry count on an event; the attempt and interval shapes; `Unsatisfied` naming what its remedy points at, and `Stale` its cause; and the injected dependencies, including the connection source.
 
+**Amended again 2026-09-23** for ADR-0097 to ADR-0101, from a review of the whole record against the PRD; each change cites the decision it carries.
+
 ## 1. Why Python, and what that does not mean
 
 The core is library-shaped: a call goes in, guards evaluate, a transition and its record come out (§2 of the model). The first consumer is a FastAPI and SQLAlchemy system being rebuilt on this, so a Python interface is the one that will be exercised first and is the one written here.
 
-That is a **binding**, not the design. The operations, their arguments and their results are the API; the dataclasses are one rendering of it. A second binding should offer the same seventeen operations with the same meanings, and the checker's comparison against §10 is written against the operation set rather than against Python.
+That is a **binding**, not the design. The operations, their arguments and their results are the API; the dataclasses are one rendering of it. A second binding should offer the same nineteen operations with the same meanings, and the checker's comparison against §10 is written against the operation set rather than against Python.
 
 ## 2. Three rules the shapes follow
 
@@ -98,7 +100,7 @@ class EvaluatorSource(Protocol):
 
 A creation names a `type` and no `object_id`; every other transition names an `object_id`. `expected_version` is the optimistic check of ADR-0023, `idempotency_key` makes a retry safe by replaying the first result rather than refusing it (ADR-0041), and `context` is the free-form route marker that ends up in the event's provenance. A request carrying both a key and an `expected_version` is matched on its key first: a replay returns the recorded verdict whatever version the retry supplies, and `Stale` is possible only for a request that has not been applied (ADR-0076). `occurred_at` is accepted by a transition marked backdatable and by an observation kind's `record`, and is checked by the generated guard `occurred_within`, so a time outside the bound is refused naming that clause (ADR-0083, ADR-0099).
 
-A store is built from a backend, an `IdSource`, a `Clock`, a `ConnectionSource` and an `EvaluatorSource`, all injected, so a test controls everything nondeterministic about a request (ADR-0077, ADR-0091). The core is **synchronous**: an operation runs to completion on its caller's thread, and an asynchronous service such as the first consumer's wraps it on a thread pool.
+A store is built from a backend, an `IdSource`, a `Clock`, a `ConnectionSource` and an `EvaluatorSource`, all injected, and the deployment's attempt retention, a duration `maintain` will not prune inside (ADR-0101); so a test controls everything nondeterministic about a request (ADR-0077, ADR-0091). The core is **synchronous**: an operation runs to completion on its caller's thread, and an asynchronous service such as the first consumer's wraps it on a thread pool.
 
 ## 4. The verdict
 
@@ -200,6 +202,8 @@ class Availability(Enum):
 class TransitionOffer:
     transition: str
     availability: Availability
+    creates: str | None                   # the type an offered creation creates: an
+                                          # observation kind's record, or a label (ADR-0101)
     verdict: Verdict | None
     inputs: Mapping[str, str]
     unevaluated: Sequence[str]
@@ -257,6 +261,7 @@ class Event:
     recorded_at: datetime
     occurred_at: datetime | None          # when a backdated change happened (ADR-0083)
     retries: int                          # serialisation retries its request took
+    imported: bool                        # written by import_batch (ADR-0100)
     payload: Mapping[str, Any]
     reads: ReadSet
     consulted: Mapping[str, Any]          # per evaluator or metric guard: the verdict or value given
@@ -330,7 +335,7 @@ class Attempt:
     actor_kind: ActorKind
     principal: str | None
     context: str | None
-    type: str
+    type: str | None                      # None where the request named an unknown id
     object_id: str | None
     transition: str | None                # None for a request naming no transition
     verdict: str                          # the verdict kind, or the fault's name
@@ -362,6 +367,24 @@ class Interval:
 
 
 @dataclass(frozen=True)
+class LegacyInterval:
+    """A span the legacy record gives. The object's id, the actor kind where
+    the record is silent, and the declaration version are the import's."""
+
+    dimension: str
+    value: Any
+    entered_at: datetime
+    left_at: datetime | None
+    entered_by: str | None = None         # who made the change, where the record says
+
+
+@dataclass(frozen=True)
+class Admission:
+    invariant: str
+    reason: str                           # required, as for any admission
+
+
+@dataclass(frozen=True)
 class ImportedObject:
     """One object of a port, as the mapping produced it (ADR-0100)."""
 
@@ -370,7 +393,7 @@ class ImportedObject:
     state: str
     attributes: Mapping[str, Any]         # references by legacy key
     legacy_entries: Sequence[Mapping[str, Any]] = ()   # only this object's fields
-    legacy_intervals: Sequence[Interval] = ()
+    legacy_intervals: Sequence["LegacyInterval"] = ()
     created_at: datetime | None = None    # the legacy creation, where known
     created_by_kind: ActorKind | None = None
 
@@ -378,8 +401,8 @@ class ImportedObject:
 @dataclass(frozen=True)
 class ImportBatch:
     objects: Sequence[ImportedObject]
-    admitted: Mapping[str, Sequence[str]] = field(default_factory=dict)
-                                          # disposition: legacy key -> invariants admitted
+    admitted: Mapping[str, Sequence["Admission"]] = field(default_factory=dict)
+                                          # disposition: legacy key -> admissions
 
 
 @dataclass(frozen=True)
@@ -438,7 +461,8 @@ class Store(Protocol):
                   cursor: str | None = None) -> Page: ...
 
     def check(self, actor: Actor, id_or_type: str, transition: str,
-              inputs: Mapping[str, Any]) -> Checked: ...
+              inputs: Mapping[str, Any],
+              occurred_at: datetime | None = None) -> Checked: ...
 
     def history(self, actor: Actor, id: str,
                 follow: bool = False) -> Iterator[Event | LegacyEntry]: ...
@@ -470,9 +494,10 @@ class Store(Protocol):
     def import_batch(self, actor: Actor, batch: "ImportBatch",
                      dry_run: bool = False) -> "ImportReport": ...
 
-    def maintain(self, actor: Actor, task: "MaintenanceTask") -> None: ...
+    def maintain(self, actor: Actor, task: "MaintenanceTask") -> int: ...   # rows it moved or removed
 
     def publish(self, actor: Actor, change: str,
+                expected_version: int | None = None,
                 dry_run: bool = False) -> "PublishReport": ...
 ```
 
@@ -481,12 +506,12 @@ class Store(Protocol):
 Nineteen operations: the sixteen of §10, the write path of §6, and the operational calls that are not object operations, `acknowledge` and `publish`. `import_batch` and `maintain` are the only other ways anything writes the database (ADR-0100). The checker holds this list against §10 rather than trusting it.
 
 - `metric` returns a `MetricPage`, and `diagnostics` a short fixed list, each computed over what the reader may see and saying whether that is everything (ADR-0096).
-- `import_batch` writes a port through the built-in assertion, for an actor holding `OK_IMPORT`, and only into a type that is a `mirror` or that no ordinary request has created an object of; every event it writes is marked `imported`. `maintain` requires `OK_MAINTAIN`, changes nothing any read returns, and is never needed for correctness (ADR-0100).
+- `import_batch` writes a port through the built-in assertion, for an actor holding `OK_IMPORT`, and only into a type declared `mirror`; it never rewrites a personal value an erasure removed, and every event it writes is marked `imported` (ADR-0100, ADR-0101). A legacy interval pages in the export by the cursor of the import event that wrote its object. `maintain` requires `OK_MAINTAIN`, refuses a prune inside the store's attempt retention, changes no governed state or history, and is never needed for correctness (ADR-0100, ADR-0101).
 - `export` pages an attempt source by its writing transaction's settled cursor, and an interval source by the cursor of the event that last opened or closed each row, so a closing re-emits the row and a consumer keeps the latest per object, dimension and entry (ADR-0100).
 - `export` takes a source — `log`, `<Type>.intervals`, `<Type>.transitions`, `<Type>.attempts`, or an observation kind — and returns JSON lines of the corresponding shape above, with every personal value omitted (ADR-0094).
 - `history`, `pull` and `export` filter the `reads` and `consulted` of an event or an attempt for the reader: an object the reader cannot see is left out and `withheld` is set, and a metric value is left out unless the reader can see every current object of each type the metric reads (ADR-0095, ADR-0096). A refusal's `Unsatisfied.consulted` follows the same rule for its requester, since a metric in a guard reads rows the requester may not see: the value is given to a requester who can see every current object of each type the metric reads, and otherwise left out.
 - `metric` aggregates the rows the reader may see, after narrowing them by `filter`, and a path through an object the reader may not see yields absence. `complete` says whether those rows are all there are, so a partial value is never taken for the metric's own (PRD C2, M2, T5, ADR-0096).
-- `publish` takes the id of a `DeclarationChange` (ADR-0085): with `dry_run` it produces the impact report a draft carries, and without it it installs an approved change and is refused for any other.
+- `publish` takes the id of a `DeclarationChange` (ADR-0085, ADR-0097): with `dry_run` it produces the impact report `submit` and `refresh` attach, and without it it requests the change's `publish` transition, which is the approval and installs the version. `expected_version` is the version of the change the approver read, and a change that has moved since, by a `refresh`, is refused as `stale` (ADR-0101).
 
 Three of them are worth reading twice.
 

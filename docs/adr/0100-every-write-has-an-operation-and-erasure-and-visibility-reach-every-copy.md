@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` N2, N4, N5, T1, T3, T4, T5, D8, M5 and UC-17; repairs D251 to D258
 - **Date:** 2026-09-23
+- **Refined by:** ADR-0101 — the import writes only mirrors and never restores an erased value; `whole_open` guards re-parents only; pruning has a floor.
 - **Refines:** ADR-0012, ADR-0015, ADR-0030, ADR-0043, ADR-0054, ADR-0058, ADR-0075, ADR-0087, ADR-0091, ADR-0093, ADR-0094, ADR-0096
 
 ## Context
@@ -48,7 +49,7 @@ A batch carries, per object:
 - its legacy intervals, each with who made the change where the legacy record says;
 - its legacy creation time and creator kind.
 
-It writes a type only while that type is a `mirror`, or while no ordinary request has created an object of it. Once a type is owned, the import refuses it, so the refresh of a mirror cannot override an owned type.
+It writes a type only while that type is a `mirror`, or while no ordinary request has created an object of it. *(Narrowed by ADR-0101 §1: only while it is a `mirror`. A type nobody had created an object of could otherwise be overridden by a refresh long after cutover.)* Once a type is owned, the import refuses it, so the refresh of a mirror cannot override an owned type.
 
 Every event it writes carries `imported`, in a column of `ok_event`. That column is what `.imported` reads, and what `exceptions()` and the override metrics exclude.
 
@@ -58,7 +59,7 @@ Every event it writes carries `imported`, in a column of `ok_event`. That column
 - `prune_attempts(before)`, which deletes attempt rows and adds their counts to the rollup in the same transaction;
 - `archive_events(before)`, which moves events to the archive table the view reads.
 
-Neither changes governed state or what any read returns. A deployment calls it when it chooses, and correctness never waits on it (N2). With `import_batch` and `maintain`, the API has nineteen operations, and nothing else writes the database.
+Neither changes governed state or what any read returns. *(Corrected by ADR-0101 §4: pruning removes attempt rows past the store's retention, which the attempt sources and export then no longer return, their counts kept in the rollup; it changes no governed state or history.)* A deployment calls it when it chooses, and correctness never waits on it (N2). With `import_batch` and `maintain`, the API has nineteen operations, and nothing else writes the database.
 
 ### 3. Erasure reaches every copy
 
@@ -68,7 +69,7 @@ Beyond ADR-0087, erasure:
 3. follows each of the erased object's events down its caused events, and erases what flowed into other objects' personal attributes, both in those events and on those objects. Check 10's taint analysis finds these flows, as it finds the caller's. A person copied into a delivery's contact is erased with the person;
 4. reaches every observation in the subject's collection, corrected ones included;
 5. never meets another object's fields in a legacy entry, because the import keeps only fields of the entry's own object;
-6. erases the legacy creation fields as it erases any personal value.
+6. erases the legacy creation fields as it erases any personal value. *(Withdrawn by ADR-0101: the creation time and creator kind are not personal values, and nothing needs erasing there.)*
 
 ### 4. A verdict names only objects its requester can see
 
@@ -78,7 +79,7 @@ Beyond ADR-0087, erasure:
 
 - Step 2's idempotency record is written in step 8, with the event.
 - Step 7 discharges an admitted violation whose invariant holds again, and records the discharging position.
-- A transition that writes an `owner` carries a generated guard, `whole_open`: the destination whole is not in a terminal state. It is the counterpart for a re-parent of check 11's rule for a creation.
+- A transition that writes an `owner` carries a generated guard, `whole_open`: the destination whole is not in a terminal state. *(Narrowed by ADR-0101 §8: a `do` or `act` writing `owner` on an existing object, a re-parent. A creation is covered by check 11, and a recording by `subject_open`, whose correction exemption this would otherwise defeat.)* It is the counterpart for a re-parent of check 11's rule for a creation.
 - An observing clause refuses nothing at any depth, cascaded transitions included. Its would-be refusal is logged like the parent's.
 
 ### 6. Exports and subscriptions page by the settled cursor

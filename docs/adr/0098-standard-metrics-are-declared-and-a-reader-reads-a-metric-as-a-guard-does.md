@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` M1, M3, M4, M6, C2, C3, C1, T5, UC-1, UC-2, UC-10, UC-11, UC-13, UC-16, UC-18; repairs D240 to D244
 - **Date:** 2026-09-23
+- **Refined by:** ADR-0101 — the standard metrics exclude the import's events, clip finished spans, carry version and actor kind, and include two per-object metrics; they are checked as an instantiated block.
 - **Refines:** ADR-0084, ADR-0086, ADR-0096
 
 ## Context
@@ -61,8 +62,9 @@ C2 as written — "every consumer … gets the same value" — cannot hold besid
 `docs/PRD.md` §12 therefore proposes revision 4, for the author to accept or refuse:
 - C2 gets the same value from the same data, with a partial reader's value marked partial.
 - UC-10's refusal names the value where the requester may see what it is computed from.
+- UC-8, which tests C2, gets the same wording as C2.
 
-Until the author decides, `traceability.md` marks both rows **revision proposed**, a status its checker allows only for requirements the PRD lists there. The design is otherwise unchanged by the proposal: it already behaves as the revised wording says (ADR-0096 §3).
+Until the author decides, `traceability.md` marks the three rows **revision proposed**, a status its checker allows only for requirements the PRD lists there. The design is otherwise unchanged by the proposal: it already behaves as the revised wording says (ADR-0096 §3).
 
 ## Alternatives rejected
 

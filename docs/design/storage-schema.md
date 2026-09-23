@@ -3,6 +3,8 @@
 Draft, 2026-09-09, amended 2026-09-23. How a published declaration becomes tables, and how the guarantees of [`../DESIGN.md`](../DESIGN.md) rest on them. The model owns what a rule means and [`declaration-syntax.md`](declaration-syntax.md) owns how it is written; this document owns only where the bytes go.
 
 **Amended 2026-09-23** for ADR-0082 to ADR-0094:
+
+**Amended again 2026-09-23** for ADR-0097 to ADR-0101, from a review of the whole record against the PRD; each change cites the decision it carries.
 - the event gains its writing transaction, read set, occurred time and retry count, and is inserted once, complete, with its position allocated first;
 - part positions are kept per relationship;
 - the attempt log, the interval index, labels, the file reference index and `DeclarationChange` are new tables;
@@ -242,6 +244,7 @@ It is JSON rather than columns for two reasons. Its shape is per transition. And
 
 `reads` is the read set of ADR-0088, also JSON:
 - the objects the transition's rules read, each with the version read;
+- for each type-scan, the ids it matched, an empty match recorded as empty;
 - each capability an `actor.has` asked about, with its answer;
 - the `now` the request fixed.
 
@@ -375,11 +378,14 @@ CREATE TABLE ok_declaration (
 -- Migration mappings carried by a publish that removes a state or renames an attribute.
 CREATE TABLE ok_migration (
   version     INTEGER NOT NULL REFERENCES ok_declaration(version),
-  type_name   TEXT    NOT NULL,
-  kind        TEXT    NOT NULL,     -- 'removed state' | 'renamed attr'
-  from_name   TEXT    NOT NULL,
-  to_name     TEXT    NOT NULL,
-  PRIMARY KEY (version, type_name, kind, from_name)
+  type_name   TEXT    NOT NULL,     -- the type, or the enum for a removed member
+  kind        TEXT    NOT NULL,
+  from_name   TEXT    NOT NULL,     -- the state, member or attribute it concerns
+  to_name     TEXT,                 -- the target; none for a backfill
+  expression  TEXT,                 -- a backfill's expression; none otherwise
+  PRIMARY KEY (version, type_name, kind, from_name),
+  CONSTRAINT ok_migration_kind CHECK (kind IN
+    ('removed state', 'removed member', 'renamed attr', 'backfill'))
 );
 
 -- Subscription is a built-in object. Its progress is not (ADR-0043).
@@ -395,8 +401,8 @@ CREATE TABLE t_subscription (
   changes_state_only INTEGER NOT NULL DEFAULT 0,
   endpoint       TEXT,                       -- null for a pull subscription
   deliver_as     TEXT,                       -- push only: the descriptor the worker presents, as JSON (ADR-0025)
-  lag_warn       TEXT,                       -- durations: lag is the age of the oldest
-  lag_fail       TEXT,                       -- unacknowledged event the filter selects (ADR-0100)
+  lag_warn       INTEGER,                    -- seconds: lag is the age of the oldest
+  lag_fail       INTEGER,                    -- unacknowledged event the filter selects (ADR-0100)
   CONSTRAINT t_subscription_state CHECK (state IN ('active','revoked'))
 );
 
@@ -449,7 +455,8 @@ CREATE TABLE t_declaration_change (
   CONSTRAINT t_declaration_change_state CHECK (state IN
     ('DRAFTED','SUBMITTED','PUBLISHED','REJECTED','WITHDRAWN','SUPERSEDED')),
   CONSTRAINT t_declaration_change_not_drafter CHECK (approved_by IS NULL
-    OR (approved_by <> drafted_by AND approved_by IS NOT drafted_principal)),
+    OR (approved_by <> drafted_by
+        AND (drafted_principal IS NULL OR approved_by <> drafted_principal))),
   CONSTRAINT t_declaration_change_person_for_agent CHECK (approved_by IS NULL
     OR drafted_by_kind <> 'agent' OR approved_by_kind = 'human')
 );
@@ -557,7 +564,7 @@ CREATE TABLE ok_attempt_rollup (
 
 **`ok_attempt` is written outside the request's transaction**, in its own short transaction after the rollback. The exception is an observing clause's would-be refusal, which is written with the event it is linked to. Either way it holds no input, so erasure has nothing to do there (ADR-0083). Its `consulted` holds the metric values and evaluator verdicts the failing clause was decided on, neither of which can be personal, since a metric's value never is (ADR-0084, ADR-0096).
 
-**Pruning rolls up in the same transaction.** A deployment prunes `ok_attempt` after its retention period with `maintain(prune_attempts)` (ADR-0100), and the statement that deletes a day's rows adds their counts to `ok_attempt_rollup` in the same transaction, so a count is never lost and never counted twice. The metric source `<Type>.attempt_counts` reads the rollup for the days already pruned and counts the retained rows for the rest, so it is complete over the whole history whenever pruning runs, or whether it runs at all. Correctness therefore never waits on it (PRD N2, T3, ADR-0096). The rollup keeps the object, so a reader's visibility applies to a pruned day exactly as to a retained one and a prune changes no reader's value; a refused creation has no object, and its count is visible only to a reader who can see every current object of the type.
+**Pruning rolls up in the same transaction.** A deployment prunes `ok_attempt` after its retention period with `maintain(prune_attempts)` (ADR-0100), which refuses a cut-off inside the retention the store was built with (ADR-0101), and the statement that deletes a day's rows adds their counts to `ok_attempt_rollup` in the same transaction, so a count is never lost and never counted twice. The metric source `<Type>.attempt_counts` reads the rollup for the days already pruned and counts the retained rows for the rest, so it is complete over the whole history whenever pruning runs, or whether it runs at all. Correctness therefore never waits on it (PRD N2, T3, ADR-0096). The rollup keeps the object, so a reader's visibility applies to a pruned day exactly as to a retained one and a prune changes no reader's value; a refused creation has no object, and its count is visible only to a reader who can see every current object of the type.
 
 **The sequence table and the attempt log are the two things written outside the request's transaction.** Everything else — the object row, the event, the write index, the interval index, the file reference index, the idempotency record — commits with the transition or not at all.
 
@@ -618,7 +625,7 @@ Erasure (§8 of the model, ADR-0087) does these things to storage:
 11. Redacts each affected proposal's inputs in the proposal's own creation event, as step 7 does in its record (ADR-0100).
 12. Follows each erased object's events down their caused events, and erases what flowed from it into other objects' personal attributes, in those events and on those objects, by check 10's taint analysis (ADR-0100).
 13. Runs `forget` on every observation in the erased objects' collections, corrected ones included (ADR-0096, ADR-0100).
-14. Redacts the `note` of every label on an erased object, since unclassified free text is treated as personal (ADR-0082). 
+14. Redacts the `note` of every label on an erased object, in its column and in the label's own creation event, since unclassified free text is treated as personal (ADR-0082). 
 It does **not** touch `ok_attribute_write`, `ok_attempt`, or `ok_interval` beyond step 9:
 - redacting a value inside an event does not change which event last wrote the attribute, so `changed_since` answers the same after an erasure as before;
 - a tracked reference holds an id, and a personal enum's values are redacted by step 9;
@@ -644,6 +651,8 @@ A publish is a declaration version and a set of DDL statements derived from it, 
 | a removed state | no DDL; the `CHECK` is replaced, and the mapping moves live objects out of it first |
 | a removed enum member | the `CHECK` is replaced after a `removed member` mapping has moved every live row off it by recorded migration transitions (ADR-0099) |
 | a removed type or observation kind | **nothing.** It is retired: no creation, no transition, and its table and history stay readable (ADR-0099) |
+
+**A migration reaches every row the change affects, terminal ones included, and no observation's** (ADR-0101): it is the publish's recorded change, not a transition the object takes, and an observation is born final, so a publish removing an enum member an observation holds is refused. **An import never writes a personal column of an object whose erasure is recorded**, so a refresh of a mirror cannot restore an erased value.
 | a new invariant of compilable shape | `ADD CONSTRAINT`, after the report says how many live objects violate it |
 | a new tracked member | no DDL; its intervals are rebuilt from the log (ADR-0083) |
 

@@ -3,6 +3,8 @@
 Draft, 2026-09-09, amended 2026-09-23. The acceptance test, which PRD N4 names as the acceptance test. The question is not "can a consumer complete the workflow" — that tests the happy path, and the objective is not the happy path — but "can a fallible actor, given everything the store offers, reach a state the declaration says is impossible".
 
 **Amended 2026-09-23** for ADR-0082 to ADR-0091:
+
+**Amended again 2026-09-23** for ADR-0097 to ADR-0101, from a review of the whole record against the PRD; each change cites the decision it carries.
 - the claim is over **enforced** rules, and observing clauses are excluded;
 - three failure conditions are new: intervals the log does not reproduce, a read set that does not re-evaluate to its verdict, and a personal value surviving an erasure;
 - UC-19's three routes join the scripted behaviours;

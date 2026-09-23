@@ -6,7 +6,7 @@ Findings from every review of this design. It began as the implementation-readin
 
 **Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
 
-**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 0 are open — the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 0 are open — the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
@@ -272,6 +272,14 @@ Findings from every review of this design. It began as the implementation-readin
 | [D258](#d258) | The port and the cutover assumed more than the first consumer has | Resolved by ADR-0100 |
 | [D259](#d259) | Fourteen older decisions were contradicted by the current model with nothing marking it | Resolved by annotation and back-links |
 | [D260](#d260) | Smaller drift between the documents | Resolved by correction |
+| [D261](#d261) | The import could still write an owned type nobody had created an object of | Resolved by ADR-0101 |
+| [D262](#d262) | An approval could install a report its approver never read | Resolved by ADR-0101 |
+| [D263](#d263) | The flow change showed what verdicts hide | Resolved by ADR-0101 |
+| [D264](#d264) | Pruning had no floor | Resolved by ADR-0101 |
+| [D265](#d265) | Migrations could not fill a reference, and their reach was unsaid | Resolved by ADR-0101 |
+| [D266](#d266) | A mirror could not be erased | Resolved by ADR-0101 |
+| [D267](#d267) | Four standard metrics counted the wrong thing | Resolved by ADR-0101 |
+| [D268](#d268) | Residues of the repairs | Resolved by ADR-0101 |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -1773,4 +1781,48 @@ Five reviewers read the record independently: the functional and datapoint requi
 **Smaller drift between the documents.** Check 11's observation exemption sat on the iterations table's row 11, not the check table's; §9.4's type production lacked `mirror` and §5.1's head lacked `backdatable within`; `mirror`, `combine`, `as` and others were not reserved; the rendered Delivery said `tracking record` against the syntax's `tracking serial`; `ok_attempt.type` could not record a request naming an unknown id; a proposed creation had no target to store; `diagnostics` took no window; `Attempt` lacked the applied event and `Interval` its transition; `ReadSet` could not hold an empty type-scan; `DESIGN.md` counted five versioned kinds and three metric sources; the rendered rule set could not list standard metrics; and `check-api-doc.py` claimed to compare what it did not. Found by the cross-document review.
 
 **Resolved**, 2026-09-23: each corrected in place, and the API checker's message says it compares operation names only.
+
+## Found by verifying the five-slice repairs, 2026-09-23
+
+Four of the five reviewers checked their own findings against the repairs, and wrote the use cases again.
+
+### D261
+**The import could still write an owned type nobody had created an object of.** ADR-0100 limited `import_batch` to a mirror "or while no ordinary request has created an object of it", so a cut-over type whose objects were ported and transitioned daily stayed importable until someone created one, and every newly published type until its first use; a refresh's writes were marked `imported` and so excluded from `exceptions()` and the override metrics. `ImportBatch.admitted` carried no reason, which `ok_admission.reason` requires. PRD T1, T4. Found by the verification of ADR-0100.
+
+**Resolved by ADR-0101**, 2026-09-23: the import writes only mirrors; every type is ported as one; admissions carry reasons; an erased value is never restored.
+
+### D262
+**An approval could install a report its approver never read.** `refresh` replaced the attached report and was open to the drafter, `impact_unchanged` compared against whatever report was attached at commit, and `publish` took no version, so an approver who read one report could install the impact of the next. PRD F7, T1. Found by two verification reviewers independently.
+
+**Resolved by ADR-0101**, 2026-09-23: `publish` names the version of the change the approver read, and `refresh` advances it.
+
+### D263
+**The flow change showed what verdicts hide.** `DeclarationChange` declared no visibility, so any actor could read it, and its report's `affected` ids and its evidence's metric values disclosed what ADR-0100 withholds from a verdict. PRD T5.
+
+**Resolved by ADR-0101**, 2026-09-23: visible to drafters and approvers only, with its ids and values filtered like a verdict's.
+
+### D264
+**Pruning had no floor.** `MaintenanceTask(name, before)` had no minimum age, so a mistaken cut-off deleted refusal records inside the retention period T3 requires, and `DESIGN.md` claimed `maintain` "changes nothing any read returns" although pruned rows leave the attempt sources. PRD T3.
+
+**Resolved by ADR-0101**, 2026-09-23: the store is built with its attempt retention, and `maintain` refuses a prune inside it; the claim is corrected.
+
+### D265
+**Migrations could not fill a reference, and their reach was unsaid.** `backfill` covered attributes only, so a new required reference or part had no form; nothing said whether a migration reaches a terminal object, which admits no further transitions, or an observation, which D4 says is never edited — and the specification's own `removed member` example could only match terminal robots; and a `backfill` copying a personal value escaped check 10. PRD F5, D4, T1, D8.
+
+**Resolved by ADR-0101**, 2026-09-23: migrations reach terminal objects and never observations; `backfill` fills references; a new required part on live objects is refused; check 10 covers `backfill`.
+
+### D266
+**A mirror could not be erased.** A mirror declares no transitions, `erase` included, while erasure happens only where a type declares one, so the first consumer's customer — a mirror until its cutover — could not be erased here, although the specification promised erasure "redacts this store's copy". PRD D8, UC-17. Present since ADR-0075; found by the verification of the first consumer's use cases.
+
+**Resolved by ADR-0101**, 2026-09-23: a mirror may declare `erase`, and the import never rewrites what it erased.
+
+### D267
+**Four standard metrics counted the wrong thing.** Most counted the import's own events, so every ported closed job completed in cutover week and the importer counted as a non-assignee; a span still open on a finished object — an engineer named on a closed job — grew with `now` for ever, and so did time in a final state; no standard metric named the jobs that changed hands more than once (UC-18); and most declared neither version nor actor kind as a dimension, while a combined metric had no binder to filter by (M3, M4). Also `.returns` counted an `act` as rework, `avg`'s type was unstated, and whether an unwritten reference has an interval from creation was unsaid. PRD M1, M6, M3, M4, UC-16, UC-18.
+
+**Resolved by ADR-0101**, 2026-09-23: the import's events are excluded, finished spans clipped, every standard metric carries `version` and `actor_kind`, two per-object metrics name the objects, and the definitions are tightened.
+
+### D268
+**Residues of the repairs.** `whole_open` on every transition writing an owner would have refused an observation's correction on a finished subject; `ok_migration` could hold neither new mapping; the state was a tracked member in §6.9 and not in §8.3, on which `oldest_open` depended; `.open` and `.imported_at` had no spelling or reservation; §6.11 said its definitions were checked when no checker read them; `TransitionOffer` could not tell two kinds' `record` offers apart; `check` could not test an occurred time; `draft` had no inputs for its evidence; `Event` lacked `imported` and `Attempt.type` could not be absent; legacy intervals reused a shape needing fields a port cannot know; a label's note survived in its own event; and several statements and headers had drifted. Found by the verification reviewers.
+
+**Resolved by ADR-0101**, 2026-09-23: each corrected; the standard metrics are instantiated as a checked block.
 

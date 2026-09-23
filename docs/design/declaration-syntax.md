@@ -1,6 +1,6 @@
 # The declaration syntax
 
-Status: **draft, iteration 20** (2026-09-23). Iteration 20 carries ADR-0097 to ADR-0100: the built-in capabilities, `as <collection>`, request-supplied occurred time with its `occurred_within` clause, `clear` on an optional reference, `backfill` and `removed member`, combined metrics, per-object flow collections, `count(distinct …)`, and the standard metrics as declarations (§6.11). Iteration 19 (2026-09-23) Iteration 19 adds the constructs of ADR-0082 to ADR-0087 and ADR-0092, the decisions of ADR-0095 that spelling them required, and eight checks, with the checker extended to parse them and a fixture for each new check. Iteration 18 was the author's rulings on the open questions. **Ready for author review.** The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
+Status: **draft, iteration 20** (2026-09-23). Iteration 20 carries ADR-0097 to ADR-0100: the built-in capabilities, `as <collection>`, request-supplied occurred time with its `occurred_within` clause, `clear` on an optional reference, `backfill` and `removed member`, combined metrics, per-object flow collections, `count(distinct …)`, and the standard metrics as declarations (§6.11). A review of those repairs found what they left, and ADR-0101 closed it in the same iteration: the import writes only mirrors, a mirror may declare `erase`, migrations never reach an observation, and the standard metrics exclude the import's events, clip finished spans and are checked as a block instantiated for `ServiceJob`. Iteration 19 (2026-09-23) added the constructs of ADR-0082 to ADR-0087 and ADR-0092, the decisions of ADR-0095 that spelling them required, and eight checks, with the checker extended to parse them and a fixture for each new check. Iteration 18 was the author's rulings on the open questions. **Ready for author review.** The format in which an ObjectKeeper model is written. It is the primary artefact of a declarative store: the readable rule set, the agent tool schemas, the API and the publish-time checks are all projections of it ([`../DESIGN.md`](../DESIGN.md) §3, §10).
 
 
 Two goals shape every choice, and where they conflict the second wins.
@@ -129,7 +129,7 @@ type Delivery version 2 {
 }
 ```
 
-A mirror also **binds no machine, declares no transitions of its own, and neither extends nor is extended** — each of which would hand it a way to be written and defeat the marking. Two further consequences are worth knowing before one is declared. An **invariant over a mirror** is checked when an import writes it and there is no transition to refuse, so an admission is the only recourse; state the invariant on the type that owns the data instead, where a guard can act on it. And a mirror holding a `personal` attribute must be **erased in both places**: erasure here redacts this store's copy and its events, and the system that owns the type has to do its own. Markings elsewhere — on an attribute, a reference, a state — may appear in any order after the part that is required.
+A mirror also **binds no machine, declares no transitions of its own but `erase`, and neither extends nor is extended** — each of which would hand it a way to be written and defeat the marking (check 53). `erase` is the exception because erasure is this store's obligation over its own copy, not a write of the state another system owns, and an erased mirror stays erased through every later import (ADR-0101). Two further consequences are worth knowing before one is declared. An **invariant over a mirror** is checked when an import writes it and there is no transition to refuse, so an admission is the only recourse; state the invariant on the type that owns the data instead, where a guard can act on it. And a mirror holding a `personal` attribute must be **erased in both places**: its `erase` here redacts this store's copy and its events, and the system that owns the type has to do its own. Markings elsewhere — on an attribute, a reference, a state — may appear in any order after the part that is required.
 
 `extends` inherits every attribute, relationship, derivation and invariant of the base, and nothing else: a machine is always bound explicitly, and transitions are never inherited. A base must be declared and `abstract`, and the inheritance graph must be acyclic (check 43).
 
@@ -604,7 +604,7 @@ do   receive PROCUREMENT -> INTAKE backdatable within 2 days { … }
 
 A transition a machine supplies is named `<Binder>.<transition>`, not `<Machine>.<transition>`, because authority belongs to the type, not to the lifecycle it borrows. The same holds in a `cascade on` clause. An `owner` may name an **abstract** base, which is how one part type serves two wholes. The wholes need not share a machine, and each supplies its own cascade clauses for the inherited part (§3.2). An `only via` on the part's creation names the concrete wholes' transitions, not the base's, since the base has none.
 
-**`backdatable within <duration>`** lets a request supply `occurred_at`, when the change actually happened, no further back than the duration and never later than the time the request is recorded (ADR-0083, ADR-0096). The event keeps both times and the interval index uses the occurred one; guards still read `now`. The occurred time may not precede the start of the current interval of any state or tracked value the request changes, so no interval is negative, and every transition the request cascades to records the same occurred time, since one request is one change (ADR-0095). The marking is legal on a `create`, a `do` or an `act`, and on an `assert`, an `erase` or an `only via` transition it is a publish error, as is a duration outside §8.3's closed set of units (check 58): an assertion's time is when the store was told, an erasure is not a step of the flow being measured, and an `only via` transition is never requested, so none has an occurred time a request could supply. The bound is a generated guard named `occurred_within`, with remedy `self_serviceable`, so a request that exceeds it is refused naming a rule, as any refusal is (ADR-0099). The occurred time arrives as the request's `occurred_at` field, never as an input. Without the marking, the occurred time is the recorded time, and a request that supplies one is refused by the same clause.
+**`backdatable within <duration>`** lets a request supply `occurred_at`, when the change actually happened, no further back than the duration and never later than the time the request is recorded (ADR-0083, ADR-0096). The event keeps both times and the interval index uses the occurred one; guards still read `now`. The occurred time may not precede the start of the current interval of any state or tracked value the request changes, so no interval is negative, and every transition the request cascades to records the same occurred time, since one request is one change (ADR-0095). The marking is legal on a `create`, a `do` or an `act`, and on an `assert`, an `erase` or an `only via` transition it is a publish error, as is a duration outside §8.3's closed set of units (check 58): an assertion's time is when the store was told, an erasure is not a step of the flow being measured, and an `only via` transition is never requested, so none has an occurred time a request could supply. The bound is a generated guard named `occurred_within`, with remedy `self_serviceable`, so a request that exceeds it is refused naming a rule, as any refusal is (ADR-0099). The occurred time arrives as the request's `occurred_at` field, never as an input. Guards read `now` as the clock, but a guard over `entered_at` reads the occurred time, so backdating can shorten a wait by up to the bound; the publish report lists every such guard (§10). Without the marking, the occurred time is the recorded time, and a request that supplies one is refused by the same clause.
 
 **`only via`** makes a transition unrequestable and names the transitions that may cascade to it. Publishing verifies the list against the call sites it derives: a `call` from a transition not named is an error, and a name that never calls it is an error too (check 13).
 
@@ -774,6 +774,9 @@ A publish that drops a state carries its mapping. A dropped attribute merely hid
 - a new **required attribute** on a type with live objects needs a `backfill`, whose expression reads the object's own members and literals, and publishing applies it to each live object as a migration transition with provenance `migrated`. Without one, the publish is refused and the report counts the objects (check 23);
 - a removed **enum member** that live objects hold needs a `removed member` mapping, applied the same way. Events keep the old value, which is read under the version that wrote it (check 23);
 - a field added to an existing **observation kind** must be optional, since an observation is born final and nothing could fill it (check 22);
+- a new required singular **reference** is filled by `backfill` in the same way, from an expression the object's own members yield; a new required singular **part** on a type with live objects is refused, since filling it means creating an object per whole, so it is declared optional or set-valued (check 23, ADR-0101);
+- a migration reaches **every object the change affects, terminal ones included**: it is the publish's own recorded change, not a transition the object takes, and so the second exception, beside erasure, to a terminal state admitting nothing further (ADR-0101). It never reaches an **observation**, which is born final (PRD D4), so a publish removing an enum member any observation holds is refused (check 23);
+- a `backfill` expression is a write like any other for check 10, so it may not copy a personal value into a non-personal attribute;
 - a removed **type** or **observation kind** is retired: nothing is created in it and no transition applies, and its objects, table and history stay readable under the versions that wrote them.
 
 ### 6.7 `this_event`, visibility, extension
@@ -876,7 +879,7 @@ labels by actor.has(SERVICE_EDIT)
 metric <name> version <n> {
   from      <binder> in <source> [where <bool expression>]
   combine   <name> = <metric>, …                 # in place of from (below)
-  by        <dimension> = <expression>, …
+  by        <dimension> = <expression>, …          # a combined metric lists names only
   window on <timestamp expression>
   value     <expression>
   flag      <name> when <bool expression>
@@ -916,26 +919,26 @@ metric inspection_pass_rate version 1 {
 | `<Type>.attempts` | request that did not apply, or an observing clause's would-be refusal | `.object`, `.transition`, `.verdict`, `.clause`, `.remedy`, `.unknown`, `.enforced`, `.actor_id`, `.actor_kind`, `.at`, `.declaration_version` |
 | `<Type>.attempt_counts` | UTC day, object, and each combination of the members | `.day`, `.object`, `.transition`, `.verdict`, `.clause`, `.remedy`, `.actor_kind`, `.enforced`, `.declaration_version`, `.count` |
 
-`.duration` counts a current span up to `now`. The datasets are those of ADR-0083 and DESIGN.md §7; an attempt row has no inputs, because the attempt log records none. The members ADR-0096 added answer the questions the PRD's use cases ask of them:
+`.duration` is a span's exit less its entry. A span still current on an open object runs to `now`, and one on a finished object runs to that object's completion; a span in the `closed` or terminal state the object finished in has no duration. An aggregate leaves out a row whose body is absent, so time in a final state is never counted and an engineer still named on a closed job is not accruing time (ADR-0101). The datasets are those of ADR-0083 and DESIGN.md §7; an attempt row has no inputs, because the attempt log records none. The members ADR-0096 added answer the questions the PRD's use cases ask of them:
 - `.held(<member>)` is the value a tracked member held when the span began or the transition happened, so time in a state is attributed to whoever was assigned then, not to whoever is now (UC-18);
 - `.created_at` and `.created_by_kind` come from an object's creation event, so work can be split by the kind of actor that created it (UC-16);
 - `.imported` marks the import's events, which keep the provenance `asserted` that ADR-0015 requires, so an override count can exclude them (UC-3);
 - `.reason` is an assertion's `reason` input where it is a declared enum. Free text is not a dimension, since it groups nothing and may hold personal data, so a type that wants overrides counted per reason declares its reasons (UC-3);
-- `.open` is true until the object enters a `closed` or terminal state (§1); `.completes` marks the transition that first does so, which is what throughput and cycle time count, and `.returns` a transition into a state the object held before, which is rework (ADR-0098);
+- `.open` is true until the object enters a `closed` or terminal state (§1); `.completes` marks the transition that first does so, which is what throughput and cycle time count, and `.returns` a transition that changes state into one the object held before, which is rework — an `act` is never one (ADR-0098, ADR-0101);
 - `.actor_id` is the requesting actor's id on a transition or attempt row, and `<reference>.actor_id` reads the `actor` identity of the object a reference names, so "someone other than the assignee acted" is `t.actor_id != t.held(engineer).actor_id` (ADR-0098);
 - every source's rows carry `.declaration_version`, so any metric can be split by version (PRD M3);
 - `<Type>.attempt_counts` holds the attempt log's daily counts per object, which are kept permanently while its rows are pruned after the deployment's retention period, so refusals can be counted per week over the whole history (PRD T3, UC-2). Keeping the object keeps visibility applicable after a prune; a refused creation has no object, and counts as a row only a reader who can see every current object of the type can see. A tracked member is the state, an enum attribute or a singular stored relationship end, and `intervals(<member>)` naming anything else is a publish error (check 58). A personal enum is tracked, and erasure redacts its values in the interval index as in the events; as a personal value, it may be counted and never be a dimension (ADR-0096).
 
 **Dimensions** are expressions over the binder: a path of at most two hops, which is as far as any guard in the first consumer reaches (DESIGN.md §5.7), a kind of actor, a declaration version, or a time bucket — `day`, `week`, `month`, `quarter` or `year` of a timestamp, in UTC calendar time. A path's hops are counted from the row's object, so `.object` on a dataset row is not a hop, and a dimension path longer than two hops is a publish error (check 56). **A set-valued dimension** — a path through a set, such as a delivery's configurations — counts the row once under each member (ADR-0098, PRD UC-1). A path that reaches an object the reader cannot see yields absence at that step, so the row is counted under an absent value and nothing of the hidden object is read. A stored reference is a value of the object that holds it, so a reader who may see that object sees its id; the referenced object's own members are what visibility protects (ADR-0096, PRD T5). A filter follows the same rule.
 
-**The value** combines aggregates arithmetically. In a metric the aggregates range over the rows of one group, so they take no binder of their own: `count()`, `count(where <filter>)`, and `sum`, `min`, `max`, `avg` and `median` of a body, and `percentile(<p>, <body>)`, and `count(distinct <body>)`, which counts distinct values, so "how many jobs carry the label" counts jobs rather than labels. **A row's own flow data is a collection** an aggregate in the row may range over — `o.intervals(engineer)`, `o.transitions` — which is how a per-object measure is summarised across objects: handoffs per job are `avg(count(i in o.intervals(engineer) where i.value is not null) - 1)` (ADR-0098). `avg`, `median`, `percentile` and the time buckets exist in a metric alone, and one used anywhere else is a publish error (check 56). §8.3's arithmetic applies unchanged, which is why the pass rate above multiplies by `1.000`: `int / int` discards the remainder.
+**The value** combines aggregates arithmetically. In a metric the aggregates range over the rows of one group, so they take no binder of their own: `count()`, `count(where <filter>)`, and `sum`, `min`, `max`, `avg` and `median` of a body, and `percentile(<p>, <body>)`, and `count(distinct <body>)`, which counts distinct values; `avg` yields a `decimal`, so "how many jobs carry the label" counts jobs rather than labels. **A row's own flow data is a collection** an aggregate in the row may range over — `o.intervals(engineer)`, `o.transitions` — which is how a per-object measure is summarised across objects: handoffs per job are `avg(count(i in o.intervals(engineer) where i.value is not null) - 1)` (ADR-0098). `avg`, `median`, `percentile` and the time buckets exist in a metric alone, and one used anywhere else is a publish error (check 56). §8.3's arithmetic applies unchanged, which is why the pass rate above multiplies by `1.000`: `int / int` discards the remainder.
 
 **A flag** is a named condition over `value` and the dimensions, declared once so that a scheduler or an agent queries the flag rather than restating the threshold (PRD C2). A business exception across many objects is a flag (DESIGN.md §5.12).
 
 **A combined metric** reads other metrics by their dimensions, which is how a rate divides one dataset by another without a join (ADR-0098):
 
 ```text
-metric refusal_rate version 1 {
+metric delivery_refusal_rate version 1 {
   combine   refused = Delivery.refusals, applied = Delivery.transition_counts
   by        transition, week
   value     refused * 1.000 / (refused + applied)
@@ -1013,20 +1016,20 @@ type ServiceJob version 2 {
 
 ### 6.11 The standard metrics
 
-Every type has these without declaring any, and every assignee reference has the second table's (PRD M1, M6, ADR-0098). They are declarations like any other, given here over a type parameter `<T>` and, for assignment, a reference parameter `<r>`, and checked as the examples are. Each is read by name — `<T>.<name>`, or `<T>.<name>.<r>` for an assignment metric — through `metric()` and the metrics tool, and printed with the type in the rule set. A declared metric is named without a type and a standard one with its type, so the two never collide.
+Every type has these without declaring any, and every assignee reference has the second table's (PRD M1, M6, ADR-0098). They are declarations like any other, given here over a type parameter `<T>` and, for assignment, a reference parameter `<r>`; the block after the tables instantiates them for `ServiceJob` and its `engineer`, and the checker runs it as it runs every example. Each is read by name — `<T>.<name>`, or `<T>.<name>.<r>` for an assignment metric — through `metric()` and the metrics tool, and printed with the type in the rule set. A declared metric is named without a type and a standard one with its type, so the two never collide.
 
 | Name | Source and filter | Dimensions | Value |
 |---|---|---|---|
 | `time_in_state` | `i in <T>.intervals` | `state = i.state`, `month = month(i.entered_at)` | `median(i.duration)` |
 | `time_in_state_p80` | as `time_in_state` | as `time_in_state` | `percentile(0.8, i.duration)` |
-| `throughput` | `t in <T>.transitions where t.completes` | `week = week(t.occurred_at)`, `actor_kind = t.actor_kind` | `count()` |
+| `throughput` | `t in <T>.transitions where t.completes and not t.imported` | `week = week(t.occurred_at)`, `actor_kind = t.actor_kind` | `count()` |
 | `work_in_progress` | `o in <T> where o.open` | `state = o.state` | `count()` |
 | `oldest_open` | `o in <T> where o.open` | `state = o.state` | `max(now - o.entered_at(state))` |
-| `transition_counts` | `t in <T>.transitions` | `transition = t.transition`, `actor_kind = t.actor_kind`, `week = week(t.occurred_at)` | `count()` |
+| `transition_counts` | `t in <T>.transitions where not t.imported` | `transition = t.transition`, `actor_kind = t.actor_kind`, `week = week(t.occurred_at)` | `count()` |
 | `refusals` | `a in <T>.attempt_counts where a.enforced` | `transition = a.transition`, `clause = a.clause`, `remedy = a.remedy`, `actor_kind = a.actor_kind`, `week = week(a.day)` | `sum(a.count)` |
 | `refusal_rate` | `combine refused = <T>.refusals, applied = <T>.transition_counts` | `transition`, `clause`, `actor_kind`, `week` | `refused * 1.000 / (refused + applied)` |
 | `override_counts` | `t in <T>.transitions where t.asserted and not t.imported` | `state = t.to_state`, `reason = t.reason`, `week = week(t.occurred_at)` | `count()` |
-| `rework` | `t in <T>.transitions where t.returns` | `state = t.to_state`, `week = week(t.occurred_at)` | `count()` |
+| `rework` | `t in <T>.transitions where t.returns and not t.imported` | `state = t.to_state`, `week = week(t.occurred_at)` | `count()` |
 
 | Name | Source and filter | Dimensions | Value |
 |---|---|---|---|
@@ -1034,13 +1037,149 @@ Every type has these without declaring any, and every assignee reference has the
 | `time_unassigned` | `i in <T>.intervals(<r>) where i.value is null` | `month = month(i.entered_at)` | `median(i.duration)` |
 | `time_to_first_assignment` | `o in <T> where any(i in o.intervals(<r>) where i.value is not null)` | `month = month(o.created_at)` | `median(min(i in o.intervals(<r>) where i.value is not null: i.entered_at) - o.created_at)` |
 | `time_with_assignee` | `i in <T>.intervals(<r>) where i.value is not null` | `assignee = i.value` | `sum(i.duration)` |
-| `cycle_time_by_assignee` | `t in <T>.transitions where t.completes` | `assignee = t.held(<r>)`, `month = month(t.occurred_at)` | `median(t.occurred_at - t.object.created_at)` |
+| `cycle_time_by_assignee` | `t in <T>.transitions where t.completes and not t.imported` | `assignee = t.held(<r>)`, `month = month(t.occurred_at)` | `median(t.occurred_at - t.object.created_at)` |
 | `time_in_state_by_holder` | `i in <T>.intervals` | `state = i.state`, `assignee = i.held(<r>)` | `median(i.duration)` |
 | `handoffs` | `o in <T> where any(i in o.intervals(<r>) where i.value is not null)` | `month = month(o.created_at)` | `avg(count(i in o.intervals(<r>) where i.value is not null) - 1)` |
 | `reassigned_back` | `o in <T>` | `month = month(o.created_at)` | `count(where count(distinct i in o.intervals(<r>) where i.value is not null: i.value) < count(i in o.intervals(<r>) where i.value is not null))` |
-| `acted_by_non_assignee` | `t in <T>.transitions where t.held(<r>) is not null` | `transition = t.transition` | `count(where t.actor_id != t.held(<r>).actor_id) * 1.000 / count()` |
+| `acted_by_non_assignee` | `t in <T>.transitions where t.held(<r>) is not null and not t.imported` | `transition = t.transition` | `count(where t.actor_id != t.held(<r>).actor_id) * 1.000 / count()` |
+| `handoffs_by_object` | `o in <T>` | `object = o.id` | `count(i in o.intervals(<r>) where i.value is not null) - 1`; flag `changed_hands_more_than_once when value > 1` |
+| `returns_by_object` | `o in <T>` | `object = o.id` | `count(i in o.intervals(<r>) where i.value is not null) - count(distinct i in o.intervals(<r>) where i.value is not null: i.value)`; flag `returned_to_earlier when value > 0` |
 
-Each can also be split by `declaration_version` and by the kind of actor behind its rows, since every source row carries both (PRD M3, M4). `acted_by_non_assignee` reads `.actor_id` against the assignee's `actor` identity, which check 59 guarantees the target type marks.
+**Every standard metric also has the dimensions `version` and `actor_kind`**, taken from its rows — `declaration_version`, and the kind of actor that created, entered, requested or recorded — which a reader leaves unbound unless splitting; a combined one passes them through from the metrics it combines (PRD M3, M4, ADR-0101). **None counts the import's events**, which are the port, not the flow: a ported object's history enters through its legacy intervals, marked as such. `handoffs_by_object` and `returns_by_object` name the objects, so `metric()` returns the jobs that changed hands more than once or went back to an earlier assignee, with the flag saying which (PRD UC-18). `acted_by_non_assignee` reads `.actor_id` against the assignee's `actor` identity, which check 59 guarantees the target type marks.
+
+The same definitions for `ServiceJob` and its `engineer`, named here without the `ServiceJob.` prefix and, for the assignment metrics, the `.engineer` suffix:
+
+```text
+metric time_in_state version 1 {
+  from      i in ServiceJob.intervals
+  by        state = i.state, month = month(i.entered_at), version = i.declaration_version, actor_kind = i.entered_by_kind
+  value     median(i.duration)
+}
+
+metric time_in_state_p80 version 1 {
+  from      i in ServiceJob.intervals
+  by        state = i.state, month = month(i.entered_at), version = i.declaration_version, actor_kind = i.entered_by_kind
+  value     percentile(0.8, i.duration)
+}
+
+metric throughput version 1 {
+  from      t in ServiceJob.transitions where t.completes and not t.imported
+  by        week = week(t.occurred_at), version = t.declaration_version, actor_kind = t.actor_kind
+  value     count()
+}
+
+metric work_in_progress version 1 {
+  from      o in ServiceJob where o.open
+  by        state = o.state, version = o.declaration_version, actor_kind = o.created_by_kind
+  value     count()
+}
+
+metric oldest_open version 1 {
+  from      o in ServiceJob where o.open
+  by        state = o.state, version = o.declaration_version, actor_kind = o.created_by_kind
+  value     max(now - o.entered_at(state))
+}
+
+metric transition_counts version 1 {
+  from      t in ServiceJob.transitions where not t.imported
+  by        transition = t.transition, week = week(t.occurred_at), version = t.declaration_version, actor_kind = t.actor_kind
+  value     count()
+}
+
+metric refusals version 1 {
+  from      a in ServiceJob.attempt_counts where a.enforced
+  by        transition = a.transition, clause = a.clause, remedy = a.remedy, week = week(a.day), version = a.declaration_version, actor_kind = a.actor_kind
+  value     sum(a.count)
+}
+
+metric refusal_rate version 1 {
+  combine   refused = ServiceJob.refusals, applied = ServiceJob.transition_counts
+  by        transition, clause, week, version, actor_kind
+  value     refused * 1.000 / (refused + applied)
+}
+
+metric override_counts version 1 {
+  from      t in ServiceJob.transitions where t.asserted and not t.imported
+  by        state = t.to_state, reason = t.reason, week = week(t.occurred_at), version = t.declaration_version, actor_kind = t.actor_kind
+  value     count()
+}
+
+metric rework version 1 {
+  from      t in ServiceJob.transitions where t.returns and not t.imported
+  by        state = t.to_state, week = week(t.occurred_at), version = t.declaration_version, actor_kind = t.actor_kind
+  value     count()
+}
+
+metric open_work version 1 {
+  from      o in ServiceJob where o.open
+  by        assignee = o.engineer, version = o.declaration_version, actor_kind = o.created_by_kind
+  value     count()
+}
+
+metric time_unassigned version 1 {
+  from      i in ServiceJob.intervals(engineer) where i.value is null
+  by        month = month(i.entered_at), version = i.declaration_version, actor_kind = i.entered_by_kind
+  value     median(i.duration)
+}
+
+metric time_to_first_assignment version 1 {
+  from      o in ServiceJob where any(i in o.intervals(engineer) where i.value is not null)
+  by        month = month(o.created_at), version = o.declaration_version, actor_kind = o.created_by_kind
+  value     median(min(i in o.intervals(engineer) where i.value is not null: i.entered_at) - o.created_at)
+}
+
+metric time_with_assignee version 1 {
+  from      i in ServiceJob.intervals(engineer) where i.value is not null
+  by        assignee = i.value, version = i.declaration_version, actor_kind = i.entered_by_kind
+  value     sum(i.duration)
+}
+
+metric cycle_time_by_assignee version 1 {
+  from      t in ServiceJob.transitions where t.completes and not t.imported
+  by        assignee = t.held(engineer), month = month(t.occurred_at), version = t.declaration_version, actor_kind = t.actor_kind
+  value     median(t.occurred_at - t.object.created_at)
+}
+
+metric time_in_state_by_holder version 1 {
+  from      i in ServiceJob.intervals
+  by        state = i.state, assignee = i.held(engineer), version = i.declaration_version, actor_kind = i.entered_by_kind
+  value     median(i.duration)
+}
+
+metric handoffs version 1 {
+  from      o in ServiceJob where any(i in o.intervals(engineer) where i.value is not null)
+  by        month = month(o.created_at), version = o.declaration_version, actor_kind = o.created_by_kind
+  value     avg(count(i in o.intervals(engineer) where i.value is not null) - 1)
+}
+
+metric reassigned_back version 1 {
+  from      o in ServiceJob
+  by        month = month(o.created_at), version = o.declaration_version, actor_kind = o.created_by_kind
+  value     count(where count(distinct i in o.intervals(engineer) where i.value is not null: i.value)
+                  < count(i in o.intervals(engineer) where i.value is not null))
+}
+
+metric acted_by_non_assignee version 1 {
+  from      t in ServiceJob.transitions where t.held(engineer) is not null and not t.imported
+  by        transition = t.transition, version = t.declaration_version, actor_kind = t.actor_kind
+  value     count(where t.actor_id != t.held(engineer).actor_id) * 1.000 / count()
+}
+
+metric handoffs_by_object version 1 {
+  from      o in ServiceJob
+  by        object = o.id, version = o.declaration_version, actor_kind = o.created_by_kind
+  value     count(i in o.intervals(engineer) where i.value is not null) - 1
+  flag      changed_hands_more_than_once when value > 1
+}
+
+metric returns_by_object version 1 {
+  from      o in ServiceJob
+  by        object = o.id, version = o.declaration_version, actor_kind = o.created_by_kind
+  value     count(i in o.intervals(engineer) where i.value is not null)
+                - count(distinct i in o.intervals(engineer) where i.value is not null: i.value)
+  flag      returned_to_earlier when value > 0
+}
+```
 
 ## 7. Quantity tracking
 
@@ -1111,7 +1250,7 @@ Every attribute type of §3.1, and four more that only expressions have, plus `i
 
 **Every object also has `.created_at`**, a `timestamp`, and **`.created_by_kind`**, the kind of actor whose request created it, both taken from its creation event, or from the import mapping for an object ported from the legacy system (`publish-and-import.md` §4), and readable wherever `.state` is (ADR-0096). A member declared as `id`, `state`, `created_at` or `created_by_kind` would shadow one of them, and is a publish error (check 33). They are what a cycle time is measured from and what work is split by when people and agents both create it.
 
-**Every object also has `.open`**, a `bool`, true until it enters a `closed` or terminal state (§1), which is what work in progress and the oldest open work count. `entered_at(state)` is when it entered its current state, so "oldest in its current state" can be filtered and ordered by one query (ADR-0098, PRD UC-1).
+**Every object also has `.open`**, a `bool`, true until it enters a `closed` or terminal state (§1), which is what work in progress and the oldest open work count. `entered_at(state)` is when it entered its current state, so "oldest in its current state" can be filtered and ordered by one query (ADR-0098, PRD UC-1). **Every mirror object also has `.imported_at`**, the time its last import wrote it, which a guard reading a mirror may bound: `require fresh: customer.imported_at + 1 h >= now because temporal` (ADR-0100). A member declared as `open` or `imported_at` would shadow one of these, and is a publish error (check 33).
 
 **Literals.** A state of another type is `<Type>.<STATE>`; an enum member is `<Enum>.<MEMBER>`; an invariant on another type, which only `may admit` and an `admits` argument name, is `<Type>.<invariant>`. All three are qualified for the same reason, that a bare name would be ambiguous across declarations. A bare state name of *this* type's machine is legal and resolves by §9.2. A category is written bare, since categories are one global vocabulary. Also `42`, `19.99`, `30 min`, `USD 19.99`, `"text"`, `true`, `false`, `{A, B}`. A bare number with no point is an `int`. One with a point is a `decimal`, and it takes the scale of whatever it is compared or combined with, so `balance > 0.5` types against a `decimal(10,4)` without the literal having to be written to four places.
 
@@ -1148,7 +1287,7 @@ This is the trap the language most invites, so it is worth stating in the shape 
 - `and`, `or`, `not`, `implies` take and yield `bool`. An evaluator call yields a `verdict`, usable **only as a whole guard clause** or under a single `not` (check 24), so a guard is a `bool`, an evaluator call, or a negated evaluator call, and never a mixture. A conditional external check is therefore written as two transitions with opposite guards, and `not` is what lets the second one exist: without it a decline could not be gated on the authority having said no, only on nobody having asked. A verdict too stale to use is refused as `temporal` whichever way it is written, since `not stale` is not `satisfied`.
 - `count` yields `int`, `sum`/`min`/`max` the element type, `all`/`any`/`none` `bool`.
 - `changed_since([<attribute>, …], <event expression>)` yields `bool`. Each name is an attribute of `this`, **or a part relationship**, which means "any change to any of those parts" — without which an approval on a whole cannot be invalidated by an edit to one of its lines, the single most-cited guard in the model. An observation kind's part is a part relationship like any other, so a sign-off naming `inspections` is invalidated by a later result (ADR-0082).
-- `entered_at(<STATE>)` yields the `timestamp` at which the object most recently entered that state, `unknown` if it never has; `entered_at(<member>)`, for a tracked member, when it took its current value; and `time_in(<STATE>)` a `duration`, the total over every span in that state, a current one counted up to `now`. They read the object's own intervals (ADR-0083, ADR-0084). A tracked member is an enum attribute or a singular stored relationship end, and naming anything else is a publish error (check 58). `time_in` reads the clock, so an invariant may not use it (check 32), and neither may an `indexed` derivation (check 46); `entered_at` does not. A query may filter on `entered_at(<member>)`, whose current value is stored and indexed, so a per-object ageing condition such as `unit is null and entered_at(unit) + 14 days <= now` is found by one query (ADR-0084, PRD M7).
+- `entered_at(<STATE>)` yields the `timestamp` at which the object most recently entered that state, `unknown` if it never has; `entered_at(<member>)`, for a tracked member, when it took its current value; and `time_in(<STATE>)` a `duration`, the total over every span in that state, a current one counted up to `now`. They read the object's own intervals (ADR-0083, ADR-0084). A tracked member is the state, an enum attribute or a singular stored relationship end, and naming anything else is a publish error (check 58). `time_in` reads the clock, so an invariant may not use it (check 32), and neither may an `indexed` derivation (check 46); `entered_at` does not. A query may filter on `entered_at(<member>)`, whose current value is stored and indexed, so a per-object ageing condition such as `unit is null and entered_at(unit) + 14 days <= now` is found by one query (ADR-0084, PRD M7).
 - `metric(<name>, <dimension> := <expression>, … [, over last <duration>] [, fresh <duration>])` yields a declared metric's value, and is usable only in a guard (check 56, §6.9).
 - `if <bool> then <a> else <b>` yields the common type of `a` and `b`, and is allowed in a derived attribute and in the value expression of an outcome step. It is not allowed in a guard (check 21), where a conditional would hide which clause failed. Allowing it in an outcome value is what stops a single two-valued choice — a debit or a credit, a rise or a fall — from splitting into two transitions and then splitting every caller of them in turn.
 - `in` is membership: an element on the left, and on the right a collection literal, a set-valued member, or an enum name meaning any of its members.
@@ -1235,7 +1374,7 @@ enum       <Name> version <n> { <MEMBER>, … }
 sequence   <name> version <n>
 evaluator  <name> version <n> { fn <name>(<arg> : <type>, …) [fresh <duration>] … }
 machine    <Name> version <n> { … }
-type       <Name> [extends <Base>] version <n> [abstract] [mirror] { … }
+type       <Name> [extends <Base>] version <n> [abstract | mirror] { … }
 observation <Name> version <n> on <Type> as <collection> { … }   # §6.8
 metric     <name> version <n> { … }                               # §6.9
 
@@ -1266,9 +1405,9 @@ Where a grammar line and an example disagree, the example is authoritative and t
 
 Each check names the file, line and declaration. Publishing runs them over the module and the closure of its `use` imports (§1).
 
-**Thirty-four of the sixty-one are implemented today**, most of them only in part,, listed by `scripts/check-syntax-doc.py` on every run; the rest are specified and not yet built, and the document does not distinguish them in the table because which are built is a property of the tool at a moment, not of the language. Read the tool's output for that. Checks 54 to 59 are also held against fourteen mutations of this document's own examples, each a mistake an author would make, which the tool applies on every run and which the check claiming the rule must catch.
+**Thirty-four of the sixty-one are implemented today**, most of them only in part, listed by `scripts/check-syntax-doc.py` on every run; the rest are specified and not yet built, and the document does not distinguish them in the table because which are built is a property of the tool at a moment, not of the language. Read the tool's output for that. Checks 54 to 59 are also held against fifteen mutations of this document's own examples, each a mistake an author would make, which the tool applies on every run and which the check claiming the rule must catch.
 
-Four things are needed beyond that text, and nothing else is. Checks 22 and 23 need the **previously published declaration**. The report line naming which invariants compile to a database constraint needs the **backend configuration**. The new-invariant scan and the pending-proposal count in the report need the **live objects**. Every other check is decidable from the closure alone.
+Four things are needed beyond that text, and nothing else is. Checks 22 and 23 need the **previously published declaration**. The report line naming which invariants compile to a database constraint needs the **backend configuration**. The new-invariant scan, the pending-proposal count, and check 23's `backfill` and `removed member` findings need the **live objects**. Every other check is decidable from the closure alone.
 
 | # | Check |
 |---|---|
@@ -1281,8 +1420,8 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 7 | A traversal or type-scan invariant, a type-scan guard, or a `visible when` predicate reading an attribute that is not `indexed`; an `indexed` marking on a stored relationship end, which already is one; a `visible when` predicate that calls an evaluator, reads a derivation that is not itself `indexed`, or traverses a set-valued end (§6.7). A local invariant reads its own row and needs none, and `.state` and stored relationship ends never need one (§8.1) |
 | 8 | A creation that replaces a machine's and does not carry its guards, or one where an inherited guard reads an input the replacement does not declare; a required attribute or non-optional `ref` that **any** creation of the type does not write, or one written only from an optional input; a required singular `part` **a creation** does not **fill**, filling meaning a `create` step for the child in the same outcome, since the `part` end is derived and check 17 forbids assigning it. Every creation of the type must fill it. Where a binder declares its own creations those are the ones checked, the machine's having been replaced (§2.1); where it declares none, the machine's creation is the one that must fill it, which is why a required part on such a binder is only satisfiable by declaring a `create`. Set-valued attributes and counters begin present and need no creation write; a creation supplied by the bound machine counts as one |
 | 9 | A required attribute marked `personal` |
-| 10 | A personal value reaching a non-personal attribute, by a write, by an argument to a `call` or `create`, or through a derivation. The taint follows values transitively; an input marked `personal` is a personal value for this purpose, and one written to a personal attribute is personal without the marking (ADR-0078) |
-| 11 | A `create` of a part that is not `only via` a transition of its whole, so a part could be added to a settled whole. Where the `owner` names an abstract base, the whole is each concrete type in its family, which declares the part or inherits it. An observation kind's `record` is exempt: it is recorded directly, and `subject_open` keeps what this check protects (§6.8). A transition writing an `owner` carries a generated guard, `whole_open`, which does the same for a re-parent (ADR-0100) |
+| 10 | A personal value reaching a non-personal attribute, by a write, by an argument to a `call` or `create`, or through a derivation. The taint follows values transitively; an input marked `personal` is a personal value for this purpose, and one written to a personal attribute is personal without the marking (ADR-0078). A `backfill` expression is a write for this purpose (§6.6, ADR-0101) |
+| 11 | A `create` of a part that is not `only via` a transition of its whole, so a part could be added to a settled whole. Where the `owner` names an abstract base, the whole is each concrete type in its family, which declares the part or inherits it. An observation kind's `record` is exempt: it is recorded directly, and `subject_open` keeps what this check protects (§6.8). A `do` or `act` that writes an `owner` on an existing object — a re-parent — carries a generated guard, `whole_open`, which does the same for it (ADR-0100, ADR-0101) |
 | 12 | A cascade cycle. The edges are `call` steps, `create` steps, `part … cascade` clauses and loop bodies |
 | 13 | A `call` to an `only via` transition from a transition it does not name; a named transition that neither calls, creates nor cascades to it, or that the binder replaced, which the report says in those words rather than calling it undeclared; an `only via` transition nothing reaches; an `only via` naming `<Machine>.<transition>` where it must name `<Binder>.<transition>` (§4.2) |
 | 14 | An actor guard (§4.2) on an `only via` transition; `only via` with `proposable` |
@@ -1294,7 +1433,7 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 20 | An unnamed guard; a `default` on an optional input; a `because` that is not one of the five classes of §5.1 |
 | 21 | A `for` without `limit`; a bare `null` in a comparison; an unbound aggregate; a keyword beginning a clause it does not belong to; `if` in a guard, which would hide which clause failed; `if` anywhere but a derived attribute or an outcome value (§8.3) |
 | 22 | A version that did not advance while its content changed, content being the declaration's text without comments or blank lines; a type, observation kind or metric whose machine, enum, sequence, evaluator, metric or base type advanced without it; a field added to an observation kind that already existed, and is not optional (§6.6, ADR-0099) |
-| 23 | A state removed with no mapping. A **rename is reported, not failed**: a rename with no mapping is textually identical to a drop plus an add, and no information in either declaration distinguishes them, so publishing lists each dropped and added pair and asks. Also a new required attribute on a type with live objects and no `backfill`, and a removed enum member that live objects hold with no `removed member` mapping; these need the live objects, like the new-invariant scan (§6.6, ADR-0099) |
+| 23 | A state removed with no mapping. A **rename is reported, not failed**: a rename with no mapping is textually identical to a drop plus an add, and no information in either declaration distinguishes them, so publishing lists each dropped and added pair and asks. Also a new required attribute or singular reference on a type with live objects and no `backfill`; a new required singular part on such a type; a removed enum member that any observation holds; and a removed enum member that live objects hold with no `removed member` mapping; these need the live objects, like the new-invariant scan (§6.6, ADR-0099) |
 | 24 | An expression that does not type (§8) |
 | 25 | An `event`-typed input receiving anything but `this_event` |
 | 26 | A `supersede` outside a `superseding` to-state, a `superseding` state entered without one, self-supersession, or a cycle among the declared supersession targets |
@@ -1304,7 +1443,7 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 30 | A `cascade` naming `<Type>.<transition>` where that type is `abstract` and some member of its family (§2) does not have that transition, so the cascade would reach a part it cannot drive |
 | 31 | A `quantity` type with no `counter`; a `counter` on a `serial` or `record` type |
 | 32 | An invariant reading `now`, which no after-write check can enforce |
-| 33 | Duplicate names in one scope. The scopes are separate per kind, so a machine may declare `requires attr answer` and `do answer` without collision: members (attributes, counters, relationship ends, derivations) in one; transitions in another; invariants in a third — each over a type with its bases and its bound machine, counting only the machine transitions that binder actually has, so a binder replacing `create request` may reuse the name; where a `requires` line names the binder's member rather than declaring a second one; a machine, for its states; the closure, for top-level declarations, capabilities and categories. Also a state name colliding with a member name of the same type, or a category with either; and a state or category named `any`, `terminal` or `superseding`, or a transition named `any`, which would collide with the wildcard and the state markings — the transition case is only `any`, since `terminal` and `superseding` never appear where a transition name is expected (§9.2). A member named `id`, `state`, `created_at` or `created_by_kind`, which every object already has (§8.1) |
+| 33 | Duplicate names in one scope. The scopes are separate per kind, so a machine may declare `requires attr answer` and `do answer` without collision: members (attributes, counters, relationship ends, derivations) in one; transitions in another; invariants in a third — each over a type with its bases and its bound machine, counting only the machine transitions that binder actually has, so a binder replacing `create request` may reuse the name; where a `requires` line names the binder's member rather than declaring a second one; a machine, for its states; the closure, for top-level declarations, capabilities and categories. Also a state name colliding with a member name of the same type, or a category with either; and a state or category named `any`, `terminal` or `superseding`, or a transition named `any`, which would collide with the wildcard and the state markings — the transition case is only `any`, since `terminal` and `superseding` never appear where a transition name is expected (§9.2). A member named `id`, `state`, `open`, `created_at`, `created_by_kind` or, on a mirror, `imported_at`, which every such object already has (§8.1) |
 | 34 | A non-abstract type with no creation transition, counting one its machine supplies only where the binder declares none of its own (§2.1) |
 | 35 | A machine body naming a type-level attribute, counter, reference, part, invariant or capability it does not `require`. Naming means reading it in a guard, an outcome or an admission; a type-local transition is exempt (§2.1) |
 | 36 | A `part`/`owner` pair whose types disagree; a **re-parent** — a `do` or `act` writing an `owner` on an existing object — whose declared owner type is `abstract`, so which source whole's invariants must be re-checked is not determined by the text (ADR-0058). A creation writing its `owner` is not a re-parent: it has no source whole, and forbidding it would make a part with an abstract owner uncreatable |
@@ -1324,12 +1463,12 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 50 | A `use` importing a name its module does not declare; a `default` expression reading an input or another attribute, which would make the expansion order-dependent |
 | 51 | A body that does not close on its opening line and puts a clause on that line; a line that can only be a continuation and is not indented deeper than the clause it continues (§9.1) |
 | 52 | A normative statement in §1 to §9 — anything the text says is rejected or is a publish error — that does not cite the check enforcing it. It verifies that a citation is **present**, never that it is **right**: two of the first twelve named a check whose text did not cover the statement, and both were found by reading rather than by running. Its reach is bounded in one way worth knowing: it recognises a fixed list of phrasings. A proximity window used to shield any statement near a citation, which gave a demonstrated false pass, so the citation must now be in the same **sentence** as the statement. An earlier draft of this row claimed it would have caught the four rule-and-check divergences that motivated it; running the predicate over those four shows it catches **one**, and the two it misses are the two that produced blocking defects. What it does is enforce the discipline going forward, for the phrasings it knows |
-| 53 | A `mirror` that binds a machine, declares a transition, or takes part in `extends` in either direction — each would give it a way to be written; an outcome that `call`s or `create`s into a `mirror` type, or a `part`/`owner` composing with one — a composition binds the part's lifetime to the whole and a mirror's lifetime belongs to another system (§2, ADR-0075) |
+| 53 | A `mirror` that binds a machine, declares a transition other than `erase`, or takes part in `extends` in either direction — each would give it a way to be written; an outcome that `call`s or `create`s into a `mirror` type, or a `part`/`owner` composing with one — a composition binds the part's lifetime to the whole and a mirror's lifetime belongs to another system (§2, ADR-0075) |
 | 54 | An observation kind with no `recorded by`; a kind with no `as`; a subject that declares a part of an observation kind itself, which the kind's `as` adds; a `unit` on a field that is not `int` or `decimal`; a field named `subject`, `corrects`, `occurred_at`, `recorded_at`, `recorded_by_kind`, `created_at` or `created_by_kind`; a kind's invariant reading anything but its own fields (§6.8) |
 | 55 | A label named anywhere but a metric's `from` — a guard, an invariant, a derivation, a visibility predicate, an outcome value or a `labels by` (§6.8) |
 | 56 | A metric with neither `from` nor `combine`, or with no `value`; a `combine` naming an undeclared metric, or itself directly or through another; a `from` naming none of the eight sources; a dimension path longer than two hops; a personal attribute or field used as a dimension, as a flag's operand, or in a value other than a count; `avg`, `median`, `percentile` or a time bucket outside a metric; `metric(…)` anywhere but a `require` clause of a `create`, `do` or `act`, another metric included; `over last` on a metric with no `window on`; a reference binding a dimension the metric does not declare (§6.9) |
 | 57 | `observe` on a clause of an `assert` or an `erase` (§5.1) |
-| 58 | A `backdatable` or an `occurred within` without a duration in the closed set of §8.3; `backdatable` on an `assert`, an `erase` or an `only via` transition (§4.2); `entered_at`, `time_in`, `held` or `intervals(…)` naming what is not tracked, `time_in` taking a state only (§8.3, §6.9) |
+| 58 | A `backdatable` or an `occurred within` without a duration in the closed set of §8.3; `backdatable` on an `assert`, an `erase` or an `only via` transition (§4.2); `entered_at`, `time_in`, `held` or `intervals(…)` naming what is not tracked — the state, an enum attribute or a singular stored reference — `time_in` taking a state only (§8.3, §6.9) |
 | 59 | `assignee` on a set-valued `ref`, a `part`, an `owner` or an end that does not store its value; an `assignee` whose target type does not mark exactly one `identity` attribute `actor`; `actor` on an attribute that is not `identity` (§6.10) |
 | 60 | A type with a personal attribute, inherited ones included, that takes part in supersession — it has a `superseding` state, or a `supersede` operand is of its type — and declares no `erase` (§6.4, ADR-0087) |
 | 61 | An evaluator call or a metric reference in the guard of a transition reached by a `call` or `create`, whose argument reads an input the caller binds from a member its own outcome sets, since no consultation before the transaction can see that value (§6.2, §6.9, ADR-0092) |

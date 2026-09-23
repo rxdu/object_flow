@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D50 to D59, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0061 — ten decisions from the payments-ledger review; ADR-0066 — a cascade clause carries arguments; ADR-0077 — the recorded number is the declaration version, which fixes every type's version. ADR-0087 — a type with a personal attribute that takes part in supersession must declare `erase`, so decision 7's "stays optional" no longer holds for it.
+- **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0061 — ten decisions from the payments-ledger review; ADR-0066 — a cascade clause carries arguments; ADR-0077 — the recorded number is the declaration version, which fixes every type's version. ADR-0087 — a type with a personal attribute that takes part in supersession must declare `erase`, so decision 7's "stays optional" no longer holds for it. ADR-0101 — a publish's migrations are the second exception, beside erasure, to a terminal object admitting nothing further.
 - **Amends:** ADR-0024, ADR-0026, ADR-0027, ADR-0031, ADR-0042, ADR-0046, ADR-0053
 
 ## Context

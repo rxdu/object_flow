@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` D3, D5, D10, D11, F3, F5, T1, T3, UC-4, UC-6, UC-8, UC-19; repairs D245 to D250
 - **Date:** 2026-09-23
+- **Refined by:** ADR-0101 — migrations reach terminal objects and never observations; `backfill` fills references; a new required part on live objects is refused.
 - **Refines:** ADR-0027, ADR-0073, ADR-0082, ADR-0083, ADR-0095, ADR-0096
 
 ## Context

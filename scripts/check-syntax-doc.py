@@ -288,8 +288,9 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
             if d.machine:
                 add(53, f"{d.name} is a mirror and binds machine {d.machine}, "
                         "whose transitions would make it writable", d.start)
-            if d.trans:
-                add(53, f"{d.name} is a mirror and declares {len(d.trans)} transition(s)",
+            writes = [t for t in d.trans if t[0] != "erase"]      # erase is allowed (ADR-0101)
+            if writes:
+                add(53, f"{d.name} is a mirror and declares {len(writes)} transition(s) other than erase",
                     d.start)
             if d.base:
                 add(53, f"{d.name} is a mirror and extends {d.base}", d.start)

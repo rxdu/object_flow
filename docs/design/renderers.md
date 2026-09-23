@@ -4,6 +4,8 @@ Draft, 2026-09-09, amended 2026-09-23. Three projections of one declaration: tex
 
 **Amended 2026-09-23** for ADR-0082 to ADR-0086 and ADR-0092: the rule set prints observations, metrics, the assignee and observing clauses; each observation kind and the metrics get tools; a tool's transition inputs are nested under `inputs`, so no input can collide with a request field; and the live offer's verdict names what its remedy points at.
 
+**Amended again 2026-09-23** for ADR-0097 to ADR-0101, from a review of the whole record against the PRD; each change cites the decision it carries.
+
 **What is verified.** `scripts/check-renderers-doc.py` parses every JSON example, checks that the tool schema is a schema a validator accepts, and confirms it rejects a call missing a required field and a call carrying an unknown one. The rule set of §2 is prose and is not checked; nothing generates it yet.
 
 ## 1. What a renderer may not do
@@ -141,7 +143,7 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
       "idempotency_key": {
         "type": "string"
       },
-      "occurred_at": {"type": "string", "format": "date-time", "description": "when it happened, no more than 7 days ago"},
+      "occurred_at": {"type": "string", "format": "date-time", "description": "when it happened, if earlier than now; how far back is a rule the store checks"},
       "inputs": {
         "type": "object",
         "properties": {
@@ -173,7 +175,7 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
     "properties": {
       "name": {"type": "string", "enum": ["time_working", "inspection_pass_rate", "ServiceJob.time_in_state", "ServiceJob.work_in_progress", "ServiceJob.open_work.engineer", "ServiceJob.cycle_time_by_assignee.engineer"]},
       "bind": {"type": "object", "description": "dimension values to fix; any dimension left out is aggregated over"},
-      "over_last": {"type": "string", "description": "a window, such as 30 days"},
+      "over": {"type": "string", "description": "a window back from now, such as 30 days"},
       "filter": {"type": "string"},
       "cursor": {"type": "string"}
     },

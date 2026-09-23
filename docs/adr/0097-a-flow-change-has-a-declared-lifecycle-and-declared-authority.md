@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-23 at the author's direction ("iterate until the specifications and design can fully satisfy the needs described in the PRD"), against `docs/PRD.md` F6, F7, V4, T1 and UC-14, UC-15; repairs D236 to D239
 - **Date:** 2026-09-23
+- **Refined by:** ADR-0101 — `publish` names the version of the change the approver read; a change is visible to drafters and approvers, and its report is filtered by visibility; `draft` takes source and evidence.
 - **Refines:** ADR-0036, ADR-0044, ADR-0085, ADR-0096
 
 ## Context
