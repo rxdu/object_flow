@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D32, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0054 — four semantics the repair left open — parent ordering, partial `check`, built-in assertion, and discharged admissions; ADR-0069 — an evaluator returns a verdict; an external system that assigns is a mirror.
+- **Refined by:** ADR-0054 — four semantics the repair left open — parent ordering, partial `check`, built-in assertion, and discharged admissions; ADR-0069 — an evaluator returns a verdict; an external system that assigns is a mirror. ADR-0084 (proposed) — a metric guard is consulted before the transaction like an evaluator, with its arguments resolved again inside it.
 - **Refines:** ADR-0008
 
 ## Context

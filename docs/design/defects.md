@@ -6,7 +6,7 @@ Findings from every review of this design. It began as the implementation-readin
 
 **Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
 
-**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 13 are open — D202 to D214, from the design review of 2026-09-23; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 14 are open — D202 to D214 from the design review of 2026-09-23, and D215 from the design evaluation that followed it; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
@@ -213,19 +213,20 @@ Findings from every review of this design. It began as the implementation-readin
 | [D199](#d199) | Check 7's stored-end clause is unimplemented and the specification's own example violates it | Resolved |
 | [D200](#d200) | Eight summaries are stale again, one day after D176 | Resolved |
 | [D201](#d201) | ADR-0075 breaks a cycle by the optionality of its edges, which answers the import question and not the stage question | Resolved |
-| [D202](#d202) | `changed_since` over a part is answered from one position per whole, so the specification's own approval is invalidated by its own creation | Open |
+| [D202](#d202) | `changed_since` over a part is answered from one position per whole, so the specification's own approval is invalidated by its own creation | Open — ADR-0082 (proposed) adopts the repair |
 | [D203](#d203) | At serialisable isolation on PostgreSQL a row lock does not make a contended row queue; the waiter blocks and is then aborted | Open |
 | [D204](#d204) | Nothing says how a SQLite transaction begins, and a deferred one turns an ordinary race into a storage fault | Open |
-| [D205](#d205) | Every imported object is listed by `exceptions(type)` until it next changes state, and a terminal one for ever | Open — needs the author |
+| [D205](#d205) | Every imported object is listed by `exceptions(type)` until it next changes state, and a terminal one for ever | Open — ADR-0083 (proposed) resolves it |
 | [D206](#d206) | The stage order counts references only; the legacy system's cross-type writes put the operational core in one stage | Open — needs the author |
 | [D207](#d207) | Erasing one object's file deletes every other object's identical file | Open — needs the author |
 | [D208](#d208) | Erasure stops at the object's boundary, across supersession and into a caller's event, where ADR-0078 says it follows | Open — needs the author |
 | [D209](#d209) | The deterministic racer cannot interleave a synchronous `request()`, and the async question cites the harness the wrong way round | Open — needs the author |
 | [D210](#d210) | The settled position has no mechanism in the schema | Open |
 | [D211](#d211) | An event row is completed at commit, and the schema says no event row is ever updated | Open |
-| [D212](#d212) | The publish event has no object to belong to | Open |
+| [D212](#d212) | The publish event has no object to belong to | Open — ADR-0085 (proposed) resolves it |
 | [D213](#d213) | On PostgreSQL the mint's second connection can exhaust the pool it is drawn from | Open |
 | [D214](#d214) | Three verdict and schema shapes cannot carry what the model says | Open |
+| [D215](#d215) | ADR-0049 consults an evaluator before the transaction and never says what happens when its argument depends on state the transaction changes | Open |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -1434,3 +1435,12 @@ One reviewer, reading the spine (`README.md`, `DESIGN.md`, `TODO.md`, `LESSONS.m
 **Three shapes still cannot carry what the model says they carry.** `Stale` is `expected: int, actual: int` (`library-api.md` §4), but `DESIGN.md` §5.5 also returns `stale` when "the transaction exhausted its serialisation retries", where no `expected_version` need have been given. `Unsatisfied` carries one `object_id`, but a `dependent` verdict names "the parts" (`DESIGN.md` §5.3) and a `delegable` one "may name a capability and, if proposable, offer a Proposal" (§5.5), and it has a field for neither. And a tool schema renders a transition's inputs as properties beside `object_id`, `expected_version` and `idempotency_key` (`renderers.md` §3), and nothing in the syntax keeps an input from taking one of those names (§9.2 reserves only `any`, `terminal` and `superseding`, and only for states, categories and transitions), so an input called `object_id` collides with the request's own field.
 
 **Open.** Make `Stale`'s fields optional or give it a cause; give `Unsatisfied` its objects and capability; either reserve the three request field names against inputs or nest inputs under a property of their own.
+
+## Found by the design evaluation of 2026-09-23
+
+Found while evaluating designs against the use cases of `PRD.md`, in writing the rule for metric guards (`data-driven-engine.md` §3.5). Recorded rather than repaired: the evaluation's decisions are all proposed, and this finding is about an accepted decision outside them.
+
+### D215
+**ADR-0049 consults an external evaluator before the write transaction and never says what happens when the evaluator's argument depends on state the transaction reads or changes.** Its decision 1: "A request that names external guards consults them first, outside the transaction, then opens the transaction and evaluates everything else." An evaluator's argument is an expression over the object (`xero.invoice_valid(order_id)`), and for a cascaded transition over an object the parent's outcome reaches (`for u in units { call u.sell() }`), the argument is a value read from committed state before the transaction and possibly different inside it — a concurrent request may have changed it, or the request's own parent outcome may have written it. The verdict is then about a different object or value than the guard it is recorded against. ADR-0084 (proposed) closes the same gap for metric guards by resolving arguments before the transaction and again inside it, consulting again within the serialisation retry bound on a mismatch. Found by reading, while writing that rule.
+
+**Open.** Apply the same rule to external evaluators, and say what an argument that the request's own outcome writes means: most likely that it is refused at publish, since no consultation before the transaction can see a value the transaction has not yet written.

@@ -1,6 +1,6 @@
 # ObjectKeeper — Product requirements
 
-**Status: draft, 2026-09-23, awaiting the author's review.** Written from the author's statements of 2026-09-23 and the standing objective of [`DESIGN.md`](DESIGN.md) §1. It states what the product must do. It does not choose designs: the design that follows it is evaluated against the use cases in §7, and recorded as decisions in [`adr/`](adr/).
+**Status: draft, 2026-09-23, awaiting the author's review.** Written from the author's statements of 2026-09-23 and the standing objective of [`DESIGN.md`](DESIGN.md) §1. It states what the product must do. It does not choose designs: [`design/data-driven-engine.md`](design/data-driven-engine.md) evaluates them against the use cases in §7, and the choices are ADR-0081 to ADR-0085, proposed and pending review.
 
 **How to review it.** Every requirement in §6 names its source: **Said** is the author's own statement of 2026-09-23, **Carried** is a standing requirement of the existing record, and **Inferred** is this document's reading of what the other two imply. Inferred rows are where it is most likely to be wrong. §9 lists what the current design will have to change, and §10 has the only two questions this document asks the author.
 
@@ -249,7 +249,9 @@ The existing record meets F1 to F5, T1 to T3 and most of N1 to N5. These positio
 | People write the declaration, and legibility of the printed rules is the defence against rules that say the wrong thing | F6 lets agents author flow changes | `DESIGN.md` §13 |
 | Publishing refuses on any failed check | V1 needs a minimal flow to be small and publishable, without weakening the checks that protect T1 | `design/declaration-syntax.md` §10 |
 
-Three findings of the design review of 2026-09-23 become prerequisites rather than defects to schedule: D205, since T4 and UC-3 fail while imported objects crowd the override list; D210, since any metric computed from the log needs a reliable settled position; and D202, since UC-10's second sign-off is an approval, and approvals do not work as stored.
+Two findings of the design review of 2026-09-23 become prerequisites rather than defects to schedule: D205, since T4 and UC-3 fail while imported objects crowd the override list; and D202, since UC-10's second sign-off is an approval, and approvals do not work as stored.
+
+*Corrected 2026-09-23.* This paragraph first named D210 as a third prerequisite, "since any metric computed from the log needs a reliable settled position". That was wrong. A metric computed on read sees committed rows only, so work still in flight is invisible to it by construction. The settled position matters to a consumer advancing a cursor, such as an export, and not to metrics ([`design/data-driven-engine.md`](design/data-driven-engine.md) §6).
 
 ## 10. Questions for the author
 

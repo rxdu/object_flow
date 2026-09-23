@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — repair of D189, D191, D192 and D195 to D200, 2026-09-09; pending author review
 - **Date:** 2026-09-09
+- **Refined by:** ADR-0083 (proposed) — `state_source` gains `imported`, kept apart from `asserted`.
 - **Refines:** ADR-0018, ADR-0027, ADR-0037, ADR-0054, ADR-0056, ADR-0075
 
 ## Context
