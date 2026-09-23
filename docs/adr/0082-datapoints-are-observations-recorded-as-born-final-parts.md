@@ -31,7 +31,7 @@ The subject declares the collection in one line, `part inspections : InspectionR
 - an `owner` end to its subject;
 - a generated `record` creation, whose guard is the `recorded by` clause.
 
-The rule set prints the expansion. The grammar belongs to `design/declaration-syntax.md`; this decides the semantics. Fields are typed, and a kind may declare invariants over its own fields — a voltage within a range — checked when an observation is recorded, as any local invariant is (D12).
+The rule set prints the expansion. The grammar belongs to `design/declaration-syntax.md`; this decides the semantics. Fields are typed; a numeric field may state its unit (`unit "V"`), which the rule set prints and a read returns beside the value, without conversion or checking in arithmetic; and a kind may declare invariants over its own fields — a voltage within a range — checked when an observation is recorded, as any local invariant is (D12).
 
 ### 2. Recording is an ordinary creation request
 
