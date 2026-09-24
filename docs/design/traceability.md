@@ -36,7 +36,9 @@ The same day the worked example's newer cases were written into checked modules 
 
 The same day the author's principle on cascades became PRD revision 6: F8, that a transition may cause transitions on related objects when its rule says so clearly enough that none comes as a surprise, and UC-21, which tests it on the first consumer's delivery completion. The design has had cascades since ADR-0019 but printed them only where they start; ADR-0108 prints every cause of a transition on its own type (D378), and both rows are covered.
 
-Current: 68 covered, 0 partial, 0 gaps, 1 unverifiable, 7 revision proposed. G4 is revised with C2 in PRD §12; goals are not rows here, and G4 is met through C2's.
+The same day the author accepted the eight revisions PRD §12 proposed, as PRD revision 7. The seven rows marked `revision proposed` are covered: the design already met the wording that was accepted, and no citation changed.
+
+Current: 75 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goals are not rows here; G4 is met through C2's.
 
 ## Requirements
 
@@ -54,16 +56,16 @@ Current: 68 covered, 0 partial, 0 gaps, 1 unverifiable, 7 revision proposed. G4 
 | D2 | DESIGN §6, §7; ADR-0083, ADR-0088; storage-schema.md §6 | covered | |
 | D3 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; storage-schema.md §3; renderers.md §3; ADR-0099 | covered |  |
 | D4 | DESIGN §5.11; ADR-0082, ADR-0095, ADR-0096; declaration-syntax.md §6.8; storage-schema.md §3; ADR-0101 | covered |  |
-| D5 | DESIGN §5.4, §5.11; ADR-0083, ADR-0095, ADR-0096; declaration-syntax.md §4.2, §6.8; storage-schema.md §2, §6; ADR-0099; ADR-0103; ADR-0106 | revision proposed | an override is dated when the engine was told, and a label when it was recorded; PRD §12 proposes the wording the design meets |
+| D5 | DESIGN §5.4, §5.11; ADR-0083, ADR-0095, ADR-0096; declaration-syntax.md §4.2, §6.8; storage-schema.md §2, §6; ADR-0099; ADR-0103; ADR-0106 | covered | |
 | D6 | DESIGN §5.11; ADR-0082, ADR-0095; declaration-syntax.md §6.8; storage-schema.md §6 | covered | |
 | D7 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; adversarial-harness.md §2; ADR-0105 | covered | |
 | D8 | DESIGN §8, §5.11; ADR-0031, ADR-0078, ADR-0082, ADR-0087, ADR-0096; storage-schema.md §9; ADR-0100; ADR-0101; ADR-0105, ADR-0106 | covered | |
 | D9 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8 | covered | |
 | D10 | DESIGN §5.13; ADR-0086; declaration-syntax.md §6.10; storage-schema.md §6; ADR-0099; declaration-syntax.md §5.2 | covered |  |
-| D11 | DESIGN §5.2; ADR-0083, ADR-0086; storage-schema.md §6; ADR-0099, ADR-0100; ADR-0106 | revision proposed | an attribute holding several choices is not tracked, like a set of references; PRD §12 proposes the wording the design meets |
+| D11 | DESIGN §5.2; ADR-0083, ADR-0086; storage-schema.md §6; ADR-0099, ADR-0100; ADR-0106 | covered | |
 | D12 | DESIGN §5.11; ADR-0082, ADR-0095, ADR-0096; declaration-syntax.md §6.8; ADR-0097; declaration-syntax.md §8.3; ADR-0103 | covered |  |
 | C1 | DESIGN §5.2, §5.12; ADR-0084; declaration-syntax.md §6.9; ADR-0098; declaration-syntax.md §8.3; ADR-0103; ADR-0106 | covered |  |
-| C2 | DESIGN §5.2, §5.12; ADR-0084, ADR-0096, ADR-0098; declaration-syntax.md §6.9; renderers.md §2, §3; library-api.md §5, §6; ADR-0106 | revision proposed | as written, C2 conflicts with T5 for a reader who may see only part of the data; PRD §12 proposes the wording the design meets |
+| C2 | DESIGN §5.2, §5.12; ADR-0084, ADR-0096, ADR-0098; declaration-syntax.md §6.9; renderers.md §2, §3; library-api.md §5, §6; ADR-0106 | covered | |
 | C3 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9; ADR-0098 | covered |  |
 | C4 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9 | covered | |
 | C5 | DESIGN §5.12; ADR-0084; data-driven-engine.md §7 | unverifiable | the PRD leaves the target to be set by measurement; data-driven-engine.md §7 records an indicative SQLite probe, and the author sets the target |
@@ -75,7 +77,7 @@ Current: 68 covered, 0 partial, 0 gaps, 1 unverifiable, 7 revision proposed. G4 
 | M5 | DESIGN §10; ADR-0094; library-api.md §6; ADR-0106 | covered | |
 | M6 | DESIGN §5.13; ADR-0086, ADR-0096; storage-schema.md §6; ADR-0098; declaration-syntax.md §6.11; ADR-0101; ADR-0106 | covered |  |
 | M7 | DESIGN §5.7, §5.12, §10; ADR-0048, ADR-0084; declaration-syntax.md §8.3; storage-schema.md §3.4 | covered | |
-| L1 | DESIGN §5.5, §5.11; ADR-0082; declaration-syntax.md §6.8 | revision proposed | a label is read by metrics and diagnostics and never by a rule, since nobody declares its vocabulary; PRD §12 proposes the wording the design meets |
+| L1 | DESIGN §5.5, §5.11; ADR-0082; declaration-syntax.md §6.8 | covered | |
 | L2 | DESIGN §6; ADR-0088, ADR-0095, ADR-0096; storage-schema.md §4, §6; library-api.md §5; ADR-0105; adversarial-harness.md §1 | covered | |
 | L3 | DESIGN §6, §10; ADR-0037; library-api.md §6 | covered | |
 | L4 | DESIGN §5.12, §9; ADR-0084, ADR-0085; declaration-syntax.md §6.9; publish-and-import.md §1; unit-journey.md §2 | covered | |
@@ -95,7 +97,7 @@ Current: 68 covered, 0 partial, 0 gaps, 1 unverifiable, 7 revision proposed. G4 
 | N2 | DESIGN §2, §7, §8; ADR-0012, ADR-0091, ADR-0096; library-api.md §1; storage-schema.md §6, §9; ADR-0100; ADR-0103; ADR-0105; data-driven-engine.md §9 | covered |  |
 | N3 | DESIGN §2; ADR-0090; storage-schema.md §7; first-consumer-cutover.md §5 | covered | |
 | N4 | DESIGN §13; ADR-0091; adversarial-harness.md §1, §2, §3, §4; ADR-0100; ADR-0105, ADR-0106 | covered |  |
-| N5 | DESIGN §11; ADR-0075, ADR-0077, ADR-0093, ADR-0096; publish-and-import.md §4, §7; first-consumer-cutover.md §4a; ADR-0100; ADR-0101; declaration-syntax.md §3.1; ADR-0103; ADR-0106 | revision proposed | values about people and things the store holds no object for are not ported, and the legacy record's silent stretches are reported as gaps rather than filled; PRD §12 proposes the wording the design meets |
+| N5 | DESIGN §11; ADR-0075, ADR-0077, ADR-0093, ADR-0096; publish-and-import.md §4, §7; first-consumer-cutover.md §4a; ADR-0100; ADR-0101; declaration-syntax.md §3.1; ADR-0103; ADR-0106 | covered | |
 | N6 | DESIGN §2, §6, §7, §10, §13; ADR-0012, ADR-0022, ADR-0104, ADR-0105; library-api.md §6 | covered |  |
 
 ## Use cases
@@ -109,9 +111,9 @@ Current: 68 covered, 0 partial, 0 gaps, 1 unverifiable, 7 revision proposed. G4 
 | UC-5 | DESIGN §5.11, §5.12; declaration-syntax.md §6.8, §6.9 | covered | |
 | UC-6 | DESIGN §5.4; declaration-syntax.md §4.2; ADR-0103 | covered | |
 | UC-7 | DESIGN §12; declaration-syntax.md §6.8; data-driven-engine.md §3.7; ADR-0081 | covered | |
-| UC-8 | DESIGN §5.12; ADR-0098; declaration-syntax.md §6.9 | revision proposed | as C2 |
+| UC-8 | DESIGN §5.12; ADR-0098; declaration-syntax.md §6.9 | covered | |
 | UC-9 | DESIGN §5.12, §11; declaration-syntax.md §6.9; ADR-0106 | covered | |
-| UC-10 | DESIGN §5.5, §5.12; ADR-0096, ADR-0098; declaration-syntax.md §6.9; library-api.md §4 | revision proposed | naming the value to a requester who may not see what it aggregates would breach T5; PRD §12 proposes the wording the design meets |
+| UC-10 | DESIGN §5.5, §5.12; ADR-0096, ADR-0098; declaration-syntax.md §6.9; library-api.md §4 | covered | |
 | UC-11 | DESIGN §10, §5.12; library-api.md §6; renderers.md §3 | covered | |
 | UC-12 | DESIGN §5.12; declaration-syntax.md §8.3 | covered | |
 | UC-13 | DESIGN §5.9, §5.11, §5.12, §10; declaration-syntax.md §6.6, §6.8, §6.9; publish-and-import.md §3; library-api.md §6; ADR-0098; ADR-0105; returns-module.md §1, §2 | covered |  |

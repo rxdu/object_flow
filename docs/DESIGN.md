@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 378 entries and five cosmetics; 378 are closed and 0 are open. The PRD is at revision 6, with a proposed revision awaiting the author (PRD §12).
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 378 entries and five cosmetics; 378 are closed and 0 are open. The PRD is at revision 7, with no revision awaiting the author.
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -622,7 +622,7 @@ The importer evaluates the declaration and reports every violated invariant and 
 **Legacy history is carried whole, as its own objects' history.**
 - **Legacy entries.** Every legacy entry is ported as a read-only entry of kind `legacy`, returned by `history` alongside ObjectFlow's own events.
 - **Fields about another object.** An entry keeps the payload fields that describe its own object. A field that describes another ported object moves to that object's history.
-- **Fields the store holds no object for** are not ported, such as the IP address of the employee who acted. PRD §12 proposes that N5 say so (ADR-0100).
+- **Fields the store holds no object for** are not ported, such as the IP address of the employee who acted. PRD N5 says so, since revision 7 (ADR-0100).
 
 **Intervals and creation times reach back as far as the legacy record does** (ADR-0083, ADR-0086, ADR-0106).
 - **What the mapping supplies.** It may supply each object's legacy creation time and creator's kind, and for its state and each tracked member when it took its current value and who changed it. Where it supplies no creation time, `.created_at` is the earliest time the port knows of the object, from its legacy intervals, entries and entry times, or the port itself, and the object is marked **undated**; an entry time or a legacy interval earlier than a creation time the mapping does supply is refused. The import's event opens the current interval at that time, so a stay is never split at cutover. Earlier values arrive as legacy intervals, marked as such, with who made each change where the legacy record says.

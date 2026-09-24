@@ -4,6 +4,7 @@
 - **Date:** 2026-09-23
 - **Refined by:** ADR-0101 — the standard metrics exclude the import's events, clip finished spans, carry version and actor kind, and include two per-object metrics; they are checked as an instantiated block. ADR-0105 — `override_counts` counts every override, admissions included. ADR-0106 — every metric, declared or standard, has the version and actor-kind dimensions.
 - **Refines:** ADR-0084, ADR-0086, ADR-0096
+- **PRD:** the revision §6 proposes was accepted by the author on 2026-09-24, as PRD revision 7.
 
 ## Context
 
@@ -65,6 +66,8 @@ C2 as written — "every consumer … gets the same value" — cannot hold besid
 - UC-8, which tests C2, gets the same wording as C2.
 
 Until the author decides, `traceability.md` marks the three rows **revision proposed**, a status its checker allows only for requirements the PRD lists there. The design is otherwise unchanged by the proposal: it already behaves as the revised wording says (ADR-0096 §3).
+
+*Decided 2026-09-24: the author accepted the wording, with G4's, as PRD revision 7, and the rows are covered.*
 
 ## Alternatives rejected
 
