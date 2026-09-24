@@ -67,6 +67,5 @@ Registry state, checked 2026-09-24, with the same caveat ADR-0011 gave: availabi
 - ADR-0011 is superseded, and says so in its header.
 - The worked example's page is renamed with the project.
 - **The GitHub repository** is `rxdu/object_flow`, the snake_case form of the name, as `object_keeper` was of ObjectKeeper. It was renamed on 2026-09-24 at the author's request, first to `objectflow` and then, following that convention, to `object_flow`. GitHub redirects the older URLs.
-- **Left to the author:**
-  - renaming the local working directory, which would disrupt work in progress;
-  - the first consumer's repository and any page outside this repository that uses the old name, which this change does not reach.
+- **The local working directory** was renamed to `object_flow` on the author's workstation on 2026-09-24. A checkout on another machine keeps the name it was cloned under. Renaming one there also means moving Claude Code's per-project folder in `~/.claude/projects/`, which is named after the checkout's path with `/` and `_` written as `-`; otherwise the agent's memory for the project stays behind under the old path.
+- **Outside this repository**, nothing needed the change. As of 2026-09-24 the old name appears neither in the first consumer's repository (`wr_inventory_management`, searched on the workstation) nor on the operations platform's PRD page, which names no engine.
