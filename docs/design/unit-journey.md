@@ -72,6 +72,7 @@ machine UnitLifecycle version 3 {
   requires ref  peg : Delivery?
   requires ref  binding : Delivery?
   requires ref  used_in : ServiceJob?
+  requires ref  sold_to : Customer?
   requires ref  engagement_lines : EngagementLine[]
   requires invariant one_open_engagement
   requires capability EDIT, ADMIN, DELETE, ASSERT, CANCEL
@@ -165,14 +166,22 @@ machine UnitLifecycle version 3 {
     clear used_in
   }
 
-  do sell RESERVED -> SOLD only via Delivery.complete_sale { }
+  do sell RESERVED -> SOLD only via Delivery.complete_sale {
+    input buyer : Customer
+    set sold_to := inputs.buyer
+  }
   do deliver_internal RESERVED -> DEVELOPMENT only via Delivery.complete_internal { }
-  do consume RESERVED -> SOLD only via ServiceJob.finish { }
+  do consume RESERVED -> SOLD only via ServiceJob.finish {
+    input buyer : Customer
+    set sold_to := inputs.buyer
+  }
   do unconsume SOLD -> AVAILABLE only via ServiceJob.void {
     clear used_in
+    clear sold_to
   }
   do unsell SOLD -> AVAILABLE only via Delivery.revoke {
     clear binding
+    clear sold_to
   }
   do recall_internal DEVELOPMENT -> AVAILABLE only via Delivery.revoke {
     clear binding
@@ -180,6 +189,7 @@ machine UnitLifecycle version 3 {
   do accept_return SOLD -> AVAILABLE {
     require may: actor.has(ADMIN) because delegable
     clear binding
+    clear sold_to
   }
 
   do release_to_stock DEVELOPMENT -> AVAILABLE {
@@ -187,7 +197,10 @@ machine UnitLifecycle version 3 {
     require home: none(l in engagement_lines where l.open) because dependent
     clear binding
   }
-  do convert_lease DEVELOPMENT -> SOLD only via Lease.convert { }
+  do convert_lease DEVELOPMENT -> SOLD only via Lease.convert {
+    input buyer : Customer
+    set sold_to := inputs.buyer
+  }
   do retire DEVELOPMENT -> RETIRED {
     input reason : RetirementReason
     require may:   actor.has(DELETE) because delegable
@@ -229,6 +242,7 @@ type Robot version 4 {
   ref  peg              : Delivery? inverse pegged
   ref  binding          : Delivery? inverse units
   ref  used_in          : ServiceJob? inverse parts_used
+  ref  sold_to          : Customer?
   ref  services         : ServiceJob[] inverse robot
   ref  engagement_lines : EngagementLine[] inverse robot
 
@@ -358,7 +372,7 @@ type Delivery version 3 {
     require filled:       count(u in units) >= 1
                           and none(u in pegged)                         because dependent
     require may:          actor.has(DELIVERY_COMPLETE)                  because delegable
-    for u in units limit 500 { call u.sell() }
+    for u in units limit 500 { call u.sell(buyer := customer) }
   }
   do complete_internal PREPARATION -> DELIVERED {
     require is_internal: internal                                       because unreachable_from_here
@@ -408,7 +422,7 @@ type ServiceJob version 3 {
     require delivered: inputs.robot.state == Robot.SOLD
                        or inputs.robot.state == Robot.DEVELOPMENT        because self_serviceable
     require theirs:    inputs.robot.state == Robot.DEVELOPMENT
-                       or inputs.robot.binding.customer == inputs.customer because self_serviceable
+                       or inputs.robot.sold_to == inputs.customer        because self_serviceable
   }
   act reassign at OPEN accepts engineer {
     require may:    actor.has(SERVICE_EDIT) because delegable
@@ -430,7 +444,7 @@ type ServiceJob version 3 {
   }
   do finish WORKING -> DONE {
     require may: actor.has(SERVICE_COMPLETE) because delegable
-    for p in parts_used limit 50 { call p.consume() }
+    for p in parts_used limit 50 { call p.consume(buyer := customer) }
   }
   do cancel { OPEN, WORKING } -> CANCELLED {
     require may: actor.has(SERVICE_CANCEL_REQUESTED) because delegable
@@ -530,7 +544,7 @@ type Lease version 1 {
   do convert ACTIVE -> CONVERTED {
     require may: actor.has(LEASE_CONVERT) because delegable
     require out: engagement.state == Engagement.OUT because dependent
-    for l in engagement.lines where l.open limit 20 { call l.robot.convert_lease() }
+    for l in engagement.lines where l.open limit 20 { call l.robot.convert_lease(buyer := customer) }
     call engagement.settle()
   }
   do end ACTIVE -> ENDED {
@@ -649,6 +663,7 @@ Pool utilisation, the share of a pooled unit's time spent on loan, is the questi
 - **A cascade that cannot apply refuses.** Production's delivery revoke sets its units to AVAILABLE whatever they became since (`sr:169-187`); here `unsell` and `recall_internal` refuse, naming the unit, if it is no longer `SOLD` or `DEVELOPMENT`.
 - **Engagements and leases exist.** Production has accepted them and not built them (ADR-0002, "Open questions"). Its open questions stay open here and are listed in §6.
 - **The gates are production's intent, not its switch.** `inventorize` requires the label, the manufacturer serial where the model requires one, and a photo where the model requires one. Production enforces the label only, behind a flag that defaults to off. The equivalent of that flag is an `observe` marking on `labelled`, published to enforce once its would-be refusals are counted (ADR-0085), rather than an environment variable.
+- **A unit records whom it was sold to.** Every route into `SOLD` — a sale, a service's consumption, a lease-to-own conversion — writes `sold_to`, and every route out clears it, and a service job opened on a sold unit checks that the customer is its buyer. Production checks instead that the unit appears on one of the customer's deliveries (`wr:app/services/service_service.py:442-486`), which a unit bought out of a lease never does, so its buyer could not have asked for a repair (D289). `sold_to` is tracked, so who owned a unit and when is in its intervals.
 - **The serial is production's.** One sequence per type, formatted `RBT-{maker}-{NNNNNN}`, the maker's segment dropped where a model has no manufacturer (`wr:app/services/serial_number_service.py:37-41,117-196`). Production derives the maker's code from the manufacturer's name each time; here `RobotModel` holds it as an optional `maker_code`, which the port fills with production's derivation and an operator sets for a new model, since the language has no substring. The import carries the sequence's high-water mark, so the first serial minted after cutover follows production's last (ADR-0103 §4).
 - **Simplifications.** A delivery's slots are not modelled, so `filled` reads the delivery's own units and pegs; a reopened service re-adds its parts, where production keeps part rows and re-reserves them; a reopened delivery is not modelled. Accessories and spare parts bind the same machine in production (`sr:1008-1300`) and would here, as further binders.
 
