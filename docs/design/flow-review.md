@@ -1,6 +1,6 @@
 # An operations review of the unit's journey: where the flow waits, and how to smooth it
 
-Status: **review, proposals awaiting the author**, 2026-09-24. Nothing here is decided: each proposal changes the first consumer's process, and that is the author's call.
+Status: **review, proposals awaiting the author**, 2026-09-24. Nothing here is decided: each proposal changes the first consumer's process, and that is the author's call. The author has since placed the operating layer of §2.1 in an upper-layer application built on the store, not in the store (ADR-0104, PRD N6), which answers the first question of §7.
 
 This review reads the worked example — the page built from [`unit-journey.md`](unit-journey.md) and its replay — as a general operations manager would. It asks:
 - where work waits, is handed off, is batched, is redone, or depends on someone remembering;
@@ -49,7 +49,7 @@ The engine never initiates (PRD, non-goals). So every rule that should move work
 *Proposals:*
 - an `assignee` on the delivery, the shipment and the missing unit, with a target time per state. The engine already records assignment from the first write and gives every assignee's open work and waits as standard metrics (M6).
 - one exceptions board over the flags that exist: overdue, ageing, missing, stale reservations, leases running over, and refusals nobody followed up. The board should route a refusal that names another object to that object's assignee.
-- **design the scheduler and operations agent next**, before implementation. It is the loop that asks the store's questions each hour — `available(...)`, the flags, the worklists — and acts or notifies. It also needs an alert for when the loop itself stops.
+- **an operations application above the store** — decided by the author as an upper-layer application, not part of the core (ADR-0104). It is the loop that asks the store's questions each hour — `available(...)`, the flags, the worklists — and acts through `request` or notifies, with no path of its own, and an alert for when the loop itself stops. The store's part is to answer each of its questions with one query (PRD N6, UC-20).
 
 *Risk:* noise. Start with a daily review of the board and tune the thresholds from it.
 
@@ -186,7 +186,7 @@ A renderer can print the stage map from the categories and a display name per st
 
 In the order the review would take them:
 
-1. **The operating layer (§2.1).** Should the scheduler and operations agent be designed next, before implementation, with owners and target times on the delivery, the shipment and the missing unit?
+1. **The operating layer (§2.1).** *Answered 2026-09-24: an upper-layer application, not part of the core (ADR-0104).* What remains for the core is whether the delivery, the shipment and the missing unit get owners and target times, which are declarations.
 2. **Condition (§3.1).** Should everything that comes back pass a quarantine and an inspection before it goes on offer, with a repeat-failure hold on lending?
 3. **Assignment (§2.2).** Should production's explicit assignment be kept, with a worklist and `procured_for`, or should the earmark become a reservation at commit?
 4. **The end of a sale (§2.4, §3.2).** Should there be `READY` and physical fulfilment stages, and where should `SOLD` happen?

@@ -2,7 +2,7 @@
 
 A governed object store: your data, and the rules that constrain how it changes.
 
-> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax consumers write against, 103 decisions, and a register of 289 findings, 289 closed and 0 open — together with the checkers that verify the record against itself. The latest findings — from the reviews of 2026-09-23, and on 2026-09-24 from an audit of the first consumer's production code, a review of the design against the PRD with the unit's journey written from it, and a verification of that review's decision — are resolved. [`docs/PRD.md`](docs/PRD.md) states the product's requirements and is the baseline every design choice is checked against; ADR-0081 to ADR-0096, accepted by the author on 2026-09-23 — the last ten decided at the author's direction and checked against the design before acceptance — and ADR-0097 to ADR-0101, decided at the author's direction the same day and awaiting acceptance, are the design that meets them, and [`docs/design/traceability.md`](docs/design/traceability.md) shows each requirement met, except C5, whose target the PRD leaves to measurement, and C2, UC-8 and UC-10, which the design found unsatisfiable as written beside T5 and for which PRD §12 proposes a revision to the author. An audit of the first consumer's production code on 2026-09-24 ([`docs/design/first-consumer-audit.md`](docs/design/first-consumer-audit.md)) found D275 to D281; ADR-0102, proposed the same day, writes the unit's whole journey from request to loan and service ([`docs/design/unit-journey.md`](docs/design/unit-journey.md)); and reading both against the PRD found D282 and D283, and verifying the decision that followed found D284 to D288; ADR-0103, decided at the author's direction, resolved them with D275 to D279. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 and the six implementation documents of 2026-09-09 await review.
+> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax consumers write against, 104 decisions, and a register of 289 findings, 289 closed and 0 open — together with the checkers that verify the record against itself. The latest findings — from the reviews of 2026-09-23, and on 2026-09-24 from an audit of the first consumer's production code, a review of the design against the PRD with the unit's journey written from it, and a verification of that review's decision — are resolved. [`docs/PRD.md`](docs/PRD.md) states the product's requirements and is the baseline every design choice is checked against; ADR-0081 to ADR-0096, accepted by the author on 2026-09-23 — the last ten decided at the author's direction and checked against the design before acceptance — and ADR-0097 to ADR-0101, decided at the author's direction the same day and awaiting acceptance, are the design that meets them, and [`docs/design/traceability.md`](docs/design/traceability.md) shows each requirement met, except C5, whose target the PRD leaves to measurement, and C2, UC-8 and UC-10, which the design found unsatisfiable as written beside T5 and for which PRD §12 proposes a revision to the author. An audit of the first consumer's production code on 2026-09-24 ([`docs/design/first-consumer-audit.md`](docs/design/first-consumer-audit.md)) found D275 to D281; ADR-0102, proposed the same day, writes the unit's whole journey from request to loan and service ([`docs/design/unit-journey.md`](docs/design/unit-journey.md)); and reading both against the PRD found D282 and D283, and verifying the decision that followed found D284 to D288; ADR-0103, decided at the author's direction, resolved them with D275 to D279. The author has ruled on ADR-0065 to ADR-0073; ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 and the six implementation documents of 2026-09-09 await review.
 
 ## What it is
 
@@ -13,12 +13,17 @@ You define object types — typed attributes, a state machine, guards on the tra
 It also collects data about the flows it runs — every transition, refusal, override and change of hands — takes the datapoints users record, and computes declared metrics over both. That lets business logic be driven by data, whether a person or an agent drives it, and lets a flow start imperfect and converge. [`docs/PRD.md`](docs/PRD.md) states the requirements, and is the baseline every design choice is checked against.
 
 ```text
-agents · applications · human UI          consumers
+upper-layer applications                  manage the flow, use its data:
+  agents · services · human UI            schedules, chasing, worklists,
+                                          alerts, dashboards
 ─────────────────────────────────────
-            ObjectKeeper
+            ObjectKeeper                  the governed core: declared flows,
+                                          enforced rules, the record, metrics
 ─────────────────────────────────────
 PostgreSQL / SQLite                       storage
 ```
+
+**A governed core, not a platform.** How a flow is managed — who requests which transition and when, chasing, scheduling, assigning, notifying — and how its datapoints are put to use are built in upper-layer applications. They act through the same requests and rules as anyone else, with no path of their own (PRD §1, N6; ADR-0104). ObjectKeeper does not compete with full metadata-driven platforms on flows, screens or automation; what it offers beneath them is the guarantee and the record.
 
 ## Why
 

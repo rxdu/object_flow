@@ -1,6 +1,6 @@
 # ObjectKeeper — Product requirements
 
-**Status: baseline, revision 3, 2026-09-23.** The author made this document the baseline on 2026-09-23: every design choice is checked against it, never the reverse. Its Inferred rows and the two questions of §10 stay open to the author's correction, and a design that finds the PRD wrong proposes a revision rather than working around it. Written from the author's statements of 2026-09-23 and the standing objective of [`DESIGN.md`](DESIGN.md) §1. Revision 2 followed a review of revision 1 for validity and clarity, and revision 3 a check of revision 2 against the same review; §11 says what changed in each and why. This document states what the product must do. It does not choose designs: [`design/data-driven-engine.md`](design/data-driven-engine.md) evaluates them against the use cases in §7, and the choices are ADR-0081 to ADR-0086, accepted 2026-09-23.
+**Status: baseline, revision 4, 2026-09-24.** Revision 4 states, at the author's direction, what the engine is and where the work of managing a flow belongs (§1, N6, UC-20). The author made this document the baseline on 2026-09-23: every design choice is checked against it, never the reverse. Its Inferred rows and the two questions of §10 stay open to the author's correction, and a design that finds the PRD wrong proposes a revision rather than working around it. Written from the author's statements of 2026-09-23 and the standing objective of [`DESIGN.md`](DESIGN.md) §1. Revision 2 followed a review of revision 1 for validity and clarity, and revision 3 a check of revision 2 against the same review; §11 says what changed in each and why. This document states what the product must do. It does not choose designs: [`design/data-driven-engine.md`](design/data-driven-engine.md) evaluates them against the use cases in §7, and the choices are ADR-0081 to ADR-0086, accepted 2026-09-23.
 
 **How to review it.** Every requirement in §6 names its source: **Said** is the author's own statement of 2026-09-23, **Carried** is a standing requirement of the existing record, and **Inferred** is this document's reading of what the other two imply. Inferred rows are where it is most likely to be wrong, and where a Said row rests on an interpretation of the author's words, the row says which. Each requirement also names the use cases that test it; the few that no use case tests say why. §10 has the only two questions this document asks the author.
 
@@ -9,6 +9,8 @@
 ObjectKeeper is the foundational layer on which people and AI agents **define flows** and **collect data** about them, so that the business logic built on top can be **driven by data**, whichever kind of actor is driving it.
 
 A flow is a set of object types with their lifecycles, transitions and rules. Data is everything the flow produces by running — every transition, every refusal, every override, every change of hands — together with what users choose to record, and values computed from both by formulas users define. Metrics over that data evaluate the flows whenever anyone asks, and that evaluation is what lets a user start with an imperfect flow and **converge** on a good one, with the engine showing where the flow and reality disagree.
+
+**A governed core, not a platform.** ObjectKeeper is the core that operations applications are built on, and not the application itself. It holds the declared flows, enforces their rules on every request, records everything they produce and computes the formulas declared over that data. How a flow is **managed** — who requests which transition and when, chasing, scheduling, assigning, notifying, the worklists and screens people work from — and how its datapoints are **put to use** — dashboards, alerts, analysis, decisions taken outside the declared rules — are built in **upper-layer applications** on top of it, which act through the same interface and rules as anyone else (N6, UC-20). The flows themselves are declared by the consumer and executed by the core; declaring them is not an upper-layer concern.
 
 It keeps the objective the record has had from the start: **trust under delegation**. Nothing a person or an agent does can put the governed state into a condition its rules forbid, except through an override that is declared, capability-gated and recorded.
 
@@ -50,6 +52,9 @@ It keeps the objective the record has had from the start: **trust under delegati
 | Open-ended exploratory analysis — ad-hoc querying, charting, notebooks; the engine exports its data in an analysable shape for tools built for that | Inferred |
 | Working-hours calendars and local-time rules in durations and time buckets, in the first release | Carried ([`design/edge-cases.md`](design/edge-cases.md), "Business hours and local time") |
 | High-rate machine telemetry — sensor streams at seconds rate; a summary of one may be recorded as a datapoint | Inferred, and §10 asks |
+| Managing a flow and putting its data to use — deciding when to request transitions, chasing, scheduling, assigning, notifying, worklists and dashboards; they are built in upper-layer applications on the engine (N6) | Said, 2026-09-24: "the way we manage the transitions and make use of the datapoints should be built in upper-layer applications" |
+
+**Beside platforms, not one of them.** Full metadata-driven stacks, such as [ObjectStack](https://objectstack.ai/docs/getting-started), ship the data model together with automation flows, scheduled jobs, approvals, notifications and screens. ObjectKeeper is deliberately narrower: it does not compete on flows, screens or automation, and an application layer — a platform among them — may be built on it. What it offers that such automation does not promise is the guarantee that governed state changes only through a declared transition or a recorded override (T1), and the record that explains every decision and measures every flow (D, M). Recorded at the author's direction, 2026-09-24 (ADR-0104).
 
 ## 4. Who uses it
 
@@ -61,6 +66,7 @@ It keeps the objective the record has had from the start: **trust under delegati
 | Operating agent | agent | The same, through the same interface and the same rules; today's first-consumer agents create deliveries, reserve units and attach service parts |
 | Owner or reviewer | human | Reads the printed rules and the metrics, approves flow changes and overrides |
 | Integration | service | Keeps an externally owned type in step with its owner (Xero), reflects state outward (Jira), runs schedules that ask what is due |
+| Upper-layer application | service or agent | Manages the flow and puts its data to use: asks the engine what may be done, what is due and who holds what, chases and assigns, notifies, and shows people their worklists and dashboards. It acts through the same requests as any caller and has no path of its own (N6) |
 
 The engine treats human, agent and service alike except where a rule says otherwise, and records which kind acted every time.
 
@@ -135,7 +141,7 @@ Priorities: **Must** is required for the product to meet its purpose; **Should**
 | M4 | Any metric can be split by the kind of actor that requested the transitions, or recorded the datapoints, it counts | Should | Inferred | UC-2, UC-16 |
 | M5 | The engine exports its data in a shape suited to exploratory analysis elsewhere, and does not attempt the exploration itself | Could | Inferred from "potentially dig insights" | — Could |
 | M6 | Every type with an assignee has assignment metrics without declaring any: open work per assignee, time unassigned, time to first assignment, time with each assignee, handoffs per object and reassignment back to an earlier assignee, and how often someone other than the assignee acts | Must | Inferred from D10; the priority is this document's | UC-18 |
-| M7 | Business exceptions — work overdue against a date, ageing past a threshold, a service level breached — are declared once as conditions and are answerable by a query that a scheduler or an agent runs | Must | Said ("exceptions"), in the sense the first consumer's design uses: "Exception management — proactive alerts on reorder points, late POs, aging backorders, SLA breaches" (`wr:docs/proposals/operations-system-design.md` §3) | UC-12 |
+| M7 | Business exceptions — work overdue against a date, ageing past a threshold, a service level breached — are declared once as conditions and are answerable by a query that a scheduler or an agent runs | Must | Said ("exceptions"), in the sense the first consumer's design uses: "Exception management — proactive alerts on reorder points, late POs, aging backorders, SLA breaches" (`wr:docs/proposals/operations-system-design.md` §3) | UC-12, UC-20 |
 
 ### 6.5 Data-driven logic
 
@@ -143,7 +149,7 @@ Priorities: **Must** is required for the product to meet its purpose; **Should**
 |---|---|---|---|---|
 | L1 | A flow's rules can read recorded datapoints about the object and the objects related to it, as they read attributes | Must | Said ("build data driven business logics"), read as the engine's own rules; grounded in the first consumer's gate on inspection results | UC-4 |
 | L2 | Whenever a rule's decision depends on data, the record holds the values it used, so the decision can be re-evaluated from the record alone | Must | Inferred from the recorded property | UC-4, UC-10 |
-| L3 | People and agents deciding outside the engine get the data they need through its interface, and the actions they take are recorded as any other | Must | Said, Carried | UC-11, UC-12, UC-18 |
+| L3 | People and agents deciding outside the engine get the data they need through its interface, and the actions they take are recorded as any other | Must | Said, Carried | UC-11, UC-12, UC-18, UC-20 |
 | L4 | The thresholds and parameters of a data-driven rule are visible, and change only through a governed, recorded path: a flow change (F7), or a transition on the object that holds the value, such as a reorder point per model | Should | Inferred | UC-10, UC-12 |
 | L5 | A flow's rules can read metrics aggregated across many objects and over time. No first-consumer use case needs this yet; UC-10 is hypothetical | Should | Inferred from "build data driven business logics" | UC-10 |
 
@@ -178,6 +184,7 @@ N1 and N2 are constraints carried from the existing design rather than behaviour
 | N3 | The first release is sized for the first consumer — 279 live deliveries, 81 services, 203 warranty contracts and 123 live customers as of 2026-09-01 (inventory ADR-0003), and 6,391 audit rows over the system's life: operations rate, not telemetry rate. Event and datapoint rates are to be measured before cutover. The orders-at-volume case study stays a design reference, not a release target | Must | Carried, Inferred | UC-7 |
 | N4 | Behaviour is deterministic under test, and the adversarial harness is the acceptance test | Must | Carried | — the harness is the test |
 | N5 | The first consumer's production data and legacy history are ported and preserved, including past reassignments wherever its audit trail recorded them | Must | Carried; the reassignment clause is Inferred from D10 | UC-1, UC-18 |
+| N6 | The engine is the governed core that upper-layer applications are built on. It contains no scheduler, workflow runner, notifier, worklist or user interface. It answers the questions an application managing a flow asks — what may be done now, what is due or overdue, what waits and on whom — by queries. An application that manages the flow gets no privileged path: it acts through the same requests, under the same rules, and is recorded like any caller | Must | Said, 2026-09-24 ("stay the governed core … the way we manage the transitions and make use of the datapoints should be built in upper-layer applications"); the no-privileged-path clause is Inferred from T1 | UC-20 |
 
 ## 7. Use cases
 
@@ -235,6 +242,10 @@ Each use case is drawn from the first consumer where it can be, and says so wher
 
 **UC-19. The new paths do not open a way around the rules.** An agent that guesses and skips steps tries the routes this document adds. It records a passing inspection result it is not permitted to record, so that a delivery's gate would open. It backdates a receipt beyond the declared bound, to shorten a supplier's lead time. It completes a transition that a rule on trial would have refused, and then relies on that rule as if it were enforced. *Acceptance:* the first is refused; the second is refused; the third proceeds, is recorded as a would-be refusal, and the printed rules show the trialled rule as not enforced. Governed state never reaches a condition an enforced rule forbids.
 
+### Building on the core
+
+**UC-20. An operations application runs the floor.** An application built on the engine manages the unit's journey day to day. Each hour it asks which deliveries may be marked ready, which units bought for an order still wait to be assigned, which units have been missing for a week, which leases have run over, and how much open work each person holds. It marks what may be marked, assigns where a rule of its own says to, and tells people what is theirs. The worklist, the schedule and the messages are the application's; drawn from the operations review of the first consumer's flow ([`design/flow-review.md`](design/flow-review.md) §2.1). *Acceptance:* given declarations that record the facts it asks about, each of those questions is answered by one query to the engine, not by a scan the application computes; every action it takes is a request by an actor of kind `service` or `agent`, refused by the same rules and recorded with its reason like anyone's; the engine keeps no schedule, sends nothing and takes no step of its own; and stopping the application stops the chasing and loses nothing from the record.
+
 ## 8. How we would know it works
 
 Measures to take rather than targets to meet; none of the numbers below is a goal someone has set.
@@ -277,6 +288,12 @@ The author asked for the details to be settled by evaluating designs against the
 
 ## 11. Revision history
 
+**Revision 4, 2026-09-24**, at the author's direction after an operations review of the worked example and a comparison with full metadata-driven platforms: "stay the governed core, write it into the PRD, the way we manage the transitions and make use of the datapoints should be built in upper-layer applications".
+
+- **The position was only implied.** The non-goals excluded a user interface, effects, initiating work and selection one by one, without saying what the engine is instead or where that work goes, and a sound recommendation — design a scheduler and operations agent — nearly crossed the line. §1 now states the position, §3 names the upper layer as a non-goal with its source and notes platforms beside the engine, §4 adds it as an actor, N6 makes it a requirement, and UC-20 tests it.
+- **The no-privileged-path clause is this document's reading.** N6 marks it Inferred from T1: an upper layer that could skip the guards would be the second write path the design refuses.
+- **The proposal awaiting the author is renumbered** revision 5 (§12), unchanged.
+
 **Revision 3, 2026-09-23**, after checking revision 2 against the review that produced it. Every issue it listed was addressed; eleven residuals were found, several of them fresh instances of the classes revision 2 fixed:
 
 - **An inference inside a Said row, again.** D3 asked for "numbers with units", which nobody said and the proposed design did not model; the value types are now marked Inferred and a unit is stated where a kind is declared. L1's Said is now marked as read in the engine's sense, like F3's. C1's split into derived datapoints and metrics is marked as this document's.
@@ -304,7 +321,7 @@ The author asked for the details to be settled by evaluating designs against the
 - **Coverage was checked per group, which hid gaps.** Each requirement now lists its use cases in one place, and the six that have none say why.
 - **Smaller.** F6 split into F6 (agents draft) and F7 (governed change). §5 gains Rule, Override and Exception, and separates derived datapoints (one object) from metrics (many). UC-17 and UC-18 are in order. §8 no longer counts the harness's failure conditions, which ADR-0083 changes. G5 no longer promises to explain decisions made outside the engine.
 
-## 12. Proposed revision 4, awaiting the author
+## 12. Proposed revision 5, awaiting the author
 
 The design found three places where the requirements, read together, cannot all hold as written, and the status line above says a design that finds the PRD wrong proposes a revision rather than working around it. Nothing below is in force until the author accepts it; until then `design/traceability.md` marks each affected row **revision proposed**, and the design behaves as the proposed wording says (ADR-0096 §3, ADR-0098 §6).
 

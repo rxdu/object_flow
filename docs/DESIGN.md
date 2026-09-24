@@ -31,6 +31,8 @@ The objective beneath all of it is **trust under delegation**: hand a system to 
 
 The threat model is **mistakes, not malice**. Actors are trusted but fallible: a person who skips a step, an agent that retries a timed-out request, a script that sets a flag directly. The design defends against those by construction. It does not defend against an actor holding database credentials who intends harm; that is an access-control and deployment concern (§13).
 
+**A governed core.** ObjectKeeper is the core that operations applications are built on, not the application (PRD §1, N6; ADR-0104). How a flow is managed — who requests which transition and when, chasing, scheduling, assigning, notifying, worklists and screens — and how its datapoints are put to use are built in upper-layer applications, which act through the same requests and rules as any caller and have no path of their own. The core answers the questions they ask by query: what may be done now (§10), what is due or ageing (§5.12), who holds what (§5.13).
+
 Genericity is a requirement from the start. The first consumer is the author's own operations platform (§4); it is a first customer, not a domain to specialise for.
 
 ## 2. Position in the stack and deployment shapes
@@ -458,7 +460,7 @@ Import writes every row complete in one pass: every object's id is assigned from
 | Declared and standard metrics, business exceptions as declared conditions, diagnostics | High-rate machine telemetry; working-hours calendars, in the first release |
 | Import, migration, supersession, erasure; governed flow change | Human UI, agent framework, blob bytes |
 
-Preconditions, permissions and the measurement of a flow have the same shape across domains; formulas that need outside rules, effects and selection are where domains differ irreducibly. The store decides, records and measures; consumers choose and cause (ADR-0007, ADR-0081).
+Everything in the right-hand column that manages a flow or uses its data — scheduling, chasing, assigning, notifying, worklists, dashboards — belongs to an upper-layer application built on the store, with no privileged path into it (PRD N6, ADR-0104). Preconditions, permissions and the measurement of a flow have the same shape across domains; formulas that need outside rules, effects and selection are where domains differ irreducibly. The store decides, records and measures; consumers choose and cause (ADR-0007, ADR-0081).
 
 ## 13. Known limits
 

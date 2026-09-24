@@ -24,7 +24,9 @@ Covered is a claim about the design, not about software: nothing here is impleme
   - declaration-syntax iteration 19 spelled the new constructs, with checks 54 to 61.
 - On 2026-09-24 an audit of the first consumer's production code (`first-consumer-audit.md`) and the unit's journey written from it (`unit-journey.md`) were read against every row. They found five defects of the design, two of the checker and the example (D280, D281), and five gaps to decide against the PRD; the review found two more (D282, D283), and an independent verification of its decision five more (D284 to D288). ADR-0103 disposed of every gap and design defect, the rest were corrected in place, and every row stayed covered.
 
-Current: 67 covered, 0 partial, 0 gaps, 1 unverifiable, 3 revision proposed.
+- On 2026-09-24 the author's positioning decision became PRD revision 4: N6 and UC-20 are new, and both are covered by the design as it stood, since the core already had no scheduler and one write path (ADR-0104).
+
+Current: 69 covered, 0 partial, 0 gaps, 1 unverifiable, 3 revision proposed.
 
 ## Requirements
 
@@ -82,6 +84,7 @@ Current: 67 covered, 0 partial, 0 gaps, 1 unverifiable, 3 revision proposed.
 | N3 | DESIGN §2; ADR-0090; storage-schema.md §7 | covered | |
 | N4 | DESIGN §13; ADR-0091; adversarial-harness.md §4; ADR-0100 | covered |  |
 | N5 | DESIGN §11; ADR-0075, ADR-0077, ADR-0093, ADR-0096; publish-and-import.md §4, §7; first-consumer-cutover.md §4a; ADR-0100; first-consumer-cutover.md §4a; ADR-0101; declaration-syntax.md §3.1; ADR-0103 | covered |  |
+| N6 | DESIGN §2, §6, §10, §13; ADR-0012, ADR-0022, ADR-0104; library-api.md §6 | covered |  |
 
 ## Use cases
 
@@ -106,3 +109,4 @@ Current: 67 covered, 0 partial, 0 gaps, 1 unverifiable, 3 revision proposed.
 | UC-17 | DESIGN §8; ADR-0087, ADR-0096; storage-schema.md §9; ADR-0100; ADR-0101 | covered |  |
 | UC-18 | DESIGN §5.13, §11; ADR-0096; declaration-syntax.md §6.9, §6.10; ADR-0098; declaration-syntax.md §6.11; ADR-0101 | covered |  |
 | UC-19 | DESIGN §5.11, §5.4, §5.5, §13; ADR-0096; adversarial-harness.md §2; ADR-0097, ADR-0099, ADR-0100 | covered |  |
+| UC-20 | DESIGN §2, §5.8, §5.13, §6, §10; ADR-0012, ADR-0022, ADR-0084, ADR-0104; library-api.md §6; declaration-syntax.md §8.3 | covered |  |
