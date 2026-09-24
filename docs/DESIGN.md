@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 377 entries and five cosmetics; 377 are closed and 0 are open. The PRD is at revision 5, with a proposed revision awaiting the author (PRD §12).
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 378 entries and five cosmetics; 378 are closed and 0 are open. The PRD is at revision 6, with a proposed revision awaiting the author (PRD §12).
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -8,6 +8,7 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 - ADR-0081 to ADR-0096, on 2026-09-23. ADR-0087 to ADR-0096 were decided at the author's direction to cover every PRD requirement ([`design/traceability.md`](design/traceability.md)), and accepted after each was checked against this design.
 - ADR-0104, on 2026-09-24: the engine is the governed core.
 - ADR-0107, on 2026-09-24: the project is named ObjectFlow, superseding ADR-0011.
+- ADR-0108, on 2026-09-24: a cascade is declared clearly enough not to surprise, and is shown where it lands. The principle is the author's; the mechanism was written at the author's direction.
 - ADR-0065 to ADR-0073, which the author ruled on.
 
 **Decided at the author's direction, the author's own acceptance pending:**
@@ -210,6 +211,7 @@ Rules that make an outcome readable and safe:
 - **Absence skips, in two places only.** A write whose right-hand side is an unsupplied optional input is skipped, not applied, and a `call` whose path runs through an absent optional end is skipped because there is no object to reach. Everywhere else absence in a path is an error. Clearing a value deliberately is the `clear` step, which writes absence and is a write like any other (ADR-0073). Until iteration 18 this sentence promised something the syntax had no spelling for.
 - **`this` and `this_event` are available**, including inside a creation outcome: the new object's id and its event's identity are allocated before the outcome runs (ADR-0046, ADR-0052).
 - **Bounded.** Every loop and every cascade clause must declare a bound; exceeding one is refused with `over-limit` naming that loop (ADR-0071). The graph of transitions that reference each other in outcomes must be acyclic (ADR-0019).
+- **Shown where it lands.** A cascade is declared on the transition that causes it, and the printed rules of every type it reaches name it too: under each transition, every transition whose outcome can cause it, `only via` parents and other callers alike (ADR-0108, `docs/design/renderers.md` §2). That is what lets a cascade be supported without surprising anyone, which the author made the condition for it (PRD F8).
 
 A transition may be marked **only via** named parent transitions, meaning it is not requestable and carries no actor guards of its own (ADR-0020); **proposable**, meaning a caller lacking authority may file a Proposal (§9); or **asserting** (§8). It may also be marked **backdatable within** a duration: it then accepts the time the change actually happened, within that bound, never later than the time it is recorded, and never before the start of the current interval of any state or tracked value the request changes, and the event keeps both times, because a duration computed from when someone got round to recording a change is wrong (ADR-0083). Every transition the request cascades to records the same occurred time, since one request is one change (ADR-0095). The occurred time is a field of the request, and its bound is a generated guard, `occurred_within`, so a request outside it is refused naming a rule and a remedy like any other (ADR-0099).
 

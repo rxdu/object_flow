@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0065 — a machine's creation guards bind any creation that replaces it; ADR-0070 — an authority list is not mandatory at a closed state, and the boundary worth naming is the undo.
+- **Refined by:** ADR-0065 — a machine's creation guards bind any creation that replaces it; ADR-0070 — an authority list is not mandatory at a closed state, and the boundary worth naming is the undo. ADR-0108 — the rule set prints an only-via transition's parents on its own type, and the causes of a requestable transition that other transitions also cascade to.
 
 ## Context
 

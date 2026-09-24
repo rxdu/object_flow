@@ -10,6 +10,8 @@ Draft, 2026-09-09, amended 2026-09-23. Three projections of one declaration: tex
 
 **Amended 2026-09-24** for ADR-0105 and ADR-0106: the built-in types print with their authority — `OF_SUBSCRIBE`, a subscription's reader, and who may end a proposal — and a delivery prints as the record it is.
 
+**Amended 2026-09-24** for ADR-0108: the rule set prints every cause of a transition on the transition's own type, including cascades declared on other types, so a cascade is visible where it lands as well as where it starts (PRD F8).
+
 **What is verified.** `scripts/check-renderers-doc.py` parses every JSON example, checks that the tool schema is a schema a validator accepts, and confirms it rejects a call missing a required field and a call carrying an unknown one. The rule set of §2 is prose and is not checked; nothing generates it yet.
 
 ## 1. What a renderer may not do
@@ -61,6 +63,33 @@ Delivery — version 1
 ```
 
 The guard column on the right is the **remedy class**, which is the one thing a reader most wants: it says whether a failure is theirs to fix, someone else's, a matter of waiting, or impossible from here.
+
+**Every cause of a transition prints on its own type** (ADR-0108). `then` shows a cascade where it starts; `caused by` shows it where it lands, listing every transition in the store's declaration whose outcome can cause this one, with the path, filter and bound as declared. An `only via` transition prints its parents this way and says it is not requestable. A requestable transition that other transitions also cascade to prints them as `also caused by`, so a reader sees both routes. The unit's journey has one of each (`unit-journey.md` §2):
+
+```
+Robot — version 4
+
+  inventorize        INTAKE → AVAILABLE
+    requires
+      may            the actor holds EDIT                           delegable
+      labelled       the label has been printed                     unreachable from here
+      mfr_serial     a manufacturer serial, where the model requires one
+                                                                    unreachable from here
+      photo          a label photo, where the model requires one    unreachable from here
+    then
+      the earmark is cleared
+    also caused by
+      Shipment.commit          for each of up to 200 of its units in INTAKE
+
+  sell               RESERVED → SOLD
+    only via; not requestable
+    then
+      sold to the buyer supplied
+    caused by
+      Delivery.complete_sale   for each of up to 500 bound units
+```
+
+Nothing here is written by hand. Publishing already builds the graph of which transitions call which, to refuse a cycle (ADR-0019), and the renderer reads it from the other end. A part's disposition by its whole prints on the part's type in the same way. Because a cascaded transition runs as the requester under its own actor guards, `also caused by` also tells a reader what the requester needs: whoever commits a shipment must also hold `EDIT`, which `inventorize` requires. The journey binds `EDIT` to production's `INVENTORY_CREATE`, which the commit requires already, so there the two coincide. And since the rule-set diff renders what publishing compares (§6), a publish that adds a cascade shows the new cause on the type it reaches.
 
 The constructs of ADR-0082 to ADR-0086 render in the same deterministic order, and each says what it is rather than leaving a reader to infer it:
 

@@ -13,15 +13,15 @@
 | [0009](0009-invariants-declared-at-type-level.md) | Invariants are declared at type level, enforced at transitions | Accepted · partly superseded by ADR-0045 — later refined by ADR-0045 |
 | [0010](0010-the-declaration-is-inspectable-at-runtime.md) | The declaration is data, inspectable at runtime | Accepted |
 | [0011](0011-project-name-objectkeeper.md) | The project's first name, and why it was chosen | **Superseded by ADR-0107** |
-| [0012](0012-objectflow-does-not-initiate-transitions.md) | ObjectFlow does not initiate transitions | Accepted — later refined by ADR-0019, ADR-0022, ADR-0100 |
+| [0012](0012-objectflow-does-not-initiate-transitions.md) | ObjectFlow does not initiate transitions | Accepted — later refined by ADR-0019, ADR-0022, ADR-0100, ADR-0108 |
 | [0013](0013-events-are-recorded-to-a-durable-log-in-the-transition-transaction.md) | Events are written to a durable ordered log in the transition's own transaction | Accepted — later refined by ADR-0019, ADR-0105 |
 | [0014](0014-delivery-is-at-least-once-with-idempotency-keys.md) | Delivery is at-least-once; exactly-once effect comes from idempotency keys | Accepted — later refined by ADR-0069, ADR-0103 |
 | [0015](0015-first-consumer-and-fresh-build-with-ported-data.md) | The first consumer is the Weston Robot operations platform, rebuilt with its production data ported | Accepted — later refined by ADR-0075, ADR-0078, ADR-0100 |
 | [0016](0016-actions-are-self-transitions.md) | Actions are self-transitions | Accepted |
 | [0017](0017-file-attachments-are-content-addressed-references.md) | File attachments are content-addressed references; the bytes are out of scope | Accepted (author-confirmed) — later refined by ADR-0087 |
 | [0018](0018-every-object-carries-a-store-assigned-globally-unique-identifier.md) | Every object carries a store-assigned, globally unique identifier | Accepted — later refined by ADR-0077 |
-| [0019](0019-outcomes-cascade-across-relationships-atomically.md) | A transition's outcome may cascade transitions and creations across relationships, atomically | Accepted (iteration 1, review pending) · partly superseded by ADR-0038 and ADR-0046 — later refined by ADR-0038, ADR-0046, ADR-0066 |
-| [0020](0020-a-transition-may-be-reachable-only-via-named-parents.md) | A transition may be reachable only via named parent transitions | Accepted (iteration 1, review pending) — later refined by ADR-0065, ADR-0070 |
+| [0019](0019-outcomes-cascade-across-relationships-atomically.md) | A transition's outcome may cascade transitions and creations across relationships, atomically | Accepted (iteration 1; principle confirmed by the author 2026-09-24, the rest pending review) · partly superseded by ADR-0038 and ADR-0046 — later refined by ADR-0038, ADR-0046, ADR-0066, ADR-0108 |
+| [0020](0020-a-transition-may-be-reachable-only-via-named-parents.md) | A transition may be reachable only via named parent transitions | Accepted (iteration 1, review pending) — later refined by ADR-0065, ADR-0070, ADR-0108 |
 | [0021](0021-derived-attributes-and-the-expression-language.md) | Derived attributes are never stored; the expression language is small and grows only by decision | Accepted (iteration 1, review pending) — later refined by ADR-0032, ADR-0047, ADR-0053, ADR-0061, ADR-0081, ADR-0084 |
 | [0022](0022-time-is-a-guard-value-and-availability-is-queryable.md) | Time is a guard value; the read surface answers which objects have a transition available | Accepted (iteration 1, review pending) — later refined by ADR-0048, ADR-0103, ADR-0105 |
 | [0023](0023-transitions-execute-under-locks-and-may-carry-an-expected-version.md) | One transaction per request, versions, and the `stale` verdict; its locking rules superseded by ADR-0039 | Accepted (iteration 1, review pending) — later refined by ADR-0039, ADR-0076 |
@@ -109,3 +109,4 @@
 | [0105](0105-the-core-sends-nothing-and-every-write-names-its-route.md) | The core sends nothing, and every write to governed state names its route | Accepted (decided at the author's direction against the PRD; the author's own acceptance pending) |
 | [0106](0106-what-the-record-measures-coverage-completion-and-the-metric-rules.md) | What the record measures: history coverage, completion, and the metric rules revision 5 exposed | Accepted (decided at the author's direction against the PRD; the author's own acceptance pending) |
 | [0107](0107-the-project-is-named-objectflow.md) | The project is named ObjectFlow | Accepted by the author |
+| [0108](0108-a-cascade-is-declared-clearly-enough-not-to-surprise.md) | A cascade is declared clearly enough not to surprise, and is shown where it lands | Accepted (the principle is the author's; the mechanism written at the author's direction) |

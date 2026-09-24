@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0019 — auto-fill on receipt is a declared cascade of the batch commit the caller requested, not a trigger; ADR-0022 — time-driven transitions are ordinary guarded transitions that a scheduler above requests, using the availability query. The decision here is unchanged. ADR-0100 — maintenance is an operation a deployment calls when it chooses and correctness never waits on, and the first consumer's cutover adds a scheduler before any type with time-driven transitions migrates.
+- **Refined by:** ADR-0019 — auto-fill on receipt is a declared cascade of the batch commit the caller requested, not a trigger; ADR-0022 — time-driven transitions are ordinary guarded transitions that a scheduler above requests, using the availability query. The decision here is unchanged. ADR-0100 — maintenance is an operation a deployment calls when it chooses and correctness never waits on, and the first consumer's cutover adds a scheduler before any type with time-driven transitions migrates. ADR-0108 — the author confirmed on 2026-09-24 that a declared cascade of a request is on the permitted side of this decision, provided it is declared clearly enough not to surprise.
 
 ## Context
 

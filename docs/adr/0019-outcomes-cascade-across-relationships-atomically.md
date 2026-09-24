@@ -1,8 +1,8 @@
 # ADR-0019: A transition's outcome may cascade transitions and creations across relationships, atomically
 
-- **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
+- **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07). **Its principle was confirmed by the author on 2026-09-24:** "I think transition cascading should be supported, as long as the rule is defined by the user clearly enough that the transition should not appear as a surprise" (ADR-0108, PRD F8). The rest is pending author review
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0066 — a cascade clause carries arguments. ADR-0038 — cascades apply sequentially, each seeing the writes of those before it, superseding the "All guards first" rule. ADR-0046 — the outcome grammar replaces the outcome description; atomicity, causality and acyclicity stand.
+- **Refined by:** ADR-0066 — a cascade clause carries arguments. ADR-0038 — cascades apply sequentially, each seeing the writes of those before it, superseding the "All guards first" rule. ADR-0046 — the outcome grammar replaces the outcome description; atomicity, causality and acyclicity stand. ADR-0108 — a cascade is declared clearly enough not to surprise: the rule set prints it on every type it reaches, as well as where it starts.
 
 ## Context
 

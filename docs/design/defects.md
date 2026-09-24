@@ -389,6 +389,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D375](#d375) | Check 19 never resolved a state literal | Resolved in place |
 | [D376](#d376) | Check 56 read only the first line of a wrapped guard | Resolved in place |
 | [D377](#d377) | The journey's purpose paragraph split its status paragraph | Resolved in place |
+| [D378](#d378) | A type's printed rules did not show a cascade declared on another type | Resolved by ADR-0108 |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -2505,3 +2506,12 @@ The author asked for the declarations behind the page's newer cases to be checke
 **The journey's purpose paragraph split its status paragraph.** The purpose statement added on 2026-09-24 was inserted mid-paragraph, leaving the status paragraph's closing sentences — what the module supersedes and which decisions record it — under the purpose heading. Found reading the journey to add `RobotModel`.
 
 **Resolved in place**, 2026-09-24: the sentences are back in the status paragraph.
+
+## Found checking the author's principle on cascades, 2026-09-24
+
+The author said that transition cascading should be supported, as long as the rule is declared clearly enough that the transition does not appear as a surprise. The design was read against that condition, from each reader's side: the requester, the history, and the reviewer of each type.
+
+### D378
+**A type's printed rules did not show a cascade declared on another type.** `renderers.md` §2 printed a cascade only under the `then` of the transition that causes it. An `only via` transition names its parents in its own declaration, but a requestable transition names nothing, and any transition may `call` it (`declaration-syntax.md` §5.2). In the unit's journey, `Shipment.commit` inventorises every unit in `INTAKE` (`unit-journey.md` §2), while the unit's rules show `inventorize` only as a transition holders of `EDIT` request, so a reviewer of the unit could not learn from them that a shipment's commit puts units on offer.
+
+**Resolved by ADR-0108**, 2026-09-24: the rule set prints every cause of a transition on its own type — `caused by` for an `only via` transition's parents, `also caused by` for other transitions that cascade to a requestable one — derived from the call graph publishing already builds; PRD revision 6 states the condition as F8, tested by UC-21.

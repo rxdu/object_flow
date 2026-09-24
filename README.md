@@ -2,11 +2,11 @@
 
 Governed flows for business objects. People and agents move objects only along declared transitions; every change is checked, recorded and measured.
 
-> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax deployments write their flows in, 107 decisions, and a register of 377 findings, 377 closed and 0 open — together with the checkers that verify the record against itself.
+> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax deployments write their flows in, 108 decisions, and a register of 378 findings, 378 closed and 0 open — together with the checkers that verify the record against itself.
 >
-> [`docs/PRD.md`](docs/PRD.md), at revision 5, states the product's requirements and is the baseline every design choice is checked against. [`docs/design/traceability.md`](docs/design/traceability.md) shows each requirement met, with two kinds of exception. C5's target is left by the PRD to measurement. And for G4, C2, D5, D11, L1, N5, UC-8 and UC-10, the design found the requirement cannot hold as written, and PRD §12 proposes a revision to the author.
+> [`docs/PRD.md`](docs/PRD.md), at revision 6, states the product's requirements and is the baseline every design choice is checked against. [`docs/design/traceability.md`](docs/design/traceability.md) shows each requirement met, with two kinds of exception. C5's target is left by the PRD to measurement. And for G4, C2, D5, D11, L1, N5, UC-8 and UC-10, the design found the requirement cannot hold as written, and PRD §12 proposes a revision to the author.
 >
-> - **Accepted by the author:** ADR-0081 to ADR-0096, ADR-0104, the engine as the governed core, and ADR-0107, the name ObjectFlow, which supersedes ADR-0011.
+> - **Accepted by the author:** ADR-0081 to ADR-0096, ADR-0104, the engine as the governed core, ADR-0107, the name ObjectFlow, which supersedes ADR-0011, and ADR-0108, cascades declared clearly enough not to surprise, whose principle is the author's and whose mechanism was written at the author's direction.
 > - **Decided at the author's direction, awaiting the author's own acceptance:** ADR-0097 to ADR-0101, ADR-0103, and ADR-0105 and ADR-0106, from a review of the whole record against PRD revision 5 on 2026-09-24.
 > - **Proposed:** ADR-0102, which writes the unit's whole journey from production ([`docs/design/unit-journey.md`](docs/design/unit-journey.md)).
 > - **Ruled on by the author:** ADR-0065 to ADR-0073.

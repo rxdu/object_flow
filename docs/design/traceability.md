@@ -34,7 +34,9 @@ An independent verification of the two decisions then found that D5 is met neith
 
 The same day the worked example's newer cases were written into checked modules — a two-publish returns flow and the journey's `RobotModel` — and rows V1, V5, L4, L5 and UC-13 cite them.
 
-Current: 66 covered, 0 partial, 0 gaps, 1 unverifiable, 7 revision proposed. G4 is revised with C2 in PRD §12; goals are not rows here, and G4 is met through C2's.
+The same day the author's principle on cascades became PRD revision 6: F8, that a transition may cause transitions on related objects when its rule says so clearly enough that none comes as a surprise, and UC-21, which tests it on the first consumer's delivery completion. The design has had cascades since ADR-0019 but printed them only where they start; ADR-0108 prints every cause of a transition on its own type (D378), and both rows are covered.
+
+Current: 68 covered, 0 partial, 0 gaps, 1 unverifiable, 7 revision proposed. G4 is revised with C2 in PRD §12; goals are not rows here, and G4 is met through C2's.
 
 ## Requirements
 
@@ -47,6 +49,7 @@ Current: 66 covered, 0 partial, 0 gaps, 1 unverifiable, 7 revision proposed. G4 
 | F5 | DESIGN §5.9; ADR-0027; publish-and-import.md §3; ADR-0099; declaration-syntax.md §6.6; ADR-0101; ADR-0105 | covered |  |
 | F6 | DESIGN §9; ADR-0085; publish-and-import.md §1; ADR-0097 | covered |  |
 | F7 | DESIGN §5.9, §9; ADR-0085, ADR-0096; publish-and-import.md §1, §2; storage-schema.md §6; ADR-0097; ADR-0101 | covered |  |
+| F8 | DESIGN §5.4, §6, §12; ADR-0012, ADR-0019, ADR-0020, ADR-0038, ADR-0108; declaration-syntax.md §5.2; renderers.md §2; library-api.md §6 | covered | |
 | D1 | DESIGN §7; ADR-0013, ADR-0033; storage-schema.md §2 | covered | |
 | D2 | DESIGN §6, §7; ADR-0083, ADR-0088; storage-schema.md §6 | covered | |
 | D3 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; storage-schema.md §3; renderers.md §3; ADR-0099 | covered |  |
@@ -119,3 +122,4 @@ Current: 66 covered, 0 partial, 0 gaps, 1 unverifiable, 7 revision proposed. G4 
 | UC-18 | DESIGN §5.13, §11; ADR-0096; declaration-syntax.md §6.9, §6.10; ADR-0098; declaration-syntax.md §6.11; ADR-0101; ADR-0106; unit-journey.md §2 | covered |  |
 | UC-19 | DESIGN §5.11, §5.4, §5.5, §13; ADR-0096; adversarial-harness.md §2; ADR-0097, ADR-0099, ADR-0100; declaration-syntax.md §6.8; ADR-0105 | covered |  |
 | UC-20 | DESIGN §2, §5.8, §5.13, §6, §7, §10; ADR-0012, ADR-0022, ADR-0084, ADR-0104, ADR-0105; library-api.md §6; declaration-syntax.md §8.3; flow-review.md §2, §8 | covered | |
+| UC-21 | DESIGN §5.4, §6, §7; ADR-0019, ADR-0038, ADR-0108; declaration-syntax.md §5.2; renderers.md §2; library-api.md §6; unit-journey.md §2; first-consumer-walkthrough.md §3.3 | covered | |
