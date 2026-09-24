@@ -205,6 +205,7 @@ The appendix is the module of `unit-journey.md` with the proposals marked **decl
 - The delivery's `READY`, `mark_ready` and `back_to_preparation`.
 - The observation kind `ReturnCheck`, and the metrics `recording_lag` and `assignment_wait`.
 - `sold_to`, which is in `unit-journey.md` itself (D289).
+- the invariants `labelled` and `mfr_serial`, and the acts `record_manufacturer_serial` and `add_photo`, which are in `unit-journey.md` itself (ADR-0109, D379).
 
 The promised date, the service clock, the checklist revision, the fulfilment stages and the procurement order are prose only. The module's delivery carries no dates and no checklist, and the procurement order is outside it.
 
@@ -245,8 +246,10 @@ type RobotModel version 1 {
   attr maker_code                   string?
   attr warranty_months              int
   attr label_photo_required         bool default false
-  attr manufacturer_serial_required bool default false
+  attr manufacturer_serial_required bool default false indexed
   attr reorder_point                int default 0
+
+  ref  units : Robot[] inverse model
 
   derive available_units = count(u in Robot where u.model == this and u.state == Robot.AVAILABLE)
   derive low_stock       = available_units < reorder_point
@@ -286,6 +289,8 @@ machine UnitLifecycle version 4 {
   requires ref  sold_to : Customer?
   requires ref  engagement_lines : EngagementLine[]
   requires invariant one_open_engagement
+  requires invariant labelled
+  requires invariant mfr_serial
   requires capability EDIT, ADMIN, DELETE, ASSERT, CANCEL
 
   state REQUESTED   category inbound
@@ -308,10 +313,7 @@ machine UnitLifecycle version 4 {
     require may: actor.has(EDIT) because delegable
   }
   create add_opening_stock -> AVAILABLE accepts model, manufacturer_serial, label_printed_at {
-    require may:        actor.has(ASSERT) because delegable
-    require labelled:   inputs.label_printed_at is not null because self_serviceable
-    require mfr_serial: inputs.model.manufacturer_serial_required
-                        implies inputs.manufacturer_serial is not null because self_serviceable
+    require may: actor.has(ASSERT) because delegable
   }
 
   do ship REQUESTED -> PROCUREMENT only via Shipment.dispatch, Shipment.add_unit {
@@ -352,6 +354,14 @@ machine UnitLifecycle version 4 {
   act record_label_print at any {
     require may: actor.has(EDIT) because delegable
     set label_printed_at := now
+  }
+  act record_manufacturer_serial at any accepts manufacturer_serial {
+    require may: actor.has(EDIT) because delegable
+  }
+  act add_photo at INTAKE {
+    input photo : file
+    require may: actor.has(EDIT) because delegable
+    add photos := inputs.photo
   }
 
   do inventorize INTAKE -> AVAILABLE {
@@ -455,13 +465,13 @@ type Robot version 5 {
 
   attr serial string identifier from unit_serial
                      format "RBT-[{model.maker_code}-]{n:6}" indexed unique
-  attr manufacturer_serial string?
+  attr manufacturer_serial string? indexed
   attr label_printed_at    timestamp?
   attr photos              file[]
   attr cancellation_reason CancellationReason?
   attr retirement_reason   RetirementReason?
 
-  ref  model            : RobotModel
+  ref  model            : RobotModel inverse units
   ref  shipment         : Shipment? inverse units
   ref  peg              : Delivery? inverse pegged
   ref  procured_for     : Delivery? inverse procured
@@ -486,6 +496,9 @@ type Robot version 5 {
 
   invariant one_open_engagement: count(l in engagement_lines where l.open) <= 1
   invariant one_claim:           binding is null or used_in is null
+  invariant labelled:            state != AVAILABLE or label_printed_at is not null
+  invariant mfr_serial:          state != AVAILABLE or not model.manufacturer_serial_required
+                                 or manufacturer_serial is not null
 }
 ```
 

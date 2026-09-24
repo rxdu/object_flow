@@ -3,6 +3,7 @@
 - **Status:** Accepted — recommendation accepted by the author 2026-09-08
 - **Date:** 2026-09-08
 - **Refines:** ADR-0020, ADR-0064
+- **Refined by:** ADR-0109 — a machine may rely on invariants it requires of its binders rather than copying a path's guards onto a creation, and publishing reports what each creation skips.
 - **Answers:** open question 13
 
 ## Context

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0045 — enforcement is dynamic, the static analysis is a publish-time report, and invariants may only traverse declared inverses.
+- **Refined by:** ADR-0045 — enforcement is dynamic, the static analysis is a publish-time report, and invariants may only traverse declared inverses. ADR-0109 — a condition every object in a state must meet is an invariant over that state, binding every route into it, with a guard of the same name on the common path.
 
 ## Context
 

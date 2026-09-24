@@ -390,6 +390,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D376](#d376) | Check 56 read only the first line of a wrapped guard | Resolved in place |
 | [D377](#d377) | The journey's purpose paragraph split its status paragraph | Resolved in place |
 | [D378](#d378) | A type's printed rules did not show a cascade declared on another type | Resolved by ADR-0108 |
+| [D379](#d379) | Nothing recorded a unit's manufacturer serial or photos after its creation | Resolved by ADR-0109 |
+| [D380](#d380) | Check 19 ignored a bare state compared with the object's own state | Resolved by ADR-0109 |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -2339,6 +2341,8 @@ Five readers, one slice each — flows and trust; data, formulas and metrics; lo
 
 **Resolved in place**, 2026-09-24: `mfr_serial` on the creation, in the journey and the appendix.
 
+**The general question it raised**, whether the engine should say when a creation lands past a lifecycle's first state with rules of the path it skips, was decided on 2026-09-24 by ADR-0109. The label and the serial are invariants of every unit on offer, which bind the creation as they bind every route, so the copied guard is gone; the photo, which production checks only at intake, stays intake's; and publishing reports what each such creation skips.
+
 ### D346
 **The first consumer's module omitted the engineer-of-record rule.** Production requires an engineer to be an active user whose role is ADMIN or ENGINEERING, on create and on update (`wr:app/services/service_service.py:488-520`, called at `:361` and `:544`, read at `4109939`), which is the rule PRD UC-18 cites, that an agent may not be engineer-of-record; `ServiceJob.open` validated no engineer, `reassign` checked only `ACTIVE`, and `User` had no role. Found by slice 4.
 
@@ -2515,3 +2519,17 @@ The author said that transition cascading should be supported, as long as the ru
 **A type's printed rules did not show a cascade declared on another type.** `renderers.md` §2 printed a cascade only under the `then` of the transition that causes it. An `only via` transition names its parents in its own declaration, but a requestable transition names nothing, and any transition may `call` it (`declaration-syntax.md` §5.2). In the unit's journey, `Shipment.commit` inventorises every unit in `INTAKE` (`unit-journey.md` §2), while the unit's rules show `inventorize` only as a transition holders of `EDIT` request, so a reviewer of the unit could not learn from them that a shipment's commit puts units on offer.
 
 **Resolved by ADR-0108**, 2026-09-24: the rule set prints every cause of a transition on its own type — `caused by` for an `only via` transition's parents, `also caused by` for other transitions that cascade to a requestable one — derived from the call graph publishing already builds; PRD revision 6 states the condition as F8, tested by UC-21.
+
+## Found deciding D345's question, 2026-09-24
+
+The author accepted the recommendation to state a condition of a state as an invariant and to report what a creation skips (ADR-0109). Writing the journey's invariants, and probing the checker with a planted mistake, found these.
+
+### D379
+**Nothing recorded a unit's manufacturer serial or photos after its creation.** In `unit-journey.md` only `add_to_intake` and `add_opening_stock` accepted `manufacturer_serial`, and nothing wrote `photos` at all. So a unit ordered through `request`, whose model requires a serial or a photo, could never pass `inventorize`'s guards: a unit stranded in `INTAKE`. Production edits both on the intake item before commit (`wr:app/services/intake_batch_service.py:470-520`), carries the photos onto the unit at commit (`:874-880`), and lets an existing robot's serial be edited (`wr:app/schemas/inventory.py:59-63`). Found writing the invariant `mfr_serial`, which asked how a unit on offer without a required serial could be given one.
+
+**Resolved by ADR-0109**, 2026-09-24: `record_manufacturer_serial`, an act at any non-terminal state, and `add_photo`, an act at `INTAKE`, in the journey and the appendix.
+
+### D380
+**Check 19 ignored a bare state compared with the object's own state.** It resolved `<Type>.<STATE>` literals only, so `state != AVAILABL` in an invariant passed as clean. Found by planting that misspelling in the journey's new invariant `labelled`.
+
+**Resolved by ADR-0109**, 2026-09-24: check 19 also resolves a bare state compared with `state` inside a type or machine, against that type's states or its machine's, proven by a fixture; the planted misspelling is now reported.

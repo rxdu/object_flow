@@ -73,8 +73,10 @@ type RobotModel version 1 {
   attr maker_code                   string?
   attr warranty_months              int
   attr label_photo_required         bool default false
-  attr manufacturer_serial_required bool default false
+  attr manufacturer_serial_required bool default false indexed
   attr reorder_point                int default 0
+
+  ref  units : Robot[] inverse model
 
   derive available_units = count(u in Robot where u.model == this and u.state == Robot.AVAILABLE)
   derive low_stock       = available_units < reorder_point
@@ -115,6 +117,8 @@ machine UnitLifecycle version 3 {
   requires ref  sold_to : Customer?
   requires ref  engagement_lines : EngagementLine[]
   requires invariant one_open_engagement
+  requires invariant labelled
+  requires invariant mfr_serial
   requires capability EDIT, ADMIN, DELETE, ASSERT, CANCEL
 
   state REQUESTED   category inbound
@@ -136,10 +140,7 @@ machine UnitLifecycle version 3 {
     require may: actor.has(EDIT) because delegable
   }
   create add_opening_stock -> AVAILABLE accepts model, manufacturer_serial, label_printed_at {
-    require may:        actor.has(ASSERT) because delegable
-    require labelled:   inputs.label_printed_at is not null because self_serviceable
-    require mfr_serial: inputs.model.manufacturer_serial_required
-                        implies inputs.manufacturer_serial is not null because self_serviceable
+    require may: actor.has(ASSERT) because delegable
   }
 
   do ship REQUESTED -> PROCUREMENT only via Shipment.dispatch, Shipment.add_unit {
@@ -180,6 +181,14 @@ machine UnitLifecycle version 3 {
   act record_label_print at any {
     require may: actor.has(EDIT) because delegable
     set label_printed_at := now
+  }
+  act record_manufacturer_serial at any accepts manufacturer_serial {
+    require may: actor.has(EDIT) because delegable
+  }
+  act add_photo at INTAKE {
+    input photo : file
+    require may: actor.has(EDIT) because delegable
+    add photos := inputs.photo
   }
 
   do inventorize INTAKE -> AVAILABLE {
@@ -273,13 +282,13 @@ type Robot version 4 {
 
   attr serial string identifier from unit_serial
                      format "RBT-[{model.maker_code}-]{n:6}" indexed unique
-  attr manufacturer_serial string?
+  attr manufacturer_serial string? indexed
   attr label_printed_at    timestamp?
   attr photos              file[]
   attr cancellation_reason CancellationReason?
   attr retirement_reason   RetirementReason?
 
-  ref  model            : RobotModel
+  ref  model            : RobotModel inverse units
   ref  shipment         : Shipment? inverse units
   ref  peg              : Delivery? inverse pegged
   ref  binding          : Delivery? inverse units
@@ -296,8 +305,32 @@ type Robot version 4 {
 
   invariant one_open_engagement: count(l in engagement_lines where l.open) <= 1
   invariant one_claim:           binding is null or used_in is null
+  invariant labelled:            state != AVAILABLE or label_printed_at is not null
+  invariant mfr_serial:          state != AVAILABLE or not model.manufacturer_serial_required
+                                 or manufacturer_serial is not null
 }
 ```
+
+**What every unit on offer carries is an invariant, and what intake checks is a guard** (ADR-0109). A unit in `AVAILABLE` carries a recorded label print, and the manufacturer serial its model requires, whichever way it got there. `labelled` and `mfr_serial` are invariants of `Robot`, and the machine requires every binder to declare them, so they bind `inventorize`, `add_opening_stock`, a return, a release from the pool, an override and a ported unit alike, which a guard on one transition cannot. Production states the serial rule the same way, for every unit reaching `AVAILABLE`, at its birth or at the intake gate (`wr:app/services/inventory_item_service.py:277-286`, `:410-416`), and enforces it where a unit is born with the serial in hand, at opening stock (`:287-293`) and at a walk-in intake (`wr:app/services/intake_batch_service.py:398-404`); the label is the module's intent, as §4 says. `inventorize` keeps guards of the same names, since `availability` evaluates guards and not invariants, and its remedy, to print the label first, is the one a caller needs before asking. The photo is different. Production checks it only for an intake batch (`wr:app/services/intake_batch_service.py:816-821`), so `photo` stays a guard of intake alone, and opening stock does not carry it.
+
+Three consequences:
+- a ported unit on offer with no label print, or without a serial its model requires, is a violation the port reports, and its disposition admits it or cleans it upstream. An admission is discharged when the unit leaves `AVAILABLE`, so a unit that comes back is labelled before it goes on offer again;
+- turning on a model's `manufacturer_serial_required` is refused while a unit of that model is on offer without one, naming the units. `record_manufacturer_serial` records it at any state, as production lets an existing unit's serial be edited (`wr:app/schemas/inventory.py:59-63`);
+- `record_manufacturer_serial` and `add_photo` are new. Nothing wrote either after a unit's creation, so a unit ordered through `request` whose model requires a serial or a photo could never have been inventorised (D379).
+
+Publishing reports what each creation skips, and `scripts/check-syntax-doc.py` verifies that this is the report the module produces:
+
+```
+Creations that land past their lifecycle's first state
+Robot.add_to_intake -> INTAKE
+  skips receive, only via Shipment.receive_unit: no clause of its own
+  checked on landing: labelled, mfr_serial, one_claim, one_open_engagement
+Robot.add_opening_stock -> AVAILABLE
+  skips inventorize: carried: may; held by invariants: labelled, mfr_serial; not carried: photo
+  checked on landing: labelled, mfr_serial, one_claim, one_open_engagement
+```
+
+A unit added straight to intake skips a shipment's receipt, which is what that creation is for, and opening stock skips the photo, as production's does. Both are visible where the declaration is reviewed, rather than found later in the data.
 
 **Supply and demand.** A shipment is the receiving batch production reconciles, and a delivery binds units and pegs inbound ones. Production keeps the hard bind and the soft peg as two links (`wr:app/services/allocation.py:50-84,104-150`), and so does this module: `binding` and `peg`.
 
@@ -674,7 +707,7 @@ Pool utilisation, the share of a pooled unit's time spent on loan, is the questi
 |---|---|---|---|
 | `request` | → REQUESTED | procurement order creation births units REQUESTED (`wr:app/services/procurement.py:150-162`) | |
 | `add_to_intake` | → INTAKE | manual add (`wr:app/services/inventory_item_service.py:193-221`) | |
-| `add_opening_stock` | → AVAILABLE | the opening-stock fast path, same predicate at creation (`wr:docs/proposals/operations-system-design.md:308`), refusing a unit with no manufacturer serial where its model requires one (`wr:app/services/inventory_item_service.py:277-293`) | gated on `ASSERT`, as a port of existing stock; it carries the serial rule, since a creation into `AVAILABLE` would otherwise pass what `inventorize` refuses without counting as an override (D345) |
+| `add_opening_stock` | → AVAILABLE | the opening-stock fast path, same predicate at creation (`wr:docs/proposals/operations-system-design.md:308`), refusing a unit with no manufacturer serial where its model requires one (`wr:app/services/inventory_item_service.py:277-293`) | gated on `ASSERT`, as a port of existing stock. It copies none of intake's guards: the label and the serial are invariants that bind it like every route into `AVAILABLE`, and the photo, which production checks only at intake, is intake's alone; the publish report lists what it skips (D345, ADR-0109) |
 | `ship` | REQUESTED → PROCUREMENT | `sr:861-865`; `sh:165-317` stamps `shipment_id` | only via the shipment |
 | `unship` | PROCUREMENT → REQUESTED | `sr:867-875`, guarded to in-transit shipments in the service | only via `Shipment.remove_unit`, at `IN_TRANSIT` |
 | `receive` | PROCUREMENT → INTAKE | `sr:884-888`; `sh:757-980` | only via `Shipment.receive_unit`, at `ARRIVED`, which is `backdatable within 2 days`, so time in PROCUREMENT ends when the unit arrived (PRD UC-6) |
@@ -686,7 +719,9 @@ Pool utilisation, the share of a pooled unit's time spent on loan, is the questi
 | `cancel` | REQUESTED, PROCUREMENT, INTAKE → CANCELLED | `sr:877-883,900-905,933-938`, each releasing the peg | one transition with a reason |
 | `peg_to`, `unpeg` | act | `wr:app/services/allocation.py:104-200` | |
 | `record_label_print` | act, any non-terminal state | production allows it in any state (`wr:app/services/label_print_service.py:174-197`) | `RETIRED` is `closed` and not terminal, so a retired unit can be relabelled, as in production; only `DELETED` is final (ADR-0103 §8) |
-| `inventorize` | INTAKE → AVAILABLE | `sr:926-931`; `ib:635-910`; the peg is released at commit (`ib:912-934`) | production gates on the label only, behind `LABEL_PRINTING_ENABLED`, default off (`sr:695-724`); photos are checked per batch |
+| `record_manufacturer_serial` | act, any non-terminal state | editable on an intake item before commit (`ib:470-520`) and on an existing robot (`wr:app/schemas/inventory.py:59-63`) | added, since nothing wrote it after creation (D379) |
+| `add_photo` | act at INTAKE | an intake item's confirmation photos, carried onto the unit at commit (`ib:874-880`, `ib:936`) | added, for the same reason (D379) |
+| `inventorize` | INTAKE → AVAILABLE | `sr:926-931`; `ib:635-910`; the peg is released at commit (`ib:912-934`) | production gates on the label only, behind `LABEL_PRINTING_ENABLED`, default off (`sr:695-724`); photos are checked per batch; `labelled` and `mfr_serial` are also invariants of every unit on offer (ADR-0109) |
 | `revert_intake` | AVAILABLE → INTAKE | `sr:940-945`; `ib:1006-1124` | only via `Shipment.revert_commit` |
 | `reserve` | AVAILABLE → RESERVED | `sr:947-951`; `wr:app/services/inventory_helpers.py:40-80` | |
 | `reserve_for_service` | AVAILABLE → RESERVED | `sv:585-600` reserves a part | production's registry names one transition for both |
@@ -709,7 +744,7 @@ Pool utilisation, the share of a pooled unit's time spent on loan, is the questi
 - **Closed is not terminal.** Production marks states terminal and then leaves them: `CANCELLED` (above), a delivered delivery (`sr:782-790`), a completed service (`sr:827-836`), and a committed intake batch, which revert leaves (`ib:1104`). Each is `closed` and not `terminal` here, with a terminal `DELETED` or `VOIDED` after it where production has one, as the specification's §4.2 advises. Work that is closed stops counting as open, whatever can still happen to it.
 - **A cascade that cannot apply refuses.** Production's delivery revoke sets its units to AVAILABLE whatever they became since (`sr:169-187`); here `unsell` and `recall_internal` refuse, naming the unit, if it is no longer `SOLD` or `DEVELOPMENT`.
 - **Engagements and leases exist.** Production has accepted them and not built them (ADR-0002, "Open questions"). Its open questions stay open here and are listed in §6.
-- **The gates are production's intent, not its switch.** `inventorize` requires the label, the manufacturer serial where the model requires one, and a photo where the model requires one. Production enforces the label only, behind a flag that defaults to off. The equivalent of that flag is an `observe` marking on `labelled`, published to enforce once its would-be refusals are counted (ADR-0085), rather than an environment variable.
+- **The gates are production's intent, not its switch.** `inventorize` requires the label, the manufacturer serial where the model requires one, and a photo where the model requires one. Production enforces the label only, behind a flag that defaults to off. The equivalent of that flag is an `observe` marking on `inventorize`'s `labelled`, published to enforce once its would-be refusals are counted (ADR-0085), rather than an environment variable. The invariant `labelled` is published with the enforcement, since an invariant is not trialled itself; the trial runs on the guard of the same name (ADR-0109).
 - **A unit records whom it was sold to.** Every route into `SOLD` — a sale, a service's consumption, a lease-to-own conversion — writes `sold_to`, and every route out clears it, and a service job opened on a sold unit checks that the customer is its buyer. Production checks instead that the unit appears on one of the customer's deliveries (`wr:app/services/service_service.py:442-486`), which a unit bought out of a lease never does, so its buyer could not have asked for a repair (D289). `sold_to` is tracked, so who owned a unit and when is in its intervals.
 - **The serial is production's.** One sequence per type, formatted `RBT-{maker}-{NNNNNN}`, the maker's segment dropped where a model has no manufacturer (`wr:app/services/serial_number_service.py:37-41,117-196`). Production derives the maker's code from the manufacturer's name each time; here `RobotModel` holds it as an optional `maker_code`, which the port fills with production's derivation and an operator sets for a new model, since the language has no substring. The import carries the sequence's high-water mark, so the first serial minted after cutover follows production's last (ADR-0103 §4).
 - **Simplifications.** A delivery's slots are not modelled, so `filled` reads the delivery's own units and pegs; a reopened service re-adds its parts, where production keeps part rows and re-reserves them; a reopened delivery is not modelled. Accessories and spare parts bind the same machine in production (`sr:1008-1300`) and would here, as further binders.

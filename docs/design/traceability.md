@@ -38,13 +38,15 @@ The same day the author's principle on cascades became PRD revision 6: F8, that 
 
 The same day the author accepted the eight revisions PRD §12 proposed, as PRD revision 7. The seven rows marked `revision proposed` are covered: the design already met the wording that was accepted, and no citation changed.
 
+The same day ADR-0109 decided the question D345 had left open: what every object in a state must carry is an invariant over that state, binding every route into it, and publishing reports what each creation skips. Rows F1 and T1 cite it; every row stays covered.
+
 Current: 75 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goals are not rows here; G4 is met through C2's.
 
 ## Requirements
 
 | ID | Covered by | Status | What remains |
 |---|---|---|---|
-| F1 | DESIGN §5.9, §10; ADR-0010; renderers.md §2, §3; declaration-syntax.md §6.8, §6.9; ADR-0105; storage-schema.md §6 | covered | |
+| F1 | DESIGN §5.9, §10; ADR-0010; renderers.md §2, §3; declaration-syntax.md §6.8, §6.9; ADR-0105; storage-schema.md §6; ADR-0109; publish-and-import.md §2 | covered | |
 | F2 | DESIGN §1, §3, §5.9, §6, §8; ADR-0040, ADR-0042, ADR-0054; library-api.md §6; ADR-0105; publish-and-import.md §3 | covered | |
 | F3 | DESIGN §5.8, §10; ADR-0025, ADR-0037; library-api.md §6; ADR-0099; declaration-syntax.md §1; ADR-0103 | covered |  |
 | F4 | DESIGN §5.5; ADR-0090, ADR-0092; library-api.md §4; ADR-0105 | covered | |
@@ -88,7 +90,7 @@ Current: 75 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | V3 | DESIGN §5.5; ADR-0085; declaration-syntax.md §5.1; renderers.md §2; adversarial-harness.md §1; ADR-0106; storage-schema.md §6 | covered | |
 | V4 | DESIGN §9; ADR-0085; publish-and-import.md §1; ADR-0097 | covered |  |
 | V5 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; publish-and-import.md §1; returns-module.md §2 | covered | |
-| T1 | DESIGN §3, §13; adversarial-harness.md §1, §2; ADR-0097, ADR-0100; ADR-0101; ADR-0105 | covered |  |
+| T1 | DESIGN §3, §13; adversarial-harness.md §1, §2; ADR-0097, ADR-0100; ADR-0101; ADR-0105; ADR-0109; declaration-syntax.md §3.4 | covered |  |
 | T2 | DESIGN §1; adversarial-harness.md | covered | |
 | T3 | DESIGN §7, §8; ADR-0033, ADR-0083, ADR-0089; storage-schema.md §2; ADR-0099, ADR-0100; ADR-0101; ADR-0103; ADR-0105 | covered |  |
 | T4 | DESIGN §8, §10; ADR-0083; storage-schema.md §3.2; publish-and-import.md §4; ADR-0100; ADR-0101 | covered |  |

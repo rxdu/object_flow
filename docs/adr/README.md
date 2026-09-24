@@ -10,7 +10,7 @@
 | [0006](0006-controlled-and-free-attributes.md) | Attributes are classified controlled or free | **Superseded by ADR-0042** |
 | [0007](0007-decide-and-record-not-compute-or-effect.md) | The store decides and records; it does not compute or cause effects | Accepted — later refined by ADR-0019, ADR-0021, ADR-0032, ADR-0068, ADR-0069, ADR-0081, ADR-0105 |
 | [0008](0008-guard-escape-hatch-is-a-named-external-evaluator.md) | The guard escape hatch is a named external evaluator | Accepted (author-confirmed) — later refined by ADR-0049, ADR-0069 |
-| [0009](0009-invariants-declared-at-type-level.md) | Invariants are declared at type level, enforced at transitions | Accepted · partly superseded by ADR-0045 — later refined by ADR-0045 |
+| [0009](0009-invariants-declared-at-type-level.md) | Invariants are declared at type level, enforced at transitions | Accepted · partly superseded by ADR-0045 — later refined by ADR-0045, ADR-0109 |
 | [0010](0010-the-declaration-is-inspectable-at-runtime.md) | The declaration is data, inspectable at runtime | Accepted |
 | [0011](0011-project-name-objectkeeper.md) | The project's first name, and why it was chosen | **Superseded by ADR-0107** |
 | [0012](0012-objectflow-does-not-initiate-transitions.md) | ObjectFlow does not initiate transitions | Accepted — later refined by ADR-0019, ADR-0022, ADR-0100, ADR-0108 |
@@ -66,7 +66,7 @@
 | [0062](0062-a-normative-statement-must-cite-its-check.md) | A normative statement must cite the check that enforces it | Accepted (repair D134-D148, review pending) — later refined by ADR-0063, ADR-0064 |
 | [0063](0063-the-swap-test-is-a-decision-procedure.md) | The swap test names its normalisations, and check 52's claim is retracted | Accepted (repair D149-D158, review pending) |
 | [0064](0064-a-binders-creations-replace-the-machines.md) | A binder's own creations replace the machine's | Accepted (repair D159-D164, review pending) — later refined by ADR-0065 |
-| [0065](0065-a-machines-creation-guards-bind-any-creation-that-replaces-it.md) | A machine's creation guards bind any creation that replaces it | Accepted by the author |
+| [0065](0065-a-machines-creation-guards-bind-any-creation-that-replaces-it.md) | A machine's creation guards bind any creation that replaces it | Accepted by the author — later refined by ADR-0109 |
 | [0066](0066-a-cascade-clause-carries-arguments.md) | A cascade clause carries arguments | Accepted by the author |
 | [0067](0067-a-third-tracking-mode-for-types-that-track-no-physical-thing.md) | A third tracking mode, for a type that tracks no physical thing | Accepted by the author, amends ADR-0050 |
 | [0068](0068-money-keeps-its-currency-in-the-declaration.md) | Money keeps its currency in the declaration | Accepted by the author |
@@ -103,10 +103,11 @@
 | [0099](0099-recording-is-one-declaration-and-a-publish-never-writes-live-rows-unrecorded.md) | Recording is one declaration, dated by the request and offered like any transition, and a publish never writes a live row without an event | Accepted (decided at the author's direction against the PRD; the author's own acceptance pending) — later refined by ADR-0101 |
 | [0100](0100-every-write-has-an-operation-and-erasure-and-visibility-reach-every-copy.md) | Every write to the store has an operation, and erasure and visibility reach every copy | Accepted (decided at the author's direction against the PRD; the author's own acceptance pending) — later refined by ADR-0101, ADR-0103, ADR-0105, ADR-0106 |
 | [0101](0101-closing-what-the-repairs-left.md) | Closing what the repairs left: the import, the approval, migrations, a mirror's erasure, and what the standard metrics count | Accepted (decided at the author's direction against the PRD; the author's own acceptance pending) — later refined by ADR-0103, ADR-0106 |
-| [0102](0102-the-units-journey-is-one-lifecycle-with-custody-and-condition-beside-it.md) | The unit's journey is one lifecycle, with custody and condition beside it, and a missing unit is a state | Proposed (written at the author's request from the production code; awaiting acceptance) — later refined by ADR-0103 |
+| [0102](0102-the-units-journey-is-one-lifecycle-with-custody-and-condition-beside-it.md) | The unit's journey is one lifecycle, with custody and condition beside it, and a missing unit is a state | Proposed (written at the author's request from the production code; awaiting acceptance) — later refined by ADR-0103, ADR-0109 |
 | [0103](0103-what-the-production-audit-required-of-the-design.md) | What the production audit required of the design: declared request rules, text bounds, formatted serials, and seven repairs | Accepted (decided at the author's direction against the PRD; the author's own acceptance pending) |
 | [0104](0104-the-engine-is-the-governed-core-and-managing-the-flow-is-an-upper-layer.md) | The engine is the governed core; managing the flow and using its data belong to upper-layer applications | Accepted by the author — later refined by ADR-0105 |
 | [0105](0105-the-core-sends-nothing-and-every-write-names-its-route.md) | The core sends nothing, and every write to governed state names its route | Accepted (decided at the author's direction against the PRD; the author's own acceptance pending) |
 | [0106](0106-what-the-record-measures-coverage-completion-and-the-metric-rules.md) | What the record measures: history coverage, completion, and the metric rules revision 5 exposed | Accepted (decided at the author's direction against the PRD; the author's own acceptance pending) |
 | [0107](0107-the-project-is-named-objectflow.md) | The project is named ObjectFlow | Accepted by the author |
 | [0108](0108-a-cascade-is-declared-clearly-enough-not-to-surprise.md) | A cascade is declared clearly enough not to surprise, and is shown where it lands | Accepted (the principle is the author's; the mechanism written at the author's direction) |
+| [0109](0109-a-states-conditions-are-invariants-and-publishing-reports-what-a-creation-skips.md) | What every object in a state must carry is an invariant, and publishing reports what a creation skips | Accepted (decided at the author's direction) |

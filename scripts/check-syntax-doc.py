@@ -812,6 +812,8 @@ FIXTURES = {
   19: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> NOWHERE { }\n}",
        # a state literal naming no state of its type
        "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n derive stuck = state == A.NOPE\n create mk -> S { }\n do go S -> D { }\n}",
+       # an unqualified state compared with the object's own state (D380)
+       "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n attr n string?\n invariant i: state != NOPE or n is not null\n create mk -> S { }\n do go S -> D { }\n}",
        "requests by robot require version, token"],
   20: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require actor.has(X) }\n}",
   21: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require n: x == null }\n}",
@@ -907,7 +909,10 @@ def self_test():
     for c, got in bad:
         print(f"  FIXTURE FAILS: check {c} never fired (got {got})")
     print(f"self-test: {n - len(bad)}/{n} fixtures fire their check, over {len(FIXTURES) + len(DOC_FIXTURES)} checks")
-    return not bad
+    got = creation_report(parse(REPORT_FIXTURE[0]))
+    if got != REPORT_FIXTURE[1]:
+        print(f"  REPORT FIXTURE FAILS: got {got}")
+    return not bad and got == REPORT_FIXTURE[1]
 
 
 # ── mutations: each check must catch a mistake in the document's own examples ──
@@ -1011,7 +1016,7 @@ def declaration_findings(src, is_spec):
     for bstart, blk in blocks:
         for d in parse(blk, bstart):
             world[d.name] = d
-    findings, ndecl = [], len(world)
+    findings, ndecl = report_checks(src, list(world.values())), len(world)
     if not is_spec:
         world, imp = with_imports(src, world)
         findings += imp
@@ -1047,11 +1052,131 @@ def require_clauses(body):
     return out
 
 
-def state_literals(text, base, world):
-    """19 — a state literal `<Type>.<STATE>` naming no state of that type or its machine."""
+REPORT_HEAD = "Creations that land past their lifecycle's first state"
+
+
+def creation_report(decls):
+    """The publish report's lines for creations that land past a first state (ADR-0109).
+
+    A lifecycle's first state is the first its declaration lists. A creation into
+    any other state skips the `do` transitions into that state from the states
+    the first one leads to without passing through it. For each, the report says
+    which of its guard clauses the creation carries, which the type holds as an
+    invariant of the same name, and which nothing carries, compared by name; and
+    every invariant of the type, since a creation writes the whole object and so
+    is checked against all of them. It is a report, not a check: nothing fails.
+    """
+    by_name = {d.name: d for d in decls}
     out = []
+
+    def ends(kind, head):
+        h, _, via = head.partition(" only via ")
+        via = re.sub(r"\{[^{}]*\}", "", via).strip()
+        if "->" not in h:
+            return None, None, via
+        a, b = h.split("->", 1)
+        to = b.split()[0] if b.split() else None
+        frm = [] if kind == "create" else [x.strip() for x in a.strip().strip("{}").split(",") if x.strip()]
+        return frm, to, via
+
+    for d in decls:
+        if d.kind != "type" or d.mirror or d.abstract:
+            continue
+        m = by_name.get(d.machine) if d.machine else d
+        if m is None or not m.states:
+            continue
+        states = list(m.states)
+        first = states[0]
+        terminal = {s for s, (mods, _l) in m.states.items() if "terminal" in mods.split()}
+        trans = list(m.trans) + (list(d.trans) if d is not m else [])
+        own = [t for t in d.trans if t[0] == "create"] if d is not m else []
+        creates = own or [t for t in trans if t[0] == "create"]
+        edges = []
+        for kind, name, head, body, _ln in trans:
+            if kind != "do":
+                continue
+            frm, to, via = ends(kind, head)
+            if to is None:
+                continue
+            if frm == ["any"]:
+                frm = [s for s in states if s not in terminal]
+            edges.append((name, frm, to, via, body))
+        invs, anc = set(d.invariants), by_name.get(d.base) if d.base else None
+        while anc is not None:
+            invs |= anc.invariants
+            anc = by_name.get(anc.base) if anc.base else None
+        for _kind, name, head, body, _ln in creates:
+            _f, target, _v = ends("create", head)
+            if target is None or target == first:
+                continue
+            reach, todo = {first}, [first]
+            while todo:
+                x = todo.pop()
+                for _n, frm, to, _via, _b in edges:
+                    if x in frm and to != target and to not in reach:
+                        reach.add(to); todo.append(to)
+            carried = {c.split(":")[0].strip() for c in require_clauses(body)}
+            out.append(f"{d.name}.{name} -> {target}")
+            for tn, frm, to, via, tb in edges:
+                if to != target or not set(frm) & reach:
+                    continue
+                names = [c.split(":")[0].strip() for c in require_clauses(tb)]
+                line = f"  skips {tn}" + (f", only via {via}" if via else "") + ": "
+                if not names:
+                    out.append(line + "no clause of its own")
+                    continue
+                groups = [("carried", [n for n in names if n in carried]),
+                          ("held by invariants", [n for n in names if n not in carried and n in invs]),
+                          ("not carried", [n for n in names if n not in carried and n not in invs])]
+                out.append(line + "; ".join(f"{g}: {', '.join(ns)}" for g, ns in groups if ns))
+            out.append("  checked on landing: " + (", ".join(sorted(invs)) if invs else "no invariant"))
+    return out
+
+
+def report_checks(src, decls):
+    """A report block quoted in a document must be the report its declarations produce."""
+    out, fence, body, start = [], None, [], 0
+    for i, line in enumerate(src.split("\n"), 1):   # pair fences line by line
+        if fence is None and line.startswith("```"):
+            fence, body, start = line[3:].strip(), [], i
+        elif fence is not None and line.strip() == "```":
+            if fence == "" and body and body[0] == REPORT_HEAD:
+                want = creation_report(decls)
+                if body[1:] != want:
+                    out.append((0, "the quoted creation report is not the one the declarations "
+                                   "produce: " + " | ".join(want), start))
+            fence = None
+        elif fence is not None:
+            body.append(line)
+    return out
+
+
+REPORT_FIXTURE = (
+    "type T version 1 {\n tracking serial\n states A category live, B category live, C category closed, D category closed terminal\n"
+    " attr n string?\n invariant y: state != C or n is not null\n"
+    " create mk -> A { }\n create jump -> C accepts n {\n  require z: inputs.n is not null because self_serviceable\n }\n"
+    " do go A -> B {\n  require x: n is not null because unreachable_from_here\n }\n"
+    " do end B -> C {\n  require y: n is not null because unreachable_from_here\n"
+    "  require z: n is not null because unreachable_from_here\n  require w: true\n }\n"
+    " do back C -> A { }\n do drop C -> D { }\n}\n",
+    ["T.jump -> C",
+     "  skips end: carried: z; held by invariants: y; not carried: w",
+     "  checked on landing: y"])
+
+
+def state_literals(text, base, world):
+    """19 — a state literal naming no state: `<Type>.<STATE>`, or a bare name compared with
+    the object's own `state` inside a type or machine, which names one of its own states."""
+    out, cur = [], None
     for i, raw in enumerate(text.split("\n")):
         line = raw.split("#", 1)[0]
+        if m := re.match(r"^(type|machine|observation|metric)\s+(\w+)", line):
+            cur = world.get(m.group(2)) if m.group(1) in ("type", "machine") else None
+        if cur is not None:
+            own = cur.states or (world[cur.machine].states if cur.machine in world else {})
+            for st in re.findall(r"(?<![\w.])state\s*(?:==|!=)\s*([A-Z][A-Z0-9_]*)\b(?!\.)", line):
+                if own and st not in own:
+                    out.append((19, f"{cur.name}: state {st} names none of its own states", base + i))
         for t, st in re.findall(r"\b([A-Z]\w*)\.([A-Z][A-Z0-9_]*)\b", line):
             d = world.get(t)
             if d is None or d.kind not in ("type", "machine"):

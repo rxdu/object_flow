@@ -16,6 +16,8 @@ Draft, 2026-09-09, amended 2026-09-23. What `publish` does with a declaration, w
 - a refresh carries what changed since the last import;
 - every legacy entry is carried.
 
+**Amended 2026-09-24** for ADR-0109: the report lists each creation that lands past its lifecycle's first state, with what it skips.
+
 **What is verified.** The report shapes below execute and are held against the rest of the record by `scripts/check-api-doc.py`, which reads this file as well. The mapping syntax is checked by the declaration checker like any other declaration text.
 
 ## 1. Publishing is a transaction, and the approval of a change
@@ -70,6 +72,27 @@ class Compilation:
 
 
 @dataclass(frozen=True)
+class SkippedTransition:
+    """A `do` transition into a creation's state that the creation jumps (ADR-0109)."""
+
+    transition: str
+    only_via: Sequence[str] = ()            # its parents, where it is only via
+    carried: Sequence[str] = ()             # its clauses the creation declares too, by name
+    held_by_invariants: Sequence[str] = ()  # its clauses the type holds as invariants of the same name
+    not_carried: Sequence[str] = ()         # its clauses nothing carries
+
+
+@dataclass(frozen=True)
+class CreationSkip:
+    """A creation into a state other than its lifecycle's first: a NOTICE, never a refusal."""
+
+    creation: str                           # Type.creation
+    state: str
+    skips: Sequence[SkippedTransition] = ()
+    checked_on_landing: Sequence[str] = ()  # every invariant of the type
+
+
+@dataclass(frozen=True)
 class PublishReport:
     version: int
     accepted: bool
@@ -82,6 +105,7 @@ class PublishReport:
     observed_fanout: Mapping[str, int] = field(default_factory=dict)
     proposals_invalidated: int = 0
     replaced_creations: Mapping[str, Sequence[str]] = field(default_factory=dict)
+    creations_past_first_state: Sequence[CreationSkip] = ()   # ADR-0109
     observing_clauses: Sequence[str] = ()      # guarantee nothing; listed so none is mistaken (ADR-0085)
     change_id: str | None = None               # the DeclarationChange this report is attached to
     withheld: bool = False                     # `affected` omits ids its reader cannot see (ADR-0101)
@@ -90,6 +114,8 @@ class PublishReport:
 ```
 
 Three severities rather than two, because the middle one is the interesting case. A new invariant that eleven live objects violate is not a defect in the declaration and not something to wave through: it is a decision, and §4 is where it gets made. Anything a person must decide blocks the publish until the decision is recorded, and the decision is recorded in a file rather than in an argument to the command.
+
+`creations_past_first_state` lists each creation into a state other than its lifecycle's first, with the path it skips and, for each transition on it, which clauses the creation carries, which the type holds as invariants of the same name, and which nothing carries (ADR-0109). It never refuses a publish: opening stock and a walk-in intake start partway through the lifecycle on purpose. `scripts/check-syntax-doc.py` computes it, and verifies the journey's, which `unit-journey.md` quotes.
 
 `worst_case_fanout` is each loop's own declared bound; `observed_fanout` is the maximum that loop actually reaches over the live objects. ADR-0071 dropped the product of the two, which multiplied invented numbers into a total that looked authoritative.
 

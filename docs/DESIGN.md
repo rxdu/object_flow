@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 378 entries and five cosmetics; 378 are closed and 0 are open. The PRD is at revision 7, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 380 entries and five cosmetics; 380 are closed and 0 are open. The PRD is at revision 7, with no revision awaiting the author.
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -9,6 +9,7 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 - ADR-0104, on 2026-09-24: the engine is the governed core.
 - ADR-0107, on 2026-09-24: the project is named ObjectFlow, superseding ADR-0011.
 - ADR-0108, on 2026-09-24: a cascade is declared clearly enough not to surprise, and is shown where it lands. The principle is the author's; the mechanism was written at the author's direction.
+- ADR-0109, on 2026-09-24, at the author's direction: what every object in a state must carry is an invariant, and publishing reports what a creation skips.
 - ADR-0065 to ADR-0073, which the author ruled on.
 
 **Decided at the author's direction, the author's own acceptance pending:**
@@ -263,6 +264,8 @@ A type-level property, declared once against the type rather than restated on ev
 
 Publishing classifies each invariant, reports which form it decided and which transitions could violate it, and rejects anything that fits none. An erasure admits every invariant reading an attribute it erased, and records the admission, since writing absence may break one and refusing the erasure is not available (ADR-0060). Correctness comes from serialisable isolation (ADR-0039), so an invariant is enforced whether or not it compiles to a database constraint. Compilation is an optimisation whose available shapes depend on the backend, and publishing reports which of a declaration's invariants the configured backend can compile (ADR-0041). No invariant may read a metric, as none may read `now`. An observation kind may declare invariants over its own fields, checked when an observation is recorded (§5.11).
 
+**A condition every object in a state must meet is an invariant over that state**, written `state != S or …`, and not a guard on one way in (ADR-0109). An invariant binds every route into the state: transitions, creations, overrides, which must admit it by name, migrations and the import. A guard binds only the transition it is on. A guard of the same name may stay on the common path, since `availability` evaluates guards and not invariants, and a guard declares the remedy a caller needs before asking. A rule meant to become such an invariant is trialled as an observing clause on that guard, and the invariant is published with the enforcement.
+
 ### 5.7 The expression language
 
 One language serves guards, invariants, derived attributes, visibility predicates, outcome values and filters (ADR-0021, ADR-0032, ADR-0047, ADR-0053):
@@ -314,6 +317,7 @@ Every type, machine, enum, sequence, evaluator, observation kind and metric carr
 - **removing a state** requires a mapping, applied as recorded migration transitions;
 - a member the publish makes **tracked** is tracked from the publish: its current interval opens then for every live object (§7, ADR-0106);
 - pending **proposals** the new version cannot express are invalidated (§9);
+- a **creation that lands past its lifecycle's first state** — the first its declaration lists — is reported with the path it skips: the `do` transitions into its state from the states the first leads to without passing through it, and, for each, the clauses the creation carries, those the type holds as invariants of the same name, and those nothing carries. It is a notice, never a refusal, since opening stock or a walk-in intake starts partway on purpose (ADR-0109);
 - the report also names which invariants compile on this backend, which transitions are sweepable, which derived attributes are queryable (§10), and every guard clause that is observing rather than enforced (§5.5);
 - a flow changes only through a **`DeclarationChange`** (§9): drafted, approved by an actor other than its drafter — a person, when an agent drafted it — and published, its dry-run report being the impact report the draft carries (ADR-0085).
 
