@@ -1,6 +1,6 @@
 # ObjectKeeper — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 371 entries and five cosmetics; 371 are closed and 0 are open. The PRD is at revision 5, with a proposed revision awaiting the author (PRD §12).
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 377 entries and five cosmetics; 377 are closed and 0 are open. The PRD is at revision 5, with a proposed revision awaiting the author (PRD §12).
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -122,6 +122,9 @@ The model was tested against five further shapes, each recorded with what it for
 The first consumer's own flows are written in two places:
 - **The unit's whole journey**, from request to service and loan, is a checked module in [`design/unit-journey.md`](design/unit-journey.md) (ADR-0102). It supersedes the unit lifecycle of the earlier walkthrough, and [`design/flow-review.md`](design/flow-review.md) reads it as an operations manager would.
 - **The rest of the first consumer's lifecycles** are in [`design/first-consumer-walkthrough.md`](design/first-consumer-walkthrough.md).
+- **A returns flow that starts with no rules**, published twice — first bare, then with a label promoted to a state, a rule that reads a metric and a derived value read under visibility — is a checked module in [`design/returns-module.md`](design/returns-module.md). It holds what the worked example's cases need beyond the unit's journey.
+
+All of these exist to test the design, not to specify the first consumer: each is judged by the mechanisms and requirements it puts under load, and by the defects it finds.
 
 ## 5. The model
 

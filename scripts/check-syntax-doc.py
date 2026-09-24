@@ -656,7 +656,7 @@ def data_checks(decls, by_name, text):
         mach = by_name.get(d.machine) if d.machine else None
         states = d.states or (mach.states if mach else {})
         for kind, tn, head, body, ln in d.trans:
-            reqs = re.findall(r"^\s*require\s+([^\n]*)$", body, flags=re.M)
+            reqs = require_clauses(body)
             if kind in ("assert", "erase") and any(re.search(r"\bobserve\b", r) for r in reqs):
                 add(57, f"{d.name}.{tn} is an {kind} with an observing clause", ln)
             if "backdatable" in head:
@@ -810,6 +810,8 @@ FIXTURES = {
        "machine M version 1 {\n requires ref r : R\n requires capability E\n state S category live\n state D category closed terminal\n create mk -> S { require may: actor.has(E) because delegable }\n do go S -> D {\n  clear r\n }\n}\ntype A version 1 {\n tracking serial\n machine M\n provides capability E = X\n ref r : R\n}"],
   18: "type P version 1 {\n tracking serial\n states S category live, D category closed terminal\n owner w : W inverse parts\n create mk -> S only via W.add { }\n do go S -> D { }\n}",
   19: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> NOWHERE { }\n}",
+       # a state literal naming no state of its type
+       "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n derive stuck = state == A.NOPE\n create mk -> S { }\n do go S -> D { }\n}",
        "requests by robot require version, token"],
   20: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require actor.has(X) }\n}",
   21: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require n: x == null }\n}",
@@ -835,7 +837,9 @@ FIXTURES = {
   55: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require quiet: count(l in labels) == 0 }\n}",
   56: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A\n}",
        # a metric reads no personal value, not even in its filter (ADR-0106)
-       "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr email string? personal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A where a.email is not null\n value count()\n}"],
+       "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr email string? personal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A where a.email is not null\n value count()\n}",
+       # a metric reference on a wrapped guard's continuation line is read too (§9.1)
+       "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D {\n  require r: 1 == 1\n             or metric(m, nope := 1) > 0 because dependent\n }\n}\nmetric m version 1 {\n from a in A\n by k = a.state\n value count()\n}"],
   57: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } {\n  input reason : string\n  require may: actor.has(Q) observe because delegable\n }\n}",
   58: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D backdatable within 2 months { }\n}",
   59: "type U version 1 {\n tracking record\n states S category live, D category closed terminal\n attr login identity\n create mk -> S accepts login { }\n do go S -> D { }\n}\ntype A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref who : U assignee\n create mk -> S accepts who { }\n do go S -> D { }\n}",
@@ -893,6 +897,7 @@ def self_test():
             n += 1
             found = {c for c, _, _ in analyse(fixture, 0, {"X", "Q"}, {"live", "closed"}, set())}
             found |= {c for c, _, _ in line_checks(fixture, 0, {"X", "Q"}, set(), set())}
+            found |= {c for c, _, _ in state_literals(fixture, 0, {d.name: d for d in parse(fixture)})}
             if check not in found:
                 bad.append((check, sorted(found)))
     for check, fixture in sorted(DOC_FIXTURES.items()):
@@ -941,6 +946,52 @@ MUTATIONS = [
 ]
 
 
+# A module declared in more than one document names its home here. The flow
+# review's appendix re-declares inventory_journey as a proposed variant of it.
+MODULE_HOMES = {"inventory_journey": "unit-journey.md"}
+
+
+def with_imports(src, world):
+    """Add what a document's `use` lines import to the declarations it is checked against.
+
+    Publishing checks a module with the closure of its `use` imports (§1), so a
+    name imported from another document's module resolves to that declaration.
+    A type imported this way brings its machine and base with it. Imported
+    declarations are read, never analysed: each is checked in its own document.
+    """
+    index = {}
+    for p in sorted((ROOT / "docs/design").glob("*.md")):
+        for m in re.finditer(r"```text\n(.*?)```", p.read_text(), flags=re.S):
+            if mm := re.match(r"module\s+(\w+)", m.group(1)):
+                index.setdefault(mm.group(1), [])
+                if p not in index[mm.group(1)]:
+                    index[mm.group(1)].append(p)
+    out, merged = [], dict(world)
+    for mod, names in re.findall(r"^use\s+(\w+)\.\{([^}]*)\}", src, flags=re.M):
+        homes = index.get(mod, [])
+        if len(homes) > 1:
+            home = [p for p in homes if p.name == MODULE_HOMES.get(mod)]
+            if not home:
+                out.append((19, f"module {mod} is declared in {len(homes)} documents and has no home", 1))
+                continue
+            homes = home
+        if not homes:
+            continue                                  # a module the record does not write out
+        theirs = {}
+        text = homes[0].read_text()
+        for m in re.finditer(r"```text\n(.*?)```", text, flags=re.S):
+            for d in parse(m.group(1), 0):
+                theirs[d.name] = d
+        todo = [n.strip() for n in names.split(",") if n.strip()]
+        while todo:
+            n = todo.pop()
+            if n in merged or n not in theirs:
+                continue
+            merged[n] = theirs[n]
+            todo += [x for x in (theirs[n].machine, theirs[n].base) if x]
+    return merged, out
+
+
 def declaration_findings(src, is_spec):
     """Findings over every ```text block of a document, with the vocabularies it declares."""
     blocks = [(src[: m.start()].count("\n") + 2, m.group(1))
@@ -961,10 +1012,54 @@ def declaration_findings(src, is_spec):
         for d in parse(blk, bstart):
             world[d.name] = d
     findings, ndecl = [], len(world)
+    if not is_spec:
+        world, imp = with_imports(src, world)
+        findings += imp
     for bstart, blk in blocks:
         findings += analyse(blk, bstart, capdecl, catdecl, reserved, world)
         findings += line_checks(blk, bstart, capdecl, reserved, machine_caps)
+        findings += state_literals(blk, bstart, world)
     return findings, blocks, ndecl, rw
+
+
+def require_clauses(body):
+    """Each `require` clause of a body with its continuation lines joined (§9.1).
+
+    A clause continues while the next line is indented deeper than the line it
+    began on, so a guard that wraps is one clause; reading its first line alone
+    let a metric reference on a continuation line escape check 56.
+    """
+    out, cur, col = [], None, None
+    for raw in body.split("\n"):
+        line = raw.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        ind = len(line) - len(line.lstrip())
+        if m := re.match(r"^\s*require\s+(.*)$", line):
+            if cur is not None: out.append(cur)
+            cur, col = m.group(1), ind
+        elif cur is not None and ind > col:
+            cur += " " + line.strip()
+        else:
+            if cur is not None: out.append(cur)
+            cur, col = None, None
+    if cur is not None: out.append(cur)
+    return out
+
+
+def state_literals(text, base, world):
+    """19 — a state literal `<Type>.<STATE>` naming no state of that type or its machine."""
+    out = []
+    for i, raw in enumerate(text.split("\n")):
+        line = raw.split("#", 1)[0]
+        for t, st in re.findall(r"\b([A-Z]\w*)\.([A-Z][A-Z0-9_]*)\b", line):
+            d = world.get(t)
+            if d is None or d.kind not in ("type", "machine"):
+                continue                                   # an enum member, or a name declared elsewhere
+            states = d.states or (world[d.machine].states if d.machine in world else {})
+            if states and st not in states:
+                out.append((19, f"{t}.{st} names no state of {t}", base + i))
+    return out
 
 
 def mutation_test(src):

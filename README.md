@@ -2,7 +2,7 @@
 
 A governed object store: your data, and the rules that constrain how it changes.
 
-> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax deployments write their flows in, 106 decisions, and a register of 371 findings, 371 closed and 0 open — together with the checkers that verify the record against itself.
+> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax deployments write their flows in, 106 decisions, and a register of 377 findings, 377 closed and 0 open — together with the checkers that verify the record against itself.
 >
 > [`docs/PRD.md`](docs/PRD.md), at revision 5, states the product's requirements and is the baseline every design choice is checked against. [`docs/design/traceability.md`](docs/design/traceability.md) shows each requirement met, with two kinds of exception. C5's target is left by the PRD to measurement. And for G4, C2, D5, D11, L1, N5, UC-8 and UC-10, the design found the requirement cannot hold as written, and PRD §12 proposes a revision to the author.
 >
@@ -68,6 +68,7 @@ A practical consequence, measured rather than asserted. In the first consumer, 4
 | [`docs/design/first-consumer-cutover.md`](docs/design/first-consumer-cutover.md) | The stage order for the system being ported, and what would change it |
 | [`docs/design/unit-journey.md`](docs/design/unit-journey.md) | The first consumer's unit, from request to service and loan, written from its production code as a checked module |
 | [`docs/design/flow-review.md`](docs/design/flow-review.md) | That journey read as an operations manager would, and the decisions it puts to the author |
+| [`docs/design/returns-module.md`](docs/design/returns-module.md) | A returns flow published with no rules and then tightened from its own data, as two checked publishes |
 | [`docs/design/first-consumer-audit.md`](docs/design/first-consumer-audit.md) | Every business rule the first consumer enforces, set beside the design |
 | [`docs/design/`](docs/design/) | The first-consumer walkthrough, five case studies, the catalogue of edge cases, and the defect register |
 | [`docs/LESSONS.md`](docs/LESSONS.md) | Operational lessons |

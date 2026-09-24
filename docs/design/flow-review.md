@@ -214,7 +214,7 @@ A variant of [`unit-journey.md`](unit-journey.md) §2, to be deleted from here o
 
 ```text
 module inventory_journey
-use   inventory.{RobotModel, User, UserRole, Customer, RetirementReason, OverrideReason}
+use   inventory.{User, UserRole, Customer, RetirementReason, OverrideReason}
 
 capability INVENTORY_DELETE, PROCUREMENT_CANCEL, ADMIN,
            DELIVERY_CANCEL, DELIVERY_DELETE,
@@ -230,6 +230,44 @@ enum CheckOutcome   version 1 { PASS, FAIL, NOT_APPLICABLE }
 sequence unit_serial version 1
 
 requests by agent require version, key
+```
+
+**The model catalogue.** The unit's rules read its model — whether a manufacturer serial or a label photo is required, and the maker's code a serial carries — so the model is declared here with the unit. Production's `robot_models` holds a name, a manufacturer, a warranty period and the two flags (`wr:app/models/robot_models.py:25-47`). The reorder point, and the two derivations that read it, are not production's: they are added to test PRD L4 and M7, a threshold that is governed data and a business exception over one object, and production defers reorder logic (`wr:app/models/procurement.py:15`).
+
+```text
+type RobotModel version 1 {
+  tracking record
+  states   ACTIVE category live, DISCONTINUED category closed terminal
+  summary  name, manufacturer, state
+
+  attr name                         string indexed unique
+  attr manufacturer                 string?
+  attr maker_code                   string?
+  attr warranty_months              int
+  attr label_photo_required         bool default false
+  attr manufacturer_serial_required bool default false
+  attr reorder_point                int default 0
+
+  derive available_units = count(u in Robot where u.model == this and u.state == Robot.AVAILABLE)
+  derive low_stock       = available_units < reorder_point
+
+  invariant reorder_point_nonneg: reorder_point >= 0
+
+  create add -> ACTIVE accepts name, manufacturer, maker_code, warranty_months,
+                               label_photo_required, manufacturer_serial_required {
+    require may: actor.has(INVENTORY_CREATE) because delegable
+  }
+  act edit at ACTIVE accepts manufacturer, maker_code, warranty_months,
+                             label_photo_required, manufacturer_serial_required {
+    require may: actor.has(INVENTORY_CREATE) because delegable
+  }
+  act set_reorder_point at ACTIVE accepts reorder_point {
+    require may: actor.has(PO_EDIT) because delegable
+  }
+  do discontinue ACTIVE -> DISCONTINUED {
+    require may: actor.has(INVENTORY_DELETE) because delegable
+  }
+}
 ```
 
 ```text

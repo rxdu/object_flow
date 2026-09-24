@@ -32,6 +32,8 @@ Covered is a claim about the design, not about software: nothing here is impleme
 
 An independent verification of the two decisions then found that D5 is met neither for labels nor for overrides, which the first pass had marked covered (D362); PRD §12 proposes D5's revision too.
 
+The same day the worked example's newer cases were written into checked modules — a two-publish returns flow and the journey's `RobotModel` — and rows V1, V5, L4, L5 and UC-13 cite them.
+
 Current: 66 covered, 0 partial, 0 gaps, 1 unverifiable, 7 revision proposed. G4 is revised with C2 in PRD §12; goals are not rows here, and G4 is met through C2's.
 
 ## Requirements
@@ -73,14 +75,14 @@ Current: 66 covered, 0 partial, 0 gaps, 1 unverifiable, 7 revision proposed. G4 
 | L1 | DESIGN §5.5, §5.11; ADR-0082; declaration-syntax.md §6.8 | revision proposed | a label is read by metrics and diagnostics and never by a rule, since nobody declares its vocabulary; PRD §12 proposes the wording the design meets |
 | L2 | DESIGN §6; ADR-0088, ADR-0095, ADR-0096; storage-schema.md §4, §6; library-api.md §5; ADR-0105; adversarial-harness.md §1 | covered | |
 | L3 | DESIGN §6, §10; ADR-0037; library-api.md §6 | covered | |
-| L4 | DESIGN §5.12, §9; ADR-0084, ADR-0085; declaration-syntax.md §6.9; publish-and-import.md §1 | covered | |
-| L5 | DESIGN §5.7, §5.12; ADR-0084, ADR-0092; declaration-syntax.md §6.9; ADR-0098 | covered |  |
+| L4 | DESIGN §5.12, §9; ADR-0084, ADR-0085; declaration-syntax.md §6.9; publish-and-import.md §1; unit-journey.md §2 | covered | |
+| L5 | DESIGN §5.7, §5.12; ADR-0084, ADR-0092; declaration-syntax.md §6.9; ADR-0098; returns-module.md §2 | covered |  |
 | L6 | DESIGN §7; ADR-0013, ADR-0014, ADR-0089; library-api.md §6; ADR-0105; storage-schema.md §7; adversarial-harness.md §1 | covered |  |
-| V1 | DESIGN §5.9; ADR-0085; declaration-syntax.md §2; ADR-0105; data-driven-engine.md §9 | covered | |
+| V1 | DESIGN §5.9; ADR-0085; declaration-syntax.md §2; ADR-0105; data-driven-engine.md §9; returns-module.md §1 | covered | |
 | V2 | DESIGN §10; ADR-0085; library-api.md §6; storage-schema.md §6 | covered | |
 | V3 | DESIGN §5.5; ADR-0085; declaration-syntax.md §5.1; renderers.md §2; adversarial-harness.md §1; ADR-0106; storage-schema.md §6 | covered | |
 | V4 | DESIGN §9; ADR-0085; publish-and-import.md §1; ADR-0097 | covered |  |
-| V5 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; publish-and-import.md §1 | covered | |
+| V5 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; publish-and-import.md §1; returns-module.md §2 | covered | |
 | T1 | DESIGN §3, §13; adversarial-harness.md §1, §2; ADR-0097, ADR-0100; ADR-0101; ADR-0105 | covered |  |
 | T2 | DESIGN §1; adversarial-harness.md | covered | |
 | T3 | DESIGN §7, §8; ADR-0033, ADR-0083, ADR-0089; storage-schema.md §2; ADR-0099, ADR-0100; ADR-0101; ADR-0103; ADR-0105 | covered |  |
@@ -109,7 +111,7 @@ Current: 66 covered, 0 partial, 0 gaps, 1 unverifiable, 7 revision proposed. G4 
 | UC-10 | DESIGN §5.5, §5.12; ADR-0096, ADR-0098; declaration-syntax.md §6.9; library-api.md §4 | revision proposed | naming the value to a requester who may not see what it aggregates would breach T5; PRD §12 proposes the wording the design meets |
 | UC-11 | DESIGN §10, §5.12; library-api.md §6; renderers.md §3 | covered | |
 | UC-12 | DESIGN §5.12; declaration-syntax.md §8.3 | covered | |
-| UC-13 | DESIGN §5.9, §5.11, §5.12, §10; declaration-syntax.md §6.6, §6.8, §6.9; publish-and-import.md §3; library-api.md §6; ADR-0098; ADR-0105 | covered |  |
+| UC-13 | DESIGN §5.9, §5.11, §5.12, §10; declaration-syntax.md §6.6, §6.8, §6.9; publish-and-import.md §3; library-api.md §6; ADR-0098; ADR-0105; returns-module.md §1, §2 | covered |  |
 | UC-14 | DESIGN §5.5; declaration-syntax.md §5.1; ADR-0097; storage-schema.md §6; ADR-0106 | covered |  |
 | UC-15 | DESIGN §9; publish-and-import.md §1; ADR-0097 | covered |  |
 | UC-16 | DESIGN §5.1, §5.12; ADR-0096; declaration-syntax.md §6.9, §8.1; ADR-0098; ADR-0101; ADR-0106 | covered |  |

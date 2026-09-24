@@ -383,6 +383,12 @@ Findings from every review of this design. It began as the implementation-readin
 | [D369](#d369) | Three slips of the first repair: unmarked text, a serial record, a creation without the engineer rule | Resolved in place |
 | [D370](#d370) | Counting and structural slips in the repair | Resolved in place |
 | [D371](#d371) | The worked example claimed a guard `User.leave` did not declare | Resolved in place |
+| [D372](#d372) | Five of the worked example's cases rested on declarations no checked module held | Resolved in place |
+| [D373](#d373) | `RobotModel`, which the journey's rules read, was declared nowhere | Resolved in place |
+| [D374](#d374) | The syntax checker ignored `use`, so a module was never checked against the closure it imports | Resolved in place |
+| [D375](#d375) | Check 19 never resolved a state literal | Resolved in place |
+| [D376](#d376) | Check 56 read only the first line of a wrapped guard | Resolved in place |
+| [D377](#d377) | The journey's purpose paragraph split its status paragraph | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -2465,3 +2471,37 @@ An independent reader checked both decisions against the PRD, ADR-0104 and the w
 **The worked example claimed a guard `User.leave` did not declare.** The page's case "An engineer leaves with open jobs" said `User.leave` refuses while service jobs are assigned to the user, naming them as dependent; the declaration in `declaration-syntax.md` §6.10 required only `SERVICE_ASSIGN`. Slice 4 had suggested the guard. Found preparing the page's update.
 
 **Resolved in place**, 2026-09-24: `User.leave` declares `no_open_jobs`, a type-scan over open service jobs, remedy `dependent`, so the case is what the record says.
+
+## Found writing the worked example's cases into a checked module, 2026-09-24
+
+The author asked for the declarations behind the page's newer cases to be checked like the journey. Writing them, and probing the result with planted mistakes, found these.
+
+### D372
+**Five of the worked example's cases rested on declarations no checked module held.** The page's cases on a flow with no rules, a label promoted to a state, a governed reorder point, a count a partial reader sees and a rule reading a metric described a `Return` type, `RobotModel.reorder_point`, `available_units` and a metric guard that no document declared, so the checker had verified none of them. Found by the author's request to hold them to the journey's standard.
+
+**Resolved in place**, 2026-09-24: `returns-module.md` holds two checked publishes of a `Return` flow — the first with no rules, the second with a promoted state, a visibility rule, `prior_returns` and the metric guard `second_eye` — and the journey declares `RobotModel` with its reorder point; the page's cases now describe exactly those declarations.
+
+### D373
+**`RobotModel`, which the journey's rules read, was declared nowhere.** The journey imported `RobotModel` from `inventory`, and its serial format and guards read `model.maker_code`, `model.manufacturer_serial_required` and `model.label_photo_required`, but no document declared the type. Found writing the reorder point onto it.
+
+**Resolved in place**, 2026-09-24: the journey declares it from production's `robot_models` columns, with the reorder point and its two derivations marked as additions made to test L4 and M7; the flow review's appendix carries the same declaration.
+
+### D374
+**The syntax checker ignored `use`, so a module was never checked against the closure it imports.** `scripts/check-syntax-doc.py` checked each document's declarations as a closed world, although syntax §1 says publishing takes a module with the closure of its `use` imports; a module referencing another document's types in a metric source or a type-scan was checked against nothing. Found writing the returns module, which imports the journey's `Robot`.
+
+**Resolved in place**, 2026-09-24: the checker resolves each `use` against the document that declares the module, bringing an imported type's machine and base with it, with an explicit home for a module declared in two documents (the journey, over the flow review's variant).
+
+### D375
+**Check 19 never resolved a state literal.** Check 19's row names a state among the names that must resolve, but the checker did not test `<Type>.<STATE>`: a planted `Robot.AVAILABEL` in a derivation passed. Found by probing the new `RobotModel` with planted mistakes.
+
+**Resolved in place**, 2026-09-24: every `<Type>.<STATE>` is resolved against the type's states or its machine's, with a fixture; no document in the record tripped it.
+
+### D376
+**Check 56 read only the first line of a wrapped guard.** The checker took each `require` clause's first line, so a metric reference on a continuation line — which §9.1 makes part of the clause — escaped check 56: a planted binding of an undeclared dimension in `second_eye` passed. Found by probing the returns module with planted mistakes.
+
+**Resolved in place**, 2026-09-24: clauses are read whole under §9.1's continuation rule, with a fixture that references a metric on a continuation line.
+
+### D377
+**The journey's purpose paragraph split its status paragraph.** The purpose statement added on 2026-09-24 was inserted mid-paragraph, leaving the status paragraph's closing sentences — what the module supersedes and which decisions record it — under the purpose heading. Found reading the journey to add `RobotModel`.
+
+**Resolved in place**, 2026-09-24: the sentences are back in the status paragraph.

@@ -1,8 +1,8 @@
 # The unit's journey: one lifecycle, with custody and condition beside it
 
-Status: **worked example**, 2026-09-24, read against the first consumer's production code at `wr` HEAD `4109939`. It writes every transition production registers for an inventory unit, and the engagement and leasing model production's ADR-0002 accepted but has not built, as one module. `scripts/check-syntax-doc.py docs/design/unit-journey.md` checks it against the implemented checks and reports it clean. The specification's own `UnitLifecycle` (`declaration-syntax.md` §4) stays the smaller fixture its mutations are written against; this module is what the first consumer's unit becomes.
+Status: **worked example**, 2026-09-24, read against the first consumer's production code at `wr` HEAD `4109939`. It writes every transition production registers for an inventory unit, and the engagement and leasing model production's ADR-0002 accepted but has not built, as one module. `scripts/check-syntax-doc.py docs/design/unit-journey.md` checks it against the implemented checks and reports it clean. The specification's own `UnitLifecycle` (`declaration-syntax.md` §4) stays the smaller fixture its mutations are written against; this module is what the first consumer's unit becomes. It supersedes the lifecycle sketch of [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md) §2.1, which predates three production changes listed in §5. The decisions it takes are recorded in [ADR-0102](../adr/0102-the-units-journey-is-one-lifecycle-with-custody-and-condition-beside-it.md), and what reading it against the PRD changed in [ADR-0103](../adr/0103-what-the-production-audit-required-of-the-design.md).
 
-**What it is for.** The module exists to test the design, not to specify the first consumer's unit (the author, 2026-09-24). A real lifecycle, written in full from production, is how the engine is made to meet cases nobody invented for it; each part earns its place by the mechanism or requirement it exercises and by whether it finds a defect or shows a strength. Where a transition's own logic differs from production, that matters only if the difference exposes something the engine cannot express or record. It supersedes the lifecycle sketch of [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md) §2.1, which predates three production changes listed in §5. The decisions it takes are recorded in [ADR-0102](../adr/0102-the-units-journey-is-one-lifecycle-with-custody-and-condition-beside-it.md), and what reading it against the PRD changed in [ADR-0103](../adr/0103-what-the-production-audit-required-of-the-design.md).
+**What it is for.** The module exists to test the design, not to specify the first consumer's unit (the author, 2026-09-24). A real lifecycle, written in full from production, is how the engine is made to meet cases nobody invented for it; each part earns its place by the mechanism or requirement it exercises and by whether it finds a defect or shows a strength. Where a transition's own logic differs from production, that matters only if the difference exposes something the engine cannot express or record.
 
 ## 1. The journey, and why it is three questions
 
@@ -43,7 +43,7 @@ The vocabulary. `CancellationReason` loses production's `MISSING_FROM_SHIPMENT`,
 
 ```text
 module inventory_journey
-use   inventory.{RobotModel, User, UserRole, Customer, RetirementReason, OverrideReason}
+use   inventory.{User, UserRole, Customer, RetirementReason, OverrideReason}
 
 capability INVENTORY_DELETE, PROCUREMENT_CANCEL, ADMIN,
            DELIVERY_CANCEL, DELIVERY_DELETE,
@@ -58,6 +58,44 @@ enum ServiceKind    version 1 { REPAIR, MAINTENANCE, UPGRADE }
 sequence unit_serial version 1
 
 requests by agent require version, key
+```
+
+**The model catalogue.** The unit's rules read its model — whether a manufacturer serial or a label photo is required, and the maker's code a serial carries — so the model is declared here with the unit. Production's `robot_models` holds a name, a manufacturer, a warranty period and the two flags (`wr:app/models/robot_models.py:25-47`). The reorder point, and the two derivations that read it, are not production's: they are added to test PRD L4 and M7, a threshold that is governed data and a business exception over one object, and production defers reorder logic (`wr:app/models/procurement.py:15`).
+
+```text
+type RobotModel version 1 {
+  tracking record
+  states   ACTIVE category live, DISCONTINUED category closed terminal
+  summary  name, manufacturer, state
+
+  attr name                         string indexed unique
+  attr manufacturer                 string?
+  attr maker_code                   string?
+  attr warranty_months              int
+  attr label_photo_required         bool default false
+  attr manufacturer_serial_required bool default false
+  attr reorder_point                int default 0
+
+  derive available_units = count(u in Robot where u.model == this and u.state == Robot.AVAILABLE)
+  derive low_stock       = available_units < reorder_point
+
+  invariant reorder_point_nonneg: reorder_point >= 0
+
+  create add -> ACTIVE accepts name, manufacturer, maker_code, warranty_months,
+                               label_photo_required, manufacturer_serial_required {
+    require may: actor.has(INVENTORY_CREATE) because delegable
+  }
+  act edit at ACTIVE accepts manufacturer, maker_code, warranty_months,
+                             label_photo_required, manufacturer_serial_required {
+    require may: actor.has(INVENTORY_CREATE) because delegable
+  }
+  act set_reorder_point at ACTIVE accepts reorder_point {
+    require may: actor.has(PO_EDIT) because delegable
+  }
+  do discontinue ACTIVE -> DISCONTINUED {
+    require may: actor.has(INVENTORY_DELETE) because delegable
+  }
+}
 ```
 
 **The lifecycle.** Every transition production registers for a robot (`wr:app/core/state_registry.py:859-993`), and the ones its services perform around the registry, are here; §3 maps each one. The capabilities are production's permissions, and `ADMIN` is what production's `required_role="ADMIN"` becomes, since a guard reads capabilities, not roles (ADR-0079).
