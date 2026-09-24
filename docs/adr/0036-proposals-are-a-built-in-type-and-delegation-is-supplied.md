@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 5 (2026-09-08); pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0044 — execution under the current declaration and invalidation; ADR-0079 — attenuation is a capability or an object, never a descriptor attribute. ADR-0097 — a proposal's execution re-evaluates every guard, actor guards included.
+- **Refined by:** ADR-0044 — execution under the current declaration and invalidation; ADR-0079 — attenuation is a capability or an object, never a descriptor attribute. ADR-0097 — a proposal's execution re-evaluates every guard, actor guards included. ADR-0105 — a proposal is visible as its target is; its proposer withdraws it, and whoever passes its transition's actor guards rejects it.
 
 ## Context
 

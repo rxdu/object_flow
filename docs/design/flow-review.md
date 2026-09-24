@@ -25,7 +25,7 @@ The lifecycle is a sound record and a strict one:
 
 Those are the properties an operation needs before it can be improved.
 
-It is not yet an operation. The cold reader's summary is fair: the page describes a rule engine that records and refuses. It does not describe who works each queue and by when, what the customer was promised, where the robot physically is, or what condition it is in. Some of that is the engine's design: it never acts on its own, and screens, schedules and messages are the consumer's. But the example is meant to show the whole operation, and the missing operating layer is the largest gap between this design and a smooth flow.
+It is not yet an operation. The cold reader's summary is fair: the page describes a rule engine that records and refuses. It does not describe who works each queue and by when, what the customer was promised, where the robot physically is, or what condition it is in. Some of that is the engine's design: it never acts on its own, and screens, schedules and messages are an upper-layer application's (ADR-0104). But the example is meant to show the whole operation, and the missing operating layer is the largest gap between this design and a smooth flow.
 
 Within the lifecycle, the flow will wait in four predictable places:
 - behind queues nobody owns;
@@ -49,7 +49,7 @@ The engine never initiates (PRD, non-goals). So every rule that should move work
 *Proposals:*
 - an `assignee` on the delivery, the shipment and the missing unit, with a target time per state. The engine already records assignment from the first write and gives every assignee's open work and waits as standard metrics (M6).
 - one exceptions board over the flags that exist: overdue, ageing, missing, stale reservations, leases running over, and refusals nobody followed up. The board should route a refusal that names another object to that object's assignee.
-- **an operations application above the store** — decided by the author as an upper-layer application, not part of the core (ADR-0104). It is the loop that asks the store's questions each hour — `available(...)`, the flags, the worklists — and acts through `request` or notifies, with no path of its own, and an alert for when the loop itself stops. The store's part is to answer each of its questions with one query (PRD N6, UC-20).
+- **an operations application above the store** — decided by the author as an upper-layer application, not part of the core (ADR-0104). It is the loop that asks the store's questions each hour — `available(...)`, the flags, the ageing and assignment queries, from which it builds its own worklists — and acts through `request` or notifies, with no path of its own, and an alert for when the loop itself stops. The store's part is to answer each of its questions with one query (PRD N6, UC-20).
 
 *Risk:* noise. Start with a daily review of the board and tune the thresholds from it.
 
@@ -57,7 +57,7 @@ The engine never initiates (PRD, non-goals). So every rule that should move work
 - **keep production's rule, keep the fact** *(context; declared)*. `inventorize` writes `procured_for := peg` before clearing the earmark, and `reserve` clears it. The unit derives `awaiting_assignment`, so the people who assign stock have a worklist, read in order of the delivery's promised date as production's contention rule orders it. `assignment_wait` measures how long units wait. `procured_for` is tracked, so every diversion to another order is in its intervals.
 - **reverse production's rule** *(cold read)*. The earmark becomes a reservation at commit when its order is still open and in date. This is faster, and it restores the auto-fill production retired because it filled the less urgent of two orders first.
 
-Either way, a unit that goes missing should notify the order's owner and queue the order for the next unit, instead of silently releasing the earmark *(cold read)*. Two more holes *(cold read)*:
+Either way, when a unit goes missing, the operations application should notify the order's owner and queue the order for the next unit, instead of the earmark being silently released; the store's part is the `flag_missing` event it pulls and the query that finds the order *(cold read)*. Two more holes *(cold read)*:
 - sales cannot hold a unit for a quote without opening a delivery, which invites placeholder deliveries. A time-limited quote hold would close it;
 - a reservation never expires, so reservations past an age should be flagged.
 
@@ -214,7 +214,7 @@ A variant of [`unit-journey.md`](unit-journey.md) §2, to be deleted from here o
 
 ```text
 module inventory_journey
-use   inventory.{RobotModel, User, Customer, RetirementReason, OverrideReason}
+use   inventory.{RobotModel, User, UserRole, Customer, RetirementReason, OverrideReason}
 
 capability INVENTORY_DELETE, PROCUREMENT_CANCEL, ADMIN,
            DELIVERY_CANCEL, DELIVERY_DELETE,
@@ -233,7 +233,7 @@ requests by agent require version, key
 ```
 
 ```text
-machine UnitLifecycle version 3 {
+machine UnitLifecycle version 4 {
   requires attr label_printed_at timestamp?
   requires attr manufacturer_serial string?
   requires attr photos file[]
@@ -270,8 +270,10 @@ machine UnitLifecycle version 3 {
     require may: actor.has(EDIT) because delegable
   }
   create add_opening_stock -> AVAILABLE accepts model, manufacturer_serial, label_printed_at {
-    require may:      actor.has(ASSERT) because delegable
-    require labelled: inputs.label_printed_at is not null because self_serviceable
+    require may:        actor.has(ASSERT) because delegable
+    require labelled:   inputs.label_printed_at is not null because self_serviceable
+    require mfr_serial: inputs.model.manufacturer_serial_required
+                        implies inputs.manufacturer_serial is not null because self_serviceable
   }
 
   do ship REQUESTED -> PROCUREMENT only via Shipment.dispatch, Shipment.add_unit {
@@ -399,14 +401,14 @@ machine UnitLifecycle version 3 {
   assert correct_state -> { INTAKE, AVAILABLE, DEVELOPMENT, RETIRED } {
     input to : state
     input reason : OverrideReason
-    input detail : string?
+    input detail : string? personal
     input admits : invariant[]?
     require may: actor.has(ASSERT) because delegable
     may admit one_open_engagement
   }
 }
 
-type Robot version 4 {
+type Robot version 5 {
   tracking serial
   machine  UnitLifecycle
   provides capability EDIT = INVENTORY_CREATE, ADMIN = ADMIN, DELETE = INVENTORY_DELETE,
@@ -450,7 +452,7 @@ type Robot version 4 {
 ```
 
 ```text
-type Shipment version 1 {
+type Shipment version 2 {
   tracking record
   states   IN_TRANSIT category inbound, ARRIVED category live,
            COMMITTED category closed, VOIDED category closed terminal
@@ -540,7 +542,7 @@ type Shipment version 1 {
   }
 }
 
-type Delivery version 3 {
+type Delivery version 4 {
   tracking record
   states   PREPARATION category live, READY category live, DELIVERED category closed,
            CANCELLED category closed, DELETED category closed terminal
@@ -607,7 +609,7 @@ type Delivery version 3 {
 ```
 
 ```text
-type ServiceJob version 3 {
+type ServiceJob version 4 {
   tracking record
   states   OPEN category inbound, WORKING category live,
            DONE category closed, CANCELLED category closed,
@@ -623,15 +625,20 @@ type ServiceJob version 3 {
   derive blocking = kind == ServiceKind.REPAIR
 
   create open -> OPEN accepts kind, robot, customer, engineer {
-    require may:       actor.has(SERVICE_CREATE) because delegable
+    require may:        actor.has(SERVICE_CREATE) because delegable
+    require assignable: inputs.engineer.state == User.ACTIVE
+                        and inputs.engineer.role in {UserRole.ADMIN, UserRole.ENGINEERING}
+                                                                         because self_serviceable
     require delivered: inputs.robot.state == Robot.SOLD
                        or inputs.robot.state == Robot.DEVELOPMENT        because self_serviceable
     require theirs:    inputs.robot.state == Robot.DEVELOPMENT
                        or inputs.robot.sold_to == inputs.customer        because self_serviceable
   }
   act reassign at OPEN accepts engineer {
-    require may:    actor.has(SERVICE_EDIT) because delegable
-    require active: inputs.engineer.state == User.ACTIVE because self_serviceable
+    require may:        actor.has(SERVICE_EDIT) because delegable
+    require assignable: inputs.engineer.state == User.ACTIVE
+                        and inputs.engineer.role in {UserRole.ADMIN, UserRole.ENGINEERING}
+                                                                         because self_serviceable
   }
   act add_part at { OPEN, WORKING } {
     input part : Robot
@@ -668,7 +675,7 @@ type ServiceJob version 3 {
   }
 }
 
-type Engagement version 1 {
+type Engagement version 2 {
   tracking record
   states   SCHEDULED category inbound, OUT category live, RETURNING category live,
            CLOSED category closed terminal

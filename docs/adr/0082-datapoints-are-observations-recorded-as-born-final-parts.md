@@ -3,6 +3,7 @@
 - **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
 - **Refined by:** ADR-0088 — the observations a guard read are one case of every decision's read set. ADR-0095 — a label is readable only as a metric's source; a correction hides what it corrects from every read of the kind; `recorded by` and the subject's part are mandatory. ADR-0096 — each kind has a generated `forget`; a correction names an uncorrected observation of its own kind and subject, and may follow a finished subject. ADR-0099 — a kind names its collection with `as`, so the subject is not edited; occurred time is a request field bounded by `occurred_within`; recording stamps the collection's position.
+- **Amended by:** ADR-0099 — the kind names its collection with `as`, and is declared on the object whose gate reads it: for UC-4, the delivery or hand-over, not the configured robot this decision's example uses (`declaration-syntax.md` §6.8, D344).
 - **Refines:** ADR-0057, ADR-0058
 
 ## Context

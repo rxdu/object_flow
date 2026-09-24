@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D43 to D46, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0074 — an admissible invariant is not compiled to a database constraint; ADR-0077 — the partial verdict of `check` has a shape, `Checked`. ADR-0100 — execution step 7 performs decision 4's discharge and records the discharging position.
+- **Refined by:** ADR-0074 — an admissible invariant is not compiled to a database constraint; ADR-0077 — the partial verdict of `check` has a shape, `Checked`. ADR-0100 — execution step 7 performs decision 4's discharge and records the discharging position. ADR-0105 — the built-in assertion is the import's alone; a migration is not an assertion.
 - **Refines:** ADR-0038, ADR-0040, ADR-0027, ADR-0049
 
 ## Context

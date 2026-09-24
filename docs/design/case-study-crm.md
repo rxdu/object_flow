@@ -2,6 +2,8 @@
 
 Status: design iteration 3, 2026-09-08. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md) and [`case-study-tickets.md`](case-study-tickets.md). Decisions taken here are ADR-0030 and ADR-0031 plus three clarifications, all pending author review.
 
+*Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
+
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
 ## 1. Why this case
 

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` L2, G5, T3 and UC-4
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0095 — a read filters the read set to what the reader can see and says that something was withheld.
+- **Refined by:** ADR-0095 — a read filters the read set to what the reader can see and says that something was withheld. ADR-0105 — a refusal re-evaluates from its read set and its recorded request values, and a value erased since reads as absent.
 - **Refines:** ADR-0033, ADR-0082, ADR-0083
 
 ## Context

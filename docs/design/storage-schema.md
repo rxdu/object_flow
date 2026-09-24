@@ -3,15 +3,26 @@
 Draft, 2026-09-09, amended 2026-09-23. How a published declaration becomes tables, and how the guarantees of [`../DESIGN.md`](../DESIGN.md) rest on them. The model owns what a rule means and [`declaration-syntax.md`](declaration-syntax.md) owns how it is written; this document owns only where the bytes go.
 
 **Amended 2026-09-23** for ADR-0082 to ADR-0094:
-
-**Amended again 2026-09-23** for ADR-0097 to ADR-0101, from a review of the whole record against the PRD; each change cites the decision it carries.
-
-**Amended 2026-09-24** for ADR-0103: the idempotency prune, and an import raising a sequence past the legacy system's last value.
 - the event gains its writing transaction, read set, occurred time and retry count, and is inserted once, complete, with its position allocated first;
 - part positions are kept per relationship;
 - the attempt log, the interval index, labels, the file reference index and `DeclarationChange` are new tables;
 - SQLite transactions begin `IMMEDIATE`;
 - the log is read by a settled cursor.
+
+**Amended again 2026-09-23** for ADR-0097 to ADR-0101, from a review of the whole record against the PRD; each change cites the decision it carries.
+
+**Amended 2026-09-24** for ADR-0103: the idempotency prune, and an import raising a sequence past the legacy system's last value.
+
+**Amended 2026-09-24** for ADR-0105 and ADR-0106, from a review of the whole record against PRD revision 5:
+- a subscription names its reader and has no endpoint, since the core posts nothing;
+- `state_source` loses `migrated`, and `ok_migration` gains `admit`;
+- an attempt keeps the request's non-personal values and everything it read, so it replays;
+- every object records `recorded_from`;
+- the writing transaction is an integer;
+- a store's version 0;
+- an erasure's event on every object it redacts;
+- intervals opened at a port, a refresh and a publish;
+- the prune keeps a would-be refusal while its clause is on trial.
 
 **What is verified.** `scripts/check-schema-doc.py` executes every statement of SQLite DDL below against SQLite 3.37 on every corpus run. It also keeps three probes of what SQLite does at runtime:
 - the two-connection sequence probe of §6, which was reasoned rather than run until D187 found it false as first written;
@@ -41,8 +52,12 @@ Beside the three layers sit the **flow data** of ADR-0083: `ok_interval`, an ind
 CREATE TABLE ok_object (
   id              TEXT    PRIMARY KEY,
   type            TEXT    NOT NULL,
-  created_at      TEXT    NOT NULL,
-  created_by_kind TEXT    NOT NULL          -- the creating request's actor kind (ADR-0096)
+  created_at      TEXT    NOT NULL,         -- when the creation happened: its occurred time,
+                                            -- the legacy creation, or the port (ADR-0106)
+  created_by_kind TEXT    NOT NULL,         -- the creating request's actor kind (ADR-0096)
+  created_dated   INTEGER NOT NULL DEFAULT 1, -- 0 where a port could not date the creation
+  recorded_from   TEXT    NOT NULL          -- from when its record is continuous: created_at
+                                            -- here, or what a port vouches for (ADR-0106)
 );
 
 -- The log. Each row is inserted once, complete, at the end of its
@@ -50,7 +65,7 @@ CREATE TABLE ok_object (
 -- its payload (ADR-0089).
 CREATE TABLE ok_event (
   position            INTEGER PRIMARY KEY,          -- allocated first; see below
-  txn                 TEXT    NOT NULL,             -- the writing transaction
+  txn                 INTEGER NOT NULL,             -- the writing transaction: xid8 on PostgreSQL
   object_id           TEXT    NOT NULL REFERENCES ok_object(id),
   object_seq          INTEGER NOT NULL,
   transition          TEXT    NOT NULL,
@@ -99,10 +114,10 @@ CREATE TABLE ok_attribute_write (
 `position` is both the event's **identity** and its **order within a transaction**. An `event`-typed attribute stores it, `cause_position` points at it, and the write index compares it; one column serves all three because positions are assigned once and never renumbered. It is **not** commit order across transactions, which is why a cursor reads by `(txn, position)` (§7).
 
 **A position is allocated when its transition begins applying**, so `this_event` is known to the outcome (ADR-0046), and the row is inserted when the outcome is done, in the same transaction (ADR-0089).
-- **On PostgreSQL** the position comes from the log's sequence by `nextval`, and `txn` is `pg_current_xact_id()`.
+- **On PostgreSQL** the position comes from the log's sequence by `nextval`, and `txn` is `pg_current_xact_id()`, stored as `xid8`, which compares numerically.
 - **On SQLite** both come from `ok_counter`, incremented by the request's own transaction. That transaction holds the write lock from its first statement, so no other writer can interleave.
 
-Nothing is inserted early and completed later, so the append-only statement below is true.
+Nothing is inserted early and completed later, so the append-only statement below is true. **`txn` is a number on both backends**, never text, since a settled cursor compares it: as text, `'10'` sorts before `'9'`, and a cursor would skip or reorder events once the counter crossed a power of ten (ADR-0106).
 
 `id` is a **UUIDv7**, stored in its canonical text form on both backends; PostgreSQL may use its `uuid` type. It is time-ordered rather than random because ADR-0038 iterates a cascade in ascending id order, and the harness reduces a failing run by replaying its transcript; both need that order to be creation order. The embedded time is never read back as a fact about the object, which is what `created_at` is for. The store takes its id source, its clock and its connection source as injected dependencies, so a test can make all three deterministic (ADR-0077, ADR-0091).
 
@@ -122,7 +137,7 @@ Every declared type gets one table. Its identity columns are the same in every o
 | `declaration_version` | the declaration | the publish whose rules the row was last written under (ADR-0027, ADR-0077); the same number the event carries |
 | `last_event` | the store | the event that last wrote this object |
 | `superseded_by` | the store | present only on a type with a `superseding` state; `get(id, follow)` walks it (ADR-0028), and erasure follows it (ADR-0087) |
-| `state_source` | the store | the `source` of the event that last **changed** `state`: `observed`, `asserted`, `migrated`, or `imported` for the import's state change. Indexed; an action leaves it alone. `exceptions(type)` reads `asserted` (ADR-0083) |
+| `state_source` | the store | the `source` of the event that last **changed** `state`: `observed`, `asserted`, or `imported` for the import's state change. A migration leaves it as it was, which is why `migrated` is not a value (ADR-0105). Indexed; an action leaves it alone. `exceptions(type)` reads `asserted` (ADR-0083) |
 
 There is no `last_part_event` column. A part relationship's last event is a row of `ok_attribute_write` keyed by the relationship's name, so a guard naming `checklist_items` is not invalidated by a change to `approvals` (ADR-0082, repairing D202).
 
@@ -190,7 +205,7 @@ CREATE TABLE t_robot (
   CONSTRAINT t_robot_retirement_reason CHECK (retirement_reason IS NULL
      OR retirement_reason IN ('FAILED','DAMAGED','OBSOLETE','LOST')),
   CONSTRAINT t_robot_state_source CHECK (state_source IN
-    ('observed','asserted','migrated','imported')),
+    ('observed','asserted','imported')),
   CONSTRAINT t_robot_serial_in_scope UNIQUE (model_id, serial)
 );
 CREATE INDEX t_robot_state_ix   ON t_robot (state);
@@ -373,42 +388,48 @@ CREATE INDEX ok_file_ref_live ON ok_file_ref (hash, erased);
 -- The published declaration, one row per version. Never deleted: a recorded
 -- event names the version whose rules applied, and history must stay readable.
 CREATE TABLE ok_declaration (
-  version       INTEGER PRIMARY KEY,
+  version       INTEGER PRIMARY KEY,  -- 0 is the row the store is created with (ADR-0105)
   module        TEXT    NOT NULL,
   source        TEXT    NOT NULL,   -- the .ok text as published
   parsed        TEXT    NOT NULL,   -- the checked form the runtime reads
+  builtins      TEXT    NOT NULL,   -- the built-in module it was published with: the engine
+                                    -- release whose built-in types and standard metrics apply
   published_at  TEXT    NOT NULL,
-  published_by  TEXT    NOT NULL,
-  change_id     TEXT,               -- the DeclarationChange it installed (ADR-0085)
-  report        TEXT    NOT NULL    -- what publishing reported, kept for audit
+  published_by  TEXT    NOT NULL,   -- for version 0, the engine release that created the store
+  change_id     TEXT,               -- the DeclarationChange it installed (ADR-0085); none for 0
+  report        TEXT    NOT NULL    -- what publishing reported, kept for audit; for version 0,
+                                    -- the built-in module's own check report
 );
 
--- Migration mappings carried by a publish that removes a state or renames an attribute.
+-- Migration mappings carried by a publish: what it does to live objects, and
+-- the invariants it admits on them (ADR-0099, ADR-0105).
 CREATE TABLE ok_migration (
   version     INTEGER NOT NULL REFERENCES ok_declaration(version),
   type_name   TEXT    NOT NULL,     -- the type, or the enum for a removed member
   kind        TEXT    NOT NULL,
-  from_name   TEXT    NOT NULL,     -- the state, member or attribute it concerns
-  to_name     TEXT,                 -- the target; none for a backfill
+  from_name   TEXT    NOT NULL,     -- the state, member, attribute or admitted invariant
+  to_name     TEXT,                 -- the target; none for a backfill or an admit
   expression  TEXT,                 -- a backfill's expression; none otherwise
+  reason      TEXT,                 -- an admit's reason, which each admission records
   PRIMARY KEY (version, type_name, kind, from_name),
   CONSTRAINT ok_migration_kind CHECK (kind IN
-    ('removed state', 'removed member', 'renamed attr', 'backfill'))
+    ('removed state', 'removed member', 'renamed attr', 'backfill', 'admit')),
+  CONSTRAINT ok_migration_admit_reason CHECK (kind <> 'admit' OR reason IS NOT NULL)
 );
 
--- Subscription is a built-in object. Its progress is not (ADR-0043).
+-- Subscription is a built-in object. Its progress is not (ADR-0043). It is read
+-- by pull alone; posting to an endpoint is an upper-layer relay (ADR-0105).
 CREATE TABLE t_subscription (
   id             TEXT    PRIMARY KEY REFERENCES ok_object(id),
   state          TEXT    NOT NULL,
   version        INTEGER NOT NULL,
   declaration_version INTEGER NOT NULL,
   last_event     INTEGER NOT NULL REFERENCES ok_event(position),
+  reader         TEXT    NOT NULL,           -- the one actor id that may pull and acknowledge
   target_type    TEXT    NOT NULL,
   target_family  INTEGER NOT NULL DEFAULT 0,
   transitions    TEXT,                       -- null means every transition
   changes_state_only INTEGER NOT NULL DEFAULT 0,
-  endpoint       TEXT,                       -- null for a pull subscription
-  deliver_as     TEXT,                       -- push only: the descriptor the worker presents, as JSON (ADR-0025)
   lag_warn       INTEGER,                    -- seconds: lag is the age of the oldest
   lag_fail       INTEGER,                    -- unacknowledged event the filter selects (ADR-0100)
   CONSTRAINT t_subscription_state CHECK (state IN ('active','revoked'))
@@ -418,9 +439,7 @@ CREATE TABLE t_subscription (
 CREATE TABLE ok_subscription_position (
   subscription_id  TEXT    PRIMARY KEY REFERENCES t_subscription(id),
   acknowledged     TEXT    NOT NULL,         -- a settled cursor (ADR-0089)
-  acknowledged_at  TEXT    NOT NULL,
-  last_error       TEXT,
-  last_error_at    TEXT
+  acknowledged_at  TEXT    NOT NULL
 );
 
 -- Proposal is a built-in object type.
@@ -506,12 +525,13 @@ CREATE TABLE ok_interval (
   object_id        TEXT    NOT NULL REFERENCES ok_object(id),
   dimension        TEXT    NOT NULL,        -- 'state', or the tracked member's name
   value            TEXT,                    -- NULL for absence: time unassigned is an interval
-  entered_position INTEGER NOT NULL,        -- the event that set it; legacy intervals use 0
+  entered_position INTEGER NOT NULL,        -- the event that set it: a request's, the import's
+                                            -- or a publish's (ADR-0106); legacy intervals use 0
   left_position    INTEGER,                 -- NULL while it is the current value
   entered_at       TEXT    NOT NULL,        -- the occurred time where backdated
   left_at          TEXT,
   entered_by       TEXT,                    -- who made the change; a legacy row's where known
-  entered_by_kind  TEXT    NOT NULL,
+  entered_by_kind  TEXT    NOT NULL,        -- 'unknown' where a legacy record names no actor
   declaration_version INTEGER NOT NULL,
   legacy           INTEGER NOT NULL DEFAULT 0,   -- supplied by the import mapping
   PRIMARY KEY (object_id, dimension, entered_position, entered_at)
@@ -521,7 +541,7 @@ CREATE INDEX ok_interval_entered ON ok_interval (dimension, entered_at) WHERE le
 CREATE INDEX ok_interval_by_object ON ok_interval (object_id, dimension, left_position);
 
 -- The attempt log: every request that did not apply, and every observing
--- clause's would-be refusal. Never the inputs. Not history: pruned after a
+-- clause's would-be refusal. No personal value. Not history: pruned after a
 -- retention period, its daily counts kept in ok_attempt_rollup (ADR-0083, ADR-0096).
 CREATE TABLE ok_attempt (
   id                  INTEGER PRIMARY KEY,
@@ -530,18 +550,20 @@ CREATE TABLE ok_attempt (
   actor_kind          TEXT    NOT NULL,
   actor_principal     TEXT,
   context             TEXT,
-  txn                 TEXT    NOT NULL,     -- its writing transaction, for the settled cursor
+  txn                 INTEGER NOT NULL,     -- its writing transaction, for the settled cursor
   type                TEXT,                 -- none where the request named an unknown id
   object_id           TEXT,                 -- none for a refused creation
   transition          TEXT,                 -- none for a request naming no transition
   verdict             TEXT    NOT NULL,     -- the verdict kind, or the fault's name
   clause              TEXT,
-  remedy              TEXT,
+  remedy              TEXT    NOT NULL,     -- every refusal names one (ADR-0105)
   unknown             INTEGER NOT NULL DEFAULT 0,
   enforced            INTEGER NOT NULL DEFAULT 1,   -- 0 for an observing clause
   applied_position    INTEGER,              -- an observing clause's applied event
-  reads               TEXT,                 -- the failing clause's read set (ADR-0088)
+  reads               TEXT,                 -- everything the request had read when refused (ADR-0088, ADR-0105)
   consulted           TEXT,                 -- its metric values and evaluator verdicts (ADR-0096)
+  request_values      TEXT,                 -- every non-personal input and the occurred time of the
+                                            -- request; personal ones by name, withheld (ADR-0105)
   declaration_version INTEGER NOT NULL
 );
 CREATE INDEX ok_attempt_by_rule ON ok_attempt (type, transition, clause, at);
@@ -551,7 +573,7 @@ CREATE TABLE ok_attempt_rollup (
   day          TEXT    NOT NULL,            -- UTC calendar day
   object_id    TEXT    NOT NULL DEFAULT '', -- '' for a refused creation; keeps visibility applicable
   verdict      TEXT    NOT NULL,
-  type         TEXT    NOT NULL,
+  type         TEXT    NOT NULL DEFAULT '', -- '' where the request named an unknown id
   transition   TEXT    NOT NULL DEFAULT '',
   clause       TEXT    NOT NULL DEFAULT '',
   remedy       TEXT    NOT NULL DEFAULT '',
@@ -564,15 +586,17 @@ CREATE TABLE ok_attempt_rollup (
 );
 ```
 
-`ok_subscription_position` is the one place the model deliberately keeps runtime state outside an object: no version, no events, no history. An acknowledged cursor moving thousands of times a minute is not something anyone wants a permanent record of, and its lag and death are derived rather than states (ADR-0043). `t_subscription` next to it is an ordinary object, because its filter and endpoint are configuration someone changes and should answer for.
+`ok_subscription_position` is the one place the model deliberately keeps runtime state outside an object: no version, no events, no history. An acknowledged cursor moving thousands of times a minute is not something anyone wants a permanent record of, and its lag and death are derived rather than states (ADR-0043). `t_subscription` next to it is an ordinary object, because its filter and its reader are configuration someone changes and should answer for. It holds no endpoint and its position no delivery error: the core posts nothing, and a relay that posts records its own failures (ADR-0105).
+
+**Version 0 is written when the store is created** (ADR-0105), the one write that precedes every operation, attributed to the engine release rather than to an actor, since no one wrote its rules. Its `ok_declaration` row holds the built-in types, the built-in capabilities, the `label` kind, the `closed` category and the standard metric definitions of the engine release, with `builtins` naming that release. The first `DeclarationChange`'s `base_version` references it, so the first flow is drafted and published by the same path as every later one.
 
 `ok_declaration` is never deleted. Every event names the version whose rules applied, so deleting one makes that stretch of history unreadable.
 
-**`ok_interval` is an index, and says so in its shape.** A creation opens a row for the state and for every tracked member, absent ones included, so an object never assigned has an interval of absence from its creation (ADR-0101). A state change or a write to a tracked member closes the current row for that dimension, setting `left_position` and `left_at`, and opens a new one in the same statement group that writes the event. Folding the log reproduces it exactly, which the harness checks (ADR-0083). The one kind of row the log cannot rebuild is a `legacy = 1` row, supplied by the import mapping from the legacy system's history. Those are marked so that nothing mistakes them for recorded history.
+**`ok_interval` is an index, and says so in its shape.** A creation opens a row for the state and for every tracked member, absent ones included, so an object never assigned has an interval of absence from its creation (ADR-0101). A state change, or a write that changes a tracked member's value, closes the current row for that dimension — a write that leaves the value as it was opens nothing (ADR-0106) — setting `left_position` and `left_at`, and opens a new one in the same statement group that writes the event. Folding the log reproduces it exactly, which the harness checks (ADR-0083). The one kind of row the log cannot rebuild is a `legacy = 1` row, supplied by the import mapping from the legacy system's history. Those are marked so that nothing mistakes them for recorded history.
 
-**`ok_attempt` is written outside the request's transaction**, in its own short transaction after the rollback. The exception is an observing clause's would-be refusal, which is written with the event it is linked to. Either way it holds no input, so erasure has nothing to do there (ADR-0083). Its `consulted` holds the metric values and evaluator verdicts the failing clause was decided on, neither of which can be personal, since a metric's value never is (ADR-0084, ADR-0096).
+**`ok_attempt` is written outside the request's transaction**, in its own short transaction after the rollback. The exception is an observing clause's would-be refusal, which is written with the event it is linked to. Either way it holds no personal value — `request_values` holds the request's non-personal inputs and names the personal ones as withheld — so erasure has nothing to do there, and the refusal still replays from the record (ADR-0083, ADR-0105). Its `consulted` holds the metric values and evaluator verdicts the failing clause was decided on, neither of which can be personal, since a metric's value never is (ADR-0084, ADR-0096).
 
-**Pruning rolls up in the same transaction.** A deployment prunes `ok_attempt` after its retention period with `maintain(prune_attempts)` (ADR-0100), which refuses a cut-off inside the retention the store was built with (ADR-0101), and the statement that deletes a day's rows adds their counts to `ok_attempt_rollup` in the same transaction, so a count is never lost and never counted twice. The metric source `<Type>.attempt_counts` reads the rollup for the days already pruned and counts the retained rows for the rest, so it is complete over the whole history whenever pruning runs, or whether it runs at all. Correctness therefore never waits on it (PRD N2, T3, ADR-0096). The rollup keeps the object, so a reader's visibility applies to a pruned day exactly as to a retained one and a prune changes no reader's value; a refused creation has no object, and its count is visible only to a reader who can see every current object of the type.
+**Pruning rolls up in the same transaction.** A deployment prunes `ok_attempt` after its retention period with `maintain(prune_attempts)` (ADR-0100), which refuses a cut-off inside the retention the store was built with (ADR-0101), and the statement that deletes a day's rows adds their counts to `ok_attempt_rollup` in the same transaction, so a count is never lost and never counted twice. The metric source `<Type>.attempt_counts` reads the rollup for the days already pruned and counts the retained rows for the rest, so it is complete over the whole history whenever pruning runs, or whether it runs at all. Correctness therefore never waits on it (PRD N2, T3, ADR-0096). The rollup keeps the object, so a reader's visibility applies to a pruned day exactly as to a retained one and a prune changes no reader's value; a refused creation has no object, and its count is visible only to a reader who can see every current object of the type, as is the count of a request that named an unknown id, whose `type` is `''`. **A would-be refusal is kept while its clause is on trial**: the prune skips a row with `enforced = 0` whose clause is still observing in the installed version, so who a trialled rule would have refused stays answerable for the whole trial, and rolls it up at the first prune after the clause is enforced or removed (ADR-0106, PRD UC-14).
 
 **The sequence table and the attempt log are the two things written outside the request's transaction.** Everything else — the object row, the event, the write index, the interval index, the file reference index, the idempotency record — commits with the transition or not at all.
 
@@ -592,7 +616,7 @@ The transition transaction runs at **serialisable isolation**, which is what mak
 What the schema owes that:
 
 - **`ok_event.position` is monotonic and is not a promise of commit order.** A `BIGSERIAL` allocates out of order under concurrency, so a lower position can become visible after a higher one. On PostgreSQL, assigning positions from a single counter row inside the transaction would serialise every commit through one row, which ADR-0034 rejected by name. On SQLite, where writers are serial anyway, the counter row costs nothing, and is what the store uses.
-- **The log is read by a settled cursor** (ADR-0089). A reader takes its snapshot's `xmin` and returns only events whose `txn` is below it — every one of them finished — in `(txn, position)` order, handing back the last pair as the cursor. Probed on PostgreSQL 16: while a transaction holding position 1 was in flight and one holding position 2 had committed, the highest visible position was 2, and a consumer acknowledging it would never have seen 1. The query below `xmin` returned nothing until both were finished, then both in order. `pull` and `export` return that cursor, and `acknowledge` stores it. On SQLite, where writers are serial, `txn` order is commit order and the cursor is the position.
+- **The log is read by a settled cursor** (ADR-0089). A reader takes its snapshot's `xmin` and returns only events whose `txn` is below it — every one of them finished — in `(txn, position)` order, handing back the last pair as the cursor. Probed on PostgreSQL 16: while a transaction holding position 1 was in flight and one holding position 2 had committed, the highest visible position was 2, and a reader acknowledging it would never have seen 1. The query below `xmin` returned nothing until both were finished, then both in order. `pull` and `export` return that cursor, and `acknowledge` stores it. On SQLite, where writers are serial, `txn` order is commit order and the cursor is the position.
 - **Per-object order survives the cursor's order.** Under serialisable isolation a transaction cannot write an object another committed after its snapshot, which the hot-row probe shows, so a later writer of an object has the higher `txn`. Reasoned from that probe; the harness keeps it tested.
 - **The idempotency row is written in the transition's transaction**, so a replay of a request that committed returns the recorded verdict, and a replay of one that did not is a fresh attempt.
 - **Nothing that a guard reads is written outside the transaction** — the write index, the interval index, the file reference index — or a crash between them would leave a guard reading a stale answer.
@@ -610,7 +634,7 @@ Enforcement is dynamic and correctness comes from serialisable isolation; a cons
 | non-negativity of a counter | `CHECK` | `CHECK` |
 | overlap of two ranges, per key | `EXCLUDE USING gist` | **none** — dynamic only |
 | a traversal or type-scan invariant | none | none |
-| any invariant that an assertion may `admit` | **none, on either** | see below |
+| any invariant that an assertion may `admit`, or a publish's `admit` has an admission of standing | **none, on either** | see below |
 
 The last row is **ADR-0074**, derived here because this is the first document that had to hold ADR-0041 and ADR-0054 at once. An admission suppresses **one** invariant for **one** object (ADR-0054), and a database constraint cannot yield for one row. So an invariant a type's assertion names in `may admit` must not be compiled, or an admitted violation would be refused by the database after the runtime allowed it. Publishing knows both facts and can decide it; this is the schema's constraint on that decision.
 
@@ -631,7 +655,7 @@ Erasure (§8 of the model, ADR-0087) does these things to storage:
 9. Sets `value` to `NULL` in every `ok_interval` row of an erased object's personal enum attributes, as step 2 does in the events the index is rebuilt from, so a rebuilt index and the redacted one agree (ADR-0096).
 10. Deletes the `ok_external_id` rows of the erased objects' personal external identifiers, so `lookup` no longer resolves them (ADR-0100).
 11. Redacts each affected proposal's inputs in the proposal's own creation event, as step 7 does in its record (ADR-0100).
-12. Follows each erased object's events down their caused events, and erases what flowed from it into other objects' personal attributes, in those events and on those objects, by check 10's taint analysis (ADR-0100).
+12. Follows each erased object's events down their caused events, and erases what flowed from it into other objects' personal attributes, in those events and on those objects, by check 10's taint analysis (ADR-0100). Each object whose value it redacts gets an event with source `erased`, caused by the erasure's event and naming the attributes and never their values, and its `version` advances, so a subscriber sees the change and an old `expected_version` is refused (ADR-0105).
 13. Runs `forget` on every observation in the erased objects' collections, corrected ones included (ADR-0096, ADR-0100).
 14. Redacts the `note` of every label on an erased object, in its column and in the label's own creation event, since unclassified free text is treated as personal (ADR-0082). 
 It does **not** touch `ok_attribute_write`, `ok_attempt`, or `ok_interval` beyond step 9:
@@ -659,10 +683,11 @@ A publish is a declaration version and a set of DDL statements derived from it, 
 | a removed state | no DDL; the `CHECK` is replaced, and the mapping moves live objects out of it first |
 | a removed enum member | the `CHECK` is replaced after a `removed member` mapping has moved every live row off it by recorded migration transitions (ADR-0099) |
 | a removed type or observation kind | **nothing.** It is retired: no creation, no transition, and its table and history stay readable (ADR-0099) |
+| a new invariant of compilable shape | `ADD CONSTRAINT`, after the report says how many live objects violate it, and only where no `admit` covers it, since a constraint cannot yield for one row (§8) |
+| an `admit` mapping | an `ok_admission` row per violating object, on its migration event; where the admitted invariant is compiled, its constraint is dropped first, in the same transaction, and stays dropped while any admission of it stands (§8, ADR-0074, ADR-0105) |
+| a new tracked member | no DDL; an `ok_interval` row per live object holding its current value, opened at the publish event, which a fold reproduces (ADR-0106) |
 
-**A migration reaches every row the change affects, terminal ones included, and no observation's** (ADR-0101): it is the publish's recorded change, not a transition the object takes, and an observation is born final, so a publish removing an enum member an observation holds is refused. **An import never writes a personal column of an object whose erasure is recorded**, so a refresh of a mirror cannot restore an erased value.
-| a new invariant of compilable shape | `ADD CONSTRAINT`, after the report says how many live objects violate it |
-| a new tracked member | no DDL; its intervals are rebuilt from the log (ADR-0083) |
+**A migration reaches every row the change affects, terminal ones included, and no observation's** (ADR-0101): it is the publish's recorded change, not a transition the object takes, and an observation is born final, so a publish removing an enum member an observation holds is refused. **A request or an import never writes a personal column of an object whose erasure is recorded**, so neither a refresh of a mirror nor an externally owned type's sync can restore an erased value (ADR-0101, ADR-0105).
 
 A removed attribute leaving its column in place is deliberate: the column is how history stays readable, and dropping it would make a fold of the log fail on an event the store still holds.
 

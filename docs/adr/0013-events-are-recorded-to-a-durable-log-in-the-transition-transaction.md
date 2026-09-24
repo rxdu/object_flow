@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0019 — consequences declared as cascaded outcomes commit in the transition's own transaction and appear in this log as causally linked events; delivery to consumers remains for effects and for consequences the declaration does not cascade.
+- **Refined by:** ADR-0019 — consequences declared as cascaded outcomes commit in the transition's own transaction and appear in this log as causally linked events; delivery to consumers remains for effects and for consequences the declaration does not cascade. ADR-0105 — the core delivers by pull alone; posting to an endpoint is an upper-layer relay, so the delivery worker below is not part of a deployment, and a deployment is library-shaped unless it exposes a transport (PRD N6, UC-20, ADR-0104).
 
 ## Context
 

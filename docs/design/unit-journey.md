@@ -41,7 +41,7 @@ The vocabulary. `CancellationReason` loses production's `MISSING_FROM_SHIPMENT`,
 
 ```text
 module inventory_journey
-use   inventory.{RobotModel, User, Customer, RetirementReason, OverrideReason}
+use   inventory.{RobotModel, User, UserRole, Customer, RetirementReason, OverrideReason}
 
 capability INVENTORY_DELETE, PROCUREMENT_CANCEL, ADMIN,
            DELIVERY_CANCEL, DELIVERY_DELETE,
@@ -96,8 +96,10 @@ machine UnitLifecycle version 3 {
     require may: actor.has(EDIT) because delegable
   }
   create add_opening_stock -> AVAILABLE accepts model, manufacturer_serial, label_printed_at {
-    require may:      actor.has(ASSERT) because delegable
-    require labelled: inputs.label_printed_at is not null because self_serviceable
+    require may:        actor.has(ASSERT) because delegable
+    require labelled:   inputs.label_printed_at is not null because self_serviceable
+    require mfr_serial: inputs.model.manufacturer_serial_required
+                        implies inputs.manufacturer_serial is not null because self_serviceable
   }
 
   do ship REQUESTED -> PROCUREMENT only via Shipment.dispatch, Shipment.add_unit {
@@ -215,7 +217,7 @@ machine UnitLifecycle version 3 {
   assert correct_state -> { AVAILABLE, DEVELOPMENT, RETIRED } {
     input to : state
     input reason : OverrideReason
-    input detail : string?
+    input detail : string? personal
     input admits : invariant[]?
     require may: actor.has(ASSERT) because delegable
     may admit one_open_engagement
@@ -418,15 +420,20 @@ type ServiceJob version 3 {
   derive blocking = kind == ServiceKind.REPAIR
 
   create open -> OPEN accepts kind, robot, customer, engineer {
-    require may:       actor.has(SERVICE_CREATE) because delegable
+    require may:        actor.has(SERVICE_CREATE) because delegable
+    require assignable: inputs.engineer.state == User.ACTIVE
+                        and inputs.engineer.role in {UserRole.ADMIN, UserRole.ENGINEERING}
+                                                                         because self_serviceable
     require delivered: inputs.robot.state == Robot.SOLD
                        or inputs.robot.state == Robot.DEVELOPMENT        because self_serviceable
     require theirs:    inputs.robot.state == Robot.DEVELOPMENT
                        or inputs.robot.sold_to == inputs.customer        because self_serviceable
   }
   act reassign at OPEN accepts engineer {
-    require may:    actor.has(SERVICE_EDIT) because delegable
-    require active: inputs.engineer.state == User.ACTIVE because self_serviceable
+    require may:        actor.has(SERVICE_EDIT) because delegable
+    require assignable: inputs.engineer.state == User.ACTIVE
+                        and inputs.engineer.role in {UserRole.ADMIN, UserRole.ENGINEERING}
+                                                                         because self_serviceable
   }
   act add_part at { OPEN, WORKING } {
     input part : Robot
@@ -627,7 +634,7 @@ Pool utilisation, the share of a pooled unit's time spent on loan, is the questi
 |---|---|---|---|
 | `request` | → REQUESTED | procurement order creation births units REQUESTED (`wr:app/services/procurement.py:150-162`) | |
 | `add_to_intake` | → INTAKE | manual add (`wr:app/services/inventory_item_service.py:193-221`) | |
-| `add_opening_stock` | → AVAILABLE | the opening-stock fast path, same predicate at creation (`wr:docs/proposals/operations-system-design.md:308`) | gated on `ASSERT`, as a port of existing stock |
+| `add_opening_stock` | → AVAILABLE | the opening-stock fast path, same predicate at creation (`wr:docs/proposals/operations-system-design.md:308`), refusing a unit with no manufacturer serial where its model requires one (`wr:app/services/inventory_item_service.py:277-293`) | gated on `ASSERT`, as a port of existing stock; it carries the serial rule, since a creation into `AVAILABLE` would otherwise pass what `inventorize` refuses without counting as an override (D345) |
 | `ship` | REQUESTED → PROCUREMENT | `sr:861-865`; `sh:165-317` stamps `shipment_id` | only via the shipment |
 | `unship` | PROCUREMENT → REQUESTED | `sr:867-875`, guarded to in-transit shipments in the service | only via `Shipment.remove_unit`, at `IN_TRANSIT` |
 | `receive` | PROCUREMENT → INTAKE | `sr:884-888`; `sh:757-980` | only via `Shipment.receive_unit`, at `ARRIVED`, which is `backdatable within 2 days`, so time in PROCUREMENT ends when the unit arrived (PRD UC-6) |

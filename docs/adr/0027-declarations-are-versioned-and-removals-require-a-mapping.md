@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 2 (2026-09-07); pending author review
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0075 — cutting a mirrored type over is an ordinary version advance; ADR-0077 — the number an object and an event record is the declaration version of the publish in force, which fixes every type's version. ADR-0085 — a flow changes through a governed `DeclarationChange`, and the publish checks stay. ADR-0054 — a violation admitted at publish uses the built-in assertion, and an admission is tolerated until the invariant holds again. ADR-0099 — a publish changes a live row only by a recorded migration: a new required attribute needs a `backfill` mapping, a removed enum member a `removed member` mapping, and a removed type is retired.
+- **Refined by:** ADR-0075 — cutting a mirrored type over is an ordinary version advance; ADR-0077 — the number an object and an event record is the declaration version of the publish in force, which fixes every type's version. ADR-0085 — a flow changes through a governed `DeclarationChange`, and the publish checks stay. ADR-0054 — a violation admitted at publish uses the built-in assertion, and an admission is tolerated until the invariant holds again. ADR-0099 — a publish changes a live row only by a recorded migration: a new required attribute needs a `backfill` mapping, a removed enum member a `removed member` mapping, and a removed type is retired. ADR-0105 — a migration is PRD F2's own route, checked against the invariants, a publish admits a violation only by an `admit`, and a store begins at declaration version 0.
 - **Amended by:** ADR-0056 §4 — an object records its type's version and dependencies propagate.
 
 ## Context

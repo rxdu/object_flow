@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` M1, M3, M4, M6, C2, C3, C1, T5, UC-1, UC-2, UC-10, UC-11, UC-13, UC-16, UC-18; repairs D240 to D244
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0101 — the standard metrics exclude the import's events, clip finished spans, carry version and actor kind, and include two per-object metrics; they are checked as an instantiated block.
+- **Refined by:** ADR-0101 — the standard metrics exclude the import's events, clip finished spans, carry version and actor kind, and include two per-object metrics; they are checked as an instantiated block. ADR-0105 — `override_counts` counts every override, admissions included. ADR-0106 — every metric, declared or standard, has the version and actor-kind dimensions.
 - **Refines:** ADR-0084, ADR-0086, ADR-0096
 
 ## Context

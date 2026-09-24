@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` N2, N4, N5, T1, T3, T4, T5, D8, M5 and UC-17; repairs D251 to D258
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0101 — the import writes only mirrors and never restores an erased value; `whole_open` guards re-parents only; pruning has a floor. ADR-0103 — `maintain` gains `prune_idempotency`.
+- **Refined by:** ADR-0101 — the import writes only mirrors and never restores an erased value; `whole_open` guards re-parents only; pruning has a floor. ADR-0103 — `maintain` gains `prune_idempotency`. ADR-0105 — `not_erased` extends the import's bar on erased values to every request. ADR-0106 — a gap in legacy history is reported by coverage, beside completeness.
 - **Refines:** ADR-0012, ADR-0015, ADR-0030, ADR-0043, ADR-0054, ADR-0058, ADR-0075, ADR-0087, ADR-0091, ADR-0093, ADR-0094, ADR-0096
 
 ## Context

@@ -4,6 +4,8 @@ Draft, 2026-09-09, amended 2026-09-23. The stage order for `~/RduWs/wr_inventory
 
 **How it was obtained.** The SQLAlchemy metadata was imported and walked programmatically rather than read: 45 tables, 67 declared foreign keys, verified by asserting set equality between the extraction and a hand-typed list. Cross-checked against the Alembic chain, which is linear with a single head. **The live database was not reachable**, so everything here comes from source and a reflection of the running schema is the right check before anyone commits to an order.
 
+**Amended 2026-09-24 for ADR-0105 and ADR-0106:** a time-driven transition is backdatable so the scheduler dates it when it fell due; the legacy record's holes are declared as silent spans, which set each object's `recorded_from` and which a metric reports as `gaps`; the notes' options are stated once, in §1; and measuring the event and datapoint rates is a step before cutover.
+
 **Amended 2026-09-23 for ADR-0093.** The order below counts references only, and the rule now counts the legacy system's writes too: a type that a legacy transition writes as a side effect migrates no earlier than the writer. §4a says what that does to this system. The table-level order of §3 is **superseded** until it is recomputed over types, with both kinds of edge, once the per-type mapping exists; its findings about shape stand except where §4a overturns them.
 
 ## 1. The caveat that governs everything below
@@ -16,7 +18,7 @@ Draft, 2026-09-09, amended 2026-09-23. The stage order for `~/RduWs/wr_inventory
 | six association tables | a derived relationship end, or an association type where the link carries payload |
 | `audit_logs` | the event log. Not a type at all |
 | `token_blacklist`, `idempotency_keys`, `system_settings` | infrastructure the store either owns or does not hold |
-| `notes` | a `part`, or a type of its own, depending on whether a note outlives its subject |
+| `notes` | one of three, depending on whether a note outlives its subject and whether it must be pinned: a `part` owned by an abstract base the eleven noted types extend; a type of its own with a reference to what it notes; or a label, which cannot be pinned and whose note is personal. Ported as labels, the notes count as unmodelled information for PRD V2; as a part or a type, they do not. This row is where the options are stated (D324) |
 
 So the type graph is perhaps twenty nodes rather than forty-five, and the order must be recomputed over it once the per-type mapping exists. What follows is not that order. It is strong evidence about its **shape** — where the cycles are, what is most referenced, how much freedom there is — and every one of those findings survives the remapping, because they are properties of the domain rather than of the table layout.
 
@@ -78,17 +80,17 @@ The service side has write edges too (`_update_service_parts_to_sold`, `_reserve
 
 Each is a write edge. With them, the core stage takes in intake batches, shipments, procurement orders and services as well, which is most of the operational system. The recomputation over types must extract edges from every write, not from the registry alone, and staging then separates the periphery from one large core.
 
-**Time-driven transitions need a scheduler before their types migrate.** The legacy system has none, and reconciles warranty expiry when warranties are read (`wr:app/models/warranty.py:345-372`). The store never writes on read (ADR-0012), so a contract reaches `EXPIRED` only when something requests the transition, and until then work in progress and time in state are wrong for warranties. A scheduler that polls `available` for the sweepable time-driven transitions is therefore a cutover prerequisite for any type that has them (ADR-0100).
+**Time-driven transitions need a scheduler before their types migrate.** The legacy system has none, and reconciles warranty expiry when warranties are read (`wr:app/models/warranty.py:345-372`). The store never writes on read (ADR-0012), so a contract reaches `EXPIRED` only when something requests the transition, and until then work in progress and time in state are wrong for warranties. A scheduler that polls `available` for the sweepable time-driven transitions is therefore a cutover prerequisite for any type that has them (ADR-0100). The scheduler is an upper-layer application, and the transition is marked `backdatable within` the longest delay the deployment tolerates, so the scheduler supplies the deadline it read — `occurred_at := end_date` — and a late or stopped sweep does not overstate time in `ACTIVE` (ADR-0105).
 
-**The legacy history has known holes**, which the port records as gaps rather than filling in:
-- transition audit rows were not written from 2026-02-03 to 2026-07-13 (the legacy repository's commit `e675165`);
-- unit status changes made as side effects were never audited (`wr:app/core/state_registry.py:85-131`).
+**The legacy history has known holes**, which the port declares as silent spans rather than filling in (ADR-0106):
+- transition audit rows were not written from 2026-02-03 to 2026-07-13 (the legacy repository's commit `e675165`): one span, for every object alive then;
+- unit status changes made as side effects were never audited (`wr:app/core/state_registry.py:85-131`): the mapping finds these per object, wherever one audit row's value after the change is not the next row's value before it, and the span between the two rows is silent.
 
-Intervals in those spans are missing, a metric that covers them says it is incomplete, and the harness reports the gaps (ADR-0100).
+No legacy interval crosses a silent span. Each object's `recorded_from` is set from them, a metric row counts as its `gaps` the objects whose record does not cover what it measures, and the harness reports the gaps rather than failing on them (DESIGN.md §11, ADR-0100, ADR-0106).
 
 ## 5. What to do with this
 
 1. **Map tables to types first.** The order above cannot be used directly, and §1 says why. `publish-and-import.md` §5 gives the rules; most of the 45 go by shape, and what needs deciding is the three judgements it names — for this system, principally whether a note outlives its subject, since notes attach polymorphically to eleven types with no foreign key and nothing in the schema answers it.
-2. **Sample the JSON columns** named in §4 against production rows.
+2. **Sample the JSON columns** named in §4 against production rows, and **measure the event and datapoint rates** — transitions, recordings and refusals per day, and their peaks — against production, which PRD N3 requires before cutover and which sets the attempt retention, the idempotency retention and whether one table per type holds (`storage-schema.md` §11, `data-driven-engine.md` §7).
 3. **Reflect the live schema** and compare, since none of this touched a running database.
 4. Then recompute the order over types, counting both references and the legacy system's writes (ADR-0093). Of the three findings that matter, two should carry over — one cycle that moves as one stage, and the most-referenced types being the least-changing — and the third does not: around the operational core there is little ordering freedom (§4a).

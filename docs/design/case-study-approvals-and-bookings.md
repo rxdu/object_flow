@@ -2,6 +2,8 @@
 
 Status: design iteration 5, 2026-09-08. Companion to the earlier case studies. Decisions taken here are ADR-0035 and ADR-0036, all pending author review. The shapes are the common ones — purchase-request approval, document review, leave requests, room and equipment booking — and the first consumer's own engagement axis (`wr:docs/adr/0002`) is a booking system it has not yet built.
 
+*Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
+
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
 ## 1. Why this case
 
@@ -98,7 +100,7 @@ The first consumer's list of transitions where authority differs from capability
 | Resource (room, robot, vehicle) | an object type |
 | Booking for an interval `[start, end)` | an object referencing the resource; lifecycle `requested → confirmed → active → returned → closed`, plus `cancelled` and `no_show` — the first consumer's engagement (`SCHEDULED → OUT → RETURNING → CLOSED`) is one |
 | No two live bookings of one resource overlap | a type-level invariant: `none(b in Booking where b.resource == resource and b.state.category == live and state.category == live and b.start < end and b.end > start)`. A type-scan ranges over every *other* object, so there is no `id` exclusion (ADR-0061); the `live` filter is applied to both sides, which is what makes it **symmetric** under the swap test ADR-0052 requires so the affected set is computable. Concurrent safety comes from serialisable isolation (ADR-0039); on PostgreSQL it also compiles to an exclusion constraint, which is an optimisation, not the guarantee (ADR-0041) |
-| "Is it free from X to Y?" | the `check(id, transition, inputs)` operation on the read surface, which evaluates without executing. Note that it takes an object id, and "is this room free" is asked before the booking exists, so this question has no answer on the current read surface |
+| "Is it free from X to Y?" | the `check(id, transition, inputs)` operation on the read surface, which evaluates without executing. Note that it takes an object id, and "is this room free" is asked before the booking exists, so this question has no answer on the current read surface. *(Answered since by ADR-0099: `check` takes a type for a creation, so "is this room free from X to Y" is `check(Booking, create, {resource, start, end})`, D350.)* |
 | Capacity bookings (10 seats) | a quantity-tracked resource, which ADR-0050 makes a declared tracking mode rather than an improvisation |
 | No-show after start plus grace | `no_show: confirmed → no_show, guard start + 15 min <= now`, requested by a scheduler (ADR-0022) |
 | Recurring series | a `Series` object; instances are bookings the consumer generates and creates, each referencing the series |

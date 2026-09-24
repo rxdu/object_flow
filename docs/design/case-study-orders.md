@@ -2,6 +2,8 @@
 
 Status: design iteration 4, 2026-09-08. Companion to the earlier case studies. Decisions taken here are ADR-0032 to ADR-0034 plus two clarifications, all pending author review. No sibling repository holds an order system, so this study uses the standard order-to-cash shape rather than observed code; it is the second structurally different case TODO.md asked for — many, short-lived objects — and the one that forced the arithmetic decision.
 
+*Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
+
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
 ## 1. Why this case
 
@@ -27,7 +29,7 @@ Every earlier case has few, long-lived, richly related objects. An order system 
 | Fraud hold, manual review | states plus actor guards (ADR-0025) |
 | Guest checkout | an actor of kind `human` with an ephemeral id the consumer mints; nothing in the store cares |
 | Retrying client placing the same order twice | idempotency key on the placement request (ADR-0014); the cascade is one request, so one key |
-| Fulfilment system, email, analytics | subscribers to the log (ADR-0013); analytics exports from the log, it does not query the store |
+| Fulfilment system, email, analytics | upper-layer applications pulling the log (ADR-0013, ADR-0105); open-ended analytics exports from the log. *(Amended 2026-09-24, D350: declared metrics are computed in the store since ADR-0081 and ADR-0084, so only open-ended analysis is outside it.)* |
 | Stock ledger / movement history | the event log is the ledger — each reserve, release, receive is a recorded event; no second stream (ADR-0033) |
 
 ## 2a. Placement, declared

@@ -301,6 +301,88 @@ Findings from every review of this design. It began as the implementation-readin
 | [D287](#d287) | ADR-0103's first draft declared a monthly utilisation that buckets spans by when they began | Resolved by ADR-0103 |
 | [D288](#d288) | Residues of ADR-0103's first draft | Resolved by ADR-0103 |
 | [D289](#d289) | A unit bought out of a lease could not be serviced for its buyer | Resolved in place |
+| [D290](#d290) | The core kept a push delivery worker, against N6 and UC-20 | Resolved by ADR-0105 |
+| [D291](#d291) | Subscription and Proposal had no declared authority, and a proposal no visibility | Resolved by ADR-0105 |
+| [D292](#d292) | An empty store could not install its first declaration, and the built-ins were unversioned | Resolved by ADR-0105 |
+| [D293](#d293) | A migration was called an assertion, was never checked against the invariants, and "or admitted" had no form | Resolved by ADR-0105 |
+| [D294](#d294) | Erasure changed other objects with no event, and a sync could write an erased value back | Resolved by ADR-0105 |
+| [D295](#d295) | Only an unsatisfied verdict carried a remedy class | Resolved by ADR-0105 |
+| [D296](#d296) | A refusal decided on a request value could not be re-evaluated from its record | Resolved by ADR-0105 |
+| [D297](#d297) | An upper-layer application's reason had no field | Resolved by ADR-0105 |
+| [D298](#d298) | A late or stopped scheduler misdated time-driven transitions for good | Resolved by ADR-0105 |
+| [D299](#d299) | A tracked member added by a publish had no intervals | Resolved by ADR-0106 |
+| [D300](#d300) | Gaps in legacy history were promised as "incomplete" with no mechanism, and `.created_at` was undefined for a backdated or ported creation | Resolved by ADR-0106 |
+| [D301](#d301) | The port split every current stay in two, and a mirror's refresh lost who and when | Resolved by ADR-0106 |
+| [D302](#d302) | A derived attribute reading other objects had no visibility rule under `get` and `query` | Resolved by ADR-0106 |
+| [D303](#d303) | Override counts per reason existed only for enum reasons, and admissions were not counted | Resolved by ADR-0106 |
+| [D304](#d304) | A metric could read a personal value, so erasure changed counts | Resolved by ADR-0106 |
+| [D305](#d305) | A declared combined metric could not be split by version or actor kind, and silent legacy rows took the importer's kind | Resolved by ADR-0106 |
+| [D306](#d306) | Cancellations counted as completions, and reopened work was undefined | Resolved by ADR-0106 |
+| [D307](#d307) | Percentiles and buckets differed by backend | Resolved by ADR-0106 |
+| [D308](#d308) | `.held` on a transition was ambiguous, and "acting" undefined for recordings | Resolved by ADR-0106 |
+| [D309](#d309) | `avg` of a duration lost its unit | Resolved by ADR-0106 |
+| [D310](#d310) | The unknown-filter rule missed a reader's filter and a row's own collections | Resolved by ADR-0106 |
+| [D311](#d311) | The export could not read the permanent refusal counts or labels | Resolved by ADR-0106 |
+| [D312](#d312) | A formula over one object's own flow data could be written only as a metric grouped by object | Resolved by ADR-0106 |
+| [D313](#d313) | Three limits were unstated: label names, labels' occurred time, multi-choice attributes | Resolved by ADR-0106 |
+| [D314](#d314) | Pruning lost who a rule on trial would have refused | Resolved by ADR-0106 |
+| [D315](#d315) | The writing transaction was typed TEXT, so a cursor ordered it as text | Resolved in place |
+| [D316](#d316) | The refusal rollup could not hold an attempt with no type | Resolved in place |
+| [D317](#d317) | The release map contradicted PRD §10 revision 5 | Resolved in place |
+| [D318](#d318) | data-driven-engine.md stated superseded design beyond its release map | Resolved in place |
+| [D319](#d319) | The harness missed UC-19's fourth route, three failure rows and the erasure exemption | Resolved in place |
+| [D320](#d320) | A metric was still defined "across many objects or over time" | Resolved in place |
+| [D321](#d321) | DESIGN's dimensions omitted the creator's kind | Resolved in place |
+| [D322](#d322) | DESIGN left who rewrites a time-dependent query, so a caller would restate the threshold | Resolved in place |
+| [D323](#d323) | Two cosmetic slips: the renderers omitted the p80, and DESIGN dropped "stored" | Resolved in place |
+| [D324](#d324) | edge-cases.md stated a database clock, no replay, uncovered grouping and different notes options | Resolved in place |
+| [D325](#d325) | N3's measurement before cutover had no owner | Resolved in place |
+| [D326](#d326) | DESIGN did not state D7's rule that catalogues are governed | Resolved in place |
+| [D327](#d327) | README said the engine does not compete "on flows" | Resolved in place |
+| [D328](#d328) | ADR acceptance status disagreed between documents | Resolved in place |
+| [D329](#d329) | "Consumer" meant three things, and the glossary lacked the PRD's terms | Resolved in place |
+| [D330](#d330) | DESIGN defined a flow more narrowly than the PRD | Resolved in place |
+| [D331](#d331) | DESIGN's glossary said a business identifier is consumer-minted | Resolved in place |
+| [D332](#d332) | Six examples declared `tracking serial` for records | Resolved in place |
+| [D333](#d333) | flow-review gave the store worklists and notifications | Resolved in place |
+| [D334](#d334) | G4's proposed revision was tracked nowhere | Resolved in place |
+| [D335](#d335) | DESIGN §4 and the harness fixture pointed at the superseded walkthrough | Resolved in place |
+| [D336](#d336) | The syntax document's §12 and Q12 still said the counter is unexercised | Resolved in place |
+| [D337](#d337) | README and TODO carried stale revisions and counts | Resolved in place |
+| [D338](#d338) | TODO said no questions were open | Resolved in place |
+| [D339](#d339) | Amendment bullets sat under the wrong headings, and a paragraph split a table | Resolved in place |
+| [D340](#d340) | A refused requester was said to read the value a metric guard used | Resolved in place |
+| [D341](#d341) | DESIGN did not state L6's per-object order | Resolved in place |
+| [D342](#d342) | The impact report omitted what mappings rewrite and the changes a publish supersedes | Resolved in place |
+| [D343](#d343) | A list filter on a derived status was recorded as a decision, not a gap in the core | Resolved in place |
+| [D344](#d344) | UC-4's subject was stated three ways, and its gate was never written | Resolved in place |
+| [D345](#d345) | The opening-stock creation skipped production's serial rule without counting as an override | Resolved in place |
+| [D346](#d346) | The first consumer's module omitted the engineer-of-record rule | Resolved in place |
+| [D347](#d347) | UC-20's coverage rested on undecided declarations, and the appendix reused version numbers | Resolved in place |
+| [D348](#d348) | The walkthrough found low stock by filtering a counter a unit cannot have | Resolved in place |
+| [D349](#d349) | Traceability rows were not re-traced after revision 5 | Resolved in place |
+| [D350](#d350) | Two case studies described the read surface as it no longer is | Resolved in place |
+| [D351](#d351) | Legacy history was said to be preserved while fields were dropped and carrying it left open | Resolved in place |
+| [D352](#d352) | L1 was narrowed to exclude labels without a PRD revision | Resolved in place |
+| [D353](#d353) | The PRD's proposed C2 said "consumer" | Resolved in place |
+| [D354](#d354) | A refusal by an invariant or a cascade could not be re-evaluated from its record | Resolved by ADR-0105 |
+| [D355](#d355) | Overrides were counted per free-text reason again, by an `admit` and by an erasure | Resolved by ADR-0105 |
+| [D356](#d356) | A gap in coverage could go unreported: an undated creation, and a current stay across a silent span | Resolved by ADR-0106 |
+| [D357](#d357) | An `admit` could not yield for an invariant compiled to a constraint | Resolved by ADR-0105 |
+| [D358](#d358) | The release map deferred rules the first release needs | Resolved in place |
+| [D359](#d359) | `not_erased` had no stated scope | Resolved by ADR-0105 |
+| [D360](#d360) | "Every count is the same after an erasure" was false, and the erasure's events had no place in the metrics | Resolved by ADR-0106 |
+| [D361](#d361) | Superseded statements survived the repair | Resolved in place |
+| [D362](#d362) | D5 was marked covered while labels and overrides do not meet it | Resolved by ADR-0106 |
+| [D363](#d363) | Creating a store was a write with no operation and no attribution | Resolved by ADR-0105 |
+| [D364](#d364) | Pinning the built-ins was said to pin the language's meaning | Resolved by ADR-0105 |
+| [D365](#d365) | ADR-0105 said UC-20 was met only within the backdating bound | Resolved by ADR-0105 |
+| [D366](#d366) | An assertion's explanation was said to be personal and marked so nowhere | Resolved by ADR-0106 |
+| [D367](#d367) | ADRs still presented push delivery, migration as an assertion, and the first-entry completion rule as current | Resolved in place |
+| [D368](#d368) | "Consumer" survived in its three old senses across the implementation documents | Resolved in place |
+| [D369](#d369) | Three slips of the first repair: unmarked text, a serial record, a creation without the engineer rule | Resolved in place |
+| [D370](#d370) | Counting and structural slips in the repair | Resolved in place |
+| [D371](#d371) | The worked example claimed a guard `User.leave` did not declare | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -1965,3 +2047,421 @@ An independent reader checked the first draft against the PRD, the rest of the r
 **A unit bought out of a lease could not be serviced for its buyer.** `ServiceJob.open` in `unit-journey.md` accepted a sold unit only if `robot.binding.customer` was the job's customer. A lease-to-own conversion leaves the unit bound to the internal delivery that put it in the pool, so the buyer of a converted unit would have been refused, `theirs`, when asking for a repair on their own robot. Found by a reader with no context, briefed as an operations manager, who asked whether a lease buyer could get a warranty repair ([`flow-review.md`](flow-review.md)).
 
 **Resolved in place**, 2026-09-24: the unit records its buyer in `sold_to` on every route into `SOLD` and clears it on every route out, and `theirs` compares against it.
+
+## Found by reviewing the whole record against PRD revision 5, 2026-09-24
+
+Five readers, one slice each — flows and trust; data, formulas and metrics; logic, convergence and the non-functional requirements; every use case end to end; and the record's coherence as one text — read the whole record against PRD revision 5 after it was made to agree with itself. They reported ninety-one findings; after deduplication, and after each was re-read at its cited lines, these sixty-four stand. The two that depend on production's behaviour, D345 and D346, were confirmed in its code at `4109939`.
+
+### D290
+**The core kept a push delivery worker, against N6 and UC-20.** `DESIGN.md` §2 said "a deployment becomes a service when it adds a delivery worker for push subscriptions", and §7 drew the worker posting to a subscription's endpoint; ADR-0043 called it "part of an ObjectKeeper deployment". ADR-0104, accepted by the author, says the engine contains "no notifier … no reaction to its own events", and UC-20's acceptance says it "sends nothing". The worker also wrote `last_error` and `last_error_at` (`storage-schema.md` §6) through none of the six operations `DESIGN.md` §13 calls the only writes. Found by slice 1 (flows and trust).
+
+**Resolved by ADR-0105**, 2026-09-24: the core delivers by `pull` alone; posting to an endpoint is an upper-layer relay; the subscription loses its endpoint and `deliver_as`, and its position the error columns.
+
+### D291
+**Subscription and Proposal had no declared authority, and a proposal no visibility.** The built-in capabilities (`DESIGN.md` §9) gated no subscription creation, `acknowledge` or proposal rejection; `deliver_as` let a subscription be delivered as any descriptor; and `t_proposal` showed its target's id and inputs to readers who cannot see the target, the defect D263 repaired for `DeclarationChange` alone. Anyone could therefore acknowledge another's cursor past events it had not handled, against L6. Found by slice 1.
+
+**Resolved by ADR-0105**, 2026-09-24: `OK_SUBSCRIBE` gates creating a subscription, which names the one reader who may pull and acknowledge it; a proposal is visible to its proposer and to whoever can see its target, its proposer may withdraw it, and whoever passes the proposed transition's actor guards may reject it.
+
+### D292
+**An empty store could not install its first declaration, and the built-ins were unversioned.** A publish is a request on a `DeclarationChange` "drafted against the installed version" (`DESIGN.md` §9), and `base_version` references `ok_declaration` (`storage-schema.md` §6), which a new store had no row in; `DeclarationError` meant "none installed" (`library-api.md` §7). Separately, the standard metrics, the `label` kind and the built-in capabilities belonged to no declaration version, so an engine release could change what a recorded event's metrics meant with no publish, against PRD §5's flow, "versioned together". Searched for "version zero", "bootstrap" and "first publish": nothing defined it. Found by slices 1 and 3.
+
+**Resolved by ADR-0105**, 2026-09-24: a store is created at declaration version 0 holding the built-ins; the first change is drafted against it; each version records the built-in module it was published with.
+
+### D293
+**A migration was called an assertion, was never checked against the invariants, and "or admitted" had no form.** `DESIGN.md` §3, §8 and §13 and the harness called migration a use of the built-in assertion, while the schema recorded it `migrated`, without a reason, and `override_counts` excluded it (`declaration-syntax.md` §6.11). PRD F2 names a flow change's mapping as a route of its own. Nothing said whether a mapping's writes are checked against the invariants, so a `backfill` onto a `unique` attribute would either fail at publish, unlike its dry run, or break T1. `DESIGN.md` §5.9 said a new invariant is "resolved by a mapping or admitted", and no mapping form admitted anything. And `state_source` listed `migrated`, which the rule that a migration leaves it alone meant was never written. Found by slice 1.
+
+**Resolved by ADR-0105**, 2026-09-24: a migration is F2's third route, authorised by the publish's approval; the dry run and the publish check every invariant over what mappings write; `admit <Type>.<invariant> because "…"` is the admission form, an override; `.overrides` marks every override; `migrated` leaves `state_source`.
+
+### D294
+**Erasure changed other objects with no event, and a sync could write an erased value back.** `DESIGN.md` §8 and `storage-schema.md` §9 step 12 said erasure "erases what flowed from it into other objects' personal attributes, in those events and on those objects", with no event on those objects and no version advance, so a subscriber never saw the change and a stale `expected_version` passed; and `DESIGN.md` said an erasure's admission "exists only where a type declares `erase`", which those objects' types need not. Separately, only the import was barred from writing an erased value (ADR-0101); the first consumer's Xero sync, an externally owned type's transition (ADR-0080), could restore one. Found by slices 1 and 4.
+
+**Resolved by ADR-0105**, 2026-09-24: every object an erasure redacts gets an `erased` event and a version advance; the generated guard `not_erased` refuses any request writing a personal attribute of an object whose erasure is recorded.
+
+### D295
+**Only an unsatisfied verdict carried a remedy class.** `library-api.md` §4 gave `Stale`, `NotFound`, `NotRequestable`, `OverLimit` and `InvariantViolated` no remedy, and `DESIGN.md` §5.5 said "an unsatisfied verdict's remedy class"; PRD F4, a Must, asks every refusal to say what to do next, and attempt rows for those verdicts carried none. Found by slice 1.
+
+**Resolved by ADR-0105**, 2026-09-24: every verdict carries a remedy class, fixed per kind of verdict, and `ok_attempt.remedy` is always set.
+
+### D296
+**A refusal decided on a request value could not be re-evaluated from its record.** An attempt row held the failing clause's read set "and never the inputs" (`DESIGN.md` §6). The read set records identities and versions, so a refusal whose clause read a scalar input or the request's `occurred_at` could not be re-evaluated, which PRD L2 requires of every decision "for as long as that record is kept", and which ADR-0088's own rejected alternative names: "the inputs are what is not recorded". Found by slice 3 (logic and non-functional).
+
+**Resolved by ADR-0105**, 2026-09-24: an attempt records the non-personal inputs and the occurred time its failing clause read, and names personal ones as withheld; the harness fails a refusal that does not re-evaluate.
+
+### D297
+**An upper-layer application's reason had no field.** UC-20 and ADR-0104 record an application's actions "with its reason"; a request carried only `context`, "naming the route it came by" (`DESIGN.md` §6), and ordinary transitions take no reason input. Found by slices 1 and 4.
+
+**Resolved by ADR-0105**, 2026-09-24: `context` is the caller's statement of why and by which route, recorded on the event and the attempt row.
+
+### D298
+**A late or stopped scheduler misdated time-driven transitions for good.** A time-driven transition such as a warranty's `expire` is requested by a scheduler above the store (`DESIGN.md` §7), and no such transition was backdatable, so while the scheduler was late or stopped its occurred time was when it finally ran, and time in the earlier state was overstated permanently. `first-consumer-cutover.md` §4 said so for warranties; UC-20 says stopping the application "loses nothing from the record". Found by slices 3 and 4.
+
+**Resolved by ADR-0105**, 2026-09-24: a time-driven transition may be `backdatable within` the tolerated delay, and the scheduler supplies the deadline it read as the occurred time.
+
+### D299
+**A tracked member added by a publish had no intervals.** `storage-schema.md` §10 said a new tracked member needs "no DDL; its intervals are rebuilt from the log", while `DESIGN.md` §5.2 said every tracked member has an interval from its object's creation; the publish wrote no interval rows and no operation rebuilt them, so `entered_at(member)` was unknown for every live object and ageing queries never found them. Found by slice 3.
+
+**Resolved by ADR-0106**, 2026-09-24: a publish that makes a member tracked opens its current interval for every live object at the publish event, which the fold reproduces; time before it is reported as a gap.
+
+### D300
+**Gaps in legacy history were promised as "incomplete" with no mechanism, and `.created_at` was undefined for a backdated or ported creation.** `DESIGN.md` §11, `publish-and-import.md` §4, `first-consumer-cutover.md` §4 and ADR-0100 promised that a metric covering a gap "counts it as unknown time and reports as incomplete"; `complete` was defined by visibility alone (`DESIGN.md` §5.12, `library-api.md` `MetricPage`), and a gap is an absent row, so a reader who sees everything was told `complete` over the first consumer's five-month audit hole. `.created_at` was "taken from its creation event", which carries two times, while standard metrics subtract it from occurred times. Found independently by slices 2, 3 and 4.
+
+**Resolved by ADR-0106**, 2026-09-24: each object records `recorded_from`; the mapping declares silent spans; every metric row reports `gaps`, and the page `history_complete`; `.created_at` is the creation's occurred time.
+
+### D301
+**The port split every current stay in two, and a mirror's refresh lost who and when.** The import wrote the last legacy interval ending at the import and the recorded one beginning there (`DESIGN.md` §7, §11; `library-api.md` `ImportedObject` had no current entry time), so `entered_at(state)` returned the import time for every ported object, `oldest_open` restarted at cutover, and `handoffs_by_object` and `returns_by_object`, which count intervals, gave every ported job an extra handoff. A refresh of a mirror had no rule, so a reassignment made in the legacy system while the type was a mirror was dated at the refresh and attributed to the importer. Found by slice 4 (use cases).
+
+**Resolved by ADR-0106**, 2026-09-24: an imported object carries `entered` per dimension, and the import's event opens the current interval then; a refresh carries the same and the intermediate values; a write that leaves a tracked value unchanged opens no interval.
+
+### D302
+**A derived attribute reading other objects had no visibility rule under `get` and `query`.** `DESIGN.md` §5.12 and `declaration-syntax.md` §6.9 said a derivation a metric row reads is evaluated under the reader's visibility; nothing covered `get` or `query`, and `Object` carried no completeness mark, so a per-model stock count either counted hidden units (T5) or varied by reader unmarked (C2). Found by slice 2 (data and metrics).
+
+**Resolved by ADR-0106**, 2026-09-24: a reader reads such a derivation over what it can see, and `Object.partial` names it where that is not everything; a guard reads it over everything.
+
+### D303
+**Override counts per reason existed only for enum reasons, and admissions were not counted.** `declaration-syntax.md` §6.9: "`.reason` is an assertion's `reason` input where it is a declared enum"; check 29 required only that a reason exist. PRD M1, revision 5, asks for override counts per reason without declaring any. And `DESIGN.md` §8 called erasure's admissions overrides while `override_counts` counted `t.asserted` only. Found by slices 1 and 2.
+
+**Resolved by ADR-0106**, 2026-09-24: check 29 requires an enum reason, with a fixture; `.overrides` counts every admission as well (ADR-0105).
+
+### D304
+**A metric could read a personal value, so erasure changed counts.** A personal value "may be counted" (`declaration-syntax.md` §6.9, `DESIGN.md` §5.12), and nothing forbade one in a filter or `count(where …)`: `count(where l.note is not null)` falls when `forget` redacts a note. UC-17 says metrics built from erased datapoints "keep their counts". Found by slice 4.
+
+**Resolved by ADR-0106**, 2026-09-24: a metric reads no personal value anywhere; check 56 enforces it, with a fixture.
+
+### D305
+**A declared combined metric could not be split by version or actor kind, and silent legacy rows took the importer's kind.** Only the standard metrics had `version` and `actor_kind` (`declaration-syntax.md` §6.11), and ADR-0101 noted "a combined metric has no binder to filter by", so `delivery_refusal_rate` could not be split as UC-16 asks of every metric. A legacy row whose record named no actor took the importer's kind, filing legacy work under `service`. Found by slice 4.
+
+**Resolved by ADR-0106**, 2026-09-24: every metric has both dimensions from its rows, passed through by `combine`; a silent legacy row has the kind `unknown`.
+
+### D306
+**Cancellations counted as completions, and reopened work was undefined.** `.completes` marked "the transition that first" enters a closed or terminal state, so `throughput` and `cycle_time_by_assignee` counted `ServiceJob.cancel` into the closed `CANCELLED`; `.open` was "true until" such an entry, undefined after `reopen` or `Robot.accept_return` left a closed state, and a second completion was never counted. Found by slice 4.
+
+**Resolved by ADR-0106**, 2026-09-24: `.open` is read from the current state; every entry from an open state into a closed or terminal one completes; throughput and cycle time carry the state entered.
+
+### D307
+**Percentiles and buckets differed by backend.** `data-driven-engine.md` §3.4: nearest rank on SQLite, "and PostgreSQL has `percentile_cont`", which interpolates; a metric guard near its threshold could pass on one backend and refuse on the other, and SQLite is the harness's reference for four behaviours. The start of a week and a bucket's time zone were left to the database. Found by slice 3.
+
+**Resolved by ADR-0106**, 2026-09-24: nearest-rank on both, `percentile_disc` on PostgreSQL; median is the fiftieth percentile; ISO weeks from Monday; every bucket in UTC; a probe of both backends is recorded as owed.
+
+### D308
+**`.held` on a transition was ambiguous, and "acting" undefined for recordings.** `.held(<member>)` was "the value … when … the transition happened" (`declaration-syntax.md` §6.9), which does not say before or after the transition's own write, so a reassignment could be attributed to either engineer; and whether recording an observation counts as acting on the object was unstated. Found by slice 2.
+
+**Resolved by ADR-0106**, 2026-09-24: `.held` is the value before the transition's writes; acting means requesting a transition; a recording is counted by its kind's recorder.
+
+### D309
+**`avg` of a duration lost its unit.** `declaration-syntax.md` §6.9: "`avg` yields a `decimal`", so an average duration compared against `10 days` would not type. Found by slice 2.
+
+**Resolved by ADR-0106**, 2026-09-24: `avg` keeps its body's type.
+
+### D310
+**The unknown-filter rule missed a reader's filter and a row's own collections.** ADR-0103's rule, that an unknown filter selects nothing, covered a metric's `from` and `count(where …)` (`declaration-syntax.md` §8.2) and not a reader's `filter` to `metric()` or an aggregate over a row's own collections inside a value. Found by slice 2.
+
+**Resolved by ADR-0106**, 2026-09-24: both are added to §8.2's table.
+
+### D311
+**The export could not read the permanent refusal counts or labels.** `export`'s sources were the log, a type's intervals, transitions and attempts, and observation kinds (`DESIGN.md` §10, `library-api.md` §6), so after a prune the refusal history could not leave the store (PRD M5), and labels were not named. Found by slice 2.
+
+**Resolved by ADR-0106**, 2026-09-24: `<Type>.attempt_counts` and `<Type>.labels` are export sources.
+
+### D312
+**A formula over one object's own flow data could be written only as a metric grouped by object.** A derivation could read only `entered_at` and `time_in` of its own intervals (`DESIGN.md` §5.7, check 58), so handoffs on one job existed only as `handoffs_by_object`, a metric grouped by object. PRD C1 calls a formula over one object a derived datapoint. Found by slice 2.
+
+**Resolved by ADR-0106**, 2026-09-24: a derivation may aggregate over `this.intervals(…)` and `this.transitions`, is never indexed, and no invariant may read one that reads the clock.
+
+### D313
+**Three limits were unstated: label names, labels' occurred time, multi-choice attributes.** A label's `name` is user-typed free text that erasure does not reach (`declaration-syntax.md` §6.8, `storage-schema.md` `t_label`), not among `DESIGN.md` §8's known limits; "a label's occurred time is its recorded time" was stated bare, though D5 asks every datapoint to distinguish the two; and a set of enum values is not tracked (`storage-schema.md` `ok_interval` holds one value) while `DESIGN.md` §13 named only sets of references. Found by slice 2.
+
+**Resolved by ADR-0106**, 2026-09-24: each is stated with its reason in `DESIGN.md` §5.11 and §13, and PRD §12 proposes D11's wording for the third.
+
+### D314
+**Pruning lost who a rule on trial would have refused.** The rollup keeps the actor's kind and not its id (`storage-schema.md` §6), and `maintain(prune_attempts)` ignored whether an observing clause was still on trial, so UC-14's "who would have been refused" was lost at the first prune during a trial. Found by slice 3.
+
+**Resolved by ADR-0106**, 2026-09-24: the prune keeps a would-be refusal while its clause is still observing.
+
+### D315
+**The writing transaction was typed TEXT, so a cursor ordered it as text.** `ok_event.txn` and `ok_attempt.txn` were `TEXT` (`storage-schema.md` §2, §6), and the settled cursor orders by `(txn, position)`; as text `'10'` sorts before `'9'`, so a cursor would skip or reorder events once the counter crossed a power of ten, breaking L6 and M5's export. Found by slice 3.
+
+**Resolved in place**, 2026-09-24: `INTEGER` on SQLite, `xid8` on PostgreSQL, and the reason stated beside the column.
+
+### D316
+**The refusal rollup could not hold an attempt with no type.** D260 made `ok_attempt.type` nullable for a request naming an unknown id, but `ok_attempt_rollup.type` stayed `NOT NULL` with no default and in the primary key (`storage-schema.md` §6), so pruning a day that held one would fail or drop its count, against "a count is never lost". Found by slice 2.
+
+**Resolved in place**, 2026-09-24: `type` defaults to `''`, and such a count is visible only to a reader who sees every object.
+
+### D317
+**The release map contradicted PRD §10 revision 5.** `data-driven-engine.md` §9 put L2, C3, C6, M3 and M4 in release 2 and `DeclarationChange` and all of `diagnostics` in release 3, while PRD §10 revision 5 schedules L2 for recorded datapoints, L6, and C3, C6, M3 and M4 as the standard metrics use them in release 1; the standard metrics are written in the metric form, so the form cannot wait; release 1 had no publish path, though `DESIGN.md` §5.9 makes every flow change a `DeclarationChange`; and first-release erasure relied on `diagnostics`. Its header said revisions 4 and 5 changed none of its evaluations. Found by slices 2, 3 and 5.
+
+**Resolved in place**, 2026-09-24: §9 is rewritten against revision 5, and the header says what changed.
+
+### D318
+**data-driven-engine.md stated superseded design beyond its release map.** The subject declaring `part inspections …` and a kind with no `as` (pre-ADR-0099, which check 54 refuses); the kind declared on `ConfiguredRobot`; dimensions without the creator's kind; the M6 list without cycle time per assignee; "every one can be split by the kind of actor who made the assignment", which §6.11 contradicts for five metrics; D204, D208 and D215 listed as untouched though resolved; out-of-date operation signatures; the use-case table without UC-20 or UC-19's fourth route; "fifty-two requirements". Found by slices 2, 3, 4 and 5.
+
+**Resolved in place**, 2026-09-24: each marked inline with the document's amendment convention.
+
+### D319
+**The harness missed UC-19's fourth route, three failure rows and the erasure exemption.** `adversarial-harness.md` still said "UC-19's three routes", and its route-tester had no route retiring a catalogue entry, which PRD revision 5 added; its failure table had no row for a refusal missing from the attempt log, one whose record does not re-evaluate, or a pull that skips or misorders an event, though the text claims all three are tested; and it failed any event whose rules re-evaluate differently, though ADR-0088 says a re-evaluation after an erasure sees absence, so a correct store failed its own test. Found by slices 1, 2, 3, 4 and 5.
+
+**Resolved in place**, 2026-09-24: the fourth route, the three rows, the erasure exemption, and a fixture gate to try the route against.
+
+### D320
+**A metric was still defined "across many objects or over time".** `DESIGN.md` §5, §5.12 and §14 and `declaration-syntax.md` §6.9; PRD revision 5 removed "or over time" because it overlapped derived datapoints. Found by slices 2 and 5.
+
+**Resolved in place**, 2026-09-24: "across many objects", with a formula over one object a derived attribute, in all four places.
+
+### D321
+**DESIGN's dimensions omitted the creator's kind.** `DESIGN.md` §5.12 listed "the kind of actor that requested a transition or recorded a datapoint"; PRD M4 revision 5 adds the kind that created an object, which `.created_by_kind` already provides. Found by slice 2.
+
+**Resolved in place**, 2026-09-24: the dimension list names all three.
+
+### D322
+**DESIGN left who rewrites a time-dependent query, so a caller would restate the threshold.** `DESIGN.md` §10 let `query` filter on "derived attributes that are themselves indexable" and said time-dependent ones "are queried by filtering the stored operand"; `declaration-syntax.md` §8.3 showed the caller writing the whole condition, threshold included. ADR-0048 says the store rewrites the derivation, and PRD M7 needs the condition declared once. Found by slice 2.
+
+**Resolved in place**, 2026-09-24: `query` accepts a queryable derivation by name and the store rewrites it, stated in `DESIGN.md` §5.12, §10 and the syntax §8.3.
+
+### D323
+**Two cosmetic slips: the renderers omitted the p80, and DESIGN dropped "stored".** `renderers.md` §2 listed nine standard metrics where §6.11 declares ten; `DESIGN.md` §5.13 said "every singular reference is tracked" where the rule is every singular stored reference. Found by slice 2.
+
+**Resolved in place**, 2026-09-24: both corrected.
+
+### D324
+**edge-cases.md stated a database clock, no replay, uncovered grouping and different notes options.** It said `now` is "the database's transaction time … evaluated at commit", which the injected clock replaced; "no tool will replay a historical request", which ADR-0088's read set made possible; grouped aggregation "not covered", which ADR-0084's metric form covers; and it listed the notes' options differently from the cutover plan. Found by slices 3 and 5.
+
+**Resolved in place**, 2026-09-24: each entry corrected visibly, and the notes' options stated once, in `first-consumer-cutover.md` §1.
+
+### D325
+**N3's measurement before cutover had no owner.** PRD N3 requires event and datapoint rates "measured before cutover"; only `data-driven-engine.md` §7 listed it, the cutover steps did not, `DESIGN.md` never stated N3, and its traceability row cited sections that do not cover it. Found by slice 3.
+
+**Resolved in place**, 2026-09-24: a cutover step, a paragraph in `DESIGN.md` §2, and a corrected row.
+
+### D326
+**DESIGN did not state D7's rule that catalogues are governed.** PRD D7 revision 5: a catalogue's entries change "only by their own recorded transitions … so a rule that reads a catalogue is loosened only through a recorded, attributed change"; `DESIGN.md` §5.11 said only that catalogues are data. Found by slices 2 and 5.
+
+**Resolved in place**, 2026-09-24: §5.11 states it.
+
+### D327
+**README said the engine does not compete "on flows".** `README.md`: "does not compete with full metadata-driven platforms on flows, screens or automation"; PRD §1 and ADR-0104's correction say flows are the product and the line is automation, scheduling and screens. Found by slice 5 (coherence).
+
+**Resolved in place**, 2026-09-24: reworded as ADR-0104 §5 is.
+
+### D328
+**ADR acceptance status disagreed between documents.** The ADR files and index read "Accepted" for ADR-0097 to ADR-0101 and ADR-0103, meaning decided at the author's direction, while `DESIGN.md`, `TODO.md` and `README.md` said they "await acceptance" without saying the two meant different things; ADR-0104, accepted by the author, and PRD revisions 4 and 5 were missing from the status lines; `DESIGN.md` said it was amended for ADR-0081 to ADR-0101 only. Found by slice 5.
+
+**Resolved in place**, 2026-09-24: the status lines name the two kinds of acceptance and list each decision under one.
+
+### D329
+**"Consumer" meant three things, and the glossary lacked the PRD's terms.** `DESIGN.md`, `README.md` and several design documents used "consumer" for a deployment, an upper-layer application and a reader, which PRD revision 5 separated; `DESIGN.md` §14 had no entry for engine, deployment, upper-layer application, reader, governed state or override; §1 listed "who holds what" for N6's "what waits and on whom"; §2's diagram put workflow orchestration beside the store. Found by slices 1 and 5.
+
+**Resolved in place**, 2026-09-24: each use replaced, §14 points to PRD §5 and adds the design's own terms, and the diagram puts orchestration above.
+
+### D330
+**DESIGN defined a flow more narrowly than the PRD.** `DESIGN.md` §1: "a set of object types with their lifecycles, transitions and rules"; PRD §5 includes datapoint kinds, formulas and conditions, versioned together. Found by slice 5.
+
+**Resolved in place**, 2026-09-24: §1 and §14 state PRD §5's definition.
+
+### D331
+**DESIGN's glossary said a business identifier is consumer-minted.** `DESIGN.md` §14: "a consumer-minted meaningful value such as a serial", beside a row saying a sequence mints business identifiers; ADR-0029 withdrew consumer minting. Found by slice 5.
+
+**Resolved in place**, 2026-09-24: "supplied as input or minted from a sequence".
+
+### D332
+**Six examples declared `tracking serial` for records.** The `Delivery` examples in `declaration-syntax.md` §3.2 and `renderers.md` §2 declared `tracking serial`, as did `ExpenseClaim`, `ChecklistItem`, `Approval`, `Note` and `Order`; ADR-0067 and `DESIGN.md` §5.10 say a delivery or an audit entry is a `record`. D260 had aligned the renderer to the syntax document's wrong side. Found by slice 5, which named the delivery; the other five were found fixing it.
+
+**Resolved in place**, 2026-09-24: all six are `tracking record`.
+
+### D333
+**flow-review gave the store worklists and notifications.** `flow-review.md` §2.1 listed "the worklists" among the store's questions, and §2.2 said a missing unit "should notify the order's owner" without saying which layer; PRD N6 says the core presents no worklist, "though it answers by query what such a worklist would list". Found by slice 5.
+
+**Resolved in place**, 2026-09-24: the application builds its worklists from the queries, and it notifies.
+
+### D334
+**G4's proposed revision was tracked nowhere.** PRD §12 proposes G4 and says traceability marks each affected row; goals are not rows, and `README.md` and `TODO.md` named only C2, UC-8 and UC-10. Found by slice 5.
+
+**Resolved in place**, 2026-09-24: traceability says G4 is met through C2's row; README and TODO name it.
+
+### D335
+**DESIGN §4 and the harness fixture pointed at the superseded walkthrough.** `DESIGN.md` §4 named only the walkthrough, and `adversarial-harness.md` §3 took "a unit with a nine-state lifecycle" from it, though `unit-journey.md` superseded that unit (ADR-0102) with eleven states. Found by slice 5.
+
+**Resolved in place**, 2026-09-24: both point to the unit's journey.
+
+### D336
+**The syntax document's §12 and Q12 still said the counter is unexercised.** `declaration-syntax.md` §12: "nothing in the record exercises the counter at all" and "no quantity-tracked type in the first consumer"; the Q12 row said none is quantity-tracked. D279 corrected Q10 for the bulk-accessory lot and left these. Found by slices 1 and 5.
+
+**Resolved in place**, 2026-09-24: both bullets rewritten and the row annotated.
+
+### D337
+**README and TODO carried stale revisions and counts.** `README.md` gave the PRD as revision 3 and omitted `unit-journey.md`, `flow-review.md` and `first-consumer-audit.md` from its documents table; `TODO.md` said nineteen use cases, left "PRD revision 4 proposed" unannotated beside the positioning's revision 4, and had no revision-5 row. Found by slice 5.
+
+**Resolved in place**, 2026-09-24: updated.
+
+### D338
+**TODO said no questions were open.** `TODO.md`'s status table said "Open questions | none" while PRD §10's two questions and flow-review §7's decisions await the author. Found by slice 5.
+
+**Resolved in place**, 2026-09-24: the row names what is open, and where.
+
+### D339
+**Amendment bullets sat under the wrong headings, and a paragraph split a table.** In `storage-schema.md` and `adversarial-harness.md` the bullets of the 2026-09-23 amendment for ADR-0082 onwards sat under a later amendment's line, misattributing them; `storage-schema.md` §10 had a paragraph inside its table, so two rows fell outside it. Found by slices 3 and 5.
+
+**Resolved in place**, 2026-09-24: the bullets are back under their headings and the table is whole.
+
+### D340
+**A refused requester was said to read the value a metric guard used.** `declaration-syntax.md` §6.9: "the person a guard refused can read the value it was decided on", against the same section's rule that the value goes to a requester whose view is complete "and otherwise withheld", and against T5; `DESIGN.md` §5.12 dropped "over the same data". Found by slice 5.
+
+**Resolved in place**, 2026-09-24: a refused requester reads the value where their view is complete, and otherwise the value over their own rows, marked partial.
+
+### D341
+**DESIGN did not state L6's per-object order.** `DESIGN.md` §7 stated the log's per-object order and at-least-once delivery; the argument that per-object order survives the settled cursor was only in `storage-schema.md` §7 and ADR-0089. Found by slice 1.
+
+**Resolved in place**, 2026-09-24: §7 states it, citing L6.
+
+### D342
+**The impact report omitted what mappings rewrite and the changes a publish supersedes.** PRD F7 asks what a change "affects among live objects and pending work"; `DESIGN.md` §9 and `publish-and-import.md` §1 named neither the objects each mapping rewrites nor the open changes a publish supersedes, and the two lists differed. Found by slice 1.
+
+**Resolved in place**, 2026-09-24: both lists name both, and agree.
+
+### D343
+**A list filter on a derived status was recorded as a decision, not a gap in the core.** `DESIGN.md` §13 and `edge-cases.md` said filtering a list on a status derived from other objects stays with the first consumer "by decision", met by the reader filtering the page. ADR-0104 §4, accepted by the author: "a need an upper layer meets by scanning … is a gap in the core, and is recorded as one". None of N6's or UC-20's questions needs it, so N6 stays covered. Found by slice 1.
+
+**Resolved in place**, 2026-09-24: recorded as a gap in `TODO.md`, and `available` named as the answer where the status gates a transition.
+
+### D344
+**UC-4's subject was stated three ways, and its gate was never written.** ADR-0082 and `data-driven-engine.md` put the inspection kind on `ConfiguredRobot`, `declaration-syntax.md` §6.8 advised the delivery, and its checked example was on `ServiceJob`; no document wrote UC-4's gate, a result for every check of the configuration's checklist, and the catalogue had no configuration. Found by slice 4.
+
+**Resolved in place**, 2026-09-24: a checked example in §6.8 — `Configuration`, `PdiCheck`, `PdiResult` on `Handover`, and the gate `all_checked` — and ADR-0082 and data-driven-engine annotated.
+
+### D345
+**The opening-stock creation skipped production's serial rule without counting as an override.** `unit-journey.md`'s `add_opening_stock` creates a unit in `AVAILABLE` checking only the label, while production refuses opening stock with no manufacturer serial where the model requires one (`wr:app/services/inventory_item_service.py:277-293`, read at `4109939`); an `ASSERT` holder could therefore bypass `inventorize`'s serial rule through a creation that no override count sees. The flow review's appendix had the same gap. Found by slice 4.
+
+**Resolved in place**, 2026-09-24: `mfr_serial` on the creation, in the journey and the appendix.
+
+### D346
+**The first consumer's module omitted the engineer-of-record rule.** Production requires an engineer to be an active user whose role is ADMIN or ENGINEERING, on create and on update (`wr:app/services/service_service.py:488-520`, called at `:361` and `:544`, read at `4109939`), which is the rule PRD UC-18 cites, that an agent may not be engineer-of-record; `ServiceJob.open` validated no engineer, `reassign` checked only `ACTIVE`, and `User` had no role. Found by slice 4.
+
+**Resolved in place**, 2026-09-24: `User` gains `role`, and `open` and `reassign` require an active ADMIN or ENGINEERING user, in the syntax example, the journey and the appendix.
+
+### D347
+**UC-20's coverage rested on undecided declarations, and the appendix reused version numbers.** Two of UC-20's five questions need `procured_for` and `mark_ready`, which only the flow review's appendix declares and the author has not decided; the traceability row cited no declaration. The appendix reused the journey's version numbers for six declarations whose content differs, which check 22 would refuse if it were published after the journey. Found by slice 4.
+
+**Resolved in place**, 2026-09-24: the row cites the review and says what is conditional; the six declarations advance.
+
+### D348
+**The walkthrough found low stock by filtering a counter a unit cannot have.** `first-consumer-walkthrough.md`: "low stock by filtering the counter"; a robot is `tracking serial`, and a counter on a serial type is refused (check 31). Found by slice 4.
+
+**Resolved in place**, 2026-09-24: corrected visibly.
+
+### D349
+**Traceability rows were not re-traced after revision 5.** UC-13 cited nothing holding revision 5's mapping clause, UC-7 nothing saying a summary is recorded as an observation, and the history recorded only L6 for revision 5. Found by slice 4.
+
+**Resolved in place**, 2026-09-24: every row re-traced and the citations added.
+
+### D350
+**Two case studies described the read surface as it no longer is.** `case-study-approvals-and-bookings.md`: `check` "takes an object id … this question has no answer", which ADR-0099 answered; `case-study-orders.md`: "analytics exports from the log, it does not query the store", which ADR-0081 and ADR-0084 changed. Found by slice 4.
+
+**Resolved in place**, 2026-09-24: both annotated.
+
+### D351
+**Legacy history was said to be preserved while fields were dropped and carrying it left open.** `DESIGN.md` §11 said legacy entries "carry their original payload" while §8 and `publish-and-import.md` §4 keep only the entry's own object's fields and leave behind the employee's IP address and user agent; `publish-and-import.md` §8 left open whether every entry is carried. PRD N5 is a Must: legacy history "ported and preserved". Found by slice 3.
+
+**Resolved in place**, 2026-09-24: every entry is carried, fields about another ported object move to its history, and PRD §12 proposes that N5 say what is not ported.
+
+### D352
+**L1 was narrowed to exclude labels without a PRD revision.** PRD §5 counts a label as a recorded datapoint and L1 lets rules read recorded datapoints; `DESIGN.md` §5.11 and check 55 forbid a rule to read a label, for a sound reason, and the traceability row said covered. The PRD's own rule is to propose a revision rather than work around it. Found by slice 3.
+
+**Resolved in place**, 2026-09-24: PRD §12 proposes L1's wording, and the row says revision proposed.
+
+### D353
+**The PRD's proposed C2 said "consumer".** PRD §12's C2 wording said "every consumer … a consumer that may see only part", which §5, since revision 5, calls a reader. Found by slice 5.
+
+**Resolved in place**, 2026-09-24: reworded.
+
+## Found by verifying ADR-0105 and ADR-0106, 2026-09-24
+
+An independent reader checked both decisions against the PRD, ADR-0104 and the whole working tree, confirmed D290 to D353 at their sites, and searched the record for superseded wording; each finding below was re-read at its cited lines before it was recorded. D371 was found preparing the worked example's update.
+
+### D354
+**A refusal by an invariant or a cascade could not be re-evaluated from its record.** ADR-0105's first draft recorded on an attempt row only "the values its failing clause read from the request", and the harness failed a refusal that did not re-evaluate over them. An invariant (DESIGN.md §6 step 7) and a cascaded guard ("against the state produced so far") refuse over versions the request itself produced and rolled back, which are never in the log, and read no input directly, so nothing was recorded and a correct store would have failed its own harness row, against L2. Found by the verification of ADR-0105 and ADR-0106, inferred and confirmed against DESIGN.md §6.
+
+**Resolved by ADR-0105**, 2026-09-24: an attempt records every non-personal input and the occurred time of the request, and the read set of everything the request had read; a refusal is re-evaluated by replaying the request, and the harness row says so.
+
+### D355
+**Overrides were counted per free-text reason again, by an `admit` and by an erasure.** The first draft's `admit … because "<reason>"` took a string literal, and an erasure's reason is `input reason : string`, while `override_counts` groups by `.reason` and ADR-0106 rejects counting per free-text reason, which may name a person (UC-17). Found by the verification.
+
+**Resolved by ADR-0105**, 2026-09-24: an `admit` names a member of a declared enum (`OverrideReason.LEGACY_DATA` in the examples), and an erasure's events carry the fixed reason `erasure`.
+
+### D356
+**A gap in coverage could go unreported: an undated creation, and a current stay across a silent span.** The first draft's gap test was "`recorded_from` later than `.created_at`", which fails for a port with no legacy creation, where both are the port, so short cycles went unflagged; and where an object's current value was entered before the 2026 audit hole, its current interval ran across the silent span and no gap condition fired, so `oldest_open` vouched for a stay the record cannot vouch for. An entry time earlier than an unknown creation could also make `time_to_first_assignment` negative. Found by the verification, inferred and confirmed against ADR-0106 §1 and §2.
+
+**Resolved by ADR-0106**, 2026-09-24: one gap rule with four cases — a window before `recorded_from`, an interval that began before it, an undated `.created_at`, a member read before its tracking began; an undated creation is the earliest time the port knows of, and an entry time or legacy interval earlier than a supplied creation is refused.
+
+### D357
+**An `admit` could not yield for an invariant compiled to a constraint.** `storage-schema.md` §10 gave an `admit` "no DDL", and §8 leaves uncompiled only invariants an assertion may admit and new ones an `admit` covers; a `backfill` or `removed state` mapping violating an existing `UNIQUE` or partial index would be refused by the database after the runtime allowed it, the failure ADR-0074 exists to prevent. Found by the verification.
+
+**Resolved by ADR-0105**, 2026-09-24: an `admit` of a compiled invariant drops its constraint in the publish's transaction, before the migration writes, and it stays uncompiled while any admission of it stands.
+
+### D358
+**The release map deferred rules the first release needs.** `data-driven-engine.md` §9 scheduled "derivations over other objects, read under visibility" for release 2 while release 1 carries T5 and already has derivations that count other objects (the low-stock count, the journey's `on_loan`); and ADR-0106 §12, derivations over their own object's flow data, was in no release. Found by the verification.
+
+**Resolved in place**, 2026-09-24: both are in release 1, the first as T5 needs it and the second as the derived datapoints for one object.
+
+### D359
+**`not_erased` had no stated scope.** It refused writes to "an object whose erasure is recorded", beside a rule that every object the taint analysis reaches receives an `erased` event, so a delivery whose contact was copied from an erased customer could never be given a new contact. Found by the verification.
+
+**Resolved by ADR-0105**, 2026-09-24: `not_erased` applies to an object whose own erasure ran — through its type's `erase`, or as a member of an erased supersession chain — and an object reached by taint may be given a new value.
+
+### D360
+**"Every count is the same after an erasure" was false, and the erasure's events had no place in the metrics.** DESIGN.md §5.12, `declaration-syntax.md` §6.9 and ADR-0106 said every count is the same before and after an erasure; the `erase` request is itself a transition row, and ADR-0105's new events on redacted objects were rows no one had placed. Found by the verification.
+
+**Resolved by ADR-0106**, 2026-09-24: restated as "no row a metric reads is removed and no value it reads changed"; the events on redacted objects are `.redacted`, left out of every standard metric but the override counts.
+
+### D361
+**Superseded statements survived the repair.** Six sites still said the attempt log holds no inputs (`DESIGN.md` §7, §8, §14; `storage-schema.md` §6; `declaration-syntax.md` §6.9; `data-driven-engine.md` §4); two still let a metric count a personal value (`declaration-syntax.md` §6.9, `data-driven-engine.md` §3.4); and `storage-schema.md` §6 still opened an interval on a write that changes nothing. Found by the verification.
+
+**Resolved in place**, 2026-09-24: each corrected.
+
+### D362
+**D5 was marked covered while labels and overrides do not meet it.** `traceability.md` marked D5 covered, while ADR-0106 §14 says it is not met for labels, and an assertion is dated when the engine was told; the map's own rule forbids a covered row with a remainder. Found by the verification.
+
+**Resolved by ADR-0106**, 2026-09-24: PRD §12 proposes D5's revision, and the row says `revision proposed`.
+
+### D363
+**Creating a store was a write with no operation and no attribution.** Version 0 "is written when the store is created" against `DESIGN.md`'s "nothing else writes the database" and its list of six operations, with `published_by` "the store's construction" and no defined `report`. Found by the verification.
+
+**Resolved by ADR-0105**, 2026-09-24: creating the store is named as the one write that precedes every operation, attributed to the engine release, with the built-in module's check report as its report.
+
+### D364
+**Pinning the built-ins was said to pin the language's meaning.** ADR-0105 §3 said a declaration version "fixes the standard metrics as it fixes everything else"; what `.completes` marks and how a percentile is computed are the engine's, and ADR-0106 had just changed both. Found by the verification.
+
+**Resolved by ADR-0105**, 2026-09-24: narrowed: the version fixes the metrics' definitions, and a change to the language's meaning is a decision that says so.
+
+### D365
+**ADR-0105 said UC-20 was met only within the backdating bound.** Its §9 said stopping the application loses nothing "within the bound", which confused the record with a measure over it; beyond the bound the record still holds the late change and the deadline, and only time in state is overstated. Found by the verification.
+
+**Resolved by ADR-0105**, 2026-09-24: reworded: the record loses nothing either way, and the measure's limit is in `DESIGN.md` §13.
+
+### D366
+**An assertion's explanation was said to be personal and marked so nowhere.** ADR-0106 said `detail` "is free text, and treated as personal", while an input is personal only by marking or by flowing into a personal attribute, and every example declared `input detail : string?` unmarked. Found by the verification.
+
+**Resolved by ADR-0106**, 2026-09-24: `detail : string? personal` in the syntax example, the journey and the flow review's appendix.
+
+### D367
+**ADRs still presented push delivery, migration as an assertion, and the first-entry completion rule as current.** ADR-0007, ADR-0030, ADR-0034 and ADR-0077 described push delivery and `deliver_as`; ADR-0040 described migration as a use of the built-in assertion, as did `TODO.md`; ADR-0026 stated that work completes when it first enters a closed state. None pointed to the decision that changed it. Found by the verification.
+
+**Resolved in place**, 2026-09-24: each carries a back-link to ADR-0105 or ADR-0106 in its header and index row, and ADR-0105 and ADR-0106 list them.
+
+### D368
+**"Consumer" survived in its three old senses across the implementation documents.** `library-api.md`, `declaration-syntax.md`, `storage-schema.md`, `adversarial-harness.md`, `edge-cases.md`, `data-driven-engine.md` and `TODO.md` still said consumer for a deployment, an upper-layer application or a reader, which D329 was to have removed. Found by the verification.
+
+**Resolved in place**, 2026-09-24: each replaced; the dated case studies and the walkthrough carry a note on their vocabulary instead, since they are records of their day; a quoted older passage in `data-driven-engine.md` keeps its words.
+
+### D369
+**Three slips of the first repair: unmarked text, a serial record, a creation without the engineer rule.** `data-driven-engine.md` still stated three datasets per type, counted personal values and said attempts hold no inputs without marking them, and named only D208's resolution beside D204's; `Whole`, the base of a ticket family, declared `tracking serial`; and the syntax example's `ServiceJob.open` lacked the engineer-of-record rule D346 claimed for it. Found by the verification.
+
+**Resolved in place**, 2026-09-24: each corrected.
+
+### D370
+**Counting and structural slips in the repair.** `TODO.md` said the decisions resolved eighteen defects where they resolved twenty-five; `DESIGN.md` §5.2 had the file-attribute paragraph inside a bullet, §5.12 the guard paragraph inside another and the standard-metric list without its lead-in, and its impact list omitted objects holding a removed enum member; PRD §12's L1 row cited a decision that decides nothing about L1. Found by the verification, the second §5.12 slip while fixing the first.
+
+**Resolved in place**, 2026-09-24: each corrected.
+
+### D371
+**The worked example claimed a guard `User.leave` did not declare.** The page's case "An engineer leaves with open jobs" said `User.leave` refuses while service jobs are assigned to the user, naming them as dependent; the declaration in `declaration-syntax.md` §6.10 required only `SERVICE_ASSIGN`. Slice 4 had suggested the guard. Found preparing the page's update.
+
+**Resolved in place**, 2026-09-24: `User.leave` declares `no_open_jobs`, a type-scan over open service jobs, remedy `dependent`, so the case is what the record says.

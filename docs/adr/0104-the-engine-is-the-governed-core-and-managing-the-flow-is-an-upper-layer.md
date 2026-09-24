@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — decided by the author, 2026-09-24: "stay the governed core, write it into the PRD, the way we manage the transitions and make use of the datapoints should be built in upper-layer applications"
 - **Date:** 2026-09-24
+- **Refined by:** ADR-0105 — the core has no delivery worker; posting events is an upper-layer relay.
 - **Relates to:** ADR-0007 (the store decides and records; consumers compute), ADR-0012 (the store never writes on read), ADR-0081 (the widened objective), ADR-0102 and ADR-0103 (the unit's journey and its review)
 
 ## Context

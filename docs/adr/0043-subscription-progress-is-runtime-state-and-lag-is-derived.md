@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D07, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0100 — progress is an acknowledged settled cursor, and lag is the age of the oldest unacknowledged event the filter selects, with duration thresholds.
+- **Refined by:** ADR-0100 — progress is an acknowledged settled cursor, and lag is the age of the oldest unacknowledged event the filter selects, with duration thresholds. ADR-0105 — a subscription names its reader, the one actor who may pull and acknowledge it, and creating one requires `OK_SUBSCRIBE`; there is no delivery worker in the core, so what this decision says a worker does is a relay's, above it.
 - **Refines:** ADR-0034
 
 ## Context

@@ -175,7 +175,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
               r"create|do|act|assert|erase|input|accepts|require|set|clear|add|remove|call|supersede|for|"
               r"cascade|survives|requires|removed|renamed|fn|extends|may|corrects|only|proposable|"
               r"observation|metric|field|recorded|occurred|from|combine|by|window|value|flag|labels|"
-              r"backfill|requests)\b")
+              r"backfill|admit|requests)\b")
     clause_col = None
     for i, raw in enumerate(text.split("\n")):
         line = raw.split("#", 1)[0].rstrip()
@@ -438,6 +438,10 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
             if kind == "assert":
                 if not re.search(r"actor\.\w+\(", body): add(29, f"{d.name}.{tn} asserts with no capability guard", ln)
                 if not re.search(r"input\s+reason\b", body): add(29, f"{d.name}.{tn} asserts with no reason input", ln)
+                rm = re.search(r"input\s+reason\s*:\s*(\w+)", body)
+                if rm and rm.group(1) in SCALARS:
+                    # an override's reason is a declared enum, so overrides count per reason (ADR-0106)
+                    add(29, f"{d.name}.{tn} asserts with a {rm.group(1)} reason, not a declared enum", ln)
                 if "may admit" in body and not re.search(r"input\s+admits\b", body):
                     add(38, f"{d.name}.{tn} has 'may admit' but no admits input", ln)
             if kind == "erase" and not re.search(r"input\s+reason\b", body):
@@ -544,6 +548,8 @@ UNITS = r"(?:s|min|h|days|weeks)"
 GENERATED = ("subject", "corrects", "occurred_at", "recorded_at", "recorded_by_kind",
              "created_at", "created_by_kind")
 SOURCES = ("labels", "intervals", "transitions", "attempts", "attempt_counts")
+# the built-in scalar types of §3.1: a reason typed as one of these is not an enum (check 29)
+SCALARS = ("string", "bool", "int", "decimal", "money", "timestamp", "duration", "identity", "file", "event")
 
 
 def stores(d, spec, by_name):
@@ -636,6 +642,13 @@ def data_checks(decls, by_name, text):
                     first = path.split(".")[1]
                     if src_decl is not None and "personal" in src_decl.attrs.get(first, ("", 0))[0].split():
                         add(56, f"metric {d.name}: personal member '{first}' is a dimension", bln)
+        # a metric reads no personal value anywhere: filter, value or flag (ADR-0106)
+        if src_decl is not None and binder:
+            for key in ("from", "value", "flag"):
+                for text_, tln in d.clauses.get(key, []):
+                    for first in re.findall(rf"\b{binder}\.(\w+)", text_):
+                        if "personal" in src_decl.attrs.get(first, ("", 0))[0].split():
+                            add(56, f"metric {d.name}: reads personal member '{first}' in its {key}", tln)
 
     # per-transition: 57, 58, 61, and a metric reference's window and dimensions (56)
     metrics = {x.name: x for x in everything if x.kind == "metric"}
@@ -801,7 +814,9 @@ FIXTURES = {
   20: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require actor.has(X) }\n}",
   21: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require n: x == null }\n}",
   26: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { supersede this }\n}",
-  29: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } { }\n}",
+  29: ["machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } { }\n}",
+       # an override's reason must be a declared enum (ADR-0106)
+       "machine M version 1 {\n state S category live\n state D category closed terminal\n do go S -> D { }\n assert fix -> { S } {\n  input to : state\n  input reason : string\n  require may: actor.has(X) because delegable\n }\n}"],
   31: "type A version 1 {\n tracking quantity\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}",
   34: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n do go S -> D { }\n}",
   35: "machine M version 1 {\n state S category live\n state D category closed terminal\n create mk -> S { }\n do go S -> D { set mystery := 1 }\n}",
@@ -818,7 +833,9 @@ FIXTURES = {
   40: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n act poke at D { }\n}",
   54: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nobservation O version 1 on A as os {\n field v : int\n}",
   55: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require quiet: count(l in labels) == 0 }\n}",
-  56: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A\n}",
+  56: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A\n}",
+       # a metric reads no personal value, not even in its filter (ADR-0106)
+       "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr email string? personal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A where a.email is not null\n value count()\n}"],
   57: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } {\n  input reason : string\n  require may: actor.has(Q) observe because delegable\n }\n}",
   58: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D backdatable within 2 months { }\n}",
   59: "type U version 1 {\n tracking record\n states S category live, D category closed terminal\n attr login identity\n create mk -> S accepts login { }\n do go S -> D { }\n}\ntype A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref who : U assignee\n create mk -> S accepts who { }\n do go S -> D { }\n}",
@@ -909,8 +926,8 @@ MUTATIONS = [
        "from      i in ServiceJob.events where"),
   (56, "metric in a derivation", "  attr     photo file?\n",
        "  attr     photo file?\n  derive   rate = metric(inspection_pass_rate)\n"),
-  (57, "observe on an erase", "do leave ACTIVE -> LEFT { require may: actor.has(SERVICE_ASSIGN) because delegable }",
-       "do leave ACTIVE -> LEFT { require may: actor.has(SERVICE_ASSIGN) because delegable }\n"
+  (57, "observe on an erase", "create add -> ACTIVE accepts login, role { require may: actor.has(SERVICE_ASSIGN) because delegable }",
+       "create add -> ACTIVE accepts login, role { require may: actor.has(SERVICE_ASSIGN) because delegable }\n"
        "  erase forget {\n    input reason : string\n"
        "    require may: actor.has(ERASE_PERSONAL) observe because delegable\n  }"),
   (58, "backdated in months", "do start OPEN -> WORKING backdatable within 2 days {",

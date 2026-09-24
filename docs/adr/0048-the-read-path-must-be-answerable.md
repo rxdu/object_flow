@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D25, D26 and D30, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0057 — the write index also carries the last event on a whole's parts, so `changed_since` may name a part relationship. ADR-0082 §7 — that position is kept per part relationship, not one per whole. ADR-0084 §5 — decision 2's rule extends from the type's own row to the interval index, so `query` may filter on the entry time of a tracked value's current interval.
+- **Refined by:** ADR-0057 — the write index also carries the last event on a whole's parts, so `changed_since` may name a part relationship. ADR-0082 §7 — that position is kept per part relationship, not one per whole. ADR-0084 §5 — decision 2's rule extends from the type's own row to the interval index, so `query` may filter on the entry time of a tracked value's current interval. ADR-0106 — `query` accepts a queryable derivation by name, and a derivation that reads other objects is read under the reader's visibility and marked partial.
 - **Refines:** ADR-0037, ADR-0022
 
 ## Context

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0048 — `available` requires a sweepable transition and evaluates no external guard, and a time-dependent derived attribute is queried through its stored operand. ADR-0103 — a scheduler's periodic key is replayed only within the store's idempotency retention, which must cover the sweep period.
+- **Refined by:** ADR-0048 — `available` requires a sweepable transition and evaluates no external guard, and a time-dependent derived attribute is queried through its stored operand. ADR-0103 — a scheduler's periodic key is replayed only within the store's idempotency retention, which must cover the sweep period. ADR-0105 — a time-driven transition may be backdatable, so its scheduler dates it when it fell due.
 
 ## Context
 

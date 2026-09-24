@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` F7, D4, D8, T1, T3, T4, T5, M1, M3, M4, M6 and UC-16, UC-17, UC-18; repairs D261 to D274
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0103 — the store is also built with an idempotency retention, which `maintain` will not prune inside.
+- **Refined by:** ADR-0103 — the store is also built with an idempotency retention, which `maintain` will not prune inside. ADR-0106 — a prune keeps a would-be refusal while its clause is on trial.
 - **Refines:** ADR-0056, ADR-0075, ADR-0083, ADR-0097, ADR-0098, ADR-0099, ADR-0100
 
 ## Context

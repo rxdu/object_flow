@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0095 — a metric in a guard reads every row, and its value is recorded on the event and shown only as far as a reader's visibility reaches. ADR-0096 — a path through a hidden object yields absence, and every result says whether it is complete for its reader; a refusal carries the metric value it was decided on; an unbound dimension is aggregated over. ADR-0098 — the standard metrics are declared definitions; combined metrics, per-object flow collections and distinct counts; `metric()` binds, windows and filters as a guard does.
+- **Refined by:** ADR-0095 — a metric in a guard reads every row, and its value is recorded on the event and shown only as far as a reader's visibility reaches. ADR-0096 — a path through a hidden object yields absence, and every result says whether it is complete for its reader; a refusal carries the metric value it was decided on; an unbound dimension is aggregated over. ADR-0098 — the standard metrics are declared definitions; combined metrics, per-object flow collections and distinct counts; `metric()` binds, windows and filters as a guard does. ADR-0106 — percentiles are nearest-rank, weeks ISO and buckets UTC; `avg` keeps its type; a metric reads no personal value and reports its `gaps`.
 - **Refines:** ADR-0047, ADR-0049
 
 ## Context

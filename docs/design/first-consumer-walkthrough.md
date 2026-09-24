@@ -2,6 +2,8 @@
 
 Status: **worked example**, written 2026-09-07 as a draft and adopted in design iteration 1. It works the first consumer's real lifecycles through the model as it stood, finds where that model could not express them, and proposes the additions that became ADR-0019 to ADR-0025. It is kept as the rationale behind those ADRs; the current model is [`DESIGN.md`](../DESIGN.md).
 
+*Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
+
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current with the grammar; the surrounding prose records how the study reached them. *(A review on 2026-09-23 found three places where they differ from the production system's behaviour — `complete_sale` gates on the checklist and inspections where production does not, a unit's `CANCELLED` is terminal where production has transitions out of it, and `reserve` binds a unit only to a delivery where production also reserves for a service. They are listed in `TODO.md` for the table-to-type mapping, which re-derives the declarations from production and is what the harness fixture will be built from.)*
 Source material: `wr:app/core/state_registry.py`, `wr:docs/proposals/operations-system-design.md` §4–§5, `wr:docs/adr/0002-unit-engagement-and-leasing-model.md`, `wr:docs/adr/0003-xero-as-source-of-truth-for-customer-identity.md`. The `wr:` prefix is defined in [`TODO.md`](../../TODO.md).
 
@@ -208,7 +210,7 @@ A request carries an actor: an identity, a kind (human, agent, service), the pri
 | Lease-to-own | `Lease.convert` cascading `unit.convert_lease`, which is only-via (A, C) |
 | Retire an engaged unit | `unit.retire` cascading `engagement_line.close(reason)` (A) |
 | Xero-owned customer | Customer is an externally owned type with an external id, whose sync transitions Xero's sync requests (ADR-0080); `complete_sale` carries a deferred external guard (ADR-0008) |
-| Jira reflection, alerts | consumers subscribed to the event log; overdue is a derived attribute queried by filtering its stored operand against the supplied time, and low stock by filtering the counter (ADR-0048) |
+| Jira reflection, alerts | upper-layer applications pulling the event log (ADR-0105); overdue is a derived attribute queried by filtering its stored operand against the supplied time (ADR-0048). *(Corrected 2026-09-24, D348: this row said low stock was found by filtering the counter, but a unit is serial-tracked and a counter on a serial type is refused (check 31). Low stock is a per-model derivation counting the model's units in the first release and a metric flag per model after it, `data-driven-engine.md` §3.10.)* |
 | Split delivery | `create d2 = Delivery.open(…)` then `for s in inputs.slots limit 200 { call s.reparent(delivery := d2) }` (ADR-0046, ADR-0052). Exclusive membership holds at every instant |
 
 Every row is expressible, though several need mechanisms A–H did not have: the grammar of ADR-0046 and ADR-0052, sequential application (ADR-0038) and the read-path rules of ADR-0048. The rows above name them.

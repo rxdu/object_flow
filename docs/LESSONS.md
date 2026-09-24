@@ -83,6 +83,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** One expression, `a.event`, was corrected to `a.at_event` three separate times over two days — first in the specification, then in the design document, then in two decision records and a case study. Each fix swept the file in front of it. The same shape recurred with a renamed concept, where replacing a word in one document left thirteen files using the old one, and with an outcome-grammar change whose superseded form survived inside the very decision record that introduced the grammar.
 - **Correction:** When a name or a notation changes, write the sweep as a command that returns nothing and keep it — in the checker, in a script, or at minimum quoted in the commit message so the next person can rerun it. `scripts/check-corpus.py` is where this repository keeps them, alongside the cross-reference and amendment sweeps. A grep run once proves the file you were editing is clean and nothing else. Where the superseded form appears in a historical record that should not be rewritten, annotate it in place with what the current spelling is, which is what this repository does for decisions that were later amended.
 - **Context:** Any corpus where one decision is described in several documents. Related to "scoping a fix to one syntactic form leaves the same defect everywhere else", of which this is the narrowest and most repeatable instance.
+- **Recurrence, 2026-09-24:** the review against PRD revision 5 changed three rules stated in many places — "consumer" in three senses, "the attempt log holds no inputs", "a personal value may be counted" — and the repair corrected the sites the reviewers cited and grepped by eye for the rest. An independent verification then found twenty-two more sites across seven documents (D361, D368). The sweep that would have caught them is a search for the old phrase over the whole tree, read site by site, run before the repair is called done.
 
 ### A scripted edit keyed on a common pattern must assert where it matched
 
@@ -153,3 +154,21 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** To match one production rule — a slot with no role never blocks completion — ADR-0103's first draft made an element whose filter is unknown drop out of every aggregate. D20 had been closed on 2026-09-08 by making a guard over an erased value fail closed, and the change reopened it inside guards: `none(a in approvals where a.approver == actor.id)` would pass for an erased approver (D284). The production rule never needed it; a presence test expresses it.
 - **Correction:** Before changing what an expression means, search the register and the decisions for every resolution that cites the rule being changed, and restate the change so that each still holds. Prefer expressing the new case in the existing language, and change the semantics only where that cannot be done.
 - **Context:** Expression semantics, type rules and any shared definition in this repository, where a resolution is often a property of the semantics rather than a line anyone can point to.
+
+### A behaviour promised in prose across documents needs its mechanism in the document that owns it
+
+- **Pattern:** Four documents — `DESIGN.md` §11, `publish-and-import.md` §4, the cutover plan and ADR-0100 — promised that a metric over a gap in legacy history "counts it as unknown time and reports as incomplete". The document that defines what a metric returns, and the API shape it returns in, defined `complete` by visibility alone and had no notion of a gap. Every checker passed, since each sentence was consistent with its neighbours, and three independent reviewers found it only by reading the promise against the owning definition (D300).
+- **Correction:** When a document promises that the engine reports, marks or says something, find the field or rule in the document that owns that output — the syntax, the schema or the API — and cite it. If none exists, the promise is either a design decision to take or a sentence to withdraw; do not let it stand in several places as though repetition made it true.
+- **Context:** This repository's split between the model, the language, the schema and the API, and any design record where several documents describe one behaviour.
+
+### A shell heredoc that is not quoted executes the backticks in the prose it carries
+
+- **Pattern:** A Python script passed through an unquoted `<<EOF` heredoc inserted a provenance line containing `` `4109939` ``. Bash ran it as a command, printed "command not found", and the line was written with the commit missing. Markdown uses backticks everywhere, so any prose inserted this way is at risk.
+- **Correction:** Always quote the heredoc delimiter (`<<'EOF'`) when the script carries document text, and pass values in through the environment or a file rather than by interpolation. After a scripted insert, grep for one distinctive fragment of what was meant to be written.
+- **Context:** Scripted edits to the markdown of this repository.
+
+### An example written to illustrate a decision must name something the record declares
+
+- **Pattern:** Writing ADR-0105, an example named "a lease's `overrun`" as a time-driven transition, and a `DESIGN.md` edit gave `maintain` a report of pending deletions to return. Neither exists in the record: the first consumer's lease has a derived `overdue`, and `maintain` returns a count. Both were caught before commit, by re-reading the edit against the module and the API.
+- **Correction:** Before an example names a transition, a field or a return value, find its declaration. An example that illustrates with an invented name is an unsourced claim, and a later reader will take it as a design fact.
+- **Context:** Decision records and design prose in this repository, where examples are read as statements of what exists.

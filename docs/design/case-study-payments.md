@@ -2,6 +2,8 @@
 
 Written 2026-09-08, after the model. The declaration below is checked by `scripts/check-corpus.py`, which runs the syntax checker over every design document, this one included.
 
+*Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
+
 ## 1. Why this case
 
 The five earlier cases are the same shape twice removed from this one. The first consumer and the CRM have few, long-lived, richly related objects. Issue tracking adds families. Orders at volume adds throughput and short lifetimes but keeps money as a number. None of them is a **ledger**, and a ledger stresses four things nothing else does.

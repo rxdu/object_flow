@@ -67,7 +67,8 @@ def probe_sequence_isolation(object_ddl, sequence_ddl):
             # the request has begun and has written: the directory row here,
             # the event position in a real request, before any outcome step
             req.execute("BEGIN")
-            req.execute("INSERT INTO ok_object VALUES ('obj_1', 'Robot', '2026-09-09', 'human')")
+            req.execute("INSERT INTO ok_object (id, type, created_at, created_by_kind, recorded_from) "
+                        "VALUES ('obj_1', 'Robot', '2026-09-09', 'human', '2026-09-09')")
 
             try:
                 same.execute(mint)

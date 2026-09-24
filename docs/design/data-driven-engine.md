@@ -1,6 +1,6 @@
 # The data-driven engine: design evaluation
 
-Draft, 2026-09-23, written at the author's direction and aligned with **revision 3** of [`../PRD.md`](../PRD.md) — revisions 4 and 5 (2026-09-24) added the engine's position as a governed core, N6, L6 and UC-20, and made the document agree with itself, which changes none of the evaluations below — whose requirements and nineteen use cases it evaluates designs against. This document owns the **evaluation**: for each design question, the options considered, how each fared against the use cases, and why the chosen one was chosen. The **decisions** are ADR-0081 to ADR-0086, which own them; where this document and an ADR disagree, the ADR wins. §11 says what changed when the PRD was revised.
+Draft, 2026-09-23, written at the author's direction and aligned with **revision 3** of [`../PRD.md`](../PRD.md) — whose requirements and nineteen use cases it evaluates designs against. *(Amended 2026-09-24, D317, D318: revision 4 added the engine's position as a governed core, N6, L6 and UC-20, and revision 5 made the PRD agree with itself, which changed its release order, its definition of a metric, M1, M4, M6 and UC-19. This document first said those revisions changed none of its evaluations. They changed some: §9's release map is rewritten against revision 5, and every other evaluation a later revision or decision changed is marked where it stands.)* This document owns the **evaluation**: for each design question, the options considered, how each fared against the use cases, and why the chosen one was chosen. The **decisions** are ADR-0081 to ADR-0086, which own them; where this document and an ADR disagree, the ADR wins. §11 says what changed when the PRD was revised.
 
 **The author accepted all six ADRs on 2026-09-23**, and made the PRD the baseline every design choice is checked against. [`../DESIGN.md`](../DESIGN.md) and every implementation document §8 lists were amended the same day, and the design was then iterated until every PRD requirement was covered ([`traceability.md`](traceability.md)). The two defaults of PRD §10 are taken as given: machine telemetry is out of scope, and the release order is the one the PRD proposes (§9).
 
@@ -41,7 +41,7 @@ Ten questions. For each, the options are the obvious designs plus any the existi
 
 Where the PRD marks a requirement as resting on a hypothetical use case (L5, UC-10) or as not yet verifiable (C5), the evaluation says so where it relies on it, and does not score options against it as though it had evidence.
 
-Five of the PRD's fifty-two requirements are touched by no question here. F1, F4 and F5 are met by the existing design and no decision below changes them, T2 is an assumption rather than a behaviour, and N4, the adversarial harness, is how every decision below is eventually tested rather than something a decision could meet.
+Five of the PRD's fifty-two requirements *(fifty-four since revision 4 added N6 and L6, which ADR-0104 and ADR-0105 meet)* are touched by no question here. F1, F4 and F5 are met by the existing design and no decision below changes them, T2 is an assumption rather than a behaviour, and N4, the adversarial harness, is how every decision below is eventually tested rather than something a decision could meet.
 
 Two claims below were probed rather than reasoned, in keeping with the lesson about unprobed database claims: the smallest flow the checker accepts (§3.6), and a percentile computed without a percentile function on SQLite 3.37.2 (§3.4).
 
@@ -78,7 +78,7 @@ observation InspectionResult version 1 on ConfiguredRobot {
 }
 ```
 
-The subject names the collection in one line, `part inspections : InspectionResult[] inverse subject`, which is what its guards read. The language expands the kind into what it is:
+*(Amended by ADR-0099 and D318: the kind names the collection it adds, `as inspections`, and the subject does not declare it, which check 54 now refuses; and a kind is declared on the object whose gate reads it — for UC-4 the hand-over or delivery, not each robot (`declaration-syntax.md` §6.8). The text below is the evaluation as it was made.)* The subject names the collection in one line, `part inspections : InspectionResult[] inverse subject`, which is what its guards read. The language expands the kind into what it is:
 
 - a `tracking record` type with one terminal state;
 - an `owner` end to its subject;
@@ -174,7 +174,7 @@ C5, speed at the first consumer's scale, is not a column: the PRD leaves its tar
 
 **Why the others fail:**
 - **A** cannot express a cross-object aggregate per model per month.
-- **C** cannot be held to the visibility predicate or the personal-data taint at publish, couples every consumer to a physical schema the storage design wants free to change, and differs in dialect across the two backends.
+- **C** cannot be held to the visibility predicate or the personal-data taint at publish, couples every reader to a physical schema the storage design wants free to change, and differs in dialect across the two backends.
 - **D** is the drift PRD G4 exists to end, and it leaves rules nothing to read.
 - **E** fails UC-9 unless backfilled, and its stored aggregates would need repair after an erasure. Every recorded result also updates one aggregate row: a hot row by construction, with the cost D203 measured.
 
@@ -191,15 +191,15 @@ metric supplier_lead_time version 1 {
 
 The grammar is the syntax document's to write. What is decided here is the semantics:
 
-- **Sources:** any type (its current objects), any observation kind, and three datasets per type — `intervals`, `transitions` (the events) and `attempts`.
-- **Dimensions:** paths up to two hops, which is the reach the first consumer's guards were measured to need (`DESIGN.md` §5.7); the kind of actor that requested a transition or recorded a datapoint (M4); the declaration version; and time buckets over any timestamp. A split by declaration version is meaningful where the metric's subject exists in both versions (M3).
+- **Sources:** any type (its current objects), any observation kind, and three datasets per type — `intervals`, `transitions` (the events) and `attempts`. *(Amended by ADR-0096 and ADR-0098: also a type's labels, its permanent daily `attempt_counts`, and other metrics combined by their dimensions, eight sources in all, `declaration-syntax.md` §6.9.)*
+- **Dimensions:** paths up to two hops, which is the reach the first consumer's guards were measured to need (`DESIGN.md` §5.7); the kind of actor that requested a transition or recorded a datapoint (M4); the declaration version; and time buckets over any timestamp. A split by declaration version is meaningful where the metric's subject exists in both versions (M3). *(Amended by ADR-0096 and ADR-0106: also the kind of actor that created an object, and every metric, declared or standard, has the version and actor-kind dimensions from its rows.)*
 - **Aggregates:** the existing set plus `avg`, `median` and `percentile`. Lead time is skewed, and a mean alone misleads. A value may combine aggregates arithmetically, as a rate does, and division by zero is unknown, as it already is.
 - **Flags:** named conditions on a value, declared once, which a scheduler or an agent queries — a business exception across many objects (§3.10). The store never sends one.
 - **Time** is UTC calendar time, and every metric says so (C6). Working-hours calendars are out of scope for the first release, as `edge-cases.md` already records.
 - **Windows** relative to `now` are allowed in a metric. No invariant may read a metric, for check 32's reason.
 - **Computation:** each metric compiles to SQL over the store's tables and is evaluated on read, under the reader's visibility. Source rows are filtered by the source type's `visible when` predicate, which check 7 already requires to be expressible as a query filter; observations, intervals and attempts inherit their subject's. A metric is therefore retroactive by construction (C4). A cache may come later, keyed by visibility, if measurement asks for one. *(Amended by ADR-0096: a path through an object the reader cannot see yields absence, and every result says whether it is complete for its reader, so a partial value is never taken for the metric's own, which C2 requires.)*
-- **Percentile on SQLite.** SQLite 3.37.2 has no percentile function. Nearest-rank computed with `ROW_NUMBER()` and `COUNT(*)` over a partition gave the right eightieth percentile on two test groups (ten values and three), and PostgreSQL has `percentile_cont`. Probed, not yet in a checker.
-- **Personal data:** a personal attribute or field may be counted, but may not be a dimension, a flag's operand or an unaggregated output. A metric then stores nothing personal, and erasure needs nothing from it (UC-17).
+- **Percentile on SQLite.** SQLite 3.37.2 has no percentile function. Nearest-rank computed with `ROW_NUMBER()` and `COUNT(*)` over a partition gave the right eightieth percentile on two test groups (ten values and three), and PostgreSQL has `percentile_cont`. Probed, not yet in a checker. *(Amended by ADR-0106: `percentile_cont` interpolates, so the two backends would give different values and a metric guard near its threshold could pass on one and refuse on the other. A percentile is nearest-rank on both, `percentile_disc` on PostgreSQL, and a median is the fiftieth percentile.)*
+- **Personal data:** a personal attribute or field may be counted, but may not be a dimension, a flag's operand or an unaggregated output. *(Amended by ADR-0106: a metric reads no personal value at all, not even to count it, since a count over one would change when the person is erased.)* A metric then stores nothing personal, and erasure needs nothing from it (UC-17).
 - **Standard metrics (M1)** are generated for every type from its datasets:
   - time in each state;
   - throughput;
@@ -220,7 +220,7 @@ Touches L1 to L5 and T1; UC-4, UC-10, UC-12.
 
 Data-driven rules come in two kinds, and the PRD gives them different evidence.
 
-**Rules reading recorded datapoints (L1, a Must, grounded in UC-4).** The inspection gate reads the configured robot's own inspections, an aggregate over a part, which guards do today. Nothing new is needed once observations are parts (§3.1).
+**Rules reading recorded datapoints (L1, a Must, grounded in UC-4).** The inspection gate reads the configured robot's own inspections, an aggregate over a part, which guards do today. *(Amended by ADR-0099: the results are the delivery's, where the gate is, so `changed_since` reaches them; `declaration-syntax.md` §6.8 writes the gate.)* Nothing new is needed once observations are parts (§3.1).
 
 L2 — the record holds the values a decision used — needs one small addition. The obvious shortcut is to derive the set the gate read from positions: every observation whose event precedes the completion's. That is wrong on PostgreSQL, where a position is allocated when a transition begins and is not commit order (D210). An inspection result allocated a lower position can commit after the completion's snapshot was taken, and the derived set would include a result the gate never saw. So a guard that aggregates over observations **records, on its event, the observations it read** — a list as long as the checklist — and re-evaluating the guard over that list gives the same answer. That is UC-4's "which results the gate read" (ADR-0082).
 
@@ -242,7 +242,7 @@ L2 — the record holds the values a decision used — needs one small addition.
 **Decided: B, with C as the documented pattern for those two cases** (ADR-0084).
 
 - A metric in a guard names its dimensions from the object and the inputs: `metric(inspection_pass_rate, model := this.robot_model, over last 30 days) >= 0.90`.
-- **Arguments are resolved against committed state before the transaction, and resolved again inside it.** A mismatch means the world moved in between, and the request consults again within its serialisation retry bound. ADR-0049 does not say this for external evaluators, and it should, for the same reason (D215).
+- **Arguments are resolved against committed state before the transaction, and resolved again inside it.** A mismatch means the world moved in between, and the request consults again within its serialisation retry bound. ADR-0049 does not say this for external evaluators, and it should, for the same reason (D215). *(Resolved by ADR-0092, which resolves an evaluator's arguments twice as well.)*
 - **The value and its as-of time go on the event** beside the guard's name, as an evaluator's verdict does. A metric is computed outside the transaction, so unlike a recorded datapoint it cannot be re-read from the log at the decision's position. Recording it is how L2 holds for L5.
 - A metric guard may declare a freshness bound. `check` and `availability` compute internal metrics, unlike external evaluators, since no third party is involved.
 
@@ -307,7 +307,7 @@ The options are one store; a separate analytic store fed from the log; or one st
 
 Touches M2, L3 and F3; UC-11.
 
-**Through the one interface.** `metric(actor, name, filter?)` and `diagnostics(actor, type)` join the read surface, and recording is a creation request (ADR-0084, ADR-0085). F3's "discover what they may do now" is the existing `availability`. The renderers give each observation kind a tool, and give metrics one tool that names them. Their governing rule extends unchanged: a tool description never restates a metric's definition. It names the metric and points at `metric()`, for the reason it never restates a guard (`renderers.md` §1).
+**Through the one interface.** `metric(actor, name, filter?)` and `diagnostics(actor, type)` join the read surface *(the signatures are `library-api.md` §6's, which add `bind`, `keep`, `over` and a cursor to `metric` and a window to `diagnostics`)*, and recording is a creation request (ADR-0084, ADR-0085). F3's "discover what they may do now" is the existing `availability`. The renderers give each observation kind a tool, and give metrics one tool that names them. Their governing rule extends unchanged: a tool description never restates a metric's definition. It names the metric and points at `metric()`, for the reason it never restates a guard (`renderers.md` §1).
 
 ### 3.9 How is assignment kept from the beginning?
 
@@ -344,10 +344,11 @@ Touches D10, D11, M6, L3 and N5; UC-18.
   - time unassigned;
   - time to first assignment;
   - time with each assignee;
+  - cycle time per assignee, and time in each state by whoever held the object then *(added by ADR-0098; PRD M6 names cycle time per assignee since revision 5)*;
   - handoffs per object, and reassignment back to an earlier assignee;
   - how often a transition is requested by someone other than the assignee, which is what the `actor` identity marking makes computable.
 
-  Every one can be split by the kind of actor who made the assignment, so an agent balancing workload can be compared with a person doing it.
+  Every one can be split by a kind of actor, so an agent balancing workload can be compared with a person doing it. *(Corrected 2026-09-24, D318: this said the split is always by the kind of actor who made the assignment. It is by the kind the metric's rows carry: for the interval-based metrics, who entered the value, which is who made the assignment; for `open_work`, `handoffs`, `reassigned_back` and the per-object metrics, who created the object; for `cycle_time_by_assignee` and `acted_by_non_assignee`, who requested the transition (`declaration-syntax.md` §6.11).)*
 - **Choosing stays outside** (ADR-0007, ADR-0081). The engine guards and records the choice and supplies the workload data. Which engineer is chosen is a person's or an agent's decision (UC-18's agent proposes, a person reassigns).
 - **Legacy reassignments are ported as intervals** (N5). The first consumer's service updates record `engineer_id` in before-and-after snapshots, so the import mapping can rebuild past reassignments as legacy intervals. How far back that audit trail reaches is a sample to take against production, not a claim made here.
 - **It is in the first release** (§9), because history can only start from the day it is written through the store.
@@ -370,7 +371,7 @@ Touches M7, C2, C3, L4 and N2; UC-12. The PRD reads the author's word "exception
 
 | Option | Declared once (M7) | Engine initiates nothing (N2) | New constructs |
 |---|---|---|---|
-| **A.** Consumer code computes alerts, as the first consumer's greenfield automation layer would | **fails** | passes | none |
+| **A.** Upper-layer code computes alerts, as the first consumer's greenfield automation layer would | **fails** | passes | none |
 | **B.** An `alert` construct in the engine, with schedules and channels | passes | **fails**: it schedules and sends | one, duplicating flags and derived attributes |
 | **C.** No new construct: a per-object condition is a derived attribute over the object and `now`; a condition across many objects is a metric flag; a notice is a subscription | passes | passes | none |
 
@@ -378,10 +379,10 @@ Touches M7, C2, C3, L4 and N2; UC-12. The PRD reads the author's word "exception
 
 - **Five of the six are per-object and queryable.** Each is a derived attribute over a stored operand and `now`, found by `query` filtering that operand, as ADR-0048 requires for anything that reads a clock. None needs the metric form, so all five are in the first release.
 - **Backorder ageing stretches ADR-0048 slightly.** A slot's state is derived in the first consumer, not a lifecycle state (`TODO.md`, first-consumer challenge 3), so its age is how long the slot's reference to a unit has been empty: `unit is null and entered_at(unit) + 14 days <= now`, with `entered_at` over a tracked member (ADR-0084). Its operand is stored, but in the interval index rather than the slot's own row, so `query` must be allowed to filter on the entry time of a tracked value's current interval. ADR-0084 states that extension.
-- **Low stock is across many objects.** In the second release it is a metric flag per model (§3.4). In the first, it is a per-model derived attribute counting the model's units, which is per-object in form but reads other objects. So it cannot be indexed, and it is answered by reading each model rather than by one query. The flag replaces it when the metric form arrives.
+- **Low stock is across many objects.** In the second release it is a metric flag per model (§3.4). In the first, it is a per-model derived attribute counting the model's units, which is per-object in form but reads other objects. So it cannot be indexed, and it is answered by reading each model rather than by one query. The flag replaces it when the metric form arrives. *(Amended by ADR-0106: a derivation that reads other objects is read under its reader's visibility and marked partial where the reader cannot see them all, so a reader who cannot see every unit gets the count over those they can, and is told so.)*
 - **Order ready is a subscription** to the transition that fills the last slot (ADR-0034). It is an event, not a deviation.
 - **Thresholds are governed** (L4). A reorder point is an attribute of the model, changed by a transition; a fixed window is a literal in the declaration.
-- **Sending is the consumer's.** A scheduler or an agent runs the queries and routes the alerts to Jira or Slack, as the first consumer's design already intends.
+- **Sending is an upper-layer application's.** A scheduler or an agent runs the queries and routes the alerts to Jira or Slack, as the first consumer's design already intends (ADR-0104); the core posts nothing, not even events, which a relay pulls (ADR-0105).
 
 ## 4. The use cases, through the chosen design
 
@@ -403,9 +404,10 @@ Touches M7, C2, C3, L4 and N2; UC-12. The PRD reads the author's word "exception
 | UC-14 trial a rule | the `observe` marking; enforcing it is a `DeclarationChange` (§3.6) | passes |
 | UC-15 an agent drafts a change | `DeclarationChange`, approved by a person (§3.6) | passes |
 | UC-16 people and agents on the same flow | the actor-kind dimension, over the kind of actor whose request created each object (§3.4) | passes |
-| UC-17 erase a customer | no inputs in attempts, nothing stored in metrics, observations erased through the subject (§3.1, §3.3, §3.4) | passes |
+| UC-17 erase a customer | no personal value in attempts *(the request's non-personal inputs are kept since ADR-0105)*, nothing stored in metrics, observations erased through the subject (§3.1, §3.3, §3.4) | passes |
 | UC-18 who has what, and where handoffs hurt | value intervals and the `assignee` marking; legacy reassignments ported as intervals (§3.9) | passes; how far the legacy audit trail reaches is to be sampled |
-| UC-19 the new paths do not open a way around the rules | the `recorded by` guard and typed fields (§3.1); the backdating bound (§3.3); an observing clause shown and treated as not enforced (§3.6) | passes |
+| UC-19 the new paths do not open a way around the rules | the `recorded by` guard and typed fields (§3.1); the backdating bound (§3.3); an observing clause shown and treated as not enforced (§3.6); *(revision 5's fourth route)* a catalogue entry retired only by its own guarded, recorded transition (`DESIGN.md` §5.11) | passes |
+| UC-20 an operations application runs the floor *(added by PRD revision 4)* | `available`, the flags and ageing queries, the assignment metrics and `pull`, each one query; actions as requests with `context` as their reason; nothing sent by the core; time-driven transitions backdatable (ADR-0104, ADR-0105) | passes where the facts it asks about are declared — two of its five questions need the flow review's appendix (`traceability.md`) |
 
 ## 5. The conflicts of PRD §9, resolved
 
@@ -426,9 +428,9 @@ Touches M7, C2, C3, L4 and N2; UC-12. The PRD reads the author's word "exception
 - **D205** is resolved by §3.3's `imported` source, on acceptance.
 - **D212** is resolved by §3.6's `DeclarationChange`, on acceptance.
 - **D203** shaped §3.5, whose pre-transaction consultation avoids creating a contention point, and §3.3 records retries so that it can be measured.
-- **D210.** PRD §9 once called it a prerequisite for metrics, and that was wrong. A metric computed on read sees committed rows only, so work still in flight is invisible to it by construction. The settled position matters to a consumer advancing a cursor, which is the export of §3.7. It would also have mattered to §3.5 had the set a gate read been derived from positions, and that near miss is why §3.5 records the set instead. The PRD line is corrected.
-- **D204 and D208** are untouched. Observations do inherit erasure through their subject, and label notes are treated as personal, but erasure across supersession is still D208's question.
-- **D215**, found while writing §3.5: ADR-0049 consults an evaluator before the transaction and never says what happens when the evaluator's argument depends on state the transaction changes.
+- **D210.** PRD §9 once called it a prerequisite for metrics, and that was wrong. A metric computed on read sees committed rows only, so work still in flight is invisible to it by construction. The settled position matters to a reader advancing a cursor, which is the export of §3.7. It would also have mattered to §3.5 had the set a gate read been derived from positions, and that near miss is why §3.5 records the set instead. The PRD line is corrected.
+- **D204 and D208** were untouched when this was written. Observations do inherit erasure through their subject, and label notes are treated as personal; D204, the SQLite transaction mode, was since resolved by ADR-0090, and erasure across supersession, D208's question, by ADR-0087. *(Amended 2026-09-24, D318, D369.)*
+- **D215**, found while writing §3.5: ADR-0049 consults an evaluator before the transaction and never says what happens when the evaluator's argument depends on state the transaction changes. *(Resolved by ADR-0092.)*
 
 ## 7. What the choices cost, and what to measure
 
@@ -448,7 +450,7 @@ To measure rather than assume:
 - metric latency at the first consumer's scale, on both backends, which is what sets C5's target. An indicative first measurement, `scripts/probe-metric-latency.py` on 2026-09-23: SQLite 3.37.2 in memory, synthetic data, 97,142 state intervals over 20,000 objects (roughly thirty times the first consumer's live objects), no visibility filter. Median of seven runs: 284 ms for an 80th-percentile time in state by state and month, 36 ms for work in progress with the oldest open, 16 ms for weekly throughput by actor kind. Disk, PostgreSQL and visibility are unmeasured, so this bounds nothing; it says the percentile is the metric to watch;
 - the first consumer's event and datapoint rates before cutover (N3);
 - how far back its audit trail records reassignments;
-- percentile in a checker, rather than one probe;
+- percentile in a checker, rather than one probe, and the same rows through both backends' percentiles, weeks and UTC buckets, which ADR-0106 requires to agree;
 - attempt-log volume under the harness's guessing actor;
 - the cost of an observation as an object at the inspection rate;
 - how often backdating is used, once it can be.
@@ -471,9 +473,9 @@ The PRD's three releases (§10), with what each needs from the decisions above.
 
 | Release | PRD scope | Decisions it needs | Why this order |
 |---|---|---|---|
-| 1, the port | F1 to F5; all of D; M1 and M6, readable by people and agents; derived datapoints for one object and the per-object conditions of M7; L1, L3, V1, T and N | observation kinds with `unit` and `occurred within`; **labels**; the attempt log; intervals over state and every tracked value; `backdatable`; the `imported` source; the **`assignee` marking** and its metrics; the standard metrics and `metric()` to read them; `entered_at` and `time_in`, and `query` filtering on an interval's entry time; legacy state and assignment history ported as intervals; the repairs of D202, D204 and D205 | Evidence for convergence can only start from the day it is recorded, so everything that records it comes first — labels and assignment included — even though what uses it comes later |
-| 2 | the rest of C; M2 to M5 for user-defined metrics; M7 across many objects; L2, L4 and L5 | the user-defined `metric` form and its flags; metric guards and their recorded values | They read what release 1 recorded |
-| 3 | V2 to V5, F6, F7 | `observe`, `diagnostics`, `DeclarationChange`, and promotion by ordinary requests | They act on the evidence releases 1 and 2 made visible |
+| 1, the port | F1 to F5; all of D; the standard metrics of M1 and M6, readable by people and agents, with the grouping, windows and UTC buckets they use and their splits by version and kind of actor (C3, C6, M3, M4, as far as they apply to standard metrics); derived datapoints for one object and the per-object conditions of M7; rules reading recorded datapoints with the values they read on the record (L1, and L2 for those rules); L3, L6, V1, T and N | observation kinds with `unit` and `occurred within`; **labels**; the attempt log with the request values its refusals read; intervals over state and every tracked value; `backdatable`; the `imported` source; the **`assignee` marking** and its metrics; the standard metrics, which are written in the metric form, so the form itself — `from`, `combine`, flags, buckets and the version and actor-kind dimensions — for the built-in module, and `metric()` to read them; `entered_at` and `time_in`, and `query` filtering on an interval's entry time; derivations read under their reader's visibility and marked partial, which T5 needs from the first derivation that counts other objects, and derivations over their own object's flow data, which are the derived datapoints for one object (ADR-0106); the read set, and the observations a gate read (ADR-0088); `pull` and `acknowledge` (L6); legacy history ported as intervals, with silent spans and coverage; declaration version 0 and the `DeclarationChange`'s draft and publish, so a flow can be published at all — V1 and F5 need it, and the port is published as mirrors and cut over by publishes; `diagnostics`' listing of pending file deletions, which erasure relies on (N2); the repairs of D202, D204 and D205 | Evidence for convergence can only start from the day it is recorded, so everything that records it comes first — labels and assignment included — even though what uses it comes later. Anything a first-release requirement tests ships with it, which is what revision 5 of the PRD corrected |
+| 2 | the rest of C; M2 to M5 as they apply to user-defined metrics; M7 across many objects; L2 for rules over derived values, L4 and L5 | a deployment's own `metric` declarations and flags; metric guards and their recorded values | They read what release 1 recorded |
+| 3 | V2 to V5, F6, F7 | `observe`; the rest of `diagnostics`; F7's governance of a `DeclarationChange` — an approver other than the drafter, a person for an agent's draft, the evidence snapshot and the impact compared at approval; until then a flow change is a publish without it, as PRD §10 says; promotion by ordinary requests | They act on the evidence releases 1 and 2 made visible |
 
 ## 10. Still open
 
