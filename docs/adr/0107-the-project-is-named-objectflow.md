@@ -53,7 +53,7 @@ What the name does not say — that every change is guarded, recorded and measur
 Registry state, checked 2026-09-24, with the same caveat ADR-0011 gave: availability is perishable and should be re-checked before anything is published.
 - **`objectflow`:**
   - unclaimed on PyPI, npm and crates.io;
-  - the GitHub organisation `objectflow` exists (created 2021-08-09, no public repositories), so the repository would be a personal one, such as `rxdu/objectflow`;
+  - the GitHub organisation `objectflow` exists (created 2021-08-09, no public repositories), so the repository is a personal one;
   - GitHub also holds `tkellogg/objectflow`, "Lightweight workflows in .NET for busy developers" (64 stars), and a computer-vision paper implementation named ObjectFlow;
   - "object flow" is also a term in UML activity diagrams.
 - **The alternatives:**
@@ -66,7 +66,7 @@ Registry state, checked 2026-09-24, with the same caveat ADR-0011 gave: availabi
 - Every document, decision record and script now says ObjectFlow, with the new prefixes. `scripts/check-corpus.py` retires the old name and prefixes, exempting only ADR-0011 and this record.
 - ADR-0011 is superseded, and says so in its header.
 - The worked example's page is renamed with the project.
-- **The GitHub repository** was renamed from `rxdu/object_keeper` to `rxdu/objectflow` on 2026-09-24, at the author's request; GitHub redirects the old URL.
+- **The GitHub repository** is `rxdu/object_flow`, the snake_case form of the name, as `object_keeper` was of ObjectKeeper. It was renamed on 2026-09-24 at the author's request, first to `objectflow` and then, following that convention, to `object_flow`. GitHub redirects the older URLs.
 - **Left to the author:**
   - renaming the local working directory, which would disrupt work in progress;
   - the first consumer's repository and any page outside this repository that uses the old name, which this change does not reach.

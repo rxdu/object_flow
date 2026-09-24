@@ -179,3 +179,10 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Reviewing the design against PRD revision 5, part of the effort on the worked example went into making its transitions match production: a role check on the engineer-of-record, a serial rule on opening stock, a guard on a user leaving, version numbers in the flow review's variant module. The author clarified, not for the first time, that the example exists to verify the engine can meet the needs, and that a particular transition's logic matters much less than whether the example reveals design defects, shows the design's strengths and makes it more complete before building.
 - **Correction:** Choose and judge each case of the example by the engine mechanism or PRD requirement it stresses, and whether it found a defect or rules one out. Use production's rules as evidence of what the engine must be able to express, not as a specification the example must reproduce. When a domain slip turns up, fix it cheaply and ask what general design question it points at: the opening-stock case matters because a creation into a mid-lifecycle state can bypass the guards of the path it skips without counting as an override, not because of the serial.
 - **Context:** `unit-journey.md`, `flow-review.md` and the worked-example page, and any example written to test a design rather than to ship.
+
+### A rename follows the convention the old name followed
+
+- **Pattern:** Renaming the project to ObjectFlow (ADR-0107), the GitHub repository was renamed to `objectflow`. The old repository, `object_keeper`, was the snake_case form of the old name, and the author had to correct the new one to `object_flow`.
+- **Correction:** Before renaming anything, read how the old name was formed in each place it appears — repository, directory, package, file names — and form the new one the same way. A second rename of something outward-facing costs a redirect and a correction in the record.
+- **Context:** Renames of a project, a module or a package, and any outward-facing identifier.
+
