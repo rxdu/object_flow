@@ -59,7 +59,7 @@ Its aggregates range over objects the reader can see, and the types it reads cou
 
 C2 as written — "every consumer … gets the same value" — cannot hold beside T5 for a consumer who may see only part of the data. UC-10's "the refusal names the value" cannot hold for a requester who may not see what the value aggregates.
 
-`docs/PRD.md` §12 therefore proposes revision 4 *(renumbered revision 5 on 2026-09-24, when the author's positioning decision became revision 4, ADR-0104)*, for the author to accept or refuse:
+`docs/PRD.md` §12 therefore proposes revision 4 *(now PRD §12's proposed revision, unnumbered since 2026-09-24, after the author's positioning decision and a coherence review took revisions 4 and 5)*, for the author to accept or refuse:
 - C2 gets the same value from the same data, with a partial reader's value marked partial.
 - UC-10's refusal names the value where the requester may see what it is computed from.
 - UC-8, which tests C2, gets the same wording as C2.

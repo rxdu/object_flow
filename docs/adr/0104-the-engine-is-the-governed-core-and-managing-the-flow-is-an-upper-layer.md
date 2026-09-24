@@ -52,7 +52,7 @@ That is DESIGN.md §2 and ADR-0012, now stated as the product's position rather 
 
 Both belong to applications built on the engine: the first consumer's own services, agents and screens, or an operations application written for it. The flow review's operating layer is one of them.
 
-The declarations themselves — a lifecycle such as the unit's journey, its rules, its datapoint kinds and metrics — are written by the consumer and executed by the core. Declaring them is not an upper-layer concern.
+The declarations themselves — a lifecycle such as the unit's journey, its rules, its datapoint kinds and metrics — are written by the deployment and executed by the core. Declaring them is not an upper-layer concern.
 
 ### 3. An upper-layer application has no privileged path
 
@@ -75,9 +75,11 @@ A need an upper layer meets by scanning, because no query answers it, is a gap i
 
 ### 5. Beside platforms, not one of them
 
-ObjectKeeper does not compete on flows, screens or automation. What it offers that a platform's automation does not promise is:
-- the guarantee that governed state changes only through a declared transition or a recorded override;
-- the record that makes every decision explainable and every flow measurable.
+ObjectKeeper does not compete on automation, scheduling or screens. What it offers that a platform's automation does not promise is:
+- the guarantee that governed state changes only as PRD F2 allows and never reaches a condition an enforced rule forbids (T1);
+- the record that makes every decision the engine's rules make explainable, and every flow measurable.
+
+*(Corrected 2026-09-24 by PRD revision 5. This section first said ObjectKeeper does not compete on "flows", which are its product, and stated the guarantee as "only through a declared transition or a recorded override", which omits a flow change's mapping and erasure, and the explanation of "every decision", which the PRD limits to the engine's own since revision 2.)*
 
 An application layer, including a metadata platform, may be built on it.
 
@@ -95,7 +97,7 @@ An application layer, including a metadata platform, may be built on it.
   - requirement N6;
   - use case UC-20;
   - a note on platforms beside the engine.
-  The proposal awaiting the author becomes revision 5.
+  The proposal awaiting the author becomes revision 5. *(Since renamed the proposed revision, PRD §12, when a coherence review took the number 5 the same day.)*
 - **`DESIGN.md`:** §1 and §12 name the upper layer.
 - **`design/flow-review.md`:** §2.1 and §7 place the operating layer in an upper-layer application. Its first question to the author is answered by this decision.
 - **`traceability.md`:** gains rows for N6 and UC-20.

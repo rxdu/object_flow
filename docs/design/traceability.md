@@ -26,7 +26,9 @@ Covered is a claim about the design, not about software: nothing here is impleme
 
 - On 2026-09-24 the author's positioning decision became PRD revision 4: N6 and UC-20 are new, and both are covered by the design as it stood, since the core already had no scheduler and one write path (ADR-0104).
 
-Current: 69 covered, 0 partial, 0 gaps, 1 unverifiable, 3 revision proposed.
+- The same day, revision 5 made the PRD agree with itself; it added L6, the events upper-layer applications observe, which the design already met (DESIGN §7).
+
+Current: 70 covered, 0 partial, 0 gaps, 1 unverifiable, 3 revision proposed.
 
 ## Requirements
 
@@ -69,6 +71,7 @@ Current: 69 covered, 0 partial, 0 gaps, 1 unverifiable, 3 revision proposed.
 | L3 | DESIGN §6, §10; ADR-0037; library-api.md §6 | covered | |
 | L4 | DESIGN §5.12, §9; ADR-0084, ADR-0085; declaration-syntax.md §6.9; publish-and-import.md §1 | covered | |
 | L5 | DESIGN §5.7, §5.12; ADR-0084, ADR-0092; declaration-syntax.md §6.9; ADR-0098 | covered |  |
+| L6 | DESIGN §7; ADR-0013, ADR-0014, ADR-0089; library-api.md §6 | covered |  |
 | V1 | DESIGN §5.9; ADR-0085; declaration-syntax.md §2 | covered | |
 | V2 | DESIGN §10; ADR-0085; library-api.md §6; storage-schema.md §6 | covered | |
 | V3 | DESIGN §5.5; ADR-0085; declaration-syntax.md §5.1; renderers.md §2; adversarial-harness.md §1 | covered | |
