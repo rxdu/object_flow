@@ -37,7 +37,7 @@ Rejected because it imports precisely the domain-specific parts, which either fo
 
 ## Relationship to event delivery
 
-Push delivery of recorded events (ADR-0013) is not an exception to this ADR. Delivering a record is not making a decision: the subscriber registered its interest in advance, and the payload says *this happened*, not *do this*. What remains out of scope is ObjectKeeper deciding an outcome and acting on it — the Xero example above stays excluded, because raising an invoice is an effect ObjectKeeper would be choosing to cause.
+Push delivery of recorded events (ADR-0013) is not an exception to this ADR. Delivering a record is not making a decision: the subscriber registered its interest in advance, and the payload says *this happened*, not *do this*. What remains out of scope is ObjectFlow deciding an outcome and acting on it — the Xero example above stays excluded, because raising an invoice is an effect ObjectFlow would be choosing to cause.
 
 ## Consequences
 

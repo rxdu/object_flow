@@ -1,4 +1,4 @@
-# ADR-0012: ObjectKeeper does not initiate transitions
+# ADR-0012: ObjectFlow does not initiate transitions
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
@@ -6,13 +6,13 @@
 
 ## Context
 
-The originating definition of the project said "there are triggers and constraints that **drive** the lifecycle of the object from starting to end of life." Constraints were resolved as guards (ADR-0002, ADR-0005, ADR-0009); triggers were left open, and the word "drive" implied ObjectKeeper might advance objects on its own.
+The originating definition of the project said "there are triggers and constraints that **drive** the lifecycle of the object from starting to end of life." Constraints were resolved as guards (ADR-0002, ADR-0005, ADR-0009); triggers were left open, and the word "drive" implied ObjectFlow might advance objects on its own.
 
 It does not. Deciding *when* something should happen belongs to the layer above — applications, agents, or a workflow automation platform.
 
 ## Decision
 
-ObjectKeeper does three things: **check, transition, record.** It never initiates a transition, and it holds no schedule, timer or reactive rule.
+ObjectFlow does three things: **check, transition, record.** It never initiates a transition, and it holds no schedule, timer or reactive rule.
 
 Every state change happens because a caller asked for it. There is no path by which an object moves without an external actor requesting the move.
 
@@ -26,7 +26,7 @@ Rejected because a trigger that performs a transition creates cascades, evaluati
 
 ### Triggers that propose transitions
 
-A softer version, considered and set aside: a rule proposes a transition that is then gated normally, so automation becomes just another actor and nothing bypasses the guards. This preserved the safety property, but still required ObjectKeeper to decide *when* to propose, which is the responsibility being placed above it.
+A softer version, considered and set aside: a rule proposes a transition that is then gated normally, so automation becomes just another actor and nothing bypasses the guards. This preserved the safety property, but still required ObjectFlow to decide *when* to propose, which is the responsibility being placed above it.
 
 ### Time-based rules with a scheduler
 

@@ -67,7 +67,7 @@ History can only begin on the day it is written through the store.
 
 - On acceptance, `DESIGN.md` §5.2, §5.3 and §7 describe value intervals and the marking.
 - `design/declaration-syntax.md` gains `assignee` and the `actor` identity marking, with checks: `assignee` only on a singular reference, and its target type marks exactly one `actor` identity.
-- `design/storage-schema.md` widens `ok_interval` to a dimension and value.
+- `design/storage-schema.md` widens `of_interval` to a dimension and value.
 - `design/publish-and-import.md` lets the mapping supply legacy intervals.
 - `design/renderers.md` names the assignee in the rule set.
 - ADR-0083 carries the back-link.

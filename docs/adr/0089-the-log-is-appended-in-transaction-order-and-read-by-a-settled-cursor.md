@@ -12,7 +12,7 @@
 
 Probed 2026-09-23 on PostgreSQL 16: transaction A allocated position 1 and stayed in flight; transaction B allocated position 2 and committed. The highest visible position was then 2. A consumer acknowledging it would never see position 1, which failed the export PRD M5 asks for and every pull subscriber.
 
-**D211.** ADR-0046 said an event's content is "completed at commit" after its identity is allocated. `storage-schema.md` said no row of `ok_event` is ever updated. Both cannot be true, and T3's permanent history depends on the second.
+**D211.** ADR-0046 said an event's content is "completed at commit" after its identity is allocated. `storage-schema.md` said no row of `of_event` is ever updated. Both cannot be true, and T3's permanent history depends on the second.
 
 ## Decision
 
@@ -22,7 +22,7 @@ Its position is allocated when its transition begins applying, so `this_event` i
 - **on PostgreSQL** from the log's sequence with `nextval`;
 - **on SQLite** from a counter row the transaction increments. The transaction holds the write lock from its first statement (ADR-0090), so no other writer can interleave.
 
-The row is inserted when the transition's outcome is done, in the same transaction. Nothing updates a row of `ok_event` afterwards, erasure's redaction excepted. The append-only statement is then true.
+The row is inserted when the transition's outcome is done, in the same transaction. Nothing updates a row of `of_event` afterwards, erasure's redaction excepted. The append-only statement is then true.
 
 ### 2. Each event records its writing transaction
 
@@ -54,7 +54,7 @@ Under serialisable isolation, a transaction cannot write an object that another 
 ## Consequences
 
 - `DESIGN.md` §7 replaces the settled position with the settled cursor.
-- `storage-schema.md` gives `ok_event` a `txn` column, drops the early insert, and adds SQLite's counter row.
+- `storage-schema.md` gives `of_event` a `txn` column, drops the early insert, and adds SQLite's counter row.
 - `library-api.md`'s `EventPage.settled` becomes a cursor, and `pull` and `acknowledge` take one.
 - ADR-0046's "completed at commit" and ADR-0034's position window are annotated.
 - D210 and D211 are resolved.

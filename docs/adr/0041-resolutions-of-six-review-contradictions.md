@@ -28,11 +28,11 @@ ADR-0016 wins over DESIGN.md §5.4 and its terminology entry. An action is a tra
 
 The restricted reading was the shape of the option ADR-0016 explicitly rejected, and it would break approvals, since an approval is an object created by an `approve` action, and the CRM merge, which cascades from an action.
 
-### 4. ObjectKeeper never reads or serves file bytes, and deletes them only under erasure (D28)
+### 4. ObjectFlow never reads or serves file bytes, and deletes them only under erasure (D28)
 
-ADR-0031 wins over DESIGN.md's absolute "never touches the bytes". The correct statement: ObjectKeeper never reads, streams or serves blob content, and the only byte-level operation it performs is deletion during erasure, which a legal erasure requires.
+ADR-0031 wins over DESIGN.md's absolute "never touches the bytes". The correct statement: ObjectFlow never reads, streams or serves blob content, and the only byte-level operation it performs is deletion during erasure, which a legal erasure requires.
 
-This is a real capability with a real consequence: a deployment gives ObjectKeeper a blob-store credential that can delete. That is worth stating rather than hiding behind an absolute that was false.
+This is a real capability with a real consequence: a deployment gives ObjectFlow a blob-store credential that can delete. That is worth stating rather than hiding behind an absolute that was false.
 
 ### 5. Constraint compilation is an optimisation, is backend-dependent, and is checked at publish (D31)
 

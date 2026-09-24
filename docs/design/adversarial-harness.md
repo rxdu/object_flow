@@ -67,7 +67,7 @@ Five behaviours, because they are the ways real callers actually break things.
 - it records an observation it is not permitted to record, so that a gate reading it would open. The `recorded by` guard must refuse it (ADR-0082, PRD D12);
 - it backdates a transition beyond its declared bound, to shorten a measured duration. The bound must refuse it (ADR-0083, PRD D5);
 - it completes a transition an observing clause would have refused, and then acts as though the rule were enforced. The request must proceed, the would-be refusal must be recorded, and the printed rule set must show the clause as not enforced (ADR-0085, PRD T1);
-- it calls `import_batch` on an owned type, holding `OK_IMPORT`, to set state the type's guards would refuse. The import must refuse the type (ADR-0100, PRD T1, T4);
+- it calls `import_batch` on an owned type, holding `OF_IMPORT`, to set state the type's guards would refuse. The import must refuse the type (ADR-0100, PRD T1, T4);
 - it approves its own `DeclarationChange`, or one drafted against an older version. `publish` must refuse both (ADR-0097, PRD F7);
 - it retires a `PdiCheck` from a configuration's checklist so that a hand-over's gate, `all_checked` in `declaration-syntax.md` §6.8, which requires a result for every active check, opens without one. The retirement must be refused without the catalogue's own authority; with it, the retirement is recorded and attributed like any transition, and the gate's read set names the catalogue scan it matched (PRD D7, UC-19's fourth route, ADR-0105).
 

@@ -1,12 +1,12 @@
-# ObjectKeeper
+# ObjectFlow
 
-A governed object store: your data, and the rules that constrain how it changes.
+Governed flows for business objects. People and agents move objects only along declared transitions; every change is checked, recorded and measured.
 
-> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax deployments write their flows in, 106 decisions, and a register of 377 findings, 377 closed and 0 open — together with the checkers that verify the record against itself.
+> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax deployments write their flows in, 107 decisions, and a register of 377 findings, 377 closed and 0 open — together with the checkers that verify the record against itself.
 >
 > [`docs/PRD.md`](docs/PRD.md), at revision 5, states the product's requirements and is the baseline every design choice is checked against. [`docs/design/traceability.md`](docs/design/traceability.md) shows each requirement met, with two kinds of exception. C5's target is left by the PRD to measurement. And for G4, C2, D5, D11, L1, N5, UC-8 and UC-10, the design found the requirement cannot hold as written, and PRD §12 proposes a revision to the author.
 >
-> - **Accepted by the author:** ADR-0081 to ADR-0096 and ADR-0104, the engine as the governed core.
+> - **Accepted by the author:** ADR-0081 to ADR-0096, ADR-0104, the engine as the governed core, and ADR-0107, the name ObjectFlow, which supersedes ADR-0011.
 > - **Decided at the author's direction, awaiting the author's own acceptance:** ADR-0097 to ADR-0101, ADR-0103, and ADR-0105 and ADR-0106, from a review of the whole record against PRD revision 5 on 2026-09-24.
 > - **Proposed:** ADR-0102, which writes the unit's whole journey from production ([`docs/design/unit-journey.md`](docs/design/unit-journey.md)).
 > - **Ruled on by the author:** ADR-0065 to ADR-0073.
@@ -14,9 +14,9 @@ A governed object store: your data, and the rules that constrain how it changes.
 
 ## What it is
 
-ObjectKeeper is a **database + business logic layer**: a reusable substrate for building business applications, where the rules about data are declared alongside the data rather than reimplemented in every application.
+ObjectFlow is a **database + business logic layer**: a reusable substrate for building business applications, where the rules about data are declared alongside the data rather than reimplemented in every application.
 
-You define object types — typed attributes, a state machine, guards on the transitions, invariants. ObjectKeeper stores the objects and is the only thing that may change them. Applications, human interfaces and AI agents all read and act through the same declaration.
+You define object types — typed attributes, a state machine, guards on the transitions, invariants. ObjectFlow stores the objects and is the only thing that may change them. Applications, human interfaces and AI agents all read and act through the same declaration.
 
 It also collects data about the flows it runs — every transition, refusal, override and change of hands — takes the datapoints users record, and computes declared metrics over both. That lets business logic be driven by data, whether a person or an agent drives it, and lets a flow start imperfect and converge. [`docs/PRD.md`](docs/PRD.md) states the requirements, and is the baseline every design choice is checked against.
 
@@ -25,13 +25,13 @@ upper-layer applications                  manage the flow, use its data:
   agents · services · human UI            schedules, chasing, worklists,
                                           alerts, dashboards
 ─────────────────────────────────────
-            ObjectKeeper                  the governed core: declared flows,
+            ObjectFlow                  the governed core: declared flows,
                                           enforced rules, the record, metrics
 ─────────────────────────────────────
 PostgreSQL / SQLite                       storage
 ```
 
-**A governed core, not a platform.** How a flow is managed — who requests which transition and when, chasing, scheduling, assigning, notifying — and how its datapoints are put to use are built in upper-layer applications. They act through the same requests and rules as anyone else, with no path of their own (PRD §1, N6; ADR-0104). ObjectKeeper does not compete with full metadata-driven platforms on automation, scheduling or screens. What it offers beneath them is the guarantee that governed state changes only as PRD F2 allows and never reaches a condition an enforced rule forbids, and the record that explains every decision its rules make (ADR-0104 §5).
+**A governed core, not a platform.** How a flow is managed — who requests which transition and when, chasing, scheduling, assigning, notifying — and how its datapoints are put to use are built in upper-layer applications. They act through the same requests and rules as anyone else, with no path of their own (PRD §1, N6; ADR-0104). ObjectFlow does not compete with full metadata-driven platforms on automation, scheduling or screens. What it offers beneath them is the guarantee that governed state changes only as PRD F2 allows and never reaches a condition an enforced rule forbids, and the record that explains every decision its rules make (ADR-0104 §5).
 
 ## Why
 
@@ -46,7 +46,7 @@ Four properties carry that:
 | **Recorded** | Every change and every recorded datapoint is attributed and reconstructable |
 | **Measured** | Every flow produces data about itself, users add their own, and everyone reads both through the same declared metrics |
 
-The distinction from an ORM is deliberate. An ORM abstracts *mechanism* — it hides SQL, and faithfully executes whatever the caller asks. ObjectKeeper abstracts *authority*: what may change, when, and by whom.
+The distinction from an ORM is deliberate. An ORM abstracts *mechanism* — it hides SQL, and faithfully executes whatever the caller asks. ObjectFlow abstracts *authority*: what may change, when, and by whom.
 
 A practical consequence, measured rather than asserted. In the first consumer, 454 sites refuse an operation. **176 of them are redundant** — the same rule expressed again somewhere else — and 51 distinct rules appear at more than one site, across route checks, service methods, model hooks and database constraints. One rule, "a delivery must be in preparation", is written five times in four files. Declared once and inspectable, those become projections of one definition.
 
@@ -77,9 +77,9 @@ A practical consequence, measured rather than asserted. In the first consumer, 4
 
 ## Scope
 
-The first consumer is the author's own robotics operations platform, rebuilt on ObjectKeeper with its production data ported; see [`docs/DESIGN.md`](docs/DESIGN.md#4-first-consumer-and-case-studies).
+The first consumer is the author's own robotics operations platform, rebuilt on ObjectFlow with its production data ported; see [`docs/DESIGN.md`](docs/DESIGN.md#4-first-consumer-and-case-studies).
 
-ObjectKeeper **decides, records and measures**. It evaluates any declared formula over its own data, metrics across objects and time included. It does not own formulas that need data or rules it does not hold, such as a tax table or a pricing engine. Nor does it choose among alternatives, cause external effects, orchestrate long-running processes, or render a user interface — those belong to the upper-layer applications above it. See [ADR-0007](docs/adr/0007-decide-and-record-not-compute-or-effect.md) and [ADR-0081](docs/adr/0081-the-engine-measures-its-flows-and-computes-over-its-own-data.md) for why that boundary is where it is.
+ObjectFlow **decides, records and measures**. It evaluates any declared formula over its own data, metrics across objects and time included. It does not own formulas that need data or rules it does not hold, such as a tax table or a pricing engine. Nor does it choose among alternatives, cause external effects, orchestrate long-running processes, or render a user interface — those belong to the upper-layer applications above it. See [ADR-0007](docs/adr/0007-decide-and-record-not-compute-or-effect.md) and [ADR-0081](docs/adr/0081-the-engine-measures-its-flows-and-computes-over-its-own-data.md) for why that boundary is where it is.
 
 ## License
 

@@ -50,7 +50,7 @@ Recording the observations a guard read is this rule applied to observations, wh
 ## Consequences
 
 - `DESIGN.md` §6 and §7 describe the read set.
-- `storage-schema.md` gives `ok_event` and `ok_attempt` a `reads` column.
+- `storage-schema.md` gives `of_event` and `of_attempt` a `reads` column.
 - `library-api.md`'s `Event` gains `reads`.
 - The adversarial harness gains a failure condition: an event whose rules, re-evaluated over its read set, give a different verdict.
 - Its cost is bounded by what rules read. Aggregates over parts are bounded by declared limits, and type-scans match the few objects a uniqueness or existence rule finds. It is to be measured with the rest (`design/data-driven-engine.md` §7).

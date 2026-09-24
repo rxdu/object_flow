@@ -10,11 +10,11 @@ Objects are referenced from many places at once: from other objects across types
 
 The first consumer shows what happens when identity is left to the consumer. Its serial numbers do three jobs at once — identity, business identifier, and label text — and the design of the operations extension had to fix *when* a serial is minted ("serial at birth, label at receipt") so that abandoned drafts would not burn serials. Accessories and spare parts get a generated serial that the receiver may **edit** at intake (`wr:docs/proposals/operations-system-design.md` §4, "Intake capture"). An identifier that can be edited is not an identity.
 
-The question raised in the walkthrough (`docs/design/first-consumer-walkthrough.md` §6) was whether ObjectKeeper should offer a sequence primitive for minting. The answer chosen is stronger and simpler.
+The question raised in the walkthrough (`docs/design/first-consumer-walkthrough.md` §6) was whether ObjectFlow should offer a sequence primitive for minting. The answer chosen is stronger and simpler.
 
 ## Decision
 
-ObjectKeeper assigns every object it manages a **globally unique identifier** at creation, including at import. The identifier is:
+ObjectFlow assigns every object it manages a **globally unique identifier** at creation, including at import. The identifier is:
 
 - **store-assigned** — the consumer never supplies it and cannot choose it;
 - **globally unique** — across types, across time, and across deployments that might later be merged, so no per-type or per-table sequence;
@@ -25,7 +25,7 @@ Three kinds of identifier are therefore distinct:
 
 | Kind | Who assigns | Where it lives | Example |
 |---|---|---|---|
-| **Object id** | ObjectKeeper | on every object; in every reference and event | the handle an agent or a URL uses |
+| **Object id** | ObjectFlow | on every object; in every reference and event | the handle an agent or a URL uses |
 | **Business identifier** | the consumer | a controlled attribute with a uniqueness invariant | asset serial `GO2-W-38172` |
 | **External identifier** | another system | a controlled attribute naming its source | Xero `ContactID`, Jira key, legacy primary key |
 
@@ -46,7 +46,7 @@ The legacy database's scheme. Rejected because integers collide on import and on
 ## Consequences
 
 - **References and events use the object id.** Relationships are stable under any attribute edit, including a serial correction. The event log, idempotency keys and causal lineage all reference objects and events by identifiers of this kind.
-- **Business identifiers are ordinary controlled attributes.** Uniqueness is a declared invariant (ADR-0009). *The sentence "ObjectKeeper offers no sequence primitive" that stood here was withdrawn by ADR-0029 in design iteration 2 (pending author review): a business identifier may be minted from a named, scoped sequence at creation.*
+- **Business identifiers are ordinary controlled attributes.** Uniqueness is a declared invariant (ADR-0009). *The sentence "ObjectFlow offers no sequence primitive" that stood here was withdrawn by ADR-0029 in design iteration 2 (pending author review): a business identifier may be minted from a named, scoped sequence at creation.*
 - **External identifiers are ordinary controlled attributes** that name their source. ADR-0037 decided that the declaration marks them (`external: <source>`), with uniqueness per source automatic and a `lookup` operation on the read surface.
 - **Import assigns new ids and preserves legacy keys.** Every ported object receives an object id; its legacy primary key is kept as an external identifier with source `legacy`, so the preserved audit history and any surviving links still resolve. Cross-references are re-pointed through the legacy-key-to-object-id mapping during import (ADR-0015).
 - **Agents and UIs hold one stable handle.** Every read returns the object id and every request names it; there is no natural-key lookup to get wrong.

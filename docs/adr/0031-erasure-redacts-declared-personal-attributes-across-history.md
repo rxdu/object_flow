@@ -32,10 +32,10 @@ Achieves erasure without rewriting events. Rejected as the primary mechanism bec
 
 ### Leave erasure to the consumer
 
-Rejected: the consumer cannot reach the event log except through ObjectKeeper, which is the point of ADR-0001.
+Rejected: the consumer cannot reach the event log except through ObjectFlow, which is the point of ADR-0001.
 
 ## Consequences
 
-- The event log is append-only *except* for redaction in place, which is itself recorded. Push and pull consumers that already received a value are outside ObjectKeeper's reach; the erasure event tells them to act.
+- The event log is append-only *except* for redaction in place, which is itself recorded. Push and pull consumers that already received a value are outside ObjectFlow's reach; the erasure event tells them to act.
 - Idempotency keys and sequences are unaffected; they never hold personal values by declaration.
 - `docs/design/edge-cases.md` records the caveats: dependent guards, and hashes of erased files.

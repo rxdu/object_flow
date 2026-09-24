@@ -127,7 +127,7 @@ Touches D1, D2, D5, M1, T3 and T4; UC-1, UC-2, UC-3, UC-6, UC-14, UC-16, UC-19. 
 
 A fails for three reasons:
 - a fold of the log must reproduce the row (ADR-0033), and a refusal has nothing to fold;
-- `ok_event.object_id` has no object for a refused creation;
+- `of_event.object_id` has no object for a refused creation;
 - a guessing agent's mistakes would become permanent history.
 
 C cannot show UC-2's pattern of one agent repeating the same refused request.
@@ -424,7 +424,7 @@ Touches M7, C2, C3, L4 and N2; UC-12. The PRD reads the author's word "exception
 
 ## 6. The open findings
 
-- **D202** is required by §3.1, because an observation invalidates a sign-off by naming its relationship. ADR-0082 adopts its repair: part positions recorded per relationship in `ok_attribute_write`, which retires `last_part_event`.
+- **D202** is required by §3.1, because an observation invalidates a sign-off by naming its relationship. ADR-0082 adopts its repair: part positions recorded per relationship in `of_attribute_write`, which retires `last_part_event`.
 - **D205** is resolved by §3.3's `imported` source, on acceptance.
 - **D212** is resolved by §3.6's `DeclarationChange`, on acceptance.
 - **D203** shaped §3.5, whose pre-transaction consultation avoids creating a contention point, and §3.3 records retries so that it can be measured.
@@ -459,7 +459,7 @@ To measure rather than assume:
 
 Accepted 2026-09-23, and every change below was made the same day. The syntax took iteration 19, which also recorded the six decisions spelling required as ADR-0095. Mapping the design against the PRD then found and repaired more (ADR-0087 to ADR-0095, [`traceability.md`](traceability.md)). What acceptance changed:
 - **`DESIGN.md`:** §1, §3 (a fourth property: every flow produces data about itself, and users add their own), §5, §5.5, §5.7, §7, §10, §12, §13 and §14.
-- **`storage-schema.md`:** attempts, intervals, observation tables, and `ok_attribute_write` keyed per relationship.
+- **`storage-schema.md`:** attempts, intervals, observation tables, and `of_attribute_write` keyed per relationship.
 - **`library-api.md`:** `metric`, `diagnostics`, and the attempt and interval shapes.
 - **`renderers.md`:** observation and metric tools.
 - **`declaration-syntax.md`:** the seven constructs, check 11's exemption, and new checks.

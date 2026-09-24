@@ -9,7 +9,7 @@
 
 An operations review of the worked example ([`design/flow-review.md`](../design/flow-review.md)) found that the largest gap between the design and a smooth operation lies around the lifecycle, not in it. Nothing owns the queues. Nothing asks what is due or overdue, chases it, assigns it or tells anyone. Its first recommendation was to design a scheduler and operations agent next.
 
-Built inside the engine, that layer would make ObjectKeeper a platform: flows, scheduled jobs, notifications, worklists and screens. That is the category of full metadata-driven stacks. [ObjectStack](https://objectstack.ai/docs/getting-started), for instance, documents record-triggered and scheduled flows, before and after hooks, approvals, scheduled jobs, webhooks and a UI renderer, all derived from one metadata definition ([its automation documentation](https://objectstack.ai/docs/automation)).
+Built inside the engine, that layer would make ObjectFlow a platform: flows, scheduled jobs, notifications, worklists and screens. That is the category of full metadata-driven stacks. [ObjectStack](https://objectstack.ai/docs/getting-started), for instance, documents record-triggered and scheduled flows, before and after hooks, approvals, scheduled jobs, webhooks and a UI renderer, all derived from one metadata definition ([its automation documentation](https://objectstack.ai/docs/automation)).
 
 The PRD already excluded most of this piece by piece:
 - a user interface;
@@ -24,7 +24,7 @@ It never said what the engine is instead, or where those things go. The author d
 
 ### 1. The engine is the governed core
 
-ObjectKeeper holds the declared flows and enforces their rules on every request, from people and agents alike. It records everything the flows produce, together with what users record, and computes the formulas and metrics declared over that data. It answers, by query:
+ObjectFlow holds the declared flows and enforces their rules on every request, from people and agents alike. It records everything the flows produce, together with what users record, and computes the formulas and metrics declared over that data. It answers, by query:
 - what may be done now;
 - what is due or overdue;
 - what is waiting, and on whom.
@@ -76,11 +76,11 @@ A need an upper layer meets by scanning, because no query answers it, is a gap i
 
 ### 5. Beside platforms, not one of them
 
-ObjectKeeper does not compete on automation, scheduling or screens. What it offers that a platform's automation does not promise is:
+ObjectFlow does not compete on automation, scheduling or screens. What it offers that a platform's automation does not promise is:
 - the guarantee that governed state changes only as PRD F2 allows and never reaches a condition an enforced rule forbids (T1);
 - the record that makes every decision the engine's rules make explainable, and every flow measurable.
 
-*(Corrected 2026-09-24 by PRD revision 5. This section first said ObjectKeeper does not compete on "flows", which are its product, and stated the guarantee as "only through a declared transition or a recorded override", which omits a flow change's mapping and erasure, and the explanation of "every decision", which the PRD limits to the engine's own since revision 2.)*
+*(Corrected 2026-09-24 by PRD revision 5. This section first said ObjectFlow does not compete on "flows", which are its product, and stated the guarantee as "only through a declared transition or a recorded override", which omits a flow change's mapping and erasure, and the explanation of "every decision", which the PRD limits to the engine's own since revision 2.)*
 
 An application layer, including a metadata platform, may be built on it.
 

@@ -68,7 +68,7 @@ When a label is promoted to a state, objects already in flight move into it by o
 
 ### 7. `changed_since` reaches a part relationship by its own position
 
-This adopts D202's repair, which observations depend on. The last event on each part relationship of an object is recorded in `ok_attribute_write`, keyed by the relationship's name, and `last_part_event` is retired. That lets a sign-off name `inspections`, and be invalidated by a later result, without also being invalidated by its own creation as another part.
+This adopts D202's repair, which observations depend on. The last event on each part relationship of an object is recorded in `of_attribute_write`, keyed by the relationship's name, and `last_part_event` is retired. That lets a sign-off name `inspections`, and be invalidated by a later result, without also being invalidated by its own creation as another part.
 
 ## Alternatives rejected
 
@@ -83,7 +83,7 @@ This adopts D202's repair, which observations depend on. The last event on each 
 
 - On acceptance, `DESIGN.md` §5 and §5.3 gain observations and labels.
 - `design/declaration-syntax.md` gains the `observation` form, the `label` built-in, `occurred within`, check 11's exemption, and checks forbidding a label in a guard, an invariant or a visibility predicate.
-- `design/storage-schema.md` gains per-kind tables through the ordinary type mapping, keys `ok_attribute_write` per part relationship, and drops `last_part_event`.
+- `design/storage-schema.md` gains per-kind tables through the ordinary type mapping, keys `of_attribute_write` per part relationship, and drops `last_part_event`.
 - `design/renderers.md` gives each observation kind a tool.
 - ADR-0035's approval can be restated as an observation kind without changing its meaning.
 - D202 is resolved on acceptance.

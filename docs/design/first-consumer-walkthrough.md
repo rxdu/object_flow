@@ -40,7 +40,7 @@ Terminal states: `RETIRED`, `CANCELLED`. Every transition is named and requested
 
 | Attribute | Class | Written by |
 |---|---|---|
-| `id` | store-assigned | ObjectKeeper, at creation or import (ADR-0018); never the serial |
+| `id` | store-assigned | ObjectFlow, at creation or import (ADR-0018); never the serial |
 | `serial` | attribute | the creation transitions, as input; uniqueness is an invariant |
 | `model` | `ref` | the creation transitions |
 | `manufacturer_serial` | attribute | action `capture_manufacturer_serial`, in `INTAKE` |
@@ -177,7 +177,7 @@ Boundary to confirm: the guard language observed in the first consumer needs com
 
 ### E. Time is a value in guards, not a scheduler in the store
 
-`now` is available to guards. A time-driven transition is an ordinary one — `WarrantyContract.expire: ACTIVE → EXPIRED, guard end_date ≤ now` — and ObjectKeeper never initiates it (ADR-0012). What it provides instead is a read query: **the objects for which transition T is currently available** — and only where T is *sweepable*, its guards decomposing into an indexable prefilter (ADR-0048). A time-driven transition that is not sweepable is refused by the query rather than scanned, which is a real constraint on how such a guard is written. A scheduler above asks that question and requests `expire` on each answer. One declared rule; no scheduler in the store; no drift between the type and its timing rule. This answers TODO.md's "inspectable but unexecuted timing metadata" — the guard *is* the metadata — and closes challenge 5.
+`now` is available to guards. A time-driven transition is an ordinary one — `WarrantyContract.expire: ACTIVE → EXPIRED, guard end_date ≤ now` — and ObjectFlow never initiates it (ADR-0012). What it provides instead is a read query: **the objects for which transition T is currently available** — and only where T is *sweepable*, its guards decomposing into an indexable prefilter (ADR-0048). A time-driven transition that is not sweepable is refused by the query rather than scanned, which is a real constraint on how such a guard is written. A scheduler above asks that question and requests `expire` on each answer. One declared rule; no scheduler in the store; no drift between the type and its timing rule. This answers TODO.md's "inspectable but unexecuted timing metadata" — the guard *is* the metadata — and closes challenge 5.
 
 ### F. Locking and versions
 
@@ -189,7 +189,7 @@ Each deletable type declares a terminal state (`DELETED`, or a domain word such 
 
 ### H. The actor is a value supplied by the consumer
 
-A request carries an actor: an identity, a kind (human, agent, service), the principal it acts for, and a set of capabilities. ObjectKeeper does not authenticate or manage users; the consumer's auth does, and hands the descriptor in. Guards test it: `actor.has(DELIVERY_COMPLETE)`, `actor.kind == human`. Where a guard needs a referenced person — `Service.create` requires an engineer who is a human user — that person is an ordinary object in the store and the guard reads its attributes. Delegation is deferred; proposals became a built-in type (ADR-0036): the first consumer's authority-versus-capability list is two items long.
+A request carries an actor: an identity, a kind (human, agent, service), the principal it acts for, and a set of capabilities. ObjectFlow does not authenticate or manage users; the consumer's auth does, and hands the descriptor in. Guards test it: `actor.has(DELIVERY_COMPLETE)`, `actor.kind == human`. Where a guard needs a referenced person — `Service.create` requires an engineer who is a human user — that person is an ordinary object in the store and the guard reads its attributes. Delegation is deferred; proposals became a built-in type (ADR-0036): the first consumer's authority-versus-capability list is two items long.
 
 ## 5. The operations extension against A–H
 
@@ -217,7 +217,7 @@ Every row is expressible, though several need mechanisms A–H did not have: the
 
 ## 6. Still open after this
 
-- **Identifier minting — closed by ADR-0018 and ADR-0029.** ObjectKeeper assigns every object a globally unique id, and a business identifier such as a serial is minted from a named, scoped sequence at creation. ADR-0029 withdrew ADR-0018's "no sequence primitive" consequence.
+- **Identifier minting — closed by ADR-0018 and ADR-0029.** ObjectFlow assigns every object a globally unique id, and a business identifier such as a serial is minted from a named, scoped sequence at creation. ADR-0029 withdrew ADR-0018's "no sequence primitive" consequence.
 - **Guard language size — closed.** The floor stated here was the unit-tracked domain's. ADR-0032 added arithmetic, durations and aggregates; ADR-0047 fixed the semantics; ADR-0053 added the presence tests. DESIGN.md §5.7 is the current language.
 - **Cascade depth and cycles — closed by ADR-0019.** The transition-reference graph must be acyclic; depth is visible in the declaration.
 - **Which of A–H become ADRs — done.** ADR-0019 to ADR-0025.

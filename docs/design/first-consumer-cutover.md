@@ -10,7 +10,7 @@ Draft, 2026-09-09, amended 2026-09-23. The stage order for `~/RduWs/wr_inventory
 
 ## 1. The caveat that governs everything below
 
-**A table is not a type.** The order below is over 45 tables and the stage unit is an ObjectKeeper type, and the mapping between them is neither one-to-one nor mechanical:
+**A table is not a type.** The order below is over 45 tables and the stage unit is an ObjectFlow type, and the mapping between them is neither one-to-one nor mechanical:
 
 | In that schema | Here |
 |---|---|

@@ -57,7 +57,7 @@ Two things, each in `DESIGN.md` §8:
 ## Consequences
 
 - `DESIGN.md` §8 describes all four reaches and the two limits.
-- `storage-schema.md` gains the reference index, with `ok_file.erase_pending`, and erasure's steps change.
+- `storage-schema.md` gains the reference index, with `of_file.erase_pending`, and erasure's steps change.
 - `declaration-syntax.md` gains a check: a type with personal attributes that takes part in supersession must declare `erase`.
 - ADR-0017's "deletes referenced file content" and ADR-0078's "wherever it was recorded" are annotated.
 - D207 and D208 are resolved.

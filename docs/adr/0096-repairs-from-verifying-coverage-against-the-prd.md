@@ -43,12 +43,12 @@ ADR-0095's filter also covers an attempt's read set and consulted values. Where 
 
 ### 4. A refusal carries, and the attempt log records, what the failing clause consulted
 
-`Unsatisfied.consulted`, `Attempt.consulted` and `ok_attempt.consulted` hold the metric values and evaluator verdicts the failing clause was decided on, under decision 3's visibility. A metric value is never personal (ADR-0084), and a verdict is not a value. The clause the verdict names holds the threshold. A refused data-driven decision therefore re-evaluates from the record as an applied one does. (D221, UC-10, L2)
+`Unsatisfied.consulted`, `Attempt.consulted` and `of_attempt.consulted` hold the metric values and evaluator verdicts the failing clause was decided on, under decision 3's visibility. A metric value is never personal (ADR-0084), and a verdict is not a value. The clause the verdict names holds the threshold. A refused data-driven decision therefore re-evaluates from the record as an applied one does. (D221, UC-10, L2)
 
 ### 5. The flow datasets carry what the use cases ask of them
 
 - `.held(<member>)` on an interval or transition row is the value a tracked member held when the span began or the transition happened. Time in a state is then attributed to whoever held the object then, not to whoever holds it now (UC-18).
-- `.created_at` and `.created_by_kind` are members of every object, taken from its creation event, and `ok_object` stores the kind (UC-16).
+- `.created_at` and `.created_by_kind` are members of every object, taken from its creation event, and `of_object` stores the kind (UC-16).
   - For a ported object, the import mapping may supply both from the legacy record. Where it supplies neither, the object counts from its port.
   - A member declared under either name, or as `id` or `state`, would shadow a built-in, and is refused by check 33.
 - `.imported` marks the import's events, which keep provenance `asserted`, so an override count excludes them (UC-3).
@@ -69,7 +69,7 @@ Backdating and `occurred within` bound how far back an occurred time may reach. 
 
 ### 8. Refusal counts are daily, per object, permanent and readable
 
-`ok_attempt_rollup` is kept per UTC day and per object, and carries the verdict. A deployment's prune deletes a day's attempt rows and adds their counts in the same transaction.
+`of_attempt_rollup` is kept per UTC day and per object, and carries the verdict. A deployment's prune deletes a day's attempt rows and adds their counts in the same transaction.
 
 The metric source `<Type>.attempt_counts` reads the rollup for pruned days and counts the retained rows for the rest. It is therefore complete over the whole history, whether pruning has run or not.
 
@@ -125,7 +125,7 @@ Approval runs the dry run's steps again inside the publish transaction. The repo
 
 - `DESIGN.md` §5.1, §5.2, §5.4, §5.7, §5.11, §5.12, §5.13, §6, §7, §8, §9 and §10 state these decisions.
 - `declaration-syntax.md` spells them in §1, §2, §4.2, §6.8, §6.9, §6.10 and §8.1, with check rows 33, 39, 54, 56 and 58 amended.
-- `storage-schema.md` gains `ok_object.created_by_kind`, `ok_attempt.consulted`, a daily per-object rollup with its prune rule, a personal enum's intervals redacted at erasure, and the retried deletion.
+- `storage-schema.md` gains `of_object.created_by_kind`, `of_attempt.consulted`, a daily per-object rollup with its prune rule, a personal enum's intervals redacted at erasure, and the retried deletion.
 - `library-api.md` gives `Unsatisfied`, `Attempt`, `Object` and `Diagnostic` their new fields, and `metric` a `MetricPage` that says whether it is complete, and filters attempts as events.
 - `renderers.md` §3's observation tool gains `corrects`.
 - `publish-and-import.md` §1 compares the ids at approval, and §4's mapping supplies legacy creation times.

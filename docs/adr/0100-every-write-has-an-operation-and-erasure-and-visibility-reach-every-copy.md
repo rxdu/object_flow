@@ -12,7 +12,7 @@
 - **D251. The import had no operation.** None of the seventeen operations imports, and `Request` cannot carry legacy entries, legacy intervals or legacy creation times. Nothing limited the built-in assertion to the port either. A recurring mirror refresh holding the deployment capability could set state on owned types, recorded as `imported` and so hidden from `exceptions()` and from the override metrics (T1, T4). And `.imported` had no column behind it.
 - **D252. Pruning and archiving had no operation.** Pruning the attempt log with its rollup, and moving events to an archive, were "deployment actions" with nowhere in the API to happen.
 - **D253. Erasure missed six copies:**
-  - `ok_external_id` values of a personal external identifier, so `lookup` still resolved an erased email;
+  - `of_external_id` values of a personal external identifier, so `lookup` still resolved an erased email;
   - the proposal's own creation event, where step 7 redacted only the proposal's column;
   - values the erased object's events passed down into other objects' personal attributes;
   - corrected observations, which no read reaches;
@@ -41,7 +41,7 @@
 
 ### 1. The import is an operation, and it cannot write an owned type
 
-`import_batch(actor, batch, dry_run)` writes objects through the built-in assertion. It requires `OK_IMPORT`.
+`import_batch(actor, batch, dry_run)` writes objects through the built-in assertion. It requires `OF_IMPORT`.
 
 A batch carries, per object:
 - its legacy key, state, attributes and references by legacy key;
@@ -51,11 +51,11 @@ A batch carries, per object:
 
 It writes a type only while that type is a `mirror`, or while no ordinary request has created an object of it. *(Narrowed by ADR-0101 §1: only while it is a `mirror`. A type nobody had created an object of could otherwise be overridden by a refresh long after cutover.)* Once a type is owned, the import refuses it, so the refresh of a mirror cannot override an owned type.
 
-Every event it writes carries `imported`, in a column of `ok_event`. That column is what `.imported` reads, and what `exceptions()` and the override metrics exclude.
+Every event it writes carries `imported`, in a column of `of_event`. That column is what `.imported` reads, and what `exceptions()` and the override metrics exclude.
 
 ### 2. Maintenance is an operation, and nothing depends on it
 
-`maintain(actor, task)` runs one of two tasks, and requires `OK_MAINTAIN`:
+`maintain(actor, task)` runs one of two tasks, and requires `OF_MAINTAIN`:
 - `prune_attempts(before)`, which deletes attempt rows and adds their counts to the rollup in the same transaction;
 - `archive_events(before)`, which moves events to the archive table the view reads.
 
@@ -64,7 +64,7 @@ Neither changes governed state or what any read returns. *(Corrected by ADR-0101
 ### 3. Erasure reaches every copy
 
 Beyond ADR-0087, erasure:
-1. deletes the `ok_external_id` rows of the erased object's personal external identifiers, so `lookup` no longer resolves them;
+1. deletes the `of_external_id` rows of the erased object's personal external identifiers, so `lookup` no longer resolves them;
 2. redacts the inputs of each affected proposal in the proposal's own creation event, as well as in its column;
 3. follows each of the erased object's events down its caused events, and erases what flowed into other objects' personal attributes, both in those events and on those objects. Check 10's taint analysis finds these flows, as it finds the caller's. A person copied into a delivery's contact is erased with the person;
 4. reaches every observation in the subject's collection, corrected ones included;
@@ -84,7 +84,7 @@ Beyond ADR-0087, erasure:
 
 ### 6. Exports and subscriptions page by the settled cursor
 
-- `ok_attempt` records its writing transaction, and the attempt export pages by the settled cursor.
+- `of_attempt` records its writing transaction, and the attempt export pages by the settled cursor.
 - The interval export pages by the cursor of the event that last opened or closed each row. A closing therefore re-emits the row, and a consumer keeps the latest version per object, dimension and entry.
 - A subscription's lag is the age of the oldest event its filter selects after its acknowledged cursor. Its two thresholds, `lag_warn` and `lag_fail`, are durations.
 
@@ -96,7 +96,7 @@ Beyond ADR-0087, erasure:
 ### 8. The port states what it cannot recover
 
 - **Gaps.** A legacy interval may be missing where the legacy record is silent. A metric counts such a gap as unknown time and marks itself incomplete, and the harness reports gaps rather than failing on them.
-- **Who.** `ok_interval` records who made a change: for a recorded interval that is its event's actor, and for a legacy one the legacy record's actor where there is one.
+- **Who.** `of_interval` records who made a change: for a recorded interval that is its event's actor, and for a legacy one the legacy record's actor where there is one.
 - **Write edges.** The cutover's write edges are extracted from every write the legacy system makes, service-layer methods included, not only from the registry's side-effect lists (ADR-0093 §2).
 - **A scheduler.** The first consumer's cutover plan adds one before any type with time-driven transitions migrates, since the store never writes on read (ADR-0012).
 

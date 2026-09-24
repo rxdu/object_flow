@@ -6,7 +6,7 @@
 
 ## Context
 
-ADR-0018 correctly separates the store's opaque id from business identifiers, and left minting the latter to the consumer. A ticket key `PROJ-123`, an order number, an invoice number, or the first consumer's asset serial is minted, not chosen, and is the one identifier every human sees. Minting it outside the store makes the consumer keep an atomic counter somewhere — a second store and a second write path for a value ObjectKeeper then treats as authoritative. Case study §3.
+ADR-0018 correctly separates the store's opaque id from business identifiers, and left minting the latter to the consumer. A ticket key `PROJ-123`, an order number, an invoice number, or the first consumer's asset serial is minted, not chosen, and is the one identifier every human sees. Minting it outside the store makes the consumer keep an atomic counter somewhere — a second store and a second write path for a value ObjectFlow then treats as authoritative. Case study §3.
 
 ## Decision
 
@@ -15,7 +15,7 @@ ADR-0018 correctly separates the store's opaque id from business identifiers, an
 3. Formatting is declaration metadata, not expression-language arithmetic or string operations. ADR-0021's version-1 language is unchanged.
 4. Sequences are **monotonic, not gapless**: a rolled-back creation leaves a gap.
 
-ADR-0018's decision — the store-assigned opaque id — is untouched; only its consequence "ObjectKeeper offers no sequence primitive" is withdrawn.
+ADR-0018's decision — the store-assigned opaque id — is untouched; only its consequence "ObjectFlow offers no sequence primitive" is withdrawn.
 
 ## Alternatives rejected
 

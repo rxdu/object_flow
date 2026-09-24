@@ -28,12 +28,12 @@ Its declaration is part of every store, printed in the rule set like any type:
 
 | Transition | From → to | Guards |
 |---|---|---|
-| `draft` (creation) | → `DRAFTED` | the actor holds `OK_DRAFT_CHANGE` |
+| `draft` (creation) | → `DRAFTED` | the actor holds `OF_DRAFT_CHANGE` |
 | `revise` (act) | at `DRAFTED` | the actor is the drafter |
 | `submit` | `DRAFTED` → `SUBMITTED` | the actor is the drafter. The outcome runs the dry run and attaches its report and an evidence snapshot (§4, §5) |
-| `refresh` (act) | at `SUBMITTED` | the drafter or a holder of `OK_APPROVE_CHANGE`. It reruns the dry run and replaces the report |
+| `refresh` (act) | at `SUBMITTED` | the drafter or a holder of `OF_APPROVE_CHANGE`. It reruns the dry run and replaces the report |
 | `publish` | `SUBMITTED` → `PUBLISHED` | see §2. This transition is the approval, and its outcome installs the version |
-| `reject` | `SUBMITTED` → `REJECTED` | the actor holds `OK_APPROVE_CHANGE`; a `reason` |
+| `reject` | `SUBMITTED` → `REJECTED` | the actor holds `OF_APPROVE_CHANGE`; a `reason` |
 | `withdraw` | `DRAFTED`, `SUBMITTED` → `WITHDRAWN` | the actor is the drafter |
 | `supersede` | `DRAFTED`, `SUBMITTED` → `SUPERSEDED` | `only via DeclarationChange.publish` |
 
@@ -42,7 +42,7 @@ Its declaration is part of every store, printed in the rule set like any type:
 ### 2. Approving is publishing, and its guards say who may
 
 `publish` requires, each as a named clause:
-- `may`: the actor holds `OK_APPROVE_CHANGE`;
+- `may`: the actor holds `OF_APPROVE_CHANGE`;
 - `not_drafter`: the actor is neither the drafter nor the drafter's principal, and does not act with the drafter as principal;
 - `person_for_agent`: where the drafter was an agent, the actor is a person;
 - `current`: the change was drafted against the installed version;
@@ -69,11 +69,11 @@ It keeps the ids of every object it names (`PublishReport.affected`), which is w
 ### 6. The built-in capabilities are declared
 
 Every vocabulary has these capabilities, whether or not a module declares them, as it has the category `closed` (ADR-0096 §6):
-- `OK_DRAFT_CHANGE` and `OK_APPROVE_CHANGE`;
-- `OK_LABEL`, for labelling;
-- `OK_ERASE`, for erasing one observation;
-- `OK_IMPORT`, for the import (ADR-0100);
-- `OK_MAINTAIN`, for maintenance (ADR-0100).
+- `OF_DRAFT_CHANGE` and `OF_APPROVE_CHANGE`;
+- `OF_LABEL`, for labelling;
+- `OF_ERASE`, for erasing one observation;
+- `OF_IMPORT`, for the import (ADR-0100);
+- `OF_MAINTAIN`, for maintenance (ADR-0100).
 
 The rule set prints them with the built-in types that use them. The consumer's authentication emits them, as it emits every capability (ADR-0025). A type narrows labelling with `labels by`, as before.
 

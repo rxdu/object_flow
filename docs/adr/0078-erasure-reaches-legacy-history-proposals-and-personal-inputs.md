@@ -42,7 +42,7 @@ Erasure redacts `t_proposal.inputs` on every proposal whose target is the erased
 ## Consequences
 
 - `DESIGN.md` §8 names the three further reaches and the one limit.
-- `storage-schema.md` §9 gains steps 5 to 7, and `ok_legacy_entry` says its payload is redacted per the mapping.
+- `storage-schema.md` §9 gains steps 5 to 7, and `of_legacy_entry` says its payload is redacted per the mapping.
 - `publish-and-import.md` §4 and §5 carry the kept-fields list.
 - `declaration-syntax.md` §5.1 gains the marking; check 10 names it.
 - ADR-0044 gains the fourth cause; ADR-0015, ADR-0031 and ADR-0051 carry the back-link.

@@ -6,7 +6,7 @@
 
 ## Context
 
-Because ObjectKeeper initiates nothing (ADR-0012), applications must learn what happened in order to react. The requirement stated was stronger than convenience: **no registered subscriber may lose an event.**
+Because ObjectFlow initiates nothing (ADR-0012), applications must learn what happened in order to react. The requirement stated was stronger than convenience: **no registered subscriber may lose an event.**
 
 The naive implementations both fail silently:
 
@@ -35,7 +35,7 @@ That log is the single substrate for two delivery modes:
   a cursor (ADR-0034)     calls subscribers
 ```
 
-Push delivery is inside the scope boundary of ADR-0007. Delivering a record is not making a decision: the application decided in advance that it wanted to know, and the payload says *this happened*, not *do this*. What would fall outside is ObjectKeeper deciding an outcome and acting on it.
+Push delivery is inside the scope boundary of ADR-0007. Delivering a record is not making a decision: the application decided in advance that it wanted to know, and the payload says *this happened*, not *do this*. What would fall outside is ObjectFlow deciding an outcome and acting on it.
 
 ## Alternatives rejected
 

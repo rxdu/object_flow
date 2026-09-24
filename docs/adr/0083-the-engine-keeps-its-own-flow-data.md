@@ -57,7 +57,7 @@ So the contention D203 measured is visible in production, per transition.
 ## Consequences
 
 - On acceptance, `DESIGN.md` §5.4, §6, §7 and §10 describe the attempt log, intervals and occurred time.
-- `design/storage-schema.md` gains `ok_attempt` and `ok_interval`, and a retry count and occurred time on `ok_event`.
+- `design/storage-schema.md` gains `of_attempt` and `of_interval`, and a retry count and occurred time on `of_event`.
 - `design/library-api.md` gains the attempt and interval shapes.
 - `design/adversarial-harness.md` gains a ninth failure condition: an interval the log does not reproduce.
 - `design/publish-and-import.md` lets the mapping supply entry times.

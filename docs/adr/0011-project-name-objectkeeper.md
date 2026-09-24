@@ -1,7 +1,8 @@
 # ADR-0011: The project is named ObjectKeeper
 
-- **Status:** Accepted
+- **Status:** Accepted, then superseded on 2026-09-24
 - **Date:** 2026-09-07
+- **Superseded by:** ADR-0107 — the project is now named ObjectFlow. This record keeps the first name and why it was chosen, and its words are left as they were.
 
 ## Context
 

@@ -38,6 +38,6 @@ Rejected: across a reference it would make an approval on one object depend on t
 ## Consequences
 
 - The declaration syntax's `changed_since` accepts part names, and publishing rejects a name that is neither an attribute nor a part.
-- The storage schema carries a last-part-event position per object that has parts. *(Replaced by ADR-0082 §7: the schema keeps the position per part relationship in `ok_attribute_write`, and `last_part_event` is retired; `storage-schema.md`.)*
+- The storage schema carries a last-part-event position per object that has parts. *(Replaced by ADR-0082 §7: the schema keeps the position per part relationship in `of_attribute_write`, and `last_part_event` is retired; `storage-schema.md`.)*
 - DESIGN.md §5.7's `changed_since` row is amended.
 - D60 is resolved.

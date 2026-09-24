@@ -2,12 +2,12 @@
 
 - **Status:** Accepted — repair of D07, 2026-09-08; pending author review
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0100 — progress is an acknowledged settled cursor, and lag is the age of the oldest unacknowledged event the filter selects, with duration thresholds. ADR-0105 — a subscription names its reader, the one actor who may pull and acknowledge it, and creating one requires `OK_SUBSCRIBE`; there is no delivery worker in the core, so what this decision says a worker does is a relay's, above it.
+- **Refined by:** ADR-0100 — progress is an acknowledged settled cursor, and lag is the age of the oldest unacknowledged event the filter selects, with duration thresholds. ADR-0105 — a subscription names its reader, the one actor who may pull and acknowledge it, and creating one requires `OF_SUBSCRIBE`; there is no delivery worker in the core, so what this decision says a worker does is a relay's, above it.
 - **Refines:** ADR-0034
 
 ## Context
 
-Defect D07 found that the built-in `Subscription` could not be operated under its own rules, in three ways. Its cursor was a controlled attribute with no declared writer, while `pull` was a read-surface operation that would have to advance it. Its `lagging` and `dead-lettered` states were to be advanced "by the delivery worker", which is part of an ObjectKeeper deployment and therefore forbidden from initiating anything by ADR-0012. And every acknowledgement, being an action, would record a permanent event at delivery rate.
+Defect D07 found that the built-in `Subscription` could not be operated under its own rules, in three ways. Its cursor was a controlled attribute with no declared writer, while `pull` was a read-surface operation that would have to advance it. Its `lagging` and `dead-lettered` states were to be advanced "by the delivery worker", which is part of an ObjectFlow deployment and therefore forbidden from initiating anything by ADR-0012. And every acknowledgement, being an action, would record a permanent event at delivery rate.
 
 The mistake was modelling delivery bookkeeping as object state. A cursor is not a business fact about a subscription; it is operational progress.
 
@@ -27,7 +27,7 @@ Rejected: it would make reading the feed a recorded write, and every consumer's 
 
 ### Let the delivery worker request the lifecycle transitions
 
-Rejected: it makes an ObjectKeeper deployment an actor with its own agency, which ADR-0012 rejects and which would give a class of state change no external actor asked for.
+Rejected: it makes an ObjectFlow deployment an actor with its own agency, which ADR-0012 rejects and which would give a class of state change no external actor asked for.
 
 ### Keep lagging and dead as real states, advanced by an operator
 

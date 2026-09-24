@@ -26,6 +26,11 @@ RETIRED = [
     (r"\blet\s+\w+\s*=\s*create\b", "create <name> = <Type>.<transition>(…)",
      {"defects.md", "0046"}),        # 0046 is the record that introduced it, annotated in place
     (r"\?\s+\w+\s+:\s+\w+\s*`", "if … then … else", {"defects.md", "0021", "0053"}),
+    # ADR-0107: the project is ObjectFlow, and its prefixes followed the name
+    (r"\bObjectKeeper\b", "ObjectFlow (ADR-0107)", {"0011", "0107"}),
+    (r"\bok_[a-z]", "of_ (ADR-0107)", {"0011", "0107"}),
+    (r"\bOK_[A-Z]", "OF_ (ADR-0107)", {"0011", "0107"}),
+    (r"`\.ok`", "`.of` (ADR-0107)", {"0011", "0107"}),
 ]
 
 findings = []

@@ -9,7 +9,7 @@
 
 The PRD requires that a flow can start minimal (V1), and that the engine show where a flow and reality disagree (V2). A rule must be triallable before it is enforced (V3). Changes must be draftable with evidence and applied through a governed path (V4, F7), and agents may draft them (F6). The engine must never change a flow by itself.
 
-Publishing today is an operation any caller of `publish` performs, with a report (ADR-0027, `design/publish-and-import.md`). The only record of a publish is the `ok_declaration` row, and the "publish event" migrations cite has no object to belong to (D212). `design/data-driven-engine.md` §3.6 evaluates the options.
+Publishing today is an operation any caller of `publish` performs, with a report (ADR-0027, `design/publish-and-import.md`). The only record of a publish is the `of_declaration` row, and the "publish event" migrations cite has no object to belong to (D212). `design/data-driven-engine.md` §3.6 evaluates the options.
 
 ## Decision
 

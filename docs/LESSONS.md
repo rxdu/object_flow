@@ -29,7 +29,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 
 ### A consequence derived from the author's decision is not the author's decision
 
-- **Pattern:** ADR-0018 records the author's decision that the store assigns object identity. Its consequences, written in the same session, added "ObjectKeeper offers no sequence primitive" — an inference, not something the author said — and the ticket case study withdrew it a few hours later (ADR-0029).
+- **Pattern:** ADR-0018 records the author's decision that the store assigns object identity. Its consequences, written in the same session, added "ObjectFlow offers no sequence primitive" — an inference, not something the author said — and the ticket case study withdrew it a few hours later (ADR-0029).
 - **Correction:** In an ADR, keep the author's decision and the reviewer's derived consequences visibly separate, and mark derived consequences as provisional so a later withdrawal reads as a correction of the inference rather than a reversal of the author.
 - **Context:** ADR writing when the decision is the author's and the consequences are drafted by an assistant.
 - **Recurrence, 2026-09-23:** in a requirements document built to prevent exactly this. The first PRD labelled each requirement Said, Carried or Inferred, and four Said rows still carried an inference: a one-interface rule read out of "regardless of human or AI agents", a metric list read out of "metrics to evaluate the flows", a measure of "easily", and a porting clause nobody said. A fifth took the author's word "exceptions" in one sense when the author's own domain uses the other. The label was right at the level of the row and wrong inside it. Split a row until each part has one source, and check a word the author used against how the author's own documents use it before choosing its meaning.
@@ -48,7 +48,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 
 ### An absolute claim in a design document is a defect waiting to be found
 
-- **Pattern:** Three absolutes were written and two were false. "No state change bypassed the guards" was contradicted by the import path in the same document. "ObjectKeeper never touches the bytes" was contradicted by erasure. "The log is never pruned" survived only because erasure was carefully described as a rewrite rather than a prune.
+- **Pattern:** Three absolutes were written and two were false. "No state change bypassed the guards" was contradicted by the import path in the same document. "ObjectFlow never touches the bytes" was contradicted by erasure. "The log is never pruned" survived only because erasure was carefully described as a rewrite rather than a prune.
 - **Correction:** When a property has an exception, state the exception in the same sentence as the property. A guarantee with its exception named is weaker and true; without it the document is wrong and the exception is undesigned, which is how the assertion path came to exist for months with no declaration, no gate and no audit.
 - **Context:** Design records making guarantees; the stronger the claim, the more it needs its carve-out written next to it.
 

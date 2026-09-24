@@ -38,7 +38,7 @@ Cons:
 - **Same-state ambiguity.** If transitions could be requested by target state, an action would be indistinguishable from a no-op. Rule 1 is the mitigation and is a constraint on the API shape.
 - **Event noise.** Subscribers who care only about lifecycle changes see attribute events too. Mitigated by the derived `changes_state` flag, which ADR-0034 made part of the subscription filter.
 - **Nothing structural stops an action becoming a lifecycle change.** Editing the to-state of a self-transition turns it into a real transition. The change is visible in the declaration diff and invariant analysis re-runs, but the declaration shape does not forbid it. A distinct element would.
-- **Statechart semantics differ.** In Harel statecharts a self-transition exits and re-enters the state, firing exit and entry actions. ObjectKeeper has no entry or exit actions (ADR-0007), so the difference is inert, but readers who know statecharts will expect it and the docs should say so.
+- **Statechart semantics differ.** In Harel statecharts a self-transition exits and re-enters the state, firing exit and entry actions. ObjectFlow has no entry or exit actions (ADR-0007), so the difference is inert, but readers who know statecharts will expect it and the docs should say so.
 
 ### B. A distinct `actions` element on the object type
 

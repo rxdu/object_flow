@@ -44,7 +44,7 @@ def probe_sequence_isolation(object_ddl, sequence_ddl):
 
     Returns the list of ways the claim failed; empty means it holds.
     """
-    mint = ("UPDATE ok_sequence SET next_value = next_value + 1 "
+    mint = ("UPDATE of_sequence SET next_value = next_value + 1 "
             "WHERE name = 'unit_serial' AND scope_key = 'RB1'")
     failures = []
     for journal in ("delete", "wal"):
@@ -56,18 +56,18 @@ def probe_sequence_isolation(object_ddl, sequence_ddl):
             req.execute(f"PRAGMA journal_mode={journal}")
             req.execute(object_ddl)
             req.execute(sequence_ddl)
-            req.execute("INSERT INTO ok_sequence VALUES ('unit_serial', 'RB1', 1)")
+            req.execute("INSERT INTO of_sequence VALUES ('unit_serial', 'RB1', 1)")
 
             same = sqlite3.connect(store, isolation_level=None, timeout=0.2)
             sep = sqlite3.connect(seqfile, isolation_level=None, timeout=0.2)
             sep.execute(f"PRAGMA journal_mode={journal}")
             sep.execute(sequence_ddl)
-            sep.execute("INSERT INTO ok_sequence VALUES ('unit_serial', 'RB1', 1)")
+            sep.execute("INSERT INTO of_sequence VALUES ('unit_serial', 'RB1', 1)")
 
             # the request has begun and has written: the directory row here,
             # the event position in a real request, before any outcome step
             req.execute("BEGIN")
-            req.execute("INSERT INTO ok_object (id, type, created_at, created_by_kind, recorded_from) "
+            req.execute("INSERT INTO of_object (id, type, created_at, created_by_kind, recorded_from) "
                         "VALUES ('obj_1', 'Robot', '2026-09-09', 'human', '2026-09-09')")
 
             try:
@@ -86,7 +86,7 @@ def probe_sequence_isolation(object_ddl, sequence_ddl):
                 failures.append(f"{journal}: mint on the separate file failed: {e}")
 
             req.execute("ROLLBACK")
-            value = sep.execute("SELECT next_value FROM ok_sequence").fetchone()[0]
+            value = sep.execute("SELECT next_value FROM of_sequence").fetchone()[0]
             if value != 2:
                 failures.append(f"{journal}: the allocation did not survive the request's "
                                 f"rollback (next_value = {value}, expected 2)")
@@ -221,11 +221,11 @@ def main():
     print("every statement executes")
 
     ddl = {name: s for _, s in stmts for name in re.findall(r"^CREATE TABLE (\w+)", s)}
-    missing = [t for t in ("ok_object", "ok_sequence") if t not in ddl]
+    missing = [t for t in ("of_object", "of_sequence") if t not in ddl]
     if missing:
         print(f"the probe needs {missing} declared in the document and cannot find them")
         return 1
-    probe = probe_sequence_isolation(ddl["ok_object"], ddl["ok_sequence"])
+    probe = probe_sequence_isolation(ddl["of_object"], ddl["of_sequence"])
     if probe:
         print("\n".join("  " + f for f in probe))
         print("the sequence-isolation claim of §6 does not hold")

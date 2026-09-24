@@ -1,4 +1,4 @@
-# ADR-0015: The first consumer is the Weston Robot operations platform, rebuilt on ObjectKeeper with its production data ported
+# ADR-0015: The first consumer is the Weston Robot operations platform, rebuilt on ObjectFlow with its production data ported
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
@@ -10,7 +10,7 @@ The design documents used Deployment, Site, Robot, Task, UAT and Deal as illustr
 
 The Weston Robot inventory management system (`~/RduWs/wr_inventory_management`; FastAPI, SQLAlchemy, Vue 3, PostgreSQL) is in production. It tracks serialised robots, accessories and spare parts through deliveries, services, warranties, product configurations and staged intake. A proposal in that repository (`docs/proposals/operations-system-design.md`) repositions it as an operations platform: order commitment with available-to-promise, two-strength allocation, procurement with pegging and receiving reconciliation, intake as a unit status, pre-delivery inspection, engagements and leasing (its ADR-0002), and customer identity owned by Xero (its ADR-0003). Parts of that proposal have shipped; leasing, inspection and most of the Jira model have not.
 
-The existing system already contains a hand-built version of ObjectKeeper's concerns:
+The existing system already contains a hand-built version of ObjectFlow's concerns:
 
 | Concern | Where it lives today | Size |
 |---|---|---|
@@ -28,17 +28,17 @@ Line counts and permission counts were observed on 2026-09-07. The delivery, ser
 ## Decision
 
 1. **The first consumer is the extended Weston Robot inventory system** — the operations platform described in that repository's proposal. Its repository is the source of domain evidence for this design, and its object types (Robot, Accessory, SparePart, Delivery, Service, WarrantyContract, ProductConfiguration, IntakeBatch, ProcurementOrder, ShippingRecord, and the planned Engagement and Lease) are the ones the model must carry.
-2. **It is a fresh build on ObjectKeeper, not an in-place extension.** ObjectKeeper does not need to coexist with the existing SQLAlchemy models, Alembic migrations or live schema.
-3. **The production data is ported and preserved.** Every object, its history and its external identifiers survive the move. Import is therefore a designed path in ObjectKeeper, not a one-off script beside it.
+2. **It is a fresh build on ObjectFlow, not an in-place extension.** ObjectFlow does not need to coexist with the existing SQLAlchemy models, Alembic migrations or live schema.
+3. **The production data is ported and preserved.** Every object, its history and its external identifiers survive the move. Import is therefore a designed path in ObjectFlow, not a one-off script beside it.
 4. **The threat model is mistakes, not malice.** The purpose, in the author's words: data only moves to a different state when the right trigger is emitted and every required condition is met.
 
 ## Alternatives rejected
 
-### Extend the existing system in place, adopting ObjectKeeper underneath it
+### Extend the existing system in place, adopting ObjectFlow underneath it
 
 Keeps the production schema and the additive-only migration discipline the existing repository enforces.
 
-Rejected because ObjectKeeper's mediated property cannot hold while another application writes the same tables. In-place adoption would mean ObjectKeeper owning some tables and SQLAlchemy others, with cross-object guards spanning the boundary, and the guarantee would be exactly as strong as the weaker side. It would also carry the existing schema's compromises — permissive columns holding placeholder values, status assigned by side effects — into the starting point of the new model.
+Rejected because ObjectFlow's mediated property cannot hold while another application writes the same tables. In-place adoption would mean ObjectFlow owning some tables and SQLAlchemy others, with cross-object guards spanning the boundary, and the guarantee would be exactly as strong as the weaker side. It would also carry the existing schema's compromises — permissive columns holding placeholder values, status assigned by side effects — into the starting point of the new model.
 
 ### Keep growing the hand-built registry
 
@@ -56,14 +56,14 @@ Rejected because it was never real; see Context.
 
 **Import is a first-class path.** Every ported object arrives mid-lifecycle — units in `SOLD`, deliveries in `DELIVERED`, warranties in `ACTIVE` — and none of that state passed through a guard. Creation in this model is the transition into the initial state, so a `SOLD` unit cannot be created; replaying its history as transitions is not viable either, since legacy state was set by side effects and the inventory repository's own tracker records audit-logging gaps. Import must therefore use the authorised, recorded override that DESIGN.md's Known limits already requires for administrative repair, at scale, with these properties:
 
-- **Provenance is `asserted`.** Imported state is recorded as asserted by the importer from a named legacy record, distinct from state ObjectKeeper observed a transition produce. This is the first concrete use of the provenance classes listed in TODO.md.
+- **Provenance is `asserted`.** Imported state is recorded as asserted by the importer from a named legacy record, distinct from state ObjectFlow observed a transition produce. This is the first concrete use of the provenance classes listed in TODO.md.
 - **Validate and report; never admit silently.** The importer evaluates the declaration against every incoming object and produces a per-object report of violated invariants and unsatisfied structural guards. The inventory repository's ADR-0003 shows what will be found: a customer table whose 123 live rows collapse to 76 organisations, and placeholder emails satisfying a `NOT NULL` column. Whether a class of violation is cleaned upstream or admitted with a recorded flag is a decision per class, taken by a person, not a default in the importer.
-- **Legacy history is preserved as read-only entries of kind `legacy`.** The existing audit log carries before/after values, principal, source and IP address; it does not have the shape of ObjectKeeper's event log, which begins at import. The inventory repository already used this pattern once: free-text notes were migrated as structured notes of type `LEGACY`.
+- **Legacy history is preserved as read-only entries of kind `legacy`.** The existing audit log carries before/after values, principal, source and IP address; it does not have the shape of ObjectFlow's event log, which begins at import. The inventory repository already used this pattern once: free-text notes were migrated as structured notes of type `LEGACY`.
 - **External identifiers survive.** Serial numbers, the Xero invoice numbers held in a delivery's `order_id`, and the planned Xero `ContactID` are referenced from outside the system; a Jira task link exists in the proposal but whether it is populated is uncertain. Objects need a stable external identifier, and every cross-reference — delivery to units, service to parts, contract to robot — lands intact. Under ADR-0018 each imported object receives a new store-assigned id, its legacy primary key is preserved as an external identifier, and cross-references are re-pointed through that mapping.
 - **Soft-deleted rows must land somewhere.** Every legacy table carries `is_deleted`; those rows exist for audit and cannot be dropped. *Decided by ADR-0024: they import into the type's deleted terminal state with provenance `asserted`.*
 - **Schema evolution and import are one mechanism.** Import is the situation of every object arriving mid-lifecycle at once. *Decided by ADR-0027: import is declaration migration from version zero.*
 
-**Cutover cannot be dual-write.** A sole write path means the legacy application and the rebuilt one cannot share a store during a transition. Cutover is per deployment, possibly staged by object type with ObjectKeeper read-only for the rest. The plan is a project concern; the design must not assume a soft landing.
+**Cutover cannot be dual-write.** A sole write path means the legacy application and the rebuilt one cannot share a store during a transition. Cutover is per deployment, possibly staged by object type with ObjectFlow read-only for the rest. The plan is a project concern; the design must not assume a soft landing.
 
 **Adversarial testing follows the threat model.** The acceptance test is a fallible actor — one that guesses, retries and skips steps — trying every route to an invalid state, not a hostile actor with credentials.
 

@@ -55,9 +55,9 @@ A deployment becomes a service by exposing the API over a transport (ADR-0037), 
 
 ### 2. Who may subscribe, read a subscription, and end a proposal
 
-- **`OK_SUBSCRIBE`**, a seventh built-in capability, gates creating a subscription.
+- **`OF_SUBSCRIBE`**, a seventh built-in capability, gates creating a subscription.
   - A subscription names its **reader**, the creator by default. Only that actor may `pull` and `acknowledge` it, so no one can move another reader's cursor past events it has not handled.
-  - The reader, the creator, or a holder of `OK_SUBSCRIBE` may revoke it.
+  - The reader, the creator, or a holder of `OF_SUBSCRIBE` may revoke it.
   - `pull` applies the caller's visibility, as every read does.
 - **A proposal is visible** to its proposer and to whoever can see its target.
   - A proposed creation has no target. It is visible to its proposer and to actors who pass the creation's actor guards, the clauses over `actor` — the people who could approve it.
@@ -72,7 +72,7 @@ A deployment becomes a service by exposing the API over a transport (ADR-0037), 
 - the `label` kind and the `closed` category;
 - the standard metric definitions of the engine release that created the store.
 
-Version 0 has its own `ok_declaration` row, written by the store's construction — the one write that precedes every operation — and attributed to the engine release, since no one wrote its rules. The first `DeclarationChange` is drafted against version 0 and published by its lifecycle like any other, so the first flow is installed by the same path as every later one, and F7's approval rules govern it from the release that ships them (PRD §10 puts them in the third, and until then a flow change is a publish without them). `DeclarationError` then means that the installed version will not load, never that none is installed.
+Version 0 has its own `of_declaration` row, written by the store's construction — the one write that precedes every operation — and attributed to the engine release, since no one wrote its rules. The first `DeclarationChange` is drafted against version 0 and published by its lifecycle like any other, so the first flow is installed by the same path as every later one, and F7's approval rules govern it from the release that ships them (PRD §10 puts them in the third, and until then a flow change is a publish without them). `DeclarationError` then means that the installed version will not load, never that none is installed.
 
 **Pinned built-ins.** Every declaration version records the built-in module it was published with, which is part of its closure. An engine release that changes a built-in definition takes effect in a store only through a publish, whose impact report lists what changed. Examples are a standard metric's formula and a built-in type's lifecycle.
 
@@ -97,10 +97,10 @@ It leaves `state_source` as it was, which is why `migrated` is no longer one of 
 - **`admit <Type>.<invariant> because <Enum>.<MEMBER>`**, a mapping form carried by the publish, whose reason is a member of a declared enum, as an assertion's is, so overrides stay countable per reason. *(Corrected by the verification, D355: the first draft took a free-text reason, which ADR-0106 refuses to count by.)*
 
 An `admit`:
-- is stored in `ok_migration`;
+- is stored in `of_migration`;
 - records an admission, with its reason, on each violating object's migration event. An object that no other mapping changes receives a `migrated` event carrying only the admission.
 
-Such an admission is an override in the PRD's sense: its Override concept names "the data import and migration path under a deployment capability", and here the capability is `OK_APPROVE_CHANGE`. So it is listed by `exceptions(type)` and counted. An `admit` naming an invariant compiled to a database constraint drops that constraint before the migration writes, since a constraint cannot yield for one row (ADR-0074), and the invariant stays uncompiled while any admission of it stands; the report says so. *(Added by the verification, D357.)*
+Such an admission is an override in the PRD's sense: its Override concept names "the data import and migration path under a deployment capability", and here the capability is `OF_APPROVE_CHANGE`. So it is listed by `exceptions(type)` and counted. An `admit` naming an invariant compiled to a database constraint drops that constraint before the migration writes, since a constraint cannot yield for one row (ADR-0074), and the invariant stays uncompiled while any admission of it stands; the report says so. *(Added by the verification, D357.)*
 
 **What counts as an override.** The row member `.overrides` is true on two kinds of event:
 - an assertion's event;
@@ -144,7 +144,7 @@ The two faults recorded in the attempt log are also classed, since both are a ca
 - an unknown transition, `unreachable_from_here`;
 - a reused key, `self_serviceable`.
 
-`ok_attempt.remedy` is therefore always set.
+`of_attempt.remedy` is therefore always set.
 
 ### 7. A refusal's record keeps the request's values and everything it read, so it replays
 
@@ -178,7 +178,7 @@ So stopping an upper-layer application loses nothing from the record: within the
 
 - **Keep push delivery as L6's transport.** It is not a notifier in intent, but it is the engine sending: a process in the deployment that reacts to the engine's own events, which ADR-0104 excludes by name and UC-20 excludes by acceptance. It needs a write path for its errors outside the six operations. And it delivers as a descriptor that nothing bounds, so a subscription could be delivered what its creator may not see.
 - **Bound `deliver_as` to the creator's capabilities, and keep the worker.** This repairs the privilege and leaves the contradiction with N6, UC-20 and ADR-0104 in place.
-- **Invent `OK_REVIEW_PROPOSAL` for rejection.** Anyone who may carry out the transition may already decline it by not approving. A capability that differs from the transition's own authority would let someone reject what they could never have approved, or fail to let someone who could.
+- **Invent `OF_REVIEW_PROPOSAL` for rejection.** Anyone who may carry out the transition may already decline it by not approving. A capability that differs from the transition's own authority would let someone reject what they could never have approved, or fail to let someone who could.
 - **An unapproved first publish for an empty store.** A second way to install rules, outside F7, used exactly when a deployment's rules are least reviewed.
 - **Built-ins outside the declaration version.** An engine upgrade would change what `override_counts` or a standard metric means under events already recorded, with no publish to show it. That breaks the PRD's definition of a flow.
 - **Keep calling a migration an assertion.** The PRD now names the mapping as its own route. And an assertion carries a reason and is counted, neither of which a mapping that merely moves a removed state's objects needs. The one part of a publish that is an override — admitting a violation — is now named as one.
@@ -205,8 +205,8 @@ So stopping an upper-layer application loses nothing from the record: within the
   - `t_subscription` loses `endpoint` and `deliver_as`, and gains `reader`;
   - the position table loses its error columns;
   - `state_source` loses `migrated`;
-  - `ok_migration` gains the `admit` kind;
-  - `ok_attempt` gains `request_values`;
+  - `of_migration` gains the `admit` kind;
+  - `of_attempt` gains `request_values`;
   - version 0's row is described;
   - §9 adds a step for the events on redacted objects.
 - **`library-api.md`:**

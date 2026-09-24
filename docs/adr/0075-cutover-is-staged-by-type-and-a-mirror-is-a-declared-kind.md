@@ -7,7 +7,7 @@
 
 ## Context
 
-ADR-0015 left cutover open: "per deployment, possibly staged by object type with ObjectKeeper read-only for the rest. The plan is a project concern; the design must not assume a soft landing." The author has chosen **staged by object type**.
+ADR-0015 left cutover open: "per deployment, possibly staged by object type with ObjectFlow read-only for the rest. The plan is a project concern; the design must not assume a soft landing." The author has chosen **staged by object type**.
 
 The constraint that shapes everything else is also ADR-0015's: **cutover cannot be dual-write**, because a sole write path means the legacy application and the rebuilt one cannot share a store. Staging by type is compatible with that only if ownership is per type and absolute: at any moment each type is owned by exactly one system, and nothing writes a type it does not own.
 
@@ -62,7 +62,7 @@ The marking is removed and the real transitions are declared, which is an ordina
 ## Alternatives rejected
 
 - **Declare the legacy lifecycle as import-gated transitions.** Expressible today, and it was the first thing tried. Rejected because it restates the lifecycle being retired, in a second place, where it will drift — and because every guard on it would be `actor.has(LEGACY_IMPORT)`, which says nothing about the domain. A marking says the true thing instead: this type is not ours.
-- **Hold the not-yet-migrated types outside ObjectKeeper and reach them with an external evaluator.** An evaluator returns a verdict and never a value (ADR-0069), so a guard could ask "is this customer active" but a delivery could not reference a customer, and `referrers`, deletion guards and invariants would all stop at the boundary.
+- **Hold the not-yet-migrated types outside ObjectFlow and reach them with an external evaluator.** An evaluator returns a verdict and never a value (ADR-0069), so a guard could ask "is this customer active" but a delivery could not reference a customer, and `referrers`, deletion guards and invariants would all stop at the boundary.
 - **Big-bang.** Not rejected on its merits; the author chose otherwise. It remains the simpler path and this ADR is the cost of not taking it.
 - **Allow dual-write for the duration.** Rejected by ADR-0015 and not reopened. It is the one thing that would dissolve the problem and it dissolves the mediated property with it.
 
@@ -70,5 +70,5 @@ The marking is removed and the real transitions are declared, which is an ordina
 
 - The declaration syntax gains `mirror` on a type header and check 53. `scripts/check-syntax-doc.py` implements both, confirmed by probe in each direction: a composition with a mirror and a `call` into one are refused, and a reference to one with a guard reading its state is clean.
 - **The stage order is derivable from the declaration**, since the reference graph is in it. Publishing can compute it and should: a proposed stage that migrates a type before one of its referrers is an error the tooling can name.
-- The first consumer's graph was extracted on 2026-09-09 and is written up in `design/first-consumer-cutover.md`: one cycle, which is one stage, and seven stages over its tables. The caveat there is the important one — the stage unit is an ObjectKeeper **type**, and its tables are not its types.
+- The first consumer's graph was extracted on 2026-09-09 and is written up in `design/first-consumer-cutover.md`: one cycle, which is one stage, and seven stages over its tables. The caveat there is the important one — the stage unit is an ObjectFlow **type**, and its tables are not its types.
 - **A legacy read of a migrated type is not solved by this**, only a legacy *write*. Where the retiring system must still display data that has moved, that is a read-only projection out of the read surface, and whether each such screen is worth building is a per-stage judgement about that codebase.

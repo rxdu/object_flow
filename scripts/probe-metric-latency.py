@@ -23,10 +23,10 @@ import time
 random.seed(7)
 c = sqlite3.connect(":memory:")
 c.executescript("""
-CREATE TABLE ok_interval(object_id INTEGER, type TEXT, dim TEXT, value TEXT,
+CREATE TABLE of_interval(object_id INTEGER, type TEXT, dim TEXT, value TEXT,
   entered_at REAL, left_at REAL, actor_kind TEXT, decl INTEGER);
-CREATE INDEX iv_type_dim ON ok_interval(type, dim, value, entered_at);
-CREATE INDEX iv_open ON ok_interval(type, dim, left_at);
+CREATE INDEX iv_type_dim ON of_interval(type, dim, value, entered_at);
+CREATE INDEX iv_open ON of_interval(type, dim, left_at);
 """)
 STATES = ["PREPARATION", "WAITING", "PDI", "READY", "DELIVERED"]
 rows, t0 = [], 1.7e9
@@ -43,14 +43,14 @@ for o in range(N_OBJ):
         if left is None:
             break
         t = left
-c.executemany("INSERT INTO ok_interval VALUES (?,?,?,?,?,?,?,?)", rows)
+c.executemany("INSERT INTO of_interval VALUES (?,?,?,?,?,?,?,?)", rows)
 print(f"sqlite {sqlite3.sqlite_version}: {len(rows)} intervals over {N_OBJ} objects")
 
 Q = {
     "time in state, p80 by state and month": """
       WITH d AS (SELECT value, strftime('%Y-%m', entered_at, 'unixepoch') m,
                         left_at - entered_at dur
-                 FROM ok_interval
+                 FROM of_interval
                  WHERE type='Delivery' AND dim='state' AND left_at IS NOT NULL),
            r AS (SELECT value, m, dur,
                         ROW_NUMBER() OVER (PARTITION BY value, m ORDER BY dur) rn,
@@ -59,11 +59,11 @@ Q = {
       WHERE rn >= CAST(0.8*n AS INTEGER) + (0.8*n > CAST(0.8*n AS INTEGER))
       GROUP BY value, m""",
     "work in progress and oldest open, by state": """
-      SELECT value, COUNT(*), MIN(entered_at) FROM ok_interval
+      SELECT value, COUNT(*), MIN(entered_at) FROM of_interval
       WHERE type='Delivery' AND dim='state' AND left_at IS NULL GROUP BY value""",
     "throughput per week, by actor kind": """
       SELECT strftime('%Y-%W', entered_at, 'unixepoch'), actor_kind, COUNT(*)
-      FROM ok_interval
+      FROM of_interval
       WHERE type='Delivery' AND dim='state' AND value='DELIVERED' GROUP BY 1, 2""",
 }
 for name, sql in Q.items():

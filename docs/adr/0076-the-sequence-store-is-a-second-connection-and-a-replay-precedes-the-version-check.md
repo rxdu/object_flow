@@ -19,8 +19,8 @@ Two defects from the whole-record review of 2026-09-09 (`docs/design/defects.md`
 
 The allocation stays outside the request's transaction, as D181 decided, on a connection of its own that commits before the request continues. Where that connection points follows from how the backend locks:
 
-- **PostgreSQL** locks rows. The second connection opens the same database and updates the `ok_sequence` row, which the request's transaction never touches, so nothing contends. An unscoped sequence may be a native `SEQUENCE` instead, whose `nextval` is already non-transactional; a scoped one is a row per scope key, since a native sequence per scope value would be DDL at request time.
-- **SQLite** locks the file. `ok_sequence` lives in a **separate database file beside the store**, opened on its own connection and created by the same DDL. A write there does not contend with the store's lock.
+- **PostgreSQL** locks rows. The second connection opens the same database and updates the `of_sequence` row, which the request's transaction never touches, so nothing contends. An unscoped sequence may be a native `SEQUENCE` instead, whose `nextval` is already non-transactional; a scoped one is a row per scope key, since a native sequence per scope value would be DDL at request time.
+- **SQLite** locks the file. `of_sequence` lives in a **separate database file beside the store**, opened on its own connection and created by the same DDL. A write there does not contend with the store's lock.
 
 A crash between the mint and the request's commit leaves a gap, which is the behaviour ADR-0029 already accepts. `scripts/check-schema-doc.py` runs the probe on every corpus run: a second connection to the store's own file blocks behind an open write transaction and fails, one to a separate file succeeds, and the value it allocated survives the request's rollback.
 
@@ -41,7 +41,7 @@ The order of `DESIGN.md` §6 becomes: visibility, then replay, then version, the
 
 - **Keep the order and tell callers to drop `expected_version` on a retry.** Rejected: a caller cannot know at retry time whether the original committed, which is the whole reason the key exists, and a retry that differs from the original is a different request.
 - **Replay before visibility.** Rejected: an object the actor can no longer see must stay `not found`, since existence is information (ADR-0030). The recorded verdict is returned only to an actor who can see the object now.
-- **Compare the retry's `expected_version` against the version the original was checked against, and replay only on a match.** Correct and unnecessary: the key already identifies the request, and a key reused with a different body is the digest's job (`ok_idempotency.request_digest`; the key's scope is D189), not the version's.
+- **Compare the retry's `expected_version` against the version the original was checked against, and replay only on a match.** Correct and unnecessary: the key already identifies the request, and a key reused with a different body is the digest's job (`of_idempotency.request_digest`; the key's scope is D189), not the version's.
 
 ## Consequences
 

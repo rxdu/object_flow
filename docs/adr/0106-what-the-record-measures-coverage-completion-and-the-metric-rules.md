@@ -226,7 +226,7 @@ Such a derivation:
   - §8.3 lets a derivation read its own flow data;
   - checks 29, 46 and 56 change.
 - **`storage-schema.md`:**
-  - `ok_object.recorded_from`;
+  - `of_object.recorded_from`;
   - the refresh's and the publish's interval rows;
   - `txn` becomes an integer;
   - the rollup's `type` defaults to `''`;

@@ -12,8 +12,8 @@
 | [0008](0008-guard-escape-hatch-is-a-named-external-evaluator.md) | The guard escape hatch is a named external evaluator | Accepted (author-confirmed) — later refined by ADR-0049, ADR-0069 |
 | [0009](0009-invariants-declared-at-type-level.md) | Invariants are declared at type level, enforced at transitions | Accepted · partly superseded by ADR-0045 — later refined by ADR-0045 |
 | [0010](0010-the-declaration-is-inspectable-at-runtime.md) | The declaration is data, inspectable at runtime | Accepted |
-| [0011](0011-project-name-objectkeeper.md) | The project is named ObjectKeeper | Accepted |
-| [0012](0012-objectkeeper-does-not-initiate-transitions.md) | ObjectKeeper does not initiate transitions | Accepted — later refined by ADR-0019, ADR-0022, ADR-0100 |
+| [0011](0011-project-name-objectkeeper.md) | The project's first name, and why it was chosen | **Superseded by ADR-0107** |
+| [0012](0012-objectflow-does-not-initiate-transitions.md) | ObjectFlow does not initiate transitions | Accepted — later refined by ADR-0019, ADR-0022, ADR-0100 |
 | [0013](0013-events-are-recorded-to-a-durable-log-in-the-transition-transaction.md) | Events are written to a durable ordered log in the transition's own transaction | Accepted — later refined by ADR-0019, ADR-0105 |
 | [0014](0014-delivery-is-at-least-once-with-idempotency-keys.md) | Delivery is at-least-once; exactly-once effect comes from idempotency keys | Accepted — later refined by ADR-0069, ADR-0103 |
 | [0015](0015-first-consumer-and-fresh-build-with-ported-data.md) | The first consumer is the Weston Robot operations platform, rebuilt with its production data ported | Accepted — later refined by ADR-0075, ADR-0078, ADR-0100 |
@@ -26,7 +26,7 @@
 | [0022](0022-time-is-a-guard-value-and-availability-is-queryable.md) | Time is a guard value; the read surface answers which objects have a transition available | Accepted (iteration 1, review pending) — later refined by ADR-0048, ADR-0103, ADR-0105 |
 | [0023](0023-transitions-execute-under-locks-and-may-carry-an-expected-version.md) | One transaction per request, versions, and the `stale` verdict; its locking rules superseded by ADR-0039 | Accepted (iteration 1, review pending) — later refined by ADR-0039, ADR-0076 |
 | [0024](0024-deletion-is-a-terminal-transition-gated-on-live-references.md) | Deletion is a terminal transition gated on live references; parts cascade, references block | Accepted (iteration 1, review pending) — later refined by ADR-0056, ADR-0058, ADR-0066 |
-| [0025](0025-the-actor-is-a-value-supplied-by-the-consumer.md) | The actor is a value supplied by the consumer; ObjectKeeper does not authenticate | Accepted (iteration 1, review pending) — later refined by ADR-0079 |
+| [0025](0025-the-actor-is-a-value-supplied-by-the-consumer.md) | The actor is a value supplied by the consumer; ObjectFlow does not authenticate | Accepted (iteration 1, review pending) — later refined by ADR-0079 |
 | [0026](0026-declarations-compose-by-extends-and-bind-a-named-state-machine.md) | Declarations compose by `extends` and bind a named state machine; states carry a category | Accepted (iteration 2, review pending) — later refined by ADR-0056, ADR-0064, ADR-0065, ADR-0096, ADR-0106 |
 | [0027](0027-declarations-are-versioned-and-removals-require-a-mapping.md) | Declarations are versioned; removals require a mapping applied as recorded migrations | Accepted (iteration 2, review pending) — later refined by ADR-0054, ADR-0056, ADR-0075, ADR-0077, ADR-0085, ADR-0099, ADR-0105 |
 | [0028](0028-supersession-an-object-may-end-by-naming-a-successor.md) | Supersession: an object may end in a terminal state that names its successor | Accepted (iteration 2, review pending) |
@@ -108,3 +108,4 @@
 | [0104](0104-the-engine-is-the-governed-core-and-managing-the-flow-is-an-upper-layer.md) | The engine is the governed core; managing the flow and using its data belong to upper-layer applications | Accepted by the author — later refined by ADR-0105 |
 | [0105](0105-the-core-sends-nothing-and-every-write-names-its-route.md) | The core sends nothing, and every write to governed state names its route | Accepted (decided at the author's direction against the PRD; the author's own acceptance pending) |
 | [0106](0106-what-the-record-measures-coverage-completion-and-the-metric-rules.md) | What the record measures: history coverage, completion, and the metric rules revision 5 exposed | Accepted (decided at the author's direction against the PRD; the author's own acceptance pending) |
+| [0107](0107-the-project-is-named-objectflow.md) | The project is named ObjectFlow | Accepted by the author |

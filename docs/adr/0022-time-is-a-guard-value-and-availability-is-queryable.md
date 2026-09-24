@@ -6,14 +6,14 @@
 
 ## Context
 
-ADR-0012 places all initiation above ObjectKeeper, including time-driven rules, and TODO.md asked whether timing rules could nonetheless live in the declaration so they do not drift from the type they concern. The first consumer has such rules from day one: a warranty contract expires when its end date passes; procurement is overdue past its expected arrival; a lease is overdue past its expected return (`wr:docs/proposals/operations-system-design.md` §6). Walkthrough §4 E; TODO.md challenge 5.
+ADR-0012 places all initiation above ObjectFlow, including time-driven rules, and TODO.md asked whether timing rules could nonetheless live in the declaration so they do not drift from the type they concern. The first consumer has such rules from day one: a warranty contract expires when its end date passes; procurement is overdue past its expected arrival; a lease is overdue past its expected return (`wr:docs/proposals/operations-system-design.md` §6). Walkthrough §4 E; TODO.md challenge 5.
 
 ## Decision
 
 1. **`now` is a value in the expression language** (ADR-0021). A time-driven transition is an ordinary transition whose guard reads it: `WarrantyContract.expire: ACTIVE → EXPIRED, guard end_date <= now`. A guard that fails on such a clause reports remedy class `temporal`.
-2. **ObjectKeeper never initiates it.** ADR-0012 stands unchanged.
+2. **ObjectFlow never initiates it.** ADR-0012 stands unchanged.
 3. **The read surface provides an availability query:** given a type and a transition name, the objects for which that transition is currently available, or available-with-input, for a given actor. **No external guard, eager or deferred, is evaluated by this query, and the result says so (ADR-0048, ADR-0049).** The query also requires the transition to be *sweepable* (ADR-0048); a transition that is not is refused rather than scanned.
-4. A scheduler above ObjectKeeper asks that query on its own cadence and requests the transition for each answer, with an idempotency key derived from the object and the period, so a repeated sweep is harmless (ADR-0014).
+4. A scheduler above ObjectFlow asks that query on its own cadence and requests the transition for each answer, with an idempotency key derived from the object and the period, so a repeated sweep is harmless (ADR-0014).
 
 The guard *is* the timing metadata: one declared rule, inspectable, and no scheduler in the store.
 

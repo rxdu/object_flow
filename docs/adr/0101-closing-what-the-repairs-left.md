@@ -9,7 +9,7 @@
 
 The five reviewers of ADR-0097 to ADR-0100 were asked to verify their findings against the repairs. Almost all were closed. The findings below are what remained, or what the repairs introduced (`design/defects.md` D261 to D268).
 
-- **D261.** The import could write a type "no ordinary request has created an object of". A type that had been cut over, with all its objects ported and transitioned daily, stayed importable until someone created one. A refresh could therefore still override an owned type, marked `imported` and hidden from `exceptions()`. `ImportBatch.admitted` also carried no reason, which `ok_admission.reason` requires.
+- **D261.** The import could write a type "no ordinary request has created an object of". A type that had been cut over, with all its objects ported and transitioned daily, stayed importable until someone created one. A refresh could therefore still override an owned type, marked `imported` and hidden from `exceptions()`. `ImportBatch.admitted` also carried no reason, which `of_admission.reason` requires.
 - **D262.** `publish` compared the recomputed report against whatever report was attached at commit. The drafter could `refresh` between the approver reading one report and approving, and the approver would install an impact they never read.
 - **D263.** `DeclarationChange` declared no visibility. Its report named object ids and its evidence held metric values, so any reader saw what ADR-0100 hides from a verdict.
 - **D264.** `maintain(prune_attempts)` had no floor. A mistaken `before` deleted refusal records inside the retention T3 requires.
@@ -31,7 +31,7 @@ The five reviewers of ADR-0097 to ADR-0100 were asked to verify their findings a
   - a publish's migrations were counted as flow.
 - **D268. Smaller residues.**
   - `whole_open` would have refused an observation's correction.
-  - `ok_migration` could not store the new mappings.
+  - `of_migration` could not store the new mappings.
   - The state was a tracked member in one section and not in another.
   - `.open` and `.imported_at` had no spelling in the language.
   - The standard metrics were a table the checker never reads.
@@ -53,7 +53,7 @@ Every admission in a batch carries its reason. The import never writes a persona
 
 ### 3. A flow change is visible to those who draft and approve, and its report is filtered like a verdict
 
-`DeclarationChange` is visible to actors holding `OK_DRAFT_CHANGE` or `OK_APPROVE_CHANGE`. Within it, the report's object ids and the evidence's values are shown only as far as the reader's visibility reaches, with `withheld` set otherwise, as for a verdict (ADR-0100 §4).
+`DeclarationChange` is visible to actors holding `OF_DRAFT_CHANGE` or `OF_APPROVE_CHANGE`. Within it, the report's object ids and the evidence's values are shown only as far as the reader's visibility reaches, with `withheld` set otherwise, as for a verdict (ADR-0100 §4).
 
 ### 4. Pruning has a floor
 
@@ -85,7 +85,7 @@ The store is constructed with the deployment's attempt retention. `maintain` ref
 - The state is a tracked member everywhere (§8.3, check 58).
 - `.open` and `.imported_at` are members every object and every mirror object has (§8.1), reserved by check 33.
 - The standard metrics are also given as a text block instantiated for `ServiceJob`, which the checker runs.
-- `ok_migration` records every mapping kind.
+- `of_migration` records every mapping kind.
 - `TransitionOffer` names the type an offered creation creates.
 - `check` takes an occurred time.
 - `draft` takes `source` and `evidence`, the metric and diagnostic references it cites.
@@ -105,7 +105,7 @@ The store is constructed with the deployment's attempt retention. `maintain` ref
 
 - `DESIGN.md` §5.2, §5.11, §5.12, §6, §7, §8, §9, §10 and §11 change.
 - `declaration-syntax.md` §2, §4.2, §6.6, §6.8, §6.9, §6.11, §8.1 and §8.3 change, with check rows 10, 23, 33, 53 and 58 amended.
-- `storage-schema.md`'s `ok_migration`, erasure steps and duration storage change.
+- `storage-schema.md`'s `of_migration`, erasure steps and duration storage change.
 - `library-api.md`'s `publish`, `check`, `TransitionOffer`, `Event`, `Attempt`, the import shapes and the store's construction change.
 - `publish-and-import.md` §1 and §4 change.
 - `renderers.md` §3 changes.

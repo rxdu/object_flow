@@ -25,7 +25,7 @@ Given the no-loss requirement of ADR-0013, the choice is forced.
 
 Exactly-once *effect* is achieved at the receiver, by deduplicating on the event identifier within the same transaction as the side effect.
 
-**Transitions accept an idempotency key.** For the common case — an event causing a transition on another object — the source event identifier is used as that key, and a second attempt carrying an already-applied key returns the original result. *(This sentence read "ObjectKeeper refuses a second attempt" until ADR-0041 corrected it: refusal would make a timeout retry indistinguishable from a genuine duplicate.)*
+**Transitions accept an idempotency key.** For the common case — an event causing a transition on another object — the source event identifier is used as that key, and a second attempt carrying an already-applied key returns the original result. *(This sentence read "ObjectFlow refuses a second attempt" until ADR-0041 corrected it: refusal would make a timeout retry indistinguishable from a genuine duplicate.)*
 
 **Acknowledgements are still required**, for progress tracking, lag and stuck-subscriber detection, and backpressure. They are not a correctness mechanism for exactly-once. *(An earlier draft also listed "safe pruning of the log"; ADR-0033 made the log permanent, so that purpose is gone.)*
 
@@ -37,7 +37,7 @@ Rejected as impossible rather than merely difficult; see Context.
 
 ### Requiring every subscriber to maintain its own deduplication table
 
-Workable, and still necessary for subscribers whose effects are external (raising an invoice in another system). Rejected as the *general* answer because the most common effect is a transition back into ObjectKeeper, which is precisely where deduplication can be done centrally, in a component that already has the transaction and already mediates every change.
+Workable, and still necessary for subscribers whose effects are external (raising an invoice in another system). Rejected as the *general* answer because the most common effect is a transition back into ObjectFlow, which is precisely where deduplication can be done centrally, in a component that already has the transaction and already mediates every change.
 
 ### In-process handlers inside the transition's transaction
 
@@ -54,4 +54,4 @@ Not adopted as a default: it runs application code inside the write transaction,
 
 The inventory system already requires an `Idempotency-Key` header on every agent POST and rejects its absence (`docs/agent-operations.md` §3; `app/models/idempotency_key.py`). Keys are scoped per principal so two agents may reuse the same opaque string; the request body is fingerprinted so a key reused with a different body fails with 422 instead of replaying a stale response; a unique constraint on `(principal, key)` settles a race between two simultaneous same-key requests. The stated motivation is the one this ADR gives: an unattended agent retries a POST after a network timeout even when the server already committed.
 
-One difference to carry forward. The inventory system's key deduplicates an HTTP request and replays its stored response byte-for-byte. This ADR's key deduplicates a *transition* and is recorded on it for lineage. Both are needed in a deployment that exposes ObjectKeeper over HTTP — the request-level key protects the transport, the transition-level key protects the record — and they should not be conflated.
+One difference to carry forward. The inventory system's key deduplicates an HTTP request and replays its stored response byte-for-byte. This ADR's key deduplicates a *transition* and is recorded on it for lineage. Both are needed in a deployment that exposes ObjectFlow over HTTP — the request-level key protects the transport, the transition-level key protects the record — and they should not be conflated.

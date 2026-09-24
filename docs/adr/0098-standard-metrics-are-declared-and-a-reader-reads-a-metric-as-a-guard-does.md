@@ -53,7 +53,7 @@ Its aggregates range over objects the reader can see, and the types it reads cou
 
 ### 5. The rollup and the attempt rows carry what the splits need
 
-`ok_attempt_rollup` gains `declaration_version`. `<Type>.attempts` rows expose `.actor_id` and `.object`, within the retention period in which the rows exist. The permanent daily counts split by actor kind, which is what UC-2 counts by.
+`of_attempt_rollup` gains `declaration_version`. `<Type>.attempts` rows expose `.actor_id` and `.object`, within the retention period in which the rows exist. The permanent daily counts split by actor kind, which is what UC-2 counts by.
 
 ### 6. C2 and UC-10 are proposed for revision, and marked so
 
