@@ -66,6 +66,7 @@ Registry state, checked 2026-09-24, with the same caveat ADR-0011 gave: availabi
 - Every document, decision record and script now says ObjectFlow, with the new prefixes. `scripts/check-corpus.py` retires the old name and prefixes, exempting only ADR-0011 and this record.
 - ADR-0011 is superseded, and says so in its header.
 - The worked example's page is renamed with the project.
+- **The GitHub repository** was renamed from `rxdu/object_keeper` to `rxdu/objectflow` on 2026-09-24, at the author's request; GitHub redirects the old URL.
 - **Left to the author:**
-  - renaming the GitHub repository (`git@github.com:rxdu/object_keeper.git`) and the local working directory, since both are outward-facing or disruptive to work in progress;
+  - renaming the local working directory, which would disrupt work in progress;
   - the first consumer's repository and any page outside this repository that uses the old name, which this change does not reach.
