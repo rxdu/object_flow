@@ -32,7 +32,7 @@ The exception is the printable rule set of §2, whose entire purpose is to state
 
 A deterministic rendering of one declaration version, for a person to read and review.
 
-Determinism matters more than prettiness: two renders of one version must be byte-identical, because the artefact people actually use is the diff between two versions. Attributes in declaration order, transitions in declaration order, guards in the order they are evaluated — which is the order that decides which one a verdict names.
+Determinism matters more than prettiness: two renders of one version must be byte-identical, because the artefact people actually use is the diff between two versions. Attributes in declaration order, invariants in declaration order, transitions in declaration order, guards in the order they are evaluated — which is the order that decides which one a verdict names.
 
 ```
 Delivery — version 1
@@ -67,10 +67,19 @@ Delivery — version 1
 
 The guard column on the right is the **remedy class**, which is the one thing a reader most wants: it says whether a failure is theirs to fix, someone else's, a matter of waiting, or impossible from here.
 
+**Invariants print once, after the states** (D383). An invariant holds whichever transition entered a state, so it prints in its own section rather than under any transition, where it would read as that transition's guard and hide the other routes it binds (ADR-0109). Each prints its name and a description rendered from its expression as a guard's is, led by the state it binds when it reads the object's own `state`. The `Robot` example below shows the section.
+
 **Every cause of a transition prints on its own type** (ADR-0108). `then` shows a cascade where it starts; `caused by` shows it where it lands, listing every transition in the store's declaration whose outcome can cause this one, with the path, filter and bound as declared. An `only via` transition prints its parents this way and says it is not requestable. A requestable transition that other transitions also cascade to prints them as `also caused by`, so a reader sees both routes. The unit's journey has one of each (`unit-journey.md` §2):
 
 ```
 Robot — version 4
+
+  Invariants
+    one_open_engagement  at most one open engagement line
+    one_claim            not both bound to a delivery and used in a service
+    labelled             in AVAILABLE, the label has been printed
+    mfr_serial           in AVAILABLE, a manufacturer serial, where the model
+                         requires one
 
   inventorize        INTAKE → AVAILABLE
     requires
