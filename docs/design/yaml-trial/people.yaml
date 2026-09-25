@@ -1,47 +1,61 @@
-# Who can act, declared once for every workflow.
-# No roles: what a person may do is the team's application's (ADR-0114).
+# Actors: who can make requests, declared once for every workflow.
+# Declares no roles: what an actor may do is decided by the application (ADR-0114).
 module: people
+categories: [live, closed]
 
-User:
-  says: A person who can act.
-  states:
-    ACTIVE: { category: live }
-    LEFT:   { category: closed, final: true }
-  moves:
-    add:
-      move:  -> ACTIVE
-      takes: [login, name]
-    leave:
-      move:  ACTIVE -> LEFT
-  fields:
-    login: { type: identity, actor: human, unique: true }
-    name:  string
+types:
+  User:
+    description: A person who can make requests.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+      name:  { type: string }
+    states:
+      ACTIVE: { category: live }
+      LEFT:   { category: closed, terminal: true }
+    transitions:
+      add:
+        kind: creation
+        to: ACTIVE
+        required_inputs: [login, name]
+      leave:
+        kind: state_change
+        from: ACTIVE
+        to: LEFT
 
-Agent:
-  says: An AI agent that can act.
-  states:
-    ACTIVE:  { category: live }
-    REVOKED: { category: closed, final: true }
-  moves:
-    issue:
-      move:  -> ACTIVE
-      takes: [key_id, name]
-    revoke:
-      move:  ACTIVE -> REVOKED
-  fields:
-    key_id: { type: identity, actor: agent, unique: true }
-    name:   string
+  Agent:
+    description: An AI agent that can make requests.
+    tracking: record
+    attributes:
+      key_id: { type: identity, actor_kind: agent, unique: true }
+      name:   { type: string }
+    states:
+      ACTIVE:  { category: live }
+      REVOKED: { category: closed, terminal: true }
+    transitions:
+      issue:
+        kind: creation
+        to: ACTIVE
+        required_inputs: [key_id, name]
+      revoke:
+        kind: state_change
+        from: ACTIVE
+        to: REVOKED
 
-Service:
-  says: A system that can act, such as the team's own application.
-  states:
-    ACTIVE:  { category: live }
-    RETIRED: { category: closed, final: true }
-  moves:
-    register:
-      move:  -> ACTIVE
-      takes: [name]
-    retire:
-      move:  ACTIVE -> RETIRED
-  fields:
-    name: { type: identity, actor: service, unique: true }
+  Service:
+    description: A system that can make requests, such as an application built on ObjectFlow.
+    tracking: record
+    attributes:
+      name: { type: identity, actor_kind: service, unique: true }
+    states:
+      ACTIVE:  { category: live }
+      RETIRED: { category: closed, terminal: true }
+    transitions:
+      register:
+        kind: creation
+        to: ACTIVE
+        required_inputs: [name]
+      retire:
+        kind: state_change
+        from: ACTIVE
+        to: RETIRED

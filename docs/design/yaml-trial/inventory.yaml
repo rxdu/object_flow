@@ -1,90 +1,168 @@
-# The inventory flow: one robot, from the day it is added to stock until it
-# is retired. Read `moves` first: the first line of each is one arrow of the
-# diagram.
+# Inventory flow: the lifecycle of one robot held in stock.
 module: inventory
+categories: [live, closed]
 
-InventoryItem:
-  says: One robot in stock, from the day it is added until it is retired.
+enumerations:
+  Condition:      [NEW, REFURBISHED, DAMAGED]
+  DevelopmentUse: [DEMO, TESTING, ENGINEERING]
 
-  states:
-    AVAILABLE:   { category: live }
-    RESERVED:    { category: live,   holds: [reserved_for, reserved_until] }
-    SOLD:        { category: closed, holds: [sold_to, sale_price] }
-    DEVELOPMENT: { category: closed, holds: [use] }
-    RETIRED:     { category: closed, holds: [retire_reason], final: true }
+types:
+  InventoryItem:
+    description: A robot held in stock, from the day it is added until it is retired.
+    tracking: record
 
-  moves:
-    add:
-      move:   -> AVAILABLE
-      takes:  [serial, model, list_price, condition]
-    regrade:
-      move:   stays in AVAILABLE, RESERVED
-      takes:  [condition]
-    reserve:
-      move:   AVAILABLE, DEVELOPMENT -> RESERVED
-      takes:  [reserved_for, reserved_until]
-      checks: [not_damaged, ends_later]
-      clears: [use]
-    release:
-      move:   RESERVED -> AVAILABLE
-      clears: [reserved_for, reserved_until]
-    sell:
-      move:   RESERVED -> SOLD
-      takes:  [sale_price]
-      may take: [photo]
-      checks: [not_damaged]
-      trial:  [photo_attached]
-      copies: { sold_to: reserved_for }
-      clears: [reserved_for, reserved_until]
-    reopen:
-      move:   SOLD -> RESERVED
-      takes:  [reserved_until]
-      checks: [ends_later]
-      copies: { reserved_for: sold_to }
-      clears: [sold_to, sale_price]
-    accept_return:
-      move:   SOLD -> AVAILABLE
-      takes:  [condition]
-      clears: [sold_to, sale_price]
-    to_development:
-      move:   RESERVED -> DEVELOPMENT
-      takes:  [use]
-      clears: [reserved_for, reserved_until]
-    return_to_stock:
-      move:   DEVELOPMENT -> AVAILABLE
-      takes:  [condition]
-      clears: [use]
-    retire:
-      move:   DEVELOPMENT -> RETIRED
-      takes:  [retire_reason]
+    attributes:
+      serial:            { type: string, unique: true }
+      model:             { type: string }
+      list_price:        { type: money(SGD) }
+      condition:         { type: Condition }
+      reserved_for:      { type: string, optional: true }
+      reserved_until:    { type: timestamp, optional: true }
+      sold_to:           { type: string, optional: true }
+      sale_price:        { type: money(SGD), optional: true }
+      photo:             { type: file, optional: true }
+      development_use:   { type: DevelopmentUse, optional: true }
+      retirement_reason: { type: string, optional: true }
 
-  rules:
-    not_damaged:
-      says:   A damaged item is not reserved or sold; regrade it first.
-      when:   condition != DAMAGED
-      remedy: unreachable_from_here
-    ends_later:
-      says:   The reservation ends at a time still to come.
-      when:   inputs.reserved_until > now
-    photo_attached:
-      says:   A photo of the item is attached.
-      when:   inputs.photo is given
+    states:
+      AVAILABLE:
+        description: In stock and offered for sale.
+        category: live
+      RESERVED:
+        description: Held for one customer or internal project until a set time.
+        category: live
+        required_attributes: [reserved_for, reserved_until]
+      SOLD:
+        description: Sold to the customer it was reserved for.
+        category: closed
+        required_attributes: [sold_to, sale_price]
+      DEVELOPMENT:
+        description: In internal use for demonstration, testing or engineering.
+        category: closed
+        required_attributes: [development_use]
+      RETIRED:
+        description: Permanently withdrawn from stock and from use.
+        category: closed
+        terminal: true
+        required_attributes: [retirement_reason]
 
-  fields:
-    serial:         { type: string, unique: true }
-    model:          string
-    list_price:     money(SGD)
-    condition:      { one of: [NEW, REFURBISHED, DAMAGED] }
-    reserved_for:   string?
-    reserved_until: timestamp?
-    sold_to:        string?
-    sale_price:     money(SGD)?
-    photo:          file?
-    use:            { one of: [DEMO, TESTING, ENGINEERING], optional: true }
-    retire_reason:  string?
+    conditions:
+      not_damaged:
+        description: The item is not damaged; a damaged item is regraded before it is reserved or sold.
+        expression: condition != Condition.DAMAGED
+        remedy: unreachable_from_here
+      reservation_ends_in_future:
+        description: The reservation ends at a time in the future.
+        expression: inputs.reserved_until > now
+        remedy: self_serviceable
+      photo_attached:
+        description: A photo of the item is attached.
+        expression: inputs.photo is not null
+        remedy: self_serviceable
 
-  measures:
-    days_on_hand: { median time in: AVAILABLE, by: [model, month], flag slow: over 60 days }
-    sales:        { count of: sell,          by: [who, month] }
-    reopened:     { count of: reopen,        by: [month] }
-    returned:     { count of: accept_return, by: [month] }
+    transitions:
+      add:
+        kind: creation
+        to: AVAILABLE
+        description: Adds a received item to stock.
+        required_inputs: [serial, model, list_price, condition]
+      regrade:
+        kind: action
+        from: [AVAILABLE, RESERVED]
+        description: Records the item's current condition.
+        required_inputs: [condition]
+      reserve:
+        kind: state_change
+        from: [AVAILABLE, DEVELOPMENT]
+        to: RESERVED
+        description: Holds the item for one customer or project until the given time.
+        required_inputs: [reserved_for, reserved_until]
+        guards:
+          not_damaged: enforced
+          reservation_ends_in_future: enforced
+        outcome:
+          - clear: [development_use]
+      release:
+        kind: state_change
+        from: RESERVED
+        to: AVAILABLE
+        description: Ends the reservation and offers the item for sale again.
+        outcome:
+          - clear: [reserved_for, reserved_until]
+      sell:
+        kind: state_change
+        from: RESERVED
+        to: SOLD
+        description: Sells the item to the customer it is reserved for.
+        required_inputs: [sale_price]
+        optional_inputs: [photo]
+        guards:
+          not_damaged: enforced
+          photo_attached: observed
+        outcome:
+          - copy: { from: reserved_for, to: sold_to }
+          - clear: [reserved_for, reserved_until]
+      reopen_sale:
+        kind: state_change
+        from: SOLD
+        to: RESERVED
+        description: Reverses a sale; the item is reserved again for the same customer.
+        required_inputs: [reserved_until]
+        guards:
+          reservation_ends_in_future: enforced
+        outcome:
+          - copy: { from: sold_to, to: reserved_for }
+          - clear: [sold_to, sale_price]
+      accept_return:
+        kind: state_change
+        from: SOLD
+        to: AVAILABLE
+        description: Takes a sold item back into stock once it is graded.
+        required_inputs: [condition]
+        outcome:
+          - clear: [sold_to, sale_price]
+      transfer_to_development:
+        kind: state_change
+        from: RESERVED
+        to: DEVELOPMENT
+        description: Moves a reserved item into internal use.
+        required_inputs: [development_use]
+        outcome:
+          - clear: [reserved_for, reserved_until]
+      return_to_stock:
+        kind: state_change
+        from: DEVELOPMENT
+        to: AVAILABLE
+        description: Returns an item from internal use to stock once it is graded.
+        required_inputs: [condition]
+        outcome:
+          - clear: [development_use]
+      retire:
+        kind: state_change
+        from: DEVELOPMENT
+        to: RETIRED
+        description: Withdraws the item permanently.
+        required_inputs: [retirement_reason]
+
+    metrics:
+      time_available:
+        description: Median time items stay available before they are reserved.
+        measure: median_time_in_state
+        state: AVAILABLE
+        group_by: [model, month]
+        flag_when: { slow: "value > 60 days" }
+      sales_made:
+        description: Number of sales made.
+        measure: transition_count
+        transition: sell
+        group_by: [actor, month]
+      sales_reopened:
+        description: Number of sales reopened.
+        measure: transition_count
+        transition: reopen_sale
+        group_by: [month]
+      sales_returned:
+        description: Number of sold items returned to stock.
+        measure: transition_count
+        transition: accept_return
+        group_by: [month]

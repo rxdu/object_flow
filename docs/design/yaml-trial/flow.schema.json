@@ -2,77 +2,95 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "objectflow-flow-trial",
   "title": "An ObjectFlow module, written as structured YAML (trial, authoring-flows.md §3)",
-  "description": "A module names itself, may use types of other modules and declare shared enums, and declares each type under its own name.",
+  "description": "A module names itself, may import types from other modules, declares its enumerations, and declares each type under `types`.",
   "type": "object",
-  "required": ["module"],
+  "required": ["module", "categories", "types"],
   "additionalProperties": false,
   "properties": {
     "module": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
-    "uses": {
+    "imports": {
+      "description": "Types used from other modules, by module name.",
       "type": "object",
       "additionalProperties": {"type": "array", "items": {"$ref": "#/definitions/typeName"}}
     },
-    "enums": {
+    "categories": {
+      "description": "The state categories the module's states use, such as live and closed.",
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/definitions/memberName"}
+    },
+    "enumerations": {
+      "description": "Named sets of values. A value is written qualified, as Condition.DAMAGED.",
       "type": "object",
       "propertyNames": {"$ref": "#/definitions/typeName"},
-      "additionalProperties": {"$ref": "#/definitions/members"}
+      "additionalProperties": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/stateName"}}
+    },
+    "types": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/definitions/typeName"},
+      "additionalProperties": {"$ref": "#/definitions/type"}
     }
-  },
-  "patternProperties": {
-    "^[A-Z][A-Za-z0-9]*$": {"$ref": "#/definitions/type"}
   },
   "definitions": {
     "typeName": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
     "stateName": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
     "memberName": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
-    "members": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/stateName"}},
     "names": {"type": "array", "items": {"$ref": "#/definitions/memberName"}},
-    "sentence": {"type": "string", "minLength": 3},
+    "states": {
+      "oneOf": [
+        {"$ref": "#/definitions/stateName"},
+        {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/stateName"}}
+      ]
+    },
+    "description": {"type": "string", "minLength": 3},
     "duration": {"type": "string", "pattern": "^[0-9]+ (s|min|h|days?|weeks?)$"},
     "expression": {"type": "string", "minLength": 1},
+    "remedy": {"enum": ["self_serviceable", "delegable", "temporal", "dependent", "unreachable_from_here"]},
     "type": {
       "type": "object",
-      "required": ["states", "moves"],
+      "required": ["description", "tracking", "states", "transitions"],
       "additionalProperties": false,
       "properties": {
-        "says": {"$ref": "#/definitions/sentence"},
-        "tracks": {"enum": ["record", "serial", "quantity"]},
+        "description": {"$ref": "#/definitions/description"},
+        "tracking": {"enum": ["record", "serial", "quantity"]},
         "states": {
           "type": "object",
           "minProperties": 1,
           "propertyNames": {"$ref": "#/definitions/stateName"},
           "additionalProperties": {"$ref": "#/definitions/state"}
         },
-        "moves": {
+        "transitions": {
           "type": "object",
           "minProperties": 1,
           "propertyNames": {"$ref": "#/definitions/memberName"},
-          "additionalProperties": {"$ref": "#/definitions/move"}
+          "additionalProperties": {"$ref": "#/definitions/transition"}
         },
-        "rules": {
+        "conditions": {
+          "description": "Named conditions, used as guards by the transitions.",
           "type": "object",
           "propertyNames": {"$ref": "#/definitions/memberName"},
-          "additionalProperties": {"$ref": "#/definitions/rule"}
+          "additionalProperties": {"$ref": "#/definitions/condition"}
         },
         "invariants": {
+          "description": "Conditions that hold for every object of the type at all times.",
           "type": "object",
           "propertyNames": {"$ref": "#/definitions/memberName"},
-          "additionalProperties": {"$ref": "#/definitions/rule"}
+          "additionalProperties": {"$ref": "#/definitions/invariant"}
         },
-        "fields": {
+        "attributes": {
           "type": "object",
           "propertyNames": {"$ref": "#/definitions/memberName"},
-          "additionalProperties": {"$ref": "#/definitions/field"}
+          "additionalProperties": {"$ref": "#/definitions/attribute"}
         },
-        "records": {
+        "observations": {
           "type": "object",
           "propertyNames": {"$ref": "#/definitions/memberName"},
-          "additionalProperties": {"$ref": "#/definitions/record"}
+          "additionalProperties": {"$ref": "#/definitions/observation"}
         },
-        "measures": {
+        "metrics": {
           "type": "object",
           "propertyNames": {"$ref": "#/definitions/memberName"},
-          "additionalProperties": {"$ref": "#/definitions/measure"}
+          "additionalProperties": {"$ref": "#/definitions/metric"}
         }
       }
     },
@@ -81,123 +99,132 @@
       "required": ["category"],
       "additionalProperties": false,
       "properties": {
+        "description": {"$ref": "#/definitions/description"},
         "category": {"$ref": "#/definitions/memberName"},
-        "holds": {"$ref": "#/definitions/names"},
-        "final": {"type": "boolean"}
+        "terminal": {"type": "boolean", "description": "No transition leaves this state."},
+        "required_attributes": {"$ref": "#/definitions/names", "description": "Attributes that have a value whenever an object is in this state."}
       }
     },
-    "move": {
+    "transition": {
       "type": "object",
-      "required": ["move"],
-      "additionalProperties": false,
+      "required": ["kind"],
       "properties": {
-        "move": {"type": "string", "description": "'-> A', 'A -> B', 'A, B -> C' or 'stays in A, B'"},
-        "takes": {"$ref": "#/definitions/names"},
-        "may take": {"$ref": "#/definitions/names"},
-        "checks": {"$ref": "#/definitions/names"},
-        "trial": {"$ref": "#/definitions/names"},
-        "flags": {"$ref": "#/definitions/names"},
-        "copies": {
+        "kind": {"enum": ["creation", "state_change", "action"]},
+        "from": {"$ref": "#/definitions/states"},
+        "to": {"$ref": "#/definitions/stateName"},
+        "description": {"$ref": "#/definitions/description"},
+        "required_inputs": {"$ref": "#/definitions/names", "description": "Attributes the caller must supply; each is written to the attribute of the same name."},
+        "optional_inputs": {"$ref": "#/definitions/names", "description": "Attributes the caller may supply; each is written if supplied."},
+        "guards": {
+          "description": "Conditions evaluated, in this order, after the required inputs are checked.",
           "type": "object",
           "propertyNames": {"$ref": "#/definitions/memberName"},
-          "additionalProperties": {"$ref": "#/definitions/memberName"}
+          "additionalProperties": {"enum": ["enforced", "observed", "flagged"]}
         },
-        "clears": {"$ref": "#/definitions/names"},
-        "backdatable": {"$ref": "#/definitions/duration"}
-      }
-    },
-    "field": {
+        "outcome": {
+          "description": "The writes the transition makes, in this order.",
+          "type": "array",
+          "items": {"$ref": "#/definitions/step"}
+        },
+        "backdating_limit": {"$ref": "#/definitions/duration"}
+      },
+      "additionalProperties": false,
       "oneOf": [
-        {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\([A-Za-z0-9, ]+\\))?\\??(\\[\\])?$"},
+        {"properties": {"kind": {"const": "creation"}}, "required": ["to"], "not": {"required": ["from"]}},
+        {"properties": {"kind": {"const": "state_change"}}, "required": ["from", "to"]},
+        {"properties": {"kind": {"const": "action"}}, "required": ["from"], "not": {"required": ["to"]}}
+      ]
+    },
+    "step": {
+      "oneOf": [
         {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "type": {"type": "string"},
-            "ref": {"type": "string"},
-            "one of": {"$ref": "#/definitions/members"},
-            "optional": {"type": "boolean"},
-            "actor": {"enum": ["human", "agent", "service"]},
-            "unique": {"type": "boolean"},
-            "indexed": {"type": "boolean"},
-            "personal": {"type": "boolean"},
-            "assignee": {"type": "boolean"},
-            "unit": {"type": "string"}
-          },
-          "oneOf": [{"required": ["type"]}, {"required": ["ref"]}, {"required": ["one of"]}]
+          "type": "object", "required": ["copy"], "additionalProperties": false,
+          "properties": {"copy": {
+            "type": "object", "required": ["from", "to"], "additionalProperties": false,
+            "properties": {"from": {"$ref": "#/definitions/memberName"}, "to": {"$ref": "#/definitions/memberName"}}
+          }}
+        },
+        {
+          "type": "object", "required": ["clear"], "additionalProperties": false,
+          "properties": {"clear": {"$ref": "#/definitions/names"}}
         }
       ]
     },
-    "rule": {
+    "condition": {
       "type": "object",
-      "required": ["says", "when"],
+      "required": ["description", "expression", "remedy"],
       "additionalProperties": false,
       "properties": {
-        "says": {"$ref": "#/definitions/sentence"},
-        "when": {"$ref": "#/definitions/expression"},
-        "remedy": {"enum": ["self_serviceable", "delegable", "temporal", "dependent", "unreachable_from_here"]}
+        "description": {"$ref": "#/definitions/description"},
+        "expression": {"$ref": "#/definitions/expression"},
+        "remedy": {"$ref": "#/definitions/remedy"}
       }
     },
-    "record": {
+    "invariant": {
       "type": "object",
-      "required": ["kind", "says", "fields"],
+      "required": ["description", "expression"],
+      "additionalProperties": false,
+      "properties": {
+        "description": {"$ref": "#/definitions/description"},
+        "expression": {"$ref": "#/definitions/expression"}
+      }
+    },
+    "attribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\([A-Za-z0-9, ]+\\))?(\\[\\])?$"},
+        "reference": {"$ref": "#/definitions/typeName"},
+        "optional": {"type": "boolean"},
+        "unique": {"type": "boolean"},
+        "indexed": {"type": "boolean"},
+        "personal": {"type": "boolean"},
+        "actor_kind": {"enum": ["human", "agent", "service"]},
+        "assignee": {"type": "boolean"},
+        "unit": {"type": "string"}
+      },
+      "oneOf": [{"required": ["type"]}, {"required": ["reference"]}]
+    },
+    "observation": {
+      "type": "object",
+      "required": ["kind", "description", "attributes"],
       "additionalProperties": false,
       "properties": {
         "kind": {"$ref": "#/definitions/typeName"},
-        "says": {"$ref": "#/definitions/sentence"},
-        "fields": {
+        "description": {"$ref": "#/definitions/description"},
+        "attributes": {
           "type": "object",
           "propertyNames": {"$ref": "#/definitions/memberName"},
-          "additionalProperties": {"$ref": "#/definitions/field"}
+          "additionalProperties": {"$ref": "#/definitions/attribute"}
         },
-        "late_by_up_to": {"$ref": "#/definitions/duration"},
+        "max_recording_delay": {"$ref": "#/definitions/duration"},
         "invariants": {
           "type": "object",
           "propertyNames": {"$ref": "#/definitions/memberName"},
-          "additionalProperties": {"$ref": "#/definitions/rule"}
+          "additionalProperties": {"$ref": "#/definitions/invariant"}
         }
       }
     },
-    "measure": {
-      "description": "Either a short form, naming the state it times or the move it counts, or the long form in the expression language.",
-      "oneOf": [
-        {
+    "metric": {
+      "type": "object",
+      "required": ["description", "measure"],
+      "additionalProperties": false,
+      "properties": {
+        "description": {"$ref": "#/definitions/description"},
+        "measure": {"enum": ["median_time_in_state", "transition_count"]},
+        "state": {"$ref": "#/definitions/stateName"},
+        "transition": {"$ref": "#/definitions/memberName"},
+        "group_by": {"$ref": "#/definitions/names", "description": "month, week, actor, or an attribute of the type."},
+        "flag_when": {
           "type": "object",
-          "required": ["median time in"],
-          "additionalProperties": false,
-          "properties": {
-            "says": {"$ref": "#/definitions/sentence"},
-            "median time in": {"$ref": "#/definitions/stateName"},
-            "by": {"$ref": "#/definitions/names"}
-          },
-          "patternProperties": {"^flag [a-z][a-z0-9_]*$": {"$ref": "#/definitions/threshold"}}
-        },
-        {
-          "type": "object",
-          "required": ["count of"],
-          "additionalProperties": false,
-          "properties": {
-            "says": {"$ref": "#/definitions/sentence"},
-            "count of": {"$ref": "#/definitions/memberName"},
-            "by": {"$ref": "#/definitions/names"}
-          },
-          "patternProperties": {"^flag [a-z][a-z0-9_]*$": {"$ref": "#/definitions/threshold"}}
-        },
-        {
-          "type": "object",
-          "required": ["from", "value"],
-          "additionalProperties": false,
-          "properties": {
-            "says": {"$ref": "#/definitions/sentence"},
-            "from": {"$ref": "#/definitions/expression"},
-            "by": {"type": "object", "additionalProperties": {"$ref": "#/definitions/expression"}},
-            "window": {"$ref": "#/definitions/expression"},
-            "value": {"$ref": "#/definitions/expression"},
-            "flags": {"type": "object", "additionalProperties": {"$ref": "#/definitions/expression"}}
-          }
+          "propertyNames": {"$ref": "#/definitions/memberName"},
+          "additionalProperties": {"$ref": "#/definitions/expression"}
         }
+      },
+      "oneOf": [
+        {"properties": {"measure": {"const": "median_time_in_state"}}, "required": ["state"], "not": {"required": ["transition"]}},
+        {"properties": {"measure": {"const": "transition_count"}}, "required": ["transition"], "not": {"required": ["state"]}}
       ]
-    },
-    "threshold": {"type": "string", "pattern": "^(over|under) [0-9.]+( (s|min|h|days?|weeks?))?$"}
+    }
   }
 }

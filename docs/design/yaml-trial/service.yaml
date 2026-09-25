@@ -1,85 +1,109 @@
-# The service flow: what a job is, how it moves, and what it records.
+# Service flow: what a service job is, how it progresses, and what it records.
 module: service
-uses: { people: [User] }
+imports: { people: [User] }
+categories: [inbound, live, closed]
 
-enums:
+enumerations:
   CheckOutcome: [PASS, FAIL, NOT_APPLICABLE]
 
-InspectionCheck:
-  says: One item on the inspection checklist. The checklist is data, so changing it needs no publish.
-  states:
-    ACTIVE:  { category: live }
-    RETIRED: { category: closed, final: true }
-  moves:
-    add:
-      move:  -> ACTIVE
-      takes: [title]
-    retire:
-      move:  ACTIVE -> RETIRED
-  fields:
-    title: string
+types:
+  InspectionCheck:
+    description: One entry of the inspection checklist. Entries are data, so changing the checklist requires no new version of the flow.
+    tracking: record
 
-ServiceJob:
-  says: A job an engineer does on a robot.
+    attributes:
+      title: { type: string }
 
-  states:
-    OPEN:    { category: inbound }
-    WORKING: { category: live }
-    DONE:    { category: closed, final: true }
+    states:
+      ACTIVE:  { category: live }
+      RETIRED: { category: closed, terminal: true }
 
-  moves:
-    open:
-      move:   -> OPEN
-      takes:  [engineer]
-      checks: [engineer_active]
-    reassign:
-      move:   stays in OPEN, WORKING
-      takes:  [engineer]
-      checks: [engineer_active]
-    start:
-      move:   OPEN -> WORKING
-      backdatable: 2 days
-    finish:
-      move:   WORKING -> DONE
-      may take: [photo]
-      checks: [no_unresolved_failure]
-      trial:  [photo_attached]
+    transitions:
+      add:
+        kind: creation
+        to: ACTIVE
+        required_inputs: [title]
+      retire:
+        kind: state_change
+        from: ACTIVE
+        to: RETIRED
 
-  rules:
-    engineer_active:
-      says:   The engineer supplied is still active.
-      when:   inputs.engineer.state == User.ACTIVE
-    no_unresolved_failure:
-      says:   No inspection has failed without a later re-check of the same item.
-      when: >-
-        none(r in inspections where r.outcome == CheckOutcome.FAIL
-             and none(s in inspections where s.check == r.check
-                                         and s.recorded_at > r.recorded_at))
-      remedy: dependent
-    photo_attached:
-      says:   A photo is attached.
-      when:   inputs.photo is given
+  ServiceJob:
+    description: A job an engineer performs on a robot.
+    tracking: record
 
-  fields:
-    engineer: { ref: User, assignee: true }
-    photo:    file?
+    attributes:
+      engineer: { reference: User, assignee: true }
+      photo:    { type: file, optional: true }
 
-  records:
-    inspections:
-      kind: InspectionResult
-      says: One inspection result for the job.
-      fields:
-        check:   InspectionCheck
-        outcome: CheckOutcome
-        value:
-          type: decimal(10,3)?
-          unit: V
-        note:    string?
-      late_by_up_to: 7 days
-      invariants:
-        in_range:
-          says: A reading, where there is one, is between 0 and 60 V.
-          when: value is null or (value >= 0.0 and value <= 60.0)
+    observations:
+      inspections:
+        kind: InspectionResult
+        description: One inspection result for the job.
+        attributes:
+          check:   { reference: InspectionCheck }
+          outcome: { type: CheckOutcome }
+          value:   { type: "decimal(10,3)", optional: true, unit: V }
+          note:    { type: string, optional: true }
+        max_recording_delay: 7 days
+        invariants:
+          value_in_range:
+            description: A voltage reading, where present, is between 0 and 60 V.
+            expression: value is null or (value >= 0.0 and value <= 60.0)
 
-  measures:
-    time_working: { median time in: WORKING, by: [engineer, month], flag slow: over 10 days }
+    states:
+      OPEN:    { category: inbound }
+      WORKING: { category: live }
+      DONE:    { category: closed, terminal: true }
+
+    conditions:
+      engineer_active:
+        description: The engineer being assigned is active.
+        expression: inputs.engineer.state == User.ACTIVE
+        remedy: self_serviceable
+      no_unresolved_failure:
+        description: Every failed inspection has a later inspection of the same checklist entry.
+        expression: >-
+          none(r in inspections where r.outcome == CheckOutcome.FAIL
+               and none(s in inspections where s.check == r.check
+                                           and s.recorded_at > r.recorded_at))
+        remedy: dependent
+      photo_attached:
+        description: A photo is attached.
+        expression: inputs.photo is not null
+        remedy: self_serviceable
+
+    transitions:
+      open:
+        kind: creation
+        to: OPEN
+        required_inputs: [engineer]
+        guards:
+          engineer_active: enforced
+      reassign:
+        kind: action
+        from: [OPEN, WORKING]
+        required_inputs: [engineer]
+        guards:
+          engineer_active: enforced
+      start:
+        kind: state_change
+        from: OPEN
+        to: WORKING
+        backdating_limit: 2 days
+      finish:
+        kind: state_change
+        from: WORKING
+        to: DONE
+        optional_inputs: [photo]
+        guards:
+          no_unresolved_failure: enforced
+          photo_attached: observed
+
+    metrics:
+      time_working:
+        description: Median time jobs spend in WORKING.
+        measure: median_time_in_state
+        state: WORKING
+        group_by: [engineer, month]
+        flag_when: { slow: "value > 10 days" }
