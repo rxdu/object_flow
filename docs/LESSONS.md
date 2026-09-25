@@ -200,3 +200,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Where the design infers a clause that keeps back part of what the author asked for, put it to the author as a question with its consequence, before writing it into a requirement and building on it. Marking it Inferred records the doubt but does not resolve it.
 - **Context:** ObjectFlow's PRD and every decision that narrows or widens the author's stated boundary.
 
+
+### A cutoff that judges saved input is read from the clock, not estimated
+
+- **Pattern:** The walkthrough page counts a reviewer's verdict only if it was saved after `REVISED`, the time its content last changed. Twice on 2026-09-25 the cutoff was set to a round time estimated ahead of the publish (08:05Z published at 08:01Z, then 09:00Z published at about 08:15Z), so any verdict saved between the publish and the cutoff would have been shown as belonging to an earlier version and not counted. Neither discarded a mark, because none was saved in the window; the second was found only when the next cutoff was about to be estimated the same way.
+- **Correction:** Take the cutoff from `date -u` just before the build, and check the saved verdicts before publishing, so a mark made against the version being replaced is known.
+- **Context:** Published pages that compare stored timestamps against a revision time: the walkthrough's verdicts, and anything else that marks input stale.
