@@ -277,7 +277,7 @@ def check_counts(maxcheck):
         ("TODO.md", r"checker clean, (\S+) of (\S+) checks enforced", (enforced, maxcheck)),
         ("docs/design/publish-and-import.md", r"The (\S+) checks of the syntax document", (maxcheck,)),
         ("docs/design/declaration-syntax.md", r"\*\*(\S+) of the (\S+) are implemented today\*\*", (enforced, maxcheck)),
-        ("docs/design/defects.md", r"(\S+) are open —", (open_,)),
+        ("docs/design/defects.md", r"(\S+) (?:is|are) open(?:,| —)", (open_,)),
     ]
     for rel, pat, expect in want:
         text = (ROOT / rel).read_text()
