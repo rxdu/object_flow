@@ -392,6 +392,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D378](#d378) | A type's printed rules did not show a cascade declared on another type | Resolved by ADR-0108 |
 | [D379](#d379) | Nothing recorded a unit's manufacturer serial or photos after its creation | Resolved by ADR-0109 |
 | [D380](#d380) | Check 19 ignored a bare state compared with the object's own state | Resolved by ADR-0109 |
+| [D381](#d381) | Nothing stopped two engine releases from serving one store | Resolved by ADR-0110 |
+| [D382](#d382) | Nothing said how a new engine release is installed over an existing store | Resolved by ADR-0110 |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -2533,3 +2535,17 @@ The author accepted the recommendation to state a condition of a state as an inv
 **Check 19 ignored a bare state compared with the object's own state.** It resolved `<Type>.<STATE>` literals only, so `state != AVAILABL` in an invariant passed as clean. Found by planting that misspelling in the journey's new invariant `labelled`.
 
 **Resolved by ADR-0109**, 2026-09-24: check 19 also resolves a bare state compared with `state` inside a type or machine, against that type's states or its machine's, proven by a fixture; the planted misspelling is now reported.
+
+## Found comparing an embedded library with a service, 2026-09-25
+
+Asked whether to implement the engine in C++ or Rust with bindings, the author compared deploying it as a library embedded in each host with deploying it as a service. Asking what each shape needs of an engine upgrade found these, which hold for either shape.
+
+### D381
+**Nothing stopped two engine releases from serving one store.** DESIGN §5.9 makes the meaning of the language the engine's — what `.completes` marks, how a percentile is computed — and computes a metric on read under it, so two copies of different releases, two embedded hosts or two replicas mid-deploy, could give two readers different values from one definition, which PRD C2 forbids. The record pinned the built-in module per declaration version and attributed version 0 to the release that created the store, and said nothing of which release may serve it afterwards. Found by searching the record for how releases are handled.
+
+**Resolved by ADR-0110**, 2026-09-25: the store records the release it is at in `of_engine_release`, every request reads it in its transaction, and a core of any other release raises `EngineMismatch`.
+
+### D382
+**Nothing said how a new engine release is installed over an existing store.** Creating a store installs version 0 and its built-in tables, and nothing described what a later release does to them or who runs it. Found with D381.
+
+**Resolved by ADR-0110**, 2026-09-25: installing a release is an explicit, recorded step, attributed to the release like the store's creation, and only a core of the release the store records may serve it; what each release migrates is its own work, and the step's specification is in `TODO.md`.

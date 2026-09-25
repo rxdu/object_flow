@@ -2,11 +2,11 @@
 
 Governed flows for business objects. People and agents move objects only along declared transitions; every change is checked, recorded and measured.
 
-> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax deployments write their flows in, 109 decisions, and a register of 380 findings, 380 closed and 0 open — together with the checkers that verify the record against itself.
+> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax deployments write their flows in, 110 decisions, and a register of 382 findings, 382 closed and 0 open — together with the checkers that verify the record against itself.
 >
-> [`docs/PRD.md`](docs/PRD.md), at revision 7, states the product's requirements and is the baseline every design choice is checked against. [`docs/design/traceability.md`](docs/design/traceability.md) shows each requirement met, with one exception: C5's target is left by the PRD to measurement.
+> [`docs/PRD.md`](docs/PRD.md), at revision 8, states the product's requirements and is the baseline every design choice is checked against. [`docs/design/traceability.md`](docs/design/traceability.md) shows each requirement met, with one exception: C5's target is left by the PRD to measurement.
 >
-> - **Accepted by the author:** ADR-0081 to ADR-0096, ADR-0104, the engine as the governed core, ADR-0107, the name ObjectFlow, which supersedes ADR-0011, and ADR-0108, cascades declared clearly enough not to surprise, whose principle is the author's and whose mechanism was written at the author's direction, and ADR-0109, a state's conditions as invariants, decided at the author's direction.
+> - **Accepted by the author:** ADR-0081 to ADR-0096, ADR-0104, the engine as the governed core, ADR-0107, the name ObjectFlow, which supersedes ADR-0011, and ADR-0108, cascades declared clearly enough not to surprise, whose principle is the author's and whose mechanism was written at the author's direction, ADR-0109, a state's conditions as invariants, decided at the author's direction, and ADR-0110, the engine as an internal service with authentication upstream and actor kinds declared.
 > - **Decided at the author's direction, awaiting the author's own acceptance:** ADR-0097 to ADR-0101, ADR-0103, and ADR-0105 and ADR-0106, from a review of the whole record against PRD revision 5 on 2026-09-24.
 > - **Proposed:** ADR-0102, which writes the unit's whole journey from production ([`docs/design/unit-journey.md`](docs/design/unit-journey.md)).
 > - **Ruled on by the author:** ADR-0065 to ADR-0073.
@@ -54,7 +54,7 @@ A practical consequence, measured rather than asserted. In the first consumer, 4
 
 | Document | Contents |
 |---|---|
-| [`docs/PRD.md`](docs/PRD.md) | What the product must do: requirements, the use cases every design is tested against, and what they change in the current design. The baseline every design choice is checked against: revision 7, 2026-09-24, its Inferred rows and the two questions of its §10 open to the author |
+| [`docs/PRD.md`](docs/PRD.md) | What the product must do: requirements, the use cases every design is tested against, and what they change in the current design. The baseline every design choice is checked against: revision 8, 2026-09-25, its Inferred rows and the two questions of its §10 open to the author |
 | [`docs/design/data-driven-engine.md`](docs/design/data-driven-engine.md) | The design evaluation: each question's options tested against the PRD's use cases, and why ADR-0081 to ADR-0086 chose as they did |
 | [`docs/design/traceability.md`](docs/design/traceability.md) | Every PRD requirement and use case, with the sections and decisions that meet it; a checker fails while any is not covered |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Purpose, position in the stack, the model, scope boundaries, known limits |

@@ -26,7 +26,7 @@ A flow changes only through a **`DeclarationChange`**, a built-in type with a de
 
 A publish either installs a version or installs nothing.
 
-1. **Parse and check.** The sixty-one checks of the syntax document §10. Any failure and the publish is refused with all of them, not the first.
+1. **Parse and check.** The sixty-two checks of the syntax document §10. Any failure and the publish is refused with all of them, not the first.
 2. **Compare with the installed version.** What changed, and whether each change needs a mapping.
 3. **Read the live objects.** Which violate a new invariant, which are in a removed state, which each mapping will rewrite, which pending proposals the change would invalidate, which would gain or lose an available transition under the new guards, which a clause the change stops observing would now refuse, which lack a new required attribute with no `backfill`, and which hold a removed enum member with no mapping (ADR-0097, ADR-0099). **Apply every mapping in simulation** and evaluate every invariant over the objects it writes, as a request's step 7 does, reporting each violation with its objects as a decision, and whether an `admit` in the change covers it (ADR-0105). Name every other open change the publish would supersede. The report keeps the ids of each.
 4. **Report.** Everything above, whether or not it is fatal.

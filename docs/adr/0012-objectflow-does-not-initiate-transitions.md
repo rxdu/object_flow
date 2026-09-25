@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0019 — auto-fill on receipt is a declared cascade of the batch commit the caller requested, not a trigger; ADR-0022 — time-driven transitions are ordinary guarded transitions that a scheduler above requests, using the availability query. The decision here is unchanged. ADR-0100 — maintenance is an operation a deployment calls when it chooses and correctness never waits on, and the first consumer's cutover adds a scheduler before any type with time-driven transitions migrates. ADR-0108 — the author confirmed on 2026-09-24 that a declared cascade of a request is on the permitted side of this decision, provided it is declared clearly enough not to surprise.
+- **Refined by:** ADR-0019 — auto-fill on receipt is a declared cascade of the batch commit the caller requested, not a trigger; ADR-0022 — time-driven transitions are ordinary guarded transitions that a scheduler above requests, using the availability query. The decision here is unchanged. ADR-0100 — maintenance is an operation a deployment calls when it chooses and correctness never waits on, and the first consumer's cutover adds a scheduler before any type with time-driven transitions migrates. ADR-0108 — the author confirmed on 2026-09-24 that a declared cascade of a request is on the permitted side of this decision, provided it is declared clearly enough not to surprise. ADR-0110 — the library is deployed as an internal service, and nothing embeds it.
 
 ## Context
 
@@ -36,7 +36,7 @@ Rejected as a consequence of the decision above, but at a real cost, recorded un
 
 ## Consequences
 
-- **The core is library-shaped.** No scheduler, no durable timers, no recovery-after-downtime semantics for the core. It embeds in a process or is wrapped in a service, per deployment.
+- **The core is library-shaped.** No scheduler, no durable timers, no recovery-after-downtime semantics for the core. It embeds in a process or is wrapped in a service, per deployment. *(Refined 2026-09-25 by ADR-0110: the core stays a library, deployed as an internal service that every caller reaches through one interface; no caller embeds it.)*
 - **Deterministic and testable without infrastructure.** A call goes in, guards evaluate, a transition and a record come out. No background work means no ordering surprises and no unexplained overnight state changes.
 - **The read path becomes load-bearing.** Detecting that nothing happened is still real operational work; it moves upstairs, and the upper layer needs queries such as "which cases are in `awaiting_customer` and have not moved in four hours". That capability is now required, not optional. *Provided by ADR-0022's availability query and ADR-0037's read surface.*
 - ~~**ADR-0010's property acquires an exception.**~~ *Superseded by ADR-0022: the timing rule is the guard itself (`end_date <= now`), declared on the type and inspectable; only the act of asking moves upstairs. No exception to ADR-0010 remains.*

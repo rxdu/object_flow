@@ -723,6 +723,20 @@ def data_checks(decls, by_name, text):
                 if len(ids) != 1:
                     add(59, f"{d.name}.{rn} is an assignee; {tgt.name} marks {len(ids)} actor identities, not one", rln)
 
+    # 62 — an actor identity names its kind, and a type holds one kind of actor (ADR-0110)
+    for d in decls:
+        marked = []
+        for an, (spec, aln) in d.attrs.items():
+            toks = spec.split()
+            if not toks or toks[0].rstrip("?") != "identity" or "actor" not in toks[1:]:
+                continue
+            marked.append(an)
+            nxt = toks[toks.index("actor") + 1] if toks.index("actor") + 1 < len(toks) else None
+            if nxt not in ("human", "agent", "service"):
+                add(62, f"{d.name}.{an} is an actor identity with no kind of human, agent or service", aln)
+        if len(marked) > 1:
+            add(62, f"{d.name} marks {len(marked)} actor identities; a type holds one kind of actor, named once", d.start)
+
     # 60 — erasure follows the supersession chain (ADR-0087)
     superseded = set()
     for x in everything:
@@ -845,6 +859,7 @@ FIXTURES = {
   57: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } {\n  input reason : string\n  require may: actor.has(Q) observe because delegable\n }\n}",
   58: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D backdatable within 2 months { }\n}",
   59: "type U version 1 {\n tracking record\n states S category live, D category closed terminal\n attr login identity\n create mk -> S accepts login { }\n do go S -> D { }\n}\ntype A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref who : U assignee\n create mk -> S accepts who { }\n do go S -> D { }\n}",
+  62: "type U version 1 {\n tracking record\n states S category live, D category closed terminal\n attr login identity actor unique\n create mk -> S accepts login { }\n do go S -> D { }\n}",
   60: "type A version 1 {\n tracking serial\n states S category live, M category closed superseding terminal, D category closed terminal\n attr email string? personal\n create mk -> S { }\n do merge S -> M {\n  input old : A\n  supersede inputs.old\n }\n do go S -> D { }\n}",
   61: "evaluator ev version 1 { … }\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T only via A.go {\n  input amount : int\n  require ok: ev.check(inputs.amount)\n }\n do take T -> U { }\n}\ntype A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr total int?\n create mk -> S { }\n do go S -> D {\n  set total := 1\n  create B.mk2(amount := total)\n }\n}",
 }
@@ -946,7 +961,8 @@ MUTATIONS = [
   (58, "time_in of a member", "require mine: engineer.login == actor.id because delegable\n  }\n  do finish",
        "require mine: engineer.login == actor.id because delegable\n    require slow: time_in(photo) > 1 h\n"
        "  }\n  do finish"),
-  (59, "assignee target with no actor", "attr     login identity actor unique", "attr     login identity unique"),
+  (59, "assignee target with no actor", "attr     login identity actor human unique", "attr     login identity unique"),
+  (62, "actor identity with no kind", "attr     login identity actor human unique", "attr     login identity actor unique"),
   (59, "set-valued assignee", "ref      engineer : User assignee", "ref      engineer : User[] assignee"),
 ]
 

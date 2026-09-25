@@ -2,6 +2,8 @@
 
 Draft, 2026-09-09, amended 2026-09-23. The request and verdict shapes of [`../DESIGN.md`](../DESIGN.md) §6 and the read surface of §10, as one interface a program calls. Transport bindings come after and are not here.
 
+**Amended 2026-09-25** for ADR-0110: the engine is deployed as an internal service, which exposes these operations one-to-one; the actor descriptor carries no kind, which the store takes from the declared type holding the actor, and an actor who is not live is refused as `actor_live`; `EngineMismatch` joins the faults.
+
 **What is verified.** The Python below executes, and `scripts/check-api-doc.py` compares the operations it offers against the read surface DESIGN.md §10 declares, so the two cannot drift apart silently. It is **not** typechecked — there is no mypy in the environment this was written in, and the annotations are therefore reviewed and not proven.
 
 **Amended 2026-09-23** for ADR-0082 to ADR-0094: `metric`, `diagnostics` and `export`; `publish` of a `DeclarationChange`; the settled cursor for `pull` and `acknowledge`; the read set, writing transaction, occurred time and retry count on an event; the attempt and interval shapes; `Unsatisfied` naming what its remedy points at, and `Stale` its cause; and the injected dependencies, including the connection source.
@@ -16,7 +18,7 @@ Draft, 2026-09-09, amended 2026-09-23. The request and verdict shapes of [`../DE
 
 The core is library-shaped: a call goes in, guards evaluate, a transition and its record come out (§2 of the model). The first consumer is a FastAPI and SQLAlchemy system being rebuilt on this, so a Python interface is the one that will be exercised first and is the one written here.
 
-That is a **binding**, not the design. The operations, their arguments and their results are the API; the dataclasses are one rendering of it. A second binding should offer the same nineteen operations with the same meanings, and the checker's comparison against §10 is written against the operation set rather than against Python.
+Since ADR-0110 this interface is what the engine's internal service exposes, one-to-one, and what the adversarial harness drives; callers in other languages reach it through the service, not through bindings. That is a **binding**, not the design. The operations, their arguments and their results are the API; the dataclasses are one rendering of it. A second binding should offer the same nineteen operations with the same meanings, and the checker's comparison against §10 is written against the operation set rather than against Python.
 
 ## 2. Three rules the shapes follow
 
@@ -48,11 +50,13 @@ class ActorKind(Enum):
 
 @dataclass(frozen=True)
 class Actor:
-    """Produced by the deployment's authentication. The store validates its
-    shape, never its truth (ADR-0025)."""
+    """Produced by the upper layer's authentication, which also maps its roles to
+    these capabilities. The store validates its shape, never its truth
+    (ADR-0025), and carries no kind: it resolves `id` to the live object holding
+    that actor identity and takes the kind that object's type declares, refusing
+    an actor who is not live as `actor_live` (ADR-0110)."""
 
     id: str
-    kind: ActorKind
     capabilities: frozenset[str]
     principal: str | None = None
 
@@ -600,7 +604,7 @@ Three of them are worth reading twice.
 
 ## 7. What is an exception
 
-Everything in §4 is a value. These are the five things that raise, and the list is closed so that a second binding cannot differ on it.
+Everything in §4 is a value. These are the six things that raise, and the list is closed so that a second binding cannot differ on it.
 
 | Raised | When |
 |---|---|
@@ -608,6 +612,7 @@ Everything in §4 is a value. These are the five things that raise, and the list
 | `UnknownTransition` | the named transition does not exist on that type in the current version. Not a verdict, because a verdict answers "may I", and this is "there is no such thing" |
 | `StorageUnavailable` | the database is unreachable, or a transaction failed for a reason that is neither a serialisation conflict nor, on SQLite, a busy timeout. Both of those are retried and then become `stale`, which is a verdict (ADR-0090) |
 | `SchemaMismatch` | the installed declaration and the tables disagree, which means a publish did not complete |
+| `EngineMismatch` | the store records a different engine release from this core's: an upgrade has run, or is due, and this copy of the service must be replaced. Every request reads the release in its transaction, so no two releases serve one store at once (ADR-0110) |
 | `KeyReused` | this actor applied the idempotency key before, to a different request. A retry is the same request, so a different body under a used key is a defect in the caller's key generation, and neither replaying the other request's result nor applying this one under its key would be honest (ADR-0077) |
 
 Note what is not there. An unknown object id is `NotFound`, an invisible one is also `NotFound`, and a malformed input is `Unsatisfied` on the guard that reads it. Those are answers about the domain and the caller must handle them, so they are values. `UnknownTransition` and `KeyReused` are faults, and each is also recorded in the attempt log, since both are mistakes a caller makes (ADR-0083).

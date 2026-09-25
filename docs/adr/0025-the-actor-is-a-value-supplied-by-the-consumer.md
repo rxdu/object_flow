@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0079 — the descriptor has no free-form attributes; a fact about an actor is a capability or an object.
+- **Refined by:** ADR-0079 — the descriptor has no free-form attributes; a fact about an actor is a capability or an object. ADR-0110 — the upper layer produces the descriptor, with capabilities mapped from its roles; it carries no kind, which is declared with the type holding the actor, and an actor who is not live is refused.
 
 ## Context
 

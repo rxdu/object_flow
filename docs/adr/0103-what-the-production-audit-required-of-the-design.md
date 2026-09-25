@@ -3,6 +3,7 @@
 - **Status:** Accepted — decided 2026-09-24 at the author's direction ("review the design against the PRD again with the updated example walkthrough … ensure the design can fully satisfy what we want to achieve"), against `docs/PRD.md` §2, §8, F1, F3, D5, D12, C1, C3, T2, T3, T5, N1, N2, N5 and UC-6, UC-12; repairs D275 to D279 and D282 to D288
 - **Date:** 2026-09-24
 - **Refines:** ADR-0014, ADR-0022, ADR-0029, ADR-0041, ADR-0047, ADR-0072, ADR-0100, ADR-0101
+- **Refined by:** ADR-0110 — `requests by <kind>` reads the kind the actor's type declares, never one a request claims.
 - **Amends:** ADR-0102, in place, since it is still proposed
 
 ## Context

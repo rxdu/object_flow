@@ -49,7 +49,7 @@ The core has no delivery worker, no endpoint and no delivery errors. A deploymen
 
 `Subscription` keeps its filter, its lag thresholds and its lifecycle. It loses `endpoint` and `deliver_as`, and its runtime position loses `last_error` and `last_error_at`.
 
-A deployment becomes a service by exposing the API over a transport (ADR-0037), and in no other way.
+A deployment becomes a service by exposing the API over a transport (ADR-0037), and in no other way. *(Since ADR-0110, 2026-09-25, the internal service is the deployment, and no caller embeds the core.)*
 
 **Order.** `pull` returns events in settled-cursor order, `(transaction, position)`. Per-object order survives that ordering because a later writer of an object commits in a later transaction (`storage-schema.md` §7, ADR-0089). A reader that acknowledges only what it has handled therefore meets L6's "at least once and in order for each object".
 

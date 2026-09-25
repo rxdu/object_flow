@@ -3,6 +3,7 @@
 - **Status:** Accepted — decided 2026-09-09 at the author's direction ("rule on D194"), with the recommendation and its evidence below; pending author review
 - **Date:** 2026-09-09
 - **Refines:** ADR-0069, ADR-0075
+- **Refined by:** ADR-0110 — where a deployment's user system owns its roles, `User` is externally owned this way and kept in step by a sync.
 
 ## Context
 

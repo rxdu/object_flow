@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-09 at the author's direction ("rule on D193"), with the recommendation and its evidence below; pending author review
 - **Date:** 2026-09-09
+- **Refined by:** ADR-0110 — the descriptor carries no kind, which is declared with the type holding the actor.
 - **Refines:** ADR-0025, ADR-0030, ADR-0036
 
 ## Context
@@ -12,7 +13,7 @@ Evidence from the first consumer. Its authority model is a role plus a per-key p
 
 ## Decision
 
-The descriptor is `id`, `kind`, optional `principal`, and `capabilities`. **It has no attributes.** The field is removed rather than kept unreadable: it was unvalidated, unrecorded (the log stores id, kind and principal), and an invitation to exactly the reading ADR-0036 made.
+The descriptor is `id`, `kind`, optional `principal`, and `capabilities`. *(Since ADR-0110, 2026-09-25, it carries no `kind`: the kind is declared with the type holding the actor, and the engine takes it from there.)* **It has no attributes.** The field is removed rather than kept unreadable: it was unvalidated, unrecorded (the log stores id, kind and principal), and an invitation to exactly the reading ADR-0036 made.
 
 A fact about an actor is expressed one of two ways:
 

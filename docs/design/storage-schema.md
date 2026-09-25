@@ -13,6 +13,8 @@ Draft, 2026-09-09, amended 2026-09-23. How a published declaration becomes table
 
 **Amended 2026-09-24** for ADR-0103: the idempotency prune, and an import raising a sequence past the legacy system's last value.
 
+**Amended 2026-09-25** for ADR-0110: `of_engine_release`, the release a store is at and every upgrade, and `of_actor`, every actor by the identity a request names.
+
 **Amended 2026-09-24** for ADR-0105 and ADR-0106, from a review of the whole record against PRD revision 5:
 - a subscription names its reader and has no endpoint, since the core posts nothing;
 - `state_source` loses `migrated`, and `of_migration` gains `admit`;
@@ -399,6 +401,28 @@ CREATE TABLE of_declaration (
   change_id     TEXT,               -- the DeclarationChange it installed (ADR-0085); none for 0
   report        TEXT    NOT NULL    -- what publishing reported, kept for audit; for version 0,
                                     -- the built-in module's own check report
+);
+
+-- The engine releases this store has been at: the one that created it, then one
+-- row per explicit upgrade (ADR-0110). Every request reads the last row in its
+-- transaction, and a core of any other release refuses, so two releases never
+-- serve one store at once.
+CREATE TABLE of_engine_release (
+  seq           INTEGER PRIMARY KEY,  -- 1 when the store is created, one more per upgrade
+  release       TEXT    NOT NULL,     -- the release whose tables and meanings apply
+  installed_at  TEXT    NOT NULL
+);
+
+-- Every actor, by the identity a request names (ADR-0110): the object that holds
+-- it and the kind its type declares. Written in the same transaction as the actor
+-- attribute, so resolving a request's actor is one lookup, and an identity names
+-- one actor across every type that holds actors and is never reused. Whether the
+-- actor is live is its object's current state.
+CREATE TABLE of_actor (
+  actor_id    TEXT PRIMARY KEY,
+  object_id   TEXT NOT NULL,
+  type_name   TEXT NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('human', 'agent', 'service'))
 );
 
 -- Migration mappings carried by a publish: what it does to live objects, and
