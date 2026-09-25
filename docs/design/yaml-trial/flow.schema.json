@@ -2,8 +2,9 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "objectflow-flow-trial",
   "title": "An ObjectFlow module, written as structured YAML (trial, authoring-flows.md §3)",
+  "description": "A module names itself, may use types of other modules and declare shared enums, and declares each type under its own name.",
   "type": "object",
-  "required": ["module", "types"],
+  "required": ["module"],
   "additionalProperties": false,
   "properties": {
     "module": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
@@ -11,28 +12,27 @@
       "type": "object",
       "additionalProperties": {"type": "array", "items": {"$ref": "#/definitions/typeName"}}
     },
-    "categories": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}},
     "enums": {
       "type": "object",
       "propertyNames": {"$ref": "#/definitions/typeName"},
-      "additionalProperties": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/stateName"}}
-    },
-    "types": {
-      "type": "object",
-      "propertyNames": {"$ref": "#/definitions/typeName"},
-      "additionalProperties": {"$ref": "#/definitions/type"}
+      "additionalProperties": {"$ref": "#/definitions/members"}
     }
+  },
+  "patternProperties": {
+    "^[A-Z][A-Za-z0-9]*$": {"$ref": "#/definitions/type"}
   },
   "definitions": {
     "typeName": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
     "stateName": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
     "memberName": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "members": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/stateName"}},
+    "names": {"type": "array", "items": {"$ref": "#/definitions/memberName"}},
     "sentence": {"type": "string", "minLength": 3},
     "duration": {"type": "string", "pattern": "^[0-9]+ (s|min|h|days?|weeks?)$"},
     "expression": {"type": "string", "minLength": 1},
     "type": {
       "type": "object",
-      "required": ["says", "states", "transitions"],
+      "required": ["states", "moves"],
       "additionalProperties": false,
       "properties": {
         "says": {"$ref": "#/definitions/sentence"},
@@ -41,18 +41,13 @@
           "type": "object",
           "minProperties": 1,
           "propertyNames": {"$ref": "#/definitions/stateName"},
-          "additionalProperties": {"type": "string", "pattern": "^[a-z][a-z0-9_]*(, (terminal|superseding))*$"}
+          "additionalProperties": {"$ref": "#/definitions/state"}
         },
-        "fields": {
-          "type": "object",
-          "propertyNames": {"$ref": "#/definitions/memberName"},
-          "additionalProperties": {"$ref": "#/definitions/field"}
-        },
-        "transitions": {
+        "moves": {
           "type": "object",
           "minProperties": 1,
           "propertyNames": {"$ref": "#/definitions/memberName"},
-          "additionalProperties": {"$ref": "#/definitions/transition"}
+          "additionalProperties": {"$ref": "#/definitions/move"}
         },
         "rules": {
           "type": "object",
@@ -63,6 +58,11 @@
           "type": "object",
           "propertyNames": {"$ref": "#/definitions/memberName"},
           "additionalProperties": {"$ref": "#/definitions/rule"}
+        },
+        "fields": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/definitions/memberName"},
+          "additionalProperties": {"$ref": "#/definitions/field"}
         },
         "records": {
           "type": "object",
@@ -76,6 +76,36 @@
         }
       }
     },
+    "state": {
+      "type": "object",
+      "required": ["category"],
+      "additionalProperties": false,
+      "properties": {
+        "category": {"$ref": "#/definitions/memberName"},
+        "holds": {"$ref": "#/definitions/names"},
+        "final": {"type": "boolean"}
+      }
+    },
+    "move": {
+      "type": "object",
+      "required": ["move"],
+      "additionalProperties": false,
+      "properties": {
+        "move": {"type": "string", "description": "'-> A', 'A -> B', 'A, B -> C' or 'stays in A, B'"},
+        "takes": {"$ref": "#/definitions/names"},
+        "may take": {"$ref": "#/definitions/names"},
+        "checks": {"$ref": "#/definitions/names"},
+        "trial": {"$ref": "#/definitions/names"},
+        "flags": {"$ref": "#/definitions/names"},
+        "copies": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/definitions/memberName"},
+          "additionalProperties": {"$ref": "#/definitions/memberName"}
+        },
+        "clears": {"$ref": "#/definitions/names"},
+        "backdatable": {"$ref": "#/definitions/duration"}
+      }
+    },
     "field": {
       "oneOf": [
         {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\([A-Za-z0-9, ]+\\))?\\??(\\[\\])?$"},
@@ -85,6 +115,7 @@
           "properties": {
             "type": {"type": "string"},
             "ref": {"type": "string"},
+            "one of": {"$ref": "#/definitions/members"},
             "optional": {"type": "boolean"},
             "actor": {"enum": ["human", "agent", "service"]},
             "unique": {"type": "boolean"},
@@ -93,29 +124,8 @@
             "assignee": {"type": "boolean"},
             "unit": {"type": "string"}
           },
-          "oneOf": [{"required": ["type"]}, {"required": ["ref"]}]
+          "oneOf": [{"required": ["type"]}, {"required": ["ref"]}, {"required": ["one of"]}]
         }
-      ]
-    },
-    "transition": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "from": {"oneOf": [{"$ref": "#/definitions/stateName"}, {"type": "array", "items": {"$ref": "#/definitions/stateName"}}]},
-        "to": {"$ref": "#/definitions/stateName"},
-        "at": {"oneOf": [{"$ref": "#/definitions/stateName"}, {"type": "array", "items": {"$ref": "#/definitions/stateName"}}]},
-        "accepts": {"type": "array", "items": {"$ref": "#/definitions/memberName"}},
-        "inputs": {"type": "object", "additionalProperties": {"type": "string"}},
-        "requires": {"type": "array", "items": {"$ref": "#/definitions/memberName"}},
-        "on_trial": {"type": "array", "items": {"$ref": "#/definitions/memberName"}},
-        "flags": {"type": "array", "items": {"$ref": "#/definitions/memberName"}},
-        "backdatable": {"$ref": "#/definitions/duration"},
-        "then": {"type": "array", "items": {"type": "string"}}
-      },
-      "oneOf": [
-        {"required": ["to"], "not": {"anyOf": [{"required": ["from"]}, {"required": ["at"]}]}},
-        {"required": ["from", "to"], "not": {"required": ["at"]}},
-        {"required": ["at"], "not": {"anyOf": [{"required": ["from"]}, {"required": ["to"]}]}}
       ]
     },
     "rule": {
@@ -149,17 +159,45 @@
       }
     },
     "measure": {
-      "type": "object",
-      "required": ["says", "from", "value"],
-      "additionalProperties": false,
-      "properties": {
-        "says": {"$ref": "#/definitions/sentence"},
-        "from": {"$ref": "#/definitions/expression"},
-        "by": {"type": "object", "additionalProperties": {"$ref": "#/definitions/expression"}},
-        "window": {"$ref": "#/definitions/expression"},
-        "value": {"$ref": "#/definitions/expression"},
-        "flags": {"type": "object", "additionalProperties": {"$ref": "#/definitions/expression"}}
-      }
-    }
+      "description": "Either a short form, naming the state it times or the move it counts, or the long form in the expression language.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["median time in"],
+          "additionalProperties": false,
+          "properties": {
+            "says": {"$ref": "#/definitions/sentence"},
+            "median time in": {"$ref": "#/definitions/stateName"},
+            "by": {"$ref": "#/definitions/names"}
+          },
+          "patternProperties": {"^flag [a-z][a-z0-9_]*$": {"$ref": "#/definitions/threshold"}}
+        },
+        {
+          "type": "object",
+          "required": ["count of"],
+          "additionalProperties": false,
+          "properties": {
+            "says": {"$ref": "#/definitions/sentence"},
+            "count of": {"$ref": "#/definitions/memberName"},
+            "by": {"$ref": "#/definitions/names"}
+          },
+          "patternProperties": {"^flag [a-z][a-z0-9_]*$": {"$ref": "#/definitions/threshold"}}
+        },
+        {
+          "type": "object",
+          "required": ["from", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "says": {"$ref": "#/definitions/sentence"},
+            "from": {"$ref": "#/definitions/expression"},
+            "by": {"type": "object", "additionalProperties": {"$ref": "#/definitions/expression"}},
+            "window": {"$ref": "#/definitions/expression"},
+            "value": {"$ref": "#/definitions/expression"},
+            "flags": {"type": "object", "additionalProperties": {"$ref": "#/definitions/expression"}}
+          }
+        }
+      ]
+    },
+    "threshold": {"type": "string", "pattern": "^(over|under) [0-9.]+( (s|min|h|days?|weeks?))?$"}
   }
 }

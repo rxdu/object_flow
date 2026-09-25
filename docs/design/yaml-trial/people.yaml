@@ -1,40 +1,47 @@
 # Who can act, declared once for every workflow.
 # No roles: what a person may do is the team's application's (ADR-0114).
 module: people
-categories: [live, closed]
 
-types:
-  User:
-    says: A person who can act.
-    states:
-      ACTIVE: live
-      LEFT:   closed, terminal
-    fields:
-      login: { type: identity, actor: human, unique: true }
-      name:  string
-    transitions:
-      add:   { to: ACTIVE, accepts: [login, name] }
-      leave: { from: ACTIVE, to: LEFT }
+User:
+  says: A person who can act.
+  states:
+    ACTIVE: { category: live }
+    LEFT:   { category: closed, final: true }
+  moves:
+    add:
+      move:  -> ACTIVE
+      takes: [login, name]
+    leave:
+      move:  ACTIVE -> LEFT
+  fields:
+    login: { type: identity, actor: human, unique: true }
+    name:  string
 
-  Agent:
-    says: An AI agent that can act.
-    states:
-      ACTIVE:  live
-      REVOKED: closed, terminal
-    fields:
-      key_id: { type: identity, actor: agent, unique: true }
-      name:   string
-    transitions:
-      issue:  { to: ACTIVE, accepts: [key_id, name] }
-      revoke: { from: ACTIVE, to: REVOKED }
+Agent:
+  says: An AI agent that can act.
+  states:
+    ACTIVE:  { category: live }
+    REVOKED: { category: closed, final: true }
+  moves:
+    issue:
+      move:  -> ACTIVE
+      takes: [key_id, name]
+    revoke:
+      move:  ACTIVE -> REVOKED
+  fields:
+    key_id: { type: identity, actor: agent, unique: true }
+    name:   string
 
-  Service:
-    says: A system that can act, such as the team's own application.
-    states:
-      ACTIVE:  live
-      RETIRED: closed, terminal
-    fields:
-      name: { type: identity, actor: service, unique: true }
-    transitions:
-      register: { to: ACTIVE, accepts: [name] }
-      retire:   { from: ACTIVE, to: RETIRED }
+Service:
+  says: A system that can act, such as the team's own application.
+  states:
+    ACTIVE:  { category: live }
+    RETIRED: { category: closed, final: true }
+  moves:
+    register:
+      move:  -> ACTIVE
+      takes: [name]
+    retire:
+      move:  ACTIVE -> RETIRED
+  fields:
+    name: { type: identity, actor: service, unique: true }

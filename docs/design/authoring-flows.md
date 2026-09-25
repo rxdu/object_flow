@@ -68,23 +68,36 @@ Whether an agent drafts this language well is empirical. No measurement exists, 
 
 **The author's answer, 2026-09-25.** "I want the specifications to be more structured so that I don't have to try to understand by reading it line by line"; then, of a YAML form with fixed sections, "yes, try YAML on the service flow first". This overturns the recommendation above: the author weighs a structure a reader can scan above the text's compactness.
 
-**The trial**, in [`yaml-trial/`](yaml-trial/), writes three modules as YAML with fixed sections: `people`; `inventory`, one robot from being added to stock until it is retired; and `service`, which adds records and an assignee. The walkthrough uses `inventory` at the author's request. It was first cut to available, sold and development, then judged over-simplified and extended: every unit leaves stock through a reservation, a sale can be reopened or the unit returned, and a unit can come back from development. The two moves back into `RESERVED` are the author's, since production sends both to `AVAILABLE`, and the author confirmed their meanings on 2026-09-25: a reopened sale keeps the unit for the same buyer, and a unit in development can be reserved for a customer. The return to stock, production's `accept_return`, was added at the same time. What the format has:
-- **the sections:** `states`, `fields`, `transitions` (one line each), `rules`, `records` and `measures`;
-- **named rules:** every condition is written once under `rules`, with a `says` sentence for people and a `when` expression for the engine, and a transition lists the rules it `requires`, has `on_trial` or `flags`;
-- **no keywords for transition kinds:** `create`, `do` and `act` follow from the shape, and version numbers are not written.
+**The trial**, in [`yaml-trial/`](yaml-trial/), writes three modules as YAML: `people`; `inventory`, one robot from being added to stock until it is retired; and `service`, which adds records and an assignee. The walkthrough uses `inventory` at the author's request. It was first cut to available, sold and development, then judged over-simplified and extended: every unit leaves stock through a reservation, a sale can be reopened or the unit returned, and a unit can come back from development. The two moves back into `RESERVED` are the author's, since production sends both to `AVAILABLE`, and the author confirmed their meanings on 2026-09-25: a reopened sale keeps the unit for the same buyer, and a unit in development can be reserved for a customer. The return to stock, production's `accept_return`, was added at the same time.
 
-`scripts/check-yaml-trial.py` checks it in four steps:
-1. a strict loader, under which only `true` and `false` are booleans, since YAML 1.1 reads a state named `NO` as false;
+**The shape, as the author chose it on 2026-09-25.** Each type is a top-level key with five sections, in the order a reader matches them against the lifecycle diagram:
+- **`states`**, each with its category, the fields it `holds` and whether it is `final`;
+- **`moves`**, one block per arrow, whose first line is the arrow (`A, B -> C`, `-> A` for a creation, `stays in A, B` for an act), then what the move `takes` and `may take`, the rules it `checks`, has on `trial` or `flags`, and what it `copies` and `clears`;
+- **`rules`**, only those that say more than that an input was given, each with a `says` sentence and a `when` expression;
+- **`fields`**, where a field's values may be listed inline with `one of`, and a rule then names a value bare;
+- **`measures`**, in a short form that names the state it times or the move it counts, with the expression language as the long form.
+
+Each of these is a shorthand the converter expands into the text language, listed in the header of `scripts/check-yaml-trial.py`: `takes` on an optional field generates a rule `<field>_given`, `holds` generates the state's invariant, and `count of` becomes the transitions along the move's arrow. The trial assumes, as questions 4 and 6 note, that version numbers are computed and `tracking` defaults to `record`; it also assumes that a rule's remedy defaults to `self_serviceable`, since most are.
+
+**The first shape, rejected by the author the same day** ("the spec description still doesn't look as clear"). Each transition was one line of inline YAML with `from`, `to`, `accepts`, `requires`, `on_trial` and `then`, and every condition was a named rule, five of the eight only saying that an input was given. The arrow was buried among what the move needed, a reader jumped twenty to forty lines to learn that a rule checked an input, outcomes were strings in a second syntax (`"set sold_to := reserved_for"`), invariants were written as logic (`state != RESERVED or (…)`) where they meant "RESERVED holds these fields", and a measure written as a state test had to be corrected when a second move left the same state.
+
+`scripts/check-yaml-trial.py` checks a module in four steps, and reports every finding at its YAML line:
+1. a strict loader, under which only `true` and `false` are booleans, since YAML 1.1 reads `NO` as false; a file YAML cannot parse is a finding at its line, not a crash;
 2. the JSON Schema `flow.schema.json`, which an editor or an agent can validate against;
-3. names the schema cannot see: every rule a transition lists exists;
+3. what the schema cannot see: every arrow reads and names the type's states; every rule and field a move names exists; no rule is listed twice and every rule is used; every value a rule names, bare or qualified, is a state or an enum member; and every move into a state sets each field the state holds, by taking it, copying it from a field its starting states hold, or finding it held in every starting state;
 4. conversion to the text language, run through every implemented publish check.
 
-Both versions of the inventory and the service flows pass all four. Its self-test plants a misspelt key, a rule nobody declared, a rule that reads who is asking and a state named `NO`, and each is caught by its own step.
+All five modules pass. The self-test plants nine mistakes and each is caught by its own step: a misspelt key, a rule nobody declared, a rule both on trial and a flag, a rule that reads who is asking, an arrow that does not read, a misspelt value in a rule, a move into a state that does not set what the state holds, a `?` inside an inline map, and an enum member `NO`.
+
+**What YAML itself constrains.** Inside an inline list or map, `?` marks a key and a comma separates items, so `[photo?]` and `{ type: decimal(10,3)? }` do not parse. An optional input is therefore a separate `may take` list and an optional enum field says `optional: true`, and a type with a comma or a `?` is written in block form.
+
+**Found by the trial:** step 3's check on values closes, for YAML, a gap the text checker still has: check 19 requires an enum member to resolve and is enforced only in part, so `Condition.DAMAGD` passes it (`TODO.md`).
 
 **Still open after the trial:**
 - whether YAML becomes the written form of every flow, which replaces the text language's surface (its clause and indentation rules and the checks on them) and every example;
-- whether every rule must carry `says` (question 6 below);
-- that version numbers are computed (question 4) and `tracking` defaults to `record`, both of which the trial assumes.
+- whether every rule must carry `says` (question 6 below); the generated `_given` rules carry none;
+- that version numbers are computed (question 4), and that `tracking` and a rule's remedy have defaults, all of which the trial assumes;
+- whether step 3's conservative half should refuse: a move whose starting state does not declare a field the target holds is refused even when the field happens to be kept, so the author declares it or the move copies it.
 
 ## 4. Descriptions that can be validated
 
@@ -126,6 +139,8 @@ This is the first thing in the design that states what was meant and checks the 
 6. **A guard that is always true**, likely a mistake, and a guard implied by the others, harmless but worth a notice.
 7. **Objects waiting on each other**: a transition on A waits for B's state while B's waits for A's.
 
+**Where the trial starts.** Finding 3 has a case that needs no solver, and the YAML trial checks it (§3, step 3): a state declares the fields it `holds`, and a move into it that clears one, or sets it by no route, is refused.
+
 **How.** The language keeps a flow's conditions small: paths of at most two hops, a mandatory bound on every loop and cascade (checks 21, 47), and no cycles among derivations or cascades (checks 3, 12). Most conditions therefore fall in a fragment a constraint solver decides exactly: arithmetic comparisons, enums, booleans and attribute paths. The analysis must model absence, since a guard over a missing value is unknown and refuses (`declaration-syntax.md` §8.2). What falls outside the fragment — a metric's value, an external evaluator's verdict, a count over every object of a type — is reported as **not decided**, never passed as consistent.
 
 **Every finding carries a witness**, such as "with `amount = 750`, neither `approve` nor `reject` can be taken from SUBMITTED". A witness that a transition can fire is an example that can be generated, and a counterexample is a failing example, so this joins §4.
@@ -146,7 +161,7 @@ Answer any subset. The recommendations above are the defaults these would confir
 
 1. **Version control.** Do you mean flows as files in a git repository, with the store recording which commit each version came from (§2, option b)? Or the store's own history?
 2. **The default drafter.** Does it mean a person normally reviews and approves but rarely writes? If so, F1's authorship clause becomes yours, and F6 may move from Should to Must.
-3. **The written form.** *Answered in part, 2026-09-25:* more structured, and YAML is on trial with the service flow (§3). Whether it becomes the written form waits on the author's judgement of the trial.
+3. **The written form.** *Answered in part, 2026-09-25:* more structured, and YAML is on trial (§3); the author rejected its first shape and chose the second, one block per move with the arrow first. Whether YAML becomes the written form waits on the author's judgement of the trial.
 4. **Version numbers.** Are you open to the language dropping hand-written version numbers, subject to the check in §3?
 5. **Automatic validation.** Does it mean deterministic checks that can refuse a publish, with a model's review of prose only advisory (§4)?
 6. **Claims as examples.** Must every claim about behaviour be an example, with prose limited to rationale?
