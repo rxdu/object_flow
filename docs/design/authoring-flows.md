@@ -1,6 +1,6 @@
 # Authoring flows: where they are written, in what form, and how they are checked
 
-Status: **discussion, open**, 2026-09-25. Nothing here is decided. It records a design conversation with the author so that it survives across machines: what the author asked, what the design has today, the options with their trade-offs, a recommendation for each, and the questions only the author can answer. The PRD changes only once the author answers, and each accepted decision then becomes an ADR.
+Status: **discussion, open**, 2026-09-25. Nothing here is decided; question 3 is answered in part and on trial (§3). It records a design conversation with the author so that it survives across machines: what the author asked, what the design has today, the options with their trade-offs, a recommendation for each, and the questions only the author can answer. The PRD changes only once the author answers, and each accepted decision then becomes an ADR.
 
 ## What the author asked
 
@@ -57,7 +57,7 @@ Each item was checked against the document cited.
 - **A structured format, such as YAML or JSON with a schema.** A model produces valid structure reliably against a schema. But guards, invariants, derivations and metrics would stay strings in the expression language, so the hardest part to write is unchanged; review reads worse; and the language's design and checks would be redone.
 - **Two written forms**, the text and a JSON form, converted both ways. The parsed form already exists in `of_declaration`. Accepting both as input creates a round-trip obligation, comments and layout included, and raises which one the repository holds.
 
-**Recommendation.** Keep the text as the only form anyone writes, and expose the parsed form read-only for tools. Then make the text easy to edit by hand and easy to draft for an agent:
+**Recommendation** *(overturned by the author's answer below)*. Keep the text as the only form anyone writes, and expose the parsed form read-only for tools. Then make the text easy to edit by hand and easy to draft for an agent:
 - **a canonical formatter**, so the same change made by a person and by an agent gives the same diff;
 - **version numbers computed at publish rather than written**, since they are the bookkeeping most likely to be got wrong by hand or by an agent. *Not yet verified*: what else reads the per-declaration numbers, beyond check 22 and ADR-0027, ADR-0056 and ADR-0077. That is the first thing to check before proposing it;
 - **a compact language reference for drafters**, separate from the design history and held against the specification by the checker;
@@ -65,6 +65,26 @@ Each item was checked against the document cited.
 - whether continuation by indentation (check 51) stays, or a formatter makes it moot, is a question for the language reference.
 
 Whether an agent drafts this language well is empirical. No measurement exists, and none is assumed here (§6).
+
+**The author's answer, 2026-09-25.** "I want the specifications to be more structured so that I don't have to try to understand by reading it line by line"; then, of a YAML form with fixed sections, "yes, try YAML on the service flow first". This overturns the recommendation above: the author weighs a structure a reader can scan above the text's compactness.
+
+**The trial**, in [`yaml-trial/`](yaml-trial/), writes the walkthrough's `people` and `service` modules as YAML with fixed sections:
+- **the sections:** `states`, `fields`, `transitions` (one line each), `rules`, `records` and `measures`;
+- **named rules:** every condition is written once under `rules`, with a `says` sentence for people and a `when` expression for the engine, and a transition lists the rules it `requires`, has `on_trial` or `flags`;
+- **no keywords for transition kinds:** `create`, `do` and `act` follow from the shape, and version numbers are not written.
+
+`scripts/check-yaml-trial.py` checks it in four steps:
+1. a strict loader, under which only `true` and `false` are booleans, since YAML 1.1 reads a state named `NO` as false;
+2. the JSON Schema `flow.schema.json`, which an editor or an agent can validate against;
+3. names the schema cannot see: every rule a transition lists exists;
+4. conversion to the text language, run through every implemented publish check.
+
+Both versions of the service flow pass all four. Its self-test plants a misspelt key, a rule nobody declared, a rule that reads who is asking and a state named `NO`, and each is caught by its own step.
+
+**Still open after the trial:**
+- whether YAML becomes the written form of every flow, which replaces the text language's surface (its clause and indentation rules and the checks on them) and every example;
+- whether every rule must carry `says` (question 6 below);
+- that version numbers are computed (question 4) and `tracking` defaults to `record`, both of which the trial assumes.
 
 ## 4. Descriptions that can be validated
 
@@ -126,7 +146,7 @@ Answer any subset. The recommendations above are the defaults these would confir
 
 1. **Version control.** Do you mean flows as files in a git repository, with the store recording which commit each version came from (§2, option b)? Or the store's own history?
 2. **The default drafter.** Does it mean a person normally reviews and approves but rarely writes? If so, F1's authorship clause becomes yours, and F6 may move from Should to Must.
-3. **The written form.** The current text language, or were you picturing a structured format such as YAML (§3)?
+3. **The written form.** *Answered in part, 2026-09-25:* more structured, and YAML is on trial with the service flow (§3). Whether it becomes the written form waits on the author's judgement of the trial.
 4. **Version numbers.** Are you open to the language dropping hand-written version numbers, subject to the check in §3?
 5. **Automatic validation.** Does it mean deterministic checks that can refuse a publish, with a model's review of prose only advisory (§4)?
 6. **Claims as examples.** Must every claim about behaviour be an example, with prose limited to rationale?

@@ -1,0 +1,165 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "objectflow-flow-trial",
+  "title": "An ObjectFlow module, written as structured YAML (trial, authoring-flows.md §3)",
+  "type": "object",
+  "required": ["module", "types"],
+  "additionalProperties": false,
+  "properties": {
+    "module": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "uses": {
+      "type": "object",
+      "additionalProperties": {"type": "array", "items": {"$ref": "#/definitions/typeName"}}
+    },
+    "categories": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}},
+    "enums": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/definitions/typeName"},
+      "additionalProperties": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/stateName"}}
+    },
+    "types": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/definitions/typeName"},
+      "additionalProperties": {"$ref": "#/definitions/type"}
+    }
+  },
+  "definitions": {
+    "typeName": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+    "stateName": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+    "memberName": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "sentence": {"type": "string", "minLength": 3},
+    "duration": {"type": "string", "pattern": "^[0-9]+ (s|min|h|days?|weeks?)$"},
+    "expression": {"type": "string", "minLength": 1},
+    "type": {
+      "type": "object",
+      "required": ["says", "states", "transitions"],
+      "additionalProperties": false,
+      "properties": {
+        "says": {"$ref": "#/definitions/sentence"},
+        "tracks": {"enum": ["record", "serial", "quantity"]},
+        "states": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"$ref": "#/definitions/stateName"},
+          "additionalProperties": {"type": "string", "pattern": "^[a-z][a-z0-9_]*(, (terminal|superseding))*$"}
+        },
+        "fields": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/definitions/memberName"},
+          "additionalProperties": {"$ref": "#/definitions/field"}
+        },
+        "transitions": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"$ref": "#/definitions/memberName"},
+          "additionalProperties": {"$ref": "#/definitions/transition"}
+        },
+        "rules": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/definitions/memberName"},
+          "additionalProperties": {"$ref": "#/definitions/rule"}
+        },
+        "invariants": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/definitions/memberName"},
+          "additionalProperties": {"$ref": "#/definitions/rule"}
+        },
+        "records": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/definitions/memberName"},
+          "additionalProperties": {"$ref": "#/definitions/record"}
+        },
+        "measures": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/definitions/memberName"},
+          "additionalProperties": {"$ref": "#/definitions/measure"}
+        }
+      }
+    },
+    "field": {
+      "oneOf": [
+        {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\([0-9, ]+\\))?\\??(\\[\\])?$"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {"type": "string"},
+            "ref": {"type": "string"},
+            "optional": {"type": "boolean"},
+            "actor": {"enum": ["human", "agent", "service"]},
+            "unique": {"type": "boolean"},
+            "indexed": {"type": "boolean"},
+            "personal": {"type": "boolean"},
+            "assignee": {"type": "boolean"},
+            "unit": {"type": "string"}
+          },
+          "oneOf": [{"required": ["type"]}, {"required": ["ref"]}]
+        }
+      ]
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": {"oneOf": [{"$ref": "#/definitions/stateName"}, {"type": "array", "items": {"$ref": "#/definitions/stateName"}}]},
+        "to": {"$ref": "#/definitions/stateName"},
+        "at": {"oneOf": [{"$ref": "#/definitions/stateName"}, {"type": "array", "items": {"$ref": "#/definitions/stateName"}}]},
+        "accepts": {"type": "array", "items": {"$ref": "#/definitions/memberName"}},
+        "inputs": {"type": "object", "additionalProperties": {"type": "string"}},
+        "requires": {"type": "array", "items": {"$ref": "#/definitions/memberName"}},
+        "on_trial": {"type": "array", "items": {"$ref": "#/definitions/memberName"}},
+        "flags": {"type": "array", "items": {"$ref": "#/definitions/memberName"}},
+        "backdatable": {"$ref": "#/definitions/duration"},
+        "then": {"type": "array", "items": {"type": "string"}}
+      },
+      "oneOf": [
+        {"required": ["to"], "not": {"anyOf": [{"required": ["from"]}, {"required": ["at"]}]}},
+        {"required": ["from", "to"], "not": {"required": ["at"]}},
+        {"required": ["at"], "not": {"anyOf": [{"required": ["from"]}, {"required": ["to"]}]}}
+      ]
+    },
+    "rule": {
+      "type": "object",
+      "required": ["says", "when"],
+      "additionalProperties": false,
+      "properties": {
+        "says": {"$ref": "#/definitions/sentence"},
+        "when": {"$ref": "#/definitions/expression"},
+        "remedy": {"enum": ["self_serviceable", "delegable", "temporal", "dependent", "unreachable_from_here"]}
+      }
+    },
+    "record": {
+      "type": "object",
+      "required": ["kind", "says", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"$ref": "#/definitions/typeName"},
+        "says": {"$ref": "#/definitions/sentence"},
+        "fields": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/definitions/memberName"},
+          "additionalProperties": {"$ref": "#/definitions/field"}
+        },
+        "late_by_up_to": {"$ref": "#/definitions/duration"},
+        "invariants": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/definitions/memberName"},
+          "additionalProperties": {"$ref": "#/definitions/rule"}
+        }
+      }
+    },
+    "measure": {
+      "type": "object",
+      "required": ["says", "from", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "says": {"$ref": "#/definitions/sentence"},
+        "from": {"$ref": "#/definitions/expression"},
+        "by": {"type": "object", "additionalProperties": {"$ref": "#/definitions/expression"}},
+        "window": {"$ref": "#/definitions/expression"},
+        "value": {"$ref": "#/definitions/expression"},
+        "flags": {"type": "object", "additionalProperties": {"$ref": "#/definitions/expression"}}
+      }
+    }
+  }
+}
