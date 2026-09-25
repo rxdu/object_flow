@@ -9,7 +9,7 @@ enums:
 
 types:
   InventoryItem:
-    says: One robot in stock, from the day it is added until it is retired. Every unit leaves stock through a reservation, a sale can be reopened, and a unit can come back from development.
+    says: One robot in stock, from the day it is added until it is retired. Every unit leaves stock through a reservation; a sale can be reopened for the same buyer or the unit returned to stock, and a unit can come back from development.
     states:
       AVAILABLE:   live
       RESERVED:    live
@@ -40,6 +40,8 @@ types:
                          then: ["set sold_to := reserved_for"] }
       reopen:          { from: SOLD, to: RESERVED, accepts: [reserved_until], requires: [ends_later],
                          then: [clear sold_to, clear sale_price] }
+      accept_return:   { from: SOLD, to: AVAILABLE, accepts: [condition], requires: [graded],
+                         then: [clear sold_to, clear sale_price, clear reserved_for, clear reserved_until] }
       to_development:  { from: RESERVED, to: DEVELOPMENT, accepts: [use], requires: [use_given],
                          then: [clear reserved_for, clear reserved_until] }
       return_to_stock: { from: DEVELOPMENT, to: AVAILABLE, accepts: [condition], requires: [graded],
@@ -76,7 +78,7 @@ types:
         when: inputs.use is not null
         remedy: self_serviceable
       graded:
-        says: A unit back from development is graded before it is offered again.
+        says: A unit that comes back, returned or from development, is graded before it is offered again.
         when: inputs.condition is not null
         remedy: self_serviceable
       reason_given:
@@ -107,8 +109,14 @@ types:
         window: t.occurred_at
         value:  count()
       reopened:
-        says: Sales reopened, per month.
-        from:   t in InventoryItem.transitions where t.from_state == InventoryItem.SOLD
+        says: Sales reopened for the same buyer, per month.
+        from:   t in InventoryItem.transitions where t.from_state == InventoryItem.SOLD and t.to_state == InventoryItem.RESERVED
+        by:     { month: month(t.occurred_at) }
+        window: t.occurred_at
+        value:  count()
+      returned:
+        says: Sold items returned to stock, per month.
+        from:   t in InventoryItem.transitions where t.from_state == InventoryItem.SOLD and t.to_state == InventoryItem.AVAILABLE
         by:     { month: month(t.occurred_at) }
         window: t.occurred_at
         value:  count()
