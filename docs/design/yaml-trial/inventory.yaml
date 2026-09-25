@@ -16,9 +16,11 @@ types:
       model:             { type: string }
       list_price:        { type: money(SGD) }
       condition:         { type: Condition }
-      reserved_for:      { type: string, optional: true }
+      recipient:
+        type: string
+        optional: true
+        description: The customer or internal project the item is reserved for or delivered to.
       reserved_until:    { type: timestamp, optional: true }
-      sold_to:           { type: string, optional: true }
       sale_price:        { type: money(SGD), optional: true }
       photo:             { type: file, optional: true }
       development_use:   { type: DevelopmentUse, optional: true }
@@ -29,17 +31,17 @@ types:
         description: In stock and free to be reserved.
         category: live
       RESERVED:
-        description: Held for one customer or internal project until a set time.
+        description: Held for one recipient, a customer or an internal project, until a set time.
         category: live
-        required_attributes: [reserved_for, reserved_until]
+        required_attributes: [recipient, reserved_until]
       SOLD:
         description: Delivered externally, to the customer it was reserved for; no longer available.
         category: closed
-        required_attributes: [sold_to, sale_price]
+        required_attributes: [recipient, sale_price]
       DEVELOPMENT:
-        description: Delivered internally, for demonstration, testing or engineering; no longer available.
+        description: Delivered internally, to the project it was reserved for, for demonstration, testing or engineering; no longer available.
         category: closed
-        required_attributes: [development_use]
+        required_attributes: [recipient, development_use]
       RETIRED:
         description: Permanently withdrawn from stock and from use.
         category: closed
@@ -73,22 +75,20 @@ types:
         required_inputs: [condition]
       reserve:
         kind: state_change
-        from: [AVAILABLE, DEVELOPMENT]
+        from: AVAILABLE
         to: RESERVED
-        description: Holds the item for one customer or project until the given time.
-        required_inputs: [reserved_for, reserved_until]
+        description: Holds the item for one recipient until the given time.
+        required_inputs: [recipient, reserved_until]
         guards:
           not_damaged: enforced
           reservation_ends_in_future: enforced
-        outcome:
-          - clear: [development_use]
       release:
         kind: state_change
         from: RESERVED
         to: AVAILABLE
         description: Ends the reservation; the item is free again.
         outcome:
-          - clear: [reserved_for, reserved_until]
+          - clear: [recipient, reserved_until]
       deliver_externally:
         kind: state_change
         from: RESERVED
@@ -100,19 +100,25 @@ types:
           not_damaged: enforced
           photo_attached: observed
         outcome:
-          - copy: { from: reserved_for, to: sold_to }
-          - clear: [reserved_for, reserved_until]
+          - clear: [reserved_until]
+      deliver_internally:
+        kind: state_change
+        from: RESERVED
+        to: DEVELOPMENT
+        description: Delivers the item internally, to the project it is reserved for.
+        required_inputs: [development_use]
+        outcome:
+          - clear: [reserved_until]
       cancel_delivery:
         kind: state_change
-        from: SOLD
+        from: [SOLD, DEVELOPMENT]
         to: RESERVED
-        description: Cancels an external delivery; the item is reserved again for the same customer.
+        description: Cancels an external or internal delivery; the item is reserved again for the same recipient.
         required_inputs: [reserved_until]
         guards:
           reservation_ends_in_future: enforced
         outcome:
-          - copy: { from: sold_to, to: reserved_for }
-          - clear: [sold_to, sale_price]
+          - clear: [sale_price, development_use]
       accept_return:
         kind: state_change
         from: SOLD
@@ -120,15 +126,7 @@ types:
         description: Takes an externally delivered item back into stock once it is graded.
         required_inputs: [condition]
         outcome:
-          - clear: [sold_to, sale_price]
-      deliver_internally:
-        kind: state_change
-        from: RESERVED
-        to: DEVELOPMENT
-        description: Delivers a reserved item for internal use.
-        required_inputs: [development_use]
-        outcome:
-          - clear: [reserved_for, reserved_until]
+          - clear: [recipient, sale_price]
       return_to_stock:
         kind: state_change
         from: DEVELOPMENT
@@ -136,13 +134,15 @@ types:
         description: Returns an internally delivered item to stock once it is graded.
         required_inputs: [condition]
         outcome:
-          - clear: [development_use]
+          - clear: [recipient, development_use]
       retire:
         kind: state_change
         from: DEVELOPMENT
         to: RETIRED
-        description: Withdraws the item permanently.
+        description: Withdraws an internally delivered item permanently.
         required_inputs: [retirement_reason]
+        outcome:
+          - clear: [recipient, development_use]
 
     metrics:
       time_available:
@@ -157,7 +157,7 @@ types:
         transition: deliver_externally
         group_by: [actor, month]
       deliveries_cancelled:
-        description: Number of external deliveries cancelled.
+        description: Number of deliveries cancelled, external and internal.
         measure: transition_count
         transition: cancel_delivery
         group_by: [month]

@@ -548,7 +548,7 @@ def self_test(people, service, inventory):
         ("a misspelt enumeration value", "names", "inventory.yaml",
          plant(inventory, "condition != Condition.DAMAGED", "condition != Condition.DAMAGD")),
         ("a transition into a state that does not set what the state requires", "required", "inventory.yaml",
-         plant(inventory, "          - copy: { from: sold_to, to: reserved_for }\n", "")),
+         plant(inventory, "        required_inputs: [reserved_until]\n", "        optional_inputs: [reserved_until]\n")),
         ("a `?` inside an inline mapping", "yaml", "service.yaml",
          plant(service, "      photo:    { type: file, optional: true }", "      photo:    { type: file? }")),
     ]
