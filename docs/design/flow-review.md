@@ -184,6 +184,8 @@ A renderer can print the stage map from the categories and a display name per st
 
 ## 7. For the author
 
+*Checked 2026-09-25 against the first consumer's own PRD, which settles most of these, several differently from the options below: `first-consumer-prd-check.md` §4.*
+
 In the order the review would take them:
 
 1. **The operating layer (§2.1).** *Answered 2026-09-24: an upper-layer application, not part of the core (ADR-0104).* What remains for the core is whether the delivery, the shipment and the missing unit get owners and target times, which are declarations.
