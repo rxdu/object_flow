@@ -89,11 +89,11 @@ types:
         description: Ends the reservation; the item is free again.
         outcome:
           - clear: [reserved_for, reserved_until]
-      deliver:
+      deliver_externally:
         kind: state_change
         from: RESERVED
         to: SOLD
-        description: Delivers the item to the customer it is reserved for, which completes the sale.
+        description: Delivers the item externally, to the customer it is reserved for, which completes the sale.
         required_inputs: [sale_price]
         optional_inputs: [photo]
         guards:
@@ -154,7 +154,7 @@ types:
       external_deliveries:
         description: Number of external deliveries, each of which completes a sale.
         measure: transition_count
-        transition: deliver
+        transition: deliver_externally
         group_by: [actor, month]
       deliveries_cancelled:
         description: Number of external deliveries cancelled.
