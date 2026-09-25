@@ -66,7 +66,7 @@ Each finding separates the **general need**, a mechanism any deployment could us
 - **The general need:** a metric, or its split by person, readable only by holders of a capability. Performance, pay or health figures are sensitive in most organisations. Because every caller reaches the engine through one interface (N7), the restriction has to be in the engine, or any caller's agent could ask for the figure directly.
 - **The platform's policy:** its management door.
 - **The question:** should the engine offer an audience rule on metrics? And should per-person splits sit behind one by default, as a safe general default?
-- **Decided, 2026-09-25:** yes to both. PRD T7 and UC-24; ADR-0112: `visible when` on a metric, or a module line for one it does not declare (check 63), and a split by person, in a metric or a diagnostic, readable only with `OF_PERSON_METRICS` unless an audience opens it. The platform's management door is then its own declaration.
+- **Decided, 2026-09-25:** yes to both. PRD T7 and UC-24; ADR-0112: `visible when` on a metric, or a module line for one it does not declare (check 63), and a split by person, in a metric or a diagnostic, readable only with `OF_PERSON_METRICS` unless an audience opens it. The platform's management door is then its own declaration. *(Superseded the same day by ADR-0114: the engine evaluates no actor, so who may read a metric is the upper layer's, and the engine only marks the dimensions that name a person. The platform's management door is its own application's check, keyed on that marking.)*
 
 ### 3.4 What the engine delivers first
 

@@ -31,7 +31,7 @@
 | [0027](0027-declarations-are-versioned-and-removals-require-a-mapping.md) | Declarations are versioned; removals require a mapping applied as recorded migrations | Accepted (iteration 2, review pending) — later refined by ADR-0054, ADR-0056, ADR-0075, ADR-0077, ADR-0085, ADR-0099, ADR-0105 |
 | [0028](0028-supersession-an-object-may-end-by-naming-a-successor.md) | Supersession: an object may end in a terminal state that names its successor | Accepted (iteration 2, review pending) |
 | [0029](0029-named-sequences-mint-business-identifiers.md) | Named, scoped sequences mint business identifiers at creation | Accepted (iteration 2, review pending) — later refined by ADR-0076, ADR-0103 |
-| [0030](0030-read-visibility-is-a-declared-predicate.md) | Read visibility is a declared predicate over actor and object; an invisible object is not found | Accepted (iteration 3, review pending) — later refined by ADR-0072, ADR-0079, ADR-0095, ADR-0100, ADR-0105 |
+| [0030](0030-read-visibility-is-a-declared-predicate.md) | Read visibility is a declared predicate over actor and object; an invisible object is not found | **Superseded by ADR-0114** |
 | [0031](0031-erasure-redacts-declared-personal-attributes-across-history.md) | Erasure redacts declared personal attributes across history; recorded, irreversible, not deletion | Accepted (iteration 3, review pending) — later refined by ADR-0051, ADR-0056, ADR-0060, ADR-0078, ADR-0087 |
 | [0032](0032-expression-language-version-2-adds-arithmetic.md) | The expression language gains arithmetic, durations and sum/min/max; domain formulas stay outside | Accepted (iteration 4, review pending) — later refined by ADR-0047, ADR-0061, ADR-0068, ADR-0081, ADR-0084 |
 | [0033](0033-current-state-is-stored-and-the-log-is-permanent-history.md) | Current state is stored; the log is permanent history, never pruned; provenance attaches to events | Accepted (iteration 4, review pending) — later refined by ADR-0083, ADR-0088 |
@@ -113,5 +113,6 @@
 | [0109](0109-a-states-conditions-are-invariants-and-publishing-reports-what-a-creation-skips.md) | What every object in a state must carry is an invariant, and publishing reports what a creation skips | Accepted (decided at the author's direction) |
 | [0110](0110-an-internal-service-with-authentication-upstream-and-declared-actor-kinds.md) | ObjectFlow is an internal service; upper layers authenticate and map roles, and an actor's kind is declared with its type | Accepted by the author |
 | [0111](0111-a-rule-may-be-a-flag.md) | A rule may be a flag, seen on every request and never refusing | Accepted by the author |
-| [0112](0112-who-may-read-a-metric.md) | Who may read a metric, with splits by person restricted by default | Accepted by the author |
+| [0112](0112-who-may-read-a-metric.md) | Who may read a metric, with splits by person restricted by default | **Superseded by ADR-0114** |
 | [0113](0113-an-observed-norm-is-held-as-data.md) | A norm observed in history is held as data, refreshed from a metric | Accepted by the author |
+| [0114](0114-objectflow-records-who-acted-and-never-evaluates-it.md) | ObjectFlow records who acted and never evaluates it | Accepted by the author |

@@ -2,6 +2,8 @@
 
 Written 2026-09-08, after the model. The declaration below is checked by `scripts/check-corpus.py`, which runs the syntax checker over every design document, this one included.
 
+> **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
+
 *Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
 
 ## 1. Why this case
@@ -40,7 +42,6 @@ It also has time with legal force, a chargeback window measured from settlement,
 ```text
 module payments
 
-capability PAYMENT_CREATE, PAYMENT_CAPTURE, CHARGEBACK_RAISE, ACCOUNT_ADMIN
 category   pending, active, closed
 
 enum AccountKind   version 1 { ASSET, LIABILITY, REVENUE, FEE_EXPENSE }
@@ -64,14 +65,12 @@ type Account version 1 {
   ref  entries : LedgerEntry[] inverse account
 
   create open_account -> OPEN accepts kind {
-    require may: actor.has(ACCOUNT_ADMIN) because delegable
   }
   act apply at OPEN only via LedgerEntry.record {
     input delta : money(USD)
     set balance := balance + inputs.delta
   }
   do close OPEN -> CLOSED {
-    require may:    actor.has(ACCOUNT_ADMIN) because delegable
     require zeroed: balance == USD 0.00 because dependent
   }
 }
@@ -148,32 +147,26 @@ type Payment version 1 {
 
   create request -> REQUESTED accepts amount, merchant_id, idempotency_key,
                                       merchant_account, clearing_account {
-    require may: actor.has(PAYMENT_CREATE) because delegable
   }
   do decline REQUESTED -> DECLINED accepts decline_reason {
-    require may:     actor.has(PAYMENT_CREATE) because delegable
     require refused: not card_network.authorisation_stands(this.id)
                      deferred because dependent
   }
   do capture REQUESTED -> CAPTURED {
-    require may:        actor.has(PAYMENT_CAPTURE) because delegable
     require authorised: card_network.authorisation_stands(this.id)
                         deferred because dependent
     create Posting.post(for_payment := this, debit := clearing_account,
                         credit := merchant_account, gross := amount)
   }
   do settle CAPTURED -> SETTLED {
-    require may: actor.has(PAYMENT_CAPTURE) because delegable
     set settled_at := now
   }
   act receive_chargeback at SETTLED {
     input case_id : string
-    require may:       actor.has(CHARGEBACK_RAISE) because delegable
     require in_window: settled_at is not null and now <= settled_at + 120 days
                        because unreachable_from_here
   }
   do archive SETTLED -> ARCHIVED {
-    require may: actor.has(PAYMENT_CAPTURE) because delegable
   }
 }
 ```

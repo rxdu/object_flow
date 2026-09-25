@@ -193,3 +193,10 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The first-consumer check said that conditions against observed norms would give L5, rules that read metrics, "its first real use". The language forbids a metric anywhere but a `require` clause (check 56), so a condition cannot read one; the claim held only until ADR-0113 was written, and was retracted in the document and its answer table.
 - **Correction:** Before a finding says which requirement or mechanism a need exercises, find the rule in `declaration-syntax.md` that would carry it, and its check. Where the language forbids the direct route, say what the route is instead (here, a norm held as data, which is L4).
 - **Context:** ObjectFlow design documents: findings, checks against a case study, and traceability notes.
+
+### An inferred clause that narrows the author's own words is a question, not a requirement
+
+- **Pattern:** The author asked on 2026-09-25 to "leave the auth & authz for upper layers to decide". PRD revision 8 moved authentication and role mapping upstream but kept "what a capability permits" in the engine, marked Inferred, from other requirements. The same day that clause produced ADR-0112's metric audiences, and a walkthrough then showed the author a role mapping they judged untrackable; ADR-0114 superseded ADR-0112 within hours and reversed the clause.
+- **Correction:** Where the design infers a clause that keeps back part of what the author asked for, put it to the author as a question with its consequence, before writing it into a requirement and building on it. Marking it Inferred records the doubt but does not resolve it.
+- **Context:** ObjectFlow's PRD and every decision that narrows or widens the author's stated boundary.
+

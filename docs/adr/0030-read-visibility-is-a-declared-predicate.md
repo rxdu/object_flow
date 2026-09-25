@@ -1,7 +1,8 @@
 # ADR-0030: Read visibility is a declared predicate over actor and object; an invisible object is not found
 
-- **Status:** Accepted — taken in autonomous design iteration 3 (2026-09-08); pending author review
+- **Status:** **Superseded by ADR-0114** (2026-09-25). Previously: Accepted — taken in autonomous design iteration 3 (2026-09-08); pending author review
 - **Date:** 2026-09-08
+- **Superseded by:** ADR-0114 — the engine filters no read by who asks: who may see what is the upper layer's, which narrows a read by filter. This record keeps the visibility model as it was decided.
 - **Refined by:** ADR-0072 — six smaller answers to the open questions; §4 keeps confidentiality per object and records the cost of the workaround; ADR-0079 — the `actor.teams` example in decision 1 read a descriptor attribute, which no longer exists. ADR-0095 — a metric guard reads every row as a type-scan guard does, and a reader is shown an event's read set and recorded values only as far as their visibility reaches. ADR-0100 — a verdict names only objects its requester can see, and says when others were withheld. ADR-0105 — events reach a reader only by pull, under the reader's own visibility; there is no push subscriber. ADR-0112 — beside the visibility of the objects it counts, a metric may restrict who reads it at all.
 
 ## Context

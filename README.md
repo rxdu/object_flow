@@ -19,7 +19,7 @@ Governed flows for business objects. People and agents move objects only along d
 - **Declare.** Object types, their states, the transitions between them and the rules on each are written once, in a small language. A declaration is checked when it is published, can be printed for review, and is the only authority on what may change.
 - **Enforce.** Every request, from a person, a service or an agent, is checked against the declared rules. A refusal names the rule that refused and what to do next: supply something, ask someone, wait, or work on another object first. A rule can instead be a flag, which lets the request through and tells the caller and the record. Nothing is ever half-applied.
 - **Record.** Every transition, refusal, override and change of hands is kept, with who did it, what kind of actor they were, and when it happened as well as when it was recorded. People add their own datapoints, such as an inspection result, and nothing is edited, only corrected.
-- **Measure.** Time in each state, throughput, where work waits, which rules refuse most and who holds what exist from the first request, with nothing to instrument. Formulas and metrics are declared once and read the same way by every screen, report and agent. Figures about individual people stay behind a capability unless a deployment opens them.
+- **Measure.** Time in each state, throughput, where work waits, which rules refuse most and who holds what exist from the first request, with nothing to instrument. Formulas and metrics are declared once and read the same way by every screen, report and agent. Every figure that names a person says so, so your applications can put per-person numbers behind their own door.
 - **Improve.** A flow can start with no rules at all. The record shows where the flow and reality disagree, a new rule can run on trial before it is enforced, and a change is a reviewed publish that keeps history intact.
 
 ## Built for AI agents
@@ -30,8 +30,9 @@ Agents are governed exactly as people are, which is what makes handing them work
 - **It can ask what it may do.** `availability` evaluates the real rules against the real data and says, for each transition, whether it is available, needs input, or is blocked and why.
 - **A refusal is an instruction.** Every refusal carries a remedy, so an agent knows whether to fix its request, ask a person, wait, or work on something else first.
 - **Its tools come from the rules.** Agent tool definitions are generated from the declaration, so they cannot drift from what is enforced.
-- **What an agent is, is declared.** Whether an actor is a person, an agent or a service is declared with its type, so a rule such as "an agent may prepare a financial write but never commit one" cannot be dodged by a request.
-- **Agents propose, people approve.** An agent without the authority can file a proposal, and an agent can draft a change to a flow that only a person may approve.
+- **What an agent is, is declared.** Whether an actor is a person, an agent or a service is declared with its type, so every record and every metric says truthfully which kind of actor acted, whatever a request claims.
+- **Agents draft, people approve.** An agent can draft a change to a flow, or file a proposal for a request. Your application decides who approves, and the record keeps who drafted and who approved.
+- **Permissions stay with your application.** ObjectFlow never decides who may act. Your application does, sending the version it read, so its check cannot race a change.
 - **Agents are measured beside people.** Every metric splits by kind of actor, so you can see where agents stall and people do not.
 
 ## What it looks like
@@ -55,26 +56,30 @@ type Return version 1 {
 }
 ```
 
-A month later its own data shows where it waits, and the next version adds rules only where they are needed. A replacement now needs a lead once the robot's model keeps coming back:
+A month later its own data shows where it waits, and the next version adds rules only where they are needed. A replacement now needs a lead's approval once the robot's model keeps coming back:
 
 ```text
+  act approve_replacement at INSPECTING {
+    set approved_by := actor.id
+  }
   do resolve INSPECTING -> RESOLVED {
     input outcome : ReturnOutcome
-    require may:        actor.has(RETURNS_EDIT) because delegable
     require second_eye: inputs.outcome != ReturnOutcome.REPLACED
-                        or actor.has(RETURNS_LEAD)
+                        or approved_by is not null
                         or metric(returns_by_model, model := unit.model, over last 30 days) < 5
                                                                              because delegable
     set outcome := inputs.outcome
   }
 ```
 
-An engineer, or an agent, who asks for a replacement without that authority gets an answer it can act on rather than an error:
+An engineer, or an agent, who asks for a replacement before a lead has approved it gets an answer it can act on rather than an error:
 
 ```python
 Unsatisfied(clause="second_eye", remedy=Remedy.DELEGABLE, unknown=False,
-            capability="RETURNS_LEAD", proposable=False)
+            proposable=False)
 ```
+
+The rule reads that an approval was recorded, and by whom. Who counts as a lead is your application's decision.
 
 Both versions are checked modules in [`docs/design/returns-module.md`](docs/design/returns-module.md).
 
@@ -89,21 +94,21 @@ flowchart TB
         ops["Operations apps and schedulers"]
         integ["Integrations"]
     end
-    apps -->|"one interface · your applications authenticate"| core["ObjectFlow service<br/>declared flows · enforced rules · the record · metrics"]
+    apps -->|"one interface · your applications authenticate and authorise"| core["ObjectFlow service<br/>declared flows · enforced rules · the record · metrics"]
     core --> db[("PostgreSQL")]
 ```
 
-ObjectFlow runs as an internal service beside your applications, one per store, and it is the only thing that writes the store. Your applications authenticate their users and map their roles to capabilities; ObjectFlow enforces what each capability permits ([ADR-0110](docs/adr/0110-an-internal-service-with-authentication-upstream-and-declared-actor-kinds.md)).
+ObjectFlow runs as an internal service beside your applications, one per store, and it is the only thing that writes the store. Your applications authenticate their users and decide what each may do and see. ObjectFlow enforces the flow's rules on every request and records who made it ([ADR-0114](docs/adr/0114-objectflow-records-who-acted-and-never-evaluates-it.md)).
 
 What it is not:
 - **Not a workflow orchestrator.** It never starts a transition. Schedules, timers, chasing and notifications live in the applications above it, which act through the same interface as anyone else.
 - **Not a UI or low-code platform.** It has no screens, though it answers by query every question a worklist needs.
-- **Not an identity system.** Who a caller is, and which roles they hold, stay with your applications.
+- **Not an identity or permission system.** Who a caller is, and what they may do and see, stay with your applications.
 - **Not an analytics warehouse.** It computes its declared metrics, and exports its data for exploration elsewhere.
 
 ## Why not just use…
 
-- **An ORM?** An ORM abstracts mechanism: it hides SQL and faithfully executes whatever the caller asks. ObjectFlow abstracts authority: what may change, when, and by whom.
+- **An ORM?** An ORM abstracts mechanism: it hides SQL and faithfully executes whatever the caller asks. ObjectFlow abstracts the rules: what may change and when, and it records who changed it.
 - **A state-machine library?** It checks transitions inside one application. Any other code path can still write the table, and nothing is recorded or measured.
 - **A workflow engine?** It drives processes forward. ObjectFlow governs the data those processes touch, and leaves the driving to them.
 

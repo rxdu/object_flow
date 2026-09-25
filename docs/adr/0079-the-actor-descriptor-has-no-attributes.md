@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-09 at the author's direction ("rule on D193"), with the recommendation and its evidence below; pending author review
 - **Date:** 2026-09-09
-- **Refined by:** ADR-0110 — the descriptor carries no kind, which is declared with the type holding the actor.
+- **Refined by:** ADR-0110 — the descriptor carries no kind, which is declared with the type holding the actor. ADR-0114 — the descriptor carries no capabilities at all, and no rule reads the actor.
 - **Refines:** ADR-0025, ADR-0030, ADR-0036
 
 ## Context

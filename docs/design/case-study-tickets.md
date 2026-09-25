@@ -2,6 +2,8 @@
 
 Status: design iteration 2, 2026-09-07. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md). Decisions taken here are ADR-0026 to ADR-0029 and an amendment to ADR-0021, all pending author review.
 
+> **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
+
 *Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
 
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
@@ -21,7 +23,7 @@ The Jira vocabulary below is used because the author's first consumer already re
 | Status; status category (To Do / In Progress / Done) | state; **state category** declared on the state (ADR-0026) |
 | Transition; global transition ("any → Cancelled") | transition; from-state set or any-non-terminal (ADR-0016) |
 | Transition screen (fields shown on transition) | the transition's **declared** inputs; ADR-0047 withdrew the claim that the list could be derived from the guards, and publishing instead checks the two against each other |
-| Condition ("only assignee may execute") | actor guard: `actor.id == assignee.id` (ADR-0025) |
+| Condition ("only assignee may execute") | the upper layer's: it reads the assignee and sends the version it read, so its check cannot race a reassignment (ADR-0114) |
 | Validator ("resolution required", "fix version required to close") | guard over inputs; requiredness attaches to the transition (ADR-0002) |
 | Post-function: set resolution, clear resolution on reopen, set resolved date | outcome writes: `set resolution := inputs.resolution`, `clear resolution`, `set resolved_at := now` (ADR-0021 amendment) |
 | Post-function: assign to project lead | outcome write from a related attribute: `assignee := project.lead` |
@@ -38,7 +40,7 @@ The Jira vocabulary below is used because the author's first consumer already re
 | Watchers, labels | set-valued attributes edited by a declared action; recorded (ADR-0042 removed the free class) |
 | History tab | the object's recorded events |
 | Custom field; field configuration (required / hidden per context) | attributes on the type; per-context differences are per-type differences (ADR-0026) |
-| Permission scheme; issue-level security | capabilities in the actor descriptor; issue-level security is a declared visibility predicate (ADR-0030) |
+| Permission scheme; issue-level security | the upper layer's: who may request what and see what (ADR-0114) |
 | Bulk transition | the `batch` operation: N independent requests, each in its own transaction, N verdicts (ADR-0037) |
 | Automation rule ("when X then Y"), SLA breach | a consumer subscribed to events (ADR-0012); breach is found by querying the stored `due` against the supplied time, since a clock-dependent derived value cannot be indexed (ADR-0048) |
 | Issue key `PROJ-123` | a business identifier minted from a **named sequence** scoped by project (ADR-0029); monotonic, not gapless |
@@ -49,10 +51,8 @@ The Jira vocabulary below is used because the author's first consumer already re
 ## 2a. Resolution, declared
 
 ```text
-capability ISSUE_RESOLVE_ANY, ISSUE_REOPEN
 
 do resolve IN_PROGRESS -> DONE accepts resolution, fix_version {
-  require may:      actor.id == assignee.id or actor.has(ISSUE_RESOLVE_ANY) because delegable
   require subtasks: none(t in subtasks   where t.state.category != done)    because dependent
   require blockers: none(b in blocked_by where b.state.category != done)    because dependent
   require versioned: resolution == Resolution.FIXED
@@ -62,7 +62,6 @@ do resolve IN_PROGRESS -> DONE accepts resolution, fix_version {
 
 do reopen DONE -> IN_PROGRESS {
   input reason : string
-  require may: actor.has(ISSUE_REOPEN) because delegable
   clear resolution
   clear resolved_at
 }

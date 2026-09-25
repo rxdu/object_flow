@@ -44,19 +44,21 @@ On 2026-09-25 the author's decision to deploy the engine as an internal service 
 
 The same day the first-consumer check (`first-consumer-prd-check.md`), treated as a case study rather than a specification, became PRD revision 9: F9, a rule declared as a flag; T7, who may read a metric, with splits by person restricted by default; M7 widened to the norm observed in history; N3 and N5 stated as general capabilities with the first consumer as their reference and acceptance case; UC-23 and UC-24, which test the first two. ADR-0111 to ADR-0113 meet them. T1 cites the flag, M2 and M6 the audience, M7 and UC-12 the norm held as data; N3 and N5 changed wording and no citation, since the design met the general capability already.
 
+The same day the author decided that ObjectFlow records who acted and never evaluates it, which became PRD revision 10 and ADR-0114. F1, F7, D6, D12, C2, M2, T1, T5, T6, T7 and N7 were rewritten and UC-10, UC-11, UC-15, UC-19, UC-22 and UC-24 changed their acceptance. Every one of them is met by the engine doing less: the rows now cite ADR-0114 and the sections that state the new boundary, and those that cited ADR-0030 or ADR-0112, both superseded, no longer do.
+
 Current: 82 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goals are not rows here; G4 is met through C2's.
 
 ## Requirements
 
 | ID | Covered by | Status | What remains |
 |---|---|---|---|
-| F1 | DESIGN §5.9, §10; ADR-0010; renderers.md §2, §3; declaration-syntax.md §6.8, §6.9; ADR-0105; storage-schema.md §6; ADR-0109; publish-and-import.md §2 | covered | |
+| F1 | DESIGN §5.8, §5.9, §10; ADR-0010; renderers.md §2, §3; declaration-syntax.md §1, §6.8, §6.9, §8.1; ADR-0105; storage-schema.md §6; ADR-0109; publish-and-import.md §2; ADR-0114 | covered | |
 | F2 | DESIGN §1, §3, §5.9, §6, §8; ADR-0040, ADR-0042, ADR-0054; library-api.md §6; ADR-0105; publish-and-import.md §3 | covered | |
 | F3 | DESIGN §5.8, §10; ADR-0025, ADR-0037; library-api.md §6; ADR-0099; declaration-syntax.md §1; ADR-0103 | covered |  |
 | F4 | DESIGN §5.5; ADR-0090, ADR-0092; library-api.md §4; ADR-0105 | covered | |
 | F5 | DESIGN §5.9; ADR-0027; publish-and-import.md §3; ADR-0099; declaration-syntax.md §6.6; ADR-0101; ADR-0105 | covered |  |
 | F6 | DESIGN §9; ADR-0085; publish-and-import.md §1; ADR-0097 | covered |  |
-| F7 | DESIGN §5.9, §9; ADR-0085, ADR-0096; publish-and-import.md §1, §2; storage-schema.md §6; ADR-0097; ADR-0101 | covered |  |
+| F7 | DESIGN §5.9, §9; ADR-0085, ADR-0096; publish-and-import.md §1, §2; storage-schema.md §6; ADR-0097; ADR-0101; ADR-0114 | covered |  |
 | F8 | DESIGN §5.4, §6, §12; ADR-0012, ADR-0019, ADR-0020, ADR-0038, ADR-0108; declaration-syntax.md §5.2; renderers.md §2; library-api.md §6 | covered | |
 | F9 | DESIGN §5.5, §6, §13; ADR-0085, ADR-0111; declaration-syntax.md §5.1, §6.11; library-api.md §4, §5; storage-schema.md §4, §6; renderers.md §2, §4; adversarial-harness.md §1 | covered | |
 | D1 | DESIGN §7; ADR-0013, ADR-0033; storage-schema.md §2 | covered | |
@@ -64,25 +66,25 @@ Current: 82 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | D3 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; storage-schema.md §3; renderers.md §3; ADR-0099 | covered |  |
 | D4 | DESIGN §5.11; ADR-0082, ADR-0095, ADR-0096; declaration-syntax.md §6.8; storage-schema.md §3; ADR-0101 | covered |  |
 | D5 | DESIGN §5.4, §5.11; ADR-0083, ADR-0095, ADR-0096; declaration-syntax.md §4.2, §6.8; storage-schema.md §2, §6; ADR-0099; ADR-0103; ADR-0106 | covered | |
-| D6 | DESIGN §5.11; ADR-0082, ADR-0095; declaration-syntax.md §6.8; storage-schema.md §6 | covered | |
+| D6 | DESIGN §5.11; ADR-0082, ADR-0095; declaration-syntax.md §6.8; storage-schema.md §6; ADR-0114 | covered | |
 | D7 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; adversarial-harness.md §2; ADR-0105 | covered | |
 | D8 | DESIGN §8, §5.11; ADR-0031, ADR-0078, ADR-0082, ADR-0087, ADR-0096; storage-schema.md §9; ADR-0100; ADR-0101; ADR-0105, ADR-0106 | covered | |
 | D9 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8 | covered | |
 | D10 | DESIGN §5.13; ADR-0086; declaration-syntax.md §6.10; storage-schema.md §6; ADR-0099; declaration-syntax.md §5.2 | covered |  |
 | D11 | DESIGN §5.2; ADR-0083, ADR-0086; storage-schema.md §6; ADR-0099, ADR-0100; ADR-0106 | covered | |
-| D12 | DESIGN §5.11; ADR-0082, ADR-0095, ADR-0096; declaration-syntax.md §6.8; ADR-0097; declaration-syntax.md §8.3; ADR-0103 | covered |  |
+| D12 | DESIGN §5.11; ADR-0082, ADR-0096; declaration-syntax.md §6.8, §8.3; ADR-0103; ADR-0114 | covered |  |
 | C1 | DESIGN §5.2, §5.12; ADR-0084; declaration-syntax.md §6.9; ADR-0098; declaration-syntax.md §8.3; ADR-0103; ADR-0106 | covered |  |
-| C2 | DESIGN §5.2, §5.12; ADR-0084, ADR-0096, ADR-0098; declaration-syntax.md §6.9; renderers.md §2, §3; library-api.md §5, §6; ADR-0106 | covered | |
+| C2 | DESIGN §5.2, §5.12; ADR-0084, ADR-0098; declaration-syntax.md §6.9; renderers.md §2, §3; library-api.md §5, §6; ADR-0106; ADR-0114 | covered | |
 | C3 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9; ADR-0098 | covered |  |
 | C4 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9 | covered | |
 | C5 | DESIGN §5.12; ADR-0084; data-driven-engine.md §7 | unverifiable | the PRD leaves the target to be set by measurement; data-driven-engine.md §7 records an indicative SQLite probe, and the author sets the target |
 | C6 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9 | covered | |
 | M1 | DESIGN §5.12; ADR-0083, ADR-0084, ADR-0096; storage-schema.md §6; ADR-0098; declaration-syntax.md §6.11; ADR-0101; ADR-0105, ADR-0106 | covered |  |
-| M2 | DESIGN §5.2, §10; ADR-0084; library-api.md §6; ADR-0098; ADR-0106; ADR-0112 | covered |  |
+| M2 | DESIGN §5.2, §5.12, §10; ADR-0084; library-api.md §6; ADR-0098; ADR-0106; ADR-0114 | covered |  |
 | M3 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9; storage-schema.md §6; ADR-0098; ADR-0101; ADR-0106 | covered |  |
 | M4 | DESIGN §5.12; ADR-0084, ADR-0096; declaration-syntax.md §6.9, §8.1; ADR-0098; ADR-0101; ADR-0106 | covered |  |
 | M5 | DESIGN §10; ADR-0094; library-api.md §6; ADR-0106 | covered | |
-| M6 | DESIGN §5.13; ADR-0086, ADR-0096; storage-schema.md §6; ADR-0098; declaration-syntax.md §6.11; ADR-0101; ADR-0106; ADR-0112 | covered |  |
+| M6 | DESIGN §5.13; ADR-0086, ADR-0096; storage-schema.md §6; ADR-0098; declaration-syntax.md §6.11; ADR-0101; ADR-0106; ADR-0114 | covered |  |
 | M7 | DESIGN §5.7, §5.12, §10; ADR-0048, ADR-0084, ADR-0113; declaration-syntax.md §6.9, §8.3; storage-schema.md §3.4 | covered | |
 | L1 | DESIGN §5.5, §5.11; ADR-0082; declaration-syntax.md §6.8 | covered | |
 | L2 | DESIGN §6; ADR-0088, ADR-0095, ADR-0096; storage-schema.md §4, §6; library-api.md §5; ADR-0105; adversarial-harness.md §1 | covered | |
@@ -95,20 +97,20 @@ Current: 82 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | V3 | DESIGN §5.5; ADR-0085; declaration-syntax.md §5.1; renderers.md §2; adversarial-harness.md §1; ADR-0106; storage-schema.md §6 | covered | |
 | V4 | DESIGN §9; ADR-0085; publish-and-import.md §1; ADR-0097 | covered |  |
 | V5 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; publish-and-import.md §1; returns-module.md §2 | covered | |
-| T1 | DESIGN §3, §13; adversarial-harness.md §1, §2; ADR-0097, ADR-0100; ADR-0101; ADR-0105; ADR-0109; declaration-syntax.md §3.4; ADR-0111 | covered |  |
+| T1 | DESIGN §3, §8, §13; adversarial-harness.md §1, §2; ADR-0097, ADR-0100; ADR-0101; ADR-0105; ADR-0109; declaration-syntax.md §3.4; ADR-0111; ADR-0114 | covered |  |
 | T2 | DESIGN §1, §13; ADR-0110; adversarial-harness.md | covered | |
 | T3 | DESIGN §7, §8; ADR-0033, ADR-0083, ADR-0089; storage-schema.md §2; ADR-0099, ADR-0100; ADR-0101; ADR-0103; ADR-0105 | covered |  |
 | T4 | DESIGN §8, §10; ADR-0083; storage-schema.md §3.2; publish-and-import.md §4; ADR-0100; ADR-0101 | covered |  |
-| T5 | DESIGN §5.2, §5.8, §5.12, §6, §9, §10; ADR-0030, ADR-0084, ADR-0095, ADR-0096; library-api.md §6; ADR-0100; ADR-0101; ADR-0105, ADR-0106 | covered |  |
-| T6 | DESIGN §5.8, §6; ADR-0110; declaration-syntax.md §3.1, §6.10; library-api.md §3; storage-schema.md §6 | covered | |
-| T7 | DESIGN §5.12, §9, §10, §13; ADR-0084, ADR-0096, ADR-0112; declaration-syntax.md §1, §6.9, §10; library-api.md §5, §6; publish-and-import.md §2; renderers.md §2, §3; adversarial-harness.md §1 | covered | |
+| T5 | DESIGN §5.8, §5.12, §10; ADR-0114; declaration-syntax.md §6.7, §6.9; library-api.md §5, §6; storage-schema.md §4 | covered |  |
+| T6 | DESIGN §5.8, §6; ADR-0110, ADR-0114; declaration-syntax.md §3.1, §6.10, §8.1; library-api.md §3; storage-schema.md §6 | covered | |
+| T7 | DESIGN §5.12, §10; ADR-0114; declaration-syntax.md §6.9; library-api.md §6; publish-and-import.md §2; renderers.md §2 | covered | |
 | N1 | DESIGN §2, §5.12; ADR-0090; storage-schema.md §2, §7; ADR-0106; declaration-syntax.md §6.9; data-driven-engine.md §7 | covered | |
 | N2 | DESIGN §2, §7, §8; ADR-0012, ADR-0091, ADR-0096; library-api.md §1; storage-schema.md §6, §9; ADR-0100; ADR-0103; ADR-0105; data-driven-engine.md §9 | covered |  |
 | N3 | DESIGN §2; ADR-0090; storage-schema.md §7; first-consumer-cutover.md §5 | covered | |
 | N4 | DESIGN §13; ADR-0091; adversarial-harness.md §1, §2, §3, §4; ADR-0100; ADR-0105, ADR-0106 | covered |  |
 | N5 | DESIGN §11; ADR-0075, ADR-0077, ADR-0093, ADR-0096; publish-and-import.md §4, §7; first-consumer-cutover.md §4a; ADR-0100; ADR-0101; declaration-syntax.md §3.1; ADR-0103; ADR-0106 | covered | |
 | N6 | DESIGN §2, §6, §7, §10, §13; ADR-0012, ADR-0022, ADR-0104, ADR-0105; library-api.md §6 | covered |  |
-| N7 | DESIGN §2, §5.8, §13; ADR-0037, ADR-0110; library-api.md §3, §7; storage-schema.md §6; first-consumer-cutover.md | covered | |
+| N7 | DESIGN §2, §5.8, §13; ADR-0037, ADR-0110, ADR-0114; library-api.md §3, §7; storage-schema.md §6; declaration-syntax.md §8.1; first-consumer-cutover.md | covered | |
 
 ## Use cases
 
@@ -123,18 +125,18 @@ Current: 82 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | UC-7 | DESIGN §12; declaration-syntax.md §6.8; data-driven-engine.md §3.7; ADR-0081 | covered | |
 | UC-8 | DESIGN §5.12; ADR-0098; declaration-syntax.md §6.9 | covered | |
 | UC-9 | DESIGN §5.12, §11; declaration-syntax.md §6.9; ADR-0106 | covered | |
-| UC-10 | DESIGN §5.5, §5.12; ADR-0096, ADR-0098; declaration-syntax.md §6.9; library-api.md §4 | covered | |
-| UC-11 | DESIGN §10, §5.12; library-api.md §6; renderers.md §3 | covered | |
+| UC-10 | DESIGN §5.5, §5.12; ADR-0098, ADR-0114; declaration-syntax.md §6.9; library-api.md §4 | covered | |
+| UC-11 | DESIGN §10, §5.12; library-api.md §6; renderers.md §3; ADR-0114 | covered | |
 | UC-12 | DESIGN §5.12; declaration-syntax.md §6.9, §8.3; ADR-0113 | covered | |
 | UC-13 | DESIGN §5.9, §5.11, §5.12, §10; declaration-syntax.md §6.6, §6.8, §6.9; publish-and-import.md §3; library-api.md §6; ADR-0098; ADR-0105; returns-module.md §1, §2 | covered |  |
 | UC-14 | DESIGN §5.5; declaration-syntax.md §5.1; ADR-0097; storage-schema.md §6; ADR-0106 | covered |  |
-| UC-15 | DESIGN §9; publish-and-import.md §1; ADR-0097 | covered |  |
+| UC-15 | DESIGN §9; publish-and-import.md §1; ADR-0097; ADR-0114 | covered |  |
 | UC-16 | DESIGN §5.1, §5.12; ADR-0096; declaration-syntax.md §6.9, §8.1; ADR-0098; ADR-0101; ADR-0106 | covered |  |
 | UC-17 | DESIGN §8, §5.12; ADR-0087, ADR-0096; storage-schema.md §9; ADR-0100; ADR-0101; ADR-0105, ADR-0106 | covered |  |
 | UC-18 | DESIGN §5.13, §11; ADR-0096; declaration-syntax.md §6.9, §6.10; ADR-0098; declaration-syntax.md §6.11; ADR-0101; ADR-0106; unit-journey.md §2 | covered |  |
-| UC-19 | DESIGN §5.11, §5.4, §5.5, §13; ADR-0096; adversarial-harness.md §2; ADR-0097, ADR-0099, ADR-0100; declaration-syntax.md §6.8; ADR-0105 | covered |  |
+| UC-19 | DESIGN §5.11, §5.4, §5.5, §13; ADR-0096; adversarial-harness.md §2; ADR-0097, ADR-0099, ADR-0100; declaration-syntax.md §6.8; ADR-0105; ADR-0114 | covered |  |
 | UC-20 | DESIGN §2, §5.8, §5.13, §6, §7, §10; ADR-0012, ADR-0022, ADR-0084, ADR-0104, ADR-0105; library-api.md §6; declaration-syntax.md §8.3; flow-review.md §2, §8 | covered | |
 | UC-21 | DESIGN §5.4, §6, §7; ADR-0019, ADR-0038, ADR-0108; declaration-syntax.md §5.2; renderers.md §2; library-api.md §6; unit-journey.md §2; first-consumer-walkthrough.md §3.3 | covered | |
-| UC-22 | DESIGN §2, §5.8, §6, §13; ADR-0103, ADR-0110; declaration-syntax.md §3.1, §6.10; library-api.md §3; storage-schema.md §6 | covered | |
+| UC-22 | DESIGN §2, §5.8, §6, §13; ADR-0110, ADR-0114; declaration-syntax.md §3.1, §6.10; library-api.md §3; storage-schema.md §6 | covered | |
 | UC-23 | DESIGN §5.5, §6, §13; ADR-0111; declaration-syntax.md §5.1, §6.11; library-api.md §4; storage-schema.md §6; renderers.md §2; adversarial-harness.md §1 | covered | |
-| UC-24 | DESIGN §5.12, §9, §10; ADR-0112; declaration-syntax.md §6.9, §6.11; library-api.md §5, §6; adversarial-harness.md §1 | covered | |
+| UC-24 | DESIGN §5.12, §10; ADR-0114; declaration-syntax.md §6.9, §6.11; library-api.md §6; renderers.md §2 | covered | |

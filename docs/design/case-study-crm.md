@@ -2,6 +2,8 @@
 
 Status: design iteration 3, 2026-09-08. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md) and [`case-study-tickets.md`](case-study-tickets.md). Decisions taken here are ADR-0030 and ADR-0031 plus three clarifications, all pending author review.
 
+> **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
+
 *Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
 
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
@@ -23,8 +25,8 @@ A CRM stresses what the previous two did not. Its objects are **joined many-to-m
 | Moving a deal to another pipeline | supersession (ADR-0028): a new deal in the other type, the old one ending with a pointer |
 | Association with labels ("decision maker", "billing") and a primary flag | a **link object** — a type with two references and its own attributes (clarification C1); "at most one primary company per contact" is a type-level invariant on it (ADR-0009), enforced by serialisable isolation and additionally compiled to a partial unique index where the backend supports one (ADR-0039, ADR-0041) |
 | Timeline activity (email, call, meeting, note) associated to several records | an object with references whose only transitions are creation and `invalidate`, which is what append-only means here; not a part, because it is not exclusive to one record |
-| Record owner; teams | a reference to a user object; guards `actor.id == owner.id or actor.has(EDIT_ALL)` (ADR-0025) |
-| "View only owned or team records" | a **read visibility predicate** on the type (ADR-0030) |
+| Record owner; teams | a reference to a user object; who may edit is the upper layer's (ADR-0114) |
+| "View only owned or team records" | the upper layer's, which filters reads on the owner or team reference (ADR-0114) |
 | Duplicate detection on email | a uniqueness invariant, partial over absent values because email is personal and erasure writes absence (ADR-0051); the creation verdict names the conflicting object |
 | Merge duplicates | an action on the surviving record that takes the resolved values as inputs and cascades the loser's supersession and the re-pointing of its links (§3) |
 | Unmerge | not built in; see `edge-cases.md` |
@@ -40,13 +42,11 @@ A CRM stresses what the previous two did not. Its objects are **joined many-to-m
 Which value wins is domain logic, so the consumer resolves the values and the store records the merge. The surviving fields are **declared**, not passed as a map: ADR-0046 refuses a dynamic attribute set because it cannot be checked at publish or printed in a rule set, and ADR-0052 makes an unsupplied optional input skip its write rather than clear the field.
 
 ```text
-capability CONTACT_MERGE
 
 act merge_in at ACTIVE accepts email, phone, company {
   input loser : Contact
   require distinct: inputs.loser != this                 because self_serviceable
   require live:     inputs.loser.state == Contact.ACTIVE because dependent
-  require may:      actor.has(CONTACT_MERGE)             because delegable
   for a in inputs.loser.associations limit 1000 { call a.repoint(contact := this) }
   for v in inputs.loser.activities   limit 5000 { call v.repoint(contact := this) }
   call inputs.loser.merged_into(successor := this)

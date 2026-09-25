@@ -15,10 +15,12 @@ Draft, 2026-09-09, amended 2026-09-23. How a published declaration becomes table
 
 **Amended 2026-09-25** for ADR-0110: `of_engine_release`, the release a store is at and every upgrade, and `of_actor`, every actor by the identity a request names.
 
+**Amended 2026-09-25** for ADR-0114: the read set holds no capability answers and is never filtered for a reader; a subscription has no reader; a change's approver is recorded and not constrained; and no index exists for visibility.
+
 **Amended 2026-09-25** for ADR-0111: an attempt row and its daily rollup mark a raised flag, and an event's payload names the flags it raised.
 
 **Amended 2026-09-24** for ADR-0105 and ADR-0106, from a review of the whole record against PRD revision 5:
-- a subscription names its reader and has no endpoint, since the core posts nothing;
+- a subscription names its reader and has no endpoint, since the core posts nothing (ADR-0114 later removed the reader);
 - `state_source` loses `migrated`, and `of_migration` gains `admit`;
 - an attempt keeps the request's non-personal values and everything it read, so it replays;
 - every object records `recorded_from`;
@@ -266,10 +268,9 @@ It is JSON rather than columns for two reasons. Its shape is per transition. And
 `reads` is the read set of ADR-0088, also JSON:
 - the objects the transition's rules read, each with the version read;
 - for each type-scan, the ids it matched, an empty match recorded as empty;
-- each capability an `actor.has` asked about, with its answer;
 - the `now` the request fixed.
 
-It holds no value, only identities, versions and answers. A read filters it for the reader: an object the reader cannot see is left out, and `withheld` is set (ADR-0095).
+It holds no value, only identities and versions, and every reader gets it whole (ADR-0114).
 
 That is also why `declaration_version` is on the event and not inferred: reading history means reading each event under the rules that were in force when it was recorded.
 
@@ -281,12 +282,12 @@ Most indexes are performance. These are not: a stated guarantee is false without
 |---|---|
 | the stored end of every relationship | a derived inverse becomes a table scan, so `Delivery.units` is O(all robots). This index **is** the reverse index `referrers` needs, one per declared reference, covering the ends with no declared `inverse` too — which is the case that made `referrers` necessary. ADR-0056 states the cost plainly: a deployment pays index maintenance on every reference write, and takes it because deletion correctness is load-bearing and deletion is rare |
 | `of_attribute_write (object_id, attribute)` | `changed_since` is a scan of the object's whole history, and it is the most-cited guard in the model (ADR-0035). Keyed by part relationship too, it answers the half of `changed_since` that reaches a composition, per relationship (ADR-0057, ADR-0082) |
-| every attribute a type-scan invariant or a `visible when` predicate reads | the invariant's affected set is a full scan on every write, and visibility stops being a query filter and becomes a per-row test, which the read surface cannot page |
+| every attribute a type-scan invariant reads | the invariant's affected set is a full scan on every write |
 | `of_interval` on the current interval of each dimension, and on its entry time | work in progress, current age and every ageing condition become scans of the whole index (ADR-0083, ADR-0084) |
 | `of_file_ref (hash)` | erasure cannot tell whether another object still holds a file, and either deletes it too (D207) or never deletes anything (ADR-0087) |
 | `of_event (txn, position)` | the settled cursor becomes a sort of the whole log on every `pull` and `export` (ADR-0089) |
 
-The third is why check 7 rejects a type-scan or a visibility predicate over an unindexed attribute at publish: the schema cannot be built to satisfy it afterwards.
+The third is why check 7 rejects a type-scan over an unindexed attribute at publish: the schema cannot be built to satisfy it afterwards.
 
 **`exceptions(type)` reads two things and no third.**
 - **Admissions** come from `of_admission` where `discharged_position` is null.
@@ -418,8 +419,8 @@ CREATE TABLE of_engine_release (
 -- Every actor, by the identity a request names (ADR-0110): the object that holds
 -- it and the kind its type declares. Written in the same transaction as the actor
 -- attribute, so resolving a request's actor is one lookup, and an identity names
--- one actor across every type that holds actors and is never reused. Whether the
--- actor is live is its object's current state.
+-- one actor across every type that holds actors and is never reused. A request
+-- naming an identity with no row is refused as `actor_known` (ADR-0114).
 CREATE TABLE of_actor (
   actor_id    TEXT PRIMARY KEY,
   object_id   TEXT NOT NULL,
@@ -451,7 +452,6 @@ CREATE TABLE t_subscription (
   version        INTEGER NOT NULL,
   declaration_version INTEGER NOT NULL,
   last_event     INTEGER NOT NULL REFERENCES of_event(position),
-  reader         TEXT    NOT NULL,           -- the one actor id that may pull and acknowledge
   target_type    TEXT    NOT NULL,
   target_family  INTEGER NOT NULL DEFAULT 0,
   transitions    TEXT,                       -- null means every transition
@@ -503,15 +503,10 @@ CREATE TABLE t_declaration_change (
   drafted_by     TEXT    NOT NULL,
   drafted_by_kind TEXT   NOT NULL,
   drafted_principal TEXT,                   -- the drafter's principal, if any
-  approved_by    TEXT,
-  approved_by_kind TEXT,
+  approved_by    TEXT,                      -- recorded; who may approve is the upper layer's
+  approved_by_kind TEXT,                    -- (ADR-0114)
   CONSTRAINT t_declaration_change_state CHECK (state IN
-    ('DRAFTED','SUBMITTED','PUBLISHED','REJECTED','WITHDRAWN','SUPERSEDED')),
-  CONSTRAINT t_declaration_change_not_drafter CHECK (approved_by IS NULL
-    OR (approved_by <> drafted_by
-        AND (drafted_principal IS NULL OR approved_by <> drafted_principal))),
-  CONSTRAINT t_declaration_change_person_for_agent CHECK (approved_by IS NULL
-    OR drafted_by_kind <> 'agent' OR approved_by_kind = 'human')
+    ('DRAFTED','SUBMITTED','PUBLISHED','REJECTED','WITHDRAWN','SUPERSEDED'))
 );
 
 -- Imported history that predates the store (ADR-0015): read-only, not events.
@@ -598,7 +593,7 @@ CREATE INDEX of_attempt_by_actor ON of_attempt (actor_id, at);
 
 CREATE TABLE of_attempt_rollup (
   day          TEXT    NOT NULL,            -- UTC calendar day
-  object_id    TEXT    NOT NULL DEFAULT '', -- '' for a refused creation; keeps visibility applicable
+  object_id    TEXT    NOT NULL DEFAULT '', -- '' for a refused creation; keeps each pruned count per object
   verdict      TEXT    NOT NULL,
   type         TEXT    NOT NULL DEFAULT '', -- '' where the request named an unknown id
   transition   TEXT    NOT NULL DEFAULT '',
@@ -614,9 +609,9 @@ CREATE TABLE of_attempt_rollup (
 );
 ```
 
-`of_subscription_position` is the one place the model deliberately keeps runtime state outside an object: no version, no events, no history. An acknowledged cursor moving thousands of times a minute is not something anyone wants a permanent record of, and its lag and death are derived rather than states (ADR-0043). `t_subscription` next to it is an ordinary object, because its filter and its reader are configuration someone changes and should answer for. It holds no endpoint and its position no delivery error: the core posts nothing, and a relay that posts records its own failures (ADR-0105).
+`of_subscription_position` is the one place the model deliberately keeps runtime state outside an object: no version, no events, no history. An acknowledged cursor moving thousands of times a minute is not something anyone wants a permanent record of, and its lag and death are derived rather than states (ADR-0043). `t_subscription` next to it is an ordinary object, because its filter is configuration someone changes and should answer for; who may pull it is the upper layer's (ADR-0114). It holds no endpoint and its position no delivery error: the core posts nothing, and a relay that posts records its own failures (ADR-0105).
 
-**Version 0 is written when the store is created** (ADR-0105), the one write that precedes every operation, attributed to the engine release rather than to an actor, since no one wrote its rules. Its `of_declaration` row holds the built-in types, the built-in capabilities, the `label` kind, the `closed` category and the standard metric definitions of the engine release, with `builtins` naming that release. The first `DeclarationChange`'s `base_version` references it, so the first flow is drafted and published by the same path as every later one.
+**Version 0 is written when the store is created** (ADR-0105), the one write that precedes every operation, attributed to the engine release rather than to an actor, since no one wrote its rules. Its `of_declaration` row holds the built-in types, the `label` kind, the `closed` category and the standard metric definitions of the engine release, with `builtins` naming that release. The first `DeclarationChange`'s `base_version` references it, so the first flow is drafted and published by the same path as every later one.
 
 `of_declaration` is never deleted. Every event names the version whose rules applied, so deleting one makes that stretch of history unreadable.
 
@@ -624,7 +619,7 @@ CREATE TABLE of_attempt_rollup (
 
 **`of_attempt` is written outside the request's transaction**, in its own short transaction after the rollback. The exceptions are an observing clause's would-be refusal and a raised flag, each written with the event it is linked to. Either way it holds no personal value — `request_values` holds the request's non-personal inputs and names the personal ones as withheld — so erasure has nothing to do there, and the refusal still replays from the record (ADR-0083, ADR-0105). Its `consulted` holds the metric values and evaluator verdicts the failing clause was decided on, neither of which can be personal, since a metric's value never is (ADR-0084, ADR-0096).
 
-**Pruning rolls up in the same transaction.** A deployment prunes `of_attempt` after its retention period with `maintain(prune_attempts)` (ADR-0100), which refuses a cut-off inside the retention the store was built with (ADR-0101), and the statement that deletes a day's rows adds their counts to `of_attempt_rollup` in the same transaction, so a count is never lost and never counted twice. The metric source `<Type>.attempt_counts` reads the rollup for the days already pruned and counts the retained rows for the rest, so it is complete over the whole history whenever pruning runs, or whether it runs at all. Correctness therefore never waits on it (PRD N2, T3, ADR-0096). The rollup keeps the object, so a reader's visibility applies to a pruned day exactly as to a retained one and a prune changes no reader's value; a refused creation has no object, and its count is visible only to a reader who can see every current object of the type, as is the count of a request that named an unknown id, whose `type` is `''`. **A would-be refusal is kept while its clause is on trial**: the prune skips a row with `enforced = 0` whose clause is still observing in the installed version, so who a trialled rule would have refused stays answerable for the whole trial, and rolls it up at the first prune after the clause is enforced or removed (ADR-0106, PRD UC-14). A raised flag, `flagged = 1`, is not on trial and rolls up at the usual prune: a flag is permanent, and its daily counts are what a deployment reads of it (ADR-0111).
+**Pruning rolls up in the same transaction.** A deployment prunes `of_attempt` after its retention period with `maintain(prune_attempts)` (ADR-0100), which refuses a cut-off inside the retention the store was built with (ADR-0101), and the statement that deletes a day's rows adds their counts to `of_attempt_rollup` in the same transaction, so a count is never lost and never counted twice. The metric source `<Type>.attempt_counts` reads the rollup for the days already pruned and counts the retained rows for the rest, so it is complete over the whole history whenever pruning runs, or whether it runs at all. Correctness therefore never waits on it (PRD N2, T3, ADR-0096). The rollup keeps the object, so a pruned day is counted per object exactly as a retained one; a refused creation has no object, and neither has a request that named an unknown id, whose `type` is `''`. **A would-be refusal is kept while its clause is on trial**: the prune skips a row with `enforced = 0` whose clause is still observing in the installed version, so who a trialled rule would have refused stays answerable for the whole trial, and rolls it up at the first prune after the clause is enforced or removed (ADR-0106, PRD UC-14). A raised flag, `flagged = 1`, is not on trial and rolls up at the usual prune: a flag is permanent, and its daily counts are what a deployment reads of it (ADR-0111).
 
 **The sequence table and the attempt log are the two things written outside the request's transaction.** Everything else — the object row, the event, the write index, the interval index, the file reference index, the idempotency record — commits with the transition or not at all.
 

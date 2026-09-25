@@ -73,7 +73,7 @@ def parse(text, base=0):
         if cur.kind in ("observation", "metric"):       # §6.8, §6.9: clauses, not members
             if m := re.match(r"^field\s+(\w+)\s*:\s*(.*)$", s):
                 cur.attrs[m.group(1)] = (m.group(2), ln)
-            elif m := re.match(r"^(recorded by|occurred within|invariant|from|combine|by|window on|value|flag|visible when)\b\s*(.*)$", s):
+            elif m := re.match(r"^(occurred within|invariant|from|combine|by|window on|value|flag)\b\s*(.*)$", s):
                 cur.clauses.setdefault(m.group(1), []).append((m.group(2), ln))
             i += 1; continue
         if m := re.match(r"^machine\s+(\w+)", s):            cur.machine = m.group(1)
@@ -220,17 +220,10 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
             for k, v in anc.rels.items(): rels.setdefault(k, v)
             d.invariants |= anc.invariants; d.derives |= anc.derives
             anc = by_name.get(anc.base)
-        provides = set(d.provides)
         if mach:
             for rk, rn, rln in mach.requires:
-                if rk == "capability":
-                    if rn not in provides:
-                        add(16, f"{d.name} binds {mach.name} requiring capability {rn}, provides none", d.start)
-                elif rn not in attrs and rn not in rels and rn not in d.invariants and rn not in d.counters:
+                if rn not in attrs and rn not in rels and rn not in d.invariants and rn not in d.counters:
                     add(16, f"{d.name} binds {mach.name} requiring {rn}, not declared on the binder", d.start)
-        for rhs, rln in getattr(d, "provided_from", []):
-            if capdecl and rhs not in capdecl:
-                add(19, f"{d.name} provides from undeclared capability {rhs}", rln)
         if d.kind == "type" and not d.abstract:
             if not d.machine and not d.states:
                 add(16, f"{d.name} neither binds a machine nor declares states", d.start)
@@ -436,7 +429,6 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                        and "default" not in spec and "identifier" not in spec and an not in written:
                         add(8, f"{d.name}.{tn} never writes required attribute '{an}'", ln)
             if kind == "assert":
-                if not re.search(r"actor\.\w+\(", body): add(29, f"{d.name}.{tn} asserts with no capability guard", ln)
                 if not re.search(r"input\s+reason\b", body): add(29, f"{d.name}.{tn} asserts with no reason input", ln)
                 rm = re.search(r"input\s+reason\s*:\s*(\w+)", body)
                 if rm and rm.group(1) in SCALARS:
@@ -566,7 +558,7 @@ def stores(d, spec, by_name):
 
 
 def data_checks(decls, by_name, text, base=0):
-    """Checks 54 to 63: the constructs of ADR-0082 to ADR-0087, ADR-0092, ADR-0110 to ADR-0112."""
+    """Checks 54 to 62: the constructs of ADR-0082 to ADR-0087, ADR-0092, ADR-0110 and ADR-0111."""
     out = []
     def add(c, d, l): out.append((c, d, l))
     evaluators = set(re.findall(r"^evaluator\s+(\w+)", text, flags=re.M)) | \
@@ -577,8 +569,6 @@ def data_checks(decls, by_name, text, base=0):
     for d in decls:
         if d.kind != "observation":
             continue
-        if "recorded by" not in d.clauses:
-            add(54, f"observation {d.name} has no 'recorded by'", d.start)
         for fn, (spec, fln) in d.attrs.items():
             toks = spec.split()
             if fn in GENERATED:
@@ -701,31 +691,6 @@ def data_checks(decls, by_name, text, base=0):
                             add(61, f"{d.name}.{tn} binds {tgt}.{tn2}'s '{an}' from a value its outcome "
                                     "writes, which an evaluator or metric guard reads", ln)
 
-    # 63 — who may read a metric: an expression over the actor, one audience per metric (ADR-0112)
-    def not_actor(expr):
-        rest = re.sub(r"\bactor(?:\.\w+)*(?:\([^)]*\))?", " ", expr)
-        rest = re.sub(r"\b[A-Z]\w*(?:\.[A-Z]\w*)?\b", " ", rest)     # capabilities, enum literals
-        return [w for w in re.findall(r"\b[a-z_]\w*\b", rest)
-                if w not in ("and", "or", "not", "true", "false", "is", "null", "in",
-                             "human", "agent", "service")]
-    for d in decls:
-        aud = d.clauses.get("visible when", []) if d.kind == "metric" else []
-        if len(aud) > 1:
-            add(63, f"metric {d.name} declares {len(aud)} audiences", aud[1][1])
-        for expr, vln in aud:
-            if bad := not_actor(expr):
-                add(63, f"metric {d.name}: its audience reads '{bad[0]}', not the actor", vln)
-    for i, raw in enumerate(text.split("\n")):
-        m = re.match(r"^visible\s+(?!when\b)(.+?)\s+when\s+(.*)$", raw.split("#", 1)[0].rstrip())
-        if not m or re.search(r"[<…]", raw):
-            continue
-        for nm in re.split(r"\s*,\s*", m.group(1).strip()):
-            md = metrics.get(nm)
-            if md is not None and md.clauses.get("visible when"):
-                add(63, f"visible {nm}: metric {nm} declares its own audience", base + i)
-        if bad := not_actor(m.group(2)):
-            add(63, f"visible {m.group(1).strip()}: reads '{bad[0]}', not the actor", base + i)
-
     # 58 — an observation kind's bound
     for d in decls:
         for dur, oln in d.clauses.get("occurred within", []):
@@ -800,6 +765,37 @@ def tracked(d, member, by_name):
     return False
 
 
+OUTCOME_STEP = re.compile(r"^(set|add|remove|clear|call|supersede|for)\b|^create\s+[\w.$]+\.\w+\(")
+HEAD = re.compile(r"^(create|do|act|assert|erase)\s+\w+\b(?!\.)")
+
+
+def actor_reads(text, base):
+    """64 — the rules never read who is asking (ADR-0114). `actor.` may appear in an
+    outcome value alone, which records who acted. A clause continues on lines
+    indented deeper than the line it began on (§9.1), and a transition head's
+    one-line body begins its clause after the `{`."""
+    out, clause, col = [], "", None
+    for i, raw in enumerate(text.split("\n")):
+        line = raw.split("#", 1)[0].rstrip()
+        st = line.strip()
+        if not st or st.startswith(("}", "<", "|", "\u2026")):
+            col = None
+            continue
+        ind = len(line) - len(line.lstrip())
+        if col is None or ind <= col:
+            clause, col = st, ind
+        for m in re.finditer(r"\bactor\.", st):
+            gov = clause
+            if gov == st and HEAD.match(st) and "{" in st[:m.start()]:
+                gov = st.split("{", 1)[1].lstrip()
+            if not OUTCOME_STEP.match(gov):
+                out.append((64, f"reads the actor outside an outcome value: {st[:56]}", base + i))
+                break
+        if st.endswith("{"):          # a body opens: its next line begins a clause (§9.1)
+            col = None
+    return out
+
+
 def line_checks(text, base, capdecl, reserved, machine_caps):
     out = []
     for i, l in enumerate(text.split("\n")):
@@ -811,14 +807,6 @@ def line_checks(text, base, capdecl, reserved, machine_caps):
         if re.search(r"\bfor\s+\w+\s+in\b", code) and "limit" not in code:
             out.append((21, f"for without limit: {code[:48]}", ln))
         if re.match(r"^\s*do\s+\w+\s+at\s", code): out.append((21, f"'do' with 'at': {code[:48]}", ln))
-        # 19 — the closed vocabularies of a request rule (ADR-0103)
-        if (m := re.match(r"^\s*requests\s+by\s+(.+?)\s+require\s+(.+)$", code)) and not re.search(r"[<…]", code):
-            for k in re.split(r"\s*,\s*", m.group(1).strip()):
-                if k not in ("human", "agent", "service"):
-                    out.append((19, f"requests by names unknown actor kind '{k}'", ln))
-            for f in re.split(r"\s*,\s*", m.group(2).strip()):
-                if f not in ("version", "key"):
-                    out.append((19, f"requests by requires unknown field '{f}'", ln))
         st = code.strip()
         if re.search(r"\blabels\b", st) and not (
                 (st.startswith("labels by") and not re.search(r"\blabels\b", st[9:]))
@@ -830,10 +818,7 @@ def line_checks(text, base, capdecl, reserved, machine_caps):
         if rule and rule.group(1) in ("require", "invariant", "derive", "visible", "set", "add", "remove") and \
            re.search(r"\b(avg|median|percentile|day|week|month|quarter|year)\(", st):
             out.append((56, f"a metric-only function outside a metric: {st[:48]}", ln))
-        for cap in re.findall(r"actor\.\w+\((\w+)\)", code):
-            if cap not in capdecl and cap not in machine_caps:
-                out.append((19, f"capability {cap} used but not declared", ln))
-    return out
+    return out + actor_reads(text, base)
 
 
 # ── fixtures: every claimed check must fire on one of these ─────────────────
@@ -845,53 +830,52 @@ FIXTURES = {
   11: "type P version 1 {\n tracking serial\n states S category live, D category closed terminal\n owner w : W inverse parts\n create mk -> S { set w := inputs.w }\n do go S -> D { }\n}",
   15: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go D -> S { }\n}",
        "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n act poke at S { }\n}",
-       "type A version 1 {\n tracking serial\n states S category live, R category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n do leave R -> D { }\n assert fix -> { R } {\n  input to : state\n  input reason : string\n  require may: actor.has(X) because delegable\n }\n}"],
+       "type A version 1 {\n tracking serial\n states S category live, R category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n do leave R -> D { }\n assert fix -> { R } {\n  input to : state\n  input reason : string\n }\n}"],
   16: "type A version 1 {\n tracking serial\n create mk -> S { }\n}",
   17: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { set other.x := 1 }\n}",
-       "machine M version 1 {\n requires ref r : R\n requires capability E\n state S category live\n state D category closed terminal\n create mk -> S { require may: actor.has(E) because delegable }\n do go S -> D {\n  clear r\n }\n}\ntype A version 1 {\n tracking serial\n machine M\n provides capability E = X\n ref r : R\n}"],
+       "machine M version 1 {\n requires ref r : R\n state S category live\n state D category closed terminal\n create mk -> S { }\n do go S -> D {\n  clear r\n }\n}\ntype A version 1 {\n tracking serial\n machine M\n ref r : R\n}"],
   18: "type P version 1 {\n tracking serial\n states S category live, D category closed terminal\n owner w : W inverse parts\n create mk -> S only via W.add { }\n do go S -> D { }\n}",
   19: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> NOWHERE { }\n}",
        # a state literal naming no state of its type
        "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n derive stuck = state == A.NOPE\n create mk -> S { }\n do go S -> D { }\n}",
        # an unqualified state compared with the object's own state (D380)
-       "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n attr n string?\n invariant i: state != NOPE or n is not null\n create mk -> S { }\n do go S -> D { }\n}",
-       "requests by robot require version, token"],
-  20: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require actor.has(X) }\n}",
+       "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n attr n string?\n invariant i: state != NOPE or n is not null\n create mk -> S { }\n do go S -> D { }\n}"],
+  20: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require 1 == 1 }\n}",
   21: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require n: x == null }\n}",
   26: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { supersede this }\n}",
   29: ["machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } { }\n}",
        # an override's reason must be a declared enum (ADR-0106)
-       "machine M version 1 {\n state S category live\n state D category closed terminal\n do go S -> D { }\n assert fix -> { S } {\n  input to : state\n  input reason : string\n  require may: actor.has(X) because delegable\n }\n}"],
+       "machine M version 1 {\n state S category live\n state D category closed terminal\n do go S -> D { }\n assert fix -> { S } {\n  input to : state\n  input reason : string\n }\n}"],
   31: "type A version 1 {\n tracking quantity\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}",
   34: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n do go S -> D { }\n}",
   35: "machine M version 1 {\n state S category live\n state D category closed terminal\n create mk -> S { }\n do go S -> D { set mystery := 1 }\n}",
   13: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D only via B.nope { }\n}",
-  38: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } { input reason : string\n require may: actor.has(Q) because delegable\n may admit inv }\n}",
+  38: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } { input reason : string\n may admit inv }\n}",
   42: ["enum E { A, B }",
        "type A version 1 {\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}"],
   43: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\ntype B extends A version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T { }\n do go2 T -> U { }\n}",
-  51: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n act poke at S { require may: actor.has(X) because delegable\n   set n := 1 }\n}",
+  51: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n act poke at S { require r: 1 == 1 because self_serviceable\n   set n := 1 }\n}",
        "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D {\n require g: a == 1\n and b == 2\n }\n}"],
   53: "type M version 1 mirror {\n tracking record\n states A category live\n attr k string\n}\ntype T version 1 {\n tracking record\n states S category live, D category closed terminal\n part ms : M[] inverse t\n create mk -> S { }\n do go S -> D { }\n}",
   47: "type W version 1 {\n tracking serial\n states S category live, D category closed terminal\n part ps : C[] inverse w\n      cascade on go to C.del\n create mk -> S { }\n do go S -> D { }\n}",
   41: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref bs : B[] inverse as\n create mk -> S { }\n do go S -> D { }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n ref as : A[] inverse bs\n create mk2 -> T { }\n do go2 T -> U { }\n}",
   40: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n act poke at D { }\n}",
-  54: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nobservation O version 1 on A as os {\n field v : int\n}",
+  54: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nobservation O version 1 on A {\n field v : int\n}",
   55: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require quiet: count(l in labels) == 0 }\n}",
   56: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A\n}",
        # a metric reads no personal value, not even in its filter (ADR-0106)
        "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr email string? personal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A where a.email is not null\n value count()\n}",
        # a metric reference on a wrapped guard's continuation line is read too (§9.1)
        "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D {\n  require r: 1 == 1\n             or metric(m, nope := 1) > 0 because dependent\n }\n}\nmetric m version 1 {\n from a in A\n by k = a.state\n value count()\n}"],
-  57: ["machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } {\n  input reason : string\n  require may: actor.has(Q) observe because delegable\n }\n}",
+  57: ["machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } {\n  input reason : string\n  require may: 1 == 1 observe because delegable\n }\n}",
        # a flag on the escape hatch, and a clause marked both ways (ADR-0111)
-       "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } {\n  input reason : string\n  require may: actor.has(Q) flag because delegable\n }\n}",
+       "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } {\n  input reason : string\n  require may: 1 == 1 flag because delegable\n }\n}",
        "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D {\n  require r: 1 == 1 observe flag because self_serviceable\n }\n}"],
   58: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D backdatable within 2 months { }\n}",
   59: "type U version 1 {\n tracking record\n states S category live, D category closed terminal\n attr login identity\n create mk -> S accepts login { }\n do go S -> D { }\n}\ntype A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref who : U assignee\n create mk -> S accepts who { }\n do go S -> D { }\n}",
-  63: ["type A version 1 {\n tracking record\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A\n value count()\n visible when a.state == A.S\n}",
-       # a module line giving a second audience to a metric that declares its own
-       "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A\n value count()\n visible when actor.has(X)\n}\nvisible m when actor.has(Y)"],
+  64: ["type A version 1 {\n tracking record\n states S category live, D category closed terminal\n attr owner_id identity?\n create mk -> S { }\n do go S -> D { require mine: owner_id == actor.id because delegable }\n}",
+       # on a guard's continuation line, and in a derivation
+       "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n derive agentic = actor.kind == agent\n create mk -> S { }\n do go S -> D {\n  require r: 1 == 1\n             or actor.has(X) because delegable\n }\n}"],
   62: "type U version 1 {\n tracking record\n states S category live, D category closed terminal\n attr login identity actor unique\n create mk -> S accepts login { }\n do go S -> D { }\n}",
   60: "type A version 1 {\n tracking serial\n states S category live, M category closed superseding terminal, D category closed terminal\n attr email string? personal\n create mk -> S { }\n do merge S -> M {\n  input old : A\n  supersede inputs.old\n }\n do go S -> D { }\n}",
   61: "evaluator ev version 1 { … }\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T only via A.go {\n  input amount : int\n  require ok: ev.check(inputs.amount)\n }\n do take T -> U { }\n}\ntype A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr total int?\n create mk -> S { }\n do go S -> D {\n  set total := 1\n  create B.mk2(amount := total)\n }\n}",
@@ -968,7 +952,6 @@ def self_test():
 # the check can fire. A mutation breaks one of the specification's own examples
 # the way an author would, and the check that claims the rule must catch it.
 MUTATIONS = [
-  (54, "no recorded by", "  recorded by   actor.has(PDI_RECORD)\n", ""),
   (54, "kind with no collection", "observation InspectionResult version 1 on ServiceJob as inspections {",
        "observation InspectionResult version 1 on ServiceJob {"),
   (54, "subject declares the kind's part", "  attr     photo file?\n",
@@ -984,21 +967,20 @@ MUTATIONS = [
        "from      i in ServiceJob.events where"),
   (56, "metric in a derivation", "  attr     photo file?\n",
        "  attr     photo file?\n  derive   rate = metric(inspection_pass_rate)\n"),
-  (57, "observe on an erase", "create add -> ACTIVE accepts login, role { require may: actor.has(SERVICE_ASSIGN) because delegable }",
-       "create add -> ACTIVE accepts login, role { require may: actor.has(SERVICE_ASSIGN) because delegable }\n"
+  (57, "observe on an erase", "create add -> ACTIVE accepts login, role { }",
+       "create add -> ACTIVE accepts login, role { }\n"
        "  erase forget {\n    input reason : string\n"
-       "    require may: actor.has(ERASE_PERSONAL) observe because delegable\n  }"),
+       "    require given: inputs.reason is not null observe because self_serviceable\n  }"),
   (58, "backdated in months", "do start OPEN -> WORKING backdatable within 2 days {",
        "do start OPEN -> WORKING backdatable within 2 months {"),
   (58, "occurred within months", "occurred within 7 days", "occurred within 7 months"),
-  (58, "time_in of a member", "require mine: engineer.login == actor.id because delegable\n  }\n  do finish",
-       "require mine: engineer.login == actor.id because delegable\n    require slow: time_in(photo) > 1 h\n"
-       "  }\n  do finish"),
+  (58, "time_in of a member", "do start OPEN -> WORKING backdatable within 2 days {\n  }",
+       "do start OPEN -> WORKING backdatable within 2 days {\n    require slow: time_in(photo) > 1 h\n  }"),
   (59, "assignee target with no actor", "attr     login identity actor human unique", "attr     login identity unique"),
   (57, "trial clause also a flag", "require photo_taken: inputs.photo is not null observe because",
        "require photo_taken: inputs.photo is not null observe flag because"),
-  (63, "audience reads the rows", "  visible when actor.has(SERVICE_ASSIGN)\n",
-       "  visible when i.state == ServiceJob.WORKING\n"),
+  (64, "the assignee rule back in the engine", "  do finish WORKING -> DONE accepts photo {\n",
+       "  do finish WORKING -> DONE accepts photo {\n    require mine: engineer.login == actor.id because delegable\n"),
   (62, "actor identity with no kind", "attr     login identity actor human unique", "attr     login identity actor unique"),
   (59, "set-valued assignee", "ref      engineer : User assignee", "ref      engineer : User[] assignee"),
 ]

@@ -14,6 +14,8 @@ Draft, 2026-09-09, amended 2026-09-23. Three projections of one declaration: tex
 
 **Amended 2026-09-25** for ADR-0111 and ADR-0112: a flag prints as one, beside a rule on trial and an enforced rule; each metric prints who may read it; the metrics tool says a read may be refused for its audience; and the standard metrics include `flags_raised`.
 
+**Amended 2026-09-25** for ADR-0114: the rule set prints no authority, since a declaration no longer states who may do anything; each metric marks the dimensions that name a person; the metrics tool names every metric, and a live offer's verdict carries no capability.
+
 **What is verified.** `scripts/check-renderers-doc.py` parses every JSON example, checks that the tool schema is a schema a validator accepts, and confirms it rejects a call missing a required field and a call carrying an unknown one. The rule set of §2 is prose and is not checked; nothing generates it yet.
 
 ## 1. What a renderer may not do
@@ -59,7 +61,6 @@ Delivery — version 1
       not_internal   the delivery is not internal            unreachable from here
       settled        every checklist item is checked         dependent
       signed         an approval that no later edit invalidated   delegable
-      may            the actor holds DELIVERY_COMPLETE       delegable
     then
       for each of up to 500 bound units: sell it
 ```
@@ -73,7 +74,6 @@ Robot — version 4
 
   inventorize        INTAKE → AVAILABLE
     requires
-      may            the actor holds EDIT                           delegable
       labelled       the label has been printed                     unreachable from here
       mfr_serial     a manufacturer serial, where the model requires one
                                                                     unreachable from here
@@ -91,7 +91,7 @@ Robot — version 4
       Delivery.complete_sale   for each of up to 500 bound units
 ```
 
-A type that holds actors prints which kind, and the identity a request names them by, so who may act as what is on the page (ADR-0110). Nothing here is written by hand. Publishing already builds the graph of which transitions call which, to refuse a cycle (ADR-0019), and the renderer reads it from the other end. A part's disposition by its whole prints on the part's type in the same way. Because a cascaded transition runs as the requester under its own actor guards, `also caused by` also tells a reader what the requester needs: whoever commits a shipment must also hold `EDIT`, which `inventorize` requires. The journey binds `EDIT` to production's `INVENTORY_CREATE`, which the commit requires already, so there the two coincide. And since the rule-set diff renders what publishing compares (§6), a publish that adds a cascade shows the new cause on the type it reaches.
+A type that holds actors prints which kind, and the identity a request names them by, so what the record attributes to whom is on the page (ADR-0110). Nothing here is written by hand. Publishing already builds the graph of which transitions call which, to refuse a cycle (ADR-0019), and the renderer reads it from the other end. A part's disposition by its whole prints on the part's type in the same way. Because a cascaded transition is recorded as the requester's, `also caused by` also tells an upper layer what its permissions must account for: whoever it lets commit a shipment also inventorises that shipment's units (ADR-0114). And since the rule-set diff renders what publishing compares (§6), a publish that adds a cascade shows the new cause on the type it reaches.
 
 The constructs of ADR-0082 to ADR-0086 render in the same deterministic order, and each says what it is rather than leaving a reader to infer it:
 
@@ -101,44 +101,35 @@ ServiceJob — version 2
   assignee           engineer : User       responsible for the job; its history is tracked
 
   Observations
-    inspections      InspectionResult      recorded by holders of PDI_RECORD;
-                                           value in V; may be recorded up to 7 days late
+    inspections      InspectionResult      value in V; may be recorded up to 7 days late
 
   finish             WORKING → DONE
     requires
-      mine           the engineer is the one acting           delegable
       none_failed    no inspection failed                     dependent
       photo_taken    a photo is attached        OBSERVING — NOT ENFORCED   self-serviceable
     then
       photo is the one supplied, if any
 
   Metrics
-    time_working     median time in WORKING, by engineer, by month (UTC)
+    time_working     median time in WORKING, by engineer (names a person),
+                     by month (UTC)
                      flag slow when over 10 days
-                     readable by holders of SERVICE_ASSIGN
     standard         time_in_state, time_in_state_p80, throughput,
                      work_in_progress, oldest_open,
                      transition_counts, refusals, flags_raised, refusal_rate,
-                     override_counts, rework; split by person, readable by
-                     holders of OF_PERSON_METRICS; for engineer: open_work, time_unassigned,
+                     override_counts, rework; for engineer, each by the
+                     engineer (names a person): open_work, time_unassigned,
                      time_to_first_assignment, time_with_assignee,
                      cycle_time_by_assignee, time_in_state_by_holder, handoffs,
                      reassigned_back, acted_by_non_assignee, handoffs_by_object,
                      returns_by_object (declaration-syntax §6.11)
 ```
 
-An **observing clause** is printed as not enforced, on the same line as the rule, so no reader can mistake a trial for a guarantee (ADR-0085). A **flag** is printed on its rule's line as `FLAG — NOT ENFORCED`, so a reader tells apart the three things a clause can be: enforced, on trial, or a flag (ADR-0111). Each **metric** prints who may read it, and the standard metrics say that a split by person is readable only by holders of `OF_PERSON_METRICS` unless a module line opens one, which prints under the metric it opens (ADR-0112). A **metric** is printed as its definition rendered in words, exactly as a guard is, because the rule set is the one place a definition is meant to be read as the rule; everywhere else points at `metric()` (§3). The **assignee** line says which reference is the responsibility, since that is what the assignment metrics are over (ADR-0086). The **standard metrics** are listed by name under every type, since each is a declaration a reader can look up (ADR-0098). The **built-in types** — `DeclarationChange`, `Proposal`, `Subscription` and the `label` kind — are rendered like any type, with the authority that gates each, so who may draft, approve, label, import or subscribe is on the page (ADR-0097, ADR-0105). `Subscription` prints `OF_SUBSCRIBE` and that only its reader may pull and acknowledge it; `Proposal` prints that its proposer may withdraw it and that whoever passes the proposed transition's actor guards may reject it. They print under declaration version 0 and every version after it, with the built-in module the version was published with.
+An **observing clause** is printed as not enforced, on the same line as the rule, so no reader can mistake a trial for a guarantee (ADR-0085). A **flag** is printed on its rule's line as `FLAG — NOT ENFORCED`, so a reader tells apart the three things a clause can be: enforced, on trial, or a flag (ADR-0111). Each **metric** marks every dimension whose value names a person, so a reviewer, and an upper layer deciding who may read what, sees which reads are per person (ADR-0114). A **metric** is printed as its definition rendered in words, exactly as a guard is, because the rule set is the one place a definition is meant to be read as the rule; everywhere else points at `metric()` (§3). The **assignee** line says which reference is the responsibility, since that is what the assignment metrics are over (ADR-0086). The **standard metrics** are listed by name under every type, since each is a declaration a reader can look up (ADR-0098). The **built-in types** — `DeclarationChange`, `Proposal`, `Subscription` and the `label` kind — are rendered like any type (ADR-0097, ADR-0105). Who may draft, approve, label, import, subscribe or end a proposal is the upper layer's, so the page prints none of it (ADR-0114). They print under declaration version 0 and every version after it, with the built-in module the version was published with.
 
 Guard descriptions are rendered from the expression, not written by hand. `none(c in checklist_items where not c.checked)` becomes "every checklist item is checked". That rendering is mechanical and lossy on purpose — the expression is beside it in the machine-readable form, and a person reading a rule set wants the sentence.
 
-**The module's request rule prints first**, before any type, since it binds every type in the closure (ADR-0103):
-
-```
-Requests by agent require an expected version and an idempotency key
-  (refused as versioned or keyed, self_serviceable)
-```
-
-An agent's tool schemas follow it: where a module requires fields of agents' requests, each tool lists `expected_version` (for a tool naming an existing object) and `idempotency_key` among its `required` properties, so an agent reading the schema knows before it asks (PRD F3).
+**No request rule prints.** ADR-0114 withdrew the module's `requests by` rule of ADR-0103, so whether an agent must send a version and a key is the upper layer's to enforce and to put in the tool schemas it hands the agent.
 
 ## 3. Tool schemas
 
@@ -212,12 +203,12 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
 }
 ```
 
-**Metrics are one tool**, naming every metric the reader may see by name — the declared ones and the standard ones of the syntax's §6.11 — and nothing more (ADR-0084, ADR-0098). It takes the same arguments a guard's reference does: dimension values to bind, a window, and a filter. The description does not restate a definition, for the reason a transition's description does not restate a guard: `metric()` evaluates the real definition against the real data.
+**Metrics are one tool**, naming every metric by name — the declared ones and the standard ones of the syntax's §6.11 — and nothing more (ADR-0084, ADR-0098). It takes the same arguments a guard's reference does: dimension values to bind, a window, and a filter. The description does not restate a definition, for the reason a transition's description does not restate a guard: `metric()` evaluates the real definition against the real data.
 
 ```json
 {
   "name": "read_metric",
-  "description": "Read a declared or standard metric, as rows of dimensions, value and the flags that hold, in UTC calendar time, computed over the rows you may see; complete says whether those are all the rows there are. The definitions are in declaration(type); this tool does not restate them. A metric, or a split by person, that you may not read is refused with the capability that would allow it; leaving the person out with keep answers the rest.",
+  "description": "Read a declared or standard metric, as rows of dimensions, value and the flags that hold, in UTC calendar time, computed over every row the filter selects. The definitions are in declaration(type); this tool does not restate them.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -250,10 +241,8 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
       "remedy": "dependent",
       "unknown": false,
       "objects": ["chk_41c0", "chk_41c7"],
-      "capability": null,
       "proposable": false,
-      "consulted": {},
-      "withheld": false
+      "consulted": {}
     },
     "inputs": {},
     "unevaluated": [],
@@ -288,7 +277,7 @@ Three-way availability, not two. `available_with_input` is the case a form cares
 
 `flags` lists, for an available transition, the flags taking it would raise as things stand, each with its clause and remedy class, so an agent sees what a deployment wants seen before it asks, and the satisfied verdict names the flags actually raised (ADR-0111). A flag never makes a transition unavailable.
 
-`remedy` is what an agent should branch on rather than on the clause name: `delegable` means find someone with the authority, `temporal` means wait, `dependent` means change something else first, `self_serviceable` means fix the request, and `unreachable_from_here` means stop. The verdict also says **what the remedy points at** (ADR-0092): `objects` are the checklist items still unchecked, so an agent works on them rather than guessing; `capability` would name the authority a `delegable` clause asks for; `proposable` says whether filing a proposal would be accepted.
+`remedy` is what an agent should branch on rather than on the clause name: `delegable` means another actor must act, such as giving an approval, `temporal` means wait, `dependent` means change something else first, `self_serviceable` means fix the request, and `unreachable_from_here` means stop. The verdict also says **what the remedy points at** (ADR-0092): `objects` are the checklist items still unchecked, so an agent works on them rather than guessing; `proposable` says whether filing a proposal would be accepted.
 
 ## 5. Form hints
 

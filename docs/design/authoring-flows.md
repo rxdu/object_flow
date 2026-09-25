@@ -32,7 +32,7 @@ Each item was checked against the document cited.
 - **No descriptions.** `#` begins a comment (§1), and check 22 counts a change of comments as no change of content. Nothing in the language carries a description of what a state or a transition means into the rule set or the agent tools. The rule set renders each guard from its expression, "mechanical and lossy on purpose" (`renderers.md` §2).
 - **Findings already carry a location.** A publish `Finding` has a severity, a code, a message, `where` as file and line, and the check number (`publish-and-import.md` §2). It carries no suggested fix.
 - **Checking a draft needs a change in the store.** `publish(dry_run)` takes the id of a `DeclarationChange` (`library-api.md` §6), so there is no way to check a text without first creating one.
-- **The checks are structural, not semantic.** The sixty-three checks cover names that resolve, markings in the right places, cycles among derivations, cascades, supersession and base types (checks 3, 12, 26, 43), the state graph (check 15: a non-terminal state with no exit, a state nothing reaches) and the swap test (check 6). None asks whether a condition can be true. A search of the record for satisfiability, contradiction or a solver finds nothing.
+- **The checks are structural, not semantic.** The sixty-four checks cover names that resolve, markings in the right places, cycles among derivations, cascades, supersession and base types (checks 3, 12, 26, 43), the state graph (check 15: a non-terminal state with no exit, a state nothing reaches) and the swap test (check 6). None asks whether a condition can be true. A search of the record for satisfiability, contradiction or a solver finds nothing.
 - **What DESIGN §13 leaves open.** The engine "cannot guarantee that **the guards say what was meant**". Its mitigations are the printable rule set and the adversarial harness.
 
 ## 2. Where a flow is written
@@ -70,20 +70,20 @@ Whether an agent drafts this language well is empirical. No measurement exists, 
 
 The author asked that a description be validated automatically. Free prose cannot be validated deterministically, so a description is split into three kinds of content, each checked in the way it can be.
 
-**Names it mentions.** A description that names attributes, states, roles or capabilities refers to them through placeholders, and every reference is resolved at publish, as check 19 resolves names in rules. A rename then breaks the description rather than leaving it wrong. This catches a stale description, not a wrong one.
+**Names it mentions.** A description that names attributes, states or observation kinds refers to them through placeholders, and every reference is resolved at publish, as check 19 resolves names in rules. A rename then breaks the description rather than leaving it wrong. This catches a stale description, not a wrong one.
 
-**Claims about behaviour, written as examples the engine runs.** A claim such as "only the assigned engineer can finish the job" becomes a small scenario: a setup, an actor, a request, and the expected outcome, a verdict with its clause and remedy class, or the state reached. The checker runs every example at publish against an empty in-memory store, so it tests the rules and not the live data; the run is deterministic, since the clock and the id source are injected (`library-api.md` §3). A shape, for discussion only, not a proposed syntax:
+**Claims about behaviour, written as examples the engine runs.** A claim such as "a job whose inspection failed cannot be finished until it is re-checked" becomes a small scenario: a setup, an actor, a request, and the expected outcome, a verdict with its clause and remedy class, or the state reached. The checker runs every example at publish against an empty in-memory store, so it tests the rules and not the live data; the run is deterministic, since the clock and the id source are injected (`library-api.md` §3). A shape, for discussion only, not a proposed syntax:
 
 ```
 do finish WORKING -> DONE accepts photo {
-  describe "The assigned engineer closes the job once no inspection has failed."
-  require mine: engineer.login == actor.id because delegable
+  describe "The engineer closes the job once no inspection has failed."
+  require none_failed: none(r in inspections where r.outcome == CheckOutcome.FAIL …) because dependent
   …
 }
-example someone_else_cannot_finish {
-  given   a job opened for alice and started by alice
-  when    bob requests finish
-  expect  refused by mine, delegable
+example a_failed_check_blocks_finish {
+  given   a started job whose battery check failed and was not re-checked
+  when    its engineer requests finish
+  expect  refused by none_failed, dependent, naming the failed result
 }
 ```
 

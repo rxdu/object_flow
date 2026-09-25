@@ -1,7 +1,8 @@
 # ADR-0112: Who may read a metric, with splits by person restricted by default
 
-- **Status:** Accepted by the author, 2026-09-25 ("yes to all four, go ahead and write them"), with the restricted default the recommendation named, against `docs/PRD.md` revision 9: T7, M2, M6 and UC-24.
+- **Status:** **Superseded by ADR-0114** (2026-09-25). Previously: Accepted by the author, 2026-09-25 ("yes to all four, go ahead and write them"), with the restricted default the recommendation named, against `docs/PRD.md` revision 9: T7, M2, M6 and UC-24.
 - **Date:** 2026-09-25
+- **Superseded by:** ADR-0114, the same day — who may read a metric is the upper layer's; the engine marks the dimensions that name a person. This record keeps the audience rule as it was decided.
 - **Refines:** ADR-0030 (visibility), ADR-0084 (metrics), ADR-0096 (a partial reader), ADR-0098 (the standard metrics)
 - **Relates to:** ADR-0110 (actor kinds declared with their types), `design/first-consumer-prd-check.md` §3.3
 

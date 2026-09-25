@@ -45,11 +45,6 @@ The vocabulary. `CancellationReason` loses production's `MISSING_FROM_SHIPMENT`,
 module inventory_journey
 use   inventory.{User, UserRole, Customer, RetirementReason, OverrideReason}
 
-capability INVENTORY_DELETE, PROCUREMENT_CANCEL, ADMIN,
-           DELIVERY_CANCEL, DELIVERY_DELETE,
-           SERVICE_CREATE, SERVICE_COMPLETE, SERVICE_CANCEL_REQUESTED,
-           SERVICE_CANCEL_COMPLETED, SERVICE_DELETE,
-           LEASE_EDIT, LEASE_CONVERT
 
 enum CancellationReason version 2 { ORDER_CANCELLED, DISCARDED, REJECTED_QA,
                                     RETURNED_SUPPLIER, OTHER }
@@ -57,7 +52,6 @@ enum EngagementKind version 1 { LEASE, EVENT, DEV_HOLD }
 enum ServiceKind    version 1 { REPAIR, MAINTENANCE, UPGRADE }
 sequence unit_serial version 1
 
-requests by agent require version, key
 ```
 
 **The model catalogue.** The unit's rules read its model — whether a manufacturer serial or a label photo is required, and the maker's code a serial carries — so the model is declared here with the unit. Production's `robot_models` holds a name, a manufacturer, a warranty period and the two flags (`wr:app/models/robot_models.py:25-47`). The reorder point, and the two derivations that read it, are not production's: they are added to test PRD L4 and M7, a threshold that is governed data and a business exception over one object, and production defers reorder logic (`wr:app/models/procurement.py:15`).
@@ -85,22 +79,18 @@ type RobotModel version 1 {
 
   create add -> ACTIVE accepts name, manufacturer, maker_code, warranty_months,
                                label_photo_required, manufacturer_serial_required {
-    require may: actor.has(INVENTORY_CREATE) because delegable
   }
   act edit at ACTIVE accepts manufacturer, maker_code, warranty_months,
                              label_photo_required, manufacturer_serial_required {
-    require may: actor.has(INVENTORY_CREATE) because delegable
   }
   act set_reorder_point at ACTIVE accepts reorder_point {
-    require may: actor.has(PO_EDIT) because delegable
   }
   do discontinue ACTIVE -> DISCONTINUED {
-    require may: actor.has(INVENTORY_DELETE) because delegable
   }
 }
 ```
 
-**The lifecycle.** Every transition production registers for a robot (`wr:app/core/state_registry.py:859-993`), and the ones its services perform around the registry, are here; §3 maps each one. The capabilities are production's permissions, and `ADMIN` is what production's `required_role="ADMIN"` becomes, since a guard reads capabilities, not roles (ADR-0079).
+**The lifecycle.** Every transition production registers for a robot (`wr:app/core/state_registry.py:859-993`), and the ones its services perform around the registry, are here; §3 maps each one. Production's permission checks, its roles and each key's permissions, are not here: who may request each transition is the upper layer's (ADR-0114), so the operations platform keeps them at its own edge. *(Corrected 2026-09-25: this module declared production's permissions as capabilities, and `ADMIN` as one, until ADR-0114 withdrew capabilities from the language.)*
 
 ```text
 machine UnitLifecycle version 3 {
@@ -119,7 +109,6 @@ machine UnitLifecycle version 3 {
   requires invariant one_open_engagement
   requires invariant labelled
   requires invariant mfr_serial
-  requires capability EDIT, ADMIN, DELETE, ASSERT, CANCEL
 
   state REQUESTED   category inbound
   state PROCUREMENT category inbound
@@ -134,13 +123,10 @@ machine UnitLifecycle version 3 {
   state DELETED     category closed terminal
 
   create request -> REQUESTED accepts model {
-    require may: actor.has(EDIT) because delegable
   }
   create add_to_intake -> INTAKE accepts model, manufacturer_serial {
-    require may: actor.has(EDIT) because delegable
   }
   create add_opening_stock -> AVAILABLE accepts model, manufacturer_serial, label_printed_at {
-    require may: actor.has(ASSERT) because delegable
   }
 
   do ship REQUESTED -> PROCUREMENT only via Shipment.dispatch, Shipment.add_unit {
@@ -157,16 +143,13 @@ machine UnitLifecycle version 3 {
   }
   do restore MISSING -> PROCUREMENT only via Shipment.restore_missing { }
   do rerequest MISSING -> REQUESTED {
-    require may: actor.has(EDIT) because delegable
     clear shipment
   }
   do discard MISSING -> CANCELLED {
-    require may: actor.has(EDIT) because delegable
     set cancellation_reason := CancellationReason.DISCARDED
   }
   do cancel { REQUESTED, PROCUREMENT, INTAKE } -> CANCELLED {
     input reason : CancellationReason
-    require may: actor.has(CANCEL) because delegable
     set cancellation_reason := inputs.reason
     clear peg
   }
@@ -179,20 +162,16 @@ machine UnitLifecycle version 3 {
     clear peg
   }
   act record_label_print at any {
-    require may: actor.has(EDIT) because delegable
     set label_printed_at := now
   }
   act record_manufacturer_serial at any accepts manufacturer_serial {
-    require may: actor.has(EDIT) because delegable
   }
   act add_photo at INTAKE {
     input photo : file
-    require may: actor.has(EDIT) because delegable
     add photos := inputs.photo
   }
 
   do inventorize INTAKE -> AVAILABLE {
-    require may:        actor.has(EDIT)                            because delegable
     require labelled:   label_printed_at is not null               because unreachable_from_here
     require mfr_serial: model.manufacturer_serial_required
                         implies manufacturer_serial is not null    because unreachable_from_here
@@ -238,13 +217,11 @@ machine UnitLifecycle version 3 {
     clear binding
   }
   do accept_return SOLD -> AVAILABLE {
-    require may: actor.has(ADMIN) because delegable
     clear binding
     clear sold_to
   }
 
   do release_to_stock DEVELOPMENT -> AVAILABLE {
-    require may:  actor.has(ADMIN) because delegable
     require home: none(l in engagement_lines where l.open) because dependent
     clear binding
   }
@@ -254,13 +231,10 @@ machine UnitLifecycle version 3 {
   }
   do retire DEVELOPMENT -> RETIRED {
     input reason : RetirementReason
-    require may:   actor.has(DELETE) because delegable
-    require admin: actor.has(ADMIN)  because delegable
     set retirement_reason := inputs.reason
     for l in engagement_lines where l.open limit 1 { call l.end() }
   }
   do delete { AVAILABLE, CANCELLED } -> DELETED {
-    require may: actor.has(DELETE) because delegable
   }
 
   assert correct_state -> { AVAILABLE, DEVELOPMENT, RETIRED } {
@@ -268,7 +242,6 @@ machine UnitLifecycle version 3 {
     input reason : OverrideReason
     input detail : string? personal
     input admits : invariant[]?
-    require may: actor.has(ASSERT) because delegable
     may admit one_open_engagement
   }
 }
@@ -276,8 +249,6 @@ machine UnitLifecycle version 3 {
 type Robot version 4 {
   tracking serial
   machine  UnitLifecycle
-  provides capability EDIT = INVENTORY_CREATE, ADMIN = ADMIN, DELETE = INVENTORY_DELETE,
-                      ASSERT = INVENTORY_ASSERT, CANCEL = PROCUREMENT_CANCEL
   summary  serial, model, state
 
   attr serial string identifier from unit_serial
@@ -326,7 +297,7 @@ Robot.add_to_intake -> INTAKE
   skips receive, only via Shipment.receive_unit: no clause of its own
   checked on landing: labelled, mfr_serial, one_claim, one_open_engagement
 Robot.add_opening_stock -> AVAILABLE
-  skips inventorize: carried: may; held by invariants: labelled, mfr_serial; not carried: photo
+  skips inventorize: held by invariants: labelled, mfr_serial; not carried: photo
   checked on landing: labelled, mfr_serial, one_claim, one_open_engagement
 ```
 
@@ -350,61 +321,50 @@ type Shipment version 1 {
 
   create dispatch -> IN_TRANSIT accepts tracking_no, carrier, eta {
     input with_units : Robot[]
-    require may:     actor.has(INVENTORY_CREATE) because delegable
     require ordered: all(u in inputs.with_units: u.state == Robot.REQUESTED) because self_serviceable
     for u in inputs.with_units limit 200 { call u.ship(via_shipment := this) }
   }
   act add_unit at IN_TRANSIT {
     input robot : Robot
-    require may: actor.has(INVENTORY_CREATE) because delegable
     call inputs.robot.ship(via_shipment := this)
   }
   act remove_unit at IN_TRANSIT {
     input robot : Robot
-    require may:  actor.has(INVENTORY_CREATE) because delegable
     require ours: inputs.robot.shipment == this because self_serviceable
     require last: count(u in units where u.state == Robot.PROCUREMENT) >= 2 because self_serviceable
     call inputs.robot.unship()
   }
   do void IN_TRANSIT -> VOIDED {
-    require may:   actor.has(INVENTORY_CREATE) because delegable
     require empty: none(u in units where u.state == Robot.PROCUREMENT) because self_serviceable
   }
   do arrive IN_TRANSIT -> ARRIVED backdatable within 2 days {
-    require may: actor.has(INVENTORY_CREATE) because delegable
   }
   act receive_unit at ARRIVED backdatable within 2 days {
     input robot : Robot
-    require may:  actor.has(INVENTORY_CREATE) because delegable
     require ours: inputs.robot.shipment == this because self_serviceable
     call inputs.robot.receive()
   }
   act unreceive_unit at ARRIVED {
     input robot : Robot
-    require may:  actor.has(INVENTORY_CREATE) because delegable
     require ours: inputs.robot.shipment == this because self_serviceable
     call inputs.robot.unreceive()
   }
   act flag_missing at ARRIVED {
     input robot : Robot
-    require may:  actor.has(INVENTORY_CREATE) because delegable
     require ours: inputs.robot.shipment == this because self_serviceable
     call inputs.robot.flag_missing()
   }
   act restore_missing at ARRIVED {
     input robot : Robot
-    require may:  actor.has(INVENTORY_CREATE) because delegable
     require ours: inputs.robot.shipment == this because self_serviceable
     call inputs.robot.restore()
   }
   do commit ARRIVED -> COMMITTED {
-    require may:        actor.has(INVENTORY_CREATE) because delegable
     require reconciled: none(u in units where u.state == Robot.PROCUREMENT) because self_serviceable
     for u in units where u.state == Robot.INTAKE limit 200 { call u.inventorize() }
   }
   do revert_commit COMMITTED -> ARRIVED {
     input reason : string
-    require may:      actor.has(PROCUREMENT_CANCEL) because delegable
     require pristine: all(u in units where u.state != Robot.MISSING
                                         and u.state != Robot.CANCELLED:
                           u.state == Robot.AVAILABLE)             because dependent
@@ -424,21 +384,17 @@ type Delivery version 3 {
   attr internal bool default false
 
   create open -> PREPARATION accepts customer, internal {
-    require may: actor.has(DELIVERY_EDIT) because delegable
   }
   act peg_slot at PREPARATION {
     input robot : Robot
-    require may: actor.has(DELIVERY_EDIT) because delegable
     call inputs.robot.peg_to(slot := this)
   }
   act bind_slot at PREPARATION {
     input robot : Robot
-    require may: actor.has(DELIVERY_EDIT) because delegable
     call inputs.robot.reserve(slot := this)
   }
   act unbind_slot at PREPARATION {
     input robot : Robot
-    require may:  actor.has(DELIVERY_EDIT) because delegable
     require ours: inputs.robot.binding == this because self_serviceable
     call inputs.robot.release()
   }
@@ -446,30 +402,23 @@ type Delivery version 3 {
     require not_internal: not internal                                  because unreachable_from_here
     require filled:       count(u in units) >= 1
                           and none(u in pegged)                         because dependent
-    require may:          actor.has(DELIVERY_COMPLETE)                  because delegable
     for u in units limit 500 { call u.sell(buyer := customer) }
   }
   do complete_internal PREPARATION -> DELIVERED {
     require is_internal: internal                                       because unreachable_from_here
     require filled:      count(u in units) >= 1
                          and none(u in pegged)                          because dependent
-    require may:         actor.has(DELIVERY_COMPLETE)                   because delegable
     for u in units limit 500 { call u.deliver_internal() }
   }
   do cancel PREPARATION -> CANCELLED {
-    require may:   actor.has(DELIVERY_CANCEL) because delegable
-    require admin: actor.has(ADMIN)           because delegable
     for u in units limit 500 { call u.release() }
     for u in pegged limit 500 { call u.unpeg() }
   }
   do revoke DELIVERED -> CANCELLED {
-    require may:   actor.has(DELIVERY_CANCEL) because delegable
-    require admin: actor.has(ADMIN)           because delegable
     for u in units where u.state == Robot.SOLD limit 500 { call u.unsell() }
     for u in units where u.state == Robot.DEVELOPMENT limit 500 { call u.recall_internal() }
   }
   do delete CANCELLED -> DELETED {
-    require may: actor.has(DELIVERY_DELETE) because delegable
   }
 }
 ```
@@ -493,7 +442,6 @@ type ServiceJob version 3 {
   derive blocking = kind == ServiceKind.REPAIR
 
   create open -> OPEN accepts kind, robot, customer, engineer {
-    require may:        actor.has(SERVICE_CREATE) because delegable
     require assignable: inputs.engineer.state == User.ACTIVE
                         and inputs.engineer.role in {UserRole.ADMIN, UserRole.ENGINEERING}
                                                                          because self_serviceable
@@ -503,43 +451,33 @@ type ServiceJob version 3 {
                        or inputs.robot.sold_to == inputs.customer        because self_serviceable
   }
   act reassign at OPEN accepts engineer {
-    require may:        actor.has(SERVICE_EDIT) because delegable
     require assignable: inputs.engineer.state == User.ACTIVE
                         and inputs.engineer.role in {UserRole.ADMIN, UserRole.ENGINEERING}
                                                                          because self_serviceable
   }
   act add_part at { OPEN, WORKING } {
     input part : Robot
-    require may: actor.has(SERVICE_EDIT) because delegable
     call inputs.part.reserve_for_service(job := this)
   }
   act remove_part at { OPEN, WORKING } {
     input part : Robot
-    require may:  actor.has(SERVICE_EDIT) because delegable
     require ours: inputs.part.used_in == this because self_serviceable
     call inputs.part.release()
   }
   do start OPEN -> WORKING backdatable within 2 days {
-    require mine: engineer.login == actor.id because delegable
   }
   do finish WORKING -> DONE {
-    require may: actor.has(SERVICE_COMPLETE) because delegable
     for p in parts_used limit 50 { call p.consume(buyer := customer) }
   }
   do cancel { OPEN, WORKING } -> CANCELLED {
-    require may: actor.has(SERVICE_CANCEL_REQUESTED) because delegable
     for p in parts_used limit 50 { call p.release() }
   }
   do void DONE -> CANCELLED {
-    require may:   actor.has(SERVICE_CANCEL_COMPLETED) because delegable
-    require admin: actor.has(ADMIN)                    because delegable
     for p in parts_used limit 50 { call p.unconsume() }
   }
   do reopen CANCELLED -> OPEN {
-    require admin: actor.has(ADMIN) because delegable
   }
   do delete CANCELLED -> DELETED {
-    require may: actor.has(SERVICE_DELETE) because delegable
   }
 }
 
@@ -558,16 +496,13 @@ type Engagement version 1 {
   derive overdue = state == OUT and expected_return < now
 
   create schedule -> SCHEDULED accepts kind, expected_return {
-    require may: actor.has(LEASE_EDIT) because delegable
   }
   act add_unit at SCHEDULED {
     input robot : Robot
-    require may:      actor.has(LEASE_EDIT) because delegable
     require leasable: inputs.robot.leasable because dependent
     create EngagementLine.open(for_engagement := this, robot := inputs.robot)
   }
   do dispatch SCHEDULED -> OUT backdatable within 1 days {
-    require may:          actor.has(LEASE_EDIT) because delegable
     require nonempty:     count(l in lines) >= 1 because self_serviceable
     require fit:          all(l in lines: l.robot.fit) because dependent
     require return_known: kind != EngagementKind.LEASE or expected_return is not null
@@ -576,19 +511,15 @@ type Engagement version 1 {
   act swap_unit at OUT {
     input out_robot : Robot
     input in_robot  : Robot
-    require may:      actor.has(LEASE_EDIT) because delegable
     require leasable: inputs.in_robot.leasable because dependent
     for l in lines where l.robot == inputs.out_robot and l.open limit 1 { call l.end() }
     create EngagementLine.open(for_engagement := this, robot := inputs.in_robot)
   }
   do start_return OUT -> RETURNING backdatable within 1 days {
-    require may: actor.has(LEASE_EDIT) because delegable
   }
   do close RETURNING -> CLOSED {
-    require may: actor.has(LEASE_EDIT) because delegable
   }
   do cancel SCHEDULED -> CLOSED {
-    require may: actor.has(LEASE_EDIT) because delegable
   }
   do settle OUT -> CLOSED only via Lease.convert { }
 }
@@ -618,17 +549,14 @@ type Lease version 1 {
   ref engagement : Engagement inverse lease stored
 
   create sign -> ACTIVE accepts customer, engagement {
-    require may:      actor.has(LEASE_EDIT) because delegable
     require is_lease: inputs.engagement.kind == EngagementKind.LEASE because self_serviceable
   }
   do convert ACTIVE -> CONVERTED {
-    require may: actor.has(LEASE_CONVERT) because delegable
     require out: engagement.state == Engagement.OUT because dependent
     for l in engagement.lines where l.open limit 20 { call l.robot.convert_lease(buyer := customer) }
     call engagement.settle()
   }
   do end ACTIVE -> ENDED {
-    require may:      actor.has(LEASE_EDIT) because delegable
     require returned: engagement.state == Engagement.CLOSED because dependent
   }
 }

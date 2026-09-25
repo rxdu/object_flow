@@ -4,6 +4,8 @@ Status: design iteration 5, 2026-09-08. Companion to the earlier case studies. D
 
 *Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
 
+> **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
+
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
 ## 1. Why this case
 
@@ -16,8 +18,8 @@ Every earlier case had a single actor per transition. Approval is the case where
 | Approval concept | In this model |
 |---|---|
 | An approval | a **part** of the approved object: `Approval { approver, principal, decision, kind, comment, event }` created by an `approve` or `reject` action on the parent (ADR-0016, ADR-0019) |
-| Who may approve | actor guards on the action: `actor.has(APPROVE_PURCHASE)` (ADR-0025) |
-| Separation of duties | `actor.id != requested_by.id`; `none(a in approvals where a.approver == actor.id)`. Under three-valued logic an erased requester makes the first clause unknown, so it fails rather than passing (ADR-0047) |
+| Who may approve | the upper layer's, which decides who may request `approve` (ADR-0114) |
+| Separation of duties | the upper layer's where it concerns who is asking (ADR-0114); between recorded actors, such as two approvals by different approvers, a guard over the approvals' recorded `approver` |
 | "Needs approval" gate on the real transition | a guard counting valid approvals: `count(a in approvals where a.decision == Decision.APPROVED and not changed_since([amount, vendor], a.at_event)) >= 1` (ADR-0035, ADR-0047) |
 | N-of-M | `>= N` |
 | All of a set | one guard per required `kind` |
@@ -26,30 +28,19 @@ Every earlier case had a single actor per transition. Approval is the case where
 | Approval invalidated by a material edit | the same guard, through `changed_since`: an approval older than the last change to the declared relevant attributes does not count (ADR-0035) |
 | Withdraw request | an ordinary transition by the requester |
 | Approval expires; escalate after N days | queried by filtering the stored `approval.at_event` against the supplied time, since a `now`-dependent derived attribute is not itself indexable (ADR-0048); escalation is a scheduler asking the availability query (ADR-0022) |
-| Remedy when approval is missing | `delegable`, naming the capability and kind required, not a person |
+| Remedy when approval is missing | `delegable`, naming the kind of approval required, not a person |
 
 ### 2.2 A purchase request, declared
 
 ```text
-capability APPROVE_PURCHASE, APPROVE_DIRECTOR
 
 # PurchaseRequest: DRAFT -> SUBMITTED -> APPROVED -> ORDERED | REJECTED | WITHDRAWN
 
 do submit DRAFT -> SUBMITTED {
-  require may: actor.id == requested_by.id because delegable
 }
 
 act approve at SUBMITTED accepts comment {
   input kind : ApprovalKind
-  require may:      actor.has(APPROVE_PURCHASE)   because delegable
-  require not_self: actor.id != requested_by.id   because delegable
-  require once:     none(a in approvals
-                         where a.approver == actor.id
-                           and not changed_since([amount, vendor], a.at_event))
-                                                  because delegable
-  require director: inputs.kind == ApprovalKind.DIRECTOR
-                    implies actor.has(APPROVE_DIRECTOR)
-                                                  because delegable
   create Approval.record(approver  := actor.id,
                          principal := actor.principal,
                          kind      := inputs.kind,
@@ -73,7 +64,6 @@ do mark_approved SUBMITTED -> APPROVED {
 }
 
 act edit at SUBMITTED accepts amount, vendor {          # each write skipped when not supplied
-  require may: actor.id == requested_by.id because delegable
 }
 ```
 
@@ -81,13 +71,13 @@ Editing `amount` after a manager approved does not delete the approval and needs
 
 ## 3. Delegation
 
-Authority arrives in the actor descriptor (ADR-0025); the consumer's authentication computes it. A manager on leave who delegates to a deputy is, to the store, a deputy whose descriptor now carries `APPROVE_PURCHASE` for two weeks, with `principal` set to the manager. Attenuation — the deputy may approve only up to a limit — is not a descriptor attribute, since the descriptor has none (ADR-0079); it is the `Delegation` object below, which the guard reads: `any(d in Delegation where d.delegate == actor.id and d.state == Delegation.ACTIVE and d.limit >= amount)`.
+*(Since ADR-0114 the store holds no authority at all, so delegation, and whether a deputy may approve up to a limit, are wholly the upper layer's; this section records the model before it.)* Authority arrives in the actor descriptor (ADR-0025); the consumer's authentication computes it. A manager on leave who delegates to a deputy is, to the store, a deputy whose descriptor now carries `APPROVE_PURCHASE` for two weeks, with `principal` set to the manager. Attenuation — the deputy may approve only up to a limit — is not a descriptor attribute, since the descriptor has none (ADR-0079); it is the `Delegation` object below, which the guard reads: `any(d in Delegation where d.delegate == actor.id and d.state == Delegation.ACTIVE and d.limit >= amount)`.
 
 The delegation is therefore an object type in the store, governed and recorded like anything else — `Delegation { delegator, delegate, capability, limit, from, until }` with a lifecycle `active → revoked | expired` — and the consumer's auth reads live delegations when computing descriptors. The store offers no delegation mechanism of its own; that pattern is enough (ADR-0036).
 
 ## 4. Proposals
 
-A caller without authority for a transition receives `delegable`. Sometimes the right response is to carry the request to someone who has it. **ADR-0036**: `Proposal` is a built-in object type — the target object, the transition, the inputs, the proposer, and a lifecycle `pending → executed | rejected | withdrawn | invalidated` (ADR-0044). A transition opts in with `proposable`; a `delegable` verdict on a proposable transition says so. An authorised actor's `approve` on the proposal executes the recorded request as that actor, with the proposal's approval event as cause; **every** guard is re-evaluated then, the actor guards included, which the approver satisfies; if one fails the proposal stays `pending` carrying that verdict. The proposer is recorded on the proposal, not as principal of the execution: the approver is not acting on the proposer's behalf, they are authorising.
+*(Since ADR-0114 a proposal is a request held for approval whoever files it, and who may approve one is the upper layer's (DESIGN.md §9); this section records the model before it.)* A caller without authority for a transition receives `delegable`. Sometimes the right response is to carry the request to someone who has it. **ADR-0036**: `Proposal` is a built-in object type — the target object, the transition, the inputs, the proposer, and a lifecycle `pending → executed | rejected | withdrawn | invalidated` (ADR-0044). A transition opts in with `proposable`; a `delegable` verdict on a proposable transition says so. An authorised actor's `approve` on the proposal executes the recorded request as that actor, with the proposal's approval event as cause; **every** guard is re-evaluated then, the actor guards included, which the approver satisfies; if one fails the proposal stays `pending` carrying that verdict. The proposer is recorded on the proposal, not as principal of the execution: the approver is not acting on the proposer's behalf, they are authorising.
 
 The first consumer's list of transitions where authority differs from capability has two entries, so `proposable` is opt-in and off by default.
 

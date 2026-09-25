@@ -2,6 +2,8 @@
 
 Status: design iteration 4, 2026-09-08. Companion to the earlier case studies. Decisions taken here are ADR-0032 to ADR-0034 plus two clarifications, all pending author review. No sibling repository holds an order system, so this study uses the standard order-to-cash shape rather than observed code; it is the second structurally different case TODO.md asked for — many, short-lived objects — and the one that forced the arithmetic decision.
 
+> **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
+
 *Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
 
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
@@ -26,7 +28,7 @@ Every earlier case has few, long-lived, richly related objects. An order system 
 | Unpaid order auto-cancels after 30 minutes | `cancel_unpaid: placed → cancelled, guard placed_at + 30 min <= now`; a scheduler requests it through the availability query (ADR-0022, ADR-0032 for the duration) |
 | Fulfilment, partial shipment | `Shipment` objects with line quantities as link objects; the invariant is declared on the line as a relationship aggregate, `sum(a in allocations: a.qty) <= qty`, since ADR-0047 refuses grouped aggregation |
 | Return, refund | transitions on order lines and `Payment.refund(amount)` with `sum(r in refunds: r.amount) <= captured` |
-| Fraud hold, manual review | states plus actor guards (ADR-0025) |
+| Fraud hold, manual review | states; who may review is the upper layer's (ADR-0114) |
 | Guest checkout | an actor of kind `human` with an ephemeral id the consumer mints; nothing in the store cares |
 | Retrying client placing the same order twice | idempotency key on the placement request (ADR-0014); the cascade is one request, so one key |
 | Fulfilment system, email, analytics | upper-layer applications pulling the log (ADR-0013, ADR-0105); open-ended analytics exports from the log. *(Amended 2026-09-24, D350: declared metrics are computed in the store since ADR-0081 and ADR-0084, so only open-ended analysis is outside it.)* |
@@ -35,14 +37,11 @@ Every earlier case has few, long-lived, richly related objects. An order system 
 ## 2a. Placement, declared
 
 ```text
-capability ORDER_CREATE_ANY
 
 create place -> PLACED accepts customer, address {
   input cart : Cart
   require open:  inputs.cart.state == Cart.ACTIVE               because dependent
   require lines: count(l in inputs.cart.lines) > 0              because self_serviceable
-  require may:   actor.id == inputs.cart.owner
-                 or actor.has(ORDER_CREATE_ANY)                 because delegable
   for l in inputs.cart.lines limit 500 {
     create OrderLine.add(order      := this,
                          product    := l.product,

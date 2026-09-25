@@ -4,6 +4,8 @@ Status: **worked example**, written 2026-09-07 as a draft and adopted in design 
 
 *Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
 
+> **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
+
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current with the grammar; the surrounding prose records how the study reached them. *(A review on 2026-09-23 found three places where they differ from the production system's behaviour — `complete_sale` gates on the checklist and inspections where production does not, a unit's `CANCELLED` is terminal where production has transitions out of it, and `reserve` binds a unit only to a delivery where production also reserves for a service. They are listed in `TODO.md` for the table-to-type mapping, which re-derives the declarations from production and is what the harness fixture will be built from.)*
 Source material: `wr:app/core/state_registry.py`, `wr:docs/proposals/operations-system-design.md` §4–§5, `wr:docs/adr/0002-unit-engagement-and-leasing-model.md`, `wr:docs/adr/0003-xero-as-source-of-truth-for-customer-identity.md`. The `wr:` prefix is defined in [`TODO.md`](../../TODO.md).
 
@@ -49,7 +51,7 @@ Terminal states: `RETIRED`, `CANCELLED`. Every transition is named and requested
 | `cancellation_reason`, `retirement_reason` | attribute | `cancel`, `retire`, as input |
 | `procurement_order`, `shipment` | `ref` | `request`, `ship` |
 | `binding` — the slot this unit is promised to | `ref` | `reserve` / `release`, and the pegging action while inbound |
-| `notes` | attribute | action `edit(notes)`, guarded on a capability (ADR-0042) |
+| `notes` | attribute | action `edit(notes)`; who may request it is the upper layer's (ADR-0114) |
 
 ### 2.3 Guards, as the model would declare them
 
@@ -61,9 +63,7 @@ Terminal states: `RETIRED`, `CANCELLED`. Every transition is named and requested
 | `reserve(slot)` AVAILABLE → RESERVED | `slot.model == model` | input + referenced | `self_serviceable` — choose another slot |
 | | `slot.unit is null` | input | `dependent` |
 | | `slot.delivery.state == PREPARATION` | referenced | `dependent` |
-| | `actor.has(DELIVERY_EDIT)` | actor | `delegable` |
-| `retire(reason)` DEVELOPMENT → RETIRED | `actor.has(ADMIN)` | actor | `delegable` |
-| | `reason is not null` | input | `self_serviceable` |
+| `retire(reason)` DEVELOPMENT → RETIRED | `reason is not null` | input | `self_serviceable` |
 | `sell` RESERVED → SOLD | *only via* `Delivery.complete_sale` | — | not requestable |
 | `convert_lease` DEVELOPMENT → SOLD | *only via* `Lease.convert` | — | not requestable |
 | `revert_intake` AVAILABLE → INTAKE | `binding is null or binding.delivery.state == PREPARATION` | referenced | `dependent` |
@@ -128,7 +128,6 @@ do complete_sale PREPARATION -> DELIVERED {
   require inspected: all(r in check_records where r.required: r.result == Result.PASS)
                                                               because dependent
   require invoiced: xero.invoice_valid(order_id) deferred     because dependent
-  require may:      actor.has(DELIVERY_COMPLETE)              because delegable
 
   for s in slots where s.unit is not null limit 200 {
     call s.unit.sell()
@@ -189,7 +188,7 @@ Each deletable type declares a terminal state (`DELETED`, or a domain word such 
 
 ### H. The actor is a value supplied by the consumer
 
-A request carries an actor: an identity, a kind (human, agent, service), the principal it acts for, and a set of capabilities. ObjectFlow does not authenticate or manage users; the consumer's auth does, and hands the descriptor in. Guards test it: `actor.has(DELIVERY_COMPLETE)`, `actor.kind == human`. Where a guard needs a referenced person — `Service.create` requires an engineer who is a human user — that person is an ordinary object in the store and the guard reads its attributes. Delegation is deferred; proposals became a built-in type (ADR-0036): the first consumer's authority-versus-capability list is two items long.
+A request carries an actor: an identity and the principal it acts for, whose kind its declared type gives. ObjectFlow does not authenticate or manage users, and since ADR-0114 no guard reads the actor: the engine records who acted, and who may request what is the upper layer's. *(Until ADR-0114, guards tested capabilities and kinds here: `actor.has(DELIVERY_COMPLETE)`, `actor.kind == human`.)* Where a guard needs a referenced person — `Service.create` requires an engineer who is a human user — that person is an ordinary object in the store and the guard reads its attributes. Delegation is deferred; proposals became a built-in type (ADR-0036): the first consumer's authority-versus-capability list is two items long.
 
 ## 5. The operations extension against A–H
 

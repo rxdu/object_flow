@@ -6,6 +6,8 @@ Draft, 2026-09-09, amended 2026-09-23. The request and verdict shapes of [`../DE
 
 **Amended 2026-09-25** for ADR-0111 and ADR-0112: a `Flag`, which `Satisfied`, a `TransitionOffer` and an `Event` carry and an `Attempt` marks `flagged`; and `MetricPage.refused` for a reader outside a metric's audience.
 
+**Amended 2026-09-25** for ADR-0114: the engine records who acted and never evaluates it. `Actor` loses `capabilities` and an unknown actor is refused as `actor_known`; `Unsatisfied`, `Flag` and `InvariantViolated` lose what hid objects from a requester; `Object` loses `partial`; `ReadSet` loses `capabilities` and `withheld`; `MetricPage` loses `complete` and `refused`, and `Diagnostic` its `complete`; `versioned`, `keyed` and a subscription's reader are withdrawn; and no read is filtered by who asks.
+
 **What is verified.** The Python below executes, and `scripts/check-api-doc.py` compares the operations it offers against the read surface DESIGN.md §10 declares, so the two cannot drift apart silently. It is **not** typechecked — there is no mypy in the environment this was written in, and the annotations are therefore reviewed and not proven.
 
 **Amended 2026-09-23** for ADR-0082 to ADR-0094: `metric`, `diagnostics` and `export`; `publish` of a `DeclarationChange`; the settled cursor for `pull` and `acknowledge`; the read set, writing transaction, occurred time and retry count on an event; the attempt and interval shapes; `Unsatisfied` naming what its remedy points at, and `Stale` its cause; and the injected dependencies, including the connection source.
@@ -26,7 +28,7 @@ Since ADR-0110 this interface is what the engine's internal service exposes, one
 
 **A refusal is a value, never an exception.** Every verdict of §5.5 — including `not found`, `stale` and `invariant violated` — is returned. Exceptions are for a fault: the database is gone, the declaration will not load, the caller passed something the type system should have caught. The reason is that a refusal is an ordinary outcome a caller must handle, and an exception is the thing a caller writes `except: pass` around.
 
-**Every operation takes an actor.** There is no ambient identity and no session. The actor is a value the deployment's authentication produced, validated for shape and never for truth (ADR-0025), and visibility is applied on every read from it (ADR-0030).
+**Every operation takes an actor.** There is no ambient identity and no session. The actor is a value the deployment's authentication produced, validated for shape and never for truth (ADR-0025). A write records it; no rule reads it and no read is filtered by it (ADR-0114).
 
 **Nothing returns a mutable view of stored state.** Every shape is frozen. An object returned by `get` is what was true at the moment it was read, and writing to it would be the second write path the model exists to refuse.
 
@@ -52,14 +54,14 @@ class ActorKind(Enum):
 
 @dataclass(frozen=True)
 class Actor:
-    """Produced by the upper layer's authentication, which also maps its roles to
-    these capabilities. The store validates its shape, never its truth
-    (ADR-0025), and carries no kind: it resolves `id` to the live object holding
+    """Produced by the upper layer's authentication, which also decides what the
+    actor may do and see (ADR-0114). The store validates its shape, never its
+    truth (ADR-0025), and carries no kind: it resolves `id` to the object holding
     that actor identity and takes the kind that object's type declares, refusing
-    an actor who is not live as `actor_live` (ADR-0110)."""
+    an actor it does not know as `actor_known` (ADR-0110, ADR-0114). The store
+    records the actor and never evaluates it."""
 
     id: str
-    capabilities: frozenset[str]
     principal: str | None = None
 
 
@@ -110,7 +112,7 @@ class EvaluatorSource(Protocol):
 
 ```
 
-A creation names a `type` and no `object_id`; every other transition names an `object_id`. `expected_version` is the optimistic check of ADR-0023, `idempotency_key` makes a retry safe by replaying the first result rather than refusing it (ADR-0041), for as long as the store's idempotency retention keeps the record (ADR-0103), and `context` is the caller's statement of why the request was sent and by which route — for an upper-layer application, the rule or job that caused it, such as `ops-app/sweep:leases-overdue` — recorded in the event's provenance and on an attempt row, and what PRD UC-20's "recorded with its reason" reads (ADR-0105). A request carrying both a key and an `expected_version` is matched on its key first: a replay returns the recorded verdict whatever version the retry supplies, and `Stale` is possible only for a request that has not been applied (ADR-0076). `occurred_at` is accepted by a transition marked backdatable and by an observation kind's `record`, and is checked by the generated guard `occurred_within`, so a time outside the bound is refused naming that clause (ADR-0083, ADR-0099). Where a module declares `requests by <kind> require …`, a request by that kind of actor without the named `expected_version` or `idempotency_key` is refused as `Unsatisfied`, naming the generated clause `versioned` or `keyed`, remedy `self_serviceable` (ADR-0103). The rule applies to what the actor sends, a proposal's approval included; the recorded request an approval executes is not re-checked, and `publish` keeps its own required `expected_version` and needs no key. `check` and `availability` answer before a request is sent and do not evaluate the two clauses.
+A creation names a `type` and no `object_id`; every other transition names an `object_id`. `expected_version` is the optimistic check of ADR-0023, `idempotency_key` makes a retry safe by replaying the first result rather than refusing it (ADR-0041), for as long as the store's idempotency retention keeps the record (ADR-0103), and `context` is the caller's statement of why the request was sent and by which route — for an upper-layer application, the rule or job that caused it, such as `ops-app/sweep:leases-overdue` — recorded in the event's provenance and on an attempt row, and what PRD UC-20's "recorded with its reason" reads (ADR-0105). A request carrying both a key and an `expected_version` is matched on its key first: a replay returns the recorded verdict whatever version the retry supplies, and `Stale` is possible only for a request that has not been applied (ADR-0076). `occurred_at` is accepted by a transition marked backdatable and by an observation kind's `record`, and is checked by the generated guard `occurred_within`, so a time outside the bound is refused naming that clause (ADR-0083, ADR-0099). An upper layer that requires some kinds of actor to send a version and a key enforces it at its own edge (ADR-0114, withdrawing ADR-0103's `requests by`); `publish` keeps its own required `expected_version`.
 
 A store is built from a backend, an `IdSource`, a `Clock`, a `ConnectionSource` and an `EvaluatorSource`, all injected, and the deployment's attempt retention and idempotency retention, the durations `maintain` will not prune inside (ADR-0101, ADR-0103); so a test controls everything nondeterministic about a request (ADR-0077, ADR-0091). The core is **synchronous**: an operation runs to completion on its caller's thread, and an asynchronous service such as the first consumer's wraps it on a thread pool.
 
@@ -141,8 +143,6 @@ class Flag:
     remedy: Remedy                        # what would clear it
     unknown: bool                         # it read something absent, rather than was false
     objects: Sequence[str] = ()           # what a dependent remedy points at
-    capability: str | None = None         # for a clause over actor.has(C)
-    withheld: bool = False                # `objects` omits some the requester cannot see
 
 
 @dataclass(frozen=True)
@@ -161,12 +161,10 @@ class Unsatisfied:
     unknown: bool
     objects: Sequence[str] = ()           # what a dependent remedy says to work on,
                                           # or the object the clause read (ADR-0092)
-    capability: str | None = None         # for a clause over actor.has(C)
     proposable: bool = False              # whether a proposal would be accepted
     consulted: Mapping[str, Any] = field(default_factory=dict)
                                           # the metric values and evaluator verdicts
                                           # the clause was decided on (ADR-0096)
-    withheld: bool = False                # `objects` omits some the requester cannot see
 
 
 @dataclass(frozen=True)
@@ -180,7 +178,7 @@ class Stale:
 
 @dataclass(frozen=True)
 class NotFound:
-    remedy: Remedy = Remedy.UNREACHABLE_FROM_HERE   # saying more would disclose existence
+    remedy: Remedy = Remedy.UNREACHABLE_FROM_HERE   # no object has the id named
 
 
 @dataclass(frozen=True)
@@ -199,10 +197,9 @@ class OverLimit:
 @dataclass(frozen=True)
 class InvariantViolated:
     invariant: str
-    objects: Sequence[str]                # only those the requester can see (ADR-0100)
+    objects: Sequence[str]                # every object in the conflict
     remedy: Remedy                        # DEPENDENT where it names other objects;
                                           # SELF_SERVICEABLE over this object alone (ADR-0105)
-    withheld: bool = False                # others were involved and are not named
 
 
 Verdict = (
@@ -213,7 +210,7 @@ Verdict = (
 
 ```
 
-**Every refusal carries a remedy class**, so a caller always knows its next move, which is what PRD F4 asks (ADR-0105). `Unsatisfied` says most: its remedy class, and what that remedy points at — the objects to work on first, the capability that would satisfy the clause, whether a proposal would be accepted (ADR-0092). `unknown` is the one field that repays explanation: a guard that read something absent is unsatisfied, and not the same answer as a guard that was false (§8.2 of the syntax).
+**Every refusal carries a remedy class**, so a caller always knows its next move, which is what PRD F4 asks (ADR-0105). `Unsatisfied` says most: its remedy class, and what that remedy points at — the objects to work on first, whether a proposal would be accepted (ADR-0092). `unknown` is the one field that repays explanation: a guard that read something absent is unsatisfied, and not the same answer as a guard that was false (§8.2 of the syntax).
 
 `Stale` carries its cause. Only a stale `expected_version` has an expected and an actual version; exhausted retries — a contended row on PostgreSQL, a busy timeout on SQLite (ADR-0090) — have neither.
 
@@ -256,8 +253,6 @@ class Object:
     attributes: Mapping[str, Any]
     recorded_from: datetime               # from when its record is continuous (ADR-0106)
     created_dated: bool = True            # False where a port could not date the creation
-    partial: frozenset[str] = frozenset() # derived attributes that read what this reader
-                                          # cannot see in full, over only what it can (ADR-0106)
 
 
 @dataclass(frozen=True)
@@ -274,9 +269,7 @@ class ReadSet:
     objects: Mapping[str, int]            # object id -> the version read
     scans: Mapping[str, Sequence[str]]    # each type-scan clause -> the ids it matched,
                                           # an empty match recorded as empty (ADR-0088)
-    capabilities: Mapping[str, bool]      # each actor.has(C) asked -> its answer
     now: datetime                         # fixed once per request
-    withheld: bool = False                # something the reader cannot see was read (ADR-0095)
 
 
 @dataclass(frozen=True)
@@ -336,7 +329,7 @@ class EventPage:
 
 @dataclass(frozen=True)
 class MetricRow:
-    """One row of a metric the reader may see (ADR-0084)."""
+    """One row of a metric (ADR-0084)."""
 
     dimensions: Mapping[str, Any]
     value: Any                            # unknown is None, as division by zero is
@@ -348,17 +341,12 @@ class MetricRow:
 
 @dataclass(frozen=True)
 class MetricPage:
-    """A metric over the rows its reader may see (ADR-0096)."""
+    """A metric over every row its source and filter select (ADR-0114)."""
 
     rows: Sequence[MetricRow]
     cursor: str | None
-    complete: bool                        # the reader sees every current object of each type
-                                          # the metric reads; otherwise the values are over
-                                          # the reader's own rows, and are not the metric's
     history_complete: bool                # no row has gaps: the record covers every span it
-                                          # measures, whatever the reader may see (ADR-0106)
-    refused: Unsatisfied | None = None    # outside the metric's audience: no rows, and a
-                                          # refusal naming `audience` (ADR-0112)
+                                          # measures (ADR-0106)
 
 
 @dataclass(frozen=True)
@@ -368,7 +356,6 @@ class Diagnostic:
     kind: str                             # e.g. "unused_transition", "top_refusal", "reassignment_loop"
     subject: str                          # the transition, state, clause, label or assignee it concerns
     measure: Any                          # the count, duration or rate that put it on the list
-    complete: bool                        # computed over every object, as a metric's result says
 
 
 @dataclass(frozen=True)
@@ -447,7 +434,7 @@ class EvidenceRef:
 @dataclass(frozen=True)
 class PublishResult:
     """What `publish` returns: the verdict on the `publish` transition, and
-    the report it was decided on, filtered for the actor (ADR-0101)."""
+    the report it was decided on (ADR-0101, ADR-0114)."""
 
     verdict: Verdict                      # Stale if the change moved since it was read
     report: "PublishReport"
@@ -530,7 +517,7 @@ class ExportPage:
 
 ```
 
-An `Event` carries what the log stores and no more: the actor's id, kind and principal rather than a descriptor; the declaration and taint versions in force; its writing transaction; its read set; and, per evaluator or metric guard, the verdict or value it was given and that value's as-of time (ADR-0049, ADR-0088, ADR-0089, ADR-0095). The capabilities an actor held are not stored, but the ones a rule asked about are, with their answers, in `reads`.
+An `Event` carries what the log stores and no more: the actor's id, kind and principal rather than a descriptor; the declaration and taint versions in force; its writing transaction; its read set; and, per evaluator or metric guard, the verdict or value it was given and that value's as-of time (ADR-0049, ADR-0088, ADR-0089, ADR-0095). No rule reads the actor, so `reads` holds no answer about one (ADR-0114).
 
 `EventPage.settled` is a **settled cursor**, not a position: the last (transaction, position) pair the reader returned, drawn only from transactions that had finished when its snapshot was taken, so a later commit can never sort before it (ADR-0089). A reader acknowledges exactly that.
 
@@ -541,7 +528,8 @@ An `Event` carries what the log stores and no more: the actor's id, kind and pri
 ```python
 
 class Store(Protocol):
-    """One API. Every operation takes an actor and applies visibility."""
+    """One API. Every operation names an actor, which a write records; no read
+    is filtered by it (ADR-0114)."""
 
     def request(self, req: Request) -> Verdict: ...
 
@@ -606,16 +594,16 @@ class Store(Protocol):
 
 Nineteen operations: the sixteen of §10, the write path of §6, and the operational calls that are not object operations, `acknowledge` and `publish`. `import_batch` and `maintain` are the only other ways anything writes the database (ADR-0100). The checker holds this list against §10 rather than trusting it.
 
-- `metric` returns a `MetricPage`, and `diagnostics` a short fixed list, each computed over what the reader may see and saying whether that is everything (ADR-0096).
-- `import_batch` writes a port through the built-in assertion, for an actor holding `OF_IMPORT`, and only into a type declared `mirror` and the observations and labels on a mirror's objects; it never rewrites a personal value an erasure removed, redacts the legacy entries and intervals it attaches to an erased object as the erasure would have, and marks every event it writes `imported` (ADR-0100, ADR-0101). Its event opens each current interval at the time `entered` gives, so a stay is not split at the port; a refresh does the same for what changed since the last import; and no legacy interval may cross a silent span (ADR-0106). A legacy interval pages in the export by the cursor of the import event that wrote its object. `maintain` requires `OF_MAINTAIN`, refuses a prune inside the store's attempt or idempotency retention, changes no governed state or history, and is never needed for correctness (ADR-0100, ADR-0101, ADR-0103). The idempotency retention must cover the longest period over which any caller repeats a key, a scheduler's periodic sweep and an at-least-once reader's re-delivery included, since a repeat after the prune is a new request.
+- `metric` returns a `MetricPage`, and `diagnostics` a short fixed list, each computed over every row its source and filter select (ADR-0114).
+- `import_batch` writes a port through the built-in assertion, and only into a type declared `mirror` and the observations and labels on a mirror's objects; it never rewrites a personal value an erasure removed, redacts the legacy entries and intervals it attaches to an erased object as the erasure would have, and marks every event it writes `imported` (ADR-0100, ADR-0101). Its event opens each current interval at the time `entered` gives, so a stay is not split at the port; a refresh does the same for what changed since the last import; and no legacy interval may cross a silent span (ADR-0106). A legacy interval pages in the export by the cursor of the import event that wrote its object. `maintain` refuses a prune inside the store's attempt or idempotency retention, changes no governed state or history, and is never needed for correctness (ADR-0100, ADR-0101, ADR-0103). The idempotency retention must cover the longest period over which any caller repeats a key, a scheduler's periodic sweep and an at-least-once reader's re-delivery included, since a repeat after the prune is a new request.
 - `export` pages an attempt source by its writing transaction's settled cursor, and an interval source by the cursor of the event that last opened or closed each row, so a closing re-emits the row and a reader keeps the latest per object, dimension and entry (ADR-0100).
 - `export` takes a source — `log`, `<Type>.intervals`, `<Type>.transitions`, `<Type>.attempts`, `<Type>.attempt_counts`, `<Type>.labels`, or an observation kind — and returns JSON lines of the corresponding shape above, with every personal value omitted, so the permanent refusal counts and the labels can leave the store after a prune (ADR-0094, ADR-0106).
-- `pull` and `acknowledge` are the subscription's reader's alone, the actor it names; to anyone else the subscription is not found, as an object they cannot see is not. The core posts nothing: a relay that posts to an endpoint is an upper-layer application pulling as its own actor (ADR-0105).
-- `get` and `query` evaluate a derived attribute that reads other objects over what the reader can see, and name it in `Object.partial` where that is not everything (ADR-0106). `query` accepts a time-dependent derived attribute the publish report lists as queryable, and filters on the stored operand it compares against `now` (ADR-0048).
-- `history`, `pull` and `export` filter the `reads` and `consulted` of an event or an attempt for the reader: an object the reader cannot see is left out and `withheld` is set, and a metric value is left out unless the reader can see every current object of each type the metric reads (ADR-0095, ADR-0096). A refusal's `Unsatisfied.consulted` follows the same rule for its requester, since a metric in a guard reads rows the requester may not see: the value is given to a requester who can see every current object of each type the metric reads, and otherwise left out.
-- `metric` aggregates the rows the reader may see, after narrowing them by `filter`, and a path through an object the reader may not see yields absence. `complete` says whether those rows are all there are, so a partial value is never taken for the metric's own (PRD C2, M2, T5, ADR-0096).
-- `metric` first applies the metric's audience (PRD T7, ADR-0112). A reader outside it gets a page with no rows and `refused` set: an `Unsatisfied` naming `audience`, remedy `DELEGABLE`, with the capability where the audience reads one. A read keeping a dimension whose value names an actor needs `OF_PERSON_METRICS` unless the metric's audience says otherwise, and the same read without that dimension, through `keep`, is answered as usual. A metric value in a verdict, an event or an attempt is left out for a reader outside the metric's audience, as for one whose view would be partial, and `diagnostics` leaves out a diagnostic whose subject names an actor for a reader without `OF_PERSON_METRICS`.
-- `publish` takes the id of a `DeclarationChange` (ADR-0085, ADR-0097): with `dry_run` it produces the impact report `submit` and `refresh` attach, and without it it requests the change's `publish` transition, which is the approval and installs the version. `expected_version` is the version of the change the approver read, required unless `dry_run`, and a change that has moved since, by a `refresh`, is refused as `stale`. The result carries the verdict — `Satisfied`, `Stale`, or `Unsatisfied` naming `may`, `not_drafter`, `person_for_agent`, `current` or `impact_unchanged` — beside the report, whose ids are filtered for the actor (ADR-0097, ADR-0101).
+- `pull` and `acknowledge` take a subscription's id; who may use one is the upper layer's (ADR-0114). The core posts nothing: a relay that posts to an endpoint is an upper-layer application pulling as its own actor (ADR-0105).
+- `get` and `query` evaluate a derived attribute that reads other objects over every object it reads (ADR-0114). `query` accepts a time-dependent derived attribute the publish report lists as queryable, and filters on the stored operand it compares against `now` (ADR-0048).
+- `history`, `pull` and `export` return the `reads` and `consulted` of an event or an attempt whole, and a refusal's `Unsatisfied.consulted` gives its requester the value it was decided on (ADR-0114).
+- `metric` aggregates every row its source selects, after narrowing them by `filter`, which is how an upper layer scopes a read to what its user may see (PRD C2, M2, T5, ADR-0114).
+- `declaration(type)` marks every metric dimension whose value names an actor, so an upper layer can put reads that keep one behind its own door (PRD T7, ADR-0114).
+- `publish` takes the id of a `DeclarationChange` (ADR-0085, ADR-0097): with `dry_run` it produces the impact report `submit` and `refresh` attach, and without it it requests the change's `publish` transition, which is the approval and installs the version. `expected_version` is the version of the change the approver read, required unless `dry_run`, and a change that has moved since, by a `refresh`, is refused as `stale`. The result carries the verdict — `Satisfied`, `Stale`, or `Unsatisfied` naming `current` or `impact_unchanged` — beside the report (ADR-0097, ADR-0101). Who may approve, and that the approver is not the drafter, are the upper layer's; the change records both (ADR-0114).
 
 Three of them are worth reading twice.
 
@@ -638,7 +626,7 @@ Everything in §4 is a value. These are the six things that raise, and the list 
 | `EngineMismatch` | the store records a different engine release from this core's: an upgrade has run, or is due, and this copy of the service must be replaced. Every request reads the release in its transaction, so no two releases serve one store at once (ADR-0110) |
 | `KeyReused` | this actor applied the idempotency key before, to a different request. A retry is the same request, so a different body under a used key is a defect in the caller's key generation, and neither replaying the other request's result nor applying this one under its key would be honest (ADR-0077) |
 
-Note what is not there. An unknown object id is `NotFound`, an invisible one is also `NotFound`, and a malformed input is `Unsatisfied` on the guard that reads it. Those are answers about the domain and the caller must handle them, so they are values. `UnknownTransition` and `KeyReused` are faults, and each is also recorded in the attempt log, since both are mistakes a caller makes (ADR-0083).
+Note what is not there. An unknown object id is `NotFound`, and a malformed input is `Unsatisfied` on the guard that reads it. Those are answers about the domain and the caller must handle them, so they are values. `UnknownTransition` and `KeyReused` are faults, and each is also recorded in the attempt log, since both are mistakes a caller makes (ADR-0083).
 
 ## 8. Decided since the first draft
 

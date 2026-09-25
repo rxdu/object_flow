@@ -10,6 +10,8 @@ Draft, 2026-09-09, amended 2026-09-23. The acceptance test, which PRD N4 names a
 
 **Amended again 2026-09-23** for ADR-0097 to ADR-0101, from a review of the whole record against the PRD; each change cites the decision it carries.
 
+**Amended 2026-09-25** for ADR-0114: the claim is over routes and records, since who may take a route is the upper layer's; the rows on metric audiences and capability-gated escapes go; and the permission routes of UC-19 become checks that the record attributes what was let through.
+
 **Amended 2026-09-25** for ADR-0111 and ADR-0112: a flag is excluded from the guarantee, as an observing clause is, and checked to be returned and recorded; a metric read outside its audience is a failure.
 
 **Amended 2026-09-24** for ADR-0105 and ADR-0106, from a review of the whole record against PRD revision 5:
@@ -23,7 +25,7 @@ The threat model is **mistakes, not malice** (ADR-0015): an actor that guesses, 
 
 ## 1. The claim under test
 
-`DESIGN.md` §13 states it: governed state changes only by PRD F2's four routes, each recorded — a transition whose **enforced** guards pass, an override, a flow change's migration, an erasure — and bypasses the enforced guards only through a capability-gated override: an assertion the type declares, the built-in one the import uses, or an admission (ADR-0105). An observing clause is on trial and guarantees nothing (ADR-0085), and a flag guarantees nothing by design (ADR-0111), so the harness treats both as absent. It checks separately that each records what it would have refused and never refuses, and that a flag is returned to the caller who raised it.
+`DESIGN.md` §13 states it: governed state changes only by PRD F2's four routes, each recorded — a transition whose **enforced** guards pass, an override, a flow change's migration, an erasure — and bypasses the enforced guards only through a recorded override: an assertion the type declares, the built-in one the import uses, or an admission (ADR-0105). Who may take a route is the upper layer's and outside the claim (ADR-0114); what the harness checks is that every route taken is recorded with who took it. An observing clause is on trial and guarantees nothing (ADR-0085), and a flag guarantees nothing by design (ADR-0111), so the harness treats both as absent. It checks separately that each records what it would have refused and never refuses, and that a flag is returned to the caller who raised it.
 
 That is falsifiable, which is what makes it worth a harness. A run **fails** if it produces any of:
 
@@ -41,8 +43,7 @@ That is falsifiable, which is what makes it worth a harness. A run **fails** if 
 | a refusal that, replayed over its read set and the request values it recorded, does not refuse — except where it names a personal input as withheld; or a refusal missing from the attempt log | the record no longer explains the refusal, or lost it (ADR-0083, ADR-0105, PRD L2) |
 | a pull or export that skips an event, or returns an object's events out of that object's order | delivery is not at least once and in order per object (ADR-0089, PRD L6) |
 | a personal value still readable after its subject's erasure — on an object, in an event, in a predecessor, in a caller's event, in an event it caused or an object it copied the value into, in a label note, an observation, a legacy entry, a proposal or its event, an interval, or an external identifier `lookup` still resolves — or an erased object's shared file gone for another object; or an erased value written back by any request, a sync included; or an object whose value an erasure redacted with no `erased` event of its own | erasure missed something, took too much, or was undone (ADR-0087, ADR-0100, ADR-0105, UC-17) |
-| a metric row returned to a reader outside the metric's audience, or a split by person returned without `OF_PERSON_METRICS` where no audience opens it, by `metric()` or in a verdict, an event or an attempt | the door on a metric is only in the upper layer (ADR-0112, PRD T7) |
-| any of the above reachable **without** a capability the declaration gates it on | the escape hatch is not the only escape |
+| a change to governed state, an override included, whose event does not name the actor the request named and the kind its type declares | the record cannot say who did it (ADR-0110, ADR-0114, PRD T6) |
 
 Every one of these is checkable against the store from outside, by reading the declaration and the read surface. That is deliberate: the harness must not need privileged access to detect a failure, or it is testing something a caller cannot.
 
@@ -67,12 +68,12 @@ Five behaviours, because they are the ways real callers actually break things.
 **The skipper** works from a stale read: it takes `availability`, waits, and acts on it after the world has moved. It is testing that `check` is advice and not a reservation, which the read surface says plainly and which every caller will forget.
 
 **The route-tester** tries the routes PRD UC-19 names, each a way the data-driven features could open a door around the rules:
-- it records an observation it is not permitted to record, so that a gate reading it would open. The `recorded by` guard must refuse it (ADR-0082, PRD D12);
+- it records an observation its application would not have let it record, so that a gate reading it would open. The application refuses it (PRD D12, N7); the harness, which drives the engine directly, checks that where one is let through the observation and the gate's decision are both attributed to the agent that recorded it (ADR-0114);
 - it backdates a transition beyond its declared bound, to shorten a measured duration. The bound must refuse it (ADR-0083, PRD D5);
 - it completes a transition an observing clause would have refused, and then acts as though the rule were enforced. The request must proceed, the would-be refusal must be recorded, and the printed rule set must show the clause as not enforced (ADR-0085, PRD T1);
-- it calls `import_batch` on an owned type, holding `OF_IMPORT`, to set state the type's guards would refuse. The import must refuse the type (ADR-0100, PRD T1, T4);
-- it approves its own `DeclarationChange`, or one drafted against an older version. `publish` must refuse both (ADR-0097, PRD F7);
-- it retires a `PdiCheck` from a configuration's checklist so that a hand-over's gate, `all_checked` in `declaration-syntax.md` §6.8, which requires a result for every active check, opens without one. The retirement must be refused without the catalogue's own authority; with it, the retirement is recorded and attributed like any transition, and the gate's read set names the catalogue scan it matched (PRD D7, UC-19's fourth route, ADR-0105).
+- it calls `import_batch` on an owned type, to set state the type's guards would refuse. The import must refuse the type (ADR-0100, PRD T1, T4);
+- it publishes a `DeclarationChange` drafted against an older version. `publish` must refuse it (ADR-0097, PRD F7). Approving its own draft is the upper layer's to refuse; the change records who drafted and who approved it (ADR-0114);
+- it retires a `PdiCheck` from a configuration's checklist so that a hand-over's gate, `all_checked` in `declaration-syntax.md` §6.8, which requires a result for every active check, opens without one. Who may retire a check is the application's decision; whoever does, the retirement is recorded and attributed like any transition, and the gate's read set names the catalogue scan it matched (PRD D7, UC-19's fourth route, ADR-0105, ADR-0114).
 
 None of them is clever. Cleverness is the malice model, and this is not it.
 
