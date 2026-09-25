@@ -27,18 +27,18 @@ types:
 
     states:
       AVAILABLE:
-        description: In stock and offered for sale.
+        description: In stock and free to be reserved.
         category: live
       RESERVED:
         description: Held for one customer or internal project until a set time.
         category: live
         required_attributes: [reserved_for, reserved_until]
       SOLD:
-        description: Sold to the customer it was reserved for.
+        description: Delivered externally, to the customer it was reserved for; no longer available.
         category: closed
         required_attributes: [sold_to, sale_price]
       DEVELOPMENT:
-        description: In internal use for demonstration, testing or engineering.
+        description: Delivered internally, for demonstration, testing or engineering; no longer available.
         category: closed
         required_attributes: [development_use]
       RETIRED:
@@ -49,7 +49,7 @@ types:
 
     conditions:
       not_damaged:
-        description: The item is not damaged; a damaged item is regraded before it is reserved or sold.
+        description: The item is not damaged; a damaged item is regraded before it is reserved or delivered.
         expression: condition != Condition.DAMAGED
         remedy: unreachable_from_here
       reservation_ends_in_future:
@@ -91,14 +91,14 @@ types:
         kind: state_change
         from: RESERVED
         to: AVAILABLE
-        description: Ends the reservation and offers the item for sale again.
+        description: Ends the reservation; the item is free again.
         outcome:
           - clear: [reserved_for, reserved_until]
-      sell:
+      deliver:
         kind: state_change
         from: RESERVED
         to: SOLD
-        description: Sells the item to the customer it is reserved for.
+        description: Delivers the item to the customer it is reserved for, which completes the sale.
         required_inputs: [sale_price]
         optional_inputs: [photo]
         guards:
@@ -108,11 +108,11 @@ types:
         outcome:
           - copy: { from: reserved_for, to: sold_to }
           - clear: [reserved_for, reserved_until]
-      reopen_sale:
+      cancel_delivery:
         kind: state_change
         from: SOLD
         to: RESERVED
-        description: Reverses a sale; the item is reserved again for the same customer.
+        description: Cancels an external delivery; the item is reserved again for the same customer.
         required_inputs: [reserved_until]
         guards:
           reservation_ends_in_future: enforced
@@ -123,15 +123,15 @@ types:
         kind: state_change
         from: SOLD
         to: AVAILABLE
-        description: Takes a sold item back into stock once it is graded.
+        description: Takes an externally delivered item back into stock once it is graded.
         required_inputs: [condition]
         outcome:
           - clear: [sold_to, sale_price]
-      transfer_to_development:
+      deliver_internally:
         kind: state_change
         from: RESERVED
         to: DEVELOPMENT
-        description: Moves a reserved item into internal use.
+        description: Delivers a reserved item for internal use.
         required_inputs: [development_use]
         outcome:
           - clear: [reserved_for, reserved_until]
@@ -139,7 +139,7 @@ types:
         kind: state_change
         from: DEVELOPMENT
         to: AVAILABLE
-        description: Returns an item from internal use to stock once it is graded.
+        description: Returns an internally delivered item to stock once it is graded.
         required_inputs: [condition]
         outcome:
           - clear: [development_use]
@@ -152,23 +152,23 @@ types:
 
     metrics:
       time_available:
-        description: Median time items stay available before they are reserved.
+        description: Median time items stay free before they are reserved.
         measure: median_time_in_state
         state: AVAILABLE
         group_by: [model, month]
         flag_when: { slow: "value > 60 days" }
-      sales_made:
-        description: Number of sales made.
+      external_deliveries:
+        description: Number of external deliveries, each of which completes a sale.
         measure: transition_count
-        transition: sell
+        transition: deliver
         group_by: [actor, month]
-      sales_reopened:
-        description: Number of sales reopened.
+      deliveries_cancelled:
+        description: Number of external deliveries cancelled.
         measure: transition_count
-        transition: reopen_sale
+        transition: cancel_delivery
         group_by: [month]
-      sales_returned:
-        description: Number of sold items returned to stock.
+      returns_accepted:
+        description: Number of externally delivered items returned to stock.
         measure: transition_count
         transition: accept_return
         group_by: [month]
