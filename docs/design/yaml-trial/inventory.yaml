@@ -1,5 +1,5 @@
-# The inventory flow: one item, from the day it is added to stock
-# until it is sold or taken into development.
+# The inventory flow: one robot, from the day it is added to stock,
+# through a reservation, to a sale, development or retirement.
 module: inventory
 categories: [live, closed]
 
@@ -9,36 +9,59 @@ enums:
 
 types:
   InventoryItem:
-    says: One robot in stock, from the day it is added until it is sold or taken into development.
+    says: One robot in stock, from the day it is added until it is retired. Every unit leaves stock through a reservation, a sale can be reopened, and a unit can come back from development.
     states:
       AVAILABLE:   live
-      SOLD:        closed, terminal
+      RESERVED:    live
+      SOLD:        closed
       DEVELOPMENT: closed
+      RETIRED:     "closed, terminal"
     fields:
-      serial:     { type: string, unique: true }
-      model:      string
-      list_price: money(SGD)
-      condition:  Condition
-      photo:      file?
-      sold_to:    string?
-      sale_price: money(SGD)?
-      use:        DevelopmentUse?
+      serial:         { type: string, unique: true }
+      model:          string
+      list_price:     money(SGD)
+      condition:      Condition
+      reserved_for:   string?
+      reserved_until: timestamp?
+      sold_to:        string?
+      sale_price:     money(SGD)?
+      photo:          file?
+      use:            DevelopmentUse?
+      retire_reason:  string?
 
     transitions:
-      add:            { to: AVAILABLE, accepts: [serial, model, list_price, condition] }
-      regrade:        { at: AVAILABLE, accepts: [condition] }
-      sell:           { from: AVAILABLE, to: SOLD, accepts: [sold_to, sale_price, photo],
-                        requires: [not_damaged, buyer_and_price], on_trial: [photo_attached] }
-      to_development: { from: AVAILABLE, to: DEVELOPMENT, accepts: [use], requires: [use_given] }
+      add:             { to: AVAILABLE, accepts: [serial, model, list_price, condition] }
+      regrade:         { at: [AVAILABLE, RESERVED], accepts: [condition] }
+      reserve:         { from: [AVAILABLE, DEVELOPMENT], to: RESERVED, accepts: [reserved_for, reserved_until],
+                         requires: [not_damaged, holder_given, ends_later], then: [clear use] }
+      release:         { from: RESERVED, to: AVAILABLE, then: [clear reserved_for, clear reserved_until] }
+      sell:            { from: RESERVED, to: SOLD, accepts: [sale_price, photo],
+                         requires: [not_damaged, price_given], on_trial: [photo_attached],
+                         then: ["set sold_to := reserved_for"] }
+      reopen:          { from: SOLD, to: RESERVED, accepts: [reserved_until], requires: [ends_later],
+                         then: [clear sold_to, clear sale_price] }
+      to_development:  { from: RESERVED, to: DEVELOPMENT, accepts: [use], requires: [use_given],
+                         then: [clear reserved_for, clear reserved_until] }
+      return_to_stock: { from: DEVELOPMENT, to: AVAILABLE, accepts: [condition], requires: [graded],
+                         then: [clear use] }
+      retire:          { from: DEVELOPMENT, to: RETIRED, accepts: [retire_reason], requires: [reason_given] }
 
     rules:
       not_damaged:
-        says: A damaged item is not sold; regrade it first.
+        says: A damaged item is not reserved or sold; regrade it first.
         when: condition != Condition.DAMAGED
         remedy: unreachable_from_here
-      buyer_and_price:
-        says: The buyer and the sale price are given.
-        when: inputs.sold_to is not null and inputs.sale_price is not null
+      holder_given:
+        says: Who the item is reserved for is given.
+        when: inputs.reserved_for is not null
+        remedy: self_serviceable
+      ends_later:
+        says: The reservation ends at a time still to come.
+        when: inputs.reserved_until is not null and inputs.reserved_until > now
+        remedy: self_serviceable
+      price_given:
+        says: The sale price is given.
+        when: inputs.sale_price is not null
         remedy: self_serviceable
       photo_attached:
         says: A photo of the item is attached.
@@ -48,18 +71,40 @@ types:
         says: What the item will be used for in development is given.
         when: inputs.use is not null
         remedy: self_serviceable
+      graded:
+        says: A unit back from development is graded before it is offered again.
+        when: inputs.condition is not null
+        remedy: self_serviceable
+      reason_given:
+        says: Why the unit is retired is given.
+        when: inputs.retire_reason is not null
+        remedy: self_serviceable
+
+    invariants:
+      reservation_named:
+        says: A reserved item names who it is reserved for and until when.
+        when: state != RESERVED or (reserved_for is not null and reserved_until is not null)
+      sale_named:
+        says: A sold item names its buyer and its price.
+        when: state != SOLD or (sold_to is not null and sale_price is not null)
 
     measures:
       days_on_hand:
-        says: How long items stay available before they leave stock, per model and month.
+        says: How long items stay available before they are reserved, per model and month.
         from:   i in InventoryItem.intervals where i.state == InventoryItem.AVAILABLE
         by:     { model: i.object.model, month: month(i.entered_at) }
         window: i.entered_at
         value:  median(i.duration)
         flags:  { slow: value > 60 days }
       sales:
-        says: Items sold, per seller and month.
+        says: Sales made, per seller and month; a sale that is reopened and made again counts twice.
         from:   t in InventoryItem.transitions where t.to_state == InventoryItem.SOLD
         by:     { seller: t.actor_id, month: month(t.occurred_at) }
+        window: t.occurred_at
+        value:  count()
+      reopened:
+        says: Sales reopened, per month.
+        from:   t in InventoryItem.transitions where t.from_state == InventoryItem.SOLD
+        by:     { month: month(t.occurred_at) }
         window: t.occurred_at
         value:  count()
