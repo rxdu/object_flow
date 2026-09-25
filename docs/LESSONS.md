@@ -187,3 +187,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Before renaming anything, read how the old name was formed in each place it appears — repository, directory, package, file names — and form the new one the same way. A second rename of something outward-facing costs a redirect and a correction in the record.
 - **Context:** Renames of a project, a module or a package, and any outward-facing identifier.
 
+
+### A requirement's reading is checked against the language before it says what a mechanism enables
+- **Pattern:** The first-consumer check said that conditions against observed norms would give L5, rules that read metrics, "its first real use". The language forbids a metric anywhere but a `require` clause (check 56), so a condition cannot read one; the claim held only until ADR-0113 was written, and was retracted in the document and its answer table.
+- **Correction:** Before a finding says which requirement or mechanism a need exercises, find the rule in `declaration-syntax.md` that would carry it, and its check. Where the language forbids the direct route, say what the route is instead (here, a norm held as data, which is L4).
+- **Context:** ObjectFlow design documents: findings, checks against a case study, and traceability notes.
