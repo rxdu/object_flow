@@ -308,7 +308,7 @@ def main():
         sys.exit(1 if found else 0)
     people = (TRIAL / "people.yaml").read_text()
     clean = True
-    for version in ("service.yaml", "service-v2.yaml"):
+    for version in ("inventory.yaml", "inventory-v2.yaml", "service.yaml", "service-v2.yaml"):
         found, notes = check([("people.yaml", people), (version, (TRIAL / version).read_text())])
         print(f"{version}: {'clean' if not found else str(len(found)) + ' finding(s)'}, "
               f"{len(notes)} notice{'s' if len(notes) != 1 else ''}")

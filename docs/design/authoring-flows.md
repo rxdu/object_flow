@@ -68,7 +68,7 @@ Whether an agent drafts this language well is empirical. No measurement exists, 
 
 **The author's answer, 2026-09-25.** "I want the specifications to be more structured so that I don't have to try to understand by reading it line by line"; then, of a YAML form with fixed sections, "yes, try YAML on the service flow first". This overturns the recommendation above: the author weighs a structure a reader can scan above the text's compactness.
 
-**The trial**, in [`yaml-trial/`](yaml-trial/), writes the walkthrough's `people` and `service` modules as YAML with fixed sections:
+**The trial**, in [`yaml-trial/`](yaml-trial/), writes three modules as YAML with fixed sections: `people`; `inventory`, one item from being added to stock until it is sold or taken into development, which the walkthrough now uses at the author's request for a simpler case; and `service`, which adds records and an assignee:
 - **the sections:** `states`, `fields`, `transitions` (one line each), `rules`, `records` and `measures`;
 - **named rules:** every condition is written once under `rules`, with a `says` sentence for people and a `when` expression for the engine, and a transition lists the rules it `requires`, has `on_trial` or `flags`;
 - **no keywords for transition kinds:** `create`, `do` and `act` follow from the shape, and version numbers are not written.
@@ -79,7 +79,7 @@ Whether an agent drafts this language well is empirical. No measurement exists, 
 3. names the schema cannot see: every rule a transition lists exists;
 4. conversion to the text language, run through every implemented publish check.
 
-Both versions of the service flow pass all four. Its self-test plants a misspelt key, a rule nobody declared, a rule that reads who is asking and a state named `NO`, and each is caught by its own step.
+Both versions of the inventory and the service flows pass all four. Its self-test plants a misspelt key, a rule nobody declared, a rule that reads who is asking and a state named `NO`, and each is caught by its own step.
 
 **Still open after the trial:**
 - whether YAML becomes the written form of every flow, which replaces the text language's surface (its clause and indentation rules and the checks on them) and every example;

@@ -1,0 +1,65 @@
+# The inventory flow: one item, from the day it is added to stock
+# until it is sold or taken into development.
+module: inventory
+categories: [live, closed]
+
+enums:
+  Condition:      [NEW, REFURBISHED, DAMAGED]
+  DevelopmentUse: [DEMO, TESTING, ENGINEERING]
+
+types:
+  InventoryItem:
+    says: One robot in stock, from the day it is added until it is sold or taken into development.
+    states:
+      AVAILABLE:   live
+      SOLD:        closed, terminal
+      DEVELOPMENT: closed
+    fields:
+      serial:     { type: string, unique: true }
+      model:      string
+      list_price: money(SGD)
+      condition:  Condition
+      photo:      file?
+      sold_to:    string?
+      sale_price: money(SGD)?
+      use:        DevelopmentUse?
+
+    transitions:
+      add:            { to: AVAILABLE, accepts: [serial, model, list_price, condition] }
+      regrade:        { at: AVAILABLE, accepts: [condition] }
+      sell:           { from: AVAILABLE, to: SOLD, accepts: [sold_to, sale_price, photo],
+                        requires: [not_damaged, buyer_and_price], on_trial: [photo_attached] }
+      to_development: { from: AVAILABLE, to: DEVELOPMENT, accepts: [use], requires: [use_given] }
+
+    rules:
+      not_damaged:
+        says: A damaged item is not sold; regrade it first.
+        when: condition != Condition.DAMAGED
+        remedy: unreachable_from_here
+      buyer_and_price:
+        says: The buyer and the sale price are given.
+        when: inputs.sold_to is not null and inputs.sale_price is not null
+        remedy: self_serviceable
+      photo_attached:
+        says: A photo of the item is attached.
+        when: inputs.photo is not null
+        remedy: self_serviceable
+      use_given:
+        says: What the item will be used for in development is given.
+        when: inputs.use is not null
+        remedy: self_serviceable
+
+    measures:
+      days_on_hand:
+        says: How long items stay available before they leave stock, per model and month.
+        from:   i in InventoryItem.intervals where i.state == InventoryItem.AVAILABLE
+        by:     { model: i.object.model, month: month(i.entered_at) }
+        window: i.entered_at
+        value:  median(i.duration)
+        flags:  { slow: value > 60 days }
+      sales:
+        says: Items sold, per seller and month.
+        from:   t in InventoryItem.transitions where t.to_state == InventoryItem.SOLD
+        by:     { seller: t.actor_id, month: month(t.occurred_at) }
+        window: t.occurred_at
+        value:  count()
