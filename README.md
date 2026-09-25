@@ -1,85 +1,130 @@
 # ObjectFlow
 
+**An agent-safe system of record for business workflows.**
+
 Governed flows for business objects. People and agents move objects only along declared transitions; every change is checked, recorded and measured.
 
-> **Status: design only.** The store is not implemented. This repository holds the design record — the model, the declaration syntax deployments write their flows in, 110 decisions, and a register of 382 findings, 382 closed and 0 open — together with the checkers that verify the record against itself.
->
-> [`docs/PRD.md`](docs/PRD.md), at revision 8, states the product's requirements and is the baseline every design choice is checked against. [`docs/design/traceability.md`](docs/design/traceability.md) shows each requirement met, with one exception: C5's target is left by the PRD to measurement.
->
-> - **Accepted by the author:** ADR-0081 to ADR-0096, ADR-0104, the engine as the governed core, ADR-0107, the name ObjectFlow, which supersedes ADR-0011, and ADR-0108, cascades declared clearly enough not to surprise, whose principle is the author's and whose mechanism was written at the author's direction, ADR-0109, a state's conditions as invariants, decided at the author's direction, and ADR-0110, the engine as an internal service with authentication upstream and actor kinds declared.
-> - **Decided at the author's direction, awaiting the author's own acceptance:** ADR-0097 to ADR-0101, ADR-0103, and ADR-0105 and ADR-0106, from a review of the whole record against PRD revision 5 on 2026-09-24.
-> - **Proposed:** ADR-0102, which writes the unit's whole journey from production ([`docs/design/unit-journey.md`](docs/design/unit-journey.md)).
-> - **Ruled on by the author:** ADR-0065 to ADR-0073.
-> - **Awaiting review:** ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 and the six implementation documents of 2026-09-09.
+> **Status: in design.** There is no runnable code yet. This repository holds the complete design: the requirements, the model, the language flows are declared in, every decision with the alternatives it rejected, and the checkers that hold it together. See [where it stands](#where-it-stands).
 
-## What it is
+## The problem
 
-ObjectFlow is a **database + business logic layer**: a reusable substrate for building business applications, where the rules about data are declared alongside the data rather than reimplemented in every application.
+**Business rules end up everywhere.** In the first consumer, the system being rebuilt on ObjectFlow, 454 sites refuse an operation. **176 of them are redundant**, the same rule expressed again somewhere else, and 51 distinct rules appear at more than one site, across route checks, service methods, model hooks and database constraints. One rule, "a delivery must be in preparation", is written five times in four files. Nobody can print what the system allows, review it, or hand it to an agent.
 
-You define object types — typed attributes, a state machine, guards on the transitions, invariants. ObjectFlow stores the objects and is the only thing that may change them. Applications, human interfaces and AI agents all read and act through the same declaration.
+**Flows are defined once and never measured.** A system of record keeps the result of each step and nothing about the flow: where work waits, which rule is in the way, whether a change to the process helped.
 
-It also collects data about the flows it runs — every transition, refusal, override and change of hands — takes the datapoints users record, and computes declared metrics over both. That lets business logic be driven by data, whether a person or an agent drives it, and lets a flow start imperfect and converge. [`docs/PRD.md`](docs/PRD.md) states the requirements, and is the baseline every design choice is checked against.
+**AI agents now act on business systems.** They need rules they cannot bypass, answers they can act on when they are refused, and the same data a person sees.
+
+## What it does
+
+- **Declare.** Object types, their states, the transitions between them and the rules on each are written once, in a small language. A declaration is checked when it is published, can be printed for review, and is the only authority on what may change.
+- **Enforce.** Every request, from a person, a service or an agent, is checked against the declared rules. A refusal names the rule that refused and what to do next: supply something, ask someone, wait, or work on another object first. Nothing is ever half-applied.
+- **Record.** Every transition, refusal, override and change of hands is kept, with who did it, what kind of actor they were, and when it happened as well as when it was recorded. People add their own datapoints, such as an inspection result, and nothing is edited, only corrected.
+- **Measure.** Time in each state, throughput, where work waits, which rules refuse most and who holds what exist from the first request, with nothing to instrument. Formulas and metrics are declared once and read the same way by every screen, report and agent.
+- **Improve.** A flow can start with no rules at all. The record shows where the flow and reality disagree, a new rule can run on trial before it is enforced, and a change is a reviewed publish that keeps history intact.
+
+## Built for AI agents
+
+Agents are governed exactly as people are, which is what makes handing them work safe.
+
+- **One interface, one set of rules.** An agent acts through the same requests as a person and is refused by the same rules. There is no side door.
+- **It can ask what it may do.** `availability` evaluates the real rules against the real data and says, for each transition, whether it is available, needs input, or is blocked and why.
+- **A refusal is an instruction.** Every refusal carries a remedy, so an agent knows whether to fix its request, ask a person, wait, or work on something else first.
+- **Its tools come from the rules.** Agent tool definitions are generated from the declaration, so they cannot drift from what is enforced.
+- **What an agent is, is declared.** Whether an actor is a person, an agent or a service is declared with its type, so a rule such as "an agent may prepare a financial write but never commit one" cannot be dodged by a request.
+- **Agents propose, people approve.** An agent without the authority can file a proposal, and an agent can draft a change to a flow that only a person may approve.
+- **Agents are measured beside people.** Every metric splits by kind of actor, so you can see where agents stall and people do not.
+
+## What it looks like
+
+A returns flow, published with no rules at all and measured from its first request:
 
 ```text
-upper-layer applications                  manage the flow, use its data:
-  agents · services · human UI            schedules, chasing, worklists,
-                                          alerts, dashboards
-─────────────────────────────────────
-            ObjectFlow                  the governed core: declared flows,
-                                          enforced rules, the record, metrics
-─────────────────────────────────────
-PostgreSQL / SQLite                       storage
+type Return version 1 {
+  tracking record
+  states   RECEIVED category inbound, INSPECTING category live,
+           RESOLVED category closed, CLOSED category closed terminal
+  summary  unit, customer, state
+
+  ref      unit     : Robot
+  ref      customer : Customer
+
+  create receive -> RECEIVED accepts unit, customer { }
+  do inspect RECEIVED   -> INSPECTING { }
+  do resolve INSPECTING -> RESOLVED   { }
+  do close   RESOLVED   -> CLOSED     { }
+}
 ```
 
-**A governed core, not a platform.** How a flow is managed — who requests which transition and when, chasing, scheduling, assigning, notifying — and how its datapoints are put to use are built in upper-layer applications. They act through the same requests and rules as anyone else, with no path of their own (PRD §1, N6; ADR-0104). ObjectFlow does not compete with full metadata-driven platforms on automation, scheduling or screens. What it offers beneath them is the guarantee that governed state changes only as PRD F2 allows and never reaches a condition an enforced rule forbids, and the record that explains every decision its rules make (ADR-0104 §5).
+A month later its own data shows where it waits, and the next version adds rules only where they are needed. A replacement now needs a lead once the robot's model keeps coming back:
 
-## Why
+```text
+  do resolve INSPECTING -> RESOLVED {
+    input outcome : ReturnOutcome
+    require may:        actor.has(RETURNS_EDIT) because delegable
+    require second_eye: inputs.outcome != ReturnOutcome.REPLACED
+                        or actor.has(RETURNS_LEAD)
+                        or metric(returns_by_model, model := unit.model, over last 30 days) < 5
+                                                                             because delegable
+    set outcome := inputs.outcome
+  }
+```
 
-The objective is **trust under delegation**: being able to hand a system to people who are not supervised, and to AI agents whose behaviour cannot be fully predicted, and know that nothing they do can put the data into a state that has to be cleaned up afterwards.
+An engineer, or an agent, who asks for a replacement without that authority gets an answer it can act on rather than an error:
 
-Four properties carry that:
+```python
+Unsatisfied(clause="second_eye", remedy=Remedy.DELEGABLE, unknown=False,
+            capability="RETURNS_LEAD", proposable=False)
+```
 
-| Property | Meaning |
-|---|---|
-| **Mediated** | No path to governed state but the PRD's four, each recorded: a declared transition whose guards pass; an override — a **declared** assertion, the **built-in** assertion the import uses, or an admission; a flow change's migration, authorised by the publish's approval; and an erasure. There is no second write path (ADR-0105) |
-| **Declared** | What is allowed is data, inspectable at runtime — not code |
-| **Recorded** | Every change and every recorded datapoint is attributed and reconstructable |
-| **Measured** | Every flow produces data about itself, users add their own, and everyone reads both through the same declared metrics |
+Both versions are checked modules in [`docs/design/returns-module.md`](docs/design/returns-module.md).
 
-The distinction from an ORM is deliberate. An ORM abstracts *mechanism* — it hides SQL, and faithfully executes whatever the caller asks. ObjectFlow abstracts *authority*: what may change, when, and by whom.
+## Where it sits
 
-A practical consequence, measured rather than asserted. In the first consumer, 454 sites refuse an operation. **176 of them are redundant** — the same rule expressed again somewhere else — and 51 distinct rules appear at more than one site, across route checks, service methods, model hooks and database constraints. One rule, "a delivery must be in preparation", is written five times in four files. Declared once and inspectable, those become projections of one definition.
+```mermaid
+flowchart TB
+    subgraph apps["Your applications"]
+        direction LR
+        ui["Screens and worklists"]
+        agents["AI agents"]
+        ops["Operations apps and schedulers"]
+        integ["Integrations"]
+    end
+    apps -->|"one interface · your applications authenticate"| core["ObjectFlow service<br/>declared flows · enforced rules · the record · metrics"]
+    core --> db[("PostgreSQL")]
+```
 
-## Documentation
+ObjectFlow runs as an internal service beside your applications, one per store, and it is the only thing that writes the store. Your applications authenticate their users and map their roles to capabilities; ObjectFlow enforces what each capability permits ([ADR-0110](docs/adr/0110-an-internal-service-with-authentication-upstream-and-declared-actor-kinds.md)).
 
-| Document | Contents |
-|---|---|
-| [`docs/PRD.md`](docs/PRD.md) | What the product must do: requirements, the use cases every design is tested against, and what they change in the current design. The baseline every design choice is checked against: revision 8, 2026-09-25, its Inferred rows and the two questions of its §10 open to the author |
-| [`docs/design/data-driven-engine.md`](docs/design/data-driven-engine.md) | The design evaluation: each question's options tested against the PRD's use cases, and why ADR-0081 to ADR-0086 chose as they did |
-| [`docs/design/traceability.md`](docs/design/traceability.md) | Every PRD requirement and use case, with the sections and decisions that meet it; a checker fails while any is not covered |
-| [`docs/DESIGN.md`](docs/DESIGN.md) | Purpose, position in the stack, the model, scope boundaries, known limits |
-| [`docs/adr/`](docs/adr/) | Decisions taken, each with the alternatives rejected and why |
-| [`docs/design/declaration-syntax.md`](docs/design/declaration-syntax.md) | The language a type is declared in, and the checks publishing runs over it |
-| [`docs/design/storage-schema.md`](docs/design/storage-schema.md) | How a declaration becomes tables, and which indexes a guarantee depends on |
-| [`docs/design/library-api.md`](docs/design/library-api.md) | The nineteen operations a program calls, and the shapes they take |
-| [`docs/design/publish-and-import.md`](docs/design/publish-and-import.md) | What publishing checks and reports, and how production data arrives |
-| [`docs/design/renderers.md`](docs/design/renderers.md) | The rule set, agent tool schemas and form hints, as projections of one declaration |
-| [`docs/design/adversarial-harness.md`](docs/design/adversarial-harness.md) | The acceptance test: what would falsify the guarantee, and how to try |
-| [`docs/design/first-consumer-cutover.md`](docs/design/first-consumer-cutover.md) | The stage order for the system being ported, and what would change it |
-| [`docs/design/unit-journey.md`](docs/design/unit-journey.md) | The first consumer's unit, from request to service and loan, written from its production code as a checked module |
-| [`docs/design/flow-review.md`](docs/design/flow-review.md) | That journey read as an operations manager would, and the decisions it puts to the author |
-| [`docs/design/returns-module.md`](docs/design/returns-module.md) | A returns flow published with no rules and then tightened from its own data, as two checked publishes |
-| [`docs/design/first-consumer-audit.md`](docs/design/first-consumer-audit.md) | Every business rule the first consumer enforces, set beside the design |
-| [`docs/design/`](docs/design/) | The first-consumer walkthrough, five case studies, the catalogue of edge cases, and the defect register |
-| [`docs/LESSONS.md`](docs/LESSONS.md) | Operational lessons |
-| [`TODO.md`](TODO.md) | Where the design stands, what the author has decided, and what is still open |
-| [`scripts/`](scripts/) | Six checkers and a probe. One runs the declaration syntax's own rules over every example in the documents; one runs the storage schema's SQL; one executes the library API and holds it against the model; one validates the agent tool schemas; one holds the traceability map against the PRD, failing while any requirement is not covered; the sixth checks the corpus against itself — cross-references, retired notation, decision back-links, the defect index, the counts the status lines quote — and runs the other five. `probe-metric-latency.py` measures metric reads on SQLite, as indicative evidence for PRD C5, and asserts nothing |
+What it is not:
+- **Not a workflow orchestrator.** It never starts a transition. Schedules, timers, chasing and notifications live in the applications above it, which act through the same interface as anyone else.
+- **Not a UI or low-code platform.** It has no screens, though it answers by query every question a worklist needs.
+- **Not an identity system.** Who a caller is, and which roles they hold, stay with your applications.
+- **Not an analytics warehouse.** It computes its declared metrics, and exports its data for exploration elsewhere.
 
-## Scope
+## Why not just use…
 
-The first consumer is the author's own robotics operations platform, rebuilt on ObjectFlow with its production data ported; see [`docs/DESIGN.md`](docs/DESIGN.md#4-first-consumer-and-case-studies).
+- **An ORM?** An ORM abstracts mechanism: it hides SQL and faithfully executes whatever the caller asks. ObjectFlow abstracts authority: what may change, when, and by whom.
+- **A state-machine library?** It checks transitions inside one application. Any other code path can still write the table, and nothing is recorded or measured.
+- **A workflow engine?** It drives processes forward. ObjectFlow governs the data those processes touch, and leaves the driving to them.
 
-ObjectFlow **decides, records and measures**. It evaluates any declared formula over its own data, metrics across objects and time included. It does not own formulas that need data or rules it does not hold, such as a tax table or a pricing engine. Nor does it choose among alternatives, cause external effects, orchestrate long-running processes, or render a user interface — those belong to the upper-layer applications above it. See [ADR-0007](docs/adr/0007-decide-and-record-not-compute-or-effect.md) and [ADR-0081](docs/adr/0081-the-engine-measures-its-flows-and-computes-over-its-own-data.md) for why that boundary is where it is.
+## Designed against a real system
+
+ObjectFlow's first consumer is the author's robotics operations platform: inventory, deliveries and service in production today, with loans and leasing designed, and every row of its data to be ported. The design has been checked rule by rule against that system's production code ([`first-consumer-audit.md`](docs/design/first-consumer-audit.md)) and against its own product requirements ([`first-consumer-prd-check.md`](docs/design/first-consumer-prd-check.md)). Its worked examples are written as checked modules: a unit's whole journey from purchase request to lease-to-own, and a returns flow tightened from its own data.
+
+## Where it stands
+
+In design, under review by its author. What exists:
+
+- [**Requirements**](docs/PRD.md): what the product must do, and the use cases every design choice is tested against.
+- [**Design**](docs/DESIGN.md): the model, how a request executes, history, the read surface, and the known limits.
+- [**Declaration language**](docs/design/declaration-syntax.md): the language flows are written in, and the checks publishing runs over it, enforced by a checker against every example in the record.
+- [**Decisions**](docs/adr/): each one with the alternatives it rejected and why.
+- [**Traceability**](docs/design/traceability.md): every requirement mapped to what meets it; a checker fails while any is not covered.
+- **Worked examples**: [a unit's journey](docs/design/unit-journey.md), [a returns flow](docs/design/returns-module.md), and [an operations review](docs/design/flow-review.md) of the journey.
+
+Next come the author's review of the open decisions, then the first implementation; its language and the service's transport are still open. [`TODO.md`](TODO.md) says exactly where things stand.
+
+To check the record, run `python3 scripts/check-corpus.py`. It runs every checker: the declaration language's rules over every example, the storage schema's SQL, the library API, the agent tool schemas, and the traceability map.
 
 ## License
 

@@ -270,7 +270,6 @@ def check_counts(maxcheck):
     if m and int(m.group(2)) != maxcheck:
         findings.append(f"check-syntax-doc.py counts {m.group(2)} checks, the table defines {maxcheck}")
     want = [
-        ("README.md", r"a register of (\S+) findings, (\S+) closed and (\S+) open", (total, closed, open_)),
         ("docs/DESIGN.md", r"(\S+) entries and five cosmetics; (\S+) are closed and (\S+) ", (total, closed, open_)),
         ("docs/DESIGN.md", r"the (\S+) publish checks", (maxcheck,)),
         ("TODO.md", r"\| Defect register \| (\S+) entries and five cosmetics; (\S+) closed,.*?\*\*(\S+) open\*\*", (total, closed, open_)),
