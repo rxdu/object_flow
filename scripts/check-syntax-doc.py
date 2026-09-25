@@ -73,7 +73,7 @@ def parse(text, base=0):
         if cur.kind in ("observation", "metric"):       # §6.8, §6.9: clauses, not members
             if m := re.match(r"^field\s+(\w+)\s*:\s*(.*)$", s):
                 cur.attrs[m.group(1)] = (m.group(2), ln)
-            elif m := re.match(r"^(recorded by|occurred within|invariant|from|combine|by|window on|value|flag)\b\s*(.*)$", s):
+            elif m := re.match(r"^(recorded by|occurred within|invariant|from|combine|by|window on|value|flag|visible when)\b\s*(.*)$", s):
                 cur.clauses.setdefault(m.group(1), []).append((m.group(2), ln))
             i += 1; continue
         if m := re.match(r"^machine\s+(\w+)", s):            cur.machine = m.group(1)
@@ -540,7 +540,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 for n in names:
                     if n and n not in req and n not in capdecl and n != "state":
                         add(35, f"{d.name}.{tn} names '{n}', which the machine does not require", ln)
-    out += data_checks(decls, by_name, text)
+    out += data_checks(decls, by_name, text, base)
     return out
 
 
@@ -565,8 +565,8 @@ def stores(d, spec, by_name):
     return bool(fe and fe[1].split() and "[]" in fe[1].split()[0])
 
 
-def data_checks(decls, by_name, text):
-    """Checks 54 to 61: the constructs of ADR-0082 to ADR-0087 and ADR-0092."""
+def data_checks(decls, by_name, text, base=0):
+    """Checks 54 to 63: the constructs of ADR-0082 to ADR-0087, ADR-0092, ADR-0110 to ADR-0112."""
     out = []
     def add(c, d, l): out.append((c, d, l))
     evaluators = set(re.findall(r"^evaluator\s+(\w+)", text, flags=re.M)) | \
@@ -657,8 +657,10 @@ def data_checks(decls, by_name, text):
         states = d.states or (mach.states if mach else {})
         for kind, tn, head, body, ln in d.trans:
             reqs = require_clauses(body)
-            if kind in ("assert", "erase") and any(re.search(r"\bobserve\b", r) for r in reqs):
-                add(57, f"{d.name}.{tn} is an {kind} with an observing clause", ln)
+            if kind in ("assert", "erase") and any(re.search(r"\b(observe|flag)\b", r) for r in reqs):
+                add(57, f"{d.name}.{tn} is an {kind} with an observing or flag clause", ln)
+            if any(re.search(r"\bobserve\b", r) and re.search(r"\bflag\b", r) for r in reqs):
+                add(57, f"{d.name}.{tn} has a clause marked both observe and flag (ADR-0111)", ln)
             if "backdatable" in head:
                 if not re.search(rf"\bbackdatable\s+within\s+\d+\s*{UNITS}\b", head):
                     add(58, f"{d.name}.{tn} is backdatable without a duration in s, min, h, days or weeks", ln)
@@ -698,6 +700,31 @@ def data_checks(decls, by_name, text):
                         if any(re.search(rf"\binputs\.{an}\b", a) for a in calls):
                             add(61, f"{d.name}.{tn} binds {tgt}.{tn2}'s '{an}' from a value its outcome "
                                     "writes, which an evaluator or metric guard reads", ln)
+
+    # 63 — who may read a metric: an expression over the actor, one audience per metric (ADR-0112)
+    def not_actor(expr):
+        rest = re.sub(r"\bactor(?:\.\w+)*(?:\([^)]*\))?", " ", expr)
+        rest = re.sub(r"\b[A-Z]\w*(?:\.[A-Z]\w*)?\b", " ", rest)     # capabilities, enum literals
+        return [w for w in re.findall(r"\b[a-z_]\w*\b", rest)
+                if w not in ("and", "or", "not", "true", "false", "is", "null", "in",
+                             "human", "agent", "service")]
+    for d in decls:
+        aud = d.clauses.get("visible when", []) if d.kind == "metric" else []
+        if len(aud) > 1:
+            add(63, f"metric {d.name} declares {len(aud)} audiences", aud[1][1])
+        for expr, vln in aud:
+            if bad := not_actor(expr):
+                add(63, f"metric {d.name}: its audience reads '{bad[0]}', not the actor", vln)
+    for i, raw in enumerate(text.split("\n")):
+        m = re.match(r"^visible\s+(?!when\b)(.+?)\s+when\s+(.*)$", raw.split("#", 1)[0].rstrip())
+        if not m or re.search(r"[<…]", raw):
+            continue
+        for nm in re.split(r"\s*,\s*", m.group(1).strip()):
+            md = metrics.get(nm)
+            if md is not None and md.clauses.get("visible when"):
+                add(63, f"visible {nm}: metric {nm} declares its own audience", base + i)
+        if bad := not_actor(m.group(2)):
+            add(63, f"visible {m.group(1).strip()}: reads '{bad[0]}', not the actor", base + i)
 
     # 58 — an observation kind's bound
     for d in decls:
@@ -856,9 +883,15 @@ FIXTURES = {
        "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr email string? personal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A where a.email is not null\n value count()\n}",
        # a metric reference on a wrapped guard's continuation line is read too (§9.1)
        "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D {\n  require r: 1 == 1\n             or metric(m, nope := 1) > 0 because dependent\n }\n}\nmetric m version 1 {\n from a in A\n by k = a.state\n value count()\n}"],
-  57: "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } {\n  input reason : string\n  require may: actor.has(Q) observe because delegable\n }\n}",
+  57: ["machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } {\n  input reason : string\n  require may: actor.has(Q) observe because delegable\n }\n}",
+       # a flag on the escape hatch, and a clause marked both ways (ADR-0111)
+       "machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } {\n  input reason : string\n  require may: actor.has(Q) flag because delegable\n }\n}",
+       "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D {\n  require r: 1 == 1 observe flag because self_serviceable\n }\n}"],
   58: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D backdatable within 2 months { }\n}",
   59: "type U version 1 {\n tracking record\n states S category live, D category closed terminal\n attr login identity\n create mk -> S accepts login { }\n do go S -> D { }\n}\ntype A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref who : U assignee\n create mk -> S accepts who { }\n do go S -> D { }\n}",
+  63: ["type A version 1 {\n tracking record\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A\n value count()\n visible when a.state == A.S\n}",
+       # a module line giving a second audience to a metric that declares its own
+       "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { }\n}\nmetric m version 1 {\n from a in A\n value count()\n visible when actor.has(X)\n}\nvisible m when actor.has(Y)"],
   62: "type U version 1 {\n tracking record\n states S category live, D category closed terminal\n attr login identity actor unique\n create mk -> S accepts login { }\n do go S -> D { }\n}",
   60: "type A version 1 {\n tracking serial\n states S category live, M category closed superseding terminal, D category closed terminal\n attr email string? personal\n create mk -> S { }\n do merge S -> M {\n  input old : A\n  supersede inputs.old\n }\n do go S -> D { }\n}",
   61: "evaluator ev version 1 { … }\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T only via A.go {\n  input amount : int\n  require ok: ev.check(inputs.amount)\n }\n do take T -> U { }\n}\ntype A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr total int?\n create mk -> S { }\n do go S -> D {\n  set total := 1\n  create B.mk2(amount := total)\n }\n}",
@@ -962,6 +995,10 @@ MUTATIONS = [
        "require mine: engineer.login == actor.id because delegable\n    require slow: time_in(photo) > 1 h\n"
        "  }\n  do finish"),
   (59, "assignee target with no actor", "attr     login identity actor human unique", "attr     login identity unique"),
+  (57, "trial clause also a flag", "require photo_taken: inputs.photo is not null observe because",
+       "require photo_taken: inputs.photo is not null observe flag because"),
+  (63, "audience reads the rows", "  visible when actor.has(SERVICE_ASSIGN)\n",
+       "  visible when i.state == ServiceJob.WORKING\n"),
   (62, "actor identity with no kind", "attr     login identity actor human unique", "attr     login identity actor unique"),
   (59, "set-valued assignee", "ref      engineer : User assignee", "ref      engineer : User[] assignee"),
 ]

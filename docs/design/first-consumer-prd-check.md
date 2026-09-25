@@ -1,6 +1,6 @@
 # The first consumer as a case study: what its own requirements ask of the engine
 
-Status: **check, awaiting the author**, 2026-09-25. At the author's request, the operations platform's PRD was read in full and set against the engine's PRD, its recent decisions and the flow review's open decisions (`flow-review.md` §7). Nothing here changes a requirement: each finding is a question for the author, and the PRD changes only once the author answers.
+Status: **check, decided by the author**, 2026-09-25: §3.1 to §3.4 accepted ("yes to all four, go ahead and write them"), as PRD revision 9 and ADR-0111 to ADR-0113; each finding says what was decided. At the author's request, the operations platform's PRD was read in full and set against the engine's PRD, its recent decisions and the flow review's open decisions (`flow-review.md` §7). Nothing here changes a requirement: each finding is a question for the author, and the PRD changes only once the author answers.
 
 **The source.** The operations platform's PRD is a Claude document, "Weston Robot Operations Platform — PRD", revision 17. It says it is drawn from its own repository's `DESIGN.md`, ADRs 0001–0037 and conversations up to 23 September 2026. That repository is not on this machine, so its design documents were not read. Cited below as `ops PRD`, by section and requirement number.
 
@@ -48,14 +48,16 @@ Each finding separates the **general need**, a mechanism any deployment could us
 - **The general need:** a rule a deployment declares as a **flag**, evaluated on every request, never refusing, returned to the caller with its verdict, recorded and counted. Any deployment has rules it wants seen rather than enforced.
 - **The platform's policy:** flags by default, with refusals only for external financial writes and double-booking. That is a choice among its declarations, not an engine default.
 - **The question:** should the engine offer flags as a permanent kind of rule?
+- **Decided, 2026-09-25:** yes. PRD F9 and UC-23; ADR-0111: a clause marked `flag`, returned in `Satisfied.flags` and listed by `availability`, recorded in the attempt log and counted by the standard metric `flags_raised`.
 
 ### 3.2 Norms observed in history
 
 - **What the ops PRD says:** R18, "derive problems from it, never hard-code them"; a principle, "Observed, never declared: expectations … come from history".
 - **What the engine does:** M7's conditions compare against a date or a threshold: a declared value (`flag slow when over 10 days`), or one held as data (a reorder point, L4).
-- **The general need:** a condition that compares against the **norm observed in history**, for example beyond the usual range of time in a state for that kind of work, beside a committed date, a threshold held as data and a fixed declared value. A contractual service level of four hours is a legitimate fixed value for another deployment. That gives L5, rules that read metrics, its first real use.
+- **The general need:** a condition that compares against the **norm observed in history**, for example beyond the usual range of time in a state for that kind of work, beside a committed date, a threshold held as data and a fixed declared value. A contractual service level of four hours is a legitimate fixed value for another deployment. ~~That gives L5, rules that read metrics, its first real use.~~ *(Retracted 2026-09-25: this was asserted without checking the language. A condition may not read a metric (`declaration-syntax.md` §6.9, check 56), so a norm is held as data and refreshed from the metric by a recorded transition (ADR-0113). That is L4, a threshold held as data, and L5 still has no first-consumer use.)*
 - **The platform's policy:** it uses committed dates and observed norms, and no fixed expectations.
 - **The question:** should M7 be widened to include observed norms? UC-12 stays a use case, taken from the July draft as an illustration rather than from the first consumer's current requirements.
+- **Decided, 2026-09-25:** yes. PRD M7 and UC-12; ADR-0113: the norm is an attribute a condition compares against, refreshed from the engine's own metric by an upper-layer job or a person through a governed transition. No new syntax.
 
 ### 3.3 Who may read a metric
 
@@ -64,6 +66,7 @@ Each finding separates the **general need**, a mechanism any deployment could us
 - **The general need:** a metric, or its split by person, readable only by holders of a capability. Performance, pay or health figures are sensitive in most organisations. Because every caller reaches the engine through one interface (N7), the restriction has to be in the engine, or any caller's agent could ask for the figure directly.
 - **The platform's policy:** its management door.
 - **The question:** should the engine offer an audience rule on metrics? And should per-person splits sit behind one by default, as a safe general default?
+- **Decided, 2026-09-25:** yes to both. PRD T7 and UC-24; ADR-0112: `visible when` on a metric, or a module line for one it does not declare (check 63), and a split by person, in a metric or a diagnostic, readable only with `OF_PERSON_METRICS` unless an audience opens it. The platform's management door is then its own declaration.
 
 ### 3.4 What the engine delivers first
 
@@ -71,6 +74,7 @@ Each finding separates the **general need**, a mechanism any deployment could us
 - **What the engine does:** PRD §10 makes its first release "the first consumer's port": F1–F5, all of D, M1 and M6, and N5. N3 sizes the first release by the first consumer's inventory, and N5 requires porting that consumer's data.
 - **The general need:** a release order in which the general core comes first and each optional capability arrives when a real deployment needs it. The first deployment's sequence is evidence for that order, not its definition. On that evidence the first release is the general core: declared lifecycles, the record, standard metrics, the service, actor types, flags and external checks. Importing legacy data (N5) comes before the platform's stage 9.
 - **The question:** should the release order be re-cut this way? And should N3 and N5 be reworded as general capabilities — sized for operations rate, and importing a legacy system's data and history — with the first consumer as their acceptance case rather than their subject? A reimbursement worked example would test mechanisms the inventory journey does not: line items as parts, approval by a function, an agent classifying items, a verified external write, and flags.
+- **Decided, 2026-09-25:** yes to both. PRD §10 now puts the general core first, including F8, F9 and external evaluators, and import (N5) before the first deployment's switch-over; N3 and N5 state general capabilities with the first consumer as reference and acceptance case. The reimbursement worked example is a `TODO.md` item.
 
 ### 3.5 Who allocates a unit bought for an order
 
@@ -111,7 +115,7 @@ These are the questions put to the author on 2026-09-25, before this check was m
 | 5, L2, decisions re-evaluable from the record | No support found. The case study requires one event record and verified external writes (R7), not re-evaluating a rule's decision. A candidate to relax |
 | 6, D11, value history | Yes, needed: time by who it waits on |
 | 7, D5, occurred against recorded time | Yes, needed: recording lag is measured |
-| 8, L5, rules that read metrics | As conditions against norms taken from history, yes (§3.2); as refusals, not in this case study |
+| 8, L5, rules that read metrics | ~~As conditions against norms taken from history, yes (§3.2)~~; as refusals, not in this case study. *(Retracted 2026-09-25: a condition may not read a metric, so a norm is held as data (ADR-0113), which is L4. The case study gives L5 no use.)* |
 | 9, C5, a latency target | No |
 | 10, the archive of what the port leaves | Yes: every row survives (R5) |
 | 11, telemetry | Not mentioned; stays out of scope |

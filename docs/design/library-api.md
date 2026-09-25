@@ -4,6 +4,8 @@ Draft, 2026-09-09, amended 2026-09-23. The request and verdict shapes of [`../DE
 
 **Amended 2026-09-25** for ADR-0110: the engine is deployed as an internal service, which exposes these operations one-to-one; the actor descriptor carries no kind, which the store takes from the declared type holding the actor, and an actor who is not live is refused as `actor_live`; `EngineMismatch` joins the faults.
 
+**Amended 2026-09-25** for ADR-0111 and ADR-0112: a `Flag`, which `Satisfied`, a `TransitionOffer` and an `Event` carry and an `Attempt` marks `flagged`; and `MetricPage.refused` for a reader outside a metric's audience.
+
 **What is verified.** The Python below executes, and `scripts/check-api-doc.py` compares the operations it offers against the read surface DESIGN.md §10 declares, so the two cannot drift apart silently. It is **not** typechecked — there is no mypy in the environment this was written in, and the annotations are therefore reviewed and not proven.
 
 **Amended 2026-09-23** for ADR-0082 to ADR-0094: `metric`, `diagnostics` and `export`; `publish` of a `DeclarationChange`; the settled cursor for `pull` and `acknowledge`; the read set, writing transaction, occurred time and retry count on an event; the attempt and interval shapes; `Unsatisfied` naming what its remedy points at, and `Stale` its cause; and the injected dependencies, including the connection source.
@@ -132,11 +134,24 @@ class StaleCause(Enum):
 
 
 @dataclass(frozen=True)
+class Flag:
+    """A clause marked `flag` that failed, and refused nothing (ADR-0111)."""
+
+    clause: str
+    remedy: Remedy                        # what would clear it
+    unknown: bool                         # it read something absent, rather than was false
+    objects: Sequence[str] = ()           # what a dependent remedy points at
+    capability: str | None = None         # for a clause over actor.has(C)
+    withheld: bool = False                # `objects` omits some the requester cannot see
+
+
+@dataclass(frozen=True)
 class Satisfied:
     object_id: str
     version: int
     events: Sequence[int]
     replayed: bool = False
+    flags: Sequence[Flag] = ()            # every flag the request raised, cascades included
 
 
 @dataclass(frozen=True)
@@ -204,6 +219,8 @@ Verdict = (
 
 `Satisfied.events` is the positions of every event the request appended, the parent's first. A cascade of three parts returns four.
 
+`Satisfied.flags` is every flag the request raised, at any depth of its cascades: the request proceeded, and the caller is told what a deployment wants seen (PRD F9, ADR-0111). A replay returns the original's flags. A flag is not a refusal, so it is never a verdict of its own, and a caller that ignores it has lost nothing the store enforced.
+
 ## 5. Reading
 
 ```python
@@ -223,6 +240,7 @@ class TransitionOffer:
     verdict: Verdict | None
     inputs: Mapping[str, str]
     unevaluated: Sequence[str]
+    flags: Sequence[Flag] = ()            # the flags taking it would raise, as it stands (ADR-0111)
 
 
 @dataclass(frozen=True)
@@ -287,6 +305,7 @@ class Event:
     reads: ReadSet
     consulted: Mapping[str, Any]          # per evaluator or metric guard: the verdict or value given
     as_of: Mapping[str, datetime]         # per evaluator or metric guard: when its value was given
+    flags: Sequence[str] = ()             # the clauses marked flag that failed for it (ADR-0111)
 
 
 @dataclass(frozen=True)
@@ -338,6 +357,8 @@ class MetricPage:
                                           # the reader's own rows, and are not the metric's
     history_complete: bool                # no row has gaps: the record covers every span it
                                           # measures, whatever the reader may see (ADR-0106)
+    refused: Unsatisfied | None = None    # outside the metric's audience: no rows, and a
+                                          # refusal naming `audience` (ADR-0112)
 
 
 @dataclass(frozen=True)
@@ -352,8 +373,8 @@ class Diagnostic:
 
 @dataclass(frozen=True)
 class Attempt:
-    """A request that did not apply, or an observing clause's would-be
-    refusal (ADR-0083). No personal value: the request values its failing
+    """A request that did not apply, an observing clause's would-be
+    refusal, or a raised flag (ADR-0083, ADR-0111). No personal value: the request values its failing
     clause read, with personal ones named and withheld (ADR-0105)."""
 
     at: datetime
@@ -368,9 +389,10 @@ class Attempt:
     clause: str | None
     remedy: Remedy                        # every refusal names one (ADR-0105)
     unknown: bool
-    enforced: bool                        # False for an observing clause
+    enforced: bool                        # False for an observing clause or a flag
+    flagged: bool                         # True for a raised flag (ADR-0111)
     reads: ReadSet | None                 # all the request had read when refused (ADR-0088, ADR-0105)
-    applied_position: int | None          # an observing clause's applied event (ADR-0085)
+    applied_position: int | None          # the applied event of an observing clause or a flag
     consulted: Mapping[str, Any]          # its metric values and evaluator verdicts (ADR-0096)
     request_values: Mapping[str, Any]     # every non-personal input, and the occurred time,
                                           # of the request; a replay re-evaluates it (ADR-0105)
@@ -592,6 +614,7 @@ Nineteen operations: the sixteen of §10, the write path of §6, and the operati
 - `get` and `query` evaluate a derived attribute that reads other objects over what the reader can see, and name it in `Object.partial` where that is not everything (ADR-0106). `query` accepts a time-dependent derived attribute the publish report lists as queryable, and filters on the stored operand it compares against `now` (ADR-0048).
 - `history`, `pull` and `export` filter the `reads` and `consulted` of an event or an attempt for the reader: an object the reader cannot see is left out and `withheld` is set, and a metric value is left out unless the reader can see every current object of each type the metric reads (ADR-0095, ADR-0096). A refusal's `Unsatisfied.consulted` follows the same rule for its requester, since a metric in a guard reads rows the requester may not see: the value is given to a requester who can see every current object of each type the metric reads, and otherwise left out.
 - `metric` aggregates the rows the reader may see, after narrowing them by `filter`, and a path through an object the reader may not see yields absence. `complete` says whether those rows are all there are, so a partial value is never taken for the metric's own (PRD C2, M2, T5, ADR-0096).
+- `metric` first applies the metric's audience (PRD T7, ADR-0112). A reader outside it gets a page with no rows and `refused` set: an `Unsatisfied` naming `audience`, remedy `DELEGABLE`, with the capability where the audience reads one. A read keeping a dimension whose value names an actor needs `OF_PERSON_METRICS` unless the metric's audience says otherwise, and the same read without that dimension, through `keep`, is answered as usual. A metric value in a verdict, an event or an attempt is left out for a reader outside the metric's audience, as for one whose view would be partial, and `diagnostics` leaves out a diagnostic whose subject names an actor for a reader without `OF_PERSON_METRICS`.
 - `publish` takes the id of a `DeclarationChange` (ADR-0085, ADR-0097): with `dry_run` it produces the impact report `submit` and `refresh` attach, and without it it requests the change's `publish` transition, which is the approval and installs the version. `expected_version` is the version of the change the approver read, required unless `dry_run`, and a change that has moved since, by a `refresh`, is refused as `stale`. The result carries the verdict — `Satisfied`, `Stale`, or `Unsatisfied` naming `may`, `not_drafter`, `person_for_agent`, `current` or `impact_unchanged` — beside the report, whose ids are filtered for the actor (ADR-0097, ADR-0101).
 
 Three of them are worth reading twice.

@@ -17,9 +17,9 @@ Governed flows for business objects. People and agents move objects only along d
 ## What it does
 
 - **Declare.** Object types, their states, the transitions between them and the rules on each are written once, in a small language. A declaration is checked when it is published, can be printed for review, and is the only authority on what may change.
-- **Enforce.** Every request, from a person, a service or an agent, is checked against the declared rules. A refusal names the rule that refused and what to do next: supply something, ask someone, wait, or work on another object first. Nothing is ever half-applied.
+- **Enforce.** Every request, from a person, a service or an agent, is checked against the declared rules. A refusal names the rule that refused and what to do next: supply something, ask someone, wait, or work on another object first. A rule can instead be a flag, which lets the request through and tells the caller and the record. Nothing is ever half-applied.
 - **Record.** Every transition, refusal, override and change of hands is kept, with who did it, what kind of actor they were, and when it happened as well as when it was recorded. People add their own datapoints, such as an inspection result, and nothing is edited, only corrected.
-- **Measure.** Time in each state, throughput, where work waits, which rules refuse most and who holds what exist from the first request, with nothing to instrument. Formulas and metrics are declared once and read the same way by every screen, report and agent.
+- **Measure.** Time in each state, throughput, where work waits, which rules refuse most and who holds what exist from the first request, with nothing to instrument. Formulas and metrics are declared once and read the same way by every screen, report and agent. Figures about individual people stay behind a capability unless a deployment opens them.
 - **Improve.** A flow can start with no rules at all. The record shows where the flow and reality disagree, a new rule can run on trial before it is enforced, and a change is a reviewed publish that keeps history intact.
 
 ## Built for AI agents

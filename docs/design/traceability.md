@@ -42,7 +42,9 @@ The same day ADR-0109 decided the question D345 had left open: what every object
 
 On 2026-09-25 the author's decision to deploy the engine as an internal service became PRD revision 8: N7, the service every caller reaches through one interface, with authentication and the mapping of roles upstream; T6, an actor's kind declared with its type; and UC-22, which tests both. ADR-0110 meets them, and T2 now names network access to the service.
 
-Current: 78 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goals are not rows here; G4 is met through C2's.
+The same day the first-consumer check (`first-consumer-prd-check.md`), treated as a case study rather than a specification, became PRD revision 9: F9, a rule declared as a flag; T7, who may read a metric, with splits by person restricted by default; M7 widened to the norm observed in history; N3 and N5 stated as general capabilities with the first consumer as their reference and acceptance case; UC-23 and UC-24, which test the first two. ADR-0111 to ADR-0113 meet them. T1 cites the flag, M2 and M6 the audience, M7 and UC-12 the norm held as data; N3 and N5 changed wording and no citation, since the design met the general capability already.
+
+Current: 82 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goals are not rows here; G4 is met through C2's.
 
 ## Requirements
 
@@ -56,6 +58,7 @@ Current: 78 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | F6 | DESIGN §9; ADR-0085; publish-and-import.md §1; ADR-0097 | covered |  |
 | F7 | DESIGN §5.9, §9; ADR-0085, ADR-0096; publish-and-import.md §1, §2; storage-schema.md §6; ADR-0097; ADR-0101 | covered |  |
 | F8 | DESIGN §5.4, §6, §12; ADR-0012, ADR-0019, ADR-0020, ADR-0038, ADR-0108; declaration-syntax.md §5.2; renderers.md §2; library-api.md §6 | covered | |
+| F9 | DESIGN §5.5, §6, §13; ADR-0085, ADR-0111; declaration-syntax.md §5.1, §6.11; library-api.md §4, §5; storage-schema.md §4, §6; renderers.md §2, §4; adversarial-harness.md §1 | covered | |
 | D1 | DESIGN §7; ADR-0013, ADR-0033; storage-schema.md §2 | covered | |
 | D2 | DESIGN §6, §7; ADR-0083, ADR-0088; storage-schema.md §6 | covered | |
 | D3 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; storage-schema.md §3; renderers.md §3; ADR-0099 | covered |  |
@@ -75,12 +78,12 @@ Current: 78 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | C5 | DESIGN §5.12; ADR-0084; data-driven-engine.md §7 | unverifiable | the PRD leaves the target to be set by measurement; data-driven-engine.md §7 records an indicative SQLite probe, and the author sets the target |
 | C6 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9 | covered | |
 | M1 | DESIGN §5.12; ADR-0083, ADR-0084, ADR-0096; storage-schema.md §6; ADR-0098; declaration-syntax.md §6.11; ADR-0101; ADR-0105, ADR-0106 | covered |  |
-| M2 | DESIGN §5.2, §10; ADR-0084; library-api.md §6; ADR-0098; ADR-0106 | covered |  |
+| M2 | DESIGN §5.2, §10; ADR-0084; library-api.md §6; ADR-0098; ADR-0106; ADR-0112 | covered |  |
 | M3 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9; storage-schema.md §6; ADR-0098; ADR-0101; ADR-0106 | covered |  |
 | M4 | DESIGN §5.12; ADR-0084, ADR-0096; declaration-syntax.md §6.9, §8.1; ADR-0098; ADR-0101; ADR-0106 | covered |  |
 | M5 | DESIGN §10; ADR-0094; library-api.md §6; ADR-0106 | covered | |
-| M6 | DESIGN §5.13; ADR-0086, ADR-0096; storage-schema.md §6; ADR-0098; declaration-syntax.md §6.11; ADR-0101; ADR-0106 | covered |  |
-| M7 | DESIGN §5.7, §5.12, §10; ADR-0048, ADR-0084; declaration-syntax.md §8.3; storage-schema.md §3.4 | covered | |
+| M6 | DESIGN §5.13; ADR-0086, ADR-0096; storage-schema.md §6; ADR-0098; declaration-syntax.md §6.11; ADR-0101; ADR-0106; ADR-0112 | covered |  |
+| M7 | DESIGN §5.7, §5.12, §10; ADR-0048, ADR-0084, ADR-0113; declaration-syntax.md §6.9, §8.3; storage-schema.md §3.4 | covered | |
 | L1 | DESIGN §5.5, §5.11; ADR-0082; declaration-syntax.md §6.8 | covered | |
 | L2 | DESIGN §6; ADR-0088, ADR-0095, ADR-0096; storage-schema.md §4, §6; library-api.md §5; ADR-0105; adversarial-harness.md §1 | covered | |
 | L3 | DESIGN §6, §10; ADR-0037; library-api.md §6 | covered | |
@@ -92,12 +95,13 @@ Current: 78 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | V3 | DESIGN §5.5; ADR-0085; declaration-syntax.md §5.1; renderers.md §2; adversarial-harness.md §1; ADR-0106; storage-schema.md §6 | covered | |
 | V4 | DESIGN §9; ADR-0085; publish-and-import.md §1; ADR-0097 | covered |  |
 | V5 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; publish-and-import.md §1; returns-module.md §2 | covered | |
-| T1 | DESIGN §3, §13; adversarial-harness.md §1, §2; ADR-0097, ADR-0100; ADR-0101; ADR-0105; ADR-0109; declaration-syntax.md §3.4 | covered |  |
+| T1 | DESIGN §3, §13; adversarial-harness.md §1, §2; ADR-0097, ADR-0100; ADR-0101; ADR-0105; ADR-0109; declaration-syntax.md §3.4; ADR-0111 | covered |  |
 | T2 | DESIGN §1, §13; ADR-0110; adversarial-harness.md | covered | |
 | T3 | DESIGN §7, §8; ADR-0033, ADR-0083, ADR-0089; storage-schema.md §2; ADR-0099, ADR-0100; ADR-0101; ADR-0103; ADR-0105 | covered |  |
 | T4 | DESIGN §8, §10; ADR-0083; storage-schema.md §3.2; publish-and-import.md §4; ADR-0100; ADR-0101 | covered |  |
 | T5 | DESIGN §5.2, §5.8, §5.12, §6, §9, §10; ADR-0030, ADR-0084, ADR-0095, ADR-0096; library-api.md §6; ADR-0100; ADR-0101; ADR-0105, ADR-0106 | covered |  |
 | T6 | DESIGN §5.8, §6; ADR-0110; declaration-syntax.md §3.1, §6.10; library-api.md §3; storage-schema.md §6 | covered | |
+| T7 | DESIGN §5.12, §9, §10, §13; ADR-0084, ADR-0096, ADR-0112; declaration-syntax.md §1, §6.9, §10; library-api.md §5, §6; publish-and-import.md §2; renderers.md §2, §3; adversarial-harness.md §1 | covered | |
 | N1 | DESIGN §2, §5.12; ADR-0090; storage-schema.md §2, §7; ADR-0106; declaration-syntax.md §6.9; data-driven-engine.md §7 | covered | |
 | N2 | DESIGN §2, §7, §8; ADR-0012, ADR-0091, ADR-0096; library-api.md §1; storage-schema.md §6, §9; ADR-0100; ADR-0103; ADR-0105; data-driven-engine.md §9 | covered |  |
 | N3 | DESIGN §2; ADR-0090; storage-schema.md §7; first-consumer-cutover.md §5 | covered | |
@@ -121,7 +125,7 @@ Current: 78 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | UC-9 | DESIGN §5.12, §11; declaration-syntax.md §6.9; ADR-0106 | covered | |
 | UC-10 | DESIGN §5.5, §5.12; ADR-0096, ADR-0098; declaration-syntax.md §6.9; library-api.md §4 | covered | |
 | UC-11 | DESIGN §10, §5.12; library-api.md §6; renderers.md §3 | covered | |
-| UC-12 | DESIGN §5.12; declaration-syntax.md §8.3 | covered | |
+| UC-12 | DESIGN §5.12; declaration-syntax.md §6.9, §8.3; ADR-0113 | covered | |
 | UC-13 | DESIGN §5.9, §5.11, §5.12, §10; declaration-syntax.md §6.6, §6.8, §6.9; publish-and-import.md §3; library-api.md §6; ADR-0098; ADR-0105; returns-module.md §1, §2 | covered |  |
 | UC-14 | DESIGN §5.5; declaration-syntax.md §5.1; ADR-0097; storage-schema.md §6; ADR-0106 | covered |  |
 | UC-15 | DESIGN §9; publish-and-import.md §1; ADR-0097 | covered |  |
@@ -132,3 +136,5 @@ Current: 78 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | UC-20 | DESIGN §2, §5.8, §5.13, §6, §7, §10; ADR-0012, ADR-0022, ADR-0084, ADR-0104, ADR-0105; library-api.md §6; declaration-syntax.md §8.3; flow-review.md §2, §8 | covered | |
 | UC-21 | DESIGN §5.4, §6, §7; ADR-0019, ADR-0038, ADR-0108; declaration-syntax.md §5.2; renderers.md §2; library-api.md §6; unit-journey.md §2; first-consumer-walkthrough.md §3.3 | covered | |
 | UC-22 | DESIGN §2, §5.8, §6, §13; ADR-0103, ADR-0110; declaration-syntax.md §3.1, §6.10; library-api.md §3; storage-schema.md §6 | covered | |
+| UC-23 | DESIGN §5.5, §6, §13; ADR-0111; declaration-syntax.md §5.1, §6.11; library-api.md §4; storage-schema.md §6; renderers.md §2; adversarial-harness.md §1 | covered | |
+| UC-24 | DESIGN §5.12, §9, §10; ADR-0112; declaration-syntax.md §6.9, §6.11; library-api.md §5, §6; adversarial-harness.md §1 | covered | |

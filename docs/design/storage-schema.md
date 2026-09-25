@@ -15,6 +15,8 @@ Draft, 2026-09-09, amended 2026-09-23. How a published declaration becomes table
 
 **Amended 2026-09-25** for ADR-0110: `of_engine_release`, the release a store is at and every upgrade, and `of_actor`, every actor by the identity a request names.
 
+**Amended 2026-09-25** for ADR-0111: an attempt row and its daily rollup mark a raised flag, and an event's payload names the flags it raised.
+
 **Amended 2026-09-24** for ADR-0105 and ADR-0106, from a review of the whole record against PRD revision 5:
 - a subscription names its reader and has no endpoint, since the core posts nothing;
 - `state_source` loses `migrated`, and `of_migration` gains `admit`;
@@ -257,7 +259,7 @@ A derivation that reads a clock or another object gets no column. That is why a 
 
 ## 4. The event payload
 
-`payload` is the writes and the inputs of one transition, as JSON: attribute name to value, in the types of §3.1. Where a guard consulted an external evaluator or a metric, it also holds the verdict or value it was given and that value's as-of time, keyed by the guard's name (ADR-0049, ADR-0084, ADR-0095).
+`payload` is the writes and the inputs of one transition, as JSON: attribute name to value, in the types of §3.1. Where a guard consulted an external evaluator or a metric, it also holds the verdict or value it was given and that value's as-of time, keyed by the guard's name (ADR-0049, ADR-0084, ADR-0095), and the clauses marked `flag` that failed for it, so what a request was told outlives the prune of its attempt rows (ADR-0111).
 
 It is JSON rather than columns for two reasons. Its shape is per transition. And a fold of the log must reproduce a row written under a **declaration version that may no longer exist**; a column set fixed by today's declaration could not hold yesterday's event.
 
@@ -564,8 +566,8 @@ CREATE INDEX of_interval_current ON of_interval (dimension, value) WHERE left_po
 CREATE INDEX of_interval_entered ON of_interval (dimension, entered_at) WHERE left_position IS NULL;
 CREATE INDEX of_interval_by_object ON of_interval (object_id, dimension, left_position);
 
--- The attempt log: every request that did not apply, and every observing
--- clause's would-be refusal. No personal value. Not history: pruned after a
+-- The attempt log: every request that did not apply, every observing
+-- clause's would-be refusal, and every raised flag. No personal value. Not history: pruned after a
 -- retention period, its daily counts kept in of_attempt_rollup (ADR-0083, ADR-0096).
 CREATE TABLE of_attempt (
   id                  INTEGER PRIMARY KEY,
@@ -582,8 +584,9 @@ CREATE TABLE of_attempt (
   clause              TEXT,
   remedy              TEXT    NOT NULL,     -- every refusal names one (ADR-0105)
   unknown             INTEGER NOT NULL DEFAULT 0,
-  enforced            INTEGER NOT NULL DEFAULT 1,   -- 0 for an observing clause
-  applied_position    INTEGER,              -- an observing clause's applied event
+  enforced            INTEGER NOT NULL DEFAULT 1,   -- 0 for an observing clause or a flag
+  flagged             INTEGER NOT NULL DEFAULT 0,   -- 1 for a raised flag (ADR-0111)
+  applied_position    INTEGER,              -- the applied event of an observing clause or a flag
   reads               TEXT,                 -- everything the request had read when refused (ADR-0088, ADR-0105)
   consulted           TEXT,                 -- its metric values and evaluator verdicts (ADR-0096)
   request_values      TEXT,                 -- every non-personal input and the occurred time of the
@@ -603,10 +606,11 @@ CREATE TABLE of_attempt_rollup (
   remedy       TEXT    NOT NULL DEFAULT '',
   actor_kind   TEXT    NOT NULL,
   enforced     INTEGER NOT NULL,
+  flagged      INTEGER NOT NULL DEFAULT 0,
   declaration_version INTEGER NOT NULL,
   count        INTEGER NOT NULL,
   PRIMARY KEY (day, type, object_id, verdict, transition, clause, remedy, actor_kind, enforced,
-               declaration_version)
+               flagged, declaration_version)
 );
 ```
 
@@ -618,9 +622,9 @@ CREATE TABLE of_attempt_rollup (
 
 **`of_interval` is an index, and says so in its shape.** A creation opens a row for the state and for every tracked member, absent ones included, so an object never assigned has an interval of absence from its creation (ADR-0101). A state change, or a write that changes a tracked member's value, closes the current row for that dimension — a write that leaves the value as it was opens nothing (ADR-0106) — setting `left_position` and `left_at`, and opens a new one in the same statement group that writes the event. Folding the log reproduces it exactly, which the harness checks (ADR-0083). The one kind of row the log cannot rebuild is a `legacy = 1` row, supplied by the import mapping from the legacy system's history. Those are marked so that nothing mistakes them for recorded history.
 
-**`of_attempt` is written outside the request's transaction**, in its own short transaction after the rollback. The exception is an observing clause's would-be refusal, which is written with the event it is linked to. Either way it holds no personal value — `request_values` holds the request's non-personal inputs and names the personal ones as withheld — so erasure has nothing to do there, and the refusal still replays from the record (ADR-0083, ADR-0105). Its `consulted` holds the metric values and evaluator verdicts the failing clause was decided on, neither of which can be personal, since a metric's value never is (ADR-0084, ADR-0096).
+**`of_attempt` is written outside the request's transaction**, in its own short transaction after the rollback. The exceptions are an observing clause's would-be refusal and a raised flag, each written with the event it is linked to. Either way it holds no personal value — `request_values` holds the request's non-personal inputs and names the personal ones as withheld — so erasure has nothing to do there, and the refusal still replays from the record (ADR-0083, ADR-0105). Its `consulted` holds the metric values and evaluator verdicts the failing clause was decided on, neither of which can be personal, since a metric's value never is (ADR-0084, ADR-0096).
 
-**Pruning rolls up in the same transaction.** A deployment prunes `of_attempt` after its retention period with `maintain(prune_attempts)` (ADR-0100), which refuses a cut-off inside the retention the store was built with (ADR-0101), and the statement that deletes a day's rows adds their counts to `of_attempt_rollup` in the same transaction, so a count is never lost and never counted twice. The metric source `<Type>.attempt_counts` reads the rollup for the days already pruned and counts the retained rows for the rest, so it is complete over the whole history whenever pruning runs, or whether it runs at all. Correctness therefore never waits on it (PRD N2, T3, ADR-0096). The rollup keeps the object, so a reader's visibility applies to a pruned day exactly as to a retained one and a prune changes no reader's value; a refused creation has no object, and its count is visible only to a reader who can see every current object of the type, as is the count of a request that named an unknown id, whose `type` is `''`. **A would-be refusal is kept while its clause is on trial**: the prune skips a row with `enforced = 0` whose clause is still observing in the installed version, so who a trialled rule would have refused stays answerable for the whole trial, and rolls it up at the first prune after the clause is enforced or removed (ADR-0106, PRD UC-14).
+**Pruning rolls up in the same transaction.** A deployment prunes `of_attempt` after its retention period with `maintain(prune_attempts)` (ADR-0100), which refuses a cut-off inside the retention the store was built with (ADR-0101), and the statement that deletes a day's rows adds their counts to `of_attempt_rollup` in the same transaction, so a count is never lost and never counted twice. The metric source `<Type>.attempt_counts` reads the rollup for the days already pruned and counts the retained rows for the rest, so it is complete over the whole history whenever pruning runs, or whether it runs at all. Correctness therefore never waits on it (PRD N2, T3, ADR-0096). The rollup keeps the object, so a reader's visibility applies to a pruned day exactly as to a retained one and a prune changes no reader's value; a refused creation has no object, and its count is visible only to a reader who can see every current object of the type, as is the count of a request that named an unknown id, whose `type` is `''`. **A would-be refusal is kept while its clause is on trial**: the prune skips a row with `enforced = 0` whose clause is still observing in the installed version, so who a trialled rule would have refused stays answerable for the whole trial, and rolls it up at the first prune after the clause is enforced or removed (ADR-0106, PRD UC-14). A raised flag, `flagged = 1`, is not on trial and rolls up at the usual prune: a flag is permanent, and its daily counts are what a deployment reads of it (ADR-0111).
 
 **The sequence table and the attempt log are the two things written outside the request's transaction.** Everything else — the object row, the event, the write index, the interval index, the file reference index, the idempotency record — commits with the transition or not at all.
 

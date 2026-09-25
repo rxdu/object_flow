@@ -10,6 +10,8 @@ Draft, 2026-09-09, amended 2026-09-23. The acceptance test, which PRD N4 names a
 
 **Amended again 2026-09-23** for ADR-0097 to ADR-0101, from a review of the whole record against the PRD; each change cites the decision it carries.
 
+**Amended 2026-09-25** for ADR-0111 and ADR-0112: a flag is excluded from the guarantee, as an observing clause is, and checked to be returned and recorded; a metric read outside its audience is a failure.
+
 **Amended 2026-09-24** for ADR-0105 and ADR-0106, from a review of the whole record against PRD revision 5:
 - the claim is stated in PRD F2's four routes;
 - UC-19's fourth route, retiring a catalogue entry, joins the route-tester;
@@ -21,7 +23,7 @@ The threat model is **mistakes, not malice** (ADR-0015): an actor that guesses, 
 
 ## 1. The claim under test
 
-`DESIGN.md` §13 states it: governed state changes only by PRD F2's four routes, each recorded — a transition whose **enforced** guards pass, an override, a flow change's migration, an erasure — and bypasses the enforced guards only through a capability-gated override: an assertion the type declares, the built-in one the import uses, or an admission (ADR-0105). An observing clause is on trial and guarantees nothing (ADR-0085), so the harness treats it as absent. It checks separately that such a clause records its would-be refusals and never refuses.
+`DESIGN.md` §13 states it: governed state changes only by PRD F2's four routes, each recorded — a transition whose **enforced** guards pass, an override, a flow change's migration, an erasure — and bypasses the enforced guards only through a capability-gated override: an assertion the type declares, the built-in one the import uses, or an admission (ADR-0105). An observing clause is on trial and guarantees nothing (ADR-0085), and a flag guarantees nothing by design (ADR-0111), so the harness treats both as absent. It checks separately that each records what it would have refused and never refuses, and that a flag is returned to the caller who raised it.
 
 That is falsifiable, which is what makes it worth a harness. A run **fails** if it produces any of:
 
@@ -39,6 +41,7 @@ That is falsifiable, which is what makes it worth a harness. A run **fails** if 
 | a refusal that, replayed over its read set and the request values it recorded, does not refuse — except where it names a personal input as withheld; or a refusal missing from the attempt log | the record no longer explains the refusal, or lost it (ADR-0083, ADR-0105, PRD L2) |
 | a pull or export that skips an event, or returns an object's events out of that object's order | delivery is not at least once and in order per object (ADR-0089, PRD L6) |
 | a personal value still readable after its subject's erasure — on an object, in an event, in a predecessor, in a caller's event, in an event it caused or an object it copied the value into, in a label note, an observation, a legacy entry, a proposal or its event, an interval, or an external identifier `lookup` still resolves — or an erased object's shared file gone for another object; or an erased value written back by any request, a sync included; or an object whose value an erasure redacted with no `erased` event of its own | erasure missed something, took too much, or was undone (ADR-0087, ADR-0100, ADR-0105, UC-17) |
+| a metric row returned to a reader outside the metric's audience, or a split by person returned without `OF_PERSON_METRICS` where no audience opens it, by `metric()` or in a verdict, an event or an attempt | the door on a metric is only in the upper layer (ADR-0112, PRD T7) |
 | any of the above reachable **without** a capability the declaration gates it on | the escape hatch is not the only escape |
 
 Every one of these is checkable against the store from outside, by reading the declaration and the read surface. That is deliberate: the harness must not need privileged access to detect a failure, or it is testing something a caller cannot.
@@ -116,7 +119,7 @@ It does not prove the declaration says what the business meant. It cannot: it ch
 
 It does not prove the guarantee for declarations unlike the fixture. It samples.
 
-It does not prove anything about an observing clause, which guarantees nothing by design, and says so on the rule set.
+It does not prove anything about an observing clause or a flag, which guarantee nothing by design, and say so on the rule set.
 
 And it does not prove anything about an actor with database access, which is the model this design does not defend against and says so.
 

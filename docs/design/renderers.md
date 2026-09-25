@@ -12,6 +12,8 @@ Draft, 2026-09-09, amended 2026-09-23. Three projections of one declaration: tex
 
 **Amended 2026-09-24** for ADR-0108: the rule set prints every cause of a transition on the transition's own type, including cascades declared on other types, so a cascade is visible where it lands as well as where it starts (PRD F8).
 
+**Amended 2026-09-25** for ADR-0111 and ADR-0112: a flag prints as one, beside a rule on trial and an enforced rule; each metric prints who may read it; the metrics tool says a read may be refused for its audience; and the standard metrics include `flags_raised`.
+
 **What is verified.** `scripts/check-renderers-doc.py` parses every JSON example, checks that the tool schema is a schema a validator accepts, and confirms it rejects a call missing a required field and a call carrying an unknown one. The rule set of §2 is prose and is not checked; nothing generates it yet.
 
 ## 1. What a renderer may not do
@@ -113,17 +115,19 @@ ServiceJob — version 2
   Metrics
     time_working     median time in WORKING, by engineer, by month (UTC)
                      flag slow when over 10 days
+                     readable by holders of SERVICE_ASSIGN
     standard         time_in_state, time_in_state_p80, throughput,
                      work_in_progress, oldest_open,
-                     transition_counts, refusals, refusal_rate, override_counts,
-                     rework; for engineer: open_work, time_unassigned,
+                     transition_counts, refusals, flags_raised, refusal_rate,
+                     override_counts, rework; split by person, readable by
+                     holders of OF_PERSON_METRICS; for engineer: open_work, time_unassigned,
                      time_to_first_assignment, time_with_assignee,
                      cycle_time_by_assignee, time_in_state_by_holder, handoffs,
                      reassigned_back, acted_by_non_assignee, handoffs_by_object,
                      returns_by_object (declaration-syntax §6.11)
 ```
 
-An **observing clause** is printed as not enforced, on the same line as the rule, so no reader can mistake a trial for a guarantee (ADR-0085). A **metric** is printed as its definition rendered in words, exactly as a guard is, because the rule set is the one place a definition is meant to be read as the rule; everywhere else points at `metric()` (§3). The **assignee** line says which reference is the responsibility, since that is what the assignment metrics are over (ADR-0086). The **standard metrics** are listed by name under every type, since each is a declaration a reader can look up (ADR-0098). The **built-in types** — `DeclarationChange`, `Proposal`, `Subscription` and the `label` kind — are rendered like any type, with the authority that gates each, so who may draft, approve, label, import or subscribe is on the page (ADR-0097, ADR-0105). `Subscription` prints `OF_SUBSCRIBE` and that only its reader may pull and acknowledge it; `Proposal` prints that its proposer may withdraw it and that whoever passes the proposed transition's actor guards may reject it. They print under declaration version 0 and every version after it, with the built-in module the version was published with.
+An **observing clause** is printed as not enforced, on the same line as the rule, so no reader can mistake a trial for a guarantee (ADR-0085). A **flag** is printed on its rule's line as `FLAG — NOT ENFORCED`, so a reader tells apart the three things a clause can be: enforced, on trial, or a flag (ADR-0111). Each **metric** prints who may read it, and the standard metrics say that a split by person is readable only by holders of `OF_PERSON_METRICS` unless a module line opens one, which prints under the metric it opens (ADR-0112). A **metric** is printed as its definition rendered in words, exactly as a guard is, because the rule set is the one place a definition is meant to be read as the rule; everywhere else points at `metric()` (§3). The **assignee** line says which reference is the responsibility, since that is what the assignment metrics are over (ADR-0086). The **standard metrics** are listed by name under every type, since each is a declaration a reader can look up (ADR-0098). The **built-in types** — `DeclarationChange`, `Proposal`, `Subscription` and the `label` kind — are rendered like any type, with the authority that gates each, so who may draft, approve, label, import or subscribe is on the page (ADR-0097, ADR-0105). `Subscription` prints `OF_SUBSCRIBE` and that only its reader may pull and acknowledge it; `Proposal` prints that its proposer may withdraw it and that whoever passes the proposed transition's actor guards may reject it. They print under declaration version 0 and every version after it, with the built-in module the version was published with.
 
 Guard descriptions are rendered from the expression, not written by hand. `none(c in checklist_items where not c.checked)` becomes "every checklist item is checked". That rendering is mechanical and lossy on purpose — the expression is beside it in the machine-readable form, and a person reading a rule set wants the sentence.
 
@@ -213,7 +217,7 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
 ```json
 {
   "name": "read_metric",
-  "description": "Read a declared or standard metric, as rows of dimensions, value and the flags that hold, in UTC calendar time, computed over the rows you may see; complete says whether those are all the rows there are. The definitions are in declaration(type); this tool does not restate them.",
+  "description": "Read a declared or standard metric, as rows of dimensions, value and the flags that hold, in UTC calendar time, computed over the rows you may see; complete says whether those are all the rows there are. The definitions are in declaration(type); this tool does not restate them. A metric, or a split by person, that you may not read is refused with the capability that would allow it; leaving the person out with keep answers the rest.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -252,7 +256,8 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
       "withheld": false
     },
     "inputs": {},
-    "unevaluated": []
+    "unevaluated": [],
+    "flags": []
   },
   {
     "transition": "cancel",
@@ -260,7 +265,8 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
     "availability": "available",
     "verdict": null,
     "inputs": {},
-    "unevaluated": []
+    "unevaluated": [],
+    "flags": []
   },
   {
     "transition": "add_checklist_item",
@@ -270,7 +276,8 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
     "inputs": {
       "label": "string"
     },
-    "unevaluated": []
+    "unevaluated": [],
+    "flags": []
   }
 ]
 ```
@@ -278,6 +285,8 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
 Three-way availability, not two. `available_with_input` is the case a form cares about: the transition is permitted and the caller has not supplied everything yet, which is different from being refused.
 
 `unevaluated` is what keeps this honest about external evaluators. `availability` never calls one (ADR-0048, ADR-0049), so a transition gated on an external fact reports the guards it could not evaluate, and a caller that treats the offer as a promise has been told not to.
+
+`flags` lists, for an available transition, the flags taking it would raise as things stand, each with its clause and remedy class, so an agent sees what a deployment wants seen before it asks, and the satisfied verdict names the flags actually raised (ADR-0111). A flag never makes a transition unavailable.
 
 `remedy` is what an agent should branch on rather than on the clause name: `delegable` means find someone with the authority, `temporal` means wait, `dependent` means change something else first, `self_serviceable` means fix the request, and `unreachable_from_here` means stop. The verdict also says **what the remedy points at** (ADR-0092): `objects` are the checklist items still unchecked, so an agent works on them rather than guessing; `capability` would name the authority a `delegable` clause asks for; `proposable` says whether filing a proposal would be accepted.
 
@@ -295,7 +304,8 @@ Nothing new is needed for this, which is the point worth making: if a third rend
 
 - **Localisation: the renderer emits a structure and English is one rendering of it.** A guard sentence comes out as its clause name, its operator and its operands. A deployment substitutes its own without the renderer knowing any language, and a guard that changes changes its sentence in every language at once.
 - **Tool inputs are nested under `inputs`** (ADR-0092), each observation kind is a tool, and metrics are one tool that names them without restating a definition.
-- **An observing clause prints as not enforced**, on the line of the rule it trials (ADR-0085).
+- **An observing clause prints as not enforced**, on the line of the rule it trials (ADR-0085), and **a flag prints as a flag** (ADR-0111).
+- **An agent learns of a flag before and after asking.** The live offer lists, beside an available transition, the flags taking it would raise, and a satisfied verdict names the flags it raised (ADR-0111).
 - **A rule-set diff is semantic, and it is not new work.** Publishing already compares the incoming declaration with the installed one to decide what needs a mapping, so the diff is a rendering of that comparison rather than a second mechanism that could disagree with it.
 
 **Still open.**

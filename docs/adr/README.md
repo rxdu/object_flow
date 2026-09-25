@@ -112,3 +112,6 @@
 | [0108](0108-a-cascade-is-declared-clearly-enough-not-to-surprise.md) | A cascade is declared clearly enough not to surprise, and is shown where it lands | Accepted (the principle is the author's; the mechanism written at the author's direction) |
 | [0109](0109-a-states-conditions-are-invariants-and-publishing-reports-what-a-creation-skips.md) | What every object in a state must carry is an invariant, and publishing reports what a creation skips | Accepted (decided at the author's direction) |
 | [0110](0110-an-internal-service-with-authentication-upstream-and-declared-actor-kinds.md) | ObjectFlow is an internal service; upper layers authenticate and map roles, and an actor's kind is declared with its type | Accepted by the author |
+| [0111](0111-a-rule-may-be-a-flag.md) | A rule may be a flag, seen on every request and never refusing | Accepted by the author |
+| [0112](0112-who-may-read-a-metric.md) | Who may read a metric, with splits by person restricted by default | Accepted by the author |
+| [0113](0113-an-observed-norm-is-held-as-data.md) | A norm observed in history is held as data, refreshed from a metric | Accepted by the author |

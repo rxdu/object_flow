@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0096 — a publish recomputes its impact report at approval, and is refused if it changed. ADR-0097 — the DeclarationChange has a declared lifecycle, named built-in capabilities, a principal rule, a report of guard impact, and an evidence snapshot in place of links.
+- **Refined by:** ADR-0096 — a publish recomputes its impact report at approval, and is refused if it changed. ADR-0097 — the DeclarationChange has a declared lifecycle, named built-in capabilities, a principal rule, a report of guard impact, and an evidence snapshot in place of links. ADR-0111 — a clause may instead be marked `flag`, a permanent rule that is seen and never enforced, which is not a trial.
 - **Refines:** ADR-0027
 
 ## Context
