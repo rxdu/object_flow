@@ -184,7 +184,7 @@ A renderer can print the stage map from the categories and a display name per st
 
 ## 7. For the author
 
-*Checked 2026-09-25 against the first consumer's own PRD, which settles most of these, several differently from the options below: `first-consumer-prd-check.md` §4.*
+*Checked 2026-09-25 against the first consumer's own PRD, as a case study, which settles most of these for the platform's own declarations, several differently from the options below: `first-consumer-prd-check.md` §4.*
 
 In the order the review would take them:
 
