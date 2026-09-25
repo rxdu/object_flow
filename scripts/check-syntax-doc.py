@@ -789,7 +789,8 @@ def actor_reads(text, base):
             if gov == st and HEAD.match(st) and "{" in st[:m.start()]:
                 gov = st.split("{", 1)[1].lstrip()
             if not OUTCOME_STEP.match(gov):
-                out.append((64, f"reads the actor outside an outcome value: {st[:56]}", base + i))
+                cut = st if len(st) <= 64 else st[:64].rsplit(" ", 1)[0] + " \u2026"
+                out.append((64, f"reads the actor outside an outcome value: {cut}", base + i))
                 break
         if st.endswith("{"):          # a body opens: its next line begins a clause (§9.1)
             col = None
