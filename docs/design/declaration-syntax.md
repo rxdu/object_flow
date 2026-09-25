@@ -990,14 +990,11 @@ require pass_rate: metric(inspection_pass_rate, engineer := engineer, over last 
 ### 6.10 Assignment
 
 ```text
-enum UserRole version 1 { ADMIN, BUSINESS, ENGINEERING }
-
 type User version 1 {
   tracking record
   states   ACTIVE category live, LEFT category closed terminal
   attr     login identity actor human unique
-  attr     role UserRole
-  create add -> ACTIVE accepts login, role { }
+  create add -> ACTIVE accepts login { }
   do leave ACTIVE -> LEFT {
     require no_open_jobs: none(j in ServiceJob where j.engineer == this
                                               and j.state.category != closed)   because dependent
@@ -1020,14 +1017,10 @@ type ServiceJob version 2 {
   ref      engineer : User assignee
   attr     photo file?
   create open -> OPEN accepts engineer {
-    require assignable: inputs.engineer.state == User.ACTIVE
-                        and inputs.engineer.role in {UserRole.ADMIN, UserRole.ENGINEERING}
-                                                                  because self_serviceable
+    require active: inputs.engineer.state == User.ACTIVE because self_serviceable
   }
   act reassign at { OPEN, WORKING } accepts engineer {
-    require active:     inputs.engineer.state == User.ACTIVE because self_serviceable
-    require assignable: inputs.engineer.role in {UserRole.ADMIN, UserRole.ENGINEERING}
-                                                              because self_serviceable
+    require active: inputs.engineer.state == User.ACTIVE because self_serviceable
   }
   do start OPEN -> WORKING backdatable within 2 days {
   }
@@ -1042,9 +1035,9 @@ type ServiceJob version 2 {
 
 **`assignee`** marks a singular stored `ref` as the object's responsibility: who is answerable for it at a given time, as distinct from whoever acts on it (ADR-0086, PRD D10). Its target type marks exactly one `identity` attribute **`actor`**, holding the actor's id, so the engine can tell when someone other than the assignee acts. No guard compares it with who is asking: requiring the assignee to act is the upper layer's, which reads the object and sends the version it read (DESIGN.md §5.8, ADR-0114). `assignee` on a set-valued `ref`, a `part`, an `owner` or an end that does not store its value (§3.3), or on a reference whose target does not mark exactly one `actor` attribute, is a publish error, and so is `actor` on an attribute that is not `identity` (check 59). A type may mark more than one reference, such as an engineer-of-record and a reviewer, and each is a separate dimension named by its reference.
 
-**Each kind of actor is its own type** (ADR-0110). `User` holds people and `Agent` holds agents, each naming its kind on its actor identity, so a request's kind is its type's and no caller can claim another. The first consumer keeps its agents as users with the role `AGENT`; the port makes each one an `Agent`, so `UserRole` has no such member, and an agent cannot be named engineer-of-record at all, since `engineer` references a `User`. Where a deployment's own user system owns its roles, as the first consumer's does, `User` is externally owned and kept in step by a sync (ADR-0080), whose requests to `add` and `leave` only the sync makes, which the upper layer ensures; this example declares them locally, for brevity.
+**Each kind of actor is its own type** (ADR-0110). `User` holds people and `Agent` holds agents, each naming its kind on its actor identity, so a request's kind is its type's and no caller can claim another. The first consumer keeps its agents as users with the role `AGENT`; the port makes each one an `Agent`, so an agent cannot be named engineer-of-record at all, since `engineer` references a `User`. **A declaration holds no roles**, the requester's or anyone else's (ADR-0114): a person's roles, and so who may be assigned which work, stay in the upper layer's user system, and `User` holds only who the person is. Where that system owns the people, as the first consumer's does, `User` is externally owned and kept in step by a sync (ADR-0080), whose requests to `add` and `leave` only the sync makes; this example declares them locally, for brevity.
 
-**The marking adds no write path.** Assignment is whatever declared transitions write the reference, each with its own guards on who may be assigned — `reassign` above; who may assign is the upper layer's. Every singular stored reference has intervals from its object's creation, absence included, marked or not (DESIGN.md §5.2), so a marking added in a later version reads assignment history back to the first. What the marking adds is the standard assignment metrics over that reference (DESIGN.md §5.13).
+**The marking adds no write path.** Assignment is whatever declared transitions write the reference, each with its own guards over the data, such as `reassign`'s that the engineer is still active; who may assign, and who may be assigned, are the upper layer's (ADR-0114). Every singular stored reference has intervals from its object's creation, absence included, marked or not (DESIGN.md §5.2), so a marking added in a later version reads assignment history back to the first. What the marking adds is the standard assignment metrics over that reference (DESIGN.md §5.13).
 
 `finish` shows the other constructs in place: `none_failed` reads the observations of §6.8, `photo_taken` is on trial (§5.1), and `start` may be recorded up to two days late (§4.2).
 

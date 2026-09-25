@@ -217,7 +217,7 @@ A variant of [`unit-journey.md`](unit-journey.md) §2, to be deleted from here o
 
 ```text
 module inventory_journey
-use   inventory.{User, UserRole, Customer, RetirementReason, OverrideReason}
+use   inventory.{User, Customer, RetirementReason, OverrideReason}
 
 
 enum CancellationReason version 2 { ORDER_CANCELLED, DISCARDED, REJECTED_QA,
@@ -621,18 +621,14 @@ type ServiceJob version 4 {
   derive blocking = kind == ServiceKind.REPAIR
 
   create open -> OPEN accepts kind, robot, customer, engineer {
-    require assignable: inputs.engineer.state == User.ACTIVE
-                        and inputs.engineer.role in {UserRole.ADMIN, UserRole.ENGINEERING}
-                                                                         because self_serviceable
+    require active:    inputs.engineer.state == User.ACTIVE                because self_serviceable
     require delivered: inputs.robot.state == Robot.SOLD
                        or inputs.robot.state == Robot.DEVELOPMENT        because self_serviceable
     require theirs:    inputs.robot.state == Robot.DEVELOPMENT
                        or inputs.robot.sold_to == inputs.customer        because self_serviceable
   }
   act reassign at OPEN accepts engineer {
-    require assignable: inputs.engineer.state == User.ACTIVE
-                        and inputs.engineer.role in {UserRole.ADMIN, UserRole.ENGINEERING}
-                                                                         because self_serviceable
+    require active: inputs.engineer.state == User.ACTIVE because self_serviceable
   }
   act add_part at { OPEN, WORKING } {
     input part : Robot

@@ -967,8 +967,8 @@ MUTATIONS = [
        "from      i in ServiceJob.events where"),
   (56, "metric in a derivation", "  attr     photo file?\n",
        "  attr     photo file?\n  derive   rate = metric(inspection_pass_rate)\n"),
-  (57, "observe on an erase", "create add -> ACTIVE accepts login, role { }",
-       "create add -> ACTIVE accepts login, role { }\n"
+  (57, "observe on an erase", "create add -> ACTIVE accepts login { }",
+       "create add -> ACTIVE accepts login { }\n"
        "  erase forget {\n    input reason : string\n"
        "    require given: inputs.reason is not null observe because self_serviceable\n  }"),
   (58, "backdated in months", "do start OPEN -> WORKING backdatable within 2 days {",
