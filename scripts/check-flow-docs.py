@@ -32,7 +32,8 @@ CONTINUED = re.compile(r"^# (\w+), continued\s*$")
 
 # A module declared in more than one document names its home here, as
 # check-syntax-doc.py's MODULE_HOMES does for the text notation.
-MODULE_HOMES = {}
+# The flow review's appendix re-declares inventory_journey as a proposed variant of it.
+MODULE_HOMES = {"inventory_journey": "unit-journey.md"}
 
 
 def script(name):

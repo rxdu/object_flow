@@ -400,6 +400,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D386](#d386) | The flow format said no expression may read the actor, which its own example does | Resolved in place |
 | [D387](#d387) | Two sentences of the unit's journey survived the withdrawals of ADR-0114 | Resolved in place |
 | [D388](#d388) | The flow checker resolved no import | Resolved by ADR-0121 |
+| [D389](#d389) | The flow review's appendix read an observation kind from a shared machine | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -2593,3 +2594,8 @@ ADR-0116 moves the design's examples to the flow description format, `unit-journ
 **The flow checker resolved no import.** `scripts/check-flows.py` took a module's `imports` on trust: a copy of `service.yaml` importing `peple: [Usr]`, neither a module nor a type anywhere, passed all four steps. Found by that probe, building the check of the documents' YAML.
 
 **Resolved by ADR-0121**, 2026-09-26: an import whose module is among the files checked must name what that module declares, and one whose module is not is reported by the `imports` notice. The same probe found that a qualified name of a type nothing declares or imports, `Usr.ACTIVE`, still passes; `TODO.md` holds it.
+
+### D389
+**The flow review's appendix read an observation kind from a shared machine.** Its `UnitLifecycle` gave `restock` the guard `inspected: any(r in return_checks where …)`, and `return_checks` is an observation kind of the binder `Robot`. A machine requires attributes, references, parts and invariants of its binders, never an observation kind, and names nothing it does not require (`declaration-syntax.md` §4.1, check 35), so the declaration broke the model's own rule; `scripts/check-syntax-doc.py` passed it, its check 35 not looking at what a machine's guards read from observations. Found rewriting `flow-review.md`'s appendix in YAML, whose step 3 refused it: "inspected reads 'return_checks', which UnitLifecycle does not require".
+
+**Resolved in place**, 2026-09-26: `restock` and its guard are `Robot`'s own, as a binder may declare transitions of its own, and `flow-review.md` §8 says why. `TODO.md` holds the text checker's gap.

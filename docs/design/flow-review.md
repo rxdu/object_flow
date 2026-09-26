@@ -12,7 +12,7 @@ Two readers did it:
 
 Every finding below was checked against the page, the module and production before it was recorded, and "*(both)*", "*(context)*" or "*(cold read)*" says who raised it. The cold read also found a defect in the module, D289, and four contradictions on the page; both are fixed (§6).
 
-Proposals marked **declared** are written into a variant of the module, reproduced whole in the appendix, which `scripts/check-syntax-doc.py` checks on every corpus run. Proposals without the mark are prose.
+Proposals marked **declared** are written into a variant of the module, reproduced whole in the appendix, which `scripts/check-flow-docs.py` checks on every corpus run. Proposals without the mark are prose.
 
 The page's metric figures are illustrative. The findings rest on the structure of the flow, which the figures only illustrate. Where a finding proposes a metric, the metric is what will measure the effect once the flow runs.
 
@@ -200,625 +200,1280 @@ In the order the review would take them:
 
 The appendix is the module of `unit-journey.md` with the proposals marked **declared** applied, and the checker reports it clean. The changes:
 
-- `RETURNED`, `inbound`. `accept_return` and `release_to_stock` enter it, and `restock` leaves it on a passing `ReturnCheck`. `Engagement.close` requires a return check per unit.
+- `RETURNED`, `inbound`. `accept_return` and `release_to_stock` enter it, and `restock` leaves it on a passing `ReturnCheck`. `restock` is `Robot`'s own transition and not the machine's, since a machine requires attributes, parts and invariants of its binders and never an observation kind, and its guard reads the unit's return checks (D389). `Engagement.close` requires a return check per unit.
 - `retire` from `AVAILABLE`, `RETURNED` and `DEVELOPMENT`. `transfer_to_pool`. `DEVELOPMENT` is `closed`. `correct_state` may target `INTAKE`.
 - `procured_for`, written by `inventorize` and cleared by `reserve`, and `awaiting_assignment`. `intake_ready`, `Shipment.commit_ready` and `Shipment.receive_unit_late`.
 - `repeat_failure`, which `fit` reads.
 - The delivery's `READY`, `mark_ready` and `back_to_preparation`.
 - The observation kind `ReturnCheck`, and the metrics `recording_lag` and `assignment_wait`.
 - `sold_to`, which is in `unit-journey.md` itself (D289).
-- the invariants `labelled` and `mfr_serial`, and the acts `record_manufacturer_serial` and `add_photo`, which are in `unit-journey.md` itself (ADR-0109, D379).
+- the invariants `labelled` and `mfr_serial`, and the internal transitions `record_manufacturer_serial` and `add_photo`, which are in `unit-journey.md` itself (ADR-0109, D379).
 
 The promised date, the service clock, the checklist revision, the fulfilment stages and the procurement order are prose only. The module's delivery carries no dates and no checklist, and the procurement order is outside it.
 
 ## Appendix: the module with the declared proposals applied
 
-A variant of [`unit-journey.md`](unit-journey.md) §2, to be deleted from here once the author has decided and the module is amended.
+A variant of [`unit-journey.md`](unit-journey.md) §2, to be deleted from here once the author has decided and the module is amended. It is written in the flow description format, in the journey's order, and `scripts/check-flow-docs.py` checks it with all four steps of the flow checker (ADR-0121).
 
-```text
-module inventory_journey
-use   inventory.{User, Customer, RetirementReason, OverrideReason}
+```yaml
+module: inventory_journey
+imports: { inventory: [User, Customer, RetirementReason, OverrideReason] }
+categories: [inbound, live, closed]
 
+enumerations:
+  CancellationReason: [ORDER_CANCELLED, DISCARDED, REJECTED_QA, RETURNED_SUPPLIER, OTHER]
+  EngagementKind: [LEASE, EVENT, DEV_HOLD]
+  ServiceKind: [REPAIR, MAINTENANCE, UPGRADE]
+  CheckOutcome: [PASS, FAIL, NOT_APPLICABLE]
 
-enum CancellationReason version 2 { ORDER_CANCELLED, DISCARDED, REJECTED_QA,
-                                    RETURNED_SUPPLIER, OTHER }
-enum EngagementKind version 1 { LEASE, EVENT, DEV_HOLD }
-enum ServiceKind    version 1 { REPAIR, MAINTENANCE, UPGRADE }
-enum CheckOutcome   version 1 { PASS, FAIL, NOT_APPLICABLE }
-sequence unit_serial version 1
+sequences:
+  unit_serial:
+    description: Numbers the robots, in one series for the type, as production's serial service does.
+```
 
+```yaml
+# inventory_journey, continued
+machines:
+  UnitLifecycle:
+    description: What a unit is to the business, from its request through intake and sale or the company's own pool, to its retirement or deletion.
+    requires:
+      attributes:
+        label_printed_at:    { type: timestamp, optional: true }
+        manufacturer_serial: { type: string, optional: true }
+        photos:              { type: "file[]" }
+        cancellation_reason: { type: CancellationReason, optional: true }
+        retirement_reason:   { type: RetirementReason, optional: true }
+        model:               { reference: RobotModel }
+        shipment:            { reference: Shipment, optional: true }
+        peg:                 { reference: Delivery, optional: true }
+        procured_for:        { reference: Delivery, optional: true }
+        binding:             { reference: Delivery, optional: true }
+        used_in:             { reference: ServiceJob, optional: true }
+        sold_to:             { reference: Customer, optional: true }
+        engagement_lines:    { reference: "EngagementLine[]" }
+      invariants: [one_open_engagement, labelled, mfr_serial]
+
+    states:
+      REQUESTED:   { category: inbound }
+      PROCUREMENT: { category: inbound }
+      MISSING:     { category: inbound }
+      RETURNED:    { category: inbound }
+      INTAKE:      { category: inbound }
+      AVAILABLE:   { category: live }
+      RESERVED:    { category: live }
+      SOLD:        { category: closed }
+      DEVELOPMENT: { category: closed }
+      RETIRED:     { category: closed }
+      CANCELLED:   { category: closed }
+      DELETED:     { category: closed, final: true }
+
+    conditions:
+      labelled:
+        description: The unit's label has been printed.
+        expression: label_printed_at is not null
+        remedy: unreachable_from_here
+      mfr_serial:
+        description: The unit has the manufacturer serial its model requires.
+        expression: model.manufacturer_serial_required implies manufacturer_serial is not null
+        remedy: unreachable_from_here
+      photo:
+        description: The unit has the label photo its model requires.
+        expression: model.label_photo_required implies count(p in photos) >= 1
+        remedy: unreachable_from_here
+      open:
+        description: The delivery the unit is reserved for is still being prepared.
+        expression: inputs.slot.state == Delivery.PREPARATION
+        remedy: dependent
+      home:
+        description: The unit is on no open engagement.
+        expression: none(l in engagement_lines where l.open)
+        remedy: dependent
+
+    transitions:
+      request:
+        kind: initial
+        to: REQUESTED
+        required_inputs: [model]
+      add_to_intake:
+        kind: initial
+        to: INTAKE
+        required_inputs: [model]
+        optional_inputs: [manufacturer_serial]
+      add_opening_stock:
+        kind: initial
+        to: AVAILABLE
+        required_inputs: [model]
+        optional_inputs: [manufacturer_serial, label_printed_at]
+
+      ship:
+        kind: external
+        from: REQUESTED
+        to: PROCUREMENT
+        only_via: [Shipment.dispatch, Shipment.add_unit]
+        inputs:
+          via_shipment: { reference: Shipment }
+        effect:
+          - assign: { location: shipment, expr: inputs.via_shipment }
+      unship:
+        kind: external
+        from: PROCUREMENT
+        to: REQUESTED
+        only_via: [Shipment.remove_unit]
+        effect:
+          - clear: [shipment]
+      receive:
+        kind: external
+        from: PROCUREMENT
+        to: INTAKE
+        only_via: [Shipment.receive_unit, Shipment.receive_unit_late]
+      unreceive:
+        kind: external
+        from: INTAKE
+        to: PROCUREMENT
+        only_via: [Shipment.unreceive_unit]
+      flag_missing:
+        kind: external
+        from: PROCUREMENT
+        to: MISSING
+        only_via: [Shipment.flag_missing]
+        effect:
+          - clear: [peg]
+      restore:
+        kind: external
+        from: MISSING
+        to: PROCUREMENT
+        only_via: [Shipment.restore_missing]
+      rerequest:
+        kind: external
+        from: MISSING
+        to: REQUESTED
+        effect:
+          - clear: [shipment]
+      discard:
+        kind: external
+        from: MISSING
+        to: CANCELLED
+        effect:
+          - assign: { location: cancellation_reason, expr: CancellationReason.DISCARDED }
+      cancel:
+        kind: external
+        from: [REQUESTED, PROCUREMENT, INTAKE]
+        to: CANCELLED
+        inputs:
+          reason: { type: CancellationReason }
+        effect:
+          - assign: { location: cancellation_reason, expr: inputs.reason }
+          - clear: [peg]
+
+      peg_to:
+        kind: internal
+        from: [REQUESTED, PROCUREMENT, MISSING, INTAKE]
+        only_via: [Delivery.peg_slot]
+        inputs:
+          slot: { reference: Delivery }
+        effect:
+          - assign: { location: peg, expr: inputs.slot }
+      unpeg:
+        kind: internal
+        from: [REQUESTED, PROCUREMENT, MISSING, INTAKE]
+        only_via: [Delivery.cancel]
+        effect:
+          - clear: [peg]
+      record_label_print:
+        kind: internal
+        from: any
+        effect:
+          - assign: { location: label_printed_at, expr: now }
+      record_manufacturer_serial:
+        kind: internal
+        from: any
+        optional_inputs: [manufacturer_serial]
+      add_photo:
+        kind: internal
+        from: INTAKE
+        inputs:
+          photo: { type: file }
+        effect:
+          - add: { location: photos, expr: inputs.photo }
+
+      inventorize:
+        kind: external
+        from: INTAKE
+        to: AVAILABLE
+        guards:
+          labelled: deny
+          mfr_serial: deny
+          photo: deny
+        effect:
+          - assign: { location: procured_for, expr: peg }
+          - clear: [peg]
+      revert_intake:
+        kind: external
+        from: AVAILABLE
+        to: INTAKE
+        only_via: [Shipment.revert_commit]
+
+      reserve:
+        kind: external
+        from: AVAILABLE
+        to: RESERVED
+        only_via: [Delivery.bind_slot]
+        inputs:
+          slot: { reference: Delivery }
+        guards:
+          open: deny
+        effect:
+          - assign: { location: binding, expr: inputs.slot }
+          - clear: [procured_for]
+      reserve_for_service:
+        kind: external
+        from: AVAILABLE
+        to: RESERVED
+        only_via: [ServiceJob.add_part]
+        inputs:
+          job: { reference: ServiceJob }
+        effect:
+          - assign: { location: used_in, expr: inputs.job }
+      release:
+        kind: external
+        from: RESERVED
+        to: AVAILABLE
+        only_via: [Delivery.unbind_slot, Delivery.cancel, ServiceJob.remove_part, ServiceJob.cancel]
+        effect:
+          - clear: [binding, used_in]
+
+      sell:
+        kind: external
+        from: RESERVED
+        to: SOLD
+        only_via: [Delivery.complete_sale]
+        inputs:
+          buyer: { reference: Customer }
+        effect:
+          - assign: { location: sold_to, expr: inputs.buyer }
+      deliver_internal:
+        kind: external
+        from: RESERVED
+        to: DEVELOPMENT
+        only_via: [Delivery.complete_internal]
+      consume:
+        kind: external
+        from: RESERVED
+        to: SOLD
+        only_via: [ServiceJob.finish]
+        inputs:
+          buyer: { reference: Customer }
+        effect:
+          - assign: { location: sold_to, expr: inputs.buyer }
+      unconsume:
+        kind: external
+        from: SOLD
+        to: AVAILABLE
+        only_via: [ServiceJob.void]
+        effect:
+          - clear: [used_in, sold_to]
+      unsell:
+        kind: external
+        from: SOLD
+        to: AVAILABLE
+        only_via: [Delivery.revoke]
+        effect:
+          - clear: [binding, sold_to]
+      recall_internal:
+        kind: external
+        from: DEVELOPMENT
+        to: AVAILABLE
+        only_via: [Delivery.revoke]
+        effect:
+          - clear: [binding]
+      accept_return:
+        kind: external
+        from: SOLD
+        to: RETURNED
+        effect:
+          - clear: [binding, sold_to]
+
+      release_to_stock:
+        kind: external
+        from: DEVELOPMENT
+        to: RETURNED
+        guards:
+          home: deny
+        effect:
+          - clear: [binding]
+      convert_lease:
+        kind: external
+        from: DEVELOPMENT
+        to: SOLD
+        only_via: [Lease.convert]
+        inputs:
+          buyer: { reference: Customer }
+        effect:
+          - assign: { location: sold_to, expr: inputs.buyer }
+      transfer_to_pool:
+        kind: external
+        from: AVAILABLE
+        to: DEVELOPMENT
+      retire:
+        kind: external
+        from: [AVAILABLE, RETURNED, DEVELOPMENT]
+        to: RETIRED
+        inputs:
+          reason: { type: RetirementReason }
+        effect:
+          - assign: { location: retirement_reason, expr: inputs.reason }
+          - foreach:
+              item: l
+              array: engagement_lines
+              where: l.open
+              limit: 1
+              steps:
+                - call: { target: l, transition: end }
+      delete:
+        kind: external
+        from: [AVAILABLE, CANCELLED]
+        to: DELETED
+
+      correct_state:
+        kind: assertion
+        to: [INTAKE, AVAILABLE, DEVELOPMENT, RETIRED]
+        inputs:
+          reason: { type: OverrideReason }
+          detail: { type: string, optional: true, personal: true }
+        may_admit: [one_open_engagement]
+
+types:
+  Robot:
+    description: A robot, one physical unit, tracked by its serial from its request to its end.
+    tracking: serial
+    state_machine: UnitLifecycle
+
+    attributes:
+      serial:
+        type: string
+        identifier: { sequence: unit_serial, format: "RBT-[{model.maker_code}-]{n:6}" }
+        indexed: true
+        unique: true
+      manufacturer_serial: { type: string, optional: true, indexed: true }
+      label_printed_at:    { type: timestamp, optional: true }
+      photos:              { type: "file[]" }
+      cancellation_reason: { type: CancellationReason, optional: true }
+      retirement_reason:   { type: RetirementReason, optional: true }
+      model:               { reference: RobotModel, opposite: units }
+      shipment:            { reference: Shipment, optional: true, opposite: units }
+      peg:                 { reference: Delivery, optional: true, opposite: pegged }
+      procured_for:        { reference: Delivery, optional: true, opposite: procured }
+      binding:             { reference: Delivery, optional: true, opposite: units }
+      used_in:             { reference: ServiceJob, optional: true, opposite: parts_used }
+      sold_to:             { reference: Customer, optional: true }
+      services:            { reference: "ServiceJob[]", opposite: robot }
+      engagement_lines:    { reference: "EngagementLine[]", opposite: robot }
+
+    observations:
+      return_checks:
+        kind: ReturnCheck
+        description: A check of a unit that came back, recorded before it goes on offer again.
+        attributes:
+          outcome: { type: CheckOutcome }
+          note:    { type: string, optional: true }
+        max_recording_delay: 2 days
+
+    derived_attributes:
+      repeat_failure:
+        description: The unit has needed two or more repairs in ninety days.
+        expression: >-
+          count(s in services where s.kind == ServiceKind.REPAIR
+                and s.created_at >= now - 90 days) >= 2
+      fit:
+        description: The unit is in the pool, no open service job blocks it, and it is not failing repeatedly.
+        expression: >-
+          state == DEVELOPMENT and none(s in services where s.open and s.blocking)
+          and not repeat_failure
+      leasable:
+        description: The unit is fit and on no open engagement, which is ADR-0002's "leasable now".
+        expression: fit and none(l in engagement_lines where l.open)
+      on_loan:
+        description: An open engagement line names the unit.
+        expression: any(l in engagement_lines where l.open)
+      in_service:
+        description: An open service job names the unit.
+        expression: any(s in services where s.open)
+      awaiting_assignment:
+        description: The unit is on offer and still carries the delivery it was procured for.
+        expression: state == AVAILABLE and procured_for is not null
+      intake_ready:
+        description: The unit carries everything intake checks, so it can be inventorised.
+        expression: >-
+          label_printed_at is not null
+          and (not model.manufacturer_serial_required or manufacturer_serial is not null)
+          and (not model.label_photo_required or count(p in photos) >= 1)
+
+    summary: [serial, model, state]
+
+    invariants:
+      one_open_engagement:
+        description: The unit is on at most one open engagement.
+        expression: count(l in engagement_lines where l.open) <= 1
+      one_claim:
+        description: The unit is bound to a delivery or reserved for a service job, never both.
+        expression: binding is null or used_in is null
+      labelled:
+        description: A unit on offer has a recorded label print.
+        expression: state != AVAILABLE or label_printed_at is not null
+      mfr_serial:
+        description: A unit on offer has the manufacturer serial its model requires.
+        expression: >-
+          state != AVAILABLE or not model.manufacturer_serial_required
+          or manufacturer_serial is not null
+
+    conditions:
+      inspected:
+        description: A passing return check was recorded since the unit came back.
+        expression: >-
+          any(r in return_checks where r.outcome == CheckOutcome.PASS
+              and r.occurred_at >= entered_at(RETURNED))
+        remedy: unreachable_from_here
+
+    transitions:
+      restock:
+        kind: external
+        from: RETURNED
+        to: AVAILABLE
+        description: Puts a returned unit back on offer once it has passed a return check; the unit's own, since a machine cannot require an observation kind (D389).
+        guards:
+          inspected: deny
+
+    metrics:
+      inbound_dwell:
+        description: The median time units spend in each inbound stage, by model and month.
+        source: intervals
+        item: i
+        filter: i.state == Robot.PROCUREMENT or i.state == Robot.MISSING or i.state == Robot.INTAKE
+        dimensions:
+          stage: i.state
+          model: i.object.model
+          month: month(i.entered_at)
+        time_dimension: i.entered_at
+        expression: median(i.duration)
+        flag_when: { slow: "value > 14 days" }
+      missing_units:
+        description: The longest time a unit of each shipment has been missing.
+        source: objects
+        item: u
+        filter: u.state == Robot.MISSING
+        dimensions:
+          shipment: u.shipment
+        expression: max(u.time_in(MISSING))
+        flag_when: { unresolved: "value > 7 days" }
+      retirements:
+        description: The units retired, by model and reason.
+        source: objects
+        item: u
+        filter: u.state == Robot.RETIRED
+        dimensions:
+          model: u.model
+          reason: u.retirement_reason
+        time_dimension: u.entered_at(RETIRED)
+        expression: count()
+      time_in_pool:
+        description: The time units have spent in the company-owned pool, by model and month.
+        source: intervals
+        item: i
+        filter: i.state == Robot.DEVELOPMENT
+        dimensions:
+          model: i.object.model
+          month: month(i.entered_at)
+        time_dimension: i.entered_at
+        expression: sum(i.duration)
+      recording_lag:
+        description: The median time between a change happening and its being recorded, by transition, kind of actor and week.
+        source: transitions
+        item: t
+        filter: not t.imported and not t.migrated
+        dimensions:
+          transition: t.transition
+          actor_kind: t.actor_kind
+          week: week(t.recorded_at)
+        time_dimension: t.recorded_at
+        expression: median(t.recorded_at - t.occurred_at)
+        flag_when: { late: "value > 1 days" }
+      assignment_wait:
+        description: The median time a unit on offer waits for the delivery it was procured for to take it, by model and month.
+        source: intervals(procured_for)
+        item: i
+        filter: i.value is not null
+        dimensions:
+          model: i.object.model
+          month: month(i.entered_at)
+        time_dimension: i.entered_at
+        expression: median(i.duration)
+        flag_when: { slow: "value > 3 days" }
 ```
 
 **The model catalogue.** The unit's rules read its model — whether a manufacturer serial or a label photo is required, and the maker's code a serial carries — so the model is declared here with the unit. Production's `robot_models` holds a name, a manufacturer, a warranty period and the two flags (`wr:app/models/robot_models.py:25-47`). The reorder point, and the two derivations that read it, are not production's: they are added to test PRD L4 and M7, a threshold that is governed data and a business exception over one object, and production defers reorder logic (`wr:app/models/procurement.py:15`).
 
-```text
-type RobotModel version 1 {
-  tracking record
-  states   ACTIVE category live, DISCONTINUED category closed terminal
-  summary  name, manufacturer, state
+```yaml
+# inventory_journey, continued
+  RobotModel:
+    description: A model of robot, whose flags decide what its units carry before they go on offer.
+    tracking: record
 
-  attr name                         string indexed unique
-  attr manufacturer                 string?
-  attr maker_code                   string?
-  attr warranty_months              int
-  attr label_photo_required         bool default false
-  attr manufacturer_serial_required bool default false indexed
-  attr reorder_point                int default 0
+    attributes:
+      name:                         { type: string, indexed: true, unique: true }
+      manufacturer:                 { type: string, optional: true }
+      maker_code:                   { type: string, optional: true }
+      warranty_months:              { type: int }
+      label_photo_required:         { type: bool, default: false }
+      manufacturer_serial_required: { type: bool, default: false, indexed: true }
+      reorder_point:                { type: int, default: 0 }
+      units:                        { reference: "Robot[]", opposite: model }
 
-  ref  units : Robot[] inverse model
+    states:
+      ACTIVE:       { category: live }
+      DISCONTINUED: { category: closed, final: true }
 
-  derive available_units = count(u in Robot where u.model == this and u.state == Robot.AVAILABLE)
-  derive low_stock       = available_units < reorder_point
+    derived_attributes:
+      available_units:
+        description: The units of this model on offer.
+        expression: count(u in Robot where u.model == this and u.state == Robot.AVAILABLE)
+      low_stock:
+        description: Fewer units of this model are on offer than its reorder point.
+        expression: available_units < reorder_point
 
-  invariant reorder_point_nonneg: reorder_point >= 0
+    summary: [name, manufacturer, state]
 
-  create add -> ACTIVE accepts name, manufacturer, maker_code, warranty_months,
-                               label_photo_required, manufacturer_serial_required {
-  }
-  act edit at ACTIVE accepts manufacturer, maker_code, warranty_months,
-                             label_photo_required, manufacturer_serial_required {
-  }
-  act set_reorder_point at ACTIVE accepts reorder_point {
-  }
-  do discontinue ACTIVE -> DISCONTINUED {
-  }
-}
+    invariants:
+      reorder_point_nonneg:
+        description: The reorder point is not negative.
+        expression: reorder_point >= 0
+
+    transitions:
+      add:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [name, warranty_months, label_photo_required, manufacturer_serial_required]
+        optional_inputs: [manufacturer, maker_code]
+      edit:
+        kind: internal
+        from: ACTIVE
+        required_inputs: [warranty_months, label_photo_required, manufacturer_serial_required]
+        optional_inputs: [manufacturer, maker_code]
+      set_reorder_point:
+        kind: internal
+        from: ACTIVE
+        required_inputs: [reorder_point]
+      discontinue:
+        kind: external
+        from: ACTIVE
+        to: DISCONTINUED
 ```
 
-```text
-machine UnitLifecycle version 4 {
-  requires attr label_printed_at timestamp?
-  requires attr manufacturer_serial string?
-  requires attr photos file[]
-  requires attr cancellation_reason CancellationReason?
-  requires attr retirement_reason RetirementReason?
-  requires ref  model : RobotModel
-  requires ref  shipment : Shipment?
-  requires ref  peg : Delivery?
-  requires ref  procured_for : Delivery?
-  requires ref  binding : Delivery?
-  requires ref  used_in : ServiceJob?
-  requires ref  sold_to : Customer?
-  requires ref  engagement_lines : EngagementLine[]
-  requires invariant one_open_engagement
-  requires invariant labelled
-  requires invariant mfr_serial
+```yaml
+# inventory_journey, continued
+  Shipment:
+    description: A receiving batch of units, reconciled unit by unit when it arrives.
+    tracking: record
 
-  state REQUESTED   category inbound
-  state PROCUREMENT category inbound
-  state MISSING     category inbound
-  state RETURNED    category inbound
-  state INTAKE      category inbound
-  state AVAILABLE   category live
-  state RESERVED    category live
-  state SOLD        category closed
-  state DEVELOPMENT category closed
-  state RETIRED     category closed
-  state CANCELLED   category closed
-  state DELETED     category closed terminal
+    attributes:
+      tracking_no: { type: string, optional: true }
+      carrier:     { type: string, optional: true }
+      eta:         { type: timestamp, optional: true, indexed: true }
+      units:       { reference: "Robot[]", opposite: shipment }
 
-  create request -> REQUESTED accepts model {
-  }
-  create add_to_intake -> INTAKE accepts model, manufacturer_serial {
-  }
-  create add_opening_stock -> AVAILABLE accepts model, manufacturer_serial, label_printed_at {
-  }
+    states:
+      IN_TRANSIT: { category: inbound }
+      ARRIVED:    { category: live }
+      COMMITTED:  { category: closed }
+      VOIDED:     { category: closed, final: true }
 
-  do ship REQUESTED -> PROCUREMENT only via Shipment.dispatch, Shipment.add_unit {
-    input via_shipment : Shipment
-    set shipment := inputs.via_shipment
-  }
-  do unship PROCUREMENT -> REQUESTED only via Shipment.remove_unit {
-    clear shipment
-  }
-  do receive PROCUREMENT -> INTAKE only via Shipment.receive_unit, Shipment.receive_unit_late { }
-  do unreceive INTAKE -> PROCUREMENT only via Shipment.unreceive_unit { }
-  do flag_missing PROCUREMENT -> MISSING only via Shipment.flag_missing {
-    clear peg
-  }
-  do restore MISSING -> PROCUREMENT only via Shipment.restore_missing { }
-  do rerequest MISSING -> REQUESTED {
-    clear shipment
-  }
-  do discard MISSING -> CANCELLED {
-    set cancellation_reason := CancellationReason.DISCARDED
-  }
-  do cancel { REQUESTED, PROCUREMENT, INTAKE } -> CANCELLED {
-    input reason : CancellationReason
-    set cancellation_reason := inputs.reason
-    clear peg
-  }
+    derived_attributes:
+      overdue:
+        description: The shipment is still in transit after its expected arrival.
+        expression: state == IN_TRANSIT and eta < now
 
-  act peg_to at { REQUESTED, PROCUREMENT, MISSING, INTAKE } only via Delivery.peg_slot {
-    input slot : Delivery
-    set peg := inputs.slot
-  }
-  act unpeg at { REQUESTED, PROCUREMENT, MISSING, INTAKE } only via Delivery.cancel {
-    clear peg
-  }
-  act record_label_print at any {
-    set label_printed_at := now
-  }
-  act record_manufacturer_serial at any accepts manufacturer_serial {
-  }
-  act add_photo at INTAKE {
-    input photo : file
-    add photos := inputs.photo
-  }
+    summary: [tracking_no, carrier, state]
 
-  do inventorize INTAKE -> AVAILABLE {
-    require labelled:   label_printed_at is not null               because unreachable_from_here
-    require mfr_serial: model.manufacturer_serial_required
-                        implies manufacturer_serial is not null    because unreachable_from_here
-    require photo:      model.label_photo_required
-                        implies count(p in photos) >= 1            because unreachable_from_here
-    set procured_for := peg
-    clear peg
-  }
-  do revert_intake AVAILABLE -> INTAKE only via Shipment.revert_commit { }
+    conditions:
+      ordered:
+        description: Every unit dispatched is one that was requested.
+        expression: "all(u in inputs.with_units: u.state == Robot.REQUESTED)"
+        remedy: self_serviceable
+      ours:
+        description: The unit is on this shipment.
+        expression: inputs.robot.shipment == this
+        remedy: self_serviceable
+      last:
+        description: The unit is not the last one still in procurement, since the shipment would be left empty.
+        expression: count(u in units where u.state == Robot.PROCUREMENT) >= 2
+        remedy: self_serviceable
+      empty:
+        description: No unit of the shipment is still in procurement.
+        expression: none(u in units where u.state == Robot.PROCUREMENT)
+        remedy: self_serviceable
+      reconciled:
+        description: Every unit of the shipment has been received, flagged missing or taken off it.
+        expression: none(u in units where u.state == Robot.PROCUREMENT)
+        remedy: self_serviceable
+      pristine:
+        description: Every unit the commit put on offer is still on offer, so the commit can be undone.
+        expression: >-
+          all(u in units where u.state != Robot.MISSING
+                           and u.state != Robot.CANCELLED:
+              u.state == Robot.AVAILABLE)
+        remedy: dependent
 
-  do reserve AVAILABLE -> RESERVED only via Delivery.bind_slot {
-    input slot : Delivery
-    require open: inputs.slot.state == Delivery.PREPARATION because dependent
-    set binding := inputs.slot
-    clear procured_for
-  }
-  do reserve_for_service AVAILABLE -> RESERVED only via ServiceJob.add_part {
-    input job : ServiceJob
-    set used_in := inputs.job
-  }
-  do release RESERVED -> AVAILABLE only via Delivery.unbind_slot, Delivery.cancel,
-                                           ServiceJob.remove_part, ServiceJob.cancel {
-    clear binding
-    clear used_in
-  }
+    transitions:
+      dispatch:
+        kind: initial
+        to: IN_TRANSIT
+        optional_inputs: [tracking_no, carrier, eta]
+        inputs:
+          with_units: { reference: "Robot[]" }
+        guards:
+          ordered: deny
+        effect:
+          - foreach:
+              item: u
+              array: inputs.with_units
+              limit: 200
+              steps:
+                - call: { target: u, transition: ship, inputs: { via_shipment: this } }
+      add_unit:
+        kind: internal
+        from: IN_TRANSIT
+        inputs:
+          robot: { reference: Robot }
+        effect:
+          - call: { target: inputs.robot, transition: ship, inputs: { via_shipment: this } }
+      remove_unit:
+        kind: internal
+        from: IN_TRANSIT
+        inputs:
+          robot: { reference: Robot }
+        guards:
+          ours: deny
+          last: deny
+        effect:
+          - call: { target: inputs.robot, transition: unship }
+      void:
+        kind: external
+        from: IN_TRANSIT
+        to: VOIDED
+        guards:
+          empty: deny
+      arrive:
+        kind: external
+        from: IN_TRANSIT
+        to: ARRIVED
+        backdating_limit: 2 days
+      receive_unit:
+        kind: internal
+        from: ARRIVED
+        backdating_limit: 2 days
+        inputs:
+          robot: { reference: Robot }
+        guards:
+          ours: deny
+        effect:
+          - call: { target: inputs.robot, transition: receive }
+      receive_unit_late:
+        kind: internal
+        from: ARRIVED
+        backdating_limit: 14 days
+        inputs:
+          robot:  { reference: Robot }
+          reason: { type: string }
+        guards:
+          ours: deny
+        effect:
+          - call: { target: inputs.robot, transition: receive }
+      unreceive_unit:
+        kind: internal
+        from: ARRIVED
+        inputs:
+          robot: { reference: Robot }
+        guards:
+          ours: deny
+        effect:
+          - call: { target: inputs.robot, transition: unreceive }
+      flag_missing:
+        kind: internal
+        from: ARRIVED
+        inputs:
+          robot: { reference: Robot }
+        guards:
+          ours: deny
+        effect:
+          - call: { target: inputs.robot, transition: flag_missing }
+      restore_missing:
+        kind: internal
+        from: ARRIVED
+        inputs:
+          robot: { reference: Robot }
+        guards:
+          ours: deny
+        effect:
+          - call: { target: inputs.robot, transition: restore }
+      commit:
+        kind: external
+        from: ARRIVED
+        to: COMMITTED
+        guards:
+          reconciled: deny
+        effect:
+          - foreach:
+              item: u
+              array: units
+              where: u.state == Robot.INTAKE
+              limit: 200
+              steps:
+                - call: { target: u, transition: inventorize }
+      commit_ready:
+        kind: internal
+        from: ARRIVED
+        effect:
+          - foreach:
+              item: u
+              array: units
+              where: u.state == Robot.INTAKE and u.intake_ready
+              limit: 200
+              steps:
+                - call: { target: u, transition: inventorize }
+      revert_commit:
+        kind: external
+        from: COMMITTED
+        to: ARRIVED
+        inputs:
+          reason: { type: string }
+        guards:
+          pristine: deny
+        effect:
+          - foreach:
+              item: u
+              array: units
+              where: u.state == Robot.AVAILABLE
+              limit: 200
+              steps:
+                - call: { target: u, transition: revert_intake }
 
-  do sell RESERVED -> SOLD only via Delivery.complete_sale {
-    input buyer : Customer
-    set sold_to := inputs.buyer
-  }
-  do deliver_internal RESERVED -> DEVELOPMENT only via Delivery.complete_internal { }
-  do consume RESERVED -> SOLD only via ServiceJob.finish {
-    input buyer : Customer
-    set sold_to := inputs.buyer
-  }
-  do unconsume SOLD -> AVAILABLE only via ServiceJob.void {
-    clear used_in
-    clear sold_to
-  }
-  do unsell SOLD -> AVAILABLE only via Delivery.revoke {
-    clear binding
-    clear sold_to
-  }
-  do recall_internal DEVELOPMENT -> AVAILABLE only via Delivery.revoke {
-    clear binding
-  }
-  do accept_return SOLD -> RETURNED {
-    clear binding
-    clear sold_to
-  }
-  do restock RETURNED -> AVAILABLE {
-    require inspected: any(r in return_checks where r.outcome == CheckOutcome.PASS
-                           and r.occurred_at >= entered_at(RETURNED)) because unreachable_from_here
-  }
+  Delivery:
+    description: A delivery being prepared for a customer, or for the company's own pool, which binds units and pegs inbound ones.
+    tracking: record
 
-  do release_to_stock DEVELOPMENT -> RETURNED {
-    require home: none(l in engagement_lines where l.open) because dependent
-    clear binding
-  }
-  do convert_lease DEVELOPMENT -> SOLD only via Lease.convert {
-    input buyer : Customer
-    set sold_to := inputs.buyer
-  }
-  do transfer_to_pool AVAILABLE -> DEVELOPMENT {
-  }
-  do retire { AVAILABLE, RETURNED, DEVELOPMENT } -> RETIRED {
-    input reason : RetirementReason
-    set retirement_reason := inputs.reason
-    for l in engagement_lines where l.open limit 1 { call l.end() }
-  }
-  do delete { AVAILABLE, CANCELLED } -> DELETED {
-  }
+    attributes:
+      customer: { reference: Customer }
+      pegged:   { reference: "Robot[]", opposite: peg }
+      units:    { reference: "Robot[]", opposite: binding }
+      procured: { reference: "Robot[]", opposite: procured_for }
+      internal: { type: bool, default: false }
 
-  assert correct_state -> { INTAKE, AVAILABLE, DEVELOPMENT, RETIRED } {
-    input to : state
-    input reason : OverrideReason
-    input detail : string? personal
-    input admits : invariant[]?
-    may admit one_open_engagement
-  }
-}
+    states:
+      PREPARATION: { category: live }
+      READY:       { category: live }
+      DELIVERED:   { category: closed }
+      CANCELLED:   { category: closed }
+      DELETED:     { category: closed, final: true }
 
-type Robot version 5 {
-  tracking serial
-  machine  UnitLifecycle
-  summary  serial, model, state
+    summary: [customer, state]
 
-  attr serial string identifier from unit_serial
-                     format "RBT-[{model.maker_code}-]{n:6}" indexed unique
-  attr manufacturer_serial string? indexed
-  attr label_printed_at    timestamp?
-  attr photos              file[]
-  attr cancellation_reason CancellationReason?
-  attr retirement_reason   RetirementReason?
+    conditions:
+      ours:
+        description: The unit is bound to this delivery.
+        expression: inputs.robot.binding == this
+        remedy: self_serviceable
+      not_internal:
+        description: The delivery is to a customer, not to the company's own pool.
+        expression: not internal
+        remedy: unreachable_from_here
+      is_internal:
+        description: The delivery is to the company's own pool.
+        expression: internal
+        remedy: unreachable_from_here
+      filled:
+        description: At least one unit is bound, and no unit is still only pegged.
+        expression: count(u in units) >= 1 and none(u in pegged)
+        remedy: dependent
 
-  ref  model            : RobotModel inverse units
-  ref  shipment         : Shipment? inverse units
-  ref  peg              : Delivery? inverse pegged
-  ref  procured_for     : Delivery? inverse procured
-  ref  binding          : Delivery? inverse units
-  ref  used_in          : ServiceJob? inverse parts_used
-  ref  sold_to          : Customer?
-  ref  services         : ServiceJob[] inverse robot
-  ref  engagement_lines : EngagementLine[] inverse robot
-
-  derive repeat_failure = count(s in services where s.kind == ServiceKind.REPAIR
-                                and s.created_at >= now - 90 days) >= 2
-  derive fit        = state == DEVELOPMENT
-                  and none(s in services where s.open and s.blocking)
-                  and not repeat_failure
-  derive leasable   = fit and none(l in engagement_lines where l.open)
-  derive on_loan    = any(l in engagement_lines where l.open)
-  derive in_service = any(s in services where s.open)
-  derive awaiting_assignment = state == AVAILABLE and procured_for is not null
-  derive intake_ready = label_printed_at is not null
-                    and (not model.manufacturer_serial_required or manufacturer_serial is not null)
-                    and (not model.label_photo_required or count(p in photos) >= 1)
-
-  invariant one_open_engagement: count(l in engagement_lines where l.open) <= 1
-  invariant one_claim:           binding is null or used_in is null
-  invariant labelled:            state != AVAILABLE or label_printed_at is not null
-  invariant mfr_serial:          state != AVAILABLE or not model.manufacturer_serial_required
-                                 or manufacturer_serial is not null
-}
+    transitions:
+      open:
+        kind: initial
+        to: PREPARATION
+        required_inputs: [customer, internal]
+      peg_slot:
+        kind: internal
+        from: PREPARATION
+        inputs:
+          robot: { reference: Robot }
+        effect:
+          - call: { target: inputs.robot, transition: peg_to, inputs: { slot: this } }
+      bind_slot:
+        kind: internal
+        from: PREPARATION
+        inputs:
+          robot: { reference: Robot }
+        effect:
+          - call: { target: inputs.robot, transition: reserve, inputs: { slot: this } }
+      unbind_slot:
+        kind: internal
+        from: PREPARATION
+        inputs:
+          robot: { reference: Robot }
+        guards:
+          ours: deny
+        effect:
+          - call: { target: inputs.robot, transition: release }
+      mark_ready:
+        kind: external
+        from: PREPARATION
+        to: READY
+        guards:
+          filled: deny
+      back_to_preparation:
+        kind: external
+        from: READY
+        to: PREPARATION
+      complete_sale:
+        kind: external
+        from: READY
+        to: DELIVERED
+        guards:
+          not_internal: deny
+        effect:
+          - foreach:
+              item: u
+              array: units
+              limit: 500
+              steps:
+                - call: { target: u, transition: sell, inputs: { buyer: customer } }
+      complete_internal:
+        kind: external
+        from: READY
+        to: DELIVERED
+        guards:
+          is_internal: deny
+        effect:
+          - foreach:
+              item: u
+              array: units
+              limit: 500
+              steps:
+                - call: { target: u, transition: deliver_internal }
+      cancel:
+        kind: external
+        from: [PREPARATION, READY]
+        to: CANCELLED
+        effect:
+          - foreach:
+              item: u
+              array: units
+              limit: 500
+              steps:
+                - call: { target: u, transition: release }
+          - foreach:
+              item: u
+              array: pegged
+              limit: 500
+              steps:
+                - call: { target: u, transition: unpeg }
+      revoke:
+        kind: external
+        from: DELIVERED
+        to: CANCELLED
+        effect:
+          - foreach:
+              item: u
+              array: units
+              where: u.state == Robot.SOLD
+              limit: 500
+              steps:
+                - call: { target: u, transition: unsell }
+          - foreach:
+              item: u
+              array: units
+              where: u.state == Robot.DEVELOPMENT
+              limit: 500
+              steps:
+                - call: { target: u, transition: recall_internal }
+      delete:
+        kind: external
+        from: CANCELLED
+        to: DELETED
 ```
 
-```text
-type Shipment version 2 {
-  tracking record
-  states   IN_TRANSIT category inbound, ARRIVED category live,
-           COMMITTED category closed, VOIDED category closed terminal
-  summary  tracking_no, carrier, state
+```yaml
+# inventory_journey, continued
+  ServiceJob:
+    description: A job servicing one unit, which reserves the units it consumes as parts.
+    tracking: record
 
-  attr tracking_no string?
-  attr carrier     string?
-  attr eta         timestamp? indexed
-  ref  units : Robot[] inverse shipment
+    attributes:
+      kind:       { type: ServiceKind }
+      robot:      { reference: Robot, opposite: services }
+      customer:   { reference: Customer }
+      engineer:   { reference: User, assignee: true }
+      parts_used: { reference: "Robot[]", opposite: used_in }
 
-  derive overdue = state == IN_TRANSIT and eta < now
+    states:
+      OPEN:      { category: inbound }
+      WORKING:   { category: live }
+      DONE:      { category: closed }
+      CANCELLED: { category: closed }
+      DELETED:   { category: closed, final: true }
 
-  create dispatch -> IN_TRANSIT accepts tracking_no, carrier, eta {
-    input with_units : Robot[]
-    require ordered: all(u in inputs.with_units: u.state == Robot.REQUESTED) because self_serviceable
-    for u in inputs.with_units limit 200 { call u.ship(via_shipment := this) }
-  }
-  act add_unit at IN_TRANSIT {
-    input robot : Robot
-    call inputs.robot.ship(via_shipment := this)
-  }
-  act remove_unit at IN_TRANSIT {
-    input robot : Robot
-    require ours: inputs.robot.shipment == this because self_serviceable
-    require last: count(u in units where u.state == Robot.PROCUREMENT) >= 2 because self_serviceable
-    call inputs.robot.unship()
-  }
-  do void IN_TRANSIT -> VOIDED {
-    require empty: none(u in units where u.state == Robot.PROCUREMENT) because self_serviceable
-  }
-  do arrive IN_TRANSIT -> ARRIVED backdatable within 2 days {
-  }
-  act receive_unit at ARRIVED backdatable within 2 days {
-    input robot : Robot
-    require ours: inputs.robot.shipment == this because self_serviceable
-    call inputs.robot.receive()
-  }
-  act receive_unit_late at ARRIVED backdatable within 14 days {
-    input robot  : Robot
-    input reason : string
-    require ours: inputs.robot.shipment == this because self_serviceable
-    call inputs.robot.receive()
-  }
-  act unreceive_unit at ARRIVED {
-    input robot : Robot
-    require ours: inputs.robot.shipment == this because self_serviceable
-    call inputs.robot.unreceive()
-  }
-  act flag_missing at ARRIVED {
-    input robot : Robot
-    require ours: inputs.robot.shipment == this because self_serviceable
-    call inputs.robot.flag_missing()
-  }
-  act restore_missing at ARRIVED {
-    input robot : Robot
-    require ours: inputs.robot.shipment == this because self_serviceable
-    call inputs.robot.restore()
-  }
-  act commit_ready at ARRIVED {
-    for u in units where u.state == Robot.INTAKE and u.intake_ready limit 200 {
-      call u.inventorize()
-    }
-  }
-  do commit ARRIVED -> COMMITTED {
-    require reconciled: none(u in units where u.state == Robot.PROCUREMENT) because self_serviceable
-    for u in units where u.state == Robot.INTAKE limit 200 { call u.inventorize() }
-  }
-  do revert_commit COMMITTED -> ARRIVED {
-    input reason : string
-    require pristine: all(u in units where u.state != Robot.MISSING
-                                        and u.state != Robot.CANCELLED:
-                          u.state == Robot.AVAILABLE)             because dependent
-    for u in units where u.state == Robot.AVAILABLE limit 200 { call u.revert_intake() }
-  }
-}
+    derived_attributes:
+      blocking:
+        description: The job is a repair, which keeps the unit from being lent.
+        expression: kind == ServiceKind.REPAIR
 
-type Delivery version 4 {
-  tracking record
-  states   PREPARATION category live, READY category live, DELIVERED category closed,
-           CANCELLED category closed, DELETED category closed terminal
-  summary  customer, state
+    summary: [kind, robot, state]
 
-  ref  customer : Customer
-  ref  pegged   : Robot[] inverse peg
-  ref  procured : Robot[] inverse procured_for
-  ref  units    : Robot[] inverse binding
-  attr internal bool default false
+    conditions:
+      active:
+        description: The engineer assigned is active.
+        expression: inputs.engineer.state == User.ACTIVE
+        remedy: self_serviceable
+      delivered:
+        description: The unit has been sold or delivered into the pool.
+        expression: inputs.robot.state == Robot.SOLD or inputs.robot.state == Robot.DEVELOPMENT
+        remedy: self_serviceable
+      theirs:
+        description: A sold unit is serviced for the customer who bought it.
+        expression: inputs.robot.state == Robot.DEVELOPMENT or inputs.robot.sold_to == inputs.customer
+        remedy: self_serviceable
+      ours:
+        description: The part is reserved for this job.
+        expression: inputs.part.used_in == this
+        remedy: self_serviceable
 
-  create open -> PREPARATION accepts customer, internal {
-  }
-  act peg_slot at PREPARATION {
-    input robot : Robot
-    call inputs.robot.peg_to(slot := this)
-  }
-  act bind_slot at PREPARATION {
-    input robot : Robot
-    call inputs.robot.reserve(slot := this)
-  }
-  act unbind_slot at PREPARATION {
-    input robot : Robot
-    require ours: inputs.robot.binding == this because self_serviceable
-    call inputs.robot.release()
-  }
-  do mark_ready PREPARATION -> READY {
-    require filled: count(u in units) >= 1 and none(u in pegged) because dependent
-  }
-  do back_to_preparation READY -> PREPARATION {
-  }
-  do complete_sale READY -> DELIVERED {
-    require not_internal: not internal                                  because unreachable_from_here
-    for u in units limit 500 { call u.sell(buyer := customer) }
-  }
-  do complete_internal READY -> DELIVERED {
-    require is_internal: internal                                       because unreachable_from_here
-    for u in units limit 500 { call u.deliver_internal() }
-  }
-  do cancel { PREPARATION, READY } -> CANCELLED {
-    for u in units limit 500 { call u.release() }
-    for u in pegged limit 500 { call u.unpeg() }
-  }
-  do revoke DELIVERED -> CANCELLED {
-    for u in units where u.state == Robot.SOLD limit 500 { call u.unsell() }
-    for u in units where u.state == Robot.DEVELOPMENT limit 500 { call u.recall_internal() }
-  }
-  do delete CANCELLED -> DELETED {
-  }
-}
+    transitions:
+      open:
+        kind: initial
+        to: OPEN
+        required_inputs: [kind, robot, customer, engineer]
+        guards:
+          active: deny
+          delivered: deny
+          theirs: deny
+      reassign:
+        kind: internal
+        from: OPEN
+        required_inputs: [engineer]
+        guards:
+          active: deny
+      add_part:
+        kind: internal
+        from: [OPEN, WORKING]
+        inputs:
+          part: { reference: Robot }
+        effect:
+          - call: { target: inputs.part, transition: reserve_for_service, inputs: { job: this } }
+      remove_part:
+        kind: internal
+        from: [OPEN, WORKING]
+        inputs:
+          part: { reference: Robot }
+        guards:
+          ours: deny
+        effect:
+          - call: { target: inputs.part, transition: release }
+      start:
+        kind: external
+        from: OPEN
+        to: WORKING
+        backdating_limit: 2 days
+      finish:
+        kind: external
+        from: WORKING
+        to: DONE
+        effect:
+          - foreach:
+              item: p
+              array: parts_used
+              limit: 50
+              steps:
+                - call: { target: p, transition: consume, inputs: { buyer: customer } }
+      cancel:
+        kind: external
+        from: [OPEN, WORKING]
+        to: CANCELLED
+        effect:
+          - foreach:
+              item: p
+              array: parts_used
+              limit: 50
+              steps:
+                - call: { target: p, transition: release }
+      void:
+        kind: external
+        from: DONE
+        to: CANCELLED
+        effect:
+          - foreach:
+              item: p
+              array: parts_used
+              limit: 50
+              steps:
+                - call: { target: p, transition: unconsume }
+      reopen:
+        kind: external
+        from: CANCELLED
+        to: OPEN
+      delete:
+        kind: external
+        from: CANCELLED
+        to: DELETED
+
+    metrics:
+      repairs:
+        description: The repairs opened, by the model of the unit repaired and by month.
+        source: objects
+        item: s
+        filter: s.kind == ServiceKind.REPAIR
+        dimensions:
+          model: s.robot.model
+          month: month(s.created_at)
+        time_dimension: s.created_at
+        expression: count()
+
+  Engagement:
+    description: A loan of units out of the pool, for a lease, an event or a development hold, until they come back.
+    tracking: record
+
+    attributes:
+      kind:            { type: EngagementKind }
+      expected_return: { type: timestamp, optional: true, indexed: true }
+      lines:
+        reference: "EngagementLine[]"
+        aggregation: composite
+        opposite: engagement
+        cascade:
+          - { on: [close, cancel, settle], transition: end, limit: 20 }
+      lease: { reference: Lease, optional: true, opposite: engagement }
+
+    states:
+      SCHEDULED: { category: inbound }
+      OUT:       { category: live }
+      RETURNING: { category: live }
+      CLOSED:    { category: closed, final: true }
+
+    derived_attributes:
+      overdue:
+        description: The units are out after their expected return.
+        expression: state == OUT and expected_return < now
+
+    summary: [kind, expected_return, state]
+
+    conditions:
+      leasable:
+        description: The unit to add is fit and on no open engagement.
+        expression: inputs.robot.leasable
+        remedy: dependent
+      incoming_leasable:
+        description: The unit swapped in is fit and on no open engagement.
+        expression: inputs.in_robot.leasable
+        remedy: dependent
+      nonempty:
+        description: The engagement has at least one unit.
+        expression: count(l in lines) >= 1
+        remedy: self_serviceable
+      fit:
+        description: Every unit on the engagement is fit to go out.
+        expression: "all(l in lines: l.robot.fit)"
+        remedy: dependent
+      checked:
+        description: Every unit coming back has a return check recorded since the return began.
+        expression: >-
+          all(l in lines where l.open:
+              any(r in l.robot.return_checks where r.occurred_at >= entered_at(RETURNING)))
+        remedy: dependent
+      return_known:
+        description: A lease has an expected return.
+        expression: kind != EngagementKind.LEASE or expected_return is not null
+        remedy: self_serviceable
+
+    transitions:
+      schedule:
+        kind: initial
+        to: SCHEDULED
+        required_inputs: [kind]
+        optional_inputs: [expected_return]
+      add_unit:
+        kind: internal
+        from: SCHEDULED
+        inputs:
+          robot: { reference: Robot }
+        guards:
+          leasable: deny
+        effect:
+          - create: { type: EngagementLine, transition: open, inputs: { for_engagement: this, robot: inputs.robot } }
+      dispatch:
+        kind: external
+        from: SCHEDULED
+        to: OUT
+        backdating_limit: 1 days
+        guards:
+          nonempty: deny
+          fit: deny
+          return_known: deny
+      swap_unit:
+        kind: internal
+        from: OUT
+        inputs:
+          out_robot: { reference: Robot }
+          in_robot:  { reference: Robot }
+        guards:
+          incoming_leasable: deny
+        effect:
+          - foreach:
+              item: l
+              array: lines
+              where: l.robot == inputs.out_robot and l.open
+              limit: 1
+              steps:
+                - call: { target: l, transition: end }
+          - create: { type: EngagementLine, transition: open, inputs: { for_engagement: this, robot: inputs.in_robot } }
+      start_return:
+        kind: external
+        from: OUT
+        to: RETURNING
+        backdating_limit: 1 days
+      close:
+        kind: external
+        from: RETURNING
+        to: CLOSED
+        guards:
+          checked: deny
+      cancel:
+        kind: external
+        from: SCHEDULED
+        to: CLOSED
+      settle:
+        kind: external
+        from: OUT
+        to: CLOSED
+        only_via: [Lease.convert]
+
+    metrics:
+      engagements_overdue:
+        description: The engagements past their expected return, by kind.
+        source: objects
+        item: e
+        filter: e.overdue
+        dimensions:
+          kind: e.kind
+        expression: count()
+        flag_when: { any_overdue: "value > 0" }
+
+  EngagementLine:
+    description: One unit on one engagement, open while the unit is out on it.
+    tracking: record
+
+    attributes:
+      engagement: { reference: Engagement, opposite: lines }
+      robot:      { reference: Robot, opposite: engagement_lines }
+
+    states:
+      OPEN:  { category: live }
+      ENDED: { category: closed, final: true }
+
+    transitions:
+      open:
+        kind: initial
+        to: OPEN
+        only_via: [Engagement.add_unit, Engagement.swap_unit]
+        required_inputs: [robot]
+        inputs:
+          for_engagement: { reference: Engagement }
+        effect:
+          - assign: { location: engagement, expr: inputs.for_engagement }
+      end:
+        kind: external
+        from: OPEN
+        to: ENDED
+        only_via: [Engagement.close, Engagement.cancel, Engagement.settle, Engagement.swap_unit, Robot.retire]
+
+    metrics:
+      time_on_loan:
+        description: The time units have spent out on engagements, by model, kind of engagement and month.
+        source: intervals
+        item: i
+        filter: i.state == EngagementLine.OPEN
+        dimensions:
+          model: i.object.robot.model
+          kind: i.object.engagement.kind
+          month: month(i.entered_at)
+        time_dimension: i.entered_at
+        expression: sum(i.duration)
+
+  Lease:
+    description: The commercial agreement above one engagement, which ends when the units come back or converts into a sale.
+    tracking: record
+
+    attributes:
+      customer:   { reference: Customer }
+      engagement: { reference: Engagement, opposite: lease, stored: true }
+
+    states:
+      ACTIVE:    { category: live }
+      CONVERTED: { category: closed, final: true }
+      ENDED:     { category: closed, final: true }
+
+    summary: [customer, state]
+
+    conditions:
+      is_lease:
+        description: The engagement is a lease.
+        expression: inputs.engagement.kind == EngagementKind.LEASE
+        remedy: self_serviceable
+      out:
+        description: The leased units are out.
+        expression: engagement.state == Engagement.OUT
+        remedy: dependent
+      returned:
+        description: The leased units have come back.
+        expression: engagement.state == Engagement.CLOSED
+        remedy: dependent
+
+    transitions:
+      sign:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [customer, engagement]
+        guards:
+          is_lease: deny
+      convert:
+        kind: external
+        from: ACTIVE
+        to: CONVERTED
+        guards:
+          out: deny
+        effect:
+          - foreach:
+              item: l
+              array: engagement.lines
+              where: l.open
+              limit: 20
+              steps:
+                - call: { target: l.robot, transition: convert_lease, inputs: { buyer: customer } }
+          - call: { target: engagement, transition: settle }
+      end:
+        kind: external
+        from: ACTIVE
+        to: ENDED
+        guards:
+          returned: deny
 ```
 
-```text
-type ServiceJob version 4 {
-  tracking record
-  states   OPEN category inbound, WORKING category live,
-           DONE category closed, CANCELLED category closed,
-           DELETED category closed terminal
-  summary  kind, robot, state
+```yaml
+# inventory_journey, continued
 
-  attr kind ServiceKind
-  ref  robot      : Robot inverse services
-  ref  customer   : Customer
-  ref  engineer   : User assignee
-  ref  parts_used : Robot[] inverse used_in
-
-  derive blocking = kind == ServiceKind.REPAIR
-
-  create open -> OPEN accepts kind, robot, customer, engineer {
-    require active:    inputs.engineer.state == User.ACTIVE                because self_serviceable
-    require delivered: inputs.robot.state == Robot.SOLD
-                       or inputs.robot.state == Robot.DEVELOPMENT        because self_serviceable
-    require theirs:    inputs.robot.state == Robot.DEVELOPMENT
-                       or inputs.robot.sold_to == inputs.customer        because self_serviceable
-  }
-  act reassign at OPEN accepts engineer {
-    require active: inputs.engineer.state == User.ACTIVE because self_serviceable
-  }
-  act add_part at { OPEN, WORKING } {
-    input part : Robot
-    call inputs.part.reserve_for_service(job := this)
-  }
-  act remove_part at { OPEN, WORKING } {
-    input part : Robot
-    require ours: inputs.part.used_in == this because self_serviceable
-    call inputs.part.release()
-  }
-  do start OPEN -> WORKING backdatable within 2 days {
-  }
-  do finish WORKING -> DONE {
-    for p in parts_used limit 50 { call p.consume(buyer := customer) }
-  }
-  do cancel { OPEN, WORKING } -> CANCELLED {
-    for p in parts_used limit 50 { call p.release() }
-  }
-  do void DONE -> CANCELLED {
-    for p in parts_used limit 50 { call p.unconsume() }
-  }
-  do reopen CANCELLED -> OPEN {
-  }
-  do delete CANCELLED -> DELETED {
-  }
-}
-
-type Engagement version 2 {
-  tracking record
-  states   SCHEDULED category inbound, OUT category live, RETURNING category live,
-           CLOSED category closed terminal
-  summary  kind, expected_return, state
-
-  attr kind            EngagementKind
-  attr expected_return timestamp? indexed
-  part lines : EngagementLine[] inverse engagement
-       cascade on { close, cancel, settle } to EngagementLine.end limit 20
-  ref  lease : Lease? inverse engagement
-
-  derive overdue = state == OUT and expected_return < now
-
-  create schedule -> SCHEDULED accepts kind, expected_return {
-  }
-  act add_unit at SCHEDULED {
-    input robot : Robot
-    require leasable: inputs.robot.leasable because dependent
-    create EngagementLine.open(for_engagement := this, robot := inputs.robot)
-  }
-  do dispatch SCHEDULED -> OUT backdatable within 1 days {
-    require nonempty:     count(l in lines) >= 1 because self_serviceable
-    require fit:          all(l in lines: l.robot.fit) because dependent
-    require return_known: kind != EngagementKind.LEASE or expected_return is not null
-                                                     because self_serviceable
-  }
-  act swap_unit at OUT {
-    input out_robot : Robot
-    input in_robot  : Robot
-    require leasable: inputs.in_robot.leasable because dependent
-    for l in lines where l.robot == inputs.out_robot and l.open limit 1 { call l.end() }
-    create EngagementLine.open(for_engagement := this, robot := inputs.in_robot)
-  }
-  do start_return OUT -> RETURNING backdatable within 1 days {
-  }
-  do close RETURNING -> CLOSED {
-    require checked: all(l in lines where l.open:
-                         any(r in l.robot.return_checks
-                             where r.occurred_at >= entered_at(RETURNING))) because dependent
-  }
-  do cancel SCHEDULED -> CLOSED {
-  }
-  do settle OUT -> CLOSED only via Lease.convert { }
-}
-
-type EngagementLine version 1 {
-  tracking record
-  states   OPEN category live, ENDED category closed terminal
-
-  owner engagement : Engagement inverse lines
-  ref   robot : Robot inverse engagement_lines
-
-  create open -> OPEN only via Engagement.add_unit, Engagement.swap_unit accepts robot {
-    input for_engagement : Engagement
-    set engagement := inputs.for_engagement
-  }
-  do end OPEN -> ENDED only via Engagement.close, Engagement.cancel, Engagement.settle,
-                                Engagement.swap_unit, Robot.retire { }
-}
-
-type Lease version 1 {
-  tracking record
-  states   ACTIVE category live, CONVERTED category closed terminal,
-           ENDED category closed terminal
-  summary  customer, state
-
-  ref customer   : Customer
-  ref engagement : Engagement inverse lease stored
-
-  create sign -> ACTIVE accepts customer, engagement {
-    require is_lease: inputs.engagement.kind == EngagementKind.LEASE because self_serviceable
-  }
-  do convert ACTIVE -> CONVERTED {
-    require out: engagement.state == Engagement.OUT because dependent
-    for l in engagement.lines where l.open limit 20 { call l.robot.convert_lease(buyer := customer) }
-    call engagement.settle()
-  }
-  do end ACTIVE -> ENDED {
-    require returned: engagement.state == Engagement.CLOSED because dependent
-  }
-}
-```
-
-```text
-observation ReturnCheck version 1 on Robot as return_checks {
-  field outcome : CheckOutcome
-  field note    : string?
-  occurred within 2 days
-}
-
-metric recording_lag version 1 {
-  from      t in Robot.transitions where not t.imported and not t.migrated
-  by        transition = t.transition, actor_kind = t.actor_kind, week = week(t.recorded_at)
-  window on t.recorded_at
-  value     median(t.recorded_at - t.occurred_at)
-  flag      late when value > 1 days
-}
-
-metric assignment_wait version 1 {
-  from      i in Robot.intervals(procured_for) where i.value is not null
-  by        model = i.object.model, month = month(i.entered_at)
-  window on i.entered_at
-  value     median(i.duration)
-  flag      slow when value > 3 days
-}
-
-metric inbound_dwell version 1 {
-  from      i in Robot.intervals where i.state == Robot.PROCUREMENT
-                                    or i.state == Robot.MISSING or i.state == Robot.INTAKE
-  by        stage = i.state, model = i.object.model, month = month(i.entered_at)
-  window on i.entered_at
-  value     median(i.duration)
-  flag      slow when value > 14 days
-}
-
-metric missing_units version 1 {
-  from      u in Robot where u.state == Robot.MISSING
-  by        shipment = u.shipment
-  value     max(u.time_in(MISSING))
-  flag      unresolved when value > 7 days
-}
-
-metric repairs version 1 {
-  from      s in ServiceJob where s.kind == ServiceKind.REPAIR
-  by        model = s.robot.model, month = month(s.created_at)
-  window on s.created_at
-  value     count()
-}
-
-metric retirements version 1 {
-  from      u in Robot where u.state == Robot.RETIRED
-  by        model = u.model, reason = u.retirement_reason
-  window on u.entered_at(RETIRED)
-  value     count()
-}
-
-metric time_on_loan version 1 {
-  from      i in EngagementLine.intervals where i.state == EngagementLine.OPEN
-  by        model = i.object.robot.model, kind = i.object.engagement.kind,
-            month = month(i.entered_at)
-  window on i.entered_at
-  value     sum(i.duration)
-}
-
-metric time_in_pool version 1 {
-  from      i in Robot.intervals where i.state == Robot.DEVELOPMENT
-  by        model = i.object.model, month = month(i.entered_at)
-  window on i.entered_at
-  value     sum(i.duration)
-}
-
-metric pool_utilisation version 1 {
-  combine   on_loan = time_on_loan, pool = time_in_pool
-  by        model
-  value     on_loan / pool
-  flag      idle when value < 0.300
-}
-
-metric engagements_overdue version 1 {
-  from      e in Engagement where e.overdue
-  by        kind = e.kind
-  value     count()
-  flag      any_overdue when value > 0
-}
+metrics:
+  pool_utilisation:
+    description: The share of a pooled unit's time spent on loan, by model, over the whole history.
+    input_metrics:
+      on_loan: EngagementLine.time_on_loan
+      pool: Robot.time_in_pool
+    group_by: [model]
+    expression: on_loan / pool
+    flag_when: { idle: "value < 0.300" }
 ```

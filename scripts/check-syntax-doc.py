@@ -992,9 +992,10 @@ MUTATIONS = [
 ]
 
 
-# A module declared in more than one document names its home here. The flow
-# review's appendix re-declares inventory_journey as a proposed variant of it.
-MODULE_HOMES = {"inventory_journey": "unit-journey.md"}
+# A module declared in more than one document names its home here. None is since
+# the unit's journey and the flow review moved to YAML, where check-flow-docs.py
+# keeps the same table (ADR-0121).
+MODULE_HOMES = {}
 
 
 def with_imports(src, world):
