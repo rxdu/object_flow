@@ -197,8 +197,8 @@ The old editor's list survives only on a 2021 page ([validators](https://conflue
 | A workflow scheme mapping each work type to one workflow | Written | a type binds a shared machine with `state_machine` (§4.10), or declares its own |
 | The same work type with a different workflow in each space | Written | two types extending one abstract base, each with its own workflow (ADR-0026, `flow-format.md` §4.14); `servicedesk.yaml`'s asset types are such a family |
 | A condition in a workflow shared by work types without subtasks, where Sub-Task Blocking holds vacuously | Differs | a machine reads only what it requires of every binder, so a type that has subtasks takes a workflow of its own, as `WorkItem` does here |
-| Drafts, published changes, deleting a status and moving its work items | Not yet | declaration versions and mappings (F5, ADR-0027); the format writes them with migrations |
-| Changing the work type hierarchy, which "cannot be undone" | Not yet | a migration |
+| Drafts, published changes, deleting a status and moving its work items | Written | a module's `migration` maps each removed state, checked against the previous version (`flow-format.md` §4.16, ADR-0120); drafts and publishing are the engine's (F5, F7) |
+| Changing the work type hierarchy, which "cannot be undone" | Written | a migration (§4.16) |
 
 ### 6.8 Approvals
 
@@ -234,7 +234,7 @@ Approvals exist outside Jira Service Management on the Premium and Enterprise pl
 | Clone, which links the copy | Written | `clone` creates a work item and a `CLONES` link |
 | Recurring work items | Application | a schedule (N6) requesting `clone` |
 | Move to another space; change the work type | Not yet | supersession (ADR-0028), the last construct |
-| A default value for a field, such as priority | Not yet | attribute defaults, with quantity tracking |
+| A default value for a field, such as priority | Written | `default:` on an attribute (`flow-format.md` §4.17); `servicedesk.yaml`'s requests default to medium priority |
 | Metrics: cycle time, velocity, time logged | Written | a fixed measure and two formulas (§4.9) |
 
 ### 6.10 Found and fixed by this study
@@ -249,7 +249,7 @@ The inventories also caught this project's own mistake: a quotation in ADR-0118,
 
 ### 6.11 The answer
 
-Every workflow Jira's engine configures, in either kind of space, can be expressed. The format writes it today, except where three constructs the model already has are still to come: editing a workflow under live work items (migrations), moving a work item or changing its type (supersession), and default field values. A different workflow for one work type in each space, `extends`, was written on 2026-09-26 after this answer was first given.
+Every workflow Jira's engine configures, in either kind of space, can be expressed. The format writes it today, except for one construct the model already has and the plan puts last: moving a work item or changing its type (supersession). A different workflow for one work type in each space (`extends`), editing a workflow under live work items (migrations) and default field values were written on 2026-09-26 after this answer was first given.
 
 Where it differs from Jira, a written form still exists. A lifecycle ends in a final state, such as an archived one. A rule that holds for only some of the types sharing a workflow, a subtask blocking condition or an archive only a parent may cause, puts those types in a workflow of their own, as a Jira scheme would. A transition Jira takes by itself, on the last approval or a merged pull request, is requested by the application and checked like any other request. One validator is excluded by decision, the regular expression.
 
@@ -275,7 +275,7 @@ The author asked next: "how about the flows in jira's service management?" This 
 | "Transitioning a work item from the portal ignores validators for the transition" | Differs | every caller's request passes the same guards (F3); a customer's own step, such as replying, is a transition like `customer_replies` |
 | The default resolutions, with Known error, Hardware failure and Software failure | Written | the `Resolution` enumeration |
 | A new status open to every other ("Any status") | Written | `from: any` |
-| Deleting a status and moving its requests, which runs no rules | Not yet | migrations |
+| Deleting a status and moving its requests, which runs no rules | Written | a `migration` mapping (§4.16); unlike Jira Service Management's move, the migration is recorded and checked against the invariants |
 
 ### 7.2 Approvals
 
@@ -371,6 +371,6 @@ The author asked next: "how about the flows in jira's service management?" This 
 
 ### 7.9 The answer
 
-Every flow Jira Service Management's workflows, approvals and SLAs configure can be expressed. Four things JSM does by automation are declarations here: the priority from impact and urgency, a standard change's pre-authorization, an affected service's responders joining an incident, and a linked problem's status. One thing JSM only shows, the freeze window, is enforced. The one limit by decision is **working-hours calendars**: an SLA is written and measured on absolute time, and business hours are a non-goal of the first release. It is the limit a service desk will feel most; asked, the author kept it on 2026-09-26, "keep the calendar non-goal" (PRD revision 11). The constructs still to come are migrations, for deleting statuses under live requests, and evaluators, for a guard that must ask an outside system; `extends`, for asset object types, was written after this answer was first given.
+Every flow Jira Service Management's workflows, approvals and SLAs configure can be expressed. Four things JSM does by automation are declarations here: the priority from impact and urgency, a standard change's pre-authorization, an affected service's responders joining an incident, and a linked problem's status. One thing JSM only shows, the freeze window, is enforced. The one limit by decision is **working-hours calendars**: an SLA is written and measured on absolute time, and business hours are a non-goal of the first release. It is the limit a service desk will feel most; asked, the author kept it on 2026-09-26, "keep the calendar non-goal" (PRD revision 11). The construct still to come is evaluators, for a guard that must ask an outside system; `extends` for asset object types and migrations for deleting statuses under live requests were written after this answer was first given.
 
 What remains is by design an application's: the portal and what it shows, who may see and do what (customers, organizations, internal notes), notifications, queues, escalations and on-call, the CI/CD tool's side of gating, and the transitions JSM takes by itself, each served by the engine's queries and its record.

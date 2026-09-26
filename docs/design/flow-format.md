@@ -82,13 +82,14 @@ Each attribute is a mapping with exactly one of `type` and `reference`. (step 2,
 
 | Key | Value |
 |---|---|
-| `type` | a built-in type (`string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `duration`, `identity`, `file`) or an enumeration's name |
+| `type` | a built-in type (`string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `duration`, `identity`, `file`) or an enumeration's name; or `counter`, on a type tracked by quantity (§4.17) |
 | `reference` | the name of a type the module declares or imports; `[]` makes the attribute a set of references |
 | `opposite` | the attribute of the referenced type that is the other end of this relationship (UML `Property::opposite`) |
 | `stored` | `true` on the one of two single ends that holds the value |
 | `aggregation` | `composite` on a whole's end: the referenced objects are its parts (UML `AggregationKind::composite`) |
 | `cascade`, `survives` | on a composite end: what its parts do when the whole takes a transition (below) |
 | `optional` | `true` if the attribute may be without a value; otherwise it always has one |
+| `default` | the value a creation that does not take the attribute as an input gives it (§4.17) |
 | `identifier` | the value is minted from a sequence when the object is created (§4.12) |
 | `external` | the system that owns the value, such as `xero`: its values are unique for each source and may be absent (§4.15) |
 | `unique` | `true` if no two objects of the type may hold the same value; `in_scope`, `with` and `where` restrict it (§4.12) |
@@ -98,7 +99,7 @@ Each attribute is a mapping with exactly one of `type` and `reference`. (step 2,
 | `unit` | the unit of a measured value |
 | `description` | one sentence, where the name alone does not say what the attribute holds |
 
-`unit` applies only to an observation's attribute, and `unique`, `indexed`, `identifier`, `external`, `actor_kind`, `assignee`, `opposite`, `stored`, `aggregation`, `cascade` and `survives` only to a type's attribute, since the model has no form for them elsewhere. (step 3, `names`)
+`unit` applies only to an observation's attribute, and `unique`, `indexed`, `identifier`, `external`, `default`, `actor_kind`, `assignee`, `opposite`, `stored`, `aggregation`, `cascade` and `survives` only to a type's attribute, since the model has no form for them elsewhere. (step 3, `names`)
 
 **Relationships.** Both ends of a relationship are declared, each on its own type, so that a type reads completely on its own, and each names the other with `opposite`; the two ends MUST name each other and be in one module (step 3, `names`). Exactly one end stores the value, as `declaration-syntax.md` §3.3 fixes: of a single end and a set end, the single one; of two single ends, the one marked `stored`; two set ends cannot store a pair, which is then a type of its own with a reference to each side (step 4, `check 41`). An end with no `opposite` is a reference with no named way back, and MUST be single.
 
@@ -418,6 +419,26 @@ Against this version alone, a mapping MUST name a state, member or attribute thi
 
 Against the version before it, which the checker is given as `--previous=<file>` and which the examples' version pairs are checked with, every state a type loses MUST be mapped, every mapping MUST name what the previous version had, and a field added to an observation kind MUST be optional, since an observation is born final (step 3, `names`; the model's checks 22 and 23). What depends on the live objects, which only a publish can count, is reported as a notice, `migration`: a new required attribute with no backfill, a member gone with no mapping, and an attribute gone where one of its type is new, which may be a rename. A removed attribute needs nothing: its values stay in history (§6.6).
 
+### 4.17 Quantity tracking, counters and defaults
+
+A type tracked by `quantity` counts things rather than tracking each: stock, a batch, a balance (`declaration-syntax.md` §7). It declares at least one **counter**, an attribute of `type: counter`, which is an `int`, never absent, and zero when the object is created without being written; a type tracked by `record` or `serial` declares none (step 4, `check 31`). A counter is never optional and has no default (step 3, `names`), is changed by assigning it, as `reserved := reserved + inputs.quantity`, and is never cleared (step 4, `check 17`). An observation has no counter, being born final (step 3, `names`). Whether a counter may go below zero is a fact about what it counts, and an invariant says it: `reserved >= 0 and reserved <= on_hand`.
+
+```yaml
+PartStock:
+  description: The stock of one spare part, counted rather than tracked one by one.
+  tracking: quantity
+  attributes:
+    on_hand:  { type: counter, indexed: true }
+    reserved: { type: counter, indexed: true }
+  derived_attributes:
+    available:
+      description: The parts on hand and not reserved.
+      expression: on_hand - reserved
+      indexed: true
+```
+
+A **default** is the value every creation that does not take the attribute as an input gives it, written first, so that it is recorded on the event as any write is; it never writes an object that already exists, and a publish that adds an attribute gives live objects a value by a backfill (§4.16). Being written before anything else, a default reads no member and no input: it is a literal, a qualified value or `now` (step 3, `names`). A required attribute with a default is written by every creation, and so satisfies a state that requires it (step 4, `check 8`). A creation that takes the attribute as an input takes it as the attribute's optionality says, so a default applies where the input is not taken at all, as a request is raised at medium priority and an agent sets another by a transition of its own.
+
 ## 5. Expressions
 
 An `expression` is written in the expression language of `declaration-syntax.md` §8, which this format does not change. Within it:
@@ -456,6 +477,7 @@ Each form converts to the text language as follows, and means what that declarat
 | `state_machine: M` on a type | `machine M` in the type, with only the type's own transitions |
 | `abstract: true`, `extends: B` | `type T extends B version 1 abstract { … }`, with only the type's own members |
 | `migration: { removed_states: { T: { A: B } }, removed_members: { E: { X: Y } }, renamed_attributes: { T: { a: b } }, backfill: { T: { a: e } }, admit: […] }` | `removed state A -> B`, `removed member E.X -> Y`, `renamed attr a -> b`, `backfill a := e`, `admit T.i because E.M`, at the end of the module |
+| `type: counter`; `default: e` | `counter c`; `default e` |
 | `mirror: true`; `external: s` | `type T version 1 mirror { … }`; `external "s"` |
 | `derived_attributes: { d: { expression: e, indexed: true } }` | `derive d = e indexed` |
 | `sequences: { s: … }` | `sequence s version 1` |
@@ -487,7 +509,7 @@ A description is checked in four steps, and each stops the check if it finds any
 | 1. strict loading | `yaml` | a file YAML cannot parse, including a `?` unquoted inside an inline collection, or a key repeated in a mapping |
 | 2. structure | `schema` | a missing or unknown key, a value of the wrong form, a name in the wrong case, a transition kind without the `from` and `to` it requires, a metric without the `state` or `transition` its measure requires |
 | 3. names and order | `order` | sections out of order, a derived attribute that reads itself or one declared after it |
-| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a metric over a source its type does not have or reading anything but its item and the members its rows have, a flag reading neither the value nor a dimension, an assertion, erasure or correction without a `reason` input, an assertion's reason that is not an enumeration, an admission of an invariant neither the type's nor a related type's, a correction that does not write exactly what it lists, an erasure that does not reach a part type holding personal data, a personal attribute that is required, a type that extends one that is undeclared or not abstract or comes back to itself, redeclares what it inherits, or has no tracking, a mirror without an external identifier, an external identifier on a reference, a migration mapping that names what this version still has or lacks the target of, a backfill of no stored attribute or one reading beyond the object, an admission of no invariant or reason, and, against the previous version, a state removed with no mapping, a mapping from what it did not have, or a required field added to an observation kind, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
+| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a metric over a source its type does not have or reading anything but its item and the members its rows have, a flag reading neither the value nor a dimension, an assertion, erasure or correction without a `reason` input, an assertion's reason that is not an enumeration, an admission of an invariant neither the type's nor a related type's, a correction that does not write exactly what it lists, an erasure that does not reach a part type holding personal data, a personal attribute that is required, a type that extends one that is undeclared or not abstract or comes back to itself, redeclares what it inherits, or has no tracking, a mirror without an external identifier, an external identifier on a reference, a counter that is optional, has a default or belongs to an observation, a default that reads a member or an input, a migration mapping that names what this version still has or lacks the target of, a backfill of no stored attribute or one reading beyond the object, an admission of no invariant or reason, and, against the previous version, a state removed with no mapping, a mapping from what it did not have, or a required field added to an observation kind, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
@@ -634,7 +656,7 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | states, categories and final states | §2.1 | written (§4.5) |
 | attributes: type, optional, unique, indexed, personal | §3.1 | written (§4.3) |
 | attributes: scoped, compound and partial uniqueness | §3.1 | written (§4.12) |
-| attributes: counters and defaults | §3.1, §7 | not yet |
+| attributes: counters and defaults | §3.1, §7 | written (§4.17) |
 | references, including an assignee | §3.2, §6.10 | written (§4.3) |
 | parts, composition, inverse ends and cascades | §3.2, §3.3 | written (§4.3) |
 | invariants over one object | §3.4 | written (§4.6, §4.5) |
@@ -662,5 +684,5 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | metrics: the metric language, sources, dimensions, filters and flags | §6.9 | written (§4.9) |
 | metrics: combined metrics, `combine` | §6.9 | not yet (ADR-0118) |
 | standard metrics | §6.11 | provided for every type, with nothing to write |
-| quantity tracking and its counters | §7 | not yet |
+| quantity tracking and its counters | §7 | written (§4.17) |
 | expressions | §8 | written: the same language (§5) |

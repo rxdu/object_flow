@@ -84,7 +84,7 @@ types:
       participants:       { type: "identity[]" }
       approvers:          { type: "identity[]" }
       approvals_required: { type: int, optional: true, description: How many approvals it needs; all of its approvers when absent. }
-      priority:           { type: Priority }
+      priority:           { type: Priority, default: Priority.MEDIUM, description: A customer's request is medium until an agent says otherwise. }
       opened_at:          { type: timestamp }
       resolution:         { type: Resolution, optional: true }
       resolved_at:        { type: timestamp, optional: true }
@@ -184,7 +184,7 @@ types:
         kind: initial
         to: WAITING_FOR_SUPPORT
         description: Raises a request that needs no approval.
-        required_inputs: [summary, request_type, reporter, priority]
+        required_inputs: [summary, request_type, reporter]
         optional_inputs: [organization]
         effect:
           - assign: { location: opened_at, expr: now }
@@ -192,7 +192,7 @@ types:
         kind: initial
         to: WAITING_FOR_APPROVAL
         description: Raises a request that its approvers must approve first.
-        required_inputs: [summary, request_type, reporter, priority, approvers]
+        required_inputs: [summary, request_type, reporter, approvers]
         optional_inputs: [organization, approvals_required]
         guards:
           has_approvers: deny
@@ -235,6 +235,11 @@ types:
         kind: external
         from: [WAITING_FOR_SUPPORT, IN_PROGRESS]
         to: ESCALATED
+      prioritise:
+        kind: internal
+        from: [WAITING_FOR_APPROVAL, WAITING_FOR_SUPPORT, IN_PROGRESS, WAITING_FOR_CUSTOMER, PENDING, ESCALATED]
+        description: Sets the priority an agent judges the request to have.
+        required_inputs: [priority]
       share:
         kind: internal
         from: any
@@ -728,4 +733,92 @@ types:
         description: Erases this store's copy of the person's name; the HR system erases its own.
         inputs:
           reason: { type: string }
+
+  PartStock:
+    description: The stock of one spare part, counted rather than tracked one by one.
+    tracking: quantity
+    attributes:
+      part_number:   { type: string, indexed: true, unique: true }
+      on_hand:       { type: counter, indexed: true }
+      reserved:      { type: counter, indexed: true }
+      reorder_level: { type: int, default: "5" }
+    states:
+      STOCKED:   { category: active }
+      WITHDRAWN: { category: closed, final: true }
+    derived_attributes:
+      available:
+        description: The parts on hand and not reserved; a query may filter on it.
+        expression: on_hand - reserved
+        indexed: true
+      below_reorder_level:
+        description: Fewer parts are available than the level at which more are ordered.
+        expression: on_hand - reserved < reorder_level
+    invariants:
+      reserved_bounded:
+        description: No more parts are reserved than are on hand.
+        expression: reserved >= 0 and reserved <= on_hand
+    conditions:
+      enough_available:
+        description: Enough parts are available for the reservation.
+        expression: on_hand - reserved >= inputs.quantity
+        remedy: dependent
+      enough_reserved:
+        description: At least as many parts are reserved as are released or used.
+        expression: reserved >= inputs.quantity
+        remedy: self_serviceable
+      empty:
+        description: None of the part is on hand.
+        expression: on_hand == 0
+        remedy: dependent
+    transitions:
+      open:
+        kind: initial
+        to: STOCKED
+        required_inputs: [part_number]
+      set_reorder_level:
+        kind: internal
+        from: STOCKED
+        required_inputs: [reorder_level]
+      receive:
+        kind: internal
+        from: STOCKED
+        inputs:
+          quantity: { type: int }
+        effect:
+          - assign: { location: on_hand, expr: on_hand + inputs.quantity }
+      reserve:
+        kind: internal
+        from: STOCKED
+        inputs:
+          quantity: { type: int }
+        guards:
+          enough_available: deny
+        effect:
+          - assign: { location: reserved, expr: reserved + inputs.quantity }
+      release:
+        kind: internal
+        from: STOCKED
+        inputs:
+          quantity: { type: int }
+        guards:
+          enough_reserved: deny
+        effect:
+          - assign: { location: reserved, expr: reserved - inputs.quantity }
+      use:
+        kind: internal
+        from: STOCKED
+        description: Takes reserved parts out of stock, as a change or a request that needed them is carried out.
+        inputs:
+          quantity: { type: int }
+        guards:
+          enough_reserved: deny
+        effect:
+          - assign: { location: reserved, expr: reserved - inputs.quantity }
+          - assign: { location: on_hand, expr: on_hand - inputs.quantity }
+      withdraw:
+        kind: external
+        from: STOCKED
+        to: WITHDRAWN
+        guards:
+          empty: deny
 

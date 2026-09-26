@@ -74,7 +74,7 @@ NOT_A_TRANSITION = {"any"}
 NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "this_event"}
 # keys the text language has a form for on one kind of attribute only; elsewhere they would be dropped
 ONLY_ON_OBSERVATIONS = {"unit"}
-ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "external", "opposite", "stored", "aggregation", "cascade",
+ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "external", "default", "opposite", "stored", "aggregation", "cascade",
                  "survives"}
 METRIC_ORDER = ["description", "measure", "state", "transition", "source", "item", "filter", "dimensions",
                 "group_by", "time_dimension", "expression", "flag_when"]
@@ -742,6 +742,9 @@ def reserved_name_errors(doc):
                 out.append((("types", tn, "attributes", a, k), "names", f"'{k}' applies only to an observation's attribute, not to {tn}.{a}"))
         for o, ob in (t.get("observations") or {}).items():
             for a, spec in ob["attributes"].items():
+                if spec.get("type") == "counter":
+                    out.append((("types", tn, "observations", o, "attributes", a), "names",
+                                f"{o}.{a} is a counter, which an observation, born final, cannot have; a counter belongs to a type tracked by quantity"))
                 for k in sorted(ONLY_ON_TYPES & set(spec)):
                     out.append((("types", tn, "observations", o, "attributes", a, k), "names",
                                 f"'{k}' applies only to a type's attribute, not to the observation attribute {o}.{a}"))
@@ -770,7 +773,7 @@ def name_errors(doc, library=None, ordered=True):
         conds = set(t.get("conditions") or {})
         required = {s: set((v or {}).get("required_attributes", [])) for s, v in states.items()}
         always = {a for a, s in attrs.items() if not optional(s)}
-        minted = {a for a, s in attrs.items() if s.get("identifier")}
+        minted = {a for a, s in attrs.items() if s.get("identifier") or "default" in s or s.get("type") == "counter"}
         used = set()
         for s, v in states.items():
             if v["category"] not in set(doc.get("categories") or []) | BUILT_IN_CATEGORIES:
@@ -952,6 +955,8 @@ def value_errors(doc, tn, t):
     own = {k: set(v.get("states") or {}) for k, v in types(doc)}
     exprs = [(("types", tn, sec, n, "expression"), n, c["expression"])
              for sec in ("conditions", "invariants", "derived_attributes") for n, c in (t.get(sec) or {}).items()]
+    exprs += [(("types", tn, "attributes", a, "default"), f"{tn}.{a}'s default", spec["default"])
+              for a, spec in (t.get("attributes") or {}).items() if "default" in spec]
     exprs += [(("types", tn, "attributes", a, "unique", "where"), a, spec["unique"]["where"])
               for a, spec in (t.get("attributes") or {}).items() if isinstance(spec.get("unique"), dict) and "where" in spec["unique"]]
     exprs += [(("types", tn, "transitions", xn, "effect") + path, xn, e) for xn, x in (t.get("transitions") or {}).items()
@@ -1098,12 +1103,14 @@ def is_text(spec):
 
 def creation_writes(t):
     """What every creation of the type writes, the set the model's check 8 uses:
-    its required inputs, and the attributes it assigns a provably present value."""
+    its required inputs, the attributes it assigns a provably present value,
+    and those a default or a counter gives a value."""
+    given = {a for a, s in (t.get("attributes") or {}).items() if "default" in s or s.get("type") == "counter"}
     sets = []
     for x in (t.get("transitions") or {}).values():
         if x["kind"] == "initial":
             req = set(x.get("required_inputs", []))
-            sets.append(req | {loc for e, loc in assigns(x) if present(e, req, required_input_names(x))})
+            sets.append(given | req | {loc for e, loc in assigns(x) if present(e, req, required_input_names(x))})
     return set.intersection(*sets) if sets else set()
 
 
@@ -1127,6 +1134,14 @@ def identifier_errors(doc, tn, t, library):
                     out.append((here + ("unique",), "names", f"{tn}.{a} is unique with '{w}', which {tn} does not declare"))
         if u == "in_scope" and not (ident or {}).get("scope"):
             out.append((here + ("unique",), "names", f"{tn}.{a} is unique in scope, and has no identifier with a scope"))
+        if spec.get("type") == "counter":
+            if optional(spec):
+                out.append((here, "names", f"{tn}.{a} is a counter, which is never absent, so it is not optional"))
+            if "default" in spec:
+                out.append((here, "names", f"{tn}.{a} is a counter, which starts at zero, so it has no default"))
+        if "default" in spec:
+            for r in sorted(reads(spec["default"]) - {"now"}):
+                out.append((here + ("default",), "names", f"{tn}.{a}'s default reads '{r}'; a default is written before anything else, so it is a literal, a qualified value or now"))
         if not ident:
             continue
         where = here + ("identifier",)
@@ -1418,6 +1433,8 @@ def markings(spec):
     """The markings an attribute or a reference carries after its type, in the
     model's words (declaration-syntax.md §3.1, §3.2)."""
     marks = [f'external "{spec["external"]}"'] if spec.get("external") else []
+    if "default" in spec:
+        marks.append("default " + " ".join(str(spec["default"]).split()))
     marks += [m for m in ("indexed", "personal") if spec.get(m)]
     u = spec.get("unique")
     if u is True:
@@ -1456,6 +1473,8 @@ def attribute_line(name, spec, observation=False, module=None):
             return f"owner {name} : {spec['reference']}{inverse}"
         return (f"ref {name} : {t}{inverse}" + (" stored" if spec.get("stored") else "")
                 + (" assignee" if spec.get("assignee") else "") + markings(spec))
+    if spec["type"] == "counter" and not observation:
+        return f"counter {name}" + markings(spec)
     t = spec["type"] + ("?" if optional(spec) else "")
     if observation:
         return (f"field {name} : {t}" + (f' unit "{spec["unit"]}"' if spec.get("unit") else "")
@@ -1884,6 +1903,14 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(servicedesk, "          name: l.name\n", "          name: l.note\n")),
         ("a guard that reads labels", "names", "servicedesk.yaml",
          plant(servicedesk, "        expression: entered_at(RESOLVED) + 3 days <= now\n", "        expression: entered_at(RESOLVED) + 3 days <= now and count(x in labels) == 0\n")),
+        ("a counter that may be absent", "names", "servicedesk.yaml",
+         plant(servicedesk, "      on_hand:       { type: counter, indexed: true }\n", "      on_hand:       { type: counter, indexed: true, optional: true }\n")),
+        ("a default that reads an attribute", "names", "servicedesk.yaml",
+         plant(servicedesk, '      reorder_level: { type: int, default: "5" }\n', "      reorder_level: { type: int, default: on_hand }\n")),
+        ("a counter on a type tracked by record", "check 31", "servicedesk.yaml",
+         plant(servicedesk, "    tracking: quantity\n", "    tracking: record\n")),
+        ("a counter on an observation", "names", "servicedesk.yaml",
+         plant(servicedesk, "          score: { type: int }\n", "          score: { type: counter }\n")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",

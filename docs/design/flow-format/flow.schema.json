@@ -992,7 +992,7 @@
         "type": {
           "type": "string",
           "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\([A-Za-z0-9, ]+\\))?(\\[\\])?$",
-          "description": "A built-in type (string, bool, int, decimal(p,s), money(ccy), timestamp, duration, identity, file) or an enumeration's name."
+          "description": "A built-in type (string, bool, int, decimal(p,s), money(ccy), timestamp, duration, identity, file) or an enumeration's name; or counter, an int never absent and zero at creation, on a type tracked by quantity."
         },
         "reference": {
           "type": "string",
@@ -1039,6 +1039,10 @@
         "optional": {
           "type": "boolean",
           "description": "true if the attribute may be without a value."
+        },
+        "default": {
+          "$ref": "#/definitions/expression",
+          "description": "The value every creation that does not write the attribute gives it: a literal, a qualified value or now."
         },
         "identifier": {
           "$ref": "#/definitions/identifier"
