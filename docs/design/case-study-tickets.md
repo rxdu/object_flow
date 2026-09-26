@@ -233,7 +233,7 @@ Approvals exist outside Jira Service Management on the Premium and Enterprise pl
 | Bulk transition and bulk move | Written | the library's batch operation (ADR-0037); the format is not involved |
 | Clone, which links the copy | Written | `clone` creates a work item and a `CLONES` link |
 | Recurring work items | Application | a schedule (N6) requesting `clone` |
-| Move to another space; change the work type | Not yet | supersession (ADR-0028), the last construct |
+| Move to another space; change the work type | Written | `move` creates the work item's successor in the other space and is superseded by it (supersession, `flow-format.md` §4.19, ADR-0028); a change of work type is the same, into a type with another workflow |
 | A default value for a field, such as priority | Written | `default:` on an attribute (`flow-format.md` §4.17); `servicedesk.yaml`'s requests default to medium priority |
 | Metrics: cycle time, velocity, time logged | Written | a fixed measure and two formulas (§4.9) |
 
@@ -249,7 +249,7 @@ The inventories also caught this project's own mistake: a quotation in ADR-0118,
 
 ### 6.11 The answer
 
-Every workflow Jira's engine configures, in either kind of space, can be expressed. The format writes it today, except for one construct the model already has and the plan puts last: moving a work item or changing its type (supersession). A different workflow for one work type in each space (`extends`), editing a workflow under live work items (migrations) and default field values were written on 2026-09-26 after this answer was first given.
+Every workflow Jira's engine configures, in either kind of space, can be expressed. The format writes all of it today. A different workflow for one work type in each space (`extends`), editing a workflow under live work items (migrations), default field values, and moving a work item or changing its type (supersession) were written on 2026-09-26 after this answer was first given.
 
 Where it differs from Jira, a written form still exists. A lifecycle ends in a final state, such as an archived one. A rule that holds for only some of the types sharing a workflow, a subtask blocking condition or an archive only a parent may cause, puts those types in a workflow of their own, as a Jira scheme would. A transition Jira takes by itself, on the last approval or a merged pull request, is requested by the application and checked like any other request. One validator is excluded by decision, the regular expression.
 

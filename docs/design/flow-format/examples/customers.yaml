@@ -49,6 +49,7 @@ types:
         description: The people to reach at the customer.
         cascade:
           - { on: [close], transition: discard, limit: 50 }
+        survives: [merged_into]
       orders:
         reference: "Order[]"
         opposite: customer
@@ -62,6 +63,11 @@ types:
         description: Has not ordered for a year; kept on record, and may still be closed.
         category: closed
       CLOSED: { category: closed, final: true }
+      MERGED:
+        description: A duplicate, superseded by the customer it was merged into.
+        category: closed
+        final: true
+        superseding: true
 
     conditions:
       contact_in_xero:
@@ -96,6 +102,24 @@ types:
         description: Closes the customer's record from whatever state it is in, once no order of theirs is open.
         guards:
           no_open_orders: deny
+      merge_in:
+        kind: internal
+        from: [PROSPECT, ACTIVE, DORMANT]
+        description: Merges a duplicate customer into this one, which supersedes it.
+        inputs:
+          duplicate: { reference: Customer }
+        effect:
+          - call: { target: inputs.duplicate, transition: merged_into, inputs: { successor: this } }
+      merged_into:
+        kind: external
+        from: [PROSPECT, ACTIVE, DORMANT]
+        to: MERGED
+        description: Ends a duplicate, superseded by the customer it is merged into; its history stays readable through the successor.
+        only_via: [Customer.merge_in]
+        inputs:
+          successor: { reference: Customer }
+        effect:
+          - supersede: inputs.successor
       add_contact:
         kind: internal
         from: [PROSPECT, ACTIVE]

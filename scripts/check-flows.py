@@ -307,7 +307,7 @@ def assigns(x):
     return [(" ".join(a["expr"].split()), a["location"]) for a in steps(x, "assign")]
 
 
-STEP_KINDS = ("assign", "clear", "add", "remove", "call", "create", "foreach")
+STEP_KINDS = ("assign", "clear", "add", "remove", "call", "create", "foreach", "supersede")
 
 
 def walk(steps, path=()):
@@ -330,6 +330,8 @@ def step_expressions(st, kind):
         return list((body.get("inputs") or {}).values())
     if kind == "foreach":
         return [body[k] for k in ("array", "range", "where") if k in body]
+    if kind == "supersede":
+        return [body]
     return []
 
 
@@ -853,7 +855,8 @@ def name_errors(doc, library=None, ordered=True):
             out.append((("types", tn, "conditions", c), "names", f"condition '{c}' of {tn} is used by no transition"))
         out += value_errors(doc, tn, t)
         out += (read_errors(tn, t, set(doc.get("categories") or []) | BUILT_IN_CATEGORIES | evaluator_names(doc))
-                + indexed_errors(tn, t, library) + identifier_errors(doc, tn, t, library) + evaluator_errors(doc, tn, t))
+                + indexed_errors(tn, t, library) + identifier_errors(doc, tn, t, library) + evaluator_errors(doc, tn, t)
+                + supersession_errors(doc, tn, t, library))
         out += override_errors(doc, tn, t, library)
         for mn, m in (t.get("metrics") or {}).items():
             out += metric_errors(tn, t, mn, m)
@@ -1387,6 +1390,57 @@ def override_errors(doc, tn, t, library):
     return out
 
 
+def supersession_errors(doc, tn, t, library):
+    """A transition into a superseding state names its successor with a
+    supersede step, and only such a transition does; the successor is an input
+    or a name an earlier create binds, never the object itself; and a type with
+    personal data that takes part in supersession declares an erasure, since the
+    chain is erased through each of its members (declaration-syntax.md §6.1,
+    §6.4; the model's checks 26, 49 and 60)."""
+    states = t.get("states") or {}
+    out = []
+    for xn, x in (t.get("transitions") or {}).items():
+        where = ("types", tn, "transitions", xn)
+        into = states.get(x.get("to")) if isinstance(x.get("to"), str) else None
+        steps = [(st, path) for st, kind, path, _d in walk(x.get("effect")) if kind == "supersede"]
+        superseding = bool(into and into.get("superseding"))
+        if steps and not superseding:
+            out.append((where + ("effect",), "names", f"{tn}.{xn} supersedes, and does not enter a superseding state"))
+        if superseding and not steps:
+            out.append((where + ("to",), "names", f"{tn}.{xn} enters the superseding state {x['to']} and names no successor with supersede"))
+        bound = []
+        for st, kind, path, _d in walk(x.get("effect")):
+            if kind == "create" and st["create"].get("result"):
+                bound.append(st["create"]["result"])
+            if kind != "supersede":
+                continue
+            who = " ".join(str(st["supersede"]).split())
+            m = re.fullmatch(r"inputs\.([a-z][a-z0-9_]*)", who)
+            if who == "this":
+                out.append((where + ("effect",) + path, "names", f"{tn}.{xn} supersedes the object with itself"))
+            elif m:
+                spec = (x.get("inputs") or {}).get(m.group(1))
+                if spec is not None and "reference" not in spec:   # an input it does not take is refused as any read of one is
+                    out.append((where + ("effect",) + path, "names", f"{tn}.{xn} supersedes with inputs.{m.group(1)}, which is not an object"))
+            elif who not in bound:
+                out.append((where + ("effect",) + path, "names", f"{tn}.{xn} supersedes with {who}, which is neither an input nor a name an earlier create binds (check 49)"))
+    takes_part = any(v.get("superseding") for v in states.values())
+    for other in library.values():
+        for x in (other.get("transitions") or {}).values():
+            for st, kind, _p, _d in walk(x.get("effect")):
+                if kind == "supersede":
+                    m = re.fullmatch(r"inputs\.([a-z][a-z0-9_]*)", " ".join(str(st["supersede"]).split()))
+                    ref = ((x.get("inputs") or {}).get(m.group(1)) or {}).get("reference") if m else None
+                    made = [s2["create"]["type"] for s2, k2, _p2, _d2 in walk(x.get("effect")) if k2 == "create"
+                            and s2["create"].get("result") == " ".join(str(st["supersede"]).split())]
+                    takes_part |= ref == tn or tn in made
+    personal = any(sp.get("personal") for sp in (t.get("attributes") or {}).values())
+    erasable = any(x["kind"] == "erasure" for x in (t.get("transitions") or {}).values())
+    if takes_part and personal and not erasable:
+        out.append((("types", tn), "names", f"{tn} takes part in supersession and holds personal data, and declares no erasure, through which a superseded chain is erased (check 60)"))
+    return out
+
+
 def evaluator_names(doc):
     """The evaluators a module declares or imports: a guard calls one as <evaluator>.<function>(…)."""
     return set(doc.get("evaluators") or {}) | {n for names in (doc.get("imports") or {}).values() for n in names if n[:1].islower()}
@@ -1625,7 +1679,8 @@ def to_text(doc):
         for i in (m.get("requires") or {}).get("invariants") or []:
             emit(f"  requires invariant {i}", M + ("requires", "invariants"))
         for sn, st in m["states"].items():
-            emit(f"  state {sn} category {st['category']}" + (" terminal" if st.get("final") else ""), M + ("states", sn))
+            emit(f"  state {sn} category {st['category']}" + (" terminal" if st.get("final") else "")
+                 + (" superseding" if st.get("superseding") else ""), M + ("states", sn))
         for xn, x in m["transitions"].items():
             for line, path in transition_lines(xn, x, machine_as_type(m), M + ("transitions", xn), M):
                 emit(line, path)
@@ -1641,7 +1696,8 @@ def to_text(doc):
         if t.get("state_machine"):
             emit(f"  machine  {t['state_machine']}", T + ("state_machine",))
         for sn, v in (t.get("states") or {}).items():
-            emit(f"  state {sn} category {v['category']}" + (" terminal" if v.get("final") else ""), T + ("states", sn))
+            emit(f"  state {sn} category {v['category']}" + (" terminal" if v.get("final") else "")
+                 + (" superseding" if v.get("superseding") else ""), T + ("states", sn))
         for an, spec in (t.get("attributes") or {}).items():
             for line in attribute_line(an, spec, module=dict(types(doc))).split("\n"):
                 emit(("  " + line) if not line.startswith("  ") else line, T + ("attributes", an))
@@ -1715,6 +1771,8 @@ def effect_lines(steps, P, indent):
             c = st["create"]
             bound = f"{c['result']} = " if c.get("result") else ""
             out.append((f"{indent}create {bound}{c['type']}.{c['transition']}({args(c.get('inputs'))})", path))
+        elif "supersede" in st:
+            out.append((f"{indent}supersede {one(st['supersede'])}", path))
         else:
             f = st["foreach"]
             over = one(f["array"]) if "array" in f else f"1..{one(f['range'])}"
@@ -1985,6 +2043,18 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
         ("an evaluator called by a derived attribute", "names", "customers.yaml",
          plant(customers, "    conditions:\n      contact_in_xero:",
                "    derived_attributes:\n      in_xero:\n        description: Xero knows the contact.\n        expression: xero.contact_exists(xero_contact_id)\n\n    conditions:\n      contact_in_xero:")),
+        ("a superseding state entered with no successor", "names", "customers.yaml",
+         plant(customers, "        effect:\n          - supersede: inputs.successor\n", "")),
+        ("an object that supersedes itself", "names", "customers.yaml",
+         plant(customers, "        effect:\n          - supersede: inputs.successor\n", "        effect:\n          - supersede: this\n")),
+        ("a successor that is neither an input nor a created object", "names", "customers.yaml",
+         plant(customers, "        effect:\n          - supersede: inputs.successor\n", "        effect:\n          - supersede: survivor\n")),
+        ("a supersede in a transition that does not end superseded", "names", "customers.yaml",
+         plant(customers, "      lapse:\n        kind: external\n        from: ACTIVE\n        to: DORMANT\n",
+               "      lapse:\n        kind: external\n        from: ACTIVE\n        to: DORMANT\n        inputs:\n          successor: { reference: Customer }\n        effect:\n          - supersede: inputs.successor\n")),
+        ("personal data in supersession with no erasure", "names", "customers.yaml",
+         plant(customers, "      forget:\n        kind: erasure\n        description: Erases the customer's",
+               "      forget:\n        kind: internal\n        from: [PROSPECT]\n        description: Erases the customer's")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",

@@ -130,6 +130,7 @@ types:
         description: Its subtasks; archiving the work item archives them.
         cascade:
           - { on: [archive], transition: archive, limit: 500 }
+        survives: [move]
       outward_links: { reference: "WorkItemLink[]", opposite: source }
       inward_links:  { reference: "WorkItemLink[]", opposite: target }
     observations:
@@ -150,6 +151,11 @@ types:
         description: Archived; it can no longer be edited.
         category: closed
         final: true
+      MOVED:
+        description: Moved to another space, where the work item that supersedes it carries on.
+        category: closed
+        final: true
+        superseding: true
     derived_attributes:
       reviews:
         description: How many times the work item has been in review.
@@ -255,6 +261,20 @@ types:
         from: any
         to: ARCHIVED
         description: Archives the work item and its subtasks.
+      move:
+        kind: external
+        from: any
+        to: MOVED
+        description: Moves the work item to another space, where a new work item supersedes it; its history stays with it.
+        inputs:
+          to_space: { reference: Space }
+        effect:
+          - create:
+              type: WorkItem
+              transition: create
+              inputs: { space: inputs.to_space, work_type: work_type, summary: summary, reporter: reporter }
+              result: successor
+          - supersede: successor
       assign_to_lead:
         kind: internal
         from: [TO_DO, IN_PROGRESS, IN_REVIEW]

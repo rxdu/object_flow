@@ -465,7 +465,31 @@
         "required_attributes": {
           "$ref": "#/definitions/names",
           "description": "Attributes that have a value whenever an object is in this state."
+        },
+        "superseding": {
+          "type": "boolean",
+          "description": "The object ends here by being superseded: a transition into it names the successor with a supersede step. It is final."
         }
+      },
+      "if": {
+        "properties": {
+          "superseding": {
+            "const": true
+          }
+        },
+        "required": [
+          "superseding"
+        ]
+      },
+      "then": {
+        "properties": {
+          "final": {
+            "const": true
+          }
+        },
+        "required": [
+          "final"
+        ]
       }
     },
     "transition": {
@@ -891,6 +915,19 @@
                 }
               ],
               "description": "Runs steps for each element of array, or for each number from 1 to range, at most limit times (SCXML <foreach>)."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "supersede"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "supersede": {
+              "$ref": "#/definitions/expression",
+              "description": "The successor that supersedes this object: an input, or a name an earlier create step binds."
             }
           }
         }
