@@ -77,6 +77,10 @@
       "additionalProperties": {
         "$ref": "#/definitions/type"
       }
+    },
+    "migration": {
+      "$ref": "#/definitions/migration",
+      "description": "How a publish of this version moves the live objects of the version before it (declaration-syntax.md §6.6)."
     }
   },
   "definitions": {
@@ -1461,6 +1465,112 @@
             "$ref": "#/definitions/transition"
           },
           "description": "The type's transitions, by name; a transition's name is its trigger."
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "required": [
+        "description"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "$ref": "#/definitions/description",
+          "description": "What this version changes, and how its live objects are moved."
+        },
+        "removed_states": {
+          "type": "object",
+          "description": "For each type, each state the previous version had and this one does not, and the state its objects move to.",
+          "propertyNames": {
+            "$ref": "#/definitions/typeName"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+              "$ref": "#/definitions/stateName"
+            },
+            "additionalProperties": {
+              "$ref": "#/definitions/stateName"
+            }
+          }
+        },
+        "removed_members": {
+          "type": "object",
+          "description": "For each enumeration, each member the previous version had and this one does not, and the member live values become.",
+          "propertyNames": {
+            "$ref": "#/definitions/typeName"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+              "$ref": "#/definitions/stateName"
+            },
+            "additionalProperties": {
+              "$ref": "#/definitions/stateName"
+            }
+          }
+        },
+        "renamed_attributes": {
+          "type": "object",
+          "description": "For each type, each attribute renamed, from its old name to its new one.",
+          "propertyNames": {
+            "$ref": "#/definitions/typeName"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+              "$ref": "#/definitions/memberName"
+            },
+            "additionalProperties": {
+              "$ref": "#/definitions/memberName"
+            }
+          }
+        },
+        "backfill": {
+          "type": "object",
+          "description": "For each type, each attribute a live object must be given, and the expression over the object's own members and literals that gives it.",
+          "propertyNames": {
+            "$ref": "#/definitions/typeName"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+              "$ref": "#/definitions/memberName"
+            },
+            "additionalProperties": {
+              "$ref": "#/definitions/expression"
+            }
+          }
+        },
+        "admit": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "invariant",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "invariant": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Za-z0-9]*\\.[a-z][a-z0-9_]*$",
+                "description": "<Type>.<invariant>, which objects may still break after the publish."
+              },
+              "reason": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Za-z0-9]*\\.[A-Z][A-Z0-9_]*$",
+                "description": "<Enumeration>.<MEMBER>, why."
+              }
+            }
+          },
+          "description": "Invariants the migrated objects may break, each admitted with a reason, as an assertion's admissions are."
         }
       }
     }

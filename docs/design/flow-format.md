@@ -36,7 +36,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 (step 2, `schema`)
 
 1. A name MUST be unique among the names of its section. A repeated key is refused by step 1.
-2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines` and `types`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a metric declares, in this order, `description`, `measure`, `state`, `transition`, `source`, `item`, `filter`, `dimensions`, `group_by`, `time_dimension`, `expression` and `flag_when`; a type declares, in this order, `description`, `abstract`, `extends`, `mirror`, `tracking`, `state_machine`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used. (step 3, `order`)
+2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines`, `types` and `migration`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a metric declares, in this order, `description`, `measure`, `state`, `transition`, `source`, `item`, `filter`, `dimensions`, `group_by`, `time_dimension`, `expression` and `flag_when`; a type declares, in this order, `description`, `abstract`, `extends`, `mirror`, `tracking`, `state_machine`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used. (step 3, `order`)
 3. Reserved words of the text language MAY be used as names, as `declaration-syntax.md` §9.2 allows, with these exceptions (step 3, `names`):
    - a category MUST NOT be named `any`, `terminal` or `superseding`, and a transition MUST NOT be named `any` (the text language's check 33);
    - an attribute, including an observation's, MUST NOT be named `state`, `inputs`, `actor`, `this`, `now`, `referrers` or `this_event`, since an expression resolves those words before any attribute;
@@ -55,6 +55,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 | `sequences` | no | a mapping from a sequence's name to its `description` (§4.12) |
 | `machines` | no | a mapping from a shared state machine's name to its declaration (§4.10) |
 | `types` | yes | a mapping from a type's name to its declaration (§4.2) |
+| `migration` | no | how a publish of this version moves the live objects of the version before it (§4.16) |
 
 ### 4.2 A type
 
@@ -385,6 +386,36 @@ Employee:
 
 A mirror takes no transition but an erasure, since erasure is this store's obligation over its own copy (ADR-0101); nothing of this store may write it, by a `call` or a `create`, or join it to a type this store owns by `extends` or a composition, while mirrors may extend and compose with each other (step 4, `check 53`). A type this store owns may reference a mirror, and read it in a guard, as `Laptop.assigned_to` names an `Employee`. The rules about a lifecycle, such as a state needing a way out, do not apply to a mirror, whose states another system moves.
 
+### 4.16 Migrations
+
+A publish changes a live object only by a recorded migration (`declaration-syntax.md` §6.6, ADR-0099). A module's `migration` section says how a publish of this version moves the live objects of the version before it; it is written with the version it publishes, and replaced or removed in the next (ADR-0120):
+
+| Key | Required | Value |
+|---|---|---|
+| `description` | yes | what this version changes, and how its live objects are moved |
+| `removed_states` | no | for each type, each state the previous version had and this one does not, and the state its objects move to |
+| `removed_members` | no | for each enumeration, each member the previous version had and this one does not, and the member live values become |
+| `renamed_attributes` | no | for each type, each attribute renamed, from its old name to its new |
+| `backfill` | no | for each type, each attribute a live object must be given, and the expression that gives it |
+| `admit` | no | invariants the migrated objects may still break, each `{ invariant: <Type>.<invariant>, reason: <Enumeration>.<MEMBER> }`, recorded as an admission with its reason |
+
+```yaml
+migration:
+  description: Version 2 renames the photo, records each job's site, and merges a reassignment reason.
+  removed_members:
+    ReassignmentReason: { SKILLS: WORKLOAD }
+  renamed_attributes:
+    ServiceJob: { photo: completion_photo }
+  backfill:
+    ServiceJob: { site: '"HQ"' }
+  admit:
+    - { invariant: ServiceJob.photo_when_done, reason: MigrationReason.LEGACY_DATA }
+```
+
+Against this version alone, a mapping MUST name a state, member or attribute this version no longer has and move it to one it has; a backfill MUST write a stored attribute and read only the object's own members and literals, not `now` or an input; and an admission MUST name an invariant of the type and a member of a declared enumeration (step 3, `names`).
+
+Against the version before it, which the checker is given as `--previous=<file>` and which the examples' version pairs are checked with, every state a type loses MUST be mapped, every mapping MUST name what the previous version had, and a field added to an observation kind MUST be optional, since an observation is born final (step 3, `names`; the model's checks 22 and 23). What depends on the live objects, which only a publish can count, is reported as a notice, `migration`: a new required attribute with no backfill, a member gone with no mapping, and an attribute gone where one of its type is new, which may be a rename. A removed attribute needs nothing: its values stay in history (§6.6).
+
 ## 5. Expressions
 
 An `expression` is written in the expression language of `declaration-syntax.md` §8, which this format does not change. Within it:
@@ -422,6 +453,7 @@ Each form converts to the text language as follows, and means what that declarat
 | `machines: { M: { requires: …, states: …, transitions: … } }` | `machine M version 1 { requires attr …; state …; … }` |
 | `state_machine: M` on a type | `machine M` in the type, with only the type's own transitions |
 | `abstract: true`, `extends: B` | `type T extends B version 1 abstract { … }`, with only the type's own members |
+| `migration: { removed_states: { T: { A: B } }, removed_members: { E: { X: Y } }, renamed_attributes: { T: { a: b } }, backfill: { T: { a: e } }, admit: […] }` | `removed state A -> B`, `removed member E.X -> Y`, `renamed attr a -> b`, `backfill a := e`, `admit T.i because E.M`, at the end of the module |
 | `mirror: true`; `external: s` | `type T version 1 mirror { … }`; `external "s"` |
 | `derived_attributes: { d: { expression: e, indexed: true } }` | `derive d = e indexed` |
 | `sequences: { s: … }` | `sequence s version 1` |
@@ -453,11 +485,11 @@ A description is checked in four steps, and each stops the check if it finds any
 | 1. strict loading | `yaml` | a file YAML cannot parse, including a `?` unquoted inside an inline collection, or a key repeated in a mapping |
 | 2. structure | `schema` | a missing or unknown key, a value of the wrong form, a name in the wrong case, a transition kind without the `from` and `to` it requires, a metric without the `state` or `transition` its measure requires |
 | 3. names and order | `order` | sections out of order, a derived attribute that reads itself or one declared after it |
-| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a metric over a source its type does not have or reading anything but its item and the members its rows have, a flag reading neither the value nor a dimension, an assertion, erasure or correction without a `reason` input, an assertion's reason that is not an enumeration, an admission of an invariant neither the type's nor a related type's, a correction that does not write exactly what it lists, an erasure that does not reach a part type holding personal data, a personal attribute that is required, a type that extends one that is undeclared or not abstract or comes back to itself, redeclares what it inherits, or has no tracking, a mirror without an external identifier, an external identifier on a reference, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
+| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a metric over a source its type does not have or reading anything but its item and the members its rows have, a flag reading neither the value nor a dimension, an assertion, erasure or correction without a `reason` input, an assertion's reason that is not an enumeration, an admission of an invariant neither the type's nor a related type's, a correction that does not write exactly what it lists, an erasure that does not reach a part type holding personal data, a personal attribute that is required, a type that extends one that is undeclared or not abstract or comes back to itself, redeclares what it inherits, or has no tracking, a mirror without an external identifier, an external identifier on a reference, a migration mapping that names what this version still has or lacks the target of, a backfill of no stored attribute or one reading beyond the object, an admission of no invariant or reason, and, against the previous version, a state removed with no mapping, a mapping from what it did not have, or a required field added to an observation kind, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
-Step 3 also reports two notices, which are not fatal: `audit`, for each guard that audits, and `warn`, for each guard that warns.
+Step 3 also reports three notices, which are not fatal: `audit`, for each guard that audits; `warn`, for each guard that warns; and `migration`, for what a publish over live objects of the previous version would need (§4.16).
 
 ## 8. A minimal valid description
 
@@ -512,7 +544,7 @@ These are open in `authoring-flows.md` §3 and §7, and an answer would change t
 
 These words are reserved by the format. `scripts/check-flow-format-doc.py` holds this list equal to the keys and values `flow.schema.json` and the checker define.
 
-**Keys:** `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines`, `requires`, `state_machine`, `types`, `description`, `abstract`, `extends`, `mirror`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `corrects`, `may_admit`, `optional`, `identifier`, `external`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `source`, `filter`, `dimensions`, `time_dimension`, `state`, `transition`, `group_by`, `flag_when`.
+**Keys:** `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines`, `requires`, `state_machine`, `types`, `description`, `abstract`, `extends`, `mirror`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `corrects`, `may_admit`, `optional`, `identifier`, `external`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `migration`, `removed_states`, `removed_members`, `renamed_attributes`, `backfill`, `admit`, `invariant`, `reason`, `measure`, `source`, `filter`, `dimensions`, `time_dimension`, `state`, `transition`, `group_by`, `flag_when`.
 
 **Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `assertion`, `erasure`, `any`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `objects`, `intervals`, `transitions`, `attempts`, `attempt_counts`, `composite`, `in_scope`, `month`, `week`, `actor`.
 
@@ -620,7 +652,7 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | assertions and admissions | §6.3 | written (§4.13) |
 | erasure and correction | §6.4 | written (§4.13) |
 | deletion guards | §6.5 | written (§4.13) |
-| migrations: removed and renamed members, backfill | §6.6 | not yet |
+| migrations: removed and renamed members, backfill | §6.6 | written (§4.16) |
 | `this_event` and extension | §6.7 | not yet |
 | observations | §6.8 | written (§4.4) |
 | labels | §6.8 | not yet |

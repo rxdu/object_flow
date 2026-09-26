@@ -63,7 +63,7 @@ FORMAT = ROOT / "docs/design/flow-format"
 EXAMPLES = FORMAT / "examples"
 CHECKER = ROOT / "scripts/check-syntax-doc.py"
 
-MODULE_ORDER = ["module", "imports", "categories", "enumerations", "sequences", "machines", "types"]
+MODULE_ORDER = ["module", "imports", "categories", "enumerations", "sequences", "machines", "types", "migration"]
 MACHINE_ORDER = ["description", "requires", "states", "conditions", "transitions"]
 # names the text language gives a meaning in the same position (declaration-syntax.md §9.2, check 33)
 NOT_A_CATEGORY = {"any", "terminal", "superseding"}
@@ -528,6 +528,146 @@ def family_errors(doc, library):
             if spec.get("external") and "reference" in spec:
                 out.append((here + ("attributes", a, "external"), "names", f"{tn}.{a} is a reference; an external identifier is a value the other system gives"))
     return out
+
+
+BACKFILL_READS = {"state", "this"}   # a backfill reads the object's own members and literals (§6.6)
+
+
+def migration_errors(doc, v):
+    """What a migration maps is checked against this version: a mapping names a
+    state, member or attribute this version no longer has and one it has, a
+    backfill writes a stored attribute from the object's own members, and an
+    admission names an invariant and a reason that exist (declaration-syntax.md §6.6)."""
+    m = doc.get("migration")
+    if not m:
+        return []
+    kinds = {tn: t for tn, t in types(v) if tn not in (doc.get("machines") or {})}
+    enums = {n: set(x) for n, x in (doc.get("enumerations") or {}).items()}
+    imported = {n for names in (doc.get("imports") or {}).values() for n in names}
+    out = []
+    for tn, maps in (m.get("removed_states") or {}).items():
+        where = ("migration", "removed_states", tn)
+        if tn not in kinds:
+            out.append((where, "names", f"the migration moves objects of {tn}, which this module does not declare"))
+            continue
+        states = kinds[tn].get("states") or {}
+        for old, new in maps.items():
+            if old in states:
+                out.append((where + (old,), "names", f"the migration maps {tn}.{old}, which this version still has; a mapping is for a state it removes"))
+            if new not in states:
+                out.append((where + (old,), "names", f"the migration moves {tn}.{old} to {new}, which is not a state of {tn}"))
+    for en, maps in (m.get("removed_members") or {}).items():
+        where = ("migration", "removed_members", en)
+        if en not in enums:
+            out.append((where, "names", f"the migration maps members of {en}, which this module does not declare"))
+            continue
+        for old, new in maps.items():
+            if old in enums[en]:
+                out.append((where + (old,), "names", f"the migration maps {en}.{old}, which this version still has"))
+            if new not in enums[en]:
+                out.append((where + (old,), "names", f"the migration maps {en}.{old} to {new}, which is not a member of {en}"))
+    for tn, maps in (m.get("renamed_attributes") or {}).items():
+        where = ("migration", "renamed_attributes", tn)
+        if tn not in kinds:
+            out.append((where, "names", f"the migration renames attributes of {tn}, which this module does not declare"))
+            continue
+        attrs = kinds[tn].get("attributes") or {}
+        for old, new in maps.items():
+            if new not in attrs:
+                out.append((where + (old,), "names", f"the migration renames {tn}.{old} to {new}, which {tn} does not declare"))
+            if old in attrs:
+                out.append((where + (old,), "names", f"the migration renames {tn}.{old}, which this version still has"))
+    for tn, maps in (m.get("backfill") or {}).items():
+        where = ("migration", "backfill", tn)
+        if tn not in kinds:
+            out.append((where, "names", f"the migration backfills {tn}, which this module does not declare"))
+            continue
+        t = kinds[tn]
+        members = set(t.get("attributes") or {}) | set(t.get("derived_attributes") or {}) | BACKFILL_READS
+        for a, expr in maps.items():
+            if a not in (t.get("attributes") or {}):
+                out.append((where + (a,), "names", f"the migration backfills {tn}.{a}, which is not a stored attribute of {tn}"))
+            for r in sorted(reads(expr) - members):
+                out.append((where + (a,), "names", f"the backfill of {tn}.{a} reads '{r}'; a backfill reads the object's own members and literals"))
+            for owner, value in re.findall(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b", str(expr)):
+                if owner in enums and value not in enums[owner]:
+                    out.append((where + (a,), "names", f"the backfill of {tn}.{a} names {owner}.{value}, and {owner} has no {value}"))
+    for i, adm in enumerate(m.get("admit") or []):
+        where = ("migration", "admit", i)
+        tn, inv = adm["invariant"].split(".")
+        if tn not in kinds:
+            out.append((where, "names", f"the migration admits {adm['invariant']}, and this module declares no type {tn}"))
+        elif inv not in invariant_names(doc, tn, kinds[tn]):
+            out.append((where, "names", f"the migration admits {adm['invariant']}, which is not an invariant of {tn}"))
+        en, member = adm["reason"].split(".")
+        if en in enums and member not in enums[en]:
+            out.append((where, "names", f"the migration admits {adm['invariant']} because {adm['reason']}, and {en} has no {member}"))
+        elif en not in enums and en not in imported:
+            out.append((where, "names", f"the migration's reason {adm['reason']} names {en}, which is not an enumeration of this module"))
+    return out
+
+
+def migration_pair_errors(prev, doc, library):
+    """This version against the one before it: every state it removes from a
+    type is mapped, every mapping names what the previous version had, and a
+    field added to an observation kind is optional (the model's checks 22 and
+    23). What depends on the live objects, which a publish counts, is noticed:
+    a new required attribute without a backfill, a removed member without a
+    mapping, an attribute dropped where one of its type is added."""
+    pv, _ = view(prev, library)
+    v, _ = view(doc, library)
+    machines = set(doc.get("machines") or {}) | set(prev.get("machines") or {})
+    old, new = dict(types(pv)), dict(types(v))
+    m = doc.get("migration") or {}
+    fatal, notes = [], []
+    for tn, t in new.items():
+        if tn in machines or tn not in old or t.get("abstract"):
+            continue
+        ot = old[tn]
+        here = ("types", tn)
+        mapped = (m.get("removed_states") or {}).get(tn, {})
+        for st in sorted(set(ot.get("states") or {}) - set(t.get("states") or {}) - set(mapped)):
+            fatal.append((here, "names", f"{tn} no longer has the state {st}, and the migration maps it nowhere; its objects need a state to move to"))
+        for st in sorted(set(mapped) - set(ot.get("states") or {})):
+            fatal.append((("migration", "removed_states", tn, st), "names", f"the migration maps {tn}.{st}, which the previous version did not have"))
+        renamed = (m.get("renamed_attributes") or {}).get(tn, {})
+        for a in sorted(set(renamed) - set(ot.get("attributes") or {})):
+            fatal.append((("migration", "renamed_attributes", tn, a), "names", f"the migration renames {tn}.{a}, which the previous version did not have"))
+        added = set(t.get("attributes") or {}) - set(ot.get("attributes") or {}) - set(renamed.values())
+        dropped = set(ot.get("attributes") or {}) - set(t.get("attributes") or {}) - set(renamed)
+        filled = (m.get("backfill") or {}).get(tn, {})
+        for a in sorted(added):
+            spec = t["attributes"][a]
+            kind = str(spec.get("reference", spec.get("type", "")))
+            if optional(spec) or spec.get("identifier") or kind.endswith("[]"):
+                continue
+            if spec.get("aggregation") == "composite":
+                notes.append((here + ("attributes", a), "migration", f"{tn}.{a} is a new required part: a publish over live objects of {tn} is refused, so declare it optional or a set"))
+            elif a not in filled:
+                notes.append((here + ("attributes", a), "migration", f"{tn}.{a} is new and required: a publish over live objects of {tn} needs a backfill for it"))
+        for d in sorted(dropped):
+            for a in sorted(added):
+                if (ot["attributes"][d].get("type"), ot["attributes"][d].get("reference")) == (t["attributes"][a].get("type"), t["attributes"][a].get("reference")):
+                    notes.append((here + ("attributes", a), "migration", f"{tn}.{d} is gone and {tn}.{a} is new, of the same type: if it is a rename, map it, or its values stay behind"))
+        for o, ob in (t.get("observations") or {}).items():
+            before = ((ot.get("observations") or {}).get(o) or {}).get("attributes")
+            if before is None:
+                continue
+            for fld, spec in (ob.get("attributes") or {}).items():
+                if fld not in before and not optional(spec):
+                    fatal.append((here + ("observations", o, "attributes", fld), "names",
+                                  f"{o}.{fld} is added to an observation kind and is required; an observation is born final, so nothing could fill it"))
+    old_enums = {n: set(x) for n, x in (prev.get("enumerations") or {}).items()}
+    new_enums = {n: set(x) for n, x in (doc.get("enumerations") or {}).items()}
+    for en, members in new_enums.items():
+        if en not in old_enums:
+            continue
+        mapped = (m.get("removed_members") or {}).get(en, {})
+        for x in sorted(old_enums[en] - members - set(mapped)):
+            notes.append((("enumerations", en), "migration", f"{en}.{x} is gone: a publish needs a mapping for it if live objects hold it, and is refused if an observation does"))
+        for x in sorted(set(mapped) - old_enums[en]):
+            fatal.append((("migration", "removed_members", en, x), "names", f"the migration maps {en}.{x}, which the previous version did not have"))
+    return fatal, notes
 
 
 def machine_errors(doc, kinds=None):
@@ -1449,6 +1589,21 @@ def to_text(doc):
             tail += metric_text(tn, merged, mn, m)
     for line, path in tail:
         emit(line, path)
+    mig = doc.get("migration") or {}
+    for tn, maps in (mig.get("removed_states") or {}).items():
+        for old, new in maps.items():
+            emit(f"removed state  {old} -> {new}", ("migration", "removed_states", tn, old))
+    for en, maps in (mig.get("removed_members") or {}).items():
+        for old, new in maps.items():
+            emit(f"removed member {en}.{old} -> {new}", ("migration", "removed_members", en, old))
+    for tn, maps in (mig.get("renamed_attributes") or {}).items():
+        for old, new in maps.items():
+            emit(f"renamed attr   {old} -> {new}", ("migration", "renamed_attributes", tn, old))
+    for tn, maps in (mig.get("backfill") or {}).items():
+        for a, expr in maps.items():
+            emit(f"backfill       {a} := {' '.join(str(expr).split())}", ("migration", "backfill", tn, a))
+    for i, adm in enumerate(mig.get("admit") or []):
+        emit(f"admit          {adm['invariant']} because {adm['reason']}", ("migration", "admit", i))
     return "\n".join(lines) + "\n", paths
 
 
@@ -1545,8 +1700,10 @@ def language_errors(converted):
     return out
 
 
-def check(files):
-    """Findings and notices over modules given in import order, as (file, line, severity, code, message)."""
+def check(files, previous=None):
+    """Findings and notices over modules given in import order, as (file, line,
+    severity, code, message); previous maps a file to the text of the version
+    before it, against which its migration is checked."""
     found, notes, loaded, library = [], [], [], {}
     for f, text in files:
         try:
@@ -1567,7 +1724,12 @@ def check(files):
             continue
         v, back = view(doc, library)
         seen = set()
-        for p, c, m in order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + name_errors(v, library, ordered=False):
+        pair, pair_notes = [], []
+        if (previous or {}).get(f):
+            pair, pair_notes = migration_pair_errors(load(previous[f]), doc, library)
+        notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes]
+        for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v)))
+                        + name_errors(v, library, ordered=False) + migration_errors(doc, v) + pair):
             p = back(p)
             if p is not None and p[0] == "machines" and "'" in m:
                 # a machine's attributes, always quoted, are the ones it requires of its binders
@@ -1591,7 +1753,7 @@ def report(found, notes):
     print(f"{len(found)} fatal · {len(notes)} notice{'s' if len(notes) != 1 else ''}")
 
 
-def self_test(people, service, inventory, delivery, approvals, customers, servicedesk):
+def self_test(people, service, inventory, delivery, approvals, customers, servicedesk, service_v2):
     def plant(text, old, new):
         assert text.count(old) >= 1, old
         return text.replace(old, new, 1)
@@ -1700,6 +1862,20 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
         ("a mirror with a transition of its own", "check 53", "servicedesk.yaml",
          plant(servicedesk, "    transitions:\n      forget:\n        kind: erasure\n",
                "    transitions:\n      transfer:\n        kind: internal\n        from: EMPLOYED\n        optional_inputs: [department]\n      forget:\n        kind: erasure\n")),
+        ("a state the new version removes, mapped nowhere", "names", "service-v2.yaml",
+         plant(plant(plant(plant(plant(service_v2, "      WORKING: { category: live }\n", "      IN_PROGRESS: { category: live }\n"),
+                                   "        from: OPEN\n        to: WORKING\n", "        from: OPEN\n        to: IN_PROGRESS\n"),
+                             "        from: WORKING\n        to: DONE\n", "        from: IN_PROGRESS\n        to: DONE\n"),
+                       "        from: [OPEN, WORKING]\n", "        from: [OPEN, IN_PROGRESS]\n"),
+               "        state: WORKING\n", "        state: IN_PROGRESS\n")),
+        ("a new required attribute that no backfill fills", "migration", "service-v2.yaml",
+         plant(service_v2, "  backfill:\n    ServiceJob: { site: '\"HQ\"' }\n", "")),
+        ("a backfill that reads the clock", "names", "service-v2.yaml",
+         plant(service_v2, "    ServiceJob: { site: '\"HQ\"' }\n", "    ServiceJob: { site: now }\n")),
+        ("a migration that admits no invariant", "names", "service-v2.yaml",
+         plant(service_v2, "invariant: ServiceJob.photo_when_done,", "invariant: ServiceJob.photo_required,")),
+        ("a required field added to an observation kind", "names", "service-v2.yaml",
+         plant(service_v2, "          note:    { type: string, optional: true }\n", "          note:    { type: string, optional: true }\n          probe:   { type: string }\n")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",
@@ -1727,8 +1903,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     ok = True
     for name, expect, f, text in planted:
         before = [("inventory.yaml", inventory)] if f == "delivery.yaml" else []
-        found, _ = check([("people.yaml", people)] + before + [(f, text)])
-        hit = [x for x in found if x[3] == expect]
+        found, notes = check([("people.yaml", people)] + before + [(f, text)], {"service-v2.yaml": service} if f == "service-v2.yaml" else None)
+        hit = [x for x in found + (notes if expect == "migration" else []) if x[3] == expect]
         ok &= bool(hit)
         where = f"{hit[0][0]}:{hit[0][1]} {hit[0][4]}" if hit else f"MISSED ({found[:1]})"
         print(f"  planted {name}: {'caught' if hit else 'missed'} by {expect}, at {where}")
@@ -1742,19 +1918,22 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    before = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--previous=")), None)
     if args:
         files = [(pathlib.Path(a).name, pathlib.Path(a).read_text()) for a in args]
-        found, notes = check(files)
+        previous = {files[-1][0]: pathlib.Path(before).read_text()} if before else None
+        found, notes = check(files, previous)
         report(found, notes)
         sys.exit(1 if found else 0)
     people = (EXAMPLES / "people.yaml").read_text()
     clean = True
     needs = {"delivery.yaml": ["inventory.yaml"]}
+    versions_of = {"inventory-v2.yaml": "inventory.yaml", "service-v2.yaml": "service.yaml"}   # each checked against the one before
     for version in ("people.yaml", "inventory.yaml", "inventory-v2.yaml", "service.yaml", "service-v2.yaml", "delivery.yaml", "approvals.yaml",
                     "customers.yaml", "issues.yaml", "servicedesk.yaml"):
         before = [(n, (EXAMPLES / n).read_text()) for n in needs.get(version, [])]
         files = [("people.yaml", people)] + before + ([(version, (EXAMPLES / version).read_text())] if version != "people.yaml" else [])
-        found, notes = check(files)
+        found, notes = check(files, {version: (EXAMPLES / versions_of[version]).read_text()} if version in versions_of else None)
         print(f"{version}: {'clean' if not found else str(len(found)) + ' finding(s)'}, "
               f"{len(notes)} notice{'s' if len(notes) != 1 else ''}")
         for x in found:
@@ -1762,7 +1941,8 @@ def main():
         clean &= not found
     ok = self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "inventory.yaml").read_text(),
                    (EXAMPLES / "delivery.yaml").read_text(), (EXAMPLES / "approvals.yaml").read_text(),
-                   (EXAMPLES / "customers.yaml").read_text(), (EXAMPLES / "servicedesk.yaml").read_text())
+                   (EXAMPLES / "customers.yaml").read_text(), (EXAMPLES / "servicedesk.yaml").read_text(),
+                   (EXAMPLES / "service-v2.yaml").read_text())
     sys.exit(0 if clean and ok else 1)
 
 

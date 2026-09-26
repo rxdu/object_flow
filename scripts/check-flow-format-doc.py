@@ -76,7 +76,7 @@ def main():
     reported = set(re.findall(r'"([a-z]+)",\s*f"', source)) | {"yaml", "schema"}
     section7 = doc[doc.index("## 7. Validity"):doc.index("## 8.")]
     stated = {c for c in re.findall(r"^\|[^|]*\| `([a-z]+)`", section7, re.M) if c != "check"}
-    notice = re.search(r"reports two notices[^.]*\.", section7)
+    notice = re.search(r"reports \w+ notices[^.]*\.", section7)
     stated |= set(re.findall(r"`([a-z]+)`", notice.group(0))) if notice else set()
     for c in sorted(reported - stated):
         findings.append(f"§7 does not state the finding code `{c}`, which the checker reports")

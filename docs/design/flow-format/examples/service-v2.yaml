@@ -1,12 +1,15 @@
 # yaml-language-server: $schema=../flow.schema.json
-# Service flow: what a service job is, how it progresses, and what it records.
+# Service flow, version 2: photo_attached denies, a job with no passed inspection
+# warns, the photo is renamed, a job records its site, and one reassignment
+# reason is merged into another; the migration moves the live jobs.
 module: service
 imports: { people: [User] }
 categories: [inbound, live, closed]
 
 enumerations:
   CheckOutcome: [PASS, FAIL, NOT_APPLICABLE]
-  ReassignmentReason: [ABSENCE, WORKLOAD, SKILLS]
+  ReassignmentReason: [ABSENCE, WORKLOAD]
+  MigrationReason: [LEGACY_DATA]
 
 types:
   InspectionCheck:
@@ -36,7 +39,8 @@ types:
 
     attributes:
       engineer: { reference: User, assignee: true }
-      photo:    { type: file, optional: true }
+      completion_photo: { type: file, optional: true }
+      site:     { type: string }
       signed_off_by_user: { reference: User, optional: true }
 
     observations:
@@ -62,6 +66,20 @@ types:
         final: true
         required_attributes: [signed_off_by_user]
 
+    derived_attributes:
+      signed_off:
+        description: The job has been signed off; queries may filter on it.
+        expression: signed_off_by_user is not null
+        indexed: true
+      handoffs:
+        description: How many times the job has passed from one engineer to another.
+        expression: count(i in this.intervals(engineer) where i.value is not null) - 1
+
+    invariants:
+      photo_when_done:
+        description: A finished job has its completion photo.
+        expression: state != DONE or completion_photo is not null
+
     conditions:
       engineer_active:
         description: The engineer being assigned is active.
@@ -74,20 +92,20 @@ types:
                and none(s in inspections where s.check == r.check
                                            and s.recorded_at > r.recorded_at))
         remedy: dependent
-      photo_attached:
-        description: A photo is attached.
-        expression: inputs.photo is not null
-        remedy: self_serviceable
       at_least_one_passed:
         description: At least one inspection passed.
         expression: any(r in inspections where r.outcome == CheckOutcome.PASS)
         remedy: dependent
+      photo_attached:
+        description: A photo is attached.
+        expression: inputs.completion_photo is not null
+        remedy: self_serviceable
 
     transitions:
       open:
         kind: initial
         to: OPEN
-        required_inputs: [engineer]
+        required_inputs: [engineer, site]
         guards:
           engineer_active: deny
       reassign:
@@ -110,7 +128,7 @@ types:
         from: WORKING
         to: DONE
         description: Completes the job, signed off by the person responsible.
-        optional_inputs: [photo]
+        optional_inputs: [completion_photo]
         inputs:
           signed_off_by: { reference: User }
         guards:
@@ -127,3 +145,35 @@ types:
         state: WORKING
         group_by: [engineer, month]
         flag_when: { slow: "value > 10 days" }
+      inspection_pass_rate:
+        description: The share of applicable inspections that pass, per engineer.
+        source: inspections
+        item: r
+        filter: r.outcome != CheckOutcome.NOT_APPLICABLE
+        dimensions:
+          engineer: r.subject.engineer
+        time_dimension: r.occurred_at
+        expression: count(where r.outcome == CheckOutcome.PASS) * 1.000 / count()
+        flag_when: { low: "value < 0.900" }
+      handoffs_per_job:
+        description: The average number of times a job changes hands, by the month it was opened.
+        source: objects
+        item: o
+        dimensions:
+          month: month(o.created_at)
+        time_dimension: o.created_at
+        expression: avg(o.handoffs)
+
+migration:
+  description: >-
+    Version 2 renames the photo to the completion photo, records the site of
+    every job, merges the skills reason for a reassignment into workload, and
+    admits the finished jobs from before the photo was required.
+  removed_members:
+    ReassignmentReason: { SKILLS: WORKLOAD }
+  renamed_attributes:
+    ServiceJob: { photo: completion_photo }
+  backfill:
+    ServiceJob: { site: '"HQ"' }
+  admit:
+    - { invariant: ServiceJob.photo_when_done, reason: MigrationReason.LEGACY_DATA }
