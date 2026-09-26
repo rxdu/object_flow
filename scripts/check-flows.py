@@ -1153,6 +1153,22 @@ def notices(doc):
 
 
 # ── step 4: conversion to the text language ────────────────────────────────
+def markings(spec):
+    """The markings an attribute or a reference carries after its type, in the
+    model's words (declaration-syntax.md §3.1, §3.2)."""
+    marks = [m for m in ("indexed", "personal") if spec.get(m)]
+    u = spec.get("unique")
+    if u is True:
+        marks.append("unique")
+    elif u == "in_scope":
+        marks.append("unique in scope")
+    elif isinstance(u, dict) and "with" in u:
+        marks.append("unique with " + ", ".join(u["with"]))
+    elif isinstance(u, dict) and "where" in u:
+        marks.append("unique where " + " ".join(u["where"].split()))
+    return "".join(" " + m for m in marks)
+
+
 def attribute_line(name, spec, observation=False, module=None):
     if "reference" in spec:
         t = spec["reference"] + ("?" if optional(spec) else "")
@@ -1177,7 +1193,7 @@ def attribute_line(name, spec, observation=False, module=None):
         if opp and ((other.get("attributes") or {}).get(opp) or {}).get("aggregation") == "composite":
             return f"owner {name} : {spec['reference']}{inverse}"
         return (f"ref {name} : {t}{inverse}" + (" stored" if spec.get("stored") else "")
-                + (" assignee" if spec.get("assignee") else ""))
+                + (" assignee" if spec.get("assignee") else "") + markings(spec))
     t = spec["type"] + ("?" if optional(spec) else "")
     if observation:
         return (f"field {name} : {t}" + (f' unit "{spec["unit"]}"' if spec.get("unit") else "")
@@ -1187,17 +1203,7 @@ def attribute_line(name, spec, observation=False, module=None):
     if ident:
         marks.append(f"identifier from {ident['sequence']}" + (f" scoped by {ident['scope']}" if ident.get("scope") else "")
                      + f' format "{ident["format"]}"')
-    marks += [m for m in ("indexed", "personal") if spec.get(m)]
-    u = spec.get("unique")
-    if u is True:
-        marks.append("unique")
-    elif u == "in_scope":
-        marks.append("unique in scope")
-    elif isinstance(u, dict) and "with" in u:
-        marks.append("unique with " + ", ".join(u["with"]))
-    elif isinstance(u, dict) and "where" in u:
-        marks.append("unique where " + " ".join(u["where"].split()))
-    return f"attr {name} {t}" + "".join(" " + m for m in marks)
+    return f"attr {name} {t}" + "".join(" " + m for m in marks) + markings(spec)
 
 
 def transition_lines(xn, x, t, X, T):
@@ -1546,6 +1552,8 @@ def self_test(people, service, inventory, delivery, approvals, customers):
          plant(customers, "      name:  { type: string, optional: true, personal: true }\n", "      name:  { type: string, personal: true }\n")),
         ("an erasure that names a target state", "schema", "customers.yaml",
          plant(customers, "        kind: erasure\n        description: Erases the customer's", "        kind: erasure\n        to: CLOSED\n        description: Erases the customer's")),
+        ("an indexed marking on a stored reference, which the conversion must carry to step 4", "check 7", "delivery.yaml",
+         plant(delivery, "      unit:         { reference: InventoryItem }\n", "      unit:         { reference: InventoryItem, indexed: true }\n")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",
