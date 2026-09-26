@@ -181,6 +181,32 @@ def assigns(x):
     return [(" ".join(a["expr"].split()), a["location"]) for a in steps(x, "assign")]
 
 
+STEP_KINDS = ("assign", "clear", "add", "remove", "call", "create", "foreach")
+
+
+def walk(steps, path=()):
+    """Every effect step at any depth, with its path from the effect and its depth."""
+    for i, st in enumerate(steps or []):
+        kind = next(k for k in STEP_KINDS if k in st)
+        yield st, kind, path + (i,), len(path) // 3
+        if kind == "foreach":
+            yield from walk(st["foreach"]["steps"], path + (i, "foreach", "steps"))
+
+
+def step_expressions(st, kind):
+    """The expressions a step reads."""
+    body = st[kind]
+    if kind in ("assign", "add", "remove"):
+        return [body["expr"]]
+    if kind == "call":
+        return [body["target"]] + list((body.get("inputs") or {}).values())
+    if kind == "create":
+        return list((body.get("inputs") or {}).values())
+    if kind == "foreach":
+        return [body[k] for k in ("array", "range", "where") if k in body]
+    return []
+
+
 def copies(x):
     """The assigns whose expression is a bare attribute name: the value is that attribute's."""
     return [(e, loc) for e, loc in assigns(x) if NAME.fullmatch(e) and e not in NOT_AN_ATTRIBUTE]
@@ -205,6 +231,16 @@ def schema_errors(doc):
         elif e.validator == "oneOf" and isinstance(e.instance, dict) and "measure" in e.instance:
             out.append((tuple(e.absolute_path), "schema",
                         "a median_time_in_state metric names a `state`, and a transition_count names a `transition`"))
+        elif e.validator == "oneOf" and e.context:
+            # for a step, report the error of the branch its own key names
+            branch = None
+            if isinstance(e.instance, dict) and len(e.instance) == 1:
+                for n, alt in enumerate(e.validator_value):
+                    if alt.get("required") == list(e.instance):
+                        branch = n
+            within = [c for c in e.context if branch is None or c.schema_path[0] == branch]
+            best = jsonschema.exceptions.best_match(within or e.context)
+            out.append((tuple(e.absolute_path) + tuple(best.absolute_path), "schema", best.message))
         else:
             out.append((tuple(e.absolute_path), "schema", e.message))
     return out
@@ -278,7 +314,9 @@ def reserved_name_errors(doc):
     return out
 
 
-def name_errors(doc):
+def name_errors(doc, library=None):
+    library = dict(library or {})
+    library.update(dict(types(doc)))
     out = order_errors(doc) + reserved_name_errors(doc)
     for tn, t in types(doc):
         states = t.get("states") or {}
@@ -310,9 +348,23 @@ def name_errors(doc):
                 for i in sorted(set(INPUT_READ.findall(conditions[g]["expression"])) - taken(x)):
                     out.append((base + ("guards", g), "names",
                                 f"{tn}.{xn} guards on '{g}', which reads inputs.{i}, and {xn} takes no input '{i}'"))
-            for e, loc in assigns(x):
-                for i in sorted(set(INPUT_READ.findall(e)) - taken(x)):
-                    out.append((base + ("effect",), "names", f"{tn}.{xn} assigns inputs.{i} to '{loc}', and {xn} takes no input '{i}'"))
+            for st, kind, path, _depth in walk(x.get("effect")):
+                where = base + ("effect",) + path
+                for e in step_expressions(st, kind):
+                    for i in sorted(set(INPUT_READ.findall(e)) - taken(x)):
+                        out.append((where, "names", f"{tn}.{xn}'s effect reads inputs.{i}, and {xn} takes no input '{i}'"))
+                if kind in ("assign", "add", "remove") and st[kind]["location"] not in attrs:
+                    out.append((where, "names", f"{tn}.{xn} writes '{st[kind]['location']}', which {tn} does not declare"))
+                if kind in ("add", "remove") and st[kind]["location"] in attrs and not str(attrs[st[kind]["location"]].get("type", "")).endswith("[]"):
+                    out.append((where, "names", f"{tn}.{xn} {kind}s to '{st[kind]['location']}', which is not a set"))
+                if kind == "clear" and path[-1:] != () and len(path) > 1:
+                    for a in st["clear"]:
+                        if a not in attrs:
+                            out.append((where, "names", f"{tn}.{xn} clears '{a}', which {tn} does not declare"))
+                if kind == "create":
+                    out += create_errors(doc, library, where, tn, xn, st["create"])
+                if kind == "call":
+                    out += call_errors(library, where, t, tn, xn, x, st["call"])
             for i, spec in (x.get("inputs") or {}).items():
                 if i in set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])):
                     out.append((base + ("inputs", i), "names", f"{tn}.{xn} declares the input '{i}' and also takes the attribute '{i}' as an input"))
@@ -339,6 +391,54 @@ def name_errors(doc):
         out += value_errors(doc, tn, t)
         for mn, m in (t.get("metrics") or {}).items():
             out += metric_errors(tn, t, mn, m)
+    return out
+
+
+def create_errors(doc, library, where, tn, xn, c):
+    """A create names a type of the module, or an imported one, and an initial
+    transition of it, and supplies that transition's required inputs."""
+    imported = {n for names in (doc.get("imports") or {}).values() for n in names}
+    if c["type"] not in (doc.get("types") or {}) and c["type"] not in imported:
+        return [(where, "names", f"{tn}.{xn} creates a {c['type']}, which is neither declared in this module nor imported")]
+    target = library.get(c["type"])
+    if target is None:
+        return []
+    t = (target.get("transitions") or {}).get(c["transition"])
+    if t is None or t["kind"] != "initial":
+        return [(where, "names", f"{tn}.{xn} creates a {c['type']} by '{c['transition']}', which is not an initial transition of {c['type']}")]
+    given = set(c.get("inputs") or {})
+    out = [(where, "names", f"{tn}.{xn} passes '{i}' to {c['type']}.{c['transition']}, which takes no input '{i}'")
+           for i in sorted(given - taken(t))]
+    out += [(where, "names", f"{tn}.{xn} creates a {c['type']} without the input '{i}', which {c['type']}.{c['transition']} requires")
+            for i in sorted(required_input_names(t) - given) if "default" not in ((t.get("inputs") or {}).get(i) or {})]
+    return out
+
+
+def call_errors(library, where, t, tn, xn, x, c):
+    """A call whose target is an attribute or an input of a known type names a
+    transition of that type that acts on an existing object, and passes its inputs.
+    A target reached any other way is left to the publish checks."""
+    target = " ".join(c["target"].split())
+    spec = None
+    m = re.fullmatch(r"(?:this\.)?([a-z][a-z0-9_]*)", target)
+    if m and m.group(1) in (t.get("attributes") or {}):
+        spec = t["attributes"][m.group(1)]
+    m = re.fullmatch(r"inputs\.([a-z][a-z0-9_]*)", target)
+    if m:
+        spec = (x.get("inputs") or {}).get(m.group(1)) or (t.get("attributes") or {}).get(m.group(1))
+    kind = (spec or {}).get("reference")
+    if not kind or kind.endswith("[]") or kind not in library:
+        return []
+    other = library[kind]
+    called = (other.get("transitions") or {}).get(c["transition"])
+    if called is None:
+        return [(where, "names", f"{tn}.{xn} calls {kind}.{c['transition']}, which is not a transition of {kind}")]
+    if called["kind"] == "initial":
+        return [(where, "names", f"{tn}.{xn} calls {kind}.{c['transition']}, an initial transition; create an object with create")]
+    given = set(c.get("inputs") or {})
+    out = [(where, "names", f"{tn}.{xn} passes '{i}' to {kind}.{c['transition']}, which takes no input '{i}'") for i in sorted(given - taken(called))]
+    out += [(where, "names", f"{tn}.{xn} calls {kind}.{c['transition']} without the input '{i}', which it requires")
+            for i in sorted(required_input_names(called) - given) if "default" not in ((called.get("inputs") or {}).get(i) or {})]
     return out
 
 
@@ -392,7 +492,8 @@ def value_errors(doc, tn, t):
     own = {k: set(v.get("states") or {}) for k, v in types(doc)}
     exprs = [(("types", tn, sec, n, "expression"), n, c["expression"])
              for sec in ("conditions", "invariants") for n, c in (t.get(sec) or {}).items()]
-    exprs += [(("types", tn, "transitions", xn, "effect"), xn, e) for xn, x in (t.get("transitions") or {}).items() for e, _l in assigns(x)]
+    exprs += [(("types", tn, "transitions", xn, "effect") + path, xn, e) for xn, x in (t.get("transitions") or {}).items()
+              for st, kind, path, _d in walk(x.get("effect")) for e in step_expressions(st, kind)]
     exprs += [(("types", tn, "observations", o, "invariants", n, "expression"), n, i["expression"])
               for o, ob in (t.get("observations") or {}).items() for n, i in (ob.get("invariants") or {}).items()]
     out = []
@@ -523,11 +624,7 @@ def to_text(doc):
                     mark = {"deny": "", "audit": " observe", "warn": " flag"}[mode]
                     body.append((f"require {g}: {' '.join(c['expression'].split())}{mark} because {c['remedy']}",
                                  X + ("guards", g)))
-            for i, s in enumerate(x.get("effect", [])):
-                if "assign" in s:
-                    body.append((f"set {s['assign']['location']} := {' '.join(s['assign']['expr'].split())}", X + ("effect", i)))
-                else:
-                    body += [(f"clear {a}", X + ("effect", i)) for a in s["clear"]]
+            body += effect_lines(x.get("effect"), X + ("effect",), "")
             if body:
                 emit(f"  {head} {{", X)
                 for b, p in body:
@@ -551,6 +648,37 @@ def to_text(doc):
     for line, path in tail:
         emit(line, path)
     return "\n".join(lines) + "\n", paths
+
+
+def effect_lines(steps, P, indent):
+    """The effect in the internal form, nested loops indented, each line with its YAML path."""
+    one = lambda e: " ".join(e.split())
+    args = lambda a: ", ".join(f"{k} := {one(v)}" for k, v in (a or {}).items())
+    out = []
+    for i, st in enumerate(steps or []):
+        path = P + (i,)
+        if "assign" in st:
+            out.append((f"{indent}set {st['assign']['location']} := {one(st['assign']['expr'])}", path))
+        elif "clear" in st:
+            out += [(f"{indent}clear {a}", path) for a in st["clear"]]
+        elif "add" in st or "remove" in st:
+            k = "add" if "add" in st else "remove"
+            out.append((f"{indent}{k} {st[k]['location']} := {one(st[k]['expr'])}", path))
+        elif "call" in st:
+            c = st["call"]
+            out.append((f"{indent}call {one(c['target'])}.{c['transition']}({args(c.get('inputs'))})", path))
+        elif "create" in st:
+            c = st["create"]
+            bound = f"{c['result']} = " if c.get("result") else ""
+            out.append((f"{indent}create {bound}{c['type']}.{c['transition']}({args(c.get('inputs'))})", path))
+        else:
+            f = st["foreach"]
+            over = one(f["array"]) if "array" in f else f"1..{one(f['range'])}"
+            head = f"{indent}for {f['item']} in {over}" + (f" where {one(f['where'])}" if "where" in f else "") + f" limit {f['limit']} {{"
+            out.append((head, path))
+            out += effect_lines(f["steps"], path + ("foreach", "steps"), indent + "  ")
+            out.append((f"{indent}}}", path))
+    return out
 
 
 def metric_text(tn, t, mn, m):
@@ -603,7 +731,7 @@ def language_errors(converted):
 
 def check(files):
     """Findings and notices over modules given in import order, as (file, line, severity, code, message)."""
-    found, notes, loaded = [], [], []
+    found, notes, loaded, library = [], [], [], {}
     for f, text in files:
         try:
             idx = line_index(text)
@@ -614,7 +742,8 @@ def check(files):
             continue
         loaded.append((f, text, idx, doc))
         errors = schema_errors(doc)
-        found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in errors or name_errors(doc)]
+        found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in errors or name_errors(doc, library)]
+        library.update(dict(types(doc)) if isinstance(doc, dict) else {})
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in notices(doc)]
     if not found and len(loaded) == len(files):
         converted = [to_text(doc) for _f, _t, _i, doc in loaded]
@@ -630,7 +759,7 @@ def report(found, notes):
     print(f"{len(found)} fatal · {len(notes)} notice{'s' if len(notes) != 1 else ''}")
 
 
-def self_test(people, service, inventory):
+def self_test(people, service, inventory, delivery):
     def plant(text, old, new):
         assert text.count(old) >= 1, old
         return text.replace(old, new, 1)
@@ -652,6 +781,10 @@ def self_test(people, service, inventory):
          plant(service, "        kind: initial\n        to: OPEN\n", "        kind: initial\n        from: WORKING\n        to: OPEN\n")),
         ("a guard that reads an input its transition does not take", "names", "service.yaml",
          plant(service, "        backdating_limit: 2 days\n", "        backdating_limit: 2 days\n        guards:\n          engineer_active: deny\n")),
+        ("a call to a transition its target does not have", "names", "delivery.yaml",
+         plant(delivery, "transition: deliver_externally, inputs", "transition: deliver_outside, inputs")),
+        ("a create without an input its transition requires", "names", "delivery.yaml",
+         plant(delivery, "inputs: { delivery: this, label: label } }", "inputs: { delivery: this } }")),
         ("a condition that reads who is asking", "check 64", "service.yaml",
          plant(plant(service, "          no_unresolved_failure: deny\n",
                      "          no_unresolved_failure: deny\n          assigned_engineer_only: deny\n"), *reads_actor)),
@@ -672,7 +805,8 @@ def self_test(people, service, inventory):
     ]
     ok = True
     for name, expect, f, text in planted:
-        found, _ = check([("people.yaml", people), (f, text)])
+        before = [("inventory.yaml", inventory)] if f == "delivery.yaml" else []
+        found, _ = check([("people.yaml", people)] + before + [(f, text)])
         hit = [x for x in found if x[3] == expect]
         ok &= bool(hit)
         where = f"{hit[0][0]}:{hit[0][1]} {hit[0][4]}" if hit else f"MISSED ({found[:1]})"
@@ -694,15 +828,18 @@ def main():
         sys.exit(1 if found else 0)
     people = (EXAMPLES / "people.yaml").read_text()
     clean = True
-    for version in ("people.yaml", "inventory.yaml", "inventory-v2.yaml", "service.yaml", "service-v2.yaml"):
-        files = [("people.yaml", people)] + ([(version, (EXAMPLES / version).read_text())] if version != "people.yaml" else [])
+    needs = {"delivery.yaml": ["inventory.yaml"]}
+    for version in ("people.yaml", "inventory.yaml", "inventory-v2.yaml", "service.yaml", "service-v2.yaml", "delivery.yaml"):
+        before = [(n, (EXAMPLES / n).read_text()) for n in needs.get(version, [])]
+        files = [("people.yaml", people)] + before + ([(version, (EXAMPLES / version).read_text())] if version != "people.yaml" else [])
         found, notes = check(files)
         print(f"{version}: {'clean' if not found else str(len(found)) + ' finding(s)'}, "
               f"{len(notes)} notice{'s' if len(notes) != 1 else ''}")
         for x in found:
             print(f"  {x[0]}:{x[1]} {x[3]} {x[4]}")
         clean &= not found
-    ok = self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "inventory.yaml").read_text())
+    ok = self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "inventory.yaml").read_text(),
+                   (EXAMPLES / "delivery.yaml").read_text())
     sys.exit(0 if clean and ok else 1)
 
 

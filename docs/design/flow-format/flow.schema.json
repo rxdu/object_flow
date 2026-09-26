@@ -359,7 +359,6 @@
           "additionalProperties": false,
           "properties": {
             "assign": {
-              "description": "Writes the value of expr to the attribute named by location (SCXML <assign>).",
               "type": "object",
               "required": [
                 "location",
@@ -373,7 +372,8 @@
                 "expr": {
                   "$ref": "#/definitions/expression"
                 }
-              }
+              },
+              "description": "Writes the value of expr to the attribute named by location (SCXML <assign>)."
             }
           }
         },
@@ -385,7 +385,201 @@
           "additionalProperties": false,
           "properties": {
             "clear": {
-              "$ref": "#/definitions/names"
+              "$ref": "#/definitions/names",
+              "description": "Removes the values of the listed optional attributes."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "add"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "add": {
+              "type": "object",
+              "required": [
+                "location",
+                "expr"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "location": {
+                  "$ref": "#/definitions/memberName"
+                },
+                "expr": {
+                  "$ref": "#/definitions/expression"
+                }
+              },
+              "description": "Adds the value of expr to the set-valued attribute named by location."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "remove"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "remove": {
+              "type": "object",
+              "required": [
+                "location",
+                "expr"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "location": {
+                  "$ref": "#/definitions/memberName"
+                },
+                "expr": {
+                  "$ref": "#/definitions/expression"
+                }
+              },
+              "description": "Removes the value of expr from the set-valued attribute named by location."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "call"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "call": {
+              "type": "object",
+              "required": [
+                "target",
+                "transition"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "target": {
+                  "$ref": "#/definitions/expression"
+                },
+                "transition": {
+                  "$ref": "#/definitions/memberName"
+                },
+                "inputs": {
+                  "type": "object",
+                  "propertyNames": {
+                    "$ref": "#/definitions/memberName"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/definitions/expression"
+                  },
+                  "description": "The inputs passed to the transition, each an expression."
+                }
+              },
+              "description": "Takes a transition of another object, which evaluates its guards and records its own event (UML CallOperationAction)."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "create"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "create": {
+              "type": "object",
+              "required": [
+                "type",
+                "transition"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "$ref": "#/definitions/typeName"
+                },
+                "transition": {
+                  "$ref": "#/definitions/memberName"
+                },
+                "inputs": {
+                  "type": "object",
+                  "propertyNames": {
+                    "$ref": "#/definitions/memberName"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/definitions/expression"
+                  },
+                  "description": "The inputs passed to the transition, each an expression."
+                },
+                "result": {
+                  "$ref": "#/definitions/memberName"
+                }
+              },
+              "description": "Creates an object by an initial transition of its type; result names it for later steps (UML CreateObjectAction)."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "foreach"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "foreach": {
+              "type": "object",
+              "required": [
+                "item",
+                "limit",
+                "steps"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "item": {
+                  "$ref": "#/definitions/memberName"
+                },
+                "array": {
+                  "$ref": "#/definitions/expression"
+                },
+                "range": {
+                  "$ref": "#/definitions/expression"
+                },
+                "where": {
+                  "$ref": "#/definitions/expression"
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "steps": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/definitions/step"
+                  }
+                }
+              },
+              "oneOf": [
+                {
+                  "required": [
+                    "array"
+                  ],
+                  "not": {
+                    "required": [
+                      "range"
+                    ]
+                  }
+                },
+                {
+                  "required": [
+                    "range"
+                  ],
+                  "not": {
+                    "required": [
+                      "array"
+                    ]
+                  }
+                }
+              ],
+              "description": "Runs steps for each element of array, or for each number from 1 to range, at most limit times (SCXML <foreach>)."
             }
           }
         }

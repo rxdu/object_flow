@@ -36,7 +36,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 (step 2, `schema`)
 
 1. A name MUST be unique among the names of its section. A repeated key is refused by step 1.
-2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations` and `types`; a type declares, in this order, `description`, `tracking`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions` and `metrics`. A type that another type references MUST be declared before it in the module, or imported. (step 3, `order`)
+2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations` and `types`; a type declares, in this order, `description`, `tracking`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions` and `metrics`. A type that another type's attributes, observations or inputs reference MUST be declared before it in the module, or imported; an effect MAY name a type declared later (§4.8). (step 3, `order`)
 3. Reserved words of the text language MAY be used as names, as `declaration-syntax.md` §9.2 allows, with these exceptions (step 3, `names`):
    - a category MUST NOT be named `any`, `terminal` or `superseding`, and a transition MUST NOT be named `any` (the text language's check 33);
    - an attribute, including an observation's, MUST NOT be named `state`, `inputs`, `actor`, `this`, `now`, `referrers` or `this_event`, since an expression resolves those words before any attribute;
@@ -159,7 +159,13 @@ A guard's **enforcement** is one of the three validation actions of Kubernetes a
 
 An **effect step** is one of:
 - `assign: { location: <attribute>, expr: <expression> }`, which writes the value of the expression (§5) to the attribute, as SCXML's `<assign>` does;
-- `clear: [<attribute>, …]`, which removes the values of the listed attributes, which MUST be optional (step 4, `check 17`).
+- `clear: [<attribute>, …]`, which removes the values of the listed attributes, which MUST be optional (step 4, `check 17`);
+- `add: { location: <attribute>, expr: <expression> }` and `remove: { location, expr }`, which add a value to or remove one from a set-valued attribute, one whose type ends in `[]` (step 3, `names`);
+- `call: { target: <path>, transition: <name>, inputs: { <input>: <expression>, … } }`, which takes a transition of another object: its guards are evaluated and it records its own event, in the same request (UML's `CallOperationAction`, whose object is its `target`). Where the target is an attribute or an input whose type is known, including a type imported from a module checked earlier, the transition MUST be one of that type's, MUST NOT be an initial one, and MUST receive every input it requires and none it does not take (step 3, `names`); a target reached any other way is checked by the publish checks;
+- `create: { type: <Type>, transition: <name>, inputs: { … }, result: <name> }`, which creates an object by an initial transition of its type, declared in the module or imported, and MUST pass the inputs that transition requires (step 3, `names`); `result` names the new object for the steps after it (UML's `CreateObjectAction`);
+- `foreach: { item: <name>, array: <expression>, where: <expression>, limit: <n>, steps: [ … ] }`, which runs its steps for each element of a collection that satisfies `where`, or, with `range: <expression>` in place of `array`, for each number from 1 to that value (SCXML's `<foreach>`). `limit` is REQUIRED and bounds that loop; a request that exceeds it is refused (step 2, `schema`; `declaration-syntax.md` §5.2).
+
+Every write stays on the object the transition acts on; another object is changed only by calling one of its transitions or creating it. An effect MAY name a type declared later in the module, since a type often creates or calls objects that refer back to it, which no order of declaration could otherwise allow.
 
 A transition MUST NOT both write and clear one attribute. (step 3, `names`)
 
@@ -201,6 +207,10 @@ Each form converts to the text language as follows, and means what that declarat
 | `guards: { g: deny }` | `require g: <expression> because <remedy>` |
 | `guards: { g: audit }`, `{ g: warn }` | the same, marked `observe` or `flag` |
 | `assign: { location: b, expr: e }` | `set b := e` |
+| `add: { location: b, expr: e }`, `remove: …` | `add b := e`, `remove b := e` |
+| `call: { target: p, transition: t, inputs: { i: e } }` | `call p.t(i := e)` |
+| `create: { type: T, transition: t, inputs: { i: e }, result: r }` | `create r = T.t(i := e)` |
+| `foreach: { item: x, array: c, where: w, limit: n, steps: […] }` | `for x in c where w limit n { … }`; with `range: e`, `for x in 1..e limit n { … }` |
 | `clear: [a]` | `clear a` |
 | `final: true` on state `S` | `state S category … terminal` |
 | `required_attributes: [a, b]` on state `S` | `invariant s_invariant: state != S or (a is not null and b is not null)` |
@@ -219,7 +229,7 @@ A description is checked in four steps, and each stops the check if it finds any
 | 1. strict loading | `yaml` | a file YAML cannot parse, including a `?` unquoted inside an inline collection, or a key repeated in a mapping |
 | 2. structure | `schema` | a missing or unknown key, a value of the wrong form, a name in the wrong case, a transition kind without the `from` and `to` it requires, a metric without the `state` or `transition` its measure requires |
 | 3. names and order | `order` | sections out of order, a type used before it is declared |
-| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
+| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
@@ -278,7 +288,7 @@ These are open in `authoring-flows.md` §3 and §7, and an answer would change t
 
 These words are reserved by the format. `scripts/check-flow-format-doc.py` holds this list equal to the keys and values `flow.schema.json` and the checker define.
 
-**Keys:** `module`, `imports`, `categories`, `enumerations`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `optional`, `unique`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `backdating_limit`, `measure`, `state`, `transition`, `group_by`, `flag_when`.
+**Keys:** `module`, `imports`, `categories`, `enumerations`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `optional`, `unique`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `state`, `transition`, `group_by`, `flag_when`.
 
 **Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `month`, `week`, `actor`.
 
@@ -360,7 +370,8 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | guards, and their enforcement | §5.1 | written (§4.8) |
 | eager and deferred evaluation of guards | §5.1 | not yet |
 | effect steps: assign, clear | §5.2 | written (§4.8) |
-| effect steps: create, call, for, add, remove, supersede | §5.2, §6.1 | not yet |
+| effect steps: create, call, for, add, remove | §5.2 | written (§4.8) |
+| effect step: supersede | §5.2, §6.1 | not yet |
 | derivations | §2 | not yet |
 | assertions and admissions | §6.3 | not yet |
 | erasure and correction | §6.4 | not yet |
