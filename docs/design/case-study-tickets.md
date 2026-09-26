@@ -2,6 +2,8 @@
 
 Status: design iteration 2, 2026-09-07. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md). Decisions taken here are ADR-0026 to ADR-0029 and an amendment to ADR-0021, all pending author review.
 
+> **Revisited 2026-09-26 against Jira's documentation and the flow format** (§6), at the author's request. §1 to §5 were written from general knowledge of Jira and against the text language; §6 checks every workflow feature Atlassian documents against the format, and is the current answer.
+
 > **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
 
 *Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
@@ -93,4 +95,162 @@ Requiredness on transitions (ADR-0002) is Jira's validator model exactly. Condit
 - Splitting one issue into two with shared history. The objects are expressible since ADR-0046 allows part re-parenting and named creations; history is still not shared, and each successor references the source.
 - Gapless key sequences. Sequences are monotonic, not gapless; a rolled-back creation leaves a gap, as it does in Jira.
 - A workflow edit that changes what a *past* transition meant. History is interpreted under the version it was recorded under; the readable rule set for an old version remains printable, but no tool will re-derive "what would have been allowed then".
-- Issue-level security. Covered by ADR-0030: a declared visibility predicate, where failing it means *not found* rather than blocked.
+- Issue-level security. ~~Covered by ADR-0030: a declared visibility predicate, where failing it means *not found* rather than blocked.~~ *Corrected 2026-09-26:* ADR-0114 withdrew visibility from declarations; who may see an object is the upper layer's (PRD N7).
+
+## 6. Against Jira's documented workflows, in the flow format (2026-09-26)
+
+The author asked whether the current design "can cover all the workflows supported by Jira software and management flows". This section answers against what Atlassian documents rather than what this study remembered, and against the flow description format (`flow-format.md`) rather than the text language.
+
+**Scope.** Jira Cloud's software and business spaces. Jira Work Management is no longer a separate product: "We’ve taken the best of Jira Work Management and Jira Software to make a single project management tool … we’re calling it, simply, Jira" ([announcement](https://www.atlassian.com/blog/announcements/the-next-era-of-jira)), and "Business spaces are the default on the Jira platform" ([the Jira family](https://support.atlassian.com/jira-software-cloud/docs/what-is-the-jira-family-of-products/)). Jira Service Management (SLAs, queues, the portal) and Marketplace apps are out of scope. Atlassian now says *space* for project and *work item* for issue, and so does this section.
+
+**Method.** Two inventories were taken from Atlassian's documentation on 2026-09-26, one of the workflow engine and one of the features around it, each item quoted from the page's raw text; a sample of the quotes was checked against the pages again before use. Each item is mapped below. The claims marked *Written* are held by a module, [`flow-format/examples/issues.yaml`](flow-format/examples/issues.yaml), which passes all four steps of the checker: a shared machine for Jira's simplified workflow, standard work items with their own workflow, subtasks, typed links, sprints, versions, worklogs, and a business space's document approval.
+
+**Verdicts.**
+- **Written**: the format writes it today, and `issues.yaml` holds it, under the name the row gives.
+- **Not yet**: the model has it and the format will write it with the construct named, in `TODO.md`'s order.
+- **Application**: the PRD places it in an upper-layer application, which the engine serves by query and by its record: presenting work, causing external effects and initiating work (N6), or deciding who may do or see anything (N7, ADR-0114).
+- **By decision**: deliberately not offered, with the decision cited.
+- **Differs**: expressible, not the way Jira does it; the row says how.
+
+### 6.1 Statuses, categories and resolution
+
+| Jira | Verdict | In the format |
+|---|---|---|
+| Statuses, each in one of three categories: To do, In progress, Done ([statuses](https://support.atlassian.com/jira-cloud-administration/docs/what-is-a-workflow-status/)) | Written | states and `categories`; Jira's Done is the built-in `closed`, which the standard metrics read as finished (`declaration-syntax.md` §1) |
+| A status shared by several workflows, renamed everywhere at once | Differs | a state belongs to one machine or type; a rename is a published version with a mapping (F5), migrations being not yet |
+| A work item is "open or closed, based on the value of its Resolution field (not its status)" ([transitions](https://support.atlassian.com/jira-cloud-administration/docs/create-workflow-transitions/)) | Differs | the engine's open and closed follow the state's category; Jira's reading is a derived attribute, `resolved: resolution is not null` |
+| Resolution set on the transition to Done, by prompt or automatically; resolved date set; cleared on reopening | Written | `done` takes `required_inputs: [resolution]` and assigns `resolved_at := now`; `to_do` and `start` clear both; `auto_resolve` assigns a fixed `Resolution.DONE` |
+| Resolutions allowed only at some statuses, `jira.field.resolution.include`/`exclude` | Written | a guard over the input, `resolution_allowed`: `inputs.resolution in [Resolution.DONE, Resolution.WONT_DO]` |
+
+### 6.2 Transitions
+
+| Jira | Verdict | In the format |
+|---|---|---|
+| The initial transition, "Create" | Written | `kind: initial` |
+| A transition from specific statuses, one-way | Written | `kind: external`, `from` one state or a list |
+| Global: "Allow all statuses to transition to this one" | Written | `from: any`, added for this study (§6.10) |
+| Looped, "work item actions", "so the work item's status stays the same" | Written | `kind: internal`, from listed states or `any` |
+| Shared: "transitions for work items in multiple statuses with a single set of rules" | Written | a `from` list |
+| A workflow with no terminal status, Done being reopenable and work items deleted | Differs | every lifecycle needs a final state (check 15); `issues.yaml` uses ARCHIVED, which is Jira's archiving: "it will only appear in Archived work items and can no longer be edited" ([archive](https://support.atlassian.com/jira-software-cloud/docs/archive-an-issue/)) |
+| Custom events fired by a transition, and the Generic event | Written | every transition is recorded as its own event, named by the transition |
+
+### 6.3 Conditions
+
+Atlassian's list is the old editor's ([advanced workflows](https://support.atlassian.com/jira-cloud-administration/docs/configure-advanced-issue-workflows/)); the new editor groups the same under *Restrict transition*.
+
+| Condition | Verdict | In the format |
+|---|---|---|
+| Only Assignee, Only Reporter, Permission, User Is In Group / Any Group / Space Role / Any Space Role / Custom Field / Group Custom Field; *Restrict who can move a work item* | Application | who may request a transition is the upper layer's (N7, ADR-0114); the engine records who acted |
+| Separation of Duties: no user performs a transition "if the user has already performed a transition on the work item" | Application | it reads who is asking; the application compares the caller with `.actor_id` on the object's recorded transitions, which the engine keeps |
+| Value Field, Compare Number Custom Field; *Restrict to when a field is a specific value* | Written | a guard: `estimated` is `story_points is not null` |
+| Previous Status; *has been through a specific status*, with its options | Written | `been_in_review`: `entered_at(IN_REVIEW) is not null`; counting every visit, or ignoring loops, is a derived attribute over `this.intervals` read by a guard, `reviews` and `reviewed_twice` |
+| Sub-Task Blocking; *Restrict based on the status of subtasks* | Written | `none(s in subtasks where s.state.category != closed)` |
+| Block transition until approval | Written | §6.8 |
+| Hide From User, "can only be triggered from a workflow function or from REST"; *Restrict from all users* | Written, and Application | `only_via` when only other transitions take it, as `Subtask.create` is; which callers may use the API is the upper layer's |
+| Always False | Written | a transition nothing may take is not declared |
+| Conditions grouped with All or Any, nested | Written | one guard's expression with `and`, `or` and parentheses; several guards are all required |
+
+### 6.4 Validators
+
+The old editor's list survives only on a 2021 page ([validators](https://confluence.atlassian.com/servicedeskcloud/available-workflow-validators-for-company-managed-projects-1097176551.html)); the new editor's *Validate a field* rule has the same kinds.
+
+| Validator | Verdict | In the format |
+|---|---|---|
+| Field Required | Written | `required_inputs`, or a guard over an input; requiredness belongs to the transition (ADR-0002) |
+| Field has been modified | Written | `points_changed`: `inputs.story_points != story_points` |
+| Field has single value | Written | `one_component`: `count(v in inputs.components) <= 1` |
+| Date Compare, Date Window ("adding a time span in days to one of them") | Written | `due_within_window`: `inputs.due_date <= start_date + 3 days`; durations are `s`, `min`, `h`, `days` and `weeks` |
+| Regular Expression Check | By decision | a pattern's meaning differs between Python and each backend's SQL, so it is left to the caller's edge or an evaluator (ADR-0103, `edge-cases.md`) |
+| Parent Status | Written | `Subtask.parent_in_progress`: `parent.state == WorkItem.IN_PROGRESS` |
+| Previous State | Written | as the Previous Status condition |
+| Permission | Application | N7 |
+| Forms attached or submitted | Application | forms are an interface; what a form submits arrives as the transition's inputs |
+
+### 6.5 Post functions and *Perform actions*
+
+| Post function | Verdict | In the format |
+|---|---|---|
+| The essential ones: set the status, add the comment, update the history, re-index, fire the event | Written | what taking a transition does; the history is the event log |
+| Update Work Item Field, Update Custom Field, Clear Field Value; *Update a work item's field*, including `%%CURRENT_DATETIME%%` | Written | `assign`, `clear`, `add`; the current time is `now` |
+| Copy Value From Other Field, "either within the same work item or from parent to subtask" | Written | `assign: { location: x, expr: parent.x }`; `add_subtask` passes the parent's space, as a subtask inherits it |
+| Assign to Lead Developer | Written | `assign_to_lead` assigns `space.lead` |
+| Assign to Reporter | Written | `assign_to_reporter` assigns `reporter` |
+| Assign to Current User | Differs | the engine never evaluates who is asking (ADR-0114); the application supplies its caller as the `assignee` input, as `start` takes it |
+| Trigger a Webhook, Trigger agent, notifications | Application | effects outside the store, from the event log (N6) |
+| Set security level | Application | who may see an object (N7) |
+| Development triggers, which transition a work item on a merged pull request and ignore "any conditions, validators or permissions" ([triggers](https://support.atlassian.com/jira-cloud-administration/docs/understand-workflow-triggers/)) | Differs | the reaction is the application's (N6), and its request passes the guards like any other; a change that must override them is an assertion (§4.13) |
+
+### 6.6 Properties, screens and fields
+
+| Jira | Verdict | In the format |
+|---|---|---|
+| `jira.issue.editable` false at a status | Written | no internal transition from that state: `edit` runs from To Do, In Progress and In Review only |
+| `jira.permission.*` | Application | N7 |
+| `opsbar-sequence`, the `jira.i18n` names | Application | presentation (N6); a transition's `description` is the format's |
+| Transition screens; *Remind people to update fields* | Written, and Application | the fields a transition takes are its inputs; how they are shown is the interface's |
+| A field required per work type (field configuration) | Written | an attribute's requiredness on its type |
+
+### 6.7 Schemes and editing live workflows
+
+| Jira | Verdict | In the format |
+|---|---|---|
+| A workflow scheme mapping each work type to one workflow | Written | a type binds a shared machine with `state_machine` (§4.10), or declares its own |
+| The same work type with a different workflow in each space | Not yet | two types extending one base (ADR-0026); `extends` comes with migrations |
+| A condition in a workflow shared by work types without subtasks, where Sub-Task Blocking holds vacuously | Differs | a machine reads only what it requires of every binder, so a type that has subtasks takes a workflow of its own, as `WorkItem` does here |
+| Drafts, published changes, deleting a status and moving its work items | Not yet | declaration versions and mappings (F5, ADR-0027); the format writes them with migrations |
+| Changing the work type hierarchy, which "cannot be undone" | Not yet | a migration |
+
+### 6.8 Approvals
+
+Approvals exist outside Jira Service Management on the Premium and Enterprise plans: "The approvals feature is only available on Premium editions in Jira" ([approvals](https://support.atlassian.com/jira-software-cloud/docs/what-are-approvals/)). In a business space: "Once all of the approvers listed on the work item have signed off, the work item will be transitioned through to the approved transition. If one of the approvers decline, the work item will go through the declined transition" ([approvers](https://support.atlassian.com/jira-software-cloud/docs/how-to-manage-approvers/)).
+
+| Jira | Verdict | In the format |
+|---|---|---|
+| Approvers named on the work item; each approves or declines | Written | `Document.approvers`, and each decision an observation, `approvals` |
+| All approve, or a given number, or one declines | Written | the guards `all_approved` and `one_declined`, counting only decisions since the document entered review; a number is `count(…) >= n` |
+| Who may approve, and who is excluded | Application | N7; an exclusion over recorded values, such as the reporter, is a guard |
+| The transition taken automatically when the last approver signs off | Differs | the engine starts no transition no request caused (F8, N6): the application requests `approve` when it sees the last decision, and the guard confirms it |
+| "if you have the 'any status' transition applied to the status … your approval process can be bypassed" | Differs | the same holds here: a transition into APPROVED without the guard bypasses it, and the rule set shows every transition into the state |
+
+### 6.9 Around the workflow
+
+| Jira | Verdict | In the format |
+|---|---|---|
+| Hierarchy: epic, standard work item, subtask; levels above epic | Written | types with references: `Epic.children`, `WorkItem.subtasks` as parts; further levels are further types |
+| A subtask created only under a parent, archived with it | Written | `only_via: [WorkItem.add_subtask]`, and a cascade on `archive` |
+| "You can’t archive a subtask by itself" | Differs | `archive` is the shared machine's, and a binder cannot mark it `only_via`; a subtask with a workflow of its own could |
+| Links with types and directions: blocks, duplicates, relates to, clones | Written | `WorkItemLink`, with `source` and `target` naming each other's ends; a guard may read them, as `not_blocked` does, which Jira's built-in conditions do not |
+| Keys `PROJ-123`, one series per space | Written | `identifier: { sequence, scope: space, format: "{space.key}-{n}" }` |
+| Board columns mapped to statuses; the backlog; Done work leaving the board after 14 days | Application | presentation (N6); the engine answers the queries |
+| Column constraints, which "trigger a visual indicator" and do not block ([columns](https://support.atlassian.com/jira-software-cloud/docs/configure-columns/)) | Written | a type-scan guard marked `warn`: `under_wip_limit` |
+| Sprints, future to active to closed; one active at a time unless parallel sprints are on; reopening | Written | `Sprint`, with `unique: { where: state == ACTIVE }` on its space |
+| Completing a sprint, which needs every subtask done, and moves unfinished work to the backlog or a sprint | Written | `complete_to_backlog` and `complete_to_sprint`, guarded by `subtasks_done`, each calling its work items |
+| Versions, unreleased to released to archived; releasing moves unresolved work items to another version | Written | `Version`, `release_moving_unresolved` |
+| Automation: triggers (field changed, scheduled, webhook), conditions, actions, branches over related work items | Application | initiating work and reacting to events are the application's (N6); its actions are requests under the same rules, and a consequence declared on a transition is a cascade (F8) |
+| Forms, whose submission creates a work item | Application | the form is an interface; its submission is an initial transition's request |
+| Due and start dates; overdue work | Written | attributes; `overdue` is a derived attribute |
+| Time tracking and worklogs | Written | the `worklogs` observation, with a `duration`; working hours per day and days per week are a non-goal (PRD §3) |
+| Bulk transition and bulk move | Written | the library's batch operation (ADR-0037); the format is not involved |
+| Clone, which links the copy | Written | `clone` creates a work item and a `CLONES` link |
+| Recurring work items | Application | a schedule (N6) requesting `clone` |
+| Move to another space; change the work type | Not yet | supersession (ADR-0028), the last construct |
+| A default value for a field, such as priority | Not yet | attribute defaults, with quantity tracking |
+| Metrics: cycle time, velocity, time logged | Written | a fixed measure and two formulas (§4.9) |
+
+### 6.10 Found and fixed by this study
+
+The instrument found four defects, each fixed and committed with a probe or a plant:
+1. The conversion dropped a reference's `unique`, `indexed` and `personal`, so uniqueness on a reference enforced nothing (commit `b0fe878`).
+2. `from: any` had no written form, although Appendix B called the transition kinds written (`0501838`).
+3. Step 3 refused the built-in category `closed` unless a module listed it (`fbc927f`).
+4. The internal checker's check 55 refused an attribute named `labels`, which §9.2 of the model allows (`04d8827`).
+
+The inventories also caught this project's own mistake: a quotation in ADR-0118, taken from a page summary rather than the page, which was retracted in place (`docs/LESSONS.md`).
+
+### 6.11 The answer
+
+Every workflow Jira's engine configures, in either kind of space, can be expressed. The format writes it today, except where four constructs the model already has are still to come: a different workflow for one work type in each space (`extends`), editing a workflow under live work items (migrations), moving a work item or changing its type (supersession), and default field values.
+
+Where it differs from Jira, a written form still exists. A lifecycle ends in a final state, such as an archived one. A rule that holds for only some of the types sharing a workflow, a subtask blocking condition or an archive only a parent may cause, puts those types in a workflow of their own, as a Jira scheme would. A transition Jira takes by itself, on the last approval or a merged pull request, is requested by the application and checked like any other request. One validator is excluded by decision, the regular expression.
+
+What remains is by design an application's: who may do what, which is most of Jira's conditions; what is shown, which is boards and screens; and what starts work or reaches outside, which is automation, webhooks and notifications. The engine records and answers what each of those needs.

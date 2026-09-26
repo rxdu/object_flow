@@ -1,0 +1,595 @@
+# yaml-language-server: $schema=../flow.schema.json
+# Issues: Jira's work items, written in this format to check how much of Jira's
+# workflows it can express (case-study-tickets.md §6). Jira's Done category is
+# this format's built-in `closed`.
+module: issues
+imports: { people: [User] }
+categories: [todo, in_progress]
+
+enumerations:
+  Resolution: [DONE, WONT_DO, DUPLICATE, CANNOT_REPRODUCE]
+  WorkType: [STORY, TASK, BUG]
+  Priority: [HIGHEST, HIGH, MEDIUM, LOW, LOWEST]
+  LinkType: [BLOCKS, DUPLICATES, RELATES_TO, CLONES]
+  Decision: [APPROVE, DECLINE]
+
+sequences:
+  work_item_number:
+    description: Numbers a space's work items in one series, as PROJ-123.
+
+machines:
+  SimpleFlow:
+    description: Jira's simplified workflow, in which any status may move to To Do, In Progress or Done.
+    requires:
+      attributes:
+        resolution:  { type: Resolution, optional: true }
+        resolved_at: { type: timestamp, optional: true }
+    states:
+      TO_DO:       { category: todo }
+      IN_PROGRESS: { category: in_progress }
+      DONE:        { category: closed }
+      ARCHIVED:
+        description: Archived; it can no longer be edited.
+        category: closed
+        final: true
+    transitions:
+      create: { kind: initial, to: TO_DO }
+      to_do:
+        kind: external
+        from: any
+        to: TO_DO
+        description: Moves the work item to To Do, clearing its resolution.
+        effect:
+          - clear: [resolution, resolved_at]
+      start:
+        kind: external
+        from: any
+        to: IN_PROGRESS
+        description: Moves the work item to In Progress, clearing its resolution.
+        effect:
+          - clear: [resolution, resolved_at]
+      done:
+        kind: external
+        from: any
+        to: DONE
+        description: Moves the work item to Done with a resolution, and records when it was resolved.
+        required_inputs: [resolution]
+        effect:
+          - assign: { location: resolved_at, expr: now }
+      archive:
+        kind: external
+        from: any
+        to: ARCHIVED
+        description: Archives the work item.
+
+types:
+  Space:
+    description: A Jira space, formerly a project, which owns work items and numbers them.
+    tracking: record
+    attributes:
+      key:  { type: string, indexed: true, unique: true }
+      name: { type: string }
+      lead: { reference: User }
+    states:
+      ACTIVE:   { category: in_progress }
+      ARCHIVED: { category: closed, final: true }
+    transitions:
+      create:  { kind: initial, to: ACTIVE, required_inputs: [key, name, lead] }
+      archive: { kind: external, from: ACTIVE, to: ARCHIVED }
+
+  Epic:
+    description: A large piece of work, the parent of standard work items.
+    tracking: record
+    state_machine: SimpleFlow
+    attributes:
+      number:
+        type: string
+        identifier: { sequence: work_item_number, scope: space, format: "{space.key}-{n}" }
+        unique: in_scope
+      space:       { reference: Space }
+      summary:     { type: string }
+      assignee:    { reference: User, optional: true, assignee: true }
+      resolution:  { type: Resolution, optional: true }
+      resolved_at: { type: timestamp, optional: true }
+      children:    { reference: "WorkItem[]", opposite: epic }
+    transitions:
+      create:
+        kind: initial
+        to: TO_DO
+        required_inputs: [space, summary]
+        optional_inputs: [assignee]
+
+  WorkItem:
+    description: A story, task or bug, a standard work item, with its own workflow.
+    tracking: record
+    attributes:
+      number:
+        type: string
+        identifier: { sequence: work_item_number, scope: space, format: "{space.key}-{n}" }
+        unique: in_scope
+      space:        { reference: Space }
+      work_type:    { type: WorkType }
+      summary:      { type: string }
+      reporter:     { reference: User }
+      assignee:     { reference: User, optional: true, assignee: true }
+      priority:     { type: Priority, optional: true }
+      story_points: { type: int, optional: true }
+      due_date:     { type: timestamp, optional: true }
+      start_date:   { type: timestamp, optional: true }
+      components:   { type: "string[]" }
+      labels:       { type: "string[]" }
+      resolution:   { type: Resolution, optional: true }
+      resolved_at:  { type: timestamp, optional: true }
+      epic:         { reference: Epic, optional: true, opposite: children }
+      sprint:       { reference: Sprint, optional: true, opposite: work_items }
+      fix_version:  { reference: Version, optional: true, opposite: work_items }
+      subtasks:
+        reference: "Subtask[]"
+        aggregation: composite
+        opposite: parent
+        description: Its subtasks; archiving the work item archives them.
+        cascade:
+          - { on: [archive], transition: archive, limit: 500 }
+      outward_links: { reference: "WorkItemLink[]", opposite: source }
+      inward_links:  { reference: "WorkItemLink[]", opposite: target }
+    observations:
+      worklogs:
+        kind: Worklog
+        description: Time logged against the work item.
+        attributes:
+          time_spent: { type: duration }
+          comment:    { type: string, optional: true, personal: true }
+    states:
+      TO_DO:       { category: todo }
+      IN_PROGRESS: { category: in_progress }
+      IN_REVIEW:   { category: in_progress }
+      DONE:
+        category: closed
+        required_attributes: [resolution]
+      ARCHIVED:
+        description: Archived; it can no longer be edited.
+        category: closed
+        final: true
+    derived_attributes:
+      reviews:
+        description: How many times the work item has been in review.
+        expression: count(i in this.intervals where i.state == WorkItem.IN_REVIEW)
+      resolved:
+        description: The work item has a resolution, which is how Jira decides it is closed.
+        expression: resolution is not null
+      overdue:
+        description: The work item is past its due date and not done.
+        expression: due_date is not null and due_date < now and state != DONE
+    conditions:
+      subtasks_done:
+        description: Every subtask is done.
+        expression: none(s in subtasks where s.state.category != closed)
+        remedy: dependent
+      been_in_review:
+        description: The work item has been in review.
+        expression: entered_at(IN_REVIEW) is not null
+        remedy: unreachable_from_here
+      estimated:
+        description: The work item has an estimate.
+        expression: story_points is not null
+        remedy: self_serviceable
+      not_blocked:
+        description: No work item that blocks this one is still open.
+        expression: >-
+          none(l in inward_links where l.link_type == LinkType.BLOCKS
+               and l.state == WorkItemLink.ACTIVE and l.source.state.category != closed)
+        remedy: dependent
+      under_wip_limit:
+        description: Fewer than ten of the space's work items are in progress.
+        expression: count(w in WorkItem where w.space == space and w.state == IN_PROGRESS) < 10
+        remedy: dependent
+      resolution_allowed:
+        description: The resolution is one this workflow allows, as jira.field.resolution.include restricts it.
+        expression: inputs.resolution in [Resolution.DONE, Resolution.WONT_DO]
+        remedy: self_serviceable
+      points_changed:
+        description: The estimate is changed, as Jira's field-has-been-modified validator requires.
+        expression: inputs.story_points != story_points
+        remedy: self_serviceable
+      one_component:
+        description: At most one component is chosen, as Jira's field-has-single-value validator requires.
+        expression: count(v in inputs.components) <= 1
+        remedy: self_serviceable
+      due_within_window:
+        description: The due date is no later than three days after the start date, as Jira's date window validator checks.
+        expression: inputs.due_date <= start_date + 3 days
+        remedy: self_serviceable
+      reviewed_twice:
+        description: The work item has been in review at least twice, counting every visit, as the previous status condition can.
+        expression: reviews >= 2
+        remedy: unreachable_from_here
+      sprint_open:
+        description: The sprint the work item is put into has not been completed.
+        expression: inputs.sprint.state == Sprint.FUTURE or inputs.sprint.state == Sprint.ACTIVE
+        remedy: self_serviceable
+    transitions:
+      create:
+        kind: initial
+        to: TO_DO
+        required_inputs: [space, work_type, summary, reporter]
+        optional_inputs: [assignee, priority, story_points, due_date, epic]
+      to_do:
+        kind: external
+        from: any
+        to: TO_DO
+        description: Moves the work item to To Do, clearing its resolution.
+        effect:
+          - clear: [resolution, resolved_at]
+      start:
+        kind: external
+        from: any
+        to: IN_PROGRESS
+        description: Starts the work item; the caller may assign it to themselves as it does.
+        optional_inputs: [assignee]
+        guards:
+          under_wip_limit: warn
+          not_blocked: warn
+        effect:
+          - clear: [resolution, resolved_at]
+      review:
+        kind: external
+        from: IN_PROGRESS
+        to: IN_REVIEW
+        guards:
+          estimated: deny
+      done:
+        kind: external
+        from: any
+        to: DONE
+        description: Moves the work item to Done with a resolution, once its subtasks are done and it has been reviewed.
+        required_inputs: [resolution]
+        guards:
+          subtasks_done: deny
+          been_in_review: deny
+          resolution_allowed: deny
+          reviewed_twice: warn
+        effect:
+          - assign: { location: resolved_at, expr: now }
+      archive:
+        kind: external
+        from: any
+        to: ARCHIVED
+        description: Archives the work item and its subtasks.
+      assign_to_lead:
+        kind: internal
+        from: [TO_DO, IN_PROGRESS, IN_REVIEW]
+        description: Assigns the work item to its space's lead.
+        effect:
+          - assign: { location: assignee, expr: space.lead }
+      edit:
+        kind: internal
+        from: [TO_DO, IN_PROGRESS, IN_REVIEW]
+        description: Edits the work item's details; a done work item is not editable.
+        optional_inputs: [assignee, priority, due_date, epic]
+      re_estimate:
+        kind: internal
+        from: [TO_DO, IN_PROGRESS]
+        required_inputs: [story_points]
+        guards:
+          points_changed: deny
+      set_components:
+        kind: internal
+        from: [TO_DO]
+        required_inputs: [components]
+        guards:
+          one_component: deny
+      schedule:
+        kind: internal
+        from: [TO_DO]
+        required_inputs: [due_date]
+        guards:
+          due_within_window: deny
+      auto_resolve:
+        kind: external
+        from: IN_REVIEW
+        to: DONE
+        guards:
+          subtasks_done: deny
+        effect:
+          - assign: { location: resolution, expr: Resolution.DONE }
+          - assign: { location: resolved_at, expr: now }
+      assign_to_reporter:
+        kind: internal
+        from: [TO_DO]
+        effect:
+          - assign: { location: assignee, expr: reporter }
+      add_label:
+        kind: internal
+        from: [TO_DO, IN_PROGRESS, IN_REVIEW]
+        inputs:
+          label: { type: string }
+        effect:
+          - add: { location: labels, expr: inputs.label }
+      remove_label:
+        kind: internal
+        from: [TO_DO, IN_PROGRESS, IN_REVIEW]
+        inputs:
+          label: { type: string }
+        effect:
+          - remove: { location: labels, expr: inputs.label }
+      plan:
+        kind: internal
+        from: [TO_DO, IN_PROGRESS, IN_REVIEW]
+        description: Puts the work item into a sprint that has not been completed.
+        required_inputs: [sprint]
+        guards:
+          sprint_open: deny
+      unplan:
+        kind: internal
+        from: [TO_DO, IN_PROGRESS, IN_REVIEW]
+        description: Returns the work item to the backlog.
+        effect:
+          - clear: [sprint]
+      set_fix_version:
+        kind: internal
+        from: any
+        required_inputs: [fix_version]
+      add_subtask:
+        kind: internal
+        from: [TO_DO, IN_PROGRESS, IN_REVIEW]
+        inputs:
+          title: { type: string }
+        effect:
+          - create: { type: Subtask, transition: create, inputs: { parent: this, space: space, summary: inputs.title } }
+      clone:
+        kind: internal
+        from: any
+        description: Creates a copy in To Do, linked to this one as its clone.
+        inputs:
+          cloned_by: { reference: User }
+        effect:
+          - create:
+              type: WorkItem
+              transition: create
+              inputs: { space: space, work_type: work_type, summary: summary, reporter: inputs.cloned_by }
+              result: copy
+          - create: { type: WorkItemLink, transition: link, inputs: { source: copy, target: this, link_type: LinkType.CLONES } }
+    metrics:
+      cycle_time:
+        description: Median time work items spend in progress, by month.
+        measure: median_time_in_state
+        state: IN_PROGRESS
+        group_by: [month]
+      velocity:
+        description: Story points completed, by sprint.
+        source: objects
+        item: w
+        filter: w.state == WorkItem.DONE
+        dimensions:
+          sprint: w.sprint
+        expression: sum(w.story_points)
+      logged_time:
+        description: Time logged, by work type and week.
+        source: worklogs
+        item: l
+        dimensions:
+          work_type: l.subject.work_type
+          week: week(l.occurred_at)
+        time_dimension: l.occurred_at
+        expression: sum(l.time_spent)
+
+  Subtask:
+    description: A smaller piece of a standard work item, numbered in its space's series.
+    tracking: record
+    state_machine: SimpleFlow
+    attributes:
+      number:
+        type: string
+        identifier: { sequence: work_item_number, scope: space, format: "{space.key}-{n}" }
+        unique: in_scope
+      parent:      { reference: WorkItem, opposite: subtasks }
+      space:       { reference: Space }
+      summary:     { type: string }
+      assignee:    { reference: User, optional: true, assignee: true }
+      resolution:  { type: Resolution, optional: true }
+      resolved_at: { type: timestamp, optional: true }
+    conditions:
+      parent_in_progress:
+        description: The parent is in progress, as Jira's parent status validator checks.
+        expression: parent.state == WorkItem.IN_PROGRESS
+        remedy: dependent
+    transitions:
+      begin:
+        kind: internal
+        from: [TO_DO]
+        guards:
+          parent_in_progress: deny
+      create:
+        kind: initial
+        to: TO_DO
+        only_via: [WorkItem.add_subtask]
+        required_inputs: [parent, space, summary]
+
+  WorkItemLink:
+    description: A typed, directed link between two work items, such as one blocking another.
+    tracking: record
+    attributes:
+      source:    { reference: WorkItem, opposite: outward_links }
+      target:    { reference: WorkItem, opposite: inward_links }
+      link_type: { type: LinkType }
+    states:
+      ACTIVE:  { category: in_progress }
+      REMOVED: { category: closed, final: true }
+    transitions:
+      link:   { kind: initial, to: ACTIVE, required_inputs: [source, target, link_type] }
+      unlink: { kind: external, from: ACTIVE, to: REMOVED }
+
+  Sprint:
+    description: A time-boxed iteration of a space's scrum board.
+    tracking: record
+    attributes:
+      name: { type: string }
+      space:
+        reference: Space
+        unique: { where: state == ACTIVE }
+        description: Its space, of which one sprint at a time is active, parallel sprints being off.
+      goal:       { type: string, optional: true }
+      work_items: { reference: "WorkItem[]", opposite: sprint }
+    states:
+      FUTURE:  { category: todo }
+      ACTIVE:  { category: in_progress }
+      CLOSED:  { category: closed }
+      DELETED: { category: closed, final: true }
+    conditions:
+      subtasks_done:
+        description: Every subtask of the sprint's work items is done, as completing a sprint requires.
+        expression: none(w in work_items where any(s in w.subtasks where s.state.category != closed))
+        remedy: dependent
+    transitions:
+      create:
+        kind: initial
+        to: FUTURE
+        required_inputs: [name, space]
+        optional_inputs: [goal]
+      start: { kind: external, from: FUTURE, to: ACTIVE }
+      complete_to_backlog:
+        kind: external
+        from: ACTIVE
+        to: CLOSED
+        description: Completes the sprint and returns its unfinished work items to the backlog.
+        guards:
+          subtasks_done: deny
+        effect:
+          - foreach:
+              item: w
+              array: work_items
+              where: w.state.category != closed
+              limit: 1000
+              steps:
+                - call: { target: w, transition: unplan }
+      complete_to_sprint:
+        kind: external
+        from: ACTIVE
+        to: CLOSED
+        description: Completes the sprint and moves its unfinished work items into another.
+        inputs:
+          next: { reference: Sprint }
+        guards:
+          subtasks_done: deny
+        effect:
+          - foreach:
+              item: w
+              array: work_items
+              where: w.state.category != closed
+              limit: 1000
+              steps:
+                - call: { target: w, transition: plan, inputs: { sprint: inputs.next } }
+      reopen: { kind: external, from: CLOSED, to: ACTIVE }
+      delete: { kind: external, from: [FUTURE, CLOSED], to: DELETED }
+
+  Version:
+    description: A release of a space's software, or a milestone in a business space.
+    tracking: record
+    attributes:
+      name:         { type: string }
+      space:        { reference: Space }
+      release_date: { type: timestamp, optional: true }
+      work_items:   { reference: "WorkItem[]", opposite: fix_version }
+    states:
+      UNRELEASED: { category: in_progress }
+      RELEASED:   { category: closed }
+      ARCHIVED:   { category: closed }
+      DELETED:    { category: closed, final: true }
+    transitions:
+      create:
+        kind: initial
+        to: UNRELEASED
+        required_inputs: [name, space]
+        optional_inputs: [release_date]
+      release:
+        kind: external
+        from: UNRELEASED
+        to: RELEASED
+        description: Releases the version, leaving any unresolved work items in it.
+        required_inputs: [release_date]
+      release_moving_unresolved:
+        kind: external
+        from: UNRELEASED
+        to: RELEASED
+        description: Releases the version and moves its unresolved work items to another.
+        required_inputs: [release_date]
+        inputs:
+          move_to: { reference: Version }
+        effect:
+          - foreach:
+              item: w
+              array: work_items
+              where: w.resolution is null
+              limit: 1000
+              steps:
+                - call: { target: w, transition: set_fix_version, inputs: { fix_version: inputs.move_to } }
+      unrelease: { kind: external, from: RELEASED, to: UNRELEASED }
+      archive:   { kind: external, from: [UNRELEASED, RELEASED], to: ARCHIVED }
+      unarchive: { kind: external, from: ARCHIVED, to: RELEASED }
+      delete:    { kind: external, from: any, to: DELETED }
+
+  Document:
+    description: A document drafted and then approved by everyone asked, as a business space's document approval tracks one.
+    tracking: record
+    attributes:
+      title:     { type: string }
+      space:     { reference: Space }
+      approvers: { type: "identity[]" }
+    observations:
+      approvals:
+        kind: ApprovalDecision
+        description: One approver's decision on the document.
+        attributes:
+          approver: { type: identity }
+          decision: { type: Decision }
+          note:     { type: string, optional: true, personal: true }
+    states:
+      DRAFT:     { category: todo }
+      IN_REVIEW: { category: in_progress }
+      APPROVED:  { category: closed }
+      REJECTED:  { category: closed }
+      ARCHIVED:  { category: closed, final: true }
+    conditions:
+      has_approvers:
+        description: At least one approver is named.
+        expression: count(a in approvers) >= 1
+        remedy: self_serviceable
+      all_approved:
+        description: Every approver has approved since the document entered review.
+        expression: >-
+          all(a in approvers: any(o in approvals where o.approver == a
+              and o.decision == Decision.APPROVE and o.occurred_at > entered_at(IN_REVIEW)))
+        remedy: dependent
+      one_declined:
+        description: An approver has declined since the document entered review.
+        expression: any(o in approvals where o.decision == Decision.DECLINE and o.occurred_at > entered_at(IN_REVIEW))
+        remedy: dependent
+    transitions:
+      create:
+        kind: initial
+        to: DRAFT
+        required_inputs: [title, space]
+      submit:
+        kind: external
+        from: DRAFT
+        to: IN_REVIEW
+        description: Sends the document to the approvers it names.
+        required_inputs: [approvers]
+        guards:
+          has_approvers: deny
+      approve:
+        kind: external
+        from: IN_REVIEW
+        to: APPROVED
+        description: Approves the document, once every approver has.
+        guards:
+          all_approved: deny
+      decline:
+        kind: external
+        from: IN_REVIEW
+        to: REJECTED
+        description: Rejects the document, once an approver has declined it.
+        guards:
+          one_declined: deny
+      revise: { kind: external, from: REJECTED, to: DRAFT }
+      archive: { kind: external, from: any, to: ARCHIVED }
