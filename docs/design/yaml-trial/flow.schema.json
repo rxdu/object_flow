@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "objectflow-flow-trial",
-  "title": "An ObjectFlow module, written as structured YAML (trial, authoring-flows.md §3)",
+  "title": "An ObjectFlow module, written as structured YAML (specified in docs/design/flow-format.md)",
   "description": "A module names itself, may import types from other modules, declares its enumerations, and declares each type under `types`.",
   "type": "object",
   "required": ["module", "categories", "types"],

@@ -14,7 +14,8 @@ show a module means exactly what the checked text language means, each one is:
    would validate against;
 3. checked for what the schema cannot see: sections are in order, every
    state's category is declared, and every type a type references is
-   declared before it or imported; every state,
+   declared before it or imported; no name is one the format keeps for
+   itself (flow-format.md §3); every state,
    condition and attribute a transition names exists; every condition is
    used; every value an expression names is a state or an enumeration value;
    and every transition into a state sets each attribute the state requires;
@@ -59,6 +60,14 @@ TRIAL = ROOT / "docs/design/yaml-trial"
 CHECKER = ROOT / "scripts/check-syntax-doc.py"
 
 MODULE_ORDER = ["module", "imports", "categories", "enumerations", "types"]
+# names the text language gives a meaning in the same position (declaration-syntax.md §9.2, check 33)
+NOT_A_CATEGORY = {"any", "terminal", "superseding"}
+NOT_A_TRANSITION = {"any"}
+# a bare name in an expression resolves to these before an attribute (declaration-syntax.md §9.2), so no attribute may take one
+NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "this_event"}
+# keys the text language has a form for on one kind of attribute only; elsewhere they would be dropped
+ONLY_ON_OBSERVATIONS = {"unit"}
+ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed"}
 TYPE_ORDER = ["description", "tracking", "attributes", "observations", "states",
               "invariants", "conditions", "transitions", "metrics"]
 
@@ -202,8 +211,45 @@ def order_errors(doc):
     return out
 
 
+def reserved_name_errors(doc):
+    """Names the format keeps for itself: text-language collisions and generated names."""
+    out = []
+    for i, c in enumerate(doc.get("categories") or []):
+        if c in NOT_A_CATEGORY:
+            out.append((("categories", i), "names", f"'{c}' cannot name a category: the text language reserves it in that position"))
+    for tn, t in types(doc):
+        attrs = t.get("attributes") or {}
+        states = t.get("states") or {}
+        owned = [(("types", tn, "attributes", a), a) for a in attrs]
+        owned += [(("types", tn, "observations", o, "attributes", a), a)
+                  for o, ob in (t.get("observations") or {}).items() for a in ob["attributes"]]
+        for path, a in owned:
+            if a in NOT_AN_ATTRIBUTE:
+                out.append((path, "names", f"'{a}' cannot name an attribute: in an expression it means something else first"))
+        for a, spec in attrs.items():
+            for k in sorted(ONLY_ON_OBSERVATIONS & set(spec)):
+                out.append((("types", tn, "attributes", a, k), "names", f"'{k}' applies only to an observation's attribute, not to {tn}.{a}"))
+        for o, ob in (t.get("observations") or {}).items():
+            for a, spec in ob["attributes"].items():
+                for k in sorted(ONLY_ON_TYPES & set(spec)):
+                    out.append((("types", tn, "observations", o, "attributes", a, k), "names",
+                                f"'{k}' applies only to a type's attribute, not to the observation attribute {o}.{a}"))
+        for xn in (t.get("transitions") or {}):
+            if xn in NOT_A_TRANSITION:
+                out.append((("types", tn, "transitions", xn), "names", f"'{xn}' cannot name a transition: the text language reserves it"))
+        for c in (t.get("conditions") or {}):
+            if c.endswith("_provided") and c[:-len("_provided")] in attrs:
+                out.append((("types", tn, "conditions", c), "names",
+                            f"'{c}' is the name of the guard generated for a required input; choose another name"))
+        for i in (t.get("invariants") or {}):
+            if i.endswith("_attributes_present") and i[:-len("_attributes_present")].upper() in states:
+                out.append((("types", tn, "invariants", i), "names",
+                            f"'{i}' is the name of the invariant generated for a state's required_attributes; choose another name"))
+    return out
+
+
 def name_errors(doc):
-    out = order_errors(doc)
+    out = order_errors(doc) + reserved_name_errors(doc)
     for tn, t in types(doc):
         states = t.get("states") or {}
         attrs = t.get("attributes") or {}
@@ -229,11 +275,6 @@ def name_errors(doc):
                 used.add(g)
                 if g not in conds:
                     out.append((base + ("guards", g), "names", f"{tn}.{xn} guards on '{g}', which is not a condition of {tn}"))
-            for a in provided_guards(t, x):
-                if f"{a}_provided" in conds:
-                    out.append((base + ("required_inputs",), "names",
-                                f"{tn}.{xn} requires the input '{a}', which generates the guard {a}_provided, "
-                                f"and {tn} declares a condition of that name"))
             named = [(k, a) for k in ("required_inputs", "optional_inputs") for a in x.get(k, [])]
             named += [("outcome", a) for pair in copies(x) for a in pair] + [("outcome", a) for a in cleared(x)]
             for k, a in named:
@@ -549,6 +590,13 @@ def self_test(people, service, inventory):
          plant(inventory, "condition != Condition.DAMAGED", "condition != Condition.DAMAGD")),
         ("a transition into a state that does not set what the state requires", "required", "inventory.yaml",
          plant(inventory, "        required_inputs: [reserved_until]\n", "        optional_inputs: [reserved_until]\n")),
+        ("an attribute named after an expression built-in", "names", "inventory.yaml",
+         plant(inventory, "      model:             { type: string }\n", "      model:             { type: string }\n      state:             { type: string, optional: true }\n")),
+        ("an invariant named like a generated one", "names", "inventory.yaml",
+         plant(inventory, "    conditions:\n", "    invariants:\n      reserved_attributes_present:\n        description: A clash with a generated name.\n"
+                                              "        expression: serial is not null\n\n    conditions:\n")),
+        ("a unit on an attribute that is not an observation's", "names", "inventory.yaml",
+         plant(inventory, "      list_price:        { type: money(SGD) }", "      list_price:        { type: money(SGD), unit: SGD }")),
         ("a `?` inside an inline mapping", "yaml", "service.yaml",
          plant(service, "      photo:    { type: file, optional: true }", "      photo:    { type: file? }")),
     ]
