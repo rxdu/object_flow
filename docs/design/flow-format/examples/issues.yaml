@@ -552,7 +552,7 @@ types:
     conditions:
       has_approvers:
         description: At least one approver is named.
-        expression: count(a in approvers) >= 1
+        expression: count(a in inputs.approvers) >= 1
         remedy: self_serviceable
       all_approved:
         description: Every approver has approved since the document entered review.

@@ -1,0 +1,670 @@
+# yaml-language-server: $schema=../flow.schema.json
+# Service desk: Jira Service Management's IT service management flows, written in
+# this format to check how much of them it can express (case-study-tickets.md §7).
+# Statuses are those Atlassian lists as Jira Service Management's defaults.
+module: servicedesk
+categories: [waiting, active, pending, inactive]
+
+enumerations:
+  Priority: [HIGHEST, HIGH, MEDIUM, LOW, LOWEST]
+  Level: [CRITICAL, HIGH, MEDIUM, LOW]
+  Resolution: [DONE, WONT_DO, DUPLICATE, KNOWN_ERROR, HARDWARE_FAILURE, SOFTWARE_FAILURE]
+  RequestType: [GET_IT_HELP, REQUEST_ACCESS, NEW_HARDWARE]
+  ChangeType: [STANDARD, NORMAL, EMERGENCY]
+  Risk: [LOW, MEDIUM, HIGH]
+  Decision: [APPROVE, DECLINE]
+  ReviewStage: [PEER, CAB]
+  WindowKind: [MAINTENANCE, FREEZE]
+  AlertPriority: [P1, P2, P3, P4, P5]
+  SupportLevel: [STANDARD, PLATINUM]
+
+sequences:
+  asset_key:
+    description: Numbers the configuration items of the asset schema, as IT-42.
+
+types:
+  Organization:
+    description: A group of customers whose requests are shared among its members.
+    tracking: record
+    attributes:
+      name:          { type: string }
+      support_level: { type: SupportLevel }
+      requests:      { reference: "Request[]", opposite: organization }
+    states:
+      ACTIVE:   { category: active }
+      ARCHIVED: { category: closed, final: true }
+    transitions:
+      create:  { kind: initial, to: ACTIVE, required_inputs: [name, support_level] }
+      archive: { kind: external, from: ACTIVE, to: ARCHIVED }
+
+  Service:
+    description: A service in the service registry, with the people who respond to its incidents and approve its changes.
+    tracking: record
+    attributes:
+      name:             { type: string }
+      tier:             { type: int }
+      responders:       { type: "identity[]" }
+      change_approvers: { type: "identity[]" }
+      incidents:        { reference: "Incident[]", opposite: affected_service }
+      changes:          { reference: "Change[]", opposite: affected_service }
+      assets:           { reference: "Asset[]", opposite: service }
+    states:
+      OPERATIONAL: { category: active }
+      RETIRED:     { category: closed, final: true }
+    transitions:
+      register: { kind: initial, to: OPERATIONAL, required_inputs: [name, tier, responders, change_approvers] }
+      retire:   { kind: external, from: OPERATIONAL, to: RETIRED }
+
+  Request:
+    description: A service request raised by a customer, approved where it needs to be, and measured against its SLA goals.
+    tracking: record
+    attributes:
+      summary:            { type: string }
+      request_type:       { type: RequestType }
+      reporter:           { type: identity, description: The customer who raised it. }
+      organization:       { reference: Organization, optional: true, opposite: requests }
+      participants:       { type: "identity[]" }
+      approvers:          { type: "identity[]" }
+      approvals_required: { type: int, optional: true, description: How many approvals it needs; all of its approvers when absent. }
+      priority:           { type: Priority }
+      opened_at:          { type: timestamp }
+      resolution:         { type: Resolution, optional: true }
+      resolved_at:        { type: timestamp, optional: true }
+      sla_met:            { type: bool, optional: true, description: "Whether the resolution goal was met, fixed when it was resolved." }
+    observations:
+      replies:
+        kind: PublicReply
+        description: A comment visible to the customer.
+        attributes:
+          body: { type: string, optional: true, personal: true }
+      notes:
+        kind: InternalNote
+        description: A comment the service team alone sees; who may read it is the application's.
+        attributes:
+          body: { type: string, optional: true, personal: true }
+      approvals:
+        kind: RequestApproval
+        description: One approver's decision on the request.
+        attributes:
+          approver: { type: identity }
+          decision: { type: Decision }
+      ratings:
+        kind: SatisfactionRating
+        description: The customer's rating of how the request was handled.
+        attributes:
+          score: { type: int }
+        invariants:
+          in_range:
+            description: A score is from 1 to 5.
+            expression: score >= 1 and score <= 5
+    states:
+      WAITING_FOR_APPROVAL: { category: pending }
+      WAITING_FOR_SUPPORT:  { category: waiting }
+      IN_PROGRESS:          { category: active }
+      WAITING_FOR_CUSTOMER: { category: pending }
+      PENDING:              { category: pending }
+      ESCALATED:            { category: active }
+      RESOLVED:
+        description: Resolved, and awaiting the customer's verification.
+        category: closed
+        required_attributes: [resolution]
+      DECLINED:  { category: closed }
+      CANCELED:  { category: closed }
+      CLOSED:
+        description: Finished; the resolution is correct.
+        category: closed
+        final: true
+    derived_attributes:
+      approvals_needed:
+        description: The approvals the request needs, a given number or all of its approvers.
+        expression: if approvals_required is not null then approvals_required else count(a in approvers)
+      resolution_goal:
+        description: The time to resolution its SLA allows, by priority, and shorter for a platinum organization.
+        expression: >-
+          if organization is not null and organization.support_level == SupportLevel.PLATINUM then 2 h
+          else if priority == Priority.HIGHEST or priority == Priority.HIGH then 4 h
+          else if priority == Priority.MEDIUM then 8 h else 16 h
+      time_to_resolution:
+        description: Time spent on the request, paused while it waits for the customer or is pending.
+        expression: >-
+          sum(i in this.intervals where i.state != WAITING_FOR_CUSTOMER and i.state != PENDING
+              and i.state != WAITING_FOR_APPROVAL and i.state != RESOLVED and i.state != DECLINED
+              and i.state != CANCELED and i.state != CLOSED: i.duration)
+      resolution_breached:
+        description: The request has taken longer than its goal.
+        expression: time_to_resolution > resolution_goal
+      paused:
+        description: The request's SLA clock is paused.
+        expression: state == WAITING_FOR_CUSTOMER or state == PENDING
+      time_to_first_response:
+        description: From opening to the first comment the customer can see.
+        expression: >-
+          min(r in replies: r.occurred_at) - opened_at
+    conditions:
+      has_approvers:
+        description: At least one approver is named.
+        expression: count(a in inputs.approvers) >= 1
+        remedy: self_serviceable
+      approved:
+        description: Enough approvers other than the reporter have approved since the request began waiting for approval.
+        expression: >-
+          count(o in approvals where o.decision == Decision.APPROVE and o.approver != reporter
+                and o.occurred_at > entered_at(WAITING_FOR_APPROVAL)) >= approvals_needed
+        remedy: dependent
+      declined:
+        description: An approver has declined since the request began waiting for approval.
+        expression: >-
+          any(o in approvals where o.decision == Decision.DECLINE
+              and o.occurred_at > entered_at(WAITING_FOR_APPROVAL))
+        remedy: dependent
+      resolved_three_days:
+        description: The request has been resolved for three days.
+        expression: entered_at(RESOLVED) + 3 days <= now
+        remedy: temporal
+    transitions:
+      raise:
+        kind: initial
+        to: WAITING_FOR_SUPPORT
+        description: Raises a request that needs no approval.
+        required_inputs: [summary, request_type, reporter, priority]
+        optional_inputs: [organization]
+        effect:
+          - assign: { location: opened_at, expr: now }
+      raise_for_approval:
+        kind: initial
+        to: WAITING_FOR_APPROVAL
+        description: Raises a request that its approvers must approve first.
+        required_inputs: [summary, request_type, reporter, priority, approvers]
+        optional_inputs: [organization, approvals_required]
+        guards:
+          has_approvers: deny
+        effect:
+          - assign: { location: opened_at, expr: now }
+      approve:
+        kind: external
+        from: WAITING_FOR_APPROVAL
+        to: WAITING_FOR_SUPPORT
+        guards:
+          approved: deny
+      decline:
+        kind: external
+        from: WAITING_FOR_APPROVAL
+        to: DECLINED
+        guards:
+          declined: deny
+      start:
+        kind: external
+        from: [WAITING_FOR_SUPPORT, ESCALATED]
+        to: IN_PROGRESS
+      respond_to_customer:
+        kind: external
+        from: [WAITING_FOR_SUPPORT, IN_PROGRESS, ESCALATED]
+        to: WAITING_FOR_CUSTOMER
+      customer_replies:
+        kind: external
+        from: WAITING_FOR_CUSTOMER
+        to: WAITING_FOR_SUPPORT
+        description: The customer answers, and the request waits for the team again.
+      pend:
+        kind: external
+        from: [WAITING_FOR_SUPPORT, IN_PROGRESS]
+        to: PENDING
+      resume:
+        kind: external
+        from: PENDING
+        to: IN_PROGRESS
+      escalate:
+        kind: external
+        from: [WAITING_FOR_SUPPORT, IN_PROGRESS]
+        to: ESCALATED
+      share:
+        kind: internal
+        from: any
+        description: Shares the request with another customer, who becomes a participant.
+        inputs:
+          with: { type: identity }
+        effect:
+          - add: { location: participants, expr: inputs.with }
+      resolve:
+        kind: external
+        from: [WAITING_FOR_SUPPORT, IN_PROGRESS, ESCALATED, PENDING]
+        to: RESOLVED
+        required_inputs: [resolution]
+        effect:
+          - assign: { location: resolved_at, expr: now }
+          - assign: { location: sla_met, expr: time_to_resolution <= resolution_goal }
+      reopen:
+        kind: external
+        from: RESOLVED
+        to: WAITING_FOR_SUPPORT
+        description: Reopens a resolved request, as a customer's comment on it does.
+        effect:
+          - clear: [resolution, resolved_at, sla_met]
+      cancel:
+        kind: external
+        from: [WAITING_FOR_APPROVAL, WAITING_FOR_SUPPORT, IN_PROGRESS, WAITING_FOR_CUSTOMER, PENDING, ESCALATED]
+        to: CANCELED
+      close:
+        kind: external
+        from: RESOLVED
+        to: CLOSED
+        description: Closes a request resolved three days ago; a schedule in the application requests it.
+        guards:
+          resolved_three_days: deny
+    metrics:
+      sla_success:
+        description: The share of resolved requests that met their resolution goal, by month.
+        source: objects
+        item: r
+        filter: r.sla_met is not null
+        dimensions:
+          month: month(r.resolved_at)
+        time_dimension: r.resolved_at
+        expression: count(where r.sla_met) * 1.000 / count()
+      satisfaction:
+        description: The average satisfaction score, by month.
+        source: ratings
+        item: s
+        dimensions:
+          month: month(s.occurred_at)
+        time_dimension: s.occurred_at
+        expression: avg(s.score)
+
+  Incident:
+    description: An unplanned disruption to a service, prioritised by its impact and urgency.
+    tracking: record
+    attributes:
+      summary:          { type: string }
+      impact:           { type: Level }
+      urgency:          { type: Level }
+      major:            { type: bool }
+      affected_service: { reference: Service, optional: true, opposite: incidents }
+      asset:            { reference: Asset, optional: true, opposite: incidents }
+      problem:          { reference: Problem, optional: true, opposite: incidents }
+      responders:       { type: "identity[]" }
+      opened_at:        { type: timestamp }
+      resolution:       { type: Resolution, optional: true }
+      alerts:           { reference: "Alert[]", opposite: incident }
+      reviews:          { reference: "PostIncidentReview[]", opposite: primary_incident }
+    observations:
+      timeline:
+        kind: StakeholderUpdate
+        description: An update to the incident's stakeholders, on its timeline.
+        attributes:
+          message: { type: string }
+    states:
+      OPEN:             { category: waiting }
+      WORK_IN_PROGRESS: { category: active }
+      PENDING:          { category: pending }
+      ESCALATED:        { category: active }
+      RESOLVED:
+        category: closed
+        required_attributes: [resolution]
+      CANCELED: { category: closed }
+      CLOSED:   { category: closed, final: true }
+    derived_attributes:
+      priority:
+        description: The priority its impact and urgency give it, by the impact and urgency matrix.
+        expression: >-
+          if impact == Level.CRITICAL and urgency == Level.CRITICAL then Priority.HIGHEST
+          else if impact == Level.CRITICAL or urgency == Level.CRITICAL then Priority.HIGH
+          else if impact == Level.LOW and urgency == Level.LOW then Priority.LOW
+          else Priority.MEDIUM
+      time_to_resolution:
+        description: Time spent on the incident, paused while it is pending.
+        expression: >-
+          sum(i in this.intervals where i.state != PENDING and i.state != RESOLVED
+              and i.state != CANCELED and i.state != CLOSED: i.duration)
+      problem_open:
+        description: The problem that causes the incident is still open, which Jira Service Management reports by automation.
+        expression: problem is not null and problem.state.category != closed
+    conditions:
+      resolved_three_days:
+        description: The incident has been resolved for three days.
+        expression: entered_at(RESOLVED) + 3 days <= now
+        remedy: temporal
+    transitions:
+      open:
+        kind: initial
+        to: OPEN
+        required_inputs: [summary, impact, urgency, major, responders]
+        effect:
+          - assign: { location: opened_at, expr: now }
+      investigate: { kind: external, from: OPEN, to: WORK_IN_PROGRESS }
+      pend:        { kind: external, from: [OPEN, WORK_IN_PROGRESS], to: PENDING }
+      resume:      { kind: external, from: PENDING, to: WORK_IN_PROGRESS }
+      escalate:    { kind: external, from: [OPEN, WORK_IN_PROGRESS], to: ESCALATED }
+      mark_major:
+        kind: internal
+        from: [OPEN, WORK_IN_PROGRESS, PENDING, ESCALATED]
+        effect:
+          - assign: { location: major, expr: "true" }
+      set_affected_service:
+        kind: internal
+        from: [OPEN, WORK_IN_PROGRESS, PENDING, ESCALATED]
+        description: Sets the affected service, whose responders join the incident's.
+        required_inputs: [affected_service]
+        effect:
+          - foreach:
+              item: r
+              array: inputs.affected_service.responders
+              limit: 100
+              steps:
+                - add: { location: responders, expr: r }
+      link_problem:
+        kind: internal
+        from: any
+        required_inputs: [problem]
+      resolve:
+        kind: external
+        from: [WORK_IN_PROGRESS, ESCALATED, PENDING]
+        to: RESOLVED
+        required_inputs: [resolution]
+      reopen:
+        kind: external
+        from: RESOLVED
+        to: WORK_IN_PROGRESS
+        effect:
+          - clear: [resolution]
+      cancel: { kind: external, from: [OPEN, WORK_IN_PROGRESS, PENDING, ESCALATED], to: CANCELED }
+      close:
+        kind: external
+        from: RESOLVED
+        to: CLOSED
+        guards:
+          resolved_three_days: deny
+      create_review:
+        kind: internal
+        from: [RESOLVED]
+        description: Creates a post-incident review with this incident as its primary incident.
+        inputs:
+          title: { type: string }
+        effect:
+          - create: { type: PostIncidentReview, transition: draft, inputs: { primary_incident: this, title: inputs.title } }
+
+  PostIncidentReview:
+    description: A review of why an incident happened and how to prevent it.
+    tracking: record
+    attributes:
+      title:            { type: string }
+      primary_incident: { reference: Incident, opposite: reviews }
+      findings:         { type: string, optional: true }
+    states:
+      DRAFT:     { category: active }
+      PUBLISHED: { category: closed, required_attributes: [findings] }
+      ARCHIVED:  { category: closed, final: true }
+    transitions:
+      draft:   { kind: initial, to: DRAFT, required_inputs: [primary_incident, title] }
+      publish: { kind: external, from: DRAFT, to: PUBLISHED, required_inputs: [findings] }
+      archive: { kind: external, from: [DRAFT, PUBLISHED], to: ARCHIVED }
+
+  Problem:
+    description: The cause, or possible cause, of one or more incidents.
+    tracking: record
+    attributes:
+      summary:    { type: string }
+      root_cause: { type: string, optional: true }
+      workaround: { type: string, optional: true }
+      resolution: { type: Resolution, optional: true }
+      incidents:  { reference: "Incident[]", opposite: problem }
+      changes:    { reference: "Change[]", opposite: problem }
+    states:
+      OPEN:                { category: waiting }
+      UNDER_INVESTIGATION: { category: active }
+      UNDER_REVIEW:
+        category: active
+        required_attributes: [root_cause]
+      COMPLETED:
+        category: closed
+        required_attributes: [root_cause, resolution]
+      CANCELED: { category: closed }
+      ARCHIVED: { category: closed, final: true }
+    transitions:
+      open:        { kind: initial, to: OPEN, required_inputs: [summary] }
+      investigate: { kind: external, from: OPEN, to: UNDER_INVESTIGATION }
+      review:
+        kind: external
+        from: UNDER_INVESTIGATION
+        to: UNDER_REVIEW
+        required_inputs: [root_cause]
+        optional_inputs: [workaround]
+      complete:
+        kind: external
+        from: UNDER_REVIEW
+        to: COMPLETED
+        description: Completes the problem; a documented workaround makes it a known error.
+        required_inputs: [resolution]
+      cancel:  { kind: external, from: [OPEN, UNDER_INVESTIGATION, UNDER_REVIEW], to: CANCELED }
+      archive: { kind: external, from: [COMPLETED, CANCELED], to: ARCHIVED }
+
+  ChangeWindow:
+    description: A maintenance window, or a freeze window in which no change should be implemented.
+    tracking: record
+    attributes:
+      kind:      { type: WindowKind, indexed: true }
+      starts_at: { type: timestamp, indexed: true }
+      ends_at:   { type: timestamp, indexed: true }
+    states:
+      SCHEDULED: { category: active }
+      WITHDRAWN: { category: closed, final: true }
+    transitions:
+      schedule: { kind: initial, to: SCHEDULED, required_inputs: [kind, starts_at, ends_at] }
+      withdraw: { kind: external, from: SCHEDULED, to: WITHDRAWN }
+
+  Change:
+    description: A change to a service, reviewed by a peer and the change advisory board unless it is a standard change.
+    tracking: record
+    attributes:
+      summary:          { type: string }
+      change_type:      { type: ChangeType }
+      risk:             { type: Risk, optional: true }
+      affected_service: { reference: Service, opposite: changes }
+      problem:          { reference: Problem, optional: true, opposite: changes }
+      planned_start:    { type: timestamp, optional: true }
+      planned_end:      { type: timestamp, optional: true }
+    observations:
+      approvals:
+        kind: ChangeApproval
+        description: One reviewer's decision at a review stage.
+        attributes:
+          stage:    { type: ReviewStage }
+          approver: { type: identity }
+          decision: { type: Decision }
+    states:
+      PEER_REVIEW:             { category: pending }
+      PLANNING:                { category: active }
+      AWAITING_CAB_APPROVAL:   { category: pending }
+      AWAITING_IMPLEMENTATION: { category: waiting }
+      IMPLEMENTING:            { category: active }
+      COMPLETED:               { category: closed }
+      DECLINED:                { category: closed }
+      CANCELED:                { category: closed }
+      ARCHIVED:                { category: closed, final: true }
+    conditions:
+      standard:
+        description: The change is a standard change, pre-authorized and needing no review.
+        expression: inputs.change_type == ChangeType.STANDARD
+        remedy: unreachable_from_here
+      emergency:
+        description: The change is an emergency change, whose authorization is fast-tracked.
+        expression: change_type == ChangeType.EMERGENCY
+        remedy: unreachable_from_here
+      peer_approved:
+        description: A peer or the change manager has approved it since it entered review.
+        expression: >-
+          any(o in approvals where o.stage == ReviewStage.PEER and o.decision == Decision.APPROVE
+              and o.occurred_at > entered_at(PEER_REVIEW))
+        remedy: dependent
+      cab_approved:
+        description: Every change approver of the affected service has approved it since it awaited the board.
+        expression: >-
+          all(a in affected_service.change_approvers: any(o in approvals where o.stage == ReviewStage.CAB
+              and o.approver == a and o.decision == Decision.APPROVE
+              and o.occurred_at > entered_at(AWAITING_CAB_APPROVAL)))
+        remedy: dependent
+      declined:
+        description: A reviewer has declined it.
+        expression: any(o in approvals where o.decision == Decision.DECLINE and o.occurred_at > entered_at(PEER_REVIEW))
+        remedy: dependent
+      outside_freeze:
+        description: Its planned start falls in no freeze window.
+        expression: >-
+          none(w in ChangeWindow where w.kind == WindowKind.FREEZE and w.state == ChangeWindow.SCHEDULED
+               and w.starts_at <= planned_start and planned_start < w.ends_at)
+        remedy: self_serviceable
+    transitions:
+      request:
+        kind: initial
+        to: PEER_REVIEW
+        required_inputs: [summary, change_type, affected_service]
+        optional_inputs: [risk, problem]
+      request_standard:
+        kind: initial
+        to: PLANNING
+        description: Records a standard change, which goes straight to planning, pre-authorized.
+        required_inputs: [summary, change_type, affected_service]
+        optional_inputs: [problem]
+        guards:
+          standard: deny
+      approve_peer:
+        kind: external
+        from: PEER_REVIEW
+        to: PLANNING
+        guards:
+          peer_approved: deny
+      expedite:
+        kind: external
+        from: PEER_REVIEW
+        to: AWAITING_IMPLEMENTATION
+        description: Fast-tracks an emergency change a peer has approved.
+        guards:
+          emergency: deny
+          peer_approved: deny
+      submit_to_cab:
+        kind: external
+        from: PLANNING
+        to: AWAITING_CAB_APPROVAL
+        required_inputs: [planned_start, planned_end]
+      approve_cab:
+        kind: external
+        from: AWAITING_CAB_APPROVAL
+        to: AWAITING_IMPLEMENTATION
+        guards:
+          cab_approved: deny
+          outside_freeze: deny
+      decline:
+        kind: external
+        from: [PEER_REVIEW, AWAITING_CAB_APPROVAL]
+        to: DECLINED
+        guards:
+          declined: deny
+      implement:
+        kind: external
+        from: AWAITING_IMPLEMENTATION
+        to: IMPLEMENTING
+        description: Starts implementing; a deployment pipeline that gates on the change requests it.
+      roll_back:
+        kind: external
+        from: IMPLEMENTING
+        to: AWAITING_IMPLEMENTATION
+        description: Returns a change whose deployment failed or was canceled.
+      complete: { kind: external, from: IMPLEMENTING, to: COMPLETED }
+      cancel:
+        kind: external
+        from: [PEER_REVIEW, PLANNING, AWAITING_CAB_APPROVAL, AWAITING_IMPLEMENTATION]
+        to: CANCELED
+      archive: { kind: external, from: [COMPLETED, DECLINED, CANCELED], to: ARCHIVED }
+
+  Alert:
+    description: An alert from monitoring, deduplicated by its alias while it is open.
+    tracking: record
+    attributes:
+      alias:
+        type: string
+        indexed: true
+        unique: { where: state == OPEN }
+        description: One open alert at a time has an alias; a repeat of it counts on the open one.
+      message:       { type: string }
+      priority:      { type: AlertPriority }
+      occurrences:   { type: int }
+      acknowledged:  { type: bool }
+      snoozed_until: { type: timestamp, optional: true }
+      incident:      { reference: Incident, optional: true, opposite: alerts }
+    states:
+      OPEN:    { category: active }
+      CLOSED:  { category: closed }
+      DELETED: { category: closed, final: true }
+    derived_attributes:
+      needs_escalation:
+        description: The alert has been open and unacknowledged for five minutes, which the application's escalation reads.
+        expression: not acknowledged and entered_at(OPEN) + 5 min <= now
+    conditions:
+      snooze_within_a_week:
+        description: A snooze ends within seven days.
+        expression: inputs.snoozed_until <= now + 7 days
+        remedy: self_serviceable
+    transitions:
+      create:
+        kind: initial
+        to: OPEN
+        required_inputs: [alias, message, priority]
+        effect:
+          - assign: { location: occurrences, expr: "1" }
+          - assign: { location: acknowledged, expr: "false" }
+      repeat:
+        kind: internal
+        from: OPEN
+        description: Counts a repeat of the alert, which the integration requests when an alert with its alias arrives.
+        effect:
+          - assign: { location: occurrences, expr: occurrences + 1 }
+      acknowledge:
+        kind: internal
+        from: OPEN
+        effect:
+          - assign: { location: acknowledged, expr: "true" }
+      unacknowledge:
+        kind: internal
+        from: OPEN
+        effect:
+          - assign: { location: acknowledged, expr: "false" }
+      snooze:
+        kind: internal
+        from: OPEN
+        required_inputs: [snoozed_until]
+        guards:
+          snooze_within_a_week: deny
+      link_incident:
+        kind: internal
+        from: [OPEN, CLOSED]
+        required_inputs: [incident]
+      close: { kind: external, from: OPEN, to: CLOSED }
+      reopen:
+        kind: external
+        from: CLOSED
+        to: OPEN
+        description: Reopens the alert, which must be acknowledged again.
+        effect:
+          - assign: { location: acknowledged, expr: "false" }
+      delete: { kind: external, from: CLOSED, to: DELETED }
+
+  Asset:
+    description: A configuration item in the asset schema, such as a laptop or a server, with a status of active, pending or inactive.
+    tracking: serial
+    attributes:
+      key:
+        type: string
+        identifier: { sequence: asset_key, format: "IT-{n}" }
+        unique: true
+      name:      { type: string }
+      service:   { reference: Service, optional: true, opposite: assets }
+      incidents: { reference: "Incident[]", opposite: asset }
+    states:
+      IN_STOCK: { category: pending }
+      IN_USE:   { category: active }
+      RETIRED:  { category: inactive }
+      DISPOSED: { category: closed, final: true }
+    transitions:
+      receive: { kind: initial, to: IN_STOCK, required_inputs: [name] }
+      deploy:  { kind: external, from: IN_STOCK, to: IN_USE, optional_inputs: [service] }
+      retire:  { kind: external, from: [IN_STOCK, IN_USE], to: RETIRED }
+      dispose: { kind: external, from: RETIRED, to: DISPOSED }

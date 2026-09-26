@@ -1627,7 +1627,7 @@ def main():
     clean = True
     needs = {"delivery.yaml": ["inventory.yaml"]}
     for version in ("people.yaml", "inventory.yaml", "inventory-v2.yaml", "service.yaml", "service-v2.yaml", "delivery.yaml", "approvals.yaml",
-                    "customers.yaml", "issues.yaml"):
+                    "customers.yaml", "issues.yaml", "servicedesk.yaml"):
         before = [(n, (EXAMPLES / n).read_text()) for n in needs.get(version, [])]
         files = [("people.yaml", people)] + before + ([(version, (EXAMPLES / version).read_text())] if version != "people.yaml" else [])
         found, notes = check(files)

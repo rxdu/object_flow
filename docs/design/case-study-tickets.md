@@ -2,7 +2,7 @@
 
 Status: design iteration 2, 2026-09-07. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md). Decisions taken here are ADR-0026 to ADR-0029 and an amendment to ADR-0021, all pending author review.
 
-> **Revisited 2026-09-26 against Jira's documentation and the flow format** (§6), at the author's request. §1 to §5 were written from general knowledge of Jira and against the text language; §6 checks every workflow feature Atlassian documents against the format, and is the current answer.
+> **Revisited 2026-09-26 against Jira's documentation and the flow format** (§6 for Jira's software and business spaces, §7 for Jira Service Management), at the author's request. §1 to §5 were written from general knowledge of Jira and against the text language; §6 and §7 check every workflow feature Atlassian documents against the format, and are the current answer.
 
 > **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
 
@@ -254,3 +254,123 @@ Every workflow Jira's engine configures, in either kind of space, can be express
 Where it differs from Jira, a written form still exists. A lifecycle ends in a final state, such as an archived one. A rule that holds for only some of the types sharing a workflow, a subtask blocking condition or an archive only a parent may cause, puts those types in a workflow of their own, as a Jira scheme would. A transition Jira takes by itself, on the last approval or a merged pull request, is requested by the application and checked like any other request. One validator is excluded by decision, the regular expression.
 
 What remains is by design an application's: who may do what, which is most of Jira's conditions; what is shown, which is boards and screens; and what starts work or reaches outside, which is automation, webhooks and notifications. The engine records and answers what each of those needs.
+
+## 7. Against Jira Service Management's documented flows (2026-09-26)
+
+The author asked next: "how about the flows in jira's service management?" This section answers as §6 does, against Atlassian's documentation and the flow format, with the same verdicts.
+
+**Scope.** Jira Service Management Cloud: its workflows, request types, approvals, SLAs, customers and queues, and the IT service management practices around them, incidents, problems, changes, operations and assets. Marketplace apps are out of scope.
+
+**Method.** Two inventories were taken from Atlassian's documentation on 2026-09-26: one of the workflows and the rules around them (261 quotes from 246 pages), one of the IT service management practices and operations (291 quotes from 134 pages). Each quote was taken from the page's raw text and checked by script against it, and a sample was checked against the live pages again before use. The default ITSM workflows' transitions are published only as screenshots, so the module below takes its statuses from the default status list Atlassian publishes as text ([statuses](https://support.atlassian.com/jira-cloud-administration/docs/what-are-issue-statuses-priorities-and-resolutions/)) and not from those diagrams. The claims marked *Written* are held by [`flow-format/examples/servicedesk.yaml`](flow-format/examples/servicedesk.yaml), which passes all four steps of the checker: service requests with approvals and SLAs, incidents, problems, post-incident reviews, changes with peer and board review and freeze windows, alerts, services and assets.
+
+### 7.1 Workflows, request types and the portal
+
+| Jira Service Management | Verdict | In the format |
+|---|---|---|
+| The default statuses: Waiting for support, Waiting for customer, Waiting for approval, Pending, Escalated, Canceled, Declined, and the change and problem statuses | Written | the states of `Request`, `Incident`, `Problem` and `Change` |
+| Resolved, "awaiting verification by reporter", and Closed, "considered finished"; a request closed some days after it is resolved | Written, and Application | RESOLVED is `closed` and not final, CLOSED is final; `close` is guarded by `resolved_three_days` and requested by a schedule (N6) |
+| Request types: "one request type can only be connected to one work type", and one work type serves many request types | Written | a type is the work type and its workflow; `request_type` is an enumeration on it |
+| Portal groups, request forms, hidden preset fields | Application | the interface; what a form submits arrives as the transition's inputs |
+| Status names customers see, mapped per request type | Application | presentation (N6) |
+| "Transitioning a work item from the portal ignores validators for the transition" | Differs | every caller's request passes the same guards (F3); a customer's own step, such as replying, is a transition like `customer_replies` |
+| The default resolutions, with Known error, Hardware failure and Software failure | Written | the `Resolution` enumeration |
+| A new status open to every other ("Any status") | Written | `from: any` |
+| Deleting a status and moving its requests, which runs no rules | Not yet | migrations |
+
+### 7.2 Approvals
+
+| Jira Service Management | Verdict | In the format |
+|---|---|---|
+| An approval step on a status, with approvers from a field or group, a number of approvals or all, and people excluded from approving | Written | `raise_for_approval` into WAITING_FOR_APPROVAL; `approvals_needed` derives the number; `approved` counts approvals since the request entered the state, leaving out the reporter's own |
+| An Approve and a Decline transition, and one decline declining the request | Written | `approve` and `decline`, guarded by `approved` and `declined` |
+| Transitions blocked while an approval is pending; *Block transition until approval* | Written | WAITING_FOR_APPROVAL is left only by `approve`, `decline` and `cancel` |
+| "Once the approval is approved or declined, the request will transition automatically" | Differs | the engine starts no transition no request caused (F8, N6): the application requests `approve` or `decline`, and the guard confirms it |
+| Approvers from the affected service; the change advisory board | Written | `Change.cab_approved` reads `affected_service.change_approvers` |
+| Customers choosing approvers, approvers who hold no licence, approving by email or in Slack | Application | who may approve and through which channel (N7) |
+| Reminders of pending approvals, the *Approval required* and *Approval completed* triggers, auto-approval rules | Application | N6 |
+
+### 7.3 SLAs
+
+| Jira Service Management | Verdict | In the format |
+|---|---|---|
+| Goals matched in order, by priority or any JQL, with "All remaining priorities" last | Written | `resolution_goal`, derived with `if … else` |
+| Goals by a customer's detail, such as a platinum support level | Written | `resolution_goal` reads `organization.support_level` |
+| Start, pause and stop conditions on statuses, such as pausing while waiting for the customer | Written | `time_to_resolution` sums the intervals outside the paused states; `paused` is derived |
+| Conditions on events: a comment for customers, an assignment, a resolution set | Written, in part | a transition's event is an interval boundary; the first response is measured from the `replies` observation, and any other event needs a recorded fact to measure from |
+| Calendars of working hours, holidays and a time zone | By decision | business hours and local time are a non-goal of the first release (PRD §3, `edge-cases.md`); the SLA runs on absolute time |
+| A new SLA applies to every request, open and closed | Written | a derived attribute and a metric are computed from the record |
+| Editing an SLA recalculates ongoing cycles and keeps completed ones | Differs | a derived attribute is recomputed over the whole history; a result that must stay fixed is written when it happens, as `resolve` writes `sla_met` |
+| A priority changed mid-cycle: "time already tracked counts toward the new goal" | Written | the goal derives from the current priority |
+| A new cycle on reopening | Differs | the sum covers every cycle; one cycle is the intervals since its start, `where i.entered_at >= …` |
+| Breach shown on the request; `breached()`, `paused()` and `remaining()` in JQL | Written, and Application | `resolution_breached` and `paused` are derived and queryable; showing them is the interface's |
+| Reports of met against breached, and the success rate | Written | the `sla_success` metric |
+| The *SLA threshold breached* trigger | Application | N6, from a query |
+
+### 7.4 Customers, comments, satisfaction and queues
+
+| Jira Service Management | Verdict | In the format |
+|---|---|---|
+| Licensed agents and unlicensed customers; organizations whose members share requests; request participants; customer permissions and channel access | Application, the data Written | who may see and do what is the upper layer's (N7); `organization`, `participants` and `share` record it |
+| Replies to the customer and internal notes | Written, and Application | two observation kinds, `replies` and `notes`; who may read a note is N7 |
+| Customer and internal notifications | Application | N6 |
+| Satisfaction surveys, sent when a request reaches Done | Written, and Application | the `ratings` observation, its 1 to 5 invariant and the `satisfaction` metric; sending the survey is the application's |
+| Queues, "a kind of filter for your requests", often sorted by SLA | Application | the engine answers the query, by `resolution_breached` for instance |
+
+### 7.5 Incidents, problems and reviews
+
+| Jira Service Management | Verdict | In the format |
+|---|---|---|
+| Impact and urgency, from which a team may "create an an impact urgency priority matrix and use automation to automatically assign priorities" (Atlassian's doubled word) | Written | `Incident.priority` derived from the matrix, declared once and not automated |
+| A major incident, moved to its own queue | Written, and Application | `major` and `mark_major`; the queue is the interface's |
+| Affected services, whose responders and stakeholders join the incident | Written | `set_affected_service` adds the service's responders in the same transition; several affected services at once are a link type, as `WorkItemLink` is in §6 |
+| An incident linked to its problem, "is caused by" | Written | `Incident.problem` and `Problem.incidents` |
+| A linked work item's status, reported onto the incident by automation | Written | `problem_open`, derived |
+| Incidents closed three business days after they are resolved, by an SLA and an automation rule | Written, and By decision | `close`, guarded by three days of absolute time and requested by a schedule |
+| The incident timeline | Written | the event log, with the `timeline` observations |
+| Post-incident reviews with a primary incident, created from the incident or by automation | Written | `create_review` creates one with this incident as its primary |
+| A problem's root cause and workaround; known errors kept as knowledge base articles | Written, and Application | attributes, required under review and on completion; the resolution `KNOWN_ERROR`; the article is outside the store |
+
+### 7.6 Changes
+
+| Jira Service Management | Verdict | In the format |
+|---|---|---|
+| Standard, normal and emergency changes | Written | `change_type` |
+| Standard changes, pre-authorized and approved by a preset automation rule | Written | `request_standard` creates one straight into PLANNING, guarded by `standard` |
+| Emergency changes, fast-tracked | Written | `expedite` |
+| Peer and board review: "By default, the change management workflow doesn't force approvals for these steps" | Differs | a transition's guards are its rules: a review is enforced by declaring it, as `approve_peer` and `approve_cab` do |
+| Change approvers from the affected service | Written | `cab_approved` |
+| Change risk, and AI risk assessment | Written, and Application | `risk`; an agent that assesses it records it by a request |
+| The change calendar, with maintenance and freeze windows as "visual indicators" | Written | `ChangeWindow`, and `outside_freeze`, a type-scan guard that enforces the freeze on `approve_cab` |
+| Five business days to review a normal change | Written, and By decision | a derived duration on absolute time, as §7.3 |
+| Deployment tracking and gating with a CI/CD tool | Application | the pipeline reads the change's state and requests `implement` or `roll_back`; asking an outside system from a guard is an evaluator, a construct to come |
+| The preset change automations: type and risk on creation, a transition on the deployment's result, low-risk changes approved | Application | requests under the same guards |
+
+### 7.7 Operations and assets
+
+| Jira Service Management | Verdict | In the format |
+|---|---|---|
+| Alerts, open or closed, acknowledged, snoozed; "Only one open alert with a specific alias can exist at any given time", a repeat counted on it | Written | `Alert`, with `unique: { where: state == OPEN }` on `alias` and `repeat` counting `occurrences` |
+| Closing and reopening, after which the alert must be acknowledged again | Written | `reopen` clears `acknowledged` |
+| A snooze of up to seven days | Written | `snooze_within_a_week` |
+| An incident created from alerts | Written, and Application | `link_incident`; creating it from the integration is the application's |
+| Escalation policies, on-call schedules, rotations and overrides, routing rules, heartbeats, notification policies, maintenance, alert grouping | Application | timers, notifications and choosing whom to call are the application's (N6); the engine answers which alerts need escalating, by `needs_escalation` |
+| Asset object types with a parent, and abstract ones | Not yet | `extends` and abstract types |
+| Objects, attributes, a key that "cannot be changed", references with a reference type | Written | `Asset`, `identifier`; a reference, or a link type where the reference carries a type |
+| An object's status, "active, pending, or inactive" | Written | states in those categories |
+| An object's history | Written | the event log |
+| The Assets field, "a two-way link between the work item and the object" | Written | `Incident.asset` and `Asset.incidents` |
+| AQL, automation on objects, bulk edits | Application | queries, N6, the batch operation |
+| The service registry, with tiers and owner teams | Written | `Service` |
+| The knowledge base and its deflection, the virtual service agent, live chat, playbooks | Application | N6; what an agent does is a request |
+
+### 7.8 Found and fixed by this study
+
+1. A value containing a colon and a space, which every aggregate with a body has, failed to load with only YAML's message; the specification and the message now say how to write it (commit `0c1b952`).
+2. **A guard runs before its transition's writes** (DESIGN.md §6, steps 4 and 5), so a guard that tests a value its own transition supplies reads `inputs.<name>`. `issues.yaml`'s `Document.has_approvers` read the attribute its `submit` writes and would have refused every submission; it now reads `inputs.approvers`, as `servicedesk.yaml` does. A scan of every example found one other such guard, `points_changed`, which compares the input with the old value on purpose. A notice for this is proposed in `TODO.md`.
+3. Writing the module, step 3's `required` check found that `Problem.complete` could not show its root cause was present; the module now requires it under review.
+
+### 7.9 The answer
+
+Every flow Jira Service Management's workflows, approvals and SLAs configure can be expressed. Four things JSM does by automation are declarations here: the priority from impact and urgency, a standard change's pre-authorization, an affected service's responders joining an incident, and a linked problem's status. One thing JSM only shows, the freeze window, is enforced. The one limit by decision is **working-hours calendars**: an SLA is written and measured on absolute time, and business hours are a non-goal of the first release. It is the limit a service desk will feel most, and whether to keep it is the author's question. The constructs still to come are the same as §6's, `extends` for asset object types and migrations for deleting statuses under live requests, with evaluators for a guard that must ask an outside system.
+
+What remains is by design an application's: the portal and what it shows, who may see and do what (customers, organizations, internal notes), notifications, queues, escalations and on-call, the CI/CD tool's side of gating, and the transitions JSM takes by itself, each served by the engine's queries and its record.
