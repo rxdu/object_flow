@@ -195,7 +195,7 @@ The old editor's list survives only on a 2021 page ([validators](https://conflue
 | Jira | Verdict | In the format |
 |---|---|---|
 | A workflow scheme mapping each work type to one workflow | Written | a type binds a shared machine with `state_machine` (§4.10), or declares its own |
-| The same work type with a different workflow in each space | Not yet | two types extending one base (ADR-0026); `extends` comes with migrations |
+| The same work type with a different workflow in each space | Written | two types extending one abstract base, each with its own workflow (ADR-0026, `flow-format.md` §4.14); `servicedesk.yaml`'s asset types are such a family |
 | A condition in a workflow shared by work types without subtasks, where Sub-Task Blocking holds vacuously | Differs | a machine reads only what it requires of every binder, so a type that has subtasks takes a workflow of its own, as `WorkItem` does here |
 | Drafts, published changes, deleting a status and moving its work items | Not yet | declaration versions and mappings (F5, ADR-0027); the format writes them with migrations |
 | Changing the work type hierarchy, which "cannot be undone" | Not yet | a migration |
@@ -249,7 +249,7 @@ The inventories also caught this project's own mistake: a quotation in ADR-0118,
 
 ### 6.11 The answer
 
-Every workflow Jira's engine configures, in either kind of space, can be expressed. The format writes it today, except where four constructs the model already has are still to come: a different workflow for one work type in each space (`extends`), editing a workflow under live work items (migrations), moving a work item or changing its type (supersession), and default field values.
+Every workflow Jira's engine configures, in either kind of space, can be expressed. The format writes it today, except where three constructs the model already has are still to come: editing a workflow under live work items (migrations), moving a work item or changing its type (supersession), and default field values. A different workflow for one work type in each space, `extends`, was written on 2026-09-26 after this answer was first given.
 
 Where it differs from Jira, a written form still exists. A lifecycle ends in a final state, such as an archived one. A rule that holds for only some of the types sharing a workflow, a subtask blocking condition or an archive only a parent may cause, puts those types in a workflow of their own, as a Jira scheme would. A transition Jira takes by itself, on the last approval or a merged pull request, is requested by the application and checked like any other request. One validator is excluded by decision, the regular expression.
 
@@ -354,7 +354,7 @@ The author asked next: "how about the flows in jira's service management?" This 
 | A snooze of up to seven days | Written | `snooze_within_a_week` |
 | An incident created from alerts | Written, and Application | `link_incident`; creating it from the integration is the application's |
 | Escalation policies, on-call schedules, rotations and overrides, routing rules, heartbeats, notification policies, maintenance, alert grouping | Application | timers, notifications and choosing whom to call are the application's (N6); the engine answers which alerts need escalating, by `needs_escalation` |
-| Asset object types with a parent, and abstract ones | Not yet | `extends` and abstract types |
+| Asset object types with a parent, and abstract ones | Written | the abstract `Asset`, which `Laptop` and `Server` extend, each binding `AssetLifecycle` (§4.14) |
 | Objects, attributes, a key that "cannot be changed", references with a reference type | Written | `Asset`, `identifier`; a reference, or a link type where the reference carries a type |
 | An object's status, "active, pending, or inactive" | Written | states in those categories |
 | An object's history | Written | the event log |
@@ -371,6 +371,6 @@ The author asked next: "how about the flows in jira's service management?" This 
 
 ### 7.9 The answer
 
-Every flow Jira Service Management's workflows, approvals and SLAs configure can be expressed. Four things JSM does by automation are declarations here: the priority from impact and urgency, a standard change's pre-authorization, an affected service's responders joining an incident, and a linked problem's status. One thing JSM only shows, the freeze window, is enforced. The one limit by decision is **working-hours calendars**: an SLA is written and measured on absolute time, and business hours are a non-goal of the first release. It is the limit a service desk will feel most; asked, the author kept it on 2026-09-26, "keep the calendar non-goal" (PRD revision 11). The constructs still to come are the same as §6's, `extends` for asset object types and migrations for deleting statuses under live requests, with evaluators for a guard that must ask an outside system.
+Every flow Jira Service Management's workflows, approvals and SLAs configure can be expressed. Four things JSM does by automation are declarations here: the priority from impact and urgency, a standard change's pre-authorization, an affected service's responders joining an incident, and a linked problem's status. One thing JSM only shows, the freeze window, is enforced. The one limit by decision is **working-hours calendars**: an SLA is written and measured on absolute time, and business hours are a non-goal of the first release. It is the limit a service desk will feel most; asked, the author kept it on 2026-09-26, "keep the calendar non-goal" (PRD revision 11). The constructs still to come are migrations, for deleting statuses under live requests, and evaluators, for a guard that must ask an outside system; `extends`, for asset object types, was written after this answer was first given.
 
 What remains is by design an application's: the portal and what it shows, who may see and do what (customers, organizations, internal notes), notifications, queues, escalations and on-call, the CI/CD tool's side of gating, and the transitions JSM takes by itself, each served by the engine's queries and its record.

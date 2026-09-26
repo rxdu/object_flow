@@ -22,6 +22,24 @@ sequences:
   asset_key:
     description: Numbers the configuration items of the asset schema, as IT-42.
 
+machines:
+  AssetLifecycle:
+    description: An asset's status, active, pending or inactive, from receipt to disposal.
+    requires:
+      attributes:
+        name:    { type: string }
+        service: { reference: Service, optional: true }
+    states:
+      IN_STOCK: { category: pending }
+      IN_USE:   { category: active }
+      RETIRED:  { category: inactive }
+      DISPOSED: { category: closed, final: true }
+    transitions:
+      receive: { kind: initial, to: IN_STOCK, required_inputs: [name] }
+      deploy:  { kind: external, from: IN_STOCK, to: IN_USE, optional_inputs: [service] }
+      retire:  { kind: external, from: [IN_STOCK, IN_USE], to: RETIRED }
+      dispose: { kind: external, from: RETIRED, to: DISPOSED }
+
 types:
   Organization:
     description: A group of customers whose requests are shared among its members.
@@ -648,7 +666,8 @@ types:
       delete: { kind: external, from: CLOSED, to: DELETED }
 
   Asset:
-    description: A configuration item in the asset schema, such as a laptop or a server, with a status of active, pending or inactive.
+    description: A configuration item in the asset schema, the base of every kind of asset; it has no objects of its own.
+    abstract: true
     tracking: serial
     attributes:
       key:
@@ -658,13 +677,27 @@ types:
       name:      { type: string }
       service:   { reference: Service, optional: true, opposite: assets }
       incidents: { reference: "Incident[]", opposite: asset }
-    states:
-      IN_STOCK: { category: pending }
-      IN_USE:   { category: active }
-      RETIRED:  { category: inactive }
-      DISPOSED: { category: closed, final: true }
+
+  Laptop:
+    description: A laptop, assigned to the person who uses it.
+    extends: Asset
+    state_machine: AssetLifecycle
+    attributes:
+      assigned_to: { type: identity, optional: true }
     transitions:
-      receive: { kind: initial, to: IN_STOCK, required_inputs: [name] }
-      deploy:  { kind: external, from: IN_STOCK, to: IN_USE, optional_inputs: [service] }
-      retire:  { kind: external, from: [IN_STOCK, IN_USE], to: RETIRED }
-      dispose: { kind: external, from: RETIRED, to: DISPOSED }
+      assign:
+        kind: internal
+        from: IN_USE
+        required_inputs: [assigned_to]
+
+  Server:
+    description: A server, known on the network by its host name.
+    extends: Asset
+    state_machine: AssetLifecycle
+    attributes:
+      hostname: { type: string, optional: true }
+    transitions:
+      name_host:
+        kind: internal
+        from: [IN_STOCK, IN_USE]
+        required_inputs: [hostname]

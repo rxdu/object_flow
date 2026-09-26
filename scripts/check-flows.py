@@ -78,7 +78,7 @@ ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "o
                  "survives"}
 METRIC_ORDER = ["description", "measure", "state", "transition", "source", "item", "filter", "dimensions",
                 "group_by", "time_dimension", "expression", "flag_when"]
-TYPE_ORDER = ["description", "tracking", "state_machine", "attributes", "observations", "states",
+TYPE_ORDER = ["description", "abstract", "extends", "tracking", "state_machine", "attributes", "observations", "states",
               "derived_attributes", "invariants", "conditions", "transitions", "metrics"]
 
 
@@ -168,22 +168,75 @@ def resolve_any(x, states):
     return dict(x, **{"from": [s for s, v in (states or {}).items() if not (v or {}).get("final")]})
 
 
-def view(doc):
+INHERITED = ("attributes", "derived_attributes", "invariants")
+
+
+def bases(tn, kinds):
+    """The bases a type extends, nearest first; the walk stops at an unknown
+    name or where it would come back to a type it has passed."""
+    chain, seen = [], {tn}
+    base = (kinds.get(tn) or {}).get("extends")
+    while base and base not in seen and base in kinds:
+        chain.append(base)
+        seen.add(base)
+        base = kinds[base].get("extends")
+    return chain
+
+
+def inherit(tn, t, kinds):
+    """A type with what its bases give it: their attributes, derived
+    attributes and invariants, and their tracking (declaration-syntax.md §2).
+    `_from` names the base each inherited member is declared on."""
+    chain = bases(tn, kinds)
+    if not chain:
+        return t
+    merged, origin = dict(t), {}
+    for key in INHERITED:
+        members = {}
+        for b in reversed(chain):
+            for n, spec in (kinds[b].get(key) or {}).items():
+                members[n] = spec
+                origin[(key, n)] = b
+        for n in t.get(key) or {}:
+            origin.pop((key, n), None)
+        members.update(t.get(key) or {})
+        merged[key] = members
+    if "tracking" not in t:
+        tracking = next((kinds[b]["tracking"] for b in chain if "tracking" in kinds[b]), None)
+        if tracking:
+            merged["tracking"] = tracking
+    merged["_from"] = origin
+    return merged
+
+
+def inherited(t, key, name):
+    return (key, name) in (t.get("_from") or {})
+
+
+def view(doc, library=None):
     """The module as the checks see it: each machine as a type, each binder
-    merged with its machine; and a map back from each view path to the YAML."""
+    merged with its machine, each subtype with its bases; and a map back from
+    each view path to the YAML."""
     machines = doc.get("machines") or {}
     kinds = {mn: machine_as_type(m) for mn, m in machines.items()}
     kinds.update({tn: bound(t, machines) for tn, t in (doc.get("types") or {}).items()})
     kinds = {tn: dict(t, transitions={xn: resolve_any(x, t.get("states")) for xn, x in (t.get("transitions") or {}).items()})
              for tn, t in kinds.items()}
+    everything = dict(library or {})
+    everything.update(kinds)
+    kinds = {tn: inherit(tn, t, everything) for tn, t in kinds.items()}
     v = dict(doc, types=kinds)
 
     def back(path):
         """The YAML path a view path stands for, or None where it is a
-        machine's part of a binder, which is reported at the machine."""
+        machine's part of a binder, reported at the machine, or a member a
+        subtype inherits, reported at the base that declares it."""
         if len(path) < 2 or path[0] != "types":
             return path
         name = path[1]
+        origin = (kinds.get(name) or {}).get("_from") or {}
+        if len(path) >= 4 and (path[2], path[3]) in origin:
+            return None
         if name in machines:
             rest = path[2:]
             if rest[:1] == ("attributes",):
@@ -298,9 +351,13 @@ def schema_errors(doc):
                     "assertion": "an assertion declares as `to` the states it may put an object in, and no `from`: it runs from any state",
                     "erasure": "an erasure declares neither `from` nor `to`: it runs at any state"}.get(e.instance["kind"], e.message)
             out.append((tuple(e.absolute_path), "schema", rule))
-        elif e.validator == "oneOf" and isinstance(e.instance, dict) and "tracking" in e.instance and "description" in e.instance:
+        elif e.validator == "oneOf" and len(e.absolute_path) == 2 and e.absolute_path[0] == "types":
             out.append((tuple(e.absolute_path), "schema",
-                        "a type either declares its own states and transitions or binds a state_machine, and never both"))
+                        "a type declares its own states and transitions, binds a state_machine, or is abstract, and only one of them; "
+                        "an abstract type has no lifecycle, conditions, observations or metrics"))
+        elif e.validator == "anyOf" and len(e.absolute_path) == 2 and e.absolute_path[0] == "types":
+            out.append((tuple(e.absolute_path), "schema",
+                        "a type declares its tracking, extends a base that does, or is abstract"))
         elif e.validator == "oneOf" and e.absolute_path and e.absolute_path[-1] == "from":
             out.append((tuple(e.absolute_path), "schema", "`from` is a state, a list of states, or any, alone"))
         elif e.validator == "oneOf" and e.absolute_path and e.absolute_path[-1] == "unique":
@@ -431,7 +488,41 @@ def relationship_errors(doc, library):
     return out
 
 
-def machine_errors(doc):
+def family_errors(doc, library):
+    """A base is declared and abstract, extending never comes back to itself,
+    a subtype does not redeclare what it inherits, and a type with objects has
+    a tracking mode, its own or inherited (the model's checks 33, 42 and 43)."""
+    kinds = dict(library or {})
+    kinds.update(dict(types(doc)))
+    out = []
+    for tn, t in types(doc):
+        here = ("types", tn)
+        base = t.get("extends")
+        if base:
+            b = kinds.get(base)
+            if b is None:
+                out.append((here + ("extends",), "names", f"{tn} extends {base}, which is neither declared in this module nor imported"))
+            elif not b.get("abstract"):
+                out.append((here + ("extends",), "names", f"{tn} extends {base}, which is not abstract; a base has no objects of its own"))
+            step, seen = base, set()
+            while step in kinds and step not in seen:
+                seen.add(step)
+                if step == tn:
+                    out.append((here + ("extends",), "names", f"{tn} extends {base}, and following its bases comes back to {tn}"))
+                    break
+                step = kinds[step].get("extends")
+        chain = bases(tn, kinds)
+        for key in INHERITED:
+            for n in t.get(key) or {}:
+                owner = next((c for c in chain if n in (kinds[c].get(key) or {})), None)
+                if owner:
+                    out.append((here + (key, n), "names", f"{tn} declares '{n}', which it inherits from {owner}; a member has one declaration"))
+        if not t.get("abstract") and "tracking" not in t and not any("tracking" in kinds[c] for c in chain):
+            out.append((here, "names", f"{tn} has no tracking, declared or inherited"))
+    return out
+
+
+def machine_errors(doc, kinds=None):
     """A binder names a declared or imported machine and declares what it
     requires; a machine's states require no attributes, since the invariant
     they generate belongs to each binder, which declares it instead."""
@@ -455,8 +546,9 @@ def machine_errors(doc):
                 out.append((("types", tn, "state_machine"), "names", f"{tn} binds {mn}, which is neither a machine of this module nor imported"))
             continue
         req = m.get("requires") or {}
+        full = (kinds or {}).get(tn, t)   # with what the binder inherits
         for a, want in (req.get("attributes") or {}).items():
-            have = (t.get("attributes") or {}).get(a)
+            have = (full.get("attributes") or {}).get(a)
             if have is None:
                 out.append((("types", tn, "state_machine"), "names", f"{tn} binds {mn}, which requires the attribute '{a}', and {tn} does not declare it"))
                 continue
@@ -465,7 +557,7 @@ def machine_errors(doc):
             if sig(have) != sig(want):
                 out.append((("types", tn, "attributes", a), "names", f"{tn} declares '{a}' as {attribute_line(a, have).split(chr(10))[0].strip()}, and its machine {mn} requires {attribute_line(a, want).split(chr(10))[0].strip()}"))
         for i in req.get("invariants") or []:
-            if i not in (t.get("invariants") or {}):
+            if i not in (full.get("invariants") or {}):
                 out.append((("types", tn, "state_machine"), "names", f"{tn} binds {mn}, which requires the invariant '{i}', and {tn} does not declare it"))
         for c in (t.get("conditions") or {}):
             if c in (m.get("conditions") or {}):
@@ -867,13 +959,17 @@ def creation_writes(t):
 
 
 def identifier_errors(doc, tn, t, library):
-    """A minted identifier and the uniqueness forms (the model's check 44)."""
+    """A minted identifier and the uniqueness forms (the model's check 44). An
+    abstract type has no creations; each type extending it is checked instead,
+    an inherited identifier reported at that type."""
+    if t.get("abstract"):
+        return []
     attrs = t.get("attributes") or {}
     imported = {n for names in (doc.get("imports") or {}).values() for n in names}
     written = creation_writes(t)
     out = []
     for a, spec in attrs.items():
-        here = ("types", tn, "attributes", a)
+        here = ("types", tn) if inherited(t, "attributes", a) else ("types", tn, "attributes", a)
         u = spec.get("unique")
         ident = spec.get("identifier")
         if isinstance(u, dict):
@@ -1302,8 +1398,10 @@ def to_text(doc):
         T = ("types", tn)
         conds = t.get("conditions") or {}
         emit(f"# {t['description']}", T)
-        emit(f"type {tn} version 1 {{", T)
-        emit(f"  tracking {t['tracking']}", T + ("tracking",))
+        emit(f"type {tn}" + (f" extends {t['extends']}" if t.get("extends") else "") + " version 1"
+             + (" abstract" if t.get("abstract") else "") + " {", T)
+        if t.get("tracking"):
+            emit(f"  tracking {t['tracking']}", T + ("tracking",))
         if t.get("state_machine"):
             emit(f"  machine  {t['state_machine']}", T + ("state_machine",))
         for sn, v in (t.get("states") or {}).items():
@@ -1458,9 +1556,9 @@ def check(files):
         if errors:
             found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in errors]
             continue
-        v, back = view(doc)
+        v, back = view(doc, library)
         seen = set()
-        for p, c, m in order_errors(doc) + machine_errors(doc) + name_errors(v, library, ordered=False):
+        for p, c, m in order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + name_errors(v, library, ordered=False):
             p = back(p)
             if p is not None and p[0] == "machines" and "'" in m:
                 # a machine's attributes, always quoted, are the ones it requires of its binders
@@ -1484,7 +1582,7 @@ def report(found, notes):
     print(f"{len(found)} fatal · {len(notes)} notice{'s' if len(notes) != 1 else ''}")
 
 
-def self_test(people, service, inventory, delivery, approvals, customers):
+def self_test(people, service, inventory, delivery, approvals, customers, servicedesk):
     def plant(text, old, new):
         assert text.count(old) >= 1, old
         return text.replace(old, new, 1)
@@ -1576,6 +1674,16 @@ def self_test(people, service, inventory, delivery, approvals, customers):
         ("an aggregate's body written in a plain value", "yaml", "service.yaml",
          plant(service, "        expression: count(i in this.intervals(engineer) where i.value is not null) - 1\n",
                "        expression: count(i in this.intervals(engineer) where i.value is not null: i) - 1\n")),
+        ("a type that extends one that is not abstract", "names", "servicedesk.yaml",
+         plant(servicedesk, "  Laptop:\n    description: A laptop, assigned to the person who uses it.\n    extends: Asset\n", "  Laptop:\n    description: A laptop, assigned to the person who uses it.\n    extends: Alert\n")),
+        ("a subtype that redeclares what it inherits", "names", "servicedesk.yaml",
+         plant(servicedesk, "      assigned_to: { type: identity, optional: true }\n",
+               "      assigned_to: { type: identity, optional: true }\n      name: { type: string }\n")),
+        ("two abstract types that extend each other", "names", "servicedesk.yaml",
+         plant(plant(servicedesk, "    abstract: true\n    tracking: serial\n", "    abstract: true\n    extends: Hardware\n    tracking: serial\n"),
+               "  Laptop:\n", "  Hardware:\n    description: Hardware of any kind.\n    abstract: true\n    extends: Asset\n\n  Laptop:\n")),
+        ("an inherited identifier whose scope a subtype's creation does not write", "names", "servicedesk.yaml",
+         plant(servicedesk, 'identifier: { sequence: asset_key, format: "IT-{n}" }', 'identifier: { sequence: asset_key, scope: service, format: "IT-{n}" }')),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",
@@ -1638,7 +1746,7 @@ def main():
         clean &= not found
     ok = self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "inventory.yaml").read_text(),
                    (EXAMPLES / "delivery.yaml").read_text(), (EXAMPLES / "approvals.yaml").read_text(),
-                   (EXAMPLES / "customers.yaml").read_text())
+                   (EXAMPLES / "customers.yaml").read_text(), (EXAMPLES / "servicedesk.yaml").read_text())
     sys.exit(0 if clean and ok else 1)
 
 

@@ -136,14 +136,21 @@
     "type": {
       "type": "object",
       "required": [
-        "description",
-        "tracking"
+        "description"
       ],
       "additionalProperties": false,
       "properties": {
         "description": {
           "$ref": "#/definitions/description",
           "description": "What an object of the type is, in one or more sentences."
+        },
+        "abstract": {
+          "type": "boolean",
+          "description": "true for a base that has no objects of its own; the types that extend it inherit its attributes, derived attributes and invariants."
+        },
+        "extends": {
+          "$ref": "#/definitions/typeName",
+          "description": "The abstract base this type inherits attributes, derived attributes and invariants from, and its tracking; never its transitions."
         },
         "tracking": {
           "enum": [
@@ -247,8 +254,22 @@
             "transitions"
           ],
           "not": {
-            "required": [
-              "state_machine"
+            "anyOf": [
+              {
+                "required": [
+                  "state_machine"
+                ]
+              },
+              {
+                "properties": {
+                  "abstract": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "abstract"
+                ]
+              }
             ]
           }
         },
@@ -257,10 +278,90 @@
             "state_machine"
           ],
           "not": {
-            "required": [
-              "states"
+            "anyOf": [
+              {
+                "required": [
+                  "states"
+                ]
+              },
+              {
+                "properties": {
+                  "abstract": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "abstract"
+                ]
+              }
             ]
           }
+        },
+        {
+          "properties": {
+            "abstract": {
+              "const": true
+            }
+          },
+          "required": [
+            "abstract"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "state_machine"
+                ]
+              },
+              {
+                "required": [
+                  "states"
+                ]
+              },
+              {
+                "required": [
+                  "transitions"
+                ]
+              },
+              {
+                "required": [
+                  "conditions"
+                ]
+              },
+              {
+                "required": [
+                  "observations"
+                ]
+              },
+              {
+                "required": [
+                  "metrics"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "tracking"
+          ]
+        },
+        {
+          "required": [
+            "extends"
+          ]
+        },
+        {
+          "properties": {
+            "abstract": {
+              "const": true
+            }
+          },
+          "required": [
+            "abstract"
+          ]
         }
       ]
     },
