@@ -1447,7 +1447,11 @@ def check(files):
             doc = load(text)
         except yaml.YAMLError as e:
             mark = getattr(e, "problem_mark", None)
-            found.append((f, mark.line + 1 if mark else 1, "fatal", "yaml", " ".join(str(getattr(e, "problem", e)).split())))
+            problem = " ".join(str(getattr(e, "problem", e)).split())
+            if problem == "mapping values are not allowed here":
+                # an aggregate's body, sum(x in c: body), puts ": " inside a plain scalar
+                problem += "; a value containing a colon and a space, such as an aggregate's body, is quoted or written after >-"
+            found.append((f, mark.line + 1 if mark else 1, "fatal", "yaml", problem))
             continue
         loaded.append((f, text, idx, doc))
         errors = schema_errors(doc)
@@ -1569,6 +1573,9 @@ def self_test(people, service, inventory, delivery, approvals, customers):
          plant(delivery, "      unit:         { reference: InventoryItem }\n", "      unit:         { reference: InventoryItem, indexed: true }\n")),
         ("a source list that mixes any with a state", "schema", "customers.yaml",
          plant(customers, "        from: any\n        to: CLOSED\n", "        from: [any, ACTIVE]\n        to: CLOSED\n")),
+        ("an aggregate's body written in a plain value", "yaml", "service.yaml",
+         plant(service, "        expression: count(i in this.intervals(engineer) where i.value is not null) - 1\n",
+               "        expression: count(i in this.intervals(engineer) where i.value is not null: i) - 1\n")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",
