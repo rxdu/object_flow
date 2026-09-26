@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 383 entries and five cosmetics; 383 are closed and 0 are open. The PRD is at revision 10, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 383 entries and five cosmetics; 383 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -9,16 +9,14 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 - ADR-0104, on 2026-09-24: the engine is the governed core.
 - ADR-0107, on 2026-09-24: the project is named ObjectFlow, superseding ADR-0011.
 - ADR-0108, on 2026-09-24: a cascade is declared clearly enough not to surprise, and is shown where it lands. The principle is the author's; the mechanism was written at the author's direction.
-- ADR-0109, on 2026-09-24, at the author's direction: what every object in a state must carry is an invariant, and publishing reports what a creation skips.
+- ADR-0097 to ADR-0101, ADR-0103, ADR-0105, ADR-0106 and ADR-0109, on 2026-09-26: decided at the author's direction on 2026-09-23 and 2026-09-24, from the reviews of the record against the PRD and the unit's journey, and from D345 (what every object in a state must carry is an invariant, and publishing reports what a creation skips).
 - ADR-0110, on 2026-09-25: the engine is an internal service; authentication and the mapping of roles to capabilities are the upper layers'; an actor's kind is declared with its type.
 - ADR-0114, on 2026-09-25: ObjectFlow records who acted and never evaluates it; who may do and see what is the upper layers', which supersedes ADR-0030 and ADR-0112.
 - ADR-0111 to ADR-0113, on 2026-09-25, from checking the design against the first consumer's PRD as a case study: a rule may be a flag, a metric may restrict who reads it with splits by person restricted by default, and a norm observed in history is held as data. ADR-0114 superseded ADR-0112 the same day.
+- ADR-0115 to ADR-0120, on 2026-09-26: the flow description format, its established terms, its relationships, metrics, assertions and erasures, and migrations.
 - ADR-0065 to ADR-0073, which the author ruled on.
 
-**Decided at the author's direction, the author's own acceptance pending:**
-- ADR-0097 to ADR-0101, from a five-slice review of the whole record and its verification, 2026-09-23.
-- ADR-0103, from reviewing the design against the PRD with the unit's journey, 2026-09-24.
-- ADR-0105 and ADR-0106, from a five-slice review of the record against PRD revision 5, 2026-09-24.
+**Decided at the author's direction, the author's own acceptance pending:** none since 2026-09-26, when the author accepted the last of them.
 
 **Proposed and awaiting the author:** ADR-0102, which writes the unit's whole journey from the first consumer's production code.
 

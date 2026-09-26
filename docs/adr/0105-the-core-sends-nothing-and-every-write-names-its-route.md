@@ -1,6 +1,6 @@
 # ADR-0105: The core sends nothing, and every write to governed state names its route
 
-- **Status:** Accepted — decided 2026-09-24 at the author's direction ("go ahead with the five reviewers once the PRD is fixed"), against `docs/PRD.md` revision 5: F1, F2, F4, F5, T1, T5, L2, L3, L6, N2, N6 and UC-17, UC-20; repairs D290 to D298, and, as corrected by an independent verification, D354, D355, D357, D359, D360 and D363 to D365. The author's own acceptance is pending.
+- **Status:** Accepted — decided 2026-09-24 at the author's direction ("go ahead with the five reviewers once the PRD is fixed"), against `docs/PRD.md` revision 5: F1, F2, F4, F5, T1, T5, L2, L3, L6, N2, N6 and UC-17, UC-20; repairs D290 to D298, and, as corrected by an independent verification, D354, D355, D357, D359, D360 and D363 to D365. Accepted by the author on 2026-09-26: "accept the older pending ADRs too".
 - **Date:** 2026-09-24
 - **Refined by:** ADR-0114 — a subscription names no reader and needs no capability; who may pull one is the upper layer's.
 - **Refines:** ADR-0007, ADR-0013, ADR-0022, ADR-0027, ADR-0030, ADR-0034, ADR-0036, ADR-0040, ADR-0043, ADR-0054, ADR-0060, ADR-0077, ADR-0083, ADR-0087, ADR-0088, ADR-0097, ADR-0098, ADR-0100, ADR-0104

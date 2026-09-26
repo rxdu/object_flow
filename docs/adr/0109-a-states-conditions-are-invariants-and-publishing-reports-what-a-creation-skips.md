@@ -1,6 +1,6 @@
 # ADR-0109: What every object in a state must carry is an invariant, and publishing reports what a creation skips
 
-- **Status:** Accepted — decided 2026-09-24 at the author's direction ("go with your D345 reasoning: invariants and a publish report"), against `docs/PRD.md` revision 7: T1, T4, F1, F2, V1, V3, N5 and §2; closes the question D345 left open, and repairs D379 and D380. The recommendation put to the author named the photo rule among the invariants; production shows it is checked only at intake, so it stays a guard (§1).
+- **Status:** Accepted — decided 2026-09-24 at the author's direction ("go with your D345 reasoning: invariants and a publish report"), against `docs/PRD.md` revision 7: T1, T4, F1, F2, V1, V3, N5 and §2; closes the question D345 left open, and repairs D379 and D380. The recommendation put to the author named the photo rule among the invariants; production shows it is checked only at intake, so it stays a guard (§1). Accepted by the author on 2026-09-26: "accept the older pending ADRs too".
 - **Date:** 2026-09-24
 - **Refines:** ADR-0009 (invariants declared at type level), ADR-0065 (a machine's creation guards bind a creation that replaces it)
 - **Amends:** ADR-0102, whose module is still proposed

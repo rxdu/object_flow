@@ -1,6 +1,6 @@
 # ADR-0106: What the record measures: history coverage, completion, and the metric rules revision 5 exposed
 
-- **Status:** Accepted — decided 2026-09-24 at the author's direction ("go ahead with the five reviewers once the PRD is fixed"), against `docs/PRD.md` revision 5: C1, C2, D5, D8, D11, M1, M3, M4, M5, M6, N1, N5, T5, V3 and UC-1, UC-9, UC-14, UC-16, UC-17, UC-18; repairs D299 to D314, and, as corrected by an independent verification, D356, D360, D362 and D366. The author's own acceptance is pending.
+- **Status:** Accepted — decided 2026-09-24 at the author's direction ("go ahead with the five reviewers once the PRD is fixed"), against `docs/PRD.md` revision 5: C1, C2, D5, D8, D11, M1, M3, M4, M5, M6, N1, N5, T5, V3 and UC-1, UC-9, UC-14, UC-16, UC-17, UC-18; repairs D299 to D314, and, as corrected by an independent verification, D356, D360, D362 and D366. Accepted by the author on 2026-09-26: "accept the older pending ADRs too".
 - **Date:** 2026-09-24
 - **Refines:** ADR-0026, ADR-0048, ADR-0083, ADR-0084, ADR-0086, ADR-0096, ADR-0098, ADR-0100, ADR-0101
 - **PRD:** the four revisions it proposes (D5, D11, L1, N5) were accepted by the author on 2026-09-24, as PRD revision 7.
