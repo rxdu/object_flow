@@ -45,7 +45,7 @@ types:
       RETIRED:
         description: Permanently withdrawn from stock and from use.
         category: closed
-        terminal: true
+        final: true
         required_attributes: [retirement_reason]
 
     conditions:
@@ -64,84 +64,84 @@ types:
 
     transitions:
       add:
-        kind: creation
+        kind: initial
         to: AVAILABLE
         description: Adds a received item to stock.
         required_inputs: [serial, model, list_price, condition]
       regrade:
-        kind: action
+        kind: internal
         from: [AVAILABLE, RESERVED]
         description: Records the item's current condition.
         required_inputs: [condition]
       reserve:
-        kind: state_change
+        kind: external
         from: AVAILABLE
         to: RESERVED
         description: Holds the item for one recipient until the given time.
         required_inputs: [recipient, reserved_until]
         guards:
-          not_damaged: enforced
-          reservation_ends_in_future: enforced
+          not_damaged: deny
+          reservation_ends_in_future: deny
       release:
-        kind: state_change
+        kind: external
         from: RESERVED
         to: AVAILABLE
         description: Ends the reservation; the item is free again.
-        outcome:
+        effect:
           - clear: [recipient, reserved_until]
       deliver_externally:
-        kind: state_change
+        kind: external
         from: RESERVED
         to: SOLD
         description: Delivers the item externally, to the customer it is reserved for, which completes the sale.
         required_inputs: [sale_price]
         optional_inputs: [photo]
         guards:
-          not_damaged: enforced
-          photo_attached: observed
-        outcome:
+          not_damaged: deny
+          photo_attached: audit
+        effect:
           - clear: [reserved_until]
       deliver_internally:
-        kind: state_change
+        kind: external
         from: RESERVED
         to: DEVELOPMENT
         description: Delivers the item internally, to the project it is reserved for.
         required_inputs: [development_use]
-        outcome:
+        effect:
           - clear: [reserved_until]
       cancel_delivery:
-        kind: state_change
+        kind: external
         from: [SOLD, DEVELOPMENT]
         to: RESERVED
         description: Cancels an external or internal delivery; the item is reserved again for the same recipient.
         required_inputs: [reserved_until]
         guards:
-          reservation_ends_in_future: enforced
-        outcome:
+          reservation_ends_in_future: deny
+        effect:
           - clear: [sale_price, development_use]
       accept_return:
-        kind: state_change
+        kind: external
         from: SOLD
         to: AVAILABLE
         description: Takes an externally delivered item back into stock once it is graded.
         required_inputs: [condition]
-        outcome:
+        effect:
           - clear: [recipient, sale_price]
       return_to_stock:
-        kind: state_change
+        kind: external
         from: DEVELOPMENT
         to: AVAILABLE
         description: Returns an internally delivered item to stock once it is graded.
         required_inputs: [condition]
-        outcome:
+        effect:
           - clear: [recipient, development_use]
       retire:
-        kind: state_change
+        kind: external
         from: DEVELOPMENT
         to: RETIRED
         description: Withdraws an internally delivered item permanently.
         required_inputs: [retirement_reason]
-        outcome:
+        effect:
           - clear: [recipient, development_use]
 
     metrics:

@@ -16,15 +16,15 @@ types:
 
     states:
       ACTIVE:  { category: live }
-      RETIRED: { category: closed, terminal: true }
+      RETIRED: { category: closed, final: true }
 
     transitions:
       add:
-        kind: creation
+        kind: initial
         to: ACTIVE
         required_inputs: [title]
       retire:
-        kind: state_change
+        kind: external
         from: ACTIVE
         to: RETIRED
 
@@ -54,7 +54,7 @@ types:
     states:
       OPEN:    { category: inbound }
       WORKING: { category: live }
-      DONE:    { category: closed, terminal: true }
+      DONE:    { category: closed, final: true }
 
     conditions:
       engineer_active:
@@ -79,31 +79,31 @@ types:
 
     transitions:
       open:
-        kind: creation
+        kind: initial
         to: OPEN
         required_inputs: [engineer]
         guards:
-          engineer_active: enforced
+          engineer_active: deny
       reassign:
-        kind: action
+        kind: internal
         from: [OPEN, WORKING]
         required_inputs: [engineer]
         guards:
-          engineer_active: enforced
+          engineer_active: deny
       start:
-        kind: state_change
+        kind: external
         from: OPEN
         to: WORKING
         backdating_limit: 2 days
       finish:
-        kind: state_change
+        kind: external
         from: WORKING
         to: DONE
         optional_inputs: [photo]
         guards:
-          no_unresolved_failure: enforced
-          photo_attached: enforced
-          at_least_one_passed: flagged
+          no_unresolved_failure: deny
+          photo_attached: deny
+          at_least_one_passed: warn
 
     metrics:
       time_working:

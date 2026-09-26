@@ -101,7 +101,7 @@
       "properties": {
         "description": {"$ref": "#/definitions/description"},
         "category": {"$ref": "#/definitions/memberName"},
-        "terminal": {"type": "boolean", "description": "No transition leaves this state."},
+        "final": {"type": "boolean", "description": "No transition leaves this state (UML FinalState)."},
         "required_attributes": {"$ref": "#/definitions/names", "description": "Attributes that have a value whenever an object is in this state."}
       }
     },
@@ -109,7 +109,7 @@
       "type": "object",
       "required": ["kind"],
       "properties": {
-        "kind": {"enum": ["creation", "state_change", "action"]},
+        "kind": {"enum": ["initial", "external", "internal"], "description": "UML: initial transition, external transition, internal transition."},
         "from": {"$ref": "#/definitions/states"},
         "to": {"$ref": "#/definitions/stateName"},
         "description": {"$ref": "#/definitions/description"},
@@ -119,10 +119,10 @@
           "description": "Conditions evaluated, in this order, after the required inputs are checked.",
           "type": "object",
           "propertyNames": {"$ref": "#/definitions/memberName"},
-          "additionalProperties": {"enum": ["enforced", "observed", "flagged"]}
+          "additionalProperties": {"enum": ["deny", "audit", "warn"]}
         },
-        "outcome": {
-          "description": "The writes the transition makes, in this order.",
+        "effect": {
+          "description": "The writes the transition makes, in this order (UML Transition::effect).",
           "type": "array",
           "items": {"$ref": "#/definitions/step"}
         },
@@ -130,18 +130,19 @@
       },
       "additionalProperties": false,
       "oneOf": [
-        {"properties": {"kind": {"const": "creation"}}, "required": ["to"], "not": {"required": ["from"]}},
-        {"properties": {"kind": {"const": "state_change"}}, "required": ["from", "to"]},
-        {"properties": {"kind": {"const": "action"}}, "required": ["from"], "not": {"required": ["to"]}}
+        {"properties": {"kind": {"const": "initial"}}, "required": ["to"], "not": {"required": ["from"]}},
+        {"properties": {"kind": {"const": "external"}}, "required": ["from", "to"]},
+        {"properties": {"kind": {"const": "internal"}}, "required": ["from"], "not": {"required": ["to"]}}
       ]
     },
     "step": {
       "oneOf": [
         {
-          "type": "object", "required": ["copy"], "additionalProperties": false,
-          "properties": {"copy": {
-            "type": "object", "required": ["from", "to"], "additionalProperties": false,
-            "properties": {"from": {"$ref": "#/definitions/memberName"}, "to": {"$ref": "#/definitions/memberName"}}
+          "type": "object", "required": ["assign"], "additionalProperties": false,
+          "properties": {"assign": {
+            "description": "Writes the value of expr to the attribute named by location (SCXML <assign>).",
+            "type": "object", "required": ["location", "expr"], "additionalProperties": false,
+            "properties": {"location": {"$ref": "#/definitions/memberName"}, "expr": {"$ref": "#/definitions/expression"}}
           }}
         },
         {

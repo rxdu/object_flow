@@ -24,23 +24,25 @@ show a module means exactly what the checked text language means, each one is:
 
 The conversion is mechanical, and nothing in the YAML has a default:
 
-    kind: creation, to: S                  create <name> -> S
-    kind: state_change, from: [A, B], to: C  do <name> { A, B } -> C
-    kind: action, from: [A, B]             act <name> at { A, B }
+    kind: initial, to: S                   create <name> -> S
+    kind: external, from: [A, B], to: C    do <name> { A, B } -> C
+    kind: internal, from: [A, B]           act <name> at { A, B }
     required_inputs: [a]                   accepts a; where a is optional, also
                                            a guard a_provided: inputs.a is not null
     optional_inputs: [a]                   accepts a
-    guards: {g: enforced|observed|flagged} require g: …  [observe|flag]
-    outcome: copy {from: a, to: b}         set b := a
-    outcome: clear [a]                     clear a
-    required_attributes: [a] on state S    invariant s_attributes_present:
+    guards: {g: deny|audit|warn}           require g: …  [observe|flag]
+    effect: assign {location: b, expr: e}  set b := e
+    effect: clear [a]                      clear a
+    final: true on state S                 state S … terminal
+    required_attributes: [a] on state S    invariant s_invariant:
                                              state != S or a is not null
     measure: median_time_in_state          the intervals in the state
     measure: transition_count              the transitions along the
                                            transition's from and to states
 
-Every finding is reported at the YAML file and line it comes from. Observed
-and flagged guards are reported as notices, as the publish report lists them.
+The terms are UML's, SCXML's and Kubernetes', as ADR-0115 records. Every
+finding is reported at the YAML file and line it comes from. Audit and warn
+guards are reported as notices, as the publish report lists them.
 
     check-yaml-trial.py                 the trial's modules, then a self-test
     check-yaml-trial.py A.yaml B.yaml   these modules, in import order
@@ -135,7 +137,7 @@ def sources(x):
 
 def pairs(x):
     """The (from, to) state pairs a transition takes an object along."""
-    if x["kind"] == "creation":
+    if x["kind"] == "initial":
         return [(None, x["to"])]
     return [(s, x.get("to", s)) for s in sources(x)]
 
@@ -150,12 +152,21 @@ def provided_guards(t, x):
     return [a for a in x.get("required_inputs", []) if a in attrs and optional(attrs[a])]
 
 
+NAME = re.compile(r"[a-z][a-z0-9_]*")
+
+
 def steps(x, verb):
-    return [s[verb] for s in x.get("outcome", []) if verb in s]
+    return [s[verb] for s in x.get("effect", []) if verb in s]
+
+
+def assigns(x):
+    """(expr, location) for each assign step."""
+    return [(" ".join(a["expr"].split()), a["location"]) for a in steps(x, "assign")]
 
 
 def copies(x):
-    return [(c["from"], c["to"]) for c in steps(x, "copy")]
+    """The assigns whose expression is a bare attribute name: the value is that attribute's."""
+    return [(e, loc) for e, loc in assigns(x) if NAME.fullmatch(e) and e not in NOT_AN_ATTRIBUTE]
 
 
 def cleared(x):
@@ -170,9 +181,9 @@ def schema_errors(doc):
     for e in sorted(v.iter_errors(doc), key=lambda e: list(e.absolute_path)):
         # a oneOf over the kinds says only that no branch matched; name the kind's rule instead
         if e.validator == "oneOf" and isinstance(e.instance, dict) and "kind" in e.instance:
-            rule = {"creation": "a creation declares `to` and no `from`",
-                    "state_change": "a state_change declares `from` and `to`",
-                    "action": "an action declares `from` and no `to`"}.get(e.instance["kind"], e.message)
+            rule = {"initial": "an initial transition declares `to` and no `from`",
+                    "external": "an external transition declares `from` and `to`",
+                    "internal": "an internal transition declares `from` and no `to`"}.get(e.instance["kind"], e.message)
             out.append((tuple(e.absolute_path), "schema", rule))
         elif e.validator == "oneOf" and isinstance(e.instance, dict) and "measure" in e.instance:
             out.append((tuple(e.absolute_path), "schema",
@@ -242,7 +253,7 @@ def reserved_name_errors(doc):
                 out.append((("types", tn, "conditions", c), "names",
                             f"'{c}' is the name of the guard generated for a required input; choose another name"))
         for i in (t.get("invariants") or {}):
-            if i.endswith("_attributes_present") and i[:-len("_attributes_present")].upper() in states:
+            if i.endswith("_invariant") and i[:-len("_invariant")].upper() in states:
                 out.append((("types", tn, "invariants", i), "names",
                             f"'{i}' is the name of the invariant generated for a state's required_attributes; choose another name"))
     return out
@@ -276,7 +287,7 @@ def name_errors(doc):
                 if g not in conds:
                     out.append((base + ("guards", g), "names", f"{tn}.{xn} guards on '{g}', which is not a condition of {tn}"))
             named = [(k, a) for k in ("required_inputs", "optional_inputs") for a in x.get(k, [])]
-            named += [("outcome", a) for pair in copies(x) for a in pair] + [("outcome", a) for a in cleared(x)]
+            named += [("effect", loc) for _e, loc in assigns(x)] + [("effect", a) for a in copies_from(x)] + [("effect", a) for a in cleared(x)]
             for k, a in named:
                 if a not in attrs:
                     out.append((base + (k,), "names", f"{tn}.{xn} names the attribute '{a}' in {k}, which {tn} does not declare"))
@@ -286,9 +297,9 @@ def name_errors(doc):
                 if a in always:
                     out.append((base + ("optional_inputs",), "names",
                                 f"{tn}.{xn} lists '{a}' as an optional input, but the attribute is not optional, so the input is required"))
-            written = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | {b for _a, b in copies(x)}
+            written = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | {loc for _e, loc in assigns(x)}
             for a in sorted(written & set(cleared(x))):
-                out.append((base + ("outcome",), "names", f"{tn}.{xn} both writes and clears '{a}'"))
+                out.append((base + ("effect",), "names", f"{tn}.{xn} both writes and clears '{a}'"))
             out += required_errors(tn, xn, x, required, always)
         for c in sorted(conds - used):
             out.append((("types", tn, "conditions", c), "names", f"condition '{c}' of {tn} is used by no transition"))
@@ -296,6 +307,22 @@ def name_errors(doc):
         for mn, m in (t.get("metrics") or {}).items():
             out += metric_errors(tn, t, mn, m)
     return out
+
+
+def present(expr, known, inputs):
+    """Whether an assigned expression provably has a value: now, a literal, a
+    qualified value, a known attribute or a required input. Anything else is
+    not provable here, so it does not count."""
+    if expr == "now" or re.fullmatch(r'-?\d+(\.\d+)?|"[^"]*"|[A-Z][A-Za-z0-9]*\.[A-Z][A-Z0-9_]*', expr):
+        return True
+    if NAME.fullmatch(expr) and expr not in NOT_AN_ATTRIBUTE:
+        return expr in known
+    m = re.fullmatch(r"inputs\.([a-z][a-z0-9_]*)", expr)
+    return bool(m) and m.group(1) in inputs
+
+
+def copies_from(x):
+    return [e for e, _loc in copies(x)]
 
 
 def required_errors(tn, xn, x, required, always):
@@ -306,21 +333,21 @@ def required_errors(tn, xn, x, required, always):
     targets = [x["to"]] if x.get("to") else src
     for s in targets:
         for a in sorted(required.get(s, set()) & set(cleared(x))):
-            out.append((base + ("outcome",), "required", f"{tn}.{xn} clears '{a}', which state {s} requires"))
-    if x["kind"] == "action":
+            out.append((base + ("effect",), "required", f"{tn}.{xn} clears '{a}', which state {s} requires"))
+    if x["kind"] == "internal":
         return out
     supplied = set(x.get("required_inputs", [])) | always
     kept = set.intersection(*(required.get(s, set()) for s in src)) if src else set()
-    copied = {b: a for a, b in copies(x)}
+    assigned = {loc: e for e, loc in assigns(x)}
     for a in sorted(required.get(x["to"], set())):
         if a in supplied or (a in kept and a not in cleared(x)):
             continue
-        if a in copied and (copied[a] in supplied or copied[a] in kept):
+        if a in assigned and present(assigned[a], supplied | kept, x.get("required_inputs", [])):
             continue
-        how = f"or require it in state {', '.join(src)}" if src else "since a creation starts from no state"
+        how = f"or require it in state {', '.join(src)}" if src else "since an initial transition starts from no state"
         out.append((base + ("to",), "required",
                     f"{tn}.{xn} enters {x['to']} without setting '{a}', which {x['to']} requires: "
-                    f"make it a required input, copy it from an attribute every source state requires, {how}"))
+                    f"make it a required input, assign it a value that is provably present, {how}"))
     return out
 
 
@@ -332,6 +359,7 @@ def value_errors(doc, tn, t):
     own = {k: set(v.get("states") or {}) for k, v in types(doc)}
     exprs = [(("types", tn, sec, n, "expression"), n, c["expression"])
              for sec in ("conditions", "invariants") for n, c in (t.get(sec) or {}).items()]
+    exprs += [(("types", tn, "transitions", xn, "effect"), xn, e) for xn, x in (t.get("transitions") or {}).items() for e, _l in assigns(x)]
     exprs += [(("types", tn, "observations", o, "invariants", n, "expression"), n, i["expression"])
               for o, ob in (t.get("observations") or {}).items() for n, i in (ob.get("invariants") or {}).items()]
     out = []
@@ -379,10 +407,10 @@ def notices(doc):
         for xn, x in (t.get("transitions") or {}).items():
             for g, mode in (x.get("guards") or {}).items():
                 path = ("types", tn, "transitions", xn, "guards", g)
-                if mode == "observed":
-                    out.append((path, "observed", f"{g} is observed: its failures are recorded and it refuses nothing"))
-                elif mode == "flagged":
-                    out.append((path, "flagged", f"{g} is flagged: a failure is reported with the result and refuses nothing"))
+                if mode == "audit":
+                    out.append((path, "audit", f"{g} is audited: its failures are recorded and it refuses nothing"))
+                elif mode == "warn":
+                    out.append((path, "warn", f"{g} warns: a failure is reported with the result and refuses nothing"))
     return out
 
 
@@ -424,7 +452,7 @@ def to_text(doc):
         emit(f"type {tn} version 1 {{", T)
         emit(f"  tracking {t['tracking']}", T + ("tracking",))
         for sn, v in t["states"].items():
-            emit(f"  state {sn} category {v['category']}" + (" terminal" if v.get("terminal") else ""), T + ("states", sn))
+            emit(f"  state {sn} category {v['category']}" + (" terminal" if v.get("final") else ""), T + ("states", sn))
         for an, spec in (t.get("attributes") or {}).items():
             emit("  " + attribute_line(an, spec), T + ("attributes", an))
         for sn, v in t["states"].items():
@@ -432,7 +460,7 @@ def to_text(doc):
             if req:
                 cond = " and ".join(f"{a} is not null" for a in req)
                 cond = f"({cond})" if len(req) > 1 else cond
-                emit(f"  invariant {sn.lower()}_attributes_present: state != {sn} or {cond}",
+                emit(f"  invariant {sn.lower()}_invariant: state != {sn} or {cond}",
                      T + ("states", sn, "required_attributes"))
         for iname, inv in (t.get("invariants") or {}).items():
             emit(f"  invariant {iname}: {' '.join(inv['expression'].split())}", T + ("invariants", iname))
@@ -440,8 +468,8 @@ def to_text(doc):
             X = T + ("transitions", xn)
             src = sources(x)
             where = src[0] if len(src) == 1 else "{ " + ", ".join(src) + " }"
-            head = {"creation": f"create {xn} -> {x.get('to')}", "state_change": f"do {xn} {where} -> {x.get('to')}",
-                    "action": f"act {xn} at {where}"}[x["kind"]]
+            head = {"initial": f"create {xn} -> {x.get('to')}", "external": f"do {xn} {where} -> {x.get('to')}",
+                    "internal": f"act {xn} at {where}"}[x["kind"]]
             accepts = x.get("required_inputs", []) + x.get("optional_inputs", [])
             if accepts:
                 head += " accepts " + ", ".join(accepts)
@@ -452,14 +480,14 @@ def to_text(doc):
             for g, mode in (x.get("guards") or {}).items():
                 if g in conds:
                     c = conds[g]
-                    mark = {"enforced": "", "observed": " observe", "flagged": " flag"}[mode]
+                    mark = {"deny": "", "audit": " observe", "warn": " flag"}[mode]
                     body.append((f"require {g}: {' '.join(c['expression'].split())}{mark} because {c['remedy']}",
                                  X + ("guards", g)))
-            for i, s in enumerate(x.get("outcome", [])):
-                if "copy" in s:
-                    body.append((f"set {s['copy']['to']} := {s['copy']['from']}", X + ("outcome", i)))
+            for i, s in enumerate(x.get("effect", [])):
+                if "assign" in s:
+                    body.append((f"set {s['assign']['location']} := {' '.join(s['assign']['expr'].split())}", X + ("effect", i)))
                 else:
-                    body += [(f"clear {a}", X + ("outcome", i)) for a in s["clear"]]
+                    body += [(f"clear {a}", X + ("effect", i)) for a in s["clear"]]
             if body:
                 emit(f"  {head} {{", X)
                 for b, p in body:
@@ -575,16 +603,16 @@ def self_test(people, service, inventory):
     planted = [
         ("a misspelt key", "schema", "service.yaml", plant(service, "        guards:\n", "        guard:\n")),
         ("a guard on no declared condition", "names", "service.yaml",
-         plant(service, "          engineer_active: enforced", "          engineer_is_active: enforced")),
+         plant(service, "          engineer_active: deny", "          engineer_is_active: deny")),
         ("a guard listed twice", "yaml", "service.yaml",
-         plant(service, "          photo_attached: observed\n", "          photo_attached: observed\n          photo_attached: flagged\n")),
+         plant(service, "          photo_attached: audit\n", "          photo_attached: audit\n          photo_attached: warn\n")),
         ("an enforcement that is not one of the three", "schema", "service.yaml",
-         plant(service, "photo_attached: observed", "photo_attached: warn")),
-        ("a creation that names a source state", "schema", "service.yaml",
-         plant(service, "        kind: creation\n        to: OPEN\n", "        kind: creation\n        from: WORKING\n        to: OPEN\n")),
+         plant(service, "photo_attached: audit", "photo_attached: enforce")),
+        ("an initial transition that names a source state", "schema", "service.yaml",
+         plant(service, "        kind: initial\n        to: OPEN\n", "        kind: initial\n        from: WORKING\n        to: OPEN\n")),
         ("a condition that reads who is asking", "check 64", "service.yaml",
-         plant(plant(service, "          no_unresolved_failure: enforced\n",
-                     "          no_unresolved_failure: enforced\n          assigned_engineer_only: enforced\n"), *reads_actor)),
+         plant(plant(service, "          no_unresolved_failure: deny\n",
+                     "          no_unresolved_failure: deny\n          assigned_engineer_only: deny\n"), *reads_actor)),
         ("attributes declared after the states that use them", "order", "inventory.yaml", late_attributes),
         ("a misspelt enumeration value", "names", "inventory.yaml",
          plant(inventory, "condition != Condition.DAMAGED", "condition != Condition.DAMAGD")),
@@ -593,7 +621,7 @@ def self_test(people, service, inventory):
         ("an attribute named after an expression built-in", "names", "inventory.yaml",
          plant(inventory, "      model:             { type: string }\n", "      model:             { type: string }\n      state:             { type: string, optional: true }\n")),
         ("an invariant named like a generated one", "names", "inventory.yaml",
-         plant(inventory, "    conditions:\n", "    invariants:\n      reserved_attributes_present:\n        description: A clash with a generated name.\n"
+         plant(inventory, "    conditions:\n", "    invariants:\n      reserved_invariant:\n        description: A clash with a generated name.\n"
                                               "        expression: serial is not null\n\n    conditions:\n")),
         ("a unit on an attribute that is not an observation's", "names", "inventory.yaml",
          plant(inventory, "      list_price:        { type: money(SGD) }", "      list_price:        { type: money(SGD), unit: SGD }")),

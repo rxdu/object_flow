@@ -1,6 +1,6 @@
 # The flow description format
 
-Status: **draft 1, 2026-09-26, under trial** (`authoring-flows.md` §3). This document is the normative definition of the structured YAML form in which an ObjectFlow flow is described. Its machine-readable half is [`yaml-trial/flow.schema.json`](yaml-trial/flow.schema.json), and [`scripts/check-yaml-trial.py`](../../scripts/check-yaml-trial.py) implements every rule stated here; each rule names the step and the finding code that enforce it. Where this document and the implementation disagree, both are wrong until one is corrected, and `scripts/check-flow-format-doc.py` holds them to each other. The meaning of every form is the meaning of the text-language declaration it converts to, defined in [`declaration-syntax.md`](declaration-syntax.md); this document does not restate the engine's semantics.
+Status: **draft 2, 2026-09-26, under trial** (`authoring-flows.md` §3). Draft 2 adopts the established state-machine terms (ADR-0115, Appendix A). This document is the normative definition of the structured YAML form in which an ObjectFlow flow is described. Its machine-readable half is [`yaml-trial/flow.schema.json`](yaml-trial/flow.schema.json), and [`scripts/check-yaml-trial.py`](../../scripts/check-yaml-trial.py) implements every rule stated here; each rule names the step and the finding code that enforce it. Where this document and the implementation disagree, both are wrong until one is corrected, and `scripts/check-flow-format-doc.py` holds them to each other. The meaning of every form is the meaning of the text-language declaration it converts to, defined in [`declaration-syntax.md`](declaration-syntax.md); this document does not restate the engine's semantics.
 
 ## 1. Scope and conformance
 
@@ -9,7 +9,7 @@ A **flow description** is one YAML file declaring one **module**: its state cate
 The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119 and RFC 8174, when written in capitals.
 
 Every word in a description is one of two kinds, and the examples in this document and in the walkthrough colour them apart:
-- **Reserved**: a key or value this format defines, such as `transitions`, `kind`, `state_change`, `guards` or `enforced`, and the words of the expression language. The full list is §10. A reserved word means the same thing in every description.
+- **Reserved**: a key or value this format defines, such as `transitions`, `kind`, `external`, `guards` or `deny`, and the words of the expression language. The full list is §10. A reserved word means the same thing in every description.
 - **Named by the author**: a name the description itself declares, such as a module, a type, a state, an attribute, a condition, a transition, a metric, an enumeration or one of its values, or a category, and every later use of that name. Descriptions and expressions are the author's text.
 
 ## 2. The file
@@ -37,7 +37,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 3. Reserved words of the text language MAY be used as names, as `declaration-syntax.md` §9.2 allows, with these exceptions (step 3, `names`):
    - a category MUST NOT be named `any`, `terminal` or `superseding`, and a transition MUST NOT be named `any` (the text language's check 33);
    - an attribute, including an observation's, MUST NOT be named `state`, `inputs`, `actor`, `this`, `now`, `referrers` or `this_event`, since an expression resolves those words before any attribute;
-   - a condition MUST NOT be named `<attribute>_provided`, and an invariant MUST NOT be named `<state>_attributes_present` with the state in lower case, since those are the names of generated guards and invariants (§6).
+   - a condition MUST NOT be named `<attribute>_provided`, and an invariant MUST NOT be named `<state>_invariant` with the state in lower case, since those are the names of generated guards and invariants (§6).
 
 ## 4. Structure
 
@@ -93,10 +93,10 @@ An observation is a datapoint recorded about an object and never changed afterwa
 |---|---|---|
 | `category` | yes | a category the module declares (step 3, `names`) |
 | `description` | no | what it means for an object to be in the state |
-| `terminal` | no | `true` if no transition leaves the state |
-| `required_attributes` | no | attributes that have a value whenever an object is in the state |
+| `final` | no | `true` if no transition leaves the state: a final state (UML `FinalState`) |
+| `required_attributes` | no | attributes that have a value whenever an object is in the state; this is the state's invariant (UML `State::stateInvariant`) |
 
-Every transition into a state MUST set each attribute the state requires, by requiring it as an input, by copying it from an attribute every source state requires, or by leaving it in place from source states that all require it. A transition MUST NOT clear an attribute its target requires. (step 3, `required`)
+Every transition into a state MUST set each attribute the state requires: by requiring it as an input, by assigning it a value that is provably present, or by leaving it in place from source states that all require it. A value is provably present when it is `now`, a literal, a qualified enumeration value, a required input (`inputs.<attribute>`), or an attribute that every source state requires or that is not optional; any other expression is not counted, even when it would have a value. A transition MUST NOT clear an attribute its target requires. (step 3, `required`)
 
 ### 4.6 Invariants
 
@@ -116,13 +116,13 @@ Every condition MUST be used by at least one transition. (step 3, `names`)
 
 ### 4.8 Transitions
 
-A transition changes an object, and every change to an object is one. Each has a `kind`:
+A transition changes an object, and every change to an object is one. A transition's name is its **trigger** (UML `Transition::trigger`): a request names the transition it asks for. Each transition has a `kind`, one of UML's:
 
 | `kind` | Means | `from` | `to` |
 |---|---|---|---|
-| `creation` | a new object comes into being in a state | MUST be absent | the state |
-| `state_change` | the object moves from a state to another | one state, or a list of states | the state it moves to |
-| `action` | the object changes without changing state | the states it may be taken in | MUST be absent |
+| `initial` | a new object comes into being in a state: the transition from UML's initial pseudostate | MUST be absent | the state |
+| `external` | the object moves from a state to another (UML `TransitionKind::external`) | one state, or a list of states | the state it moves to |
+| `internal` | the object changes without changing state (UML `TransitionKind::internal`) | the states it may be taken in | MUST be absent |
 
 (step 2, `schema`; every state named MUST be declared, step 3, `names`)
 
@@ -133,16 +133,16 @@ A transition changes an object, and every change to an object is one. Each has a
 | `required_inputs` | no | attributes the caller MUST supply; each is written to the attribute of the same name |
 | `optional_inputs` | no | attributes the caller MAY supply; each is written if supplied. An attribute that is not optional is always required |
 | `guards` | no | a mapping from a condition's name to its enforcement, in the order the guards are evaluated |
-| `outcome` | no | the list of writes the transition makes, in order |
+| `effect` | no | the list of writes the transition makes, in order (UML `Transition::effect`) |
 | `backdating_limit` | no | how far in the past a caller may say the change happened, a duration such as `2 days` |
 
-A guard's **enforcement** is one of:
-- `enforced`: the transition is refused when the condition fails;
-- `observed`: the condition is evaluated and its failures are recorded, and it refuses nothing (step 3 notice `observed`);
-- `flagged`: a failure is reported with the result, and the transition goes through (step 3 notice `flagged`).
+A guard's **enforcement** is one of the three validation actions of Kubernetes admission policies:
+- `deny`: the transition is refused when the condition fails;
+- `audit`: the condition is evaluated and its failures are recorded, and it refuses nothing (step 3 notice `audit`);
+- `warn`: a failure is reported to the caller with the result, and the transition goes through (step 3 notice `warn`).
 
-An **outcome step** is one of:
-- `copy: { from: <attribute>, to: <attribute> }`, which writes the value of `from` into `to`;
+An **effect step** is one of:
+- `assign: { location: <attribute>, expr: <expression> }`, which writes the value of the expression (§5) to the attribute, as SCXML's `<assign>` does;
 - `clear: [<attribute>, …]`, which removes the values of the listed attributes, which MUST be optional (step 4, `check 17`).
 
 A transition MUST NOT both write and clear one attribute. (step 3, `names`)
@@ -176,21 +176,22 @@ Each form converts to the text language as follows, and means what that declarat
 
 | Description | Text language |
 |---|---|
-| `kind: creation`, `to: S` | `create <name> -> S` |
-| `kind: state_change`, `from: [A, B]`, `to: C` | `do <name> { A, B } -> C` |
-| `kind: action`, `from: [A, B]` | `act <name> at { A, B }` |
+| `kind: initial`, `to: S` | `create <name> -> S` |
+| `kind: external`, `from: [A, B]`, `to: C` | `do <name> { A, B } -> C` |
+| `kind: internal`, `from: [A, B]` | `act <name> at { A, B }` |
 | `required_inputs: [a]`, `optional_inputs: [b]` | `accepts a, b` |
 | `required_inputs: [a]` where `a` is optional | also the guard `require a_provided: inputs.a is not null because self_serviceable`, evaluated before the transition's other guards |
-| `guards: { g: enforced }` | `require g: <expression> because <remedy>` |
-| `guards: { g: observed }`, `{ g: flagged }` | the same, marked `observe` or `flag` |
-| `copy: { from: a, to: b }` | `set b := a` |
+| `guards: { g: deny }` | `require g: <expression> because <remedy>` |
+| `guards: { g: audit }`, `{ g: warn }` | the same, marked `observe` or `flag` |
+| `assign: { location: b, expr: e }` | `set b := e` |
 | `clear: [a]` | `clear a` |
-| `required_attributes: [a, b]` on state `S` | `invariant s_attributes_present: state != S or (a is not null and b is not null)` |
+| `final: true` on state `S` | `state S category … terminal` |
+| `required_attributes: [a, b]` on state `S` | `invariant s_invariant: state != S or (a is not null and b is not null)` |
 | `backdating_limit: 2 days` | `backdatable within 2 days` |
 | `measure: median_time_in_state` | a metric over the type's intervals in the state, valued `median(i.duration)` |
 | `measure: transition_count` | a metric over the type's transitions along the transition's states, valued `count()` |
 
-The generated guards and invariants take the names shown, which §3 reserves.
+The generated guards and invariants take the names shown, which §3 reserves. The text language keeps its own keywords for these forms (`create`, `do`, `act`, `terminal`, `observe`, `flag`) until the author decides whether this format replaces it (ADR-0115).
 
 ## 7. Validity
 
@@ -205,7 +206,7 @@ A description is checked in four steps, and each stops the check if it finds any
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
-Step 3 also reports two notices, which are not fatal: `observed`, for each observed guard, and `flagged`, for each flagged guard.
+Step 3 also reports two notices, which are not fatal: `audit`, for each guard that audits, and `warn`, for each guard that warns.
 
 ## 8. A minimal valid description
 
@@ -229,19 +230,20 @@ types:
       PUBLISHED:
         description: Released to its readers.
         category: closed
-        terminal: true
+        final: true
         required_attributes: [published_at]
 
     transitions:
       start:
-        kind: creation
+        kind: initial
         to: DRAFT
         required_inputs: [title]
       publish:
-        kind: state_change
+        kind: external
         from: DRAFT
         to: PUBLISHED
-        required_inputs: [published_at]
+        effect:
+          - assign: { location: published_at, expr: now }
 ```
 
 A full description is [`yaml-trial/inventory.yaml`](yaml-trial/inventory.yaml); [`yaml-trial/service.yaml`](yaml-trial/service.yaml) adds an import, an assignee and observations.
@@ -259,15 +261,15 @@ These are open in `authoring-flows.md` §3 and §7, and an answer would change t
 
 These words are reserved by the format. `scripts/check-flow-format-doc.py` holds this list equal to the keys and values `flow.schema.json` and the checker define.
 
-**Keys:** `module`, `imports`, `categories`, `enumerations`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `terminal`, `required_attributes`, `type`, `reference`, `optional`, `unique`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `guards`, `outcome`, `copy`, `clear`, `backdating_limit`, `measure`, `state`, `transition`, `group_by`, `flag_when`.
+**Keys:** `module`, `imports`, `categories`, `enumerations`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `optional`, `unique`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `backdating_limit`, `measure`, `state`, `transition`, `group_by`, `flag_when`.
 
-**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `creation`, `state_change`, `action`, `enforced`, `observed`, `flagged`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `month`, `week`, `actor`.
+**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `month`, `week`, `actor`.
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
 
 ## Appendix A. Terminology against established conventions
 
-A review of 2026-09-26, at the author's request that this format use existing conventions where they exist rather than invent terms. Every source below was read in its primary form: UML 2.5.1 (OMG formal/2017-12-05, https://www.omg.org/spec/UML/2.5.1/PDF), W3C SCXML (Recommendation, 1 September 2015, https://www.w3.org/TR/scxml/), XState v5 (https://stately.ai/docs), the Symfony Workflow component (https://symfony.com/doc/current/workflow.html), AASM (https://github.com/aasm/aasm), django-fsm 2.8.2 (https://github.com/viewflow/django-fsm/blob/2.8.2/README.rst), Kubernetes ValidatingAdmissionPolicy (https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/), OPA Gatekeeper (https://open-policy-agent.github.io/gatekeeper/website/docs/violations/) and Atlassian Jira (https://support.atlassian.com/jira-cloud-administration/docs/what-is-a-workflow-status/). Nothing in this appendix is decided; §A.3 lists what is proposed.
+A review of 2026-09-26, at the author's request that this format use existing conventions where they exist rather than invent terms. Every source below was read in its primary form: UML 2.5.1 (OMG formal/2017-12-05, https://www.omg.org/spec/UML/2.5.1/PDF), W3C SCXML (Recommendation, 1 September 2015, https://www.w3.org/TR/scxml/), XState v5 (https://stately.ai/docs), the Symfony Workflow component (https://symfony.com/doc/current/workflow.html), AASM (https://github.com/aasm/aasm), django-fsm 2.8.2 (https://github.com/viewflow/django-fsm/blob/2.8.2/README.rst), Kubernetes ValidatingAdmissionPolicy (https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/), OPA Gatekeeper (https://open-policy-agent.github.io/gatekeeper/website/docs/violations/) and Atlassian Jira (https://support.atlassian.com/jira-cloud-administration/docs/what-is-a-workflow-status/). The author adopted the established terms the same day (ADR-0115); §A.3 records what changed.
 
 ### A.1 The terms
 
@@ -277,17 +279,17 @@ A review of 2026-09-26, at the author's request that this format use existing co
 | `from`, `to` | `source`, `target` | UML §14.5.11.6; SCXML `target` | both are established: UML's model says source and target, the configuration languages of Symfony and AASM say `from` and `to` |
 | `guards` | guard | UML `Transition::guard`; XState `guard`; AASM `guard:`; Symfony `guard` | standard |
 | `conditions` | `cond`; conditions; named guards | SCXML `<transition cond>`; django-fsm 2.x `conditions=[…]`; XState `setup({ guards })` | established |
-| a transition's name, which a request names | trigger or event | UML `Transition::trigger`; AASM `event`; Symfony applies a transition by name | standard in substance; §4.8 should say that a transition's name is its trigger |
-| `kind: action` | internal transition; targetless transition | UML `TransitionKind::internal`, §14.5.12.3: it "occurs without exiting or entering the source State (i.e., it does not cause a state change)"; SCXML Appendix D; XState "targetless self-transition" | **conflicts**: in UML, SCXML and XState an action is behaviour a transition executes, not a kind of transition |
-| `kind: state_change` | external transition | UML `TransitionKind::external`, the default | invented where UML has a term, although "external" reads against this domain's external delivery |
-| `kind: creation` | initial transition, from the initial pseudostate | UML §14.2.4.6; SCXML `<initial>`; XState `initial` | invented; "initial" is the nearest standard word, though a creation here is named, takes inputs and may be one of several |
-| `terminal` | final state | UML `FinalState`; SCXML `<final>`; XState `type: 'final'` | the standard word is "final"; "terminal" is the design's own |
-| `required_attributes` | state invariant | UML `State::stateInvariant`, §14.5.9: "conditions that are always true when this State is the current State" | a special case of a standard concept, which §4.5 should name |
+| a transition's name, which a request names | trigger or event | UML `Transition::trigger`; AASM `event`; Symfony applies a transition by name | standard in substance; §4.8 says so |
+| `kind: action` (draft 1) | internal transition; targetless transition | UML `TransitionKind::internal`, §14.5.12.3: it "occurs without exiting or entering the source State (i.e., it does not cause a state change)"; SCXML Appendix D; XState "targetless self-transition" | **conflicted**: in UML, SCXML and XState an action is behaviour a transition executes, not a kind of transition; now `internal` |
+| `kind: state_change` (draft 1) | external transition | UML `TransitionKind::external`, the default | invented where UML has a term; now `external` |
+| `kind: creation` (draft 1) | initial transition, from the initial pseudostate | UML §14.2.4.6; SCXML `<initial>`; XState `initial` | invented; now `initial`, although an initial transition here is named, takes inputs and may be one of several |
+| `terminal` (draft 1) | final state | UML `FinalState`; SCXML `<final>`; XState `type: 'final'` | the design's own word; now `final` |
+| `required_attributes` | state invariant | UML `State::stateInvariant`, §14.5.9: "conditions that are always true when this State is the current State" | a special case of a standard concept, which §4.5 now names; the generated invariant is `<state>_invariant` |
 | `invariants` | invariant | UML and OCL class invariant | standard |
-| `outcome` | effect; actions | UML `Transition::effect`, §14.5.11.6; XState `actions`; SCXML executable content | invented (ADR-0046's term) |
-| `copy` | assign | SCXML `<assign location expr>`, §5.4; XState `assign` | invented |
+| `outcome` (draft 1) | effect; actions | UML `Transition::effect`, §14.5.11.6; XState `actions`; SCXML executable content | ADR-0046's term; now `effect` |
+| `copy` (draft 1) | assign | SCXML `<assign location expr>`, §5.4; XState `assign` | invented; now `assign`, taking an expression |
 | `clear` | none | | no standard term; an assignment of no value |
-| `enforced`, `observed`, `flagged` | `Deny`, `Audit`, `Warn`; `deny`, `dryrun`, `warn` | Kubernetes `ValidatingAdmissionPolicyBinding.validationActions`; OPA Gatekeeper `enforcementAction` | invented; no state-machine standard has these, but Kubernetes' three match the three meanings: Deny refuses, Audit records the failure in the audit event, Warn reports it to the client |
+| `enforced`, `observed`, `flagged` (draft 1) | `Deny`, `Audit`, `Warn`; `deny`, `dryrun`, `warn` | Kubernetes `ValidatingAdmissionPolicyBinding.validationActions`; OPA Gatekeeper `enforcementAction` | no state-machine standard has these; Kubernetes' three match the three meanings, Deny refusing, Audit recording the failure, Warn reporting it to the client; now `deny`, `audit`, `warn` |
 | `category` | status category | Jira: statuses "must belong to one of three status categories – To do, In progress, or Done" | established outside the state-machine standards |
 | `required_inputs`, `optional_inputs` | parameters; event data | UML operation parameters; SCXML `_event.data` | the design's `inputs`, which expressions read as `inputs.<attribute>`; consistent with the expression language |
 
@@ -295,20 +297,21 @@ A review of 2026-09-26, at the author's request that this format use existing co
 
 ### A.2 The diagram
 
-UML's notation (§14.2.4) against the walkthrough's diagram:
+UML's notation (§14.2.4) against the walkthrough's diagram as it was drawn for draft 1; §A.3 says what the diagram now does:
 - the initial pseudostate is "a small solid filled circle" (§14.2.4.6), as drawn;
 - a final state is "a circle surrounding a small solid filled circle" (§14.2.4.5); the double border drawn on `RETIRED` is the automata-theory convention for an accepting state, "denoted graphically by a double circle" (Wikipedia, Deterministic finite automaton);
 - an internal transition is listed in the state's internal-transitions compartment (§14.2.4.4) and is "not shown explicitly" as an arrow (§14.2.4.9); a loop drawn outside a state is an external self-transition, which exits and re-enters the state, so the loops drawn for `regrade` read as the wrong kind;
 - a transition's label is `trigger [guard] / behavior-expression`, every part optional (§14.2.4.8), so a label of the name alone conforms;
 - a frame drawn around states is, in UML, a composite state, which implies a hierarchy this format does not have; the `DELIVERED` frame is also drawn from nothing the description declares, which departs from the rule that the diagram maps onto the description.
 
-### A.3 Proposed, for the author
+### A.3 Adopted
 
-1. Rename the transition kind `action` to `internal`, UML's term, and correct ADR-0016's "self-transition", which in UML exits and re-enters a state.
-2. Draw internal transitions in the state's compartment, and a final state as UML does.
-3. Rename `terminal` to `final` in this format, converting to the text language's `terminal`.
-4. Rename `outcome` to `effect` and `copy` to `assign`.
-5. Rename the enforcements to `deny`, `audit` and `warn`, after Kubernetes.
-6. Rename `creation` and `state_change` to `initial` and `external`, or keep them where the standard word would mislead.
-7. Name `required_attributes` as a state invariant in §4.5, and state in §4.8 that a transition's name is its trigger.
-8. Either declare the grouping the diagram draws as `DELIVERED`, or stop drawing it.
+On 2026-09-26 the author answered "adopt standards and update our specs" (ADR-0115):
+1. The transition kinds are UML's: `initial`, `external` and `internal`. ADR-0016 carries a note that its "self-transition" is UML's internal transition, and `DESIGN.md` says internal transition where it said action.
+2. The walkthrough's diagram lists internal transitions inside the states they occur in, draws a final state as UML does, and replaces the frame around the delivered states with a UML comment anchored to them.
+3. `terminal` is `final`, `outcome` is `effect`, and `copy` is `assign`, which takes an expression.
+4. The guard enforcements are Kubernetes' `deny`, `audit` and `warn`.
+5. §4.5 names `required_attributes` as the state's invariant, generated as `<state>_invariant`, and §4.8 states that a transition's name is its trigger.
+6. The delivered grouping is drawn as a comment, which declares nothing, rather than as a frame, which in UML declares a composite state.
+
+The text language keeps its own keywords until the author decides whether this format replaces it.

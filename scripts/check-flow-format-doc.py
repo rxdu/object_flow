@@ -76,7 +76,8 @@ def main():
     reported = set(re.findall(r'"([a-z]+)",\s*f"', source)) | {"yaml", "schema"}
     section7 = doc[doc.index("## 7. Validity"):doc.index("## 8.")]
     stated = {c for c in re.findall(r"^\|[^|]*\| `([a-z]+)`", section7, re.M) if c != "check"}
-    stated |= set(re.findall(r"notices?[^.]*?`(observed)`[^.]*`(flagged)`", section7)[0]) if "`observed`" in section7 else set()
+    notice = re.search(r"reports two notices[^.]*\.", section7)
+    stated |= set(re.findall(r"`([a-z]+)`", notice.group(0))) if notice else set()
     for c in sorted(reported - stated):
         findings.append(f"§7 does not state the finding code `{c}`, which the checker reports")
     for c in sorted(stated - reported):
@@ -91,7 +92,7 @@ def main():
     for w in sorted(reserved):
         if f"`{w}`" not in doc:
             findings.append(f"the document never names `{w}`, which the checker reserves or restricts")
-    for pattern in ("_provided", "_attributes_present"):
+    for pattern in ("_provided", "_invariant"):
         if pattern not in doc:
             findings.append(f"the document does not reserve the generated names ending in {pattern}")
 

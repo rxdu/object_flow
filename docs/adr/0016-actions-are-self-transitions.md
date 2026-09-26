@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — analysis requested and the recommendation accepted 2026-09-07
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0115, 2026-09-26, in terminology only. UML calls what this record names an action an **internal transition**, one that "occurs without exiting or entering the source State" (UML 2.5.1 §14.5.12.3); a UML self-transition exits and re-enters its state, which an action here does not. The design now says internal transition; the decision below is unchanged.
 
 ## Context
 

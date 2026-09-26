@@ -159,7 +159,8 @@ ObjectType            declared under a version (§5.9); may extend a base;
                     optional markings: only via · proposable · asserting ·
                     backdatable; a guard clause may observe or flag instead
                     of enforce
-    actions         transitions whose from-state equals their to-state
+    internal        transitions that change an object without changing its state
+    transitions     (UML's internal transitions; ADR-0016, ADR-0115)
 
 Metric                a declared formula across many objects, grouped and windowed
                       as it declares, with flags, computed on read (§5.12); a
@@ -176,7 +177,7 @@ Every object carries a store-assigned, globally unique, immutable, opaque id, as
 
 An attribute has a declared type: string, boolean, integer, decimal with scale, money with currency, timestamp, duration, identity, enum with declared options, event reference, file, or a set of any of these. A **reference is not an attribute type**; it is declared as `ref`, `part` or `owner` (§5.3), though an input may be reference-typed.
 
-**Every attribute is written only by a transition outcome** (ADR-0042). There is no ungated write. A type makes attributes editable by declaring an action for them, which costs one declaration and gives the edit a guard, an actor and an event. Attributes may additionally be marked:
+**Every attribute is written only by a transition outcome** (ADR-0042). There is no ungated write. A type makes attributes editable by declaring an internal transition for them, which costs one declaration and gives the edit a guard, an actor and an event. Attributes may additionally be marked:
 
 - **identifier**, minted from a sequence (ADR-0029);
 - **external**, naming the system that owns the value, with uniqueness per source automatic (ADR-0037);
@@ -204,7 +205,7 @@ References carry no attributes. A relation with labels, dates or a lifecycle of 
 
 Each type binds exactly one **named** state machine, or declares its lifecycle inline; two types that share a lifecycle bind the same machine (ADR-0003, ADR-0026). A binder may add transitions of its own, and its own **creations replace the machine's** rather than adding to them, since birth is where a type's obligations are established (ADR-0064). The machine's creation **guards** still bind the replacement, so a lifecycle's entry condition cannot be dropped by declaring a creation (ADR-0065). Every state has a **category** from a deployment-defined set, so guards and views that span a family need not know state names, and at least one state is terminal.
 
-A **transition** is a named, guarded, recorded request to move an object from one state to another. It is requested **by name, never by target state**. Its from-state may be one state, a set, or any non-terminal state. It declares **inputs** with types and optionality, **guards**, and an **outcome**. An **action** is a transition whose from- and to-state are equal; its outcome is unrestricted like any other, and there are **no exit or entry semantics** for a state, so an action neither leaves nor re-enters one (ADR-0016, ADR-0041). A request naming no declared transition is refused, so nothing is recorded in history for a change that did not happen; the refusal itself goes to the attempt log (§7), which is not history (ADR-0083).
+A **transition** is a named, guarded, recorded request to move an object from one state to another. It is requested **by name, never by target state**. Its from-state may be one state, a set, or any non-terminal state. It declares **inputs** with types and optionality, **guards**, and an **outcome**. An **internal transition** (UML's term; an action before ADR-0115) is a transition whose from- and to-state are equal; its outcome is unrestricted like any other, and there are **no exit or entry semantics** for a state, so an internal transition neither leaves nor re-enters one (ADR-0016, ADR-0041, ADR-0115). A request naming no declared transition is refused, so nothing is recorded in history for a change that did not happen; the refusal itself goes to the attempt log (§7), which is not history (ADR-0083).
 
 An **outcome** is an ordered sequence of steps that write this object, create another, reach another by `call`, supersede, or loop over a bounded collection (ADR-0046, ADR-0052). **The grammar is `docs/design/declaration-syntax.md` §5.2, which owns it**; this section states what an outcome is and not how it is spelled, because two statements of one grammar drift and the syntax document is the one publishing checks. Until iteration 14 the grammar was restated here and had gone stale in three of its six lines.
 
@@ -249,7 +250,7 @@ The **remedy class** tells a caller what to do next:
 
 Availability is therefore three-way for a listing: available, available-with-input naming what must be supplied, or blocked with a verdict.
 
-**Approval** is not a separate mechanism. An approval is a recorded part of the approved object, carrying the approver, a kind, a decision and the event that recorded it, created by an `approve` action. "Needs approval" is then an ordinary guard counting the approvals that are still valid, where validity is `not changed_since([…], a.at_event)`, so a material edit invalidates an approval without every editing action having to remember a reset. N-of-M, sequential chains, thresholds, and separation between recorded actors, such as approvals by distinct approvers, are guards of that shape, and a missing approval reports `delegable` (ADR-0035). That the actor approving is not the one asking is the upper layer's, since no rule reads who is asking (ADR-0114). In shape an approval is an observation kind (§5.11).
+**Approval** is not a separate mechanism. An approval is a recorded part of the approved object, carrying the approver, a kind, a decision and the event that recorded it, created by an `approve` internal transition. "Needs approval" is then an ordinary guard counting the approvals that are still valid, where validity is `not changed_since([…], a.at_event)`, so a material edit invalidates an approval without every editing action having to remember a reset. N-of-M, sequential chains, thresholds, and separation between recorded actors, such as approvals by distinct approvers, are guards of that shape, and a missing approval reports `delegable` (ADR-0035). That the actor approving is not the one asking is the upper layer's, since no rule reads who is asking (ADR-0114). In shape an approval is an observation kind (§5.11).
 
 A guard clause may be marked **`observe`**. It is evaluated, and where it would refuse, the request proceeds and the would-be refusal is recorded in the attempt log, linked to the event that applied. An observing clause guarantees nothing: the printed rule set shows it as not enforced, the adversarial harness treats it as absent, and enforcing it is a flow change (§9, ADR-0085).
 
@@ -353,7 +354,7 @@ A flow can **start minimal** (PRD V1): one whose transitions carry no guards, an
 
 ### 5.10 Tracking mode
 
-A type declares one of three modes (ADR-0050, ADR-0067). **Serial-tracked** is one object per physical thing with its own lifecycle. **Quantity-tracked** is a stock object carrying counters that actions adjust. **Record** tracks no physical thing at all — a delivery, a service job, an audit entry — and carries no counters, which is what most of an operations platform holds: in the first consumer, three entities are serial-identified and twelve or more are records. A slot in a configuration declares which fill form it takes, so one kit may carry a serialised robot and a counted quantity of consumables. Reserve means the same in both: the thing is spoken for. Changing a type's mode is a new type, and objects move by supersession one at a time.
+A type declares one of three modes (ADR-0050, ADR-0067). **Serial-tracked** is one object per physical thing with its own lifecycle. **Quantity-tracked** is a stock object carrying counters that internal transitions adjust. **Record** tracks no physical thing at all — a delivery, a service job, an audit entry — and carries no counters, which is what most of an operations platform holds: in the first consumer, three entities are serial-identified and twelve or more are records. A slot in a configuration declares which fill form it takes, so one kit may carry a serialised robot and a counted quantity of consumables. Reserve means the same in both: the thing is spoken for. Changing a type's mode is a new type, and objects move by supersession one at a time.
 
 ### 5.11 Datapoints: observations and labels
 
@@ -511,7 +512,7 @@ Every event carries `changes_state`, true when from and to differ, and its **pro
 | `observed` | An ordinary transition |
 | `asserted` | An assertion, including import (§8, §11) |
 | `migrated` | A flow change's mapping (§5.9): F2's third route, with the publish as its cause |
-| `corrected` | An action that records a corrected value for an earlier mistake, with a reason; the earlier event is not rewritten |
+| `corrected` | An internal transition that records a corrected value for an earlier mistake, with a reason; the earlier event is not rewritten |
 | `erased` | An erasure (§8), on the erased object and on every object whose personal value it redacted |
 
 The log is **never pruned**; retention is archival tiering that keeps events readable and reachable by erasure. Events are strictly ordered per object and causally ordered across a cascade. A global position is monotonic but not a commit order, so the log is read by a **settled cursor**: a reader returns only events whose writing transaction had finished when its snapshot was taken — on PostgreSQL, those below the snapshot's `xmin` — in (transaction, position) order, and hands back the last pair as the cursor. A later commit always sorts after any cursor already handed out, so a reader acknowledging a cursor never skips an event; on SQLite, whose writers are serial, the cursor is the position (ADR-0089, probed). `pull` and `export` both return it, and `acknowledge` takes it.
@@ -715,7 +716,7 @@ PRD §5 defines the product's terms and this table uses them: **engine**, the go
 | **State machine** | The mechanism: states, transitions and guards, as a named declaration a type binds. |
 | **State category** | A deployment-defined classification every state declares, so family-wide guards need not know state names. |
 | **Transition** | A named, guarded, recorded request to move an object between states; addressed by name, never by target state. |
-| **Action** | A transition whose from- and to-state are equal. Its outcome is unrestricted. It has no exit or entry semantics, unlike a statechart self-transition. |
+| **Internal transition** | A transition that changes an object without changing its state, UML's internal transition (UML 2.5.1 §14.5.12.3); called an action before ADR-0115. Its outcome is unrestricted. It has no exit or entry semantics, unlike a statechart self-transition. The text language writes it `act`. |
 | **Outcome** | The ordered sequence of steps a transition applies: attribute writes, creations, cascaded transitions, and iteration. |
 | **Cascaded transition** | A transition on a related object declared in another's outcome; gated by its own guards, applied in the same transaction, recorded as caused by the parent. |
 | **Only via** | A transition reachable only as a cascade from named parents, and never listed. |

@@ -12,14 +12,14 @@ types:
       name:  { type: string }
     states:
       ACTIVE: { category: live }
-      LEFT:   { category: closed, terminal: true }
+      LEFT:   { category: closed, final: true }
     transitions:
       add:
-        kind: creation
+        kind: initial
         to: ACTIVE
         required_inputs: [login, name]
       leave:
-        kind: state_change
+        kind: external
         from: ACTIVE
         to: LEFT
 
@@ -31,14 +31,14 @@ types:
       name:   { type: string }
     states:
       ACTIVE:  { category: live }
-      REVOKED: { category: closed, terminal: true }
+      REVOKED: { category: closed, final: true }
     transitions:
       issue:
-        kind: creation
+        kind: initial
         to: ACTIVE
         required_inputs: [key_id, name]
       revoke:
-        kind: state_change
+        kind: external
         from: ACTIVE
         to: REVOKED
 
@@ -49,13 +49,13 @@ types:
       name: { type: identity, actor_kind: service, unique: true }
     states:
       ACTIVE:  { category: live }
-      RETIRED: { category: closed, terminal: true }
+      RETIRED: { category: closed, final: true }
     transitions:
       register:
-        kind: creation
+        kind: initial
         to: ACTIVE
         required_inputs: [name]
       retire:
-        kind: state_change
+        kind: external
         from: ACTIVE
         to: RETIRED
