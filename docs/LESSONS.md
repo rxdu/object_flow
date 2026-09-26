@@ -206,3 +206,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The walkthrough page counts a reviewer's verdict only if it was saved after `REVISED`, the time its content last changed. Twice on 2026-09-25 the cutoff was set to a round time estimated ahead of the publish (08:05Z published at 08:01Z, then 09:00Z published at about 08:15Z), so any verdict saved between the publish and the cutoff would have been shown as belonging to an earlier version and not counted. Neither discarded a mark, because none was saved in the window; the second was found only when the next cutoff was about to be estimated the same way.
 - **Correction:** Take the cutoff from `date -u` just before the build, and check the saved verdicts before publishing, so a mark made against the version being replaced is known.
 - **Context:** Published pages that compare stored timestamps against a revision time: the walkthrough's verdicts, and anything else that marks input stale.
+
+### Publish only what a build that succeeded produced
+
+- **Pattern:** A page's build and its publication were sent as one parallel batch on 2026-09-26. The build failed, on a recursive schema definition the vocabulary walker followed forever, and the publication went ahead with the previous build's file, so a version went out that did not contain the change it was published for.
+- **Correction:** Run the build and its checks first, and publish in a later step, only after they succeed. Anything that consumes a build's output waits for the build's result.
+- **Context:** The walkthrough and specification pages, and any artifact generated from repository files.
