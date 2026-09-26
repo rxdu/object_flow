@@ -63,7 +63,7 @@ FORMAT = ROOT / "docs/design/flow-format"
 EXAMPLES = FORMAT / "examples"
 CHECKER = ROOT / "scripts/check-syntax-doc.py"
 
-MODULE_ORDER = ["module", "imports", "categories", "enumerations", "sequences", "machines", "types", "migration"]
+MODULE_ORDER = ["module", "imports", "categories", "enumerations", "sequences", "evaluators", "machines", "types", "migration"]
 MACHINE_ORDER = ["description", "requires", "states", "conditions", "transitions"]
 # names the text language gives a meaning in the same position (declaration-syntax.md §9.2, check 33)
 NOT_A_CATEGORY = {"any", "terminal", "superseding"}
@@ -852,7 +852,8 @@ def name_errors(doc, library=None, ordered=True):
         for c in sorted(conds - used):
             out.append((("types", tn, "conditions", c), "names", f"condition '{c}' of {tn} is used by no transition"))
         out += value_errors(doc, tn, t)
-        out += read_errors(tn, t, set(doc.get("categories") or []) | BUILT_IN_CATEGORIES) + indexed_errors(tn, t, library) + identifier_errors(doc, tn, t, library)
+        out += (read_errors(tn, t, set(doc.get("categories") or []) | BUILT_IN_CATEGORIES | evaluator_names(doc))
+                + indexed_errors(tn, t, library) + identifier_errors(doc, tn, t, library) + evaluator_errors(doc, tn, t))
         out += override_errors(doc, tn, t, library)
         for mn, m in (t.get("metrics") or {}).items():
             out += metric_errors(tn, t, mn, m)
@@ -1386,6 +1387,60 @@ def override_errors(doc, tn, t, library):
     return out
 
 
+def evaluator_names(doc):
+    """The evaluators a module declares or imports: a guard calls one as <evaluator>.<function>(…)."""
+    return set(doc.get("evaluators") or {}) | {n for names in (doc.get("imports") or {}).values() for n in names if n[:1].islower()}
+
+
+def evaluator_calls(text, names):
+    """(evaluator, function, number of arguments) for each call an expression makes to an evaluator."""
+    text = " ".join(str(text).split())
+    out = []
+    for m in re.finditer(r"(?<![\w.])([a-z][a-z0-9_]*)\.([a-z][a-z0-9_]*)\(", text):
+        if m.group(1) not in names:
+            continue
+        depth, i, commas = 1, m.end(), 0
+        while i < len(text) and depth:
+            depth += {"(": 1, ")": -1}.get(text[i], 0)
+            commas += text[i] == "," and depth == 1
+            i += 1
+        body = text[m.end():i - 1].strip()
+        out.append((m.group(1), m.group(2), 0 if not body else commas + 1))
+    return out
+
+
+def evaluator_errors(doc, tn, t):
+    """A guard, and only a guard, asks an evaluator: the call names a declared
+    function with its arguments, is the whole condition or its negation, and a
+    condition marked eager or deferred makes one (declaration-syntax.md §6.2,
+    §5.1; the model's checks 19, 24 and 45)."""
+    evaluators = doc.get("evaluators") or {}
+    names = evaluator_names(doc)
+    out = []
+    for cn, c in (t.get("conditions") or {}).items():
+        where = ("types", tn, "conditions", cn)
+        text = " ".join(str(c["expression"]).split())
+        calls = evaluator_calls(text, names)
+        for ev, fn, n in calls:
+            if ev in evaluators:
+                f = (evaluators[ev].get("functions") or {}).get(fn)
+                if f is None:
+                    out.append((where + ("expression",), "names", f"condition {cn} calls {ev}.{fn}, which {ev} does not declare"))
+                elif n != len(f.get("arguments") or {}):
+                    out.append((where + ("expression",), "names", f"condition {cn} passes {n} argument(s) to {ev}.{fn}, which takes {len(f.get('arguments') or {})}"))
+        if calls and not re.fullmatch(r"(not\s+)?[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\(.*\)", text):
+            out.append((where + ("expression",), "names", f"condition {cn} calls an evaluator inside a larger expression; a verdict is the whole condition or its negation (check 24)"))
+        if "evaluation" in c and not calls:
+            out.append((where + ("evaluation",), "names", f"condition {cn} is marked {c['evaluation']}, and calls no evaluator (check 45)"))
+    others = [(("types", tn, sec, n, "expression"), n, x["expression"]) for sec in ("invariants", "derived_attributes") for n, x in (t.get(sec) or {}).items()]
+    others += [(("types", tn, "transitions", xn, "effect") + path, xn, e) for xn, x in (t.get("transitions") or {}).items()
+               for st, kind, path, _d in walk(x.get("effect")) for e in step_expressions(st, kind)]
+    for path, name, text in others:
+        for ev, fn, _n in evaluator_calls(text, names):
+            out.append((path, "names", f"{name} calls {ev}.{fn}; only a guard asks an evaluator"))
+    return out
+
+
 def metric_errors(tn, t, mn, m):
     if "source" in m:
         return formula_errors(tn, t, mn, m)
@@ -1522,7 +1577,8 @@ def transition_lines(xn, x, t, X, T):
         if g in conds:
             c = conds[g]
             mark = {"deny": "", "audit": " observe", "warn": " flag"}[mode]
-            body.append((f"require {g}: {' '.join(c['expression'].split())}{mark} because {c['remedy']}", X + ("guards", g)))
+            when = f" {c['evaluation']}" if c.get("evaluation") else ""
+            body.append((f"require {g}: {' '.join(c['expression'].split())}{when}{mark} because {c['remedy']}", X + ("guards", g)))
     if x.get("may_admit"):
         body.append(("may admit " + ", ".join(x["may_admit"]), X + ("may_admit",)))
     if x.get("corrects"):
@@ -1550,6 +1606,14 @@ def to_text(doc):
     for sq, spec in (doc.get("sequences") or {}).items():
         emit(f"# {spec['description']}", ("sequences", sq))
         emit(f"sequence {sq} version 1", ("sequences", sq))
+    for en, ev in (doc.get("evaluators") or {}).items():
+        E = ("evaluators", en)
+        emit(f"# {ev['description']}", E)
+        emit(f"evaluator {en} version 1 {{", E)
+        for fn, f in ev["functions"].items():
+            args = ", ".join(f"{a} : {s.get('type') or s.get('reference')}" for a, s in (f.get("arguments") or {}).items())
+            emit(f"  fn {fn}({args})" + (f" fresh {f['fresh']}" if f.get("fresh") else ""), E + ("functions", fn))
+        emit("}", E)
     tail = []
     machines = doc.get("machines") or {}
     for mn, m in machines.items():
@@ -1911,6 +1975,16 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(servicedesk, "    tracking: quantity\n", "    tracking: record\n")),
         ("a counter on an observation", "names", "servicedesk.yaml",
          plant(servicedesk, "          score: { type: int }\n", "          score: { type: counter }\n")),
+        ("a call to a function the evaluator does not declare", "names", "customers.yaml",
+         plant(customers, "        expression: xero.contact_exists(inputs.xero_contact_id)\n", "        expression: xero.contact_known(inputs.xero_contact_id)\n")),
+        ("an evaluator's verdict inside a larger expression", "names", "customers.yaml",
+         plant(customers, "        expression: xero.contact_exists(inputs.xero_contact_id)\n", "        expression: xero.contact_exists(inputs.xero_contact_id) and email is not null\n")),
+        ("an evaluation marked on a condition that calls no evaluator", "names", "customers.yaml",
+         plant(customers, "        expression: invoice_number is not null\n        remedy: self_serviceable\n",
+               "        expression: invoice_number is not null\n        evaluation: eager\n        remedy: self_serviceable\n")),
+        ("an evaluator called by a derived attribute", "names", "customers.yaml",
+         plant(customers, "    conditions:\n      contact_in_xero:",
+               "    derived_attributes:\n      in_xero:\n        description: Xero knows the contact.\n        expression: xero.contact_exists(xero_contact_id)\n\n    conditions:\n      contact_in_xero:")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",

@@ -58,6 +58,16 @@
         "$ref": "#/definitions/sequence"
       }
     },
+    "evaluators": {
+      "description": "Systems outside the store a guard may ask, by name (declaration-syntax.md §6.2).",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/definitions/memberName"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/evaluator"
+      }
+    },
     "machines": {
       "description": "State machines several types share, by name (UML StateMachine).",
       "type": "object",
@@ -906,6 +916,13 @@
         "remedy": {
           "$ref": "#/definitions/remedy",
           "description": "What a caller can do when the condition fails (DESIGN.md §5.5)."
+        },
+        "evaluation": {
+          "enum": [
+            "eager",
+            "deferred"
+          ],
+          "description": "For a condition that calls an evaluator: eager, consulted whenever availability is computed, the default; or deferred, only when the transition is requested."
         }
       }
     },
@@ -1576,6 +1593,58 @@
             }
           },
           "description": "Invariants the migrated objects may break, each admitted with a reason, as an assertion's admissions are."
+        }
+      }
+    },
+    "evaluator": {
+      "type": "object",
+      "required": [
+        "description",
+        "functions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "$ref": "#/definitions/description",
+          "description": "The system asked, and what it owns."
+        },
+        "functions": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/evaluatorFunction"
+          }
+        }
+      }
+    },
+    "evaluatorFunction": {
+      "type": "object",
+      "required": [
+        "description"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "$ref": "#/definitions/description",
+          "description": "What the verdict says."
+        },
+        "arguments": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/input"
+          },
+          "description": "Its arguments, in the order a call passes them."
+        },
+        "fresh": {
+          "type": "string",
+          "pattern": "^[0-9]+ (s|min|h|days|weeks)$",
+          "description": "How old a verdict may be and still be used, such as 30 min."
         }
       }
     }
