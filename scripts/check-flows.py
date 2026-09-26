@@ -159,12 +159,21 @@ def bound(t, machines):
     return dict(t, states=m["states"], transitions=merged, conditions=conditions)
 
 
+def resolve_any(x, states):
+    """`from: any` is every state that is not final (declaration-syntax.md §4.2)."""
+    if x.get("from") != "any":
+        return x
+    return dict(x, **{"from": [s for s, v in (states or {}).items() if not (v or {}).get("final")]})
+
+
 def view(doc):
     """The module as the checks see it: each machine as a type, each binder
     merged with its machine; and a map back from each view path to the YAML."""
     machines = doc.get("machines") or {}
     kinds = {mn: machine_as_type(m) for mn, m in machines.items()}
     kinds.update({tn: bound(t, machines) for tn, t in (doc.get("types") or {}).items()})
+    kinds = {tn: dict(t, transitions={xn: resolve_any(x, t.get("states")) for xn, x in (t.get("transitions") or {}).items()})
+             for tn, t in kinds.items()}
     v = dict(doc, types=kinds)
 
     def back(path):
@@ -290,6 +299,8 @@ def schema_errors(doc):
         elif e.validator == "oneOf" and isinstance(e.instance, dict) and "tracking" in e.instance and "description" in e.instance:
             out.append((tuple(e.absolute_path), "schema",
                         "a type either declares its own states and transitions or binds a state_machine, and never both"))
+        elif e.validator == "oneOf" and e.absolute_path and e.absolute_path[-1] == "from":
+            out.append((tuple(e.absolute_path), "schema", "`from` is a state, a list of states, or any, alone"))
         elif e.validator == "oneOf" and e.absolute_path and e.absolute_path[-1] == "unique":
             out.append((tuple(e.absolute_path), "schema",
                         "unique is true, in_scope, { with: [<attribute>, …] } or { where: <expression> }, one of them"))
@@ -1326,7 +1337,7 @@ def to_text(doc):
                      for n, i in (ob.get("invariants") or {}).items()]
             tail.append(("}", O))
         for mn, m in (t.get("metrics") or {}).items():
-            tail += metric_text(tn, t, mn, m)
+            tail += metric_text(tn, merged, mn, m)
     for line, path in tail:
         emit(line, path)
     return "\n".join(lines) + "\n", paths
@@ -1387,7 +1398,7 @@ def metric_text(tn, t, mn, m):
     else:
         v, time, value = "t", "t.occurred_at", "count()"
         conds = [(f"t.from_state == {tn}.{a}" if a else "t.from_state is null") + f" and t.to_state == {tn}.{b}"
-                 for a, b in pairs(t["transitions"][m["transition"]])]
+                 for a, b in pairs(resolve_any(t["transitions"][m["transition"]], t.get("states")))]
         cond = conds[0] if len(conds) == 1 else " or ".join(f"({c})" for c in conds)
         out.append((f"  from      t in {tn}.transitions where {cond}", M + ("transition",)))
     dims = [f"{d} = " + {"month": f"month({time})", "week": f"week({time})", "actor": "t.actor_id"}.get(
@@ -1554,6 +1565,8 @@ def self_test(people, service, inventory, delivery, approvals, customers):
          plant(customers, "        kind: erasure\n        description: Erases the customer's", "        kind: erasure\n        to: CLOSED\n        description: Erases the customer's")),
         ("an indexed marking on a stored reference, which the conversion must carry to step 4", "check 7", "delivery.yaml",
          plant(delivery, "      unit:         { reference: InventoryItem }\n", "      unit:         { reference: InventoryItem, indexed: true }\n")),
+        ("a source list that mixes any with a state", "schema", "customers.yaml",
+         plant(customers, "        from: any\n        to: CLOSED\n", "        from: [any, ACTIVE]\n        to: CLOSED\n")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",

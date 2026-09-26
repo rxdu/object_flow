@@ -306,8 +306,15 @@
           "description": "UML: initial transition, external transition, internal transition. And two with no UML counterpart: assertion, which puts an object into a state the request names, from any state, as an override; erasure, which erases the object's personal attributes at any state."
         },
         "from": {
-          "$ref": "#/definitions/states",
-          "description": "The source state, or states. Required for external and internal transitions; absent for an initial one."
+          "oneOf": [
+            {
+              "$ref": "#/definitions/states"
+            },
+            {
+              "const": "any"
+            }
+          ],
+          "description": "The source state, or states, or any: every state that is not final. Required for external and internal transitions; absent for an initial one, an assertion and an erasure."
         },
         "to": {
           "$ref": "#/definitions/states",

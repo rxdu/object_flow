@@ -141,12 +141,14 @@ A transition changes an object, and every change to an object is one. A transiti
 | `kind` | Means | `from` | `to` |
 |---|---|---|---|
 | `initial` | a new object comes into being in a state: the transition from UML's initial pseudostate | MUST be absent | the state |
-| `external` | the object moves from a state to another (UML `TransitionKind::external`) | one state, or a list of states | the state it moves to |
-| `internal` | the object changes without changing state (UML `TransitionKind::internal`) | the states it may be taken in | MUST be absent |
+| `external` | the object moves from a state to another (UML `TransitionKind::external`) | one state, a list of states, or `any` | the state it moves to |
+| `internal` | the object changes without changing state (UML `TransitionKind::internal`) | the states it may be taken in, or `any` | MUST be absent |
 | `assertion` | the request puts the object into a state it names, from any state, overriding the flow | MUST be absent | the states it may put the object in |
 | `erasure` | the object's personal attributes are erased, at any state, a final one included | MUST be absent | MUST be absent |
 
 (step 2, `schema`; every state named MUST be declared, step 3, `names`)
+
+`from: any` is every state that is not final, the target state included, so a transition that any state may take, such as Jira's "all statuses can transition to this one", is written once (`declaration-syntax.md` §4.2). It stands alone, never in a list (step 2, `schema`), and the checks read it as the states it stands for, so a state added later is covered without an edit.
 
 | Key | Required | Value |
 |---|---|---|
@@ -382,6 +384,7 @@ Each form converts to the text language as follows, and means what that declarat
 | `measure: median_time_in_state` | a metric over the type's intervals in the state, valued `median(i.duration)` |
 | `measure: transition_count` | a metric over the type's transitions along the transition's states, valued `count()` |
 | `kind: assertion`, `to: [A, B]`, `may_admit: [i]` | `assert x -> { A, B } { input to : state; input admits : invariant[]?; may admit i }` |
+| `from: any` | `do x any -> S`; `act x at any` |
 | `kind: erasure` | `erase x { … }` |
 | `corrects: [a]` | `corrects a` |
 | `source: s`, `item: i`, `filter: f` | `from i in <T>.s where f`; `from i in <T>` for `objects`, and `from i in <Kind>` for an observation kind |
@@ -460,7 +463,7 @@ These words are reserved by the format. `scripts/check-flow-format-doc.py` holds
 
 **Keys:** `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines`, `requires`, `state_machine`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `corrects`, `may_admit`, `optional`, `identifier`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `source`, `filter`, `dimensions`, `time_dimension`, `state`, `transition`, `group_by`, `flag_when`.
 
-**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `assertion`, `erasure`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `objects`, `intervals`, `transitions`, `attempts`, `attempt_counts`, `composite`, `in_scope`, `month`, `week`, `actor`.
+**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `assertion`, `erasure`, `any`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `objects`, `intervals`, `transitions`, `attempts`, `attempt_counts`, `composite`, `in_scope`, `month`, `week`, `actor`.
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
 

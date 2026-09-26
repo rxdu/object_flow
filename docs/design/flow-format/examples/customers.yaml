@@ -67,9 +67,9 @@ types:
         to: DORMANT
       close:
         kind: external
-        from: [PROSPECT, ACTIVE, DORMANT]
+        from: any
         to: CLOSED
-        description: Closes the customer's record, once no order of theirs is open.
+        description: Closes the customer's record from whatever state it is in, once no order of theirs is open.
         guards:
           no_open_orders: deny
       add_contact:
