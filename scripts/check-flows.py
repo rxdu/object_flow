@@ -822,6 +822,9 @@ def name_errors(doc, library=None, ordered=True):
                     out += create_errors(doc, library, where, tn, xn, st["create"])
                 if kind == "call":
                     out += call_errors(library, where, t, tn, xn, x, st["call"])
+            if x.get("proposable") and x.get("only_via"):
+                out.append((base + ("proposable",), "names", f"{tn}.{xn} is proposable and only via other transitions; "
+                                                           "no one may request it, so no proposal of it could be approved (check 14)"))
             for v in x.get("only_via", []):
                 vt, vx = v.split(".")
                 if vt in library and vx not in (library[vt].get("transitions") or {}):
@@ -1611,6 +1614,8 @@ def transition_lines(xn, x, t, X, T):
     accepts = x.get("required_inputs", []) + x.get("optional_inputs", [])
     if accepts:
         head += " accepts " + ", ".join(accepts)
+    if x.get("proposable"):
+        head += " proposable"
     if x.get("backdating_limit"):
         head += f" backdatable within {x['backdating_limit']}"
     body = []
@@ -2055,6 +2060,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
         ("personal data in supersession with no erasure", "names", "customers.yaml",
          plant(customers, "      forget:\n        kind: erasure\n        description: Erases the customer's",
                "      forget:\n        kind: internal\n        from: [PROSPECT]\n        description: Erases the customer's")),
+        ("a proposable transition that only other transitions may take", "names", "delivery.yaml",
+         plant(delivery, "        only_via: [Delivery.cancel]\n", "        only_via: [Delivery.cancel]\n        proposable: true\n")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",

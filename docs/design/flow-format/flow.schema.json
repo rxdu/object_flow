@@ -536,6 +536,10 @@
           },
           "description": "The transitions, as Type.transition, that alone may take this one, by a call, a create or a cascade; no caller may request it."
         },
+        "proposable": {
+          "type": "boolean",
+          "description": "true if a request for this transition may be filed as a proposal, executed as its approver when approved (ADR-0036)."
+        },
         "corrects": {
           "type": "array",
           "minItems": 1,

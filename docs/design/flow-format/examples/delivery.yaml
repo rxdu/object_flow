@@ -92,7 +92,8 @@ types:
         kind: external
         from: PREPARING
         to: DELIVERED
-        description: Hands the item over, which delivers it externally at the delivery's price.
+        description: Hands the item over, which delivers it externally at the delivery's price; an agent may propose it for a person to approve.
+        proposable: true
         guards:
           checklist_complete: deny
           courier_assigned: deny
