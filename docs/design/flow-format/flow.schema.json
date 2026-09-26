@@ -234,6 +234,10 @@
             "$ref": "#/definitions/derivedAttribute"
           }
         },
+        "summary": {
+          "$ref": "#/definitions/names",
+          "description": "The members a listing returns by default, state included (DESIGN.md §5.2)."
+        },
         "invariants": {
           "description": "Conditions that hold for every object of the type at all times.",
           "type": "object",

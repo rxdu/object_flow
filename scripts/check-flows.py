@@ -80,7 +80,7 @@ ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "e
 METRIC_ORDER = ["description", "measure", "state", "transition", "source", "item", "filter", "dimensions",
                 "group_by", "time_dimension", "expression", "flag_when"]
 TYPE_ORDER = ["description", "abstract", "extends", "mirror", "tracking", "state_machine", "attributes", "observations", "states",
-              "derived_attributes", "invariants", "conditions", "transitions", "metrics"]
+              "derived_attributes", "summary", "invariants", "conditions", "transitions", "metrics"]
 
 
 class StrictLoader(yaml.SafeLoader):
@@ -522,6 +522,12 @@ def family_errors(doc, library):
                 owner = next((c for c in chain if n in (kinds[c].get(key) or {})), None)
                 if owner:
                     out.append((here + (key, n), "names", f"{tn} declares '{n}', which it inherits from {owner}; a member has one declaration"))
+        members_all = set(t.get("attributes") or {}) | set(t.get("derived_attributes") or {}) | {"state"}
+        for c in chain:
+            members_all |= set(kinds[c].get("attributes") or {}) | set(kinds[c].get("derived_attributes") or {})
+        for m in t.get("summary") or []:
+            if m not in members_all:
+                out.append((here + ("summary",), "names", f"{tn}'s summary names '{m}', which is neither state nor a member of {tn}"))
         if not t.get("abstract") and "tracking" not in t and not any("tracking" in kinds[c] for c in chain):
             out.append((here, "names", f"{tn} has no tracking, declared or inherited"))
         members = dict(t.get("attributes") or {})
@@ -1783,6 +1789,8 @@ def to_text(doc):
             emit(f"  tracking {t['tracking']}", T + ("tracking",))
         if t.get("state_machine"):
             emit(f"  machine  {t['state_machine']}", T + ("state_machine",))
+        if t.get("summary"):
+            emit("  summary  " + ", ".join(t["summary"]), T + ("summary",))
         for sn, v in (t.get("states") or {}).items():
             emit(f"  state {sn} category {v['category']}" + (" terminal" if v.get("final") else "")
                  + (" superseding" if v.get("superseding") else ""), T + ("states", sn))
@@ -2167,6 +2175,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(servicedesk, "    group_by: [month]\n    expression: problems", "    group_by: [week]\n    expression: problems")),
         ("a combined metric that aggregates", "names", "servicedesk.yaml",
          plant(servicedesk, "    expression: problems * 1.000 / incidents\n", "    expression: sum(problems) * 1.000 / incidents\n")),
+        ("a summary naming no member", "names", "servicedesk.yaml",
+         plant(servicedesk, "    summary: [summary, request_type, priority, state]\n", "    summary: [summary, request_kind, state]\n")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",

@@ -158,6 +158,7 @@ types:
         description: From opening to the first comment the customer can see.
         expression: >-
           min(r in replies: r.occurred_at) - opened_at
+    summary: [summary, request_type, priority, state]
     conditions:
       has_approvers:
         description: At least one approver is named.
