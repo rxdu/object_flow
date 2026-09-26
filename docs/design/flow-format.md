@@ -264,3 +264,51 @@ These words are reserved by the format. `scripts/check-flow-format-doc.py` holds
 **Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `creation`, `state_change`, `action`, `enforced`, `observed`, `flagged`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `month`, `week`, `actor`.
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
+
+## Appendix A. Terminology against established conventions
+
+A review of 2026-09-26, at the author's request that this format use existing conventions where they exist rather than invent terms. Every source below was read in its primary form: UML 2.5.1 (OMG formal/2017-12-05, https://www.omg.org/spec/UML/2.5.1/PDF), W3C SCXML (Recommendation, 1 September 2015, https://www.w3.org/TR/scxml/), XState v5 (https://stately.ai/docs), the Symfony Workflow component (https://symfony.com/doc/current/workflow.html), AASM (https://github.com/aasm/aasm), django-fsm 2.8.2 (https://github.com/viewflow/django-fsm/blob/2.8.2/README.rst), Kubernetes ValidatingAdmissionPolicy (https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/), OPA Gatekeeper (https://open-policy-agent.github.io/gatekeeper/website/docs/violations/) and Atlassian Jira (https://support.atlassian.com/jira-cloud-administration/docs/what-is-a-workflow-status/). Nothing in this appendix is decided; §A.3 lists what is proposed.
+
+### A.1 The terms
+
+| This format | Established term | Source | Assessment |
+|---|---|---|---|
+| `states`, `transitions` | state, transition | UML §14; SCXML §3.3, §3.5; XState | standard |
+| `from`, `to` | `source`, `target` | UML §14.5.11.6; SCXML `target` | both are established: UML's model says source and target, the configuration languages of Symfony and AASM say `from` and `to` |
+| `guards` | guard | UML `Transition::guard`; XState `guard`; AASM `guard:`; Symfony `guard` | standard |
+| `conditions` | `cond`; conditions; named guards | SCXML `<transition cond>`; django-fsm 2.x `conditions=[…]`; XState `setup({ guards })` | established |
+| a transition's name, which a request names | trigger or event | UML `Transition::trigger`; AASM `event`; Symfony applies a transition by name | standard in substance; §4.8 should say that a transition's name is its trigger |
+| `kind: action` | internal transition; targetless transition | UML `TransitionKind::internal`, §14.5.12.3: it "occurs without exiting or entering the source State (i.e., it does not cause a state change)"; SCXML Appendix D; XState "targetless self-transition" | **conflicts**: in UML, SCXML and XState an action is behaviour a transition executes, not a kind of transition |
+| `kind: state_change` | external transition | UML `TransitionKind::external`, the default | invented where UML has a term, although "external" reads against this domain's external delivery |
+| `kind: creation` | initial transition, from the initial pseudostate | UML §14.2.4.6; SCXML `<initial>`; XState `initial` | invented; "initial" is the nearest standard word, though a creation here is named, takes inputs and may be one of several |
+| `terminal` | final state | UML `FinalState`; SCXML `<final>`; XState `type: 'final'` | the standard word is "final"; "terminal" is the design's own |
+| `required_attributes` | state invariant | UML `State::stateInvariant`, §14.5.9: "conditions that are always true when this State is the current State" | a special case of a standard concept, which §4.5 should name |
+| `invariants` | invariant | UML and OCL class invariant | standard |
+| `outcome` | effect; actions | UML `Transition::effect`, §14.5.11.6; XState `actions`; SCXML executable content | invented (ADR-0046's term) |
+| `copy` | assign | SCXML `<assign location expr>`, §5.4; XState `assign` | invented |
+| `clear` | none | | no standard term; an assignment of no value |
+| `enforced`, `observed`, `flagged` | `Deny`, `Audit`, `Warn`; `deny`, `dryrun`, `warn` | Kubernetes `ValidatingAdmissionPolicyBinding.validationActions`; OPA Gatekeeper `enforcementAction` | invented; no state-machine standard has these, but Kubernetes' three match the three meanings: Deny refuses, Audit records the failure in the audit event, Warn reports it to the client |
+| `category` | status category | Jira: statuses "must belong to one of three status categories – To do, In progress, or Done" | established outside the state-machine standards |
+| `required_inputs`, `optional_inputs` | parameters; event data | UML operation parameters; SCXML `_event.data` | the design's `inputs`, which expressions read as `inputs.<attribute>`; consistent with the expression language |
+
+**The model as a whole** is closest to a UML protocol state machine, which "specifies which BehavioralFeatures of that Classifier can be invoked in a given protocol state and under what conditions" (§14.4.3.1). It departs in one respect: a protocol transition has no effect (§14.4.3.2), and a transition here writes attributes. It is therefore a behavioural state machine whose triggers are named requests.
+
+### A.2 The diagram
+
+UML's notation (§14.2.4) against the walkthrough's diagram:
+- the initial pseudostate is "a small solid filled circle" (§14.2.4.6), as drawn;
+- a final state is "a circle surrounding a small solid filled circle" (§14.2.4.5); the double border drawn on `RETIRED` is the automata-theory convention for an accepting state, "denoted graphically by a double circle" (Wikipedia, Deterministic finite automaton);
+- an internal transition is listed in the state's internal-transitions compartment (§14.2.4.4) and is "not shown explicitly" as an arrow (§14.2.4.9); a loop drawn outside a state is an external self-transition, which exits and re-enters the state, so the loops drawn for `regrade` read as the wrong kind;
+- a transition's label is `trigger [guard] / behavior-expression`, every part optional (§14.2.4.8), so a label of the name alone conforms;
+- a frame drawn around states is, in UML, a composite state, which implies a hierarchy this format does not have; the `DELIVERED` frame is also drawn from nothing the description declares, which departs from the rule that the diagram maps onto the description.
+
+### A.3 Proposed, for the author
+
+1. Rename the transition kind `action` to `internal`, UML's term, and correct ADR-0016's "self-transition", which in UML exits and re-enters a state.
+2. Draw internal transitions in the state's compartment, and a final state as UML does.
+3. Rename `terminal` to `final` in this format, converting to the text language's `terminal`.
+4. Rename `outcome` to `effect` and `copy` to `assign`.
+5. Rename the enforcements to `deny`, `audit` and `warn`, after Kubernetes.
+6. Rename `creation` and `state_change` to `initial` and `external`, or keep them where the standard word would mislead.
+7. Name `required_attributes` as a state invariant in §4.5, and state in §4.8 that a transition's name is its trigger.
+8. Either declare the grouping the diagram draws as `DELIVERED`, or stop drawing it.
