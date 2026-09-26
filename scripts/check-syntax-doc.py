@@ -669,7 +669,9 @@ def data_checks(decls, by_name, text, base=0):
                         add(19, f"{d.name}.{tn} reads undeclared metric {mn}", ln); continue
                     if "over last" in margs and "window on" not in md.clauses:
                         add(56, f"{d.name}.{tn}: 'over last' on metric {mn}, which declares no 'window on'", ln)
-                    dims = {x.split("=")[0].strip() for c, _l in md.clauses.get("by", []) for x in c.split(",")}
+                    # every metric has the dimensions version and actor_kind unless it declares them (§6.9)
+                    dims = {x.split("=")[0].strip() for c, _l in md.clauses.get("by", []) for x in c.split(",")} \
+                           | {"version", "actor_kind"}
                     for bound in re.findall(r"(\w+)\s*:=", margs):
                         if bound not in dims:
                             add(56, f"{d.name}.{tn} binds '{bound}', not a dimension of metric {mn}", ln)
