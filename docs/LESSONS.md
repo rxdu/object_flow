@@ -219,3 +219,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Before a quotation goes into a document, fetch the page's raw text (`curl`, strip the markup) and find the quoted words in it; use the summarising fetch to locate a page, never as the source of a quote. A researcher asked for quotes is told the same, and its quotes are sampled against the raw text.
 - **Context:** Any document that cites external sources: ADRs, the format's Appendix A, case studies.
 
+### A sentence that cites a check is proven by a probe before it is committed
+
+- **Pattern:** Twice on 2026-09-26 a specification sentence named the step and check that enforce a rule without a probe having shown it. In construct 4, `flow-format.md` §4.10 said a machine's conditions naming an unrequired attribute were refused at step 3, and a probe found no step refused them. In construct 13, §4.19 said step 4 refuses a cycle among supersession targets, and the internal checker's check 26 has no such clause; that one was committed and then corrected in place.
+- **Correction:** For every "(step N, code)" a new or edited sentence carries, run a mutation that breaks the rule and see that code fire, or read the implementing code; where neither shows it, say the rule is unchecked instead of citing a check.
+- **Context:** `flow-format.md` and any document that says which check enforces a rule.
+
