@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-26. Asked whether the format "is the proper and well-recognized way to describe a state machine", adding "I don't want to invent new terminologies if existing conventions are already there", the author read the review in `docs/design/flow-format.md` Appendix A and answered "adopt standards and update our specs".
 - **Date:** 2026-09-26
-- **Refined by:** ADR-0116 — the format replaces the text language, whose keywords (§4 above) survive only in the internal form; the trial's files are now `docs/design/flow-format/` and `scripts/check-flows.py`.
+- **Refined by:** ADR-0117 — relationships use UML's `opposite` and `aggregation: composite`, and a transition only other transitions take is `only_via`. ADR-0116 — the format replaces the text language, whose keywords (§4 above) survive only in the internal form; the trial's files are now `docs/design/flow-format/` and `scripts/check-flows.py`.
 - **Refines:** ADR-0016 (actions), and the YAML trial of `docs/design/authoring-flows.md` §3
 - **Relates to:** ADR-0046 (the outcome grammar), ADR-0085 (observing clauses), ADR-0111 (flags)
 

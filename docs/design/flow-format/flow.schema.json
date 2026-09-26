@@ -260,6 +260,15 @@
           "$ref": "#/definitions/description",
           "description": "What the transition does, in one sentence."
         },
+        "only_via": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9]*\\.[a-z][a-z0-9_]*$"
+          },
+          "description": "The transitions, as Type.transition, that alone may take this one, by a call, a create or a cascade; no caller may request it."
+        },
         "required_inputs": {
           "$ref": "#/definitions/names",
           "description": "Attributes the caller must supply; each is written to the attribute of the same name."
@@ -636,8 +645,42 @@
           "description": "A built-in type (string, bool, int, decimal(p,s), money(ccy), timestamp, duration, identity, file) or an enumeration's name."
         },
         "reference": {
-          "$ref": "#/definitions/typeName",
-          "description": "The name of a type declared earlier in the module or imported."
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9]*(\\[\\])?$",
+          "description": "The type of object this attribute names, declared in the module or imported; [] makes it a set."
+        },
+        "opposite": {
+          "$ref": "#/definitions/memberName",
+          "description": "The attribute of the referenced type that is the other end of this relationship (UML Property::opposite)."
+        },
+        "stored": {
+          "type": "boolean",
+          "description": "On one of two single ends: this end holds the value, and the other is read from it."
+        },
+        "aggregation": {
+          "enum": [
+            "composite"
+          ],
+          "description": "composite: the referenced objects are parts of this one, exclusively and for no longer than it (UML AggregationKind::composite)."
+        },
+        "cascade": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/cascadeClause"
+          },
+          "description": "On a composite end: the transition each part takes when this object takes one of the listed transitions."
+        },
+        "survives": {
+          "oneOf": [
+            {
+              "const": true
+            },
+            {
+              "$ref": "#/definitions/names"
+            }
+          ],
+          "description": "On a composite end: true if the parts outlive every final transition of this object, or the transitions they outlive."
         },
         "description": {
           "$ref": "#/definitions/description",
@@ -842,6 +885,44 @@
           ]
         }
       ]
+    },
+    "cascadeClause": {
+      "type": "object",
+      "required": [
+        "on",
+        "transition",
+        "limit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "on": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/memberName"
+          },
+          "description": "The transitions of this object that drive the cascade."
+        },
+        "transition": {
+          "$ref": "#/definitions/memberName",
+          "description": "The transition each part takes."
+        },
+        "inputs": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/expression"
+          },
+          "description": "The inputs passed to each part's transition, each an expression over this object and the triggering transition's inputs."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The most parts the cascade may reach in one request."
+        }
+      }
     }
   }
 }

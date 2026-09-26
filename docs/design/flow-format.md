@@ -36,7 +36,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 (step 2, `schema`)
 
 1. A name MUST be unique among the names of its section. A repeated key is refused by step 1.
-2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations` and `types`; a type declares, in this order, `description`, `tracking`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions` and `metrics`. A type that another type's attributes, observations or inputs reference MUST be declared before it in the module, or imported; an effect MAY name a type declared later (§4.8). (step 3, `order`)
+2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations` and `types`; a type declares, in this order, `description`, `tracking`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions` and `metrics`. The types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used. (step 3, `order`)
 3. Reserved words of the text language MAY be used as names, as `declaration-syntax.md` §9.2 allows, with these exceptions (step 3, `names`):
    - a category MUST NOT be named `any`, `terminal` or `superseding`, and a transition MUST NOT be named `any` (the text language's check 33);
    - an attribute, including an observation's, MUST NOT be named `state`, `inputs`, `actor`, `this`, `now`, `referrers` or `this_event`, since an expression resolves those words before any attribute;
@@ -75,7 +75,11 @@ Each attribute is a mapping with exactly one of `type` and `reference`. (step 2,
 | Key | Value |
 |---|---|
 | `type` | a built-in type (`string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `duration`, `identity`, `file`) or an enumeration's name |
-| `reference` | the name of a type declared earlier or imported |
+| `reference` | the name of a type the module declares or imports; `[]` makes the attribute a set of references |
+| `opposite` | the attribute of the referenced type that is the other end of this relationship (UML `Property::opposite`) |
+| `stored` | `true` on the one of two single ends that holds the value |
+| `aggregation` | `composite` on a whole's end: the referenced objects are its parts (UML `AggregationKind::composite`) |
+| `cascade`, `survives` | on a composite end: what its parts do when the whole takes a transition (below) |
 | `optional` | `true` if the attribute may be without a value; otherwise it always has one |
 | `unique` | `true` if no two objects of the type may hold the same value |
 | `indexed`, `personal` | as `declaration-syntax.md` §3.1 defines them |
@@ -84,7 +88,15 @@ Each attribute is a mapping with exactly one of `type` and `reference`. (step 2,
 | `unit` | the unit of a measured value |
 | `description` | one sentence, where the name alone does not say what the attribute holds |
 
-`unit` applies only to an observation's attribute, and `unique`, `indexed`, `actor_kind` and `assignee` only to a type's attribute, since the text language has no form for them elsewhere. (step 3, `names`)
+`unit` applies only to an observation's attribute, and `unique`, `indexed`, `actor_kind`, `assignee`, `opposite`, `stored`, `aggregation`, `cascade` and `survives` only to a type's attribute, since the model has no form for them elsewhere. (step 3, `names`)
+
+**Relationships.** Both ends of a relationship are declared, each on its own type, so that a type reads completely on its own, and each names the other with `opposite`; the two ends MUST name each other and be in one module (step 3, `names`). Exactly one end stores the value, as `declaration-syntax.md` §3.3 fixes: of a single end and a set end, the single one; of two single ends, the one marked `stored`; two set ends cannot store a pair, which is then a type of its own with a reference to each side (step 4, `check 41`). An end with no `opposite` is a reference with no named way back, and MUST be single.
+
+**Composition.** An end marked `aggregation: composite` makes the referenced objects **parts** of this one, which is their **whole**: a part belongs to exactly one whole, so its end back MUST be single and required (step 3, `names`), and a part lives no longer than its whole. Creating a part MUST be `only_via` a transition of the whole (§4.8; step 4, `check 11`). On the composite end:
+- `cascade` is a list of clauses `{ on: [<transition of the whole>, …], transition: <transition of the part>, inputs: { … }, limit: <n> }`: when the whole takes one of the transitions in `on`, each part takes `transition` with the inputs given, which are expressions over the whole and the triggering transition's inputs; `limit` bounds the parts reached in one request. The part transition MUST exist, MUST NOT be initial, and MUST receive the inputs it requires (step 3, `names`). A part already in a final state is passed over, and a part whose guards refuse aborts the whole request.
+- `survives` is `true` if the parts outlive every final transition of the whole, or the list of transitions they outlive.
+
+Every transition of the whole into a final state MUST be covered by a cascade or by `survives`, and none by both (step 3, `names`; the model's check 37, ADR-0058).
 
 ### 4.4 Observations
 
@@ -133,6 +145,7 @@ A transition changes an object, and every change to an object is one. A transiti
 |---|---|---|
 | `kind`, `from`, `to` | as above | |
 | `description` | no | what the transition does, in one sentence |
+| `only_via` | no | the transitions, written `Type.transition`, that alone may take this one, by a `call`, a `create` or a cascade; no caller may request it (step 3, `names`) |
 | `required_inputs` | no | attributes the caller MUST supply; each is written to the attribute of the same name |
 | `optional_inputs` | no | attributes the caller MAY supply; each is written if supplied. An attribute that is not optional is always required |
 | `inputs` | no | declared inputs, which write no attribute of their own name (below) |
@@ -215,6 +228,11 @@ Each form converts to the text language as follows, and means what that declarat
 | `final: true` on state `S` | `state S category … terminal` |
 | `required_attributes: [a, b]` on state `S` | `invariant s_invariant: state != S or (a is not null and b is not null)` |
 | `backdating_limit: 2 days` | `backdatable within 2 days` |
+| `only_via: [W.t]` | `only via W.t` in the transition's head |
+| `reference: T, opposite: e` (and `stored: true`) | `ref <name> : T inverse e` (`stored`) |
+| `reference: "T[]", aggregation: composite, opposite: e` | `part <name> : T[] inverse e` |
+| the part's end back, `reference: W, opposite: <composite end>` | `owner <name> : W inverse <composite end>` |
+| `cascade: [{ on: [a], transition: t, limit: n }]`, `survives: [b]` | `cascade on a to T.t limit n`, `survives on { b }` |
 | `measure: median_time_in_state` | a metric over the type's intervals in the state, valued `median(i.duration)` |
 | `measure: transition_count` | a metric over the type's transitions along the transition's states, valued `count()` |
 
@@ -229,7 +247,7 @@ A description is checked in four steps, and each stops the check if it finds any
 | 1. strict loading | `yaml` | a file YAML cannot parse, including a `?` unquoted inside an inline collection, or a key repeated in a mapping |
 | 2. structure | `schema` | a missing or unknown key, a value of the wrong form, a name in the wrong case, a transition kind without the `from` and `to` it requires, a metric without the `state` or `transition` its measure requires |
 | 3. names and order | `order` | sections out of order, a type used before it is declared |
-| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
+| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
@@ -281,16 +299,16 @@ These are open in `authoring-flows.md` §3 and §7, and an answer would change t
 1. Whether version numbers are computed at publication, which this format assumes by having none.
 2. Whether the generated guards and invariants should carry written descriptions.
 3. Whether a transition whose source state does not require an attribute its target requires should be refused, as now, even when the attribute happens to be kept.
-4. How two types that reference each other are ordered, since every name is defined before it is used.
+4. ~~How two types that reference each other are ordered~~: *decided 2026-09-26*, the types of a module may reference each other in any order (ADR-0117).
 5. The order in which the constructs of Appendix B gain a form, which `TODO.md` sets.
 
 ## 10. Reserved vocabulary
 
 These words are reserved by the format. `scripts/check-flow-format-doc.py` holds this list equal to the keys and values `flow.schema.json` and the checker define.
 
-**Keys:** `module`, `imports`, `categories`, `enumerations`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `optional`, `unique`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `state`, `transition`, `group_by`, `flag_when`.
+**Keys:** `module`, `imports`, `categories`, `enumerations`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `optional`, `unique`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `state`, `transition`, `group_by`, `flag_when`.
 
-**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `month`, `week`, `actor`.
+**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `composite`, `month`, `week`, `actor`.
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
 
@@ -360,11 +378,12 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | attributes: type, optional, unique, indexed, personal | §3.1 | written (§4.3) |
 | attributes: counters, defaults, scoped and compound uniqueness | §3.1, §7 | not yet |
 | references, including an assignee | §3.2, §6.10 | written (§4.3) |
-| parts, composition, inverse ends and cascades | §3.2, §3.3 | not yet |
+| parts, composition, inverse ends and cascades | §3.2, §3.3 | written (§4.3) |
 | invariants over one object | §3.4 | written (§4.6, §4.5) |
-| invariants over relationships and type-scans | §3.4 | not yet, since relationships are not |
+| invariants over relationships and type-scans | §3.4 | written, in the expression language (§4.6, §5) |
 | transitions: initial, external and internal | §4, §4.2 | written (§4.8) |
-| transition markings: `only via`, proposable, asserting | §4.2 | not yet; backdating is written |
+| transition markings: `only via` | §4.2 | written (§4.8) |
+| transition markings: proposable, asserting | §4.2 | not yet; backdating is written |
 | inputs that write an attribute of the same name | §5.1 | written (§4.8) |
 | inputs that write nothing, or another name | §5.1 | written (§4.8) |
 | guards, and their enforcement | §5.1 | written (§4.8) |

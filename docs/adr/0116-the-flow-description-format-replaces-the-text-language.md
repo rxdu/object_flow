@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-26: "yes, replace the text language with yaml", in answer to whether the YAML form should become the written form of every flow (`authoring-flows.md` §7, question 3), asked with the review of ADR-0115.
 - **Date:** 2026-09-26
+- **Refined by:** ADR-0117 — the types of a module may reference each other in any order, and relationships are written in UML's terms (construct 3 of §4's plan).
 - **Refines:** ADR-0010 (the declaration is data), ADR-0115 (the text language kept its keywords until this decision)
 - **Relates to:** `docs/design/declaration-syntax.md`, `docs/design/flow-format.md`, `docs/design/authoring-flows.md` §3
 

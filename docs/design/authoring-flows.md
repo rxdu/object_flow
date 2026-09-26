@@ -103,7 +103,7 @@ All five modules pass. The self-test plants eleven mistakes and each is caught b
 - whether every condition must carry a `description` (question 6 below); the generated guards and invariants carry none, and the rule set renders theirs from the expression;
 - that version numbers are computed (question 4), which the trial assumes;
 - whether step 3's conservative half should refuse: a transition whose source state does not require an attribute the target requires is refused even when the attribute happens to be kept, so the author declares it or the transition copies it;
-- how a pair of types that reference each other is ordered, since defining every name before its use forbids the cycle; no trial module has one.
+- ~~how a pair of types that reference each other is ordered~~: *decided 2026-09-26*, the types of a module may reference each other in any order (ADR-0117).
 
 ## 4. Descriptions that can be validated
 

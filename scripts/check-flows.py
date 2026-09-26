@@ -71,7 +71,7 @@ NOT_A_TRANSITION = {"any"}
 NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "this_event"}
 # keys the text language has a form for on one kind of attribute only; elsewhere they would be dropped
 ONLY_ON_OBSERVATIONS = {"unit"}
-ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed"}
+ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "opposite", "stored", "aggregation", "cascade", "survives"}
 TYPE_ORDER = ["description", "tracking", "attributes", "observations", "states",
               "invariants", "conditions", "transitions", "metrics"]
 
@@ -262,18 +262,82 @@ def order_errors(doc):
             elif top is None or order.index(k) > order.index(top):
                 top = k
     in_order(list(doc), MODULE_ORDER, (), "")
-    declared = {n for names in (doc.get("imports") or {}).values() for n in names}
     for tn, t in types(doc):
         in_order(list(t), TYPE_ORDER, ("types", tn), f"in {tn}, ")
-        refs = [(("types", tn, "attributes", a), s["reference"]) for a, s in (t.get("attributes") or {}).items() if "reference" in s]
-        refs += [(("types", tn, "observations", o, "attributes", a), s["reference"])
-                 for o, ob in (t.get("observations") or {}).items() for a, s in ob["attributes"].items() if "reference" in s]
-        refs += [(("types", tn, "transitions", xn, "inputs", i), s["reference"].rstrip("[]"))
-                 for xn, x in (t.get("transitions") or {}).items() for i, s in (x.get("inputs") or {}).items() if "reference" in s]
-        for path, r in refs:
-            if r != tn and r not in declared and r in (doc.get("types") or {}):
-                out.append((path, "order", f"{tn} references {r}, which is declared after it; declare {r} first"))
-        declared.add(tn)
+    return out
+
+
+def references(t, tn):
+    """Every type a type's attributes, observations and inputs name, with its path."""
+    refs = [(("types", tn, "attributes", a), s["reference"].rstrip("[]")) for a, s in (t.get("attributes") or {}).items() if "reference" in s]
+    refs += [(("types", tn, "observations", o, "attributes", a), s["reference"].rstrip("[]"))
+             for o, ob in (t.get("observations") or {}).items() for a, s in ob["attributes"].items() if "reference" in s]
+    refs += [(("types", tn, "transitions", xn, "inputs", i), s["reference"].rstrip("[]"))
+             for xn, x in (t.get("transitions") or {}).items() for i, s in (x.get("inputs") or {}).items() if "reference" in s]
+    return refs
+
+
+def relationship_errors(doc, library):
+    """The ends of a relationship name each other; a composite end's parts point
+    back with a single, required end; a cascade names a transition of the part
+    with its inputs; and every final transition of a whole is covered by a
+    cascade or survived, never both (declaration-syntax.md §3.2, §3.3)."""
+    out = []
+    module = dict(types(doc))
+    imported = {n for names in (doc.get("imports") or {}).values() for n in names}
+    for tn, t in types(doc):
+        for path, r in references(t, tn):
+            if r not in module and r not in imported:
+                out.append((path, "names", f"{tn} references {r}, which is neither declared in this module nor imported"))
+        attrs = t.get("attributes") or {}
+        finals = {sn for sn, v in (t.get("states") or {}).items() if v.get("final")}
+        for an, spec in attrs.items():
+            here = ("types", tn, "attributes", an)
+            kind = spec.get("reference", "")
+            target, many = kind.rstrip("[]"), kind.endswith("[]")
+            if "opposite" in spec:
+                other = module.get(target)
+                if other is None:
+                    out.append((here + ("opposite",), "names", f"{tn}.{an} names an opposite end in {target}, which this module does not declare; both ends of a relationship are in one module"))
+                    continue
+                back = (other.get("attributes") or {}).get(spec["opposite"])
+                if back is None or back.get("reference", "").rstrip("[]") != tn or back.get("opposite") != an:
+                    out.append((here + ("opposite",), "names", f"{tn}.{an}'s opposite {target}.{spec['opposite']} does not name {tn}.{an} back"))
+                    continue
+                if spec.get("stored") and back.get("stored"):
+                    out.append((here + ("stored",), "names", f"{tn}.{an} and {target}.{spec['opposite']} are both marked stored; one end holds the value"))
+            if spec.get("aggregation") == "composite":
+                if "opposite" not in spec:
+                    out.append((here, "names", f"{tn}.{an} is composite and names no opposite: a part names its whole"))
+                    continue
+                part = module.get(target, {})
+                owner = (part.get("attributes") or {}).get(spec["opposite"], {})
+                if owner.get("reference", "").endswith("[]") or owner.get("optional"):
+                    out.append((here, "names", f"{target}.{spec['opposite']} MUST be single and required: a part of {tn}.{an} belongs to exactly one whole"))
+                covered, clauses = set(), spec.get("cascade") or []
+                for i, c in enumerate(clauses):
+                    where = here + ("cascade", i)
+                    for w in c["on"]:
+                        if w not in (t.get("transitions") or {}):
+                            out.append((where, "names", f"{tn}.{an} cascades on '{w}', which is not a transition of {tn}"))
+                    covered |= set(c["on"])
+                    called = (part.get("transitions") or {}).get(c["transition"])
+                    if called is None or called["kind"] == "initial":
+                        out.append((where, "names", f"{tn}.{an} cascades to {target}.{c['transition']}, which is not a transition of {target} that acts on a part"))
+                        continue
+                    given = set(c.get("inputs") or {})
+                    out += [(where, "names", f"{tn}.{an} passes '{i}' to {target}.{c['transition']}, which takes no input '{i}'") for i in sorted(given - taken(called))]
+                    out += [(where, "names", f"{tn}.{an} cascades to {target}.{c['transition']} without the input '{i}', which it requires")
+                            for i in sorted(required_input_names(called) - given) if "default" not in ((called.get("inputs") or {}).get(i) or {})]
+                survives = spec.get("survives")
+                kept = set(t.get("transitions") or {}) if survives is True else set(survives or [])
+                for w in sorted(covered & kept):
+                    out.append((here, "names", f"{tn}.{an} both cascades on and survives '{w}'"))
+                for xn, x in (t.get("transitions") or {}).items():
+                    if x.get("to") in finals and xn not in covered | kept:
+                        out.append((here, "names", f"{tn}.{xn} enters the final state {x['to']}, and {tn}.{an} neither cascades on it nor survives it"))
+            elif "cascade" in spec or "survives" in spec:
+                out.append((here, "names", f"{tn}.{an} has a cascade or survives, which only a composite end has"))
     return out
 
 
@@ -317,7 +381,7 @@ def reserved_name_errors(doc):
 def name_errors(doc, library=None):
     library = dict(library or {})
     library.update(dict(types(doc)))
-    out = order_errors(doc) + reserved_name_errors(doc)
+    out = order_errors(doc) + reserved_name_errors(doc) + relationship_errors(doc, library)
     for tn, t in types(doc):
         states = t.get("states") or {}
         attrs = t.get("attributes") or {}
@@ -365,6 +429,12 @@ def name_errors(doc, library=None):
                     out += create_errors(doc, library, where, tn, xn, st["create"])
                 if kind == "call":
                     out += call_errors(library, where, t, tn, xn, x, st["call"])
+            for v in x.get("only_via", []):
+                vt, vx = v.split(".")
+                if vt in library and vx not in (library[vt].get("transitions") or {}):
+                    out.append((base + ("only_via",), "names", f"{tn}.{xn} is only via {v}, which is not a transition of {vt}"))
+                elif vt not in library and vt not in {n for ns in (doc.get("imports") or {}).values() for n in ns}:
+                    out.append((base + ("only_via",), "names", f"{tn}.{xn} is only via {v}, and {vt} is neither declared in this module nor imported"))
             for i, spec in (x.get("inputs") or {}).items():
                 if i in set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])):
                     out.append((base + ("inputs", i), "names", f"{tn}.{xn} declares the input '{i}' and also takes the attribute '{i}' as an input"))
@@ -549,12 +619,31 @@ def notices(doc):
 
 
 # ── step 4: conversion to the text language ────────────────────────────────
-def attribute_line(name, spec, observation=False):
+def attribute_line(name, spec, observation=False, module=None):
     if "reference" in spec:
         t = spec["reference"] + ("?" if optional(spec) else "")
         if observation:
             return f"field {name} : {t}"
-        return f"ref {name} : {t}" + (" assignee" if spec.get("assignee") else "")
+        opp = spec.get("opposite")
+        inverse = f" inverse {opp}" if opp else ""
+        if spec.get("aggregation") == "composite":
+            lines = [f"part {name} : {t}{inverse}"]
+            one = lambda e: " ".join(e.split())
+            for c in spec.get("cascade") or []:
+                on = c["on"][0] if len(c["on"]) == 1 else "{ " + ", ".join(c["on"]) + " }"
+                args = ", ".join(f"{k} := {one(v)}" for k, v in (c.get("inputs") or {}).items())
+                lines.append(f"     cascade on {on} to {spec['reference'].rstrip('[]')}.{c['transition']}" + (f"({args})" if args else "") + f" limit {c['limit']}")
+            sv = spec.get("survives")
+            if sv is True:
+                lines.append("     survives")
+            elif sv:
+                lines.append("     survives on { " + ", ".join(sv) + " }")
+            return "\n  ".join(lines)
+        other = (module or {}).get(spec["reference"].rstrip("[]"), {})
+        if opp and ((other.get("attributes") or {}).get(opp) or {}).get("aggregation") == "composite":
+            return f"owner {name} : {spec['reference']}{inverse}"
+        return (f"ref {name} : {t}{inverse}" + (" stored" if spec.get("stored") else "")
+                + (" assignee" if spec.get("assignee") else ""))
     t = spec["type"] + ("?" if optional(spec) else "")
     if observation:
         return (f"field {name} : {t}" + (f' unit "{spec["unit"]}"' if spec.get("unit") else "")
@@ -588,7 +677,8 @@ def to_text(doc):
         for sn, v in t["states"].items():
             emit(f"  state {sn} category {v['category']}" + (" terminal" if v.get("final") else ""), T + ("states", sn))
         for an, spec in (t.get("attributes") or {}).items():
-            emit("  " + attribute_line(an, spec), T + ("attributes", an))
+            for line in attribute_line(an, spec, module=dict(types(doc))).split("\n"):
+                emit(("  " + line) if not line.startswith("  ") else line, T + ("attributes", an))
         for sn, v in t["states"].items():
             req = v.get("required_attributes") or []
             if req:
@@ -604,6 +694,8 @@ def to_text(doc):
             where = src[0] if len(src) == 1 else "{ " + ", ".join(src) + " }"
             head = {"initial": f"create {xn} -> {x.get('to')}", "external": f"do {xn} {where} -> {x.get('to')}",
                     "internal": f"act {xn} at {where}"}[x["kind"]]
+            if x.get("only_via"):
+                head += " only via " + ", ".join(x["only_via"])
             accepts = x.get("required_inputs", []) + x.get("optional_inputs", [])
             if accepts:
                 head += " accepts " + ", ".join(accepts)
@@ -785,6 +877,12 @@ def self_test(people, service, inventory, delivery):
          plant(delivery, "transition: deliver_externally, inputs", "transition: deliver_outside, inputs")),
         ("a create without an input its transition requires", "names", "delivery.yaml",
          plant(delivery, "inputs: { delivery: this, label: label } }", "inputs: { delivery: this } }")),
+        ("a final transition of a whole that its parts neither cascade on nor survive", "names", "delivery.yaml",
+         plant(delivery, "        survives: [complete]\n", "")),
+        ("a relationship end whose opposite does not name it back", "names", "delivery.yaml",
+         plant(delivery, "delivery: { reference: Delivery, opposite: checklist_items }", "delivery: { reference: Delivery, opposite: items }")),
+        ("an only_via that names a missing transition", "names", "delivery.yaml",
+         plant(delivery, "only_via: [Delivery.cancel]", "only_via: [Delivery.abort]")),
         ("a condition that reads who is asking", "check 64", "service.yaml",
          plant(plant(service, "          no_unresolved_failure: deny\n",
                      "          no_unresolved_failure: deny\n          assigned_engineer_only: deny\n"), *reads_actor)),
