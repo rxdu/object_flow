@@ -4,12 +4,23 @@ module: delivery
 imports: { inventory: [InventoryItem] }
 categories: [live, closed]
 
+sequences:
+  delivery_number:
+    description: Numbers deliveries, in one series.
+  checklist_position:
+    description: Numbers the items of each delivery's checklist, a series per delivery.
+
 types:
   Delivery:
     description: The delivery of one reserved inventory item to the customer it is reserved for.
     tracking: record
 
     attributes:
+      number:
+        type: string
+        identifier: { sequence: delivery_number, format: "DLV-{n:6}" }
+        unique: true
+        description: The delivery's number, minted when it is opened.
       unit:         { reference: InventoryItem }
       price:        { type: money(SGD) }
       delivered_at: { type: timestamp, optional: true }
@@ -101,6 +112,11 @@ types:
     attributes:
       delivery: { reference: Delivery, opposite: checklist_items }
       label:    { type: string }
+      position:
+        type: string
+        identifier: { sequence: checklist_position, scope: delivery, format: "{delivery.number}-{n:2}" }
+        unique: in_scope
+        description: The item's place on its delivery's checklist, such as DLV-000123-01.
 
     states:
       OPEN:      { category: live }

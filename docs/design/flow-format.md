@@ -36,7 +36,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 (step 2, `schema`)
 
 1. A name MUST be unique among the names of its section. A repeated key is refused by step 1.
-2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations`, `machines` and `types`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a type declares, in this order, `description`, `tracking`, `state_machine`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used. (step 3, `order`)
+2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines` and `types`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a type declares, in this order, `description`, `tracking`, `state_machine`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used. (step 3, `order`)
 3. Reserved words of the text language MAY be used as names, as `declaration-syntax.md` §9.2 allows, with these exceptions (step 3, `names`):
    - a category MUST NOT be named `any`, `terminal` or `superseding`, and a transition MUST NOT be named `any` (the text language's check 33);
    - an attribute, including an observation's, MUST NOT be named `state`, `inputs`, `actor`, `this`, `now`, `referrers` or `this_event`, since an expression resolves those words before any attribute;
@@ -52,6 +52,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 | `imports` | no | a mapping from another module's name to the list of its types this module uses |
 | `categories` | yes | the list of state categories the module's states use; `closed` has the meaning `declaration-syntax.md` §1 gives it |
 | `enumerations` | no | a mapping from an enumeration's name to its list of values |
+| `sequences` | no | a mapping from a sequence's name to its `description` (§4.12) |
 | `machines` | no | a mapping from a shared state machine's name to its declaration (§4.10) |
 | `types` | yes | a mapping from a type's name to its declaration (§4.2) |
 
@@ -84,14 +85,15 @@ Each attribute is a mapping with exactly one of `type` and `reference`. (step 2,
 | `aggregation` | `composite` on a whole's end: the referenced objects are its parts (UML `AggregationKind::composite`) |
 | `cascade`, `survives` | on a composite end: what its parts do when the whole takes a transition (below) |
 | `optional` | `true` if the attribute may be without a value; otherwise it always has one |
-| `unique` | `true` if no two objects of the type may hold the same value |
+| `identifier` | the value is minted from a sequence when the object is created (§4.12) |
+| `unique` | `true` if no two objects of the type may hold the same value; `in_scope`, `with` and `where` restrict it (§4.12) |
 | `indexed`, `personal` | as `declaration-syntax.md` §3.1 defines them |
 | `actor_kind` | `human`, `agent` or `service`, on the `identity` attribute of a type whose objects make requests |
 | `assignee` | `true` on a reference that names who is responsible for the object |
 | `unit` | the unit of a measured value |
 | `description` | one sentence, where the name alone does not say what the attribute holds |
 
-`unit` applies only to an observation's attribute, and `unique`, `indexed`, `actor_kind`, `assignee`, `opposite`, `stored`, `aggregation`, `cascade` and `survives` only to a type's attribute, since the model has no form for them elsewhere. (step 3, `names`)
+`unit` applies only to an observation's attribute, and `unique`, `indexed`, `identifier`, `actor_kind`, `assignee`, `opposite`, `stored`, `aggregation`, `cascade` and `survives` only to a type's attribute, since the model has no form for them elsewhere. (step 3, `names`)
 
 **Relationships.** Both ends of a relationship are declared, each on its own type, so that a type reads completely on its own, and each names the other with `opposite`; the two ends MUST name each other and be in one module (step 3, `names`). Exactly one end stores the value, as `declaration-syntax.md` §3.3 fixes: of a single end and a set end, the single one; of two single ends, the one marked `stored`; two set ends cannot store a pair, which is then a type of its own with a reference to each side (step 4, `check 41`). An end with no `opposite` is a reference with no named way back, and MUST be single.
 
@@ -229,11 +231,49 @@ An **indexed** derived attribute reads only what the store holds on the object i
 
 A derived attribute is declared in a section of its own rather than among the attributes, where UML lists it, because its expression reads the type's states, which are declared after the attributes; a `derive:` key on an attribute would read a name defined further down (§3).
 
+### 4.12 Sequences and identifiers
+
+A **sequence** is a named counter that mints identifiers, SQL's `CREATE SEQUENCE` and the model's `sequence` (`declaration-syntax.md` §1). A module declares its sequences under `sequences`, each with a `description`, and a type's attribute takes its value from one with `identifier`, when the object is created (`declaration-syntax.md` §3.1):
+
+| Key | Required | Value |
+|---|---|---|
+| `sequence` | yes | a sequence the module declares or imports (step 3, `names`) |
+| `scope` | no | a reference, or an `indexed` attribute, of the type; the sequence numbers each of its values separately |
+| `format` | yes | the text minted, with placeholders |
+
+```yaml
+number:
+  type: string
+  identifier: { sequence: delivery_number, format: "DLV-{n:6}" }
+  unique: true
+```
+
+An identifier is minted during the creation, after the creation's writes and before its effect's other steps, so a creation need not write it, and a state may require it (the model's check 8 counts the mint as a write). Its value is text, so its attribute's `type` MUST be `string` (step 3, `names`). A `scope` MUST be a single reference, or an attribute marked `indexed`, that every creation of the type writes: a required input of every initial transition, or an attribute each assigns a value that is provably present (step 3, `names`; the model's check 44).
+
+A `format` holds literal text and these placeholders, and MUST contain `{n}` or `{n:<width>}` (step 3, `names`):
+
+- `{n}`, the number; `{n:<width>}`, the number padded with zeros to at least that many digits;
+- `{<attribute>}`, a `string` or enumeration attribute of the object, an enumeration giving its value's name; `{<reference>.<attribute>}`, one of the object a single reference names, and never further (step 3, `names`);
+- `[ … ]`, a segment left out whole when a value inside it is absent.
+
+Each attribute or reference a placeholder reads MUST be written by every creation, as a scope must, and an optional attribute MAY be read only inside `[ … ]` (step 3, `names`; the model's check 44). So `format: "{delivery.number}-{n:2}"` numbers a delivery's checklist items `DLV-000123-01`, `DLV-000123-02` and so on, one series for each delivery.
+
+**Uniqueness.** `unique` takes one of four forms, each the model's sugar for an invariant (`declaration-syntax.md` §3.1):
+
+| Form | No two objects hold the same value |
+|---|---|
+| `unique: true` | across the type |
+| `unique: in_scope` | within one value of the identifier's `scope`, which the attribute MUST have (step 3, `names`) |
+| `unique: { with: [a, …] }` | together with the attributes listed, which the type MUST declare (step 3, `names`) |
+| `unique: { where: <expression> }` | among the objects for which the expression holds; it reads what an invariant may, and neither `inputs` nor `this_event` (step 3, `names`) |
+
+An identifier implies none of them, since a scoped sequence repeats its numbers across scopes.
+
 ## 5. Expressions
 
 An `expression` is written in the expression language of `declaration-syntax.md` §8, which this format does not change. Within it:
 - an attribute of the object is read by its name, and a value the caller supplies is read as `inputs.<attribute>`;
-- every name an expression reads at the start of a path MUST be declared where the expression is evaluated: for a type, one of its attributes, observation kinds or derived attributes (§4.11); for a machine, an attribute it requires (§4.10); for an observation kind's invariant, one of that kind's fields; and in an effect, also the name a `foreach` or `create` step binds. The names an aggregate binds, `count(l in lines where …)`, are declared by it (step 3, `names`);
+- every name an expression reads at the start of a path MUST be declared where the expression is evaluated: for a type, one of its attributes, observation kinds or derived attributes (§4.11); for a machine, an attribute it requires (§4.10); for an observation kind's invariant, one of that kind's fields; and in an effect, also the name a `foreach` or `create` step binds. A derived attribute and a uniqueness condition are evaluated outside any request, and read neither `inputs` nor `this_event`. The names an aggregate binds, `count(l in lines where …)`, are declared by it (step 3, `names`);
 - `state` is the object's current state, and `now` is the time of the request;
 - an enumeration value and a state of another type are written qualified, `<Enumeration>.<VALUE>` and `<Type>.<STATE>`; a value of an enumeration or of a type the module declares MUST exist, and a bare upper-case name MUST be a state of the type (step 3, `names`);
 - absence is tested with `is null` and `is not null`; a comparison with an absent value is unknown, and a guard that is unknown refuses (`declaration-syntax.md` §8.2);
@@ -265,6 +305,9 @@ Each form converts to the text language as follows, and means what that declarat
 | `machines: { M: { requires: …, states: …, transitions: … } }` | `machine M version 1 { requires attr …; state …; … }` |
 | `state_machine: M` on a type | `machine M` in the type, with only the type's own transitions |
 | `derived_attributes: { d: { expression: e, indexed: true } }` | `derive d = e indexed` |
+| `sequences: { s: … }` | `sequence s version 1` |
+| `identifier: { sequence: s, scope: r, format: f }` | `identifier from s scoped by r format "f"` |
+| `unique: in_scope`, `unique: { with: [a, b] }`, `unique: { where: e }` | `unique in scope`, `unique with a, b`, `unique where e` |
 | `only_via: [W.t]` | `only via W.t` in the transition's head |
 | `reference: T, opposite: e` (and `stored: true`) | `ref <name> : T inverse e` (`stored`) |
 | `reference: "T[]", aggregation: composite, opposite: e` | `part <name> : T[] inverse e` |
@@ -284,7 +327,7 @@ A description is checked in four steps, and each stops the check if it finds any
 | 1. strict loading | `yaml` | a file YAML cannot parse, including a `?` unquoted inside an inline collection, or a key repeated in a mapping |
 | 2. structure | `schema` | a missing or unknown key, a value of the wrong form, a name in the wrong case, a transition kind without the `from` and `to` it requires, a metric without the `state` or `transition` its measure requires |
 | 3. names and order | `order` | sections out of order, a derived attribute that reads itself or one declared after it |
-| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
+| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
@@ -343,9 +386,9 @@ These are open in `authoring-flows.md` §3 and §7, and an answer would change t
 
 These words are reserved by the format. `scripts/check-flow-format-doc.py` holds this list equal to the keys and values `flow.schema.json` and the checker define.
 
-**Keys:** `module`, `imports`, `categories`, `enumerations`, `machines`, `requires`, `state_machine`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `optional`, `unique`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `state`, `transition`, `group_by`, `flag_when`.
+**Keys:** `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines`, `requires`, `state_machine`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `optional`, `identifier`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `state`, `transition`, `group_by`, `flag_when`.
 
-**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `composite`, `month`, `week`, `actor`.
+**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `composite`, `in_scope`, `month`, `week`, `actor`.
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
 
@@ -405,7 +448,7 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | Part of the model | `declaration-syntax.md` | This format |
 |---|---|---|
 | module, imports, categories, enumerations | §1 | written (§4.1) |
-| sequences and identifiers minted from them | §1, §3.1 | not yet |
+| sequences and identifiers minted from them | §1, §3.1 | written (§4.12) |
 | external evaluators | §1, §6.2 | not yet |
 | a type, its tracking mode and description | §2 | written (§4.2) |
 | abstract types, families and `extends` | §2 | not yet |
@@ -413,7 +456,8 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | mirror types and external identifiers | §2 | not yet |
 | states, categories and final states | §2.1 | written (§4.5) |
 | attributes: type, optional, unique, indexed, personal | §3.1 | written (§4.3) |
-| attributes: counters, defaults, scoped and compound uniqueness | §3.1, §7 | not yet |
+| attributes: scoped, compound and partial uniqueness | §3.1 | written (§4.12) |
+| attributes: counters and defaults | §3.1, §7 | not yet |
 | references, including an assignee | §3.2, §6.10 | written (§4.3) |
 | parts, composition, inverse ends and cascades | §3.2, §3.3 | written (§4.3) |
 | invariants over one object | §3.4 | written (§4.6, §4.5) |

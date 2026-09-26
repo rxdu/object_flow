@@ -63,7 +63,7 @@ FORMAT = ROOT / "docs/design/flow-format"
 EXAMPLES = FORMAT / "examples"
 CHECKER = ROOT / "scripts/check-syntax-doc.py"
 
-MODULE_ORDER = ["module", "imports", "categories", "enumerations", "machines", "types"]
+MODULE_ORDER = ["module", "imports", "categories", "enumerations", "sequences", "machines", "types"]
 MACHINE_ORDER = ["description", "requires", "states", "conditions", "transitions"]
 # names the text language gives a meaning in the same position (declaration-syntax.md §9.2, check 33)
 NOT_A_CATEGORY = {"any", "terminal", "superseding"}
@@ -72,7 +72,8 @@ NOT_A_TRANSITION = {"any"}
 NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "this_event"}
 # keys the text language has a form for on one kind of attribute only; elsewhere they would be dropped
 ONLY_ON_OBSERVATIONS = {"unit"}
-ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "opposite", "stored", "aggregation", "cascade", "survives"}
+ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "opposite", "stored", "aggregation", "cascade",
+                 "survives"}
 TYPE_ORDER = ["description", "tracking", "state_machine", "attributes", "observations", "states",
               "derived_attributes", "invariants", "conditions", "transitions", "metrics"]
 
@@ -277,6 +278,9 @@ def schema_errors(doc):
         elif e.validator == "oneOf" and isinstance(e.instance, dict) and "tracking" in e.instance and "description" in e.instance:
             out.append((tuple(e.absolute_path), "schema",
                         "a type either declares its own states and transitions or binds a state_machine, and never both"))
+        elif e.validator == "oneOf" and e.absolute_path and e.absolute_path[-1] == "unique":
+            out.append((tuple(e.absolute_path), "schema",
+                        "unique is true, in_scope, { with: [<attribute>, …] } or { where: <expression> }, one of them"))
         elif e.validator == "oneOf" and isinstance(e.instance, dict) and "measure" in e.instance:
             out.append((tuple(e.absolute_path), "schema",
                         "a median_time_in_state metric names a `state`, and a transition_count names a `transition`"))
@@ -491,6 +495,7 @@ def name_errors(doc, library=None, ordered=True):
         conds = set(t.get("conditions") or {})
         required = {s: set((v or {}).get("required_attributes", [])) for s, v in states.items()}
         always = {a for a, s in attrs.items() if not optional(s)}
+        minted = {a for a, s in attrs.items() if s.get("identifier")}
         used = set()
         for s, v in states.items():
             if v["category"] not in (doc.get("categories") or []):
@@ -565,11 +570,11 @@ def name_errors(doc, library=None, ordered=True):
             written = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | {loc for _e, loc in assigns(x)}
             for a in sorted(written & set(cleared(x))):
                 out.append((base + ("effect",), "names", f"{tn}.{xn} both writes and clears '{a}'"))
-            out += required_errors(tn, xn, x, required, always)
+            out += required_errors(tn, xn, x, required, always | minted)
         for c in sorted(conds - used):
             out.append((("types", tn, "conditions", c), "names", f"condition '{c}' of {tn} is used by no transition"))
         out += value_errors(doc, tn, t)
-        out += read_errors(tn, t) + indexed_errors(tn, t, library)
+        out += read_errors(tn, t) + indexed_errors(tn, t, library) + identifier_errors(doc, tn, t, library)
         for mn, m in (t.get("metrics") or {}).items():
             out += metric_errors(tn, t, mn, m)
     return out
@@ -669,6 +674,8 @@ def value_errors(doc, tn, t):
     own = {k: set(v.get("states") or {}) for k, v in types(doc)}
     exprs = [(("types", tn, sec, n, "expression"), n, c["expression"])
              for sec in ("conditions", "invariants", "derived_attributes") for n, c in (t.get(sec) or {}).items()]
+    exprs += [(("types", tn, "attributes", a, "unique", "where"), a, spec["unique"]["where"])
+              for a, spec in (t.get("attributes") or {}).items() if isinstance(spec.get("unique"), dict) and "where" in spec["unique"]]
     exprs += [(("types", tn, "transitions", xn, "effect") + path, xn, e) for xn, x in (t.get("transitions") or {}).items()
               for st, kind, path, _d in walk(x.get("effect")) for e in step_expressions(st, kind)]
     exprs += [(("types", tn, "observations", o, "invariants", n, "expression"), n, i["expression"])
@@ -696,6 +703,8 @@ FLOW_DATA = {"intervals", "transitions", "labels"}
 # the kinds of actor, a fixed enumeration expressions write bare (declaration-syntax.md §8.1)
 ACTOR_KINDS = set(json.loads((FORMAT / "flow.schema.json").read_text())
                   ["definitions"]["attribute"]["properties"]["actor_kind"]["enum"])
+# what exists only while a request is being made: not readable by a derivation or a uniqueness condition
+REQUEST_ONLY = {"inputs", "this_event"}
 OBSERVATION_MEMBERS = {"now", "subject", "corrects", "occurred_at", "recorded_at", "recorded_by_kind",
                        "declaration_version"}
 
@@ -729,6 +738,8 @@ def read_errors(tn, t):
     members = stored | set(derived) | NOT_AN_ATTRIBUTE
     exprs = [(("types", tn, sec, n, "expression"), n, c["expression"], members)
              for sec in ("conditions", "invariants") for n, c in (t.get(sec) or {}).items()]
+    exprs += [(("types", tn, "attributes", a, "unique", "where"), f"{tn}.{a}'s uniqueness condition", spec["unique"]["where"], members - REQUEST_ONLY)
+              for a, spec in (t.get("attributes") or {}).items() if isinstance(spec.get("unique"), dict) and "where" in spec["unique"]]
     out = []
     for i, d in enumerate(derived):
         path = ("types", tn, "derived_attributes", d, "expression")
@@ -736,9 +747,7 @@ def read_errors(tn, t):
         for r in sorted(read & set(derived[i:])):
             out.append((path, "order", f"derived attribute '{d}' reads itself" if r == d else
                         f"derived attribute '{d}' reads '{r}', which is declared after it; a derived attribute reads only those above it"))
-        for r in sorted(read & {"inputs", "this_event"}):
-            out.append((path, "names", f"derived attribute '{d}' reads '{r}', which only a transition has"))
-        exprs.append((path, d, t["derived_attributes"][d]["expression"], members | set(derived[i:])))
+        exprs.append((path, f"derived attribute '{d}'", t["derived_attributes"][d]["expression"], (members - REQUEST_ONLY) | set(derived[i:])))
     for xn, x in (t.get("transitions") or {}).items():
         walked = list(walk(x.get("effect")))
         binds = {st["foreach"]["item"] for st, kind, _p, _d in walked if kind == "foreach"}
@@ -749,9 +758,9 @@ def read_errors(tn, t):
         fields = set(ob.get("attributes") or {}) | OBSERVATION_MEMBERS
         exprs += [(("types", tn, "observations", o, "invariants", n, "expression"), n, i["expression"], fields)
                   for n, i in (ob.get("invariants") or {}).items()]
-    return out + [(path, "names", f"{name} reads '{r}', which {tn} does not declare"
-                                  if "observations" not in path else
-                                  f"{name} reads '{r}', which is not a field of the observation {path[3]}")
+    return out + [(path, "names", f"{name} reads '{r}', which only a transition has" if r in REQUEST_ONLY else
+                                  f"{name} reads '{r}', which is not a field of the observation {path[3]}" if "observations" in path else
+                                  f"{name} reads '{r}', which {tn} does not declare")
                   for path, name, text, scope in exprs for r in sorted(reads(text) - scope)]
 
 
@@ -790,6 +799,114 @@ def indexed_errors(tn, t, library):
         if re.search(r"\b(?:time_in|entered_at)\(|\bthis\.(?:intervals|transitions)\b", text):
             why.append("reads the object's flow data")
         out += [(("types", tn, "derived_attributes", d, "indexed"), "names", f"derived attribute '{d}' is indexed and {w}") for w in why]
+    return out
+
+
+BUILT_IN_TYPES = ("string", "bool", "int", "decimal", "money", "timestamp", "duration", "identity", "file", "event")
+
+
+def is_text(spec):
+    """A string, or an enumeration, which a format fills with its member's name."""
+    kind = re.match(r"[A-Za-z_]+", str(spec.get("type", ""))).group(0) if spec.get("type") else ""
+    return not str(spec.get("type", "")).endswith("[]") and (kind == "string" or (kind[:1].isupper() and kind not in BUILT_IN_TYPES))
+
+
+def creation_writes(t):
+    """What every creation of the type writes, the set the model's check 8 uses:
+    its required inputs, and the attributes it assigns a provably present value."""
+    sets = []
+    for x in (t.get("transitions") or {}).values():
+        if x["kind"] == "initial":
+            req = set(x.get("required_inputs", []))
+            sets.append(req | {loc for e, loc in assigns(x) if present(e, req, required_input_names(x))})
+    return set.intersection(*sets) if sets else set()
+
+
+def identifier_errors(doc, tn, t, library):
+    """A minted identifier and the uniqueness forms (the model's check 44)."""
+    attrs = t.get("attributes") or {}
+    imported = {n for names in (doc.get("imports") or {}).values() for n in names}
+    written = creation_writes(t)
+    out = []
+    for a, spec in attrs.items():
+        here = ("types", tn, "attributes", a)
+        u = spec.get("unique")
+        ident = spec.get("identifier")
+        if isinstance(u, dict):
+            for w in u.get("with", []):
+                if w not in attrs:
+                    out.append((here + ("unique",), "names", f"{tn}.{a} is unique with '{w}', which {tn} does not declare"))
+        if u == "in_scope" and not (ident or {}).get("scope"):
+            out.append((here + ("unique",), "names", f"{tn}.{a} is unique in scope, and has no identifier with a scope"))
+        if not ident:
+            continue
+        where = here + ("identifier",)
+        if spec.get("type") != "string":
+            out.append((where, "names", f"{tn}.{a} has an identifier, which is minted as text, so its type is string"))
+        if ident["sequence"] not in (doc.get("sequences") or {}) and ident["sequence"] not in imported:
+            out.append((where + ("sequence",), "names", f"{tn}.{a} is minted from {ident['sequence']}, which is neither a sequence of this module nor imported"))
+        sc = ident.get("scope")
+        if sc is not None:
+            ss = attrs.get(sc)
+            if ss is None:
+                out.append((where + ("scope",), "names", f"{tn}.{a} is scoped by '{sc}', which {tn} does not declare"))
+            elif str(ss.get("reference", ss.get("type", ""))).endswith("[]"):
+                out.append((where + ("scope",), "names", f"{tn}.{a} is scoped by '{sc}', a set; a scope is one value"))
+            elif "reference" not in ss and not ss.get("indexed"):
+                out.append((where + ("scope",), "names", f"{tn}.{a} is scoped by '{sc}', which is not indexed"))
+            elif sc not in written:
+                out.append((where + ("scope",), "names", f"{tn}.{a} is scoped by '{sc}', which not every creation of {tn} writes"))
+        fmt = ident["format"]
+        depth, numbered = 0, False
+        for m in re.finditer(r"\[|\]|\{([^{}]*)\}", fmt):
+            if m.group(0) == "[":
+                depth += 1
+                continue
+            if m.group(0) == "]":
+                if depth == 0:
+                    out.append((where + ("format",), "names", f"{tn}.{a}'s format closes a ] it did not open"))
+                depth = max(0, depth - 1)
+                continue
+            ph = m.group(1)
+            if re.fullmatch(r"n(:.*)?", ph):
+                numbered = True
+                if not re.fullmatch(r"n(:\d+)?", ph):
+                    out.append((where + ("format",), "names", f"{tn}.{a}'s format has {{{ph}}}, whose width is not a number of digits"))
+                continue
+            hops = ph.split(".")
+            if not all(re.fullmatch(r"[a-z][a-z0-9_]*", h) for h in hops):
+                out.append((where + ("format",), "names", f"{tn}.{a}'s format has {{{ph}}}, which is not {{n}}, {{n:<width>}}, {{<attribute>}} or {{<reference>.<attribute>}}"))
+                continue
+            if len(hops) > 2:
+                out.append((where + ("format",), "names", f"{tn}.{a}'s format reads {ph}, more than one reference away; a placeholder reaches one hop"))
+                continue
+            first = attrs.get(hops[0])
+            if first is None:
+                out.append((where + ("format",), "names", f"{tn}.{a}'s format reads '{hops[0]}', which {tn} does not declare"))
+                continue
+            if len(hops) == 2 and ("reference" not in first or first["reference"].endswith("[]")):
+                out.append((where + ("format",), "names", f"{tn}.{a}'s format reads through '{hops[0]}', which is not a single reference"))
+                continue
+            if hops[0] not in written:
+                out.append((where + ("format",), "names", f"{tn}.{a}'s format reads '{hops[0]}', which not every creation of {tn} writes before the mint"))
+                continue
+            target = first
+            if len(hops) == 2:
+                other = library.get(first["reference"])
+                if other is None:
+                    continue
+                target = (other.get("attributes") or {}).get(hops[1])
+                if target is None:
+                    out.append((where + ("format",), "names", f"{tn}.{a}'s format reads {ph}, and {first['reference']} has no attribute '{hops[1]}'"))
+                    continue
+            if not is_text(target):
+                out.append((where + ("format",), "names", f"{tn}.{a}'s format reads {ph}, which is not a string or an enumeration"))
+            elif optional(target) and depth == 0:
+                out.append((where + ("format",), "names", f"{tn}.{a}'s format reads {ph}, which is optional, outside [ … ]; a segment that may be absent goes in brackets"))
+        if depth:
+            out.append((where + ("format",), "names", f"{tn}.{a}'s format leaves a [ open"))
+        if not numbered:
+            out.append((where + ("format",), "names", f"{tn}.{a}'s format has no {{n}} or {{n:<width>}}, so it would mint one value only"))
     return out
 
 
@@ -860,8 +977,21 @@ def attribute_line(name, spec, observation=False, module=None):
     if observation:
         return (f"field {name} : {t}" + (f' unit "{spec["unit"]}"' if spec.get("unit") else "")
                 + (" personal" if spec.get("personal") else ""))
-    marks = ([f"actor {spec['actor_kind']}"] if spec.get("actor_kind") else []) + \
-            [m for m in ("unique", "indexed", "personal") if spec.get(m)]
+    marks = [f"actor {spec['actor_kind']}"] if spec.get("actor_kind") else []
+    ident = spec.get("identifier")
+    if ident:
+        marks.append(f"identifier from {ident['sequence']}" + (f" scoped by {ident['scope']}" if ident.get("scope") else "")
+                     + f' format "{ident["format"]}"')
+    marks += [m for m in ("indexed", "personal") if spec.get(m)]
+    u = spec.get("unique")
+    if u is True:
+        marks.append("unique")
+    elif u == "in_scope":
+        marks.append("unique in scope")
+    elif isinstance(u, dict) and "with" in u:
+        marks.append("unique with " + ", ".join(u["with"]))
+    elif isinstance(u, dict) and "where" in u:
+        marks.append("unique where " + " ".join(u["where"].split()))
     return f"attr {name} {t}" + "".join(" " + m for m in marks)
 
 
@@ -914,6 +1044,9 @@ def to_text(doc):
     emit(f"category {', '.join(doc['categories'])}", ("categories",))
     for en, members in (doc.get("enumerations") or {}).items():
         emit(f"enum {en} version 1 {{ {', '.join(members)} }}", ("enumerations", en))
+    for sq, spec in (doc.get("sequences") or {}).items():
+        emit(f"# {spec['description']}", ("sequences", sq))
+        emit(f"sequence {sq} version 1", ("sequences", sq))
     tail = []
     machines = doc.get("machines") or {}
     for mn, m in machines.items():
@@ -1146,6 +1279,19 @@ def self_test(people, service, inventory, delivery, approvals):
          plant(service, "        expression: signed_off_by_user is not null\n", "        expression: photo is not null\n")),
         ("an indexed derived attribute that reads the clock", "names", "service.yaml",
          plant(service, "        expression: signed_off_by_user is not null\n", "        expression: engineer is not null and now > now\n")),
+        ("an identifier minted from a sequence nobody declares", "names", "delivery.yaml",
+         plant(delivery, "sequence: delivery_number, format", "sequence: delivery_serial, format")),
+        ("an identifier scoped by what not every creation writes", "names", "delivery.yaml",
+         plant(delivery, "sequence: delivery_number, format", "sequence: delivery_number, scope: courier, format")),
+        ("an identifier whose format has no number", "names", "delivery.yaml",
+         plant(delivery, 'format: "DLV-{n:6}"', 'format: "DLV"')),
+        ("an identifier whose format reads an optional attribute outside brackets", "names", "delivery.yaml",
+         plant(plant(delivery, "      label:    { type: string }\n", "      label:    { type: string, optional: true }\n"),
+               'format: "{delivery.number}-{n:2}"', 'format: "{label}-{n:2}"')),
+        ("a uniqueness in scope on an attribute with no scope", "names", "delivery.yaml",
+         plant(delivery, "        unique: true\n", "        unique: in_scope\n")),
+        ("a uniqueness that is none of its four forms", "schema", "delivery.yaml",
+         plant(delivery, "        unique: true\n", "        unique: global\n")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",
