@@ -74,7 +74,7 @@ NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "thi
 ONLY_ON_OBSERVATIONS = {"unit"}
 ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "opposite", "stored", "aggregation", "cascade", "survives"}
 TYPE_ORDER = ["description", "tracking", "state_machine", "attributes", "observations", "states",
-              "invariants", "conditions", "transitions", "metrics"]
+              "derived_attributes", "invariants", "conditions", "transitions", "metrics"]
 
 
 class StrictLoader(yaml.SafeLoader):
@@ -256,11 +256,6 @@ def step_expressions(st, kind):
     if kind == "foreach":
         return [body[k] for k in ("array", "range", "where") if k in body]
     return []
-
-
-def copies(x):
-    """The assigns whose expression is a bare attribute name: the value is that attribute's."""
-    return [(e, loc) for e, loc in assigns(x) if NAME.fullmatch(e) and e not in NOT_AN_ATTRIBUTE]
 
 
 def cleared(x):
@@ -454,6 +449,12 @@ def reserved_name_errors(doc):
         owned = [(("types", tn, "attributes", a), a) for a in attrs]
         owned += [(("types", tn, "observations", o, "attributes", a), a)
                   for o, ob in (t.get("observations") or {}).items() for a in ob["attributes"]]
+        owned += [(("types", tn, "derived_attributes", d), d) for d in (t.get("derived_attributes") or {})]
+        members = set(attrs) | set(t.get("observations") or {})
+        for d in (t.get("derived_attributes") or {}):
+            if d in members:
+                out.append((("types", tn, "derived_attributes", d), "names",
+                            f"'{d}' names both a derived attribute and another member of {tn}; a member has one name"))
         for path, a in owned:
             if a in NOT_AN_ATTRIBUTE:
                 out.append((path, "names", f"'{a}' cannot name an attribute: in an expression it means something else first"))
@@ -486,6 +487,7 @@ def name_errors(doc, library=None, ordered=True):
     for tn, t in types(doc):
         states = t.get("states") or {}
         attrs = t.get("attributes") or {}
+        derived = set(t.get("derived_attributes") or {})
         conds = set(t.get("conditions") or {})
         required = {s: set((v or {}).get("required_attributes", [])) for s, v in states.items()}
         always = {a for a, s in attrs.items() if not optional(s)}
@@ -495,7 +497,10 @@ def name_errors(doc, library=None, ordered=True):
                 out.append((("types", tn, "states", s, "category"), "names",
                             f"state {s} has the category '{v['category']}', which the module does not declare in categories"))
             for a in (v or {}).get("required_attributes", []):
-                if a not in attrs:
+                if a in derived:
+                    out.append((("types", tn, "states", s, "required_attributes"), "names",
+                                f"state {s} requires the derived attribute '{a}'; a state requires stored attributes, and an invariant may read a derived one"))
+                elif a not in attrs:
                     out.append((("types", tn, "states", s, "required_attributes"), "names",
                                 f"state {s} requires the attribute '{a}', which {tn} does not declare"))
         for xn, x in (t.get("transitions") or {}).items():
@@ -518,13 +523,15 @@ def name_errors(doc, library=None, ordered=True):
                 for e in step_expressions(st, kind):
                     for i in sorted(set(INPUT_READ.findall(e)) - taken(x)):
                         out.append((where, "names", f"{tn}.{xn}'s effect reads inputs.{i}, and {xn} takes no input '{i}'"))
-                if kind in ("assign", "add", "remove") and st[kind]["location"] not in attrs:
+                if kind in ("assign", "add", "remove") and st[kind]["location"] in derived:
+                    out.append((where, "names", f"{tn}.{xn} writes '{st[kind]['location']}', a derived attribute, whose value is its expression"))
+                elif kind in ("assign", "add", "remove") and st[kind]["location"] not in attrs:
                     out.append((where, "names", f"{tn}.{xn} writes '{st[kind]['location']}', which {tn} does not declare"))
                 if kind in ("add", "remove") and st[kind]["location"] in attrs and not str(attrs[st[kind]["location"]].get("type", "")).endswith("[]"):
                     out.append((where, "names", f"{tn}.{xn} {kind}s to '{st[kind]['location']}', which is not a set"))
                 if kind == "clear" and path[-1:] != () and len(path) > 1:
                     for a in st["clear"]:
-                        if a not in attrs:
+                        if a not in attrs and a not in derived:
                             out.append((where, "names", f"{tn}.{xn} clears '{a}', which {tn} does not declare"))
                 if kind == "create":
                     out += create_errors(doc, library, where, tn, xn, st["create"])
@@ -543,9 +550,11 @@ def name_errors(doc, library=None, ordered=True):
                 if kind.endswith("[]") and spec.get("optional"):
                     out.append((base + ("inputs", i), "names", f"{tn}.{xn}'s input '{i}' is a set, which is never optional: an empty set is supplied instead"))
             named = [(k, a) for k in ("required_inputs", "optional_inputs") for a in x.get(k, [])]
-            named += [("effect", loc) for _e, loc in assigns(x)] + [("effect", a) for a in copies_from(x)] + [("effect", a) for a in cleared(x)]
+            named += [("effect", a) for a in cleared(x)]   # an assign's location is checked with every step
             for k, a in named:
-                if a not in attrs:
+                if a in derived:
+                    out.append((base + (k,), "names", f"{tn}.{xn} names the derived attribute '{a}' in {k}; its value is its expression, and nothing writes it"))
+                elif a not in attrs:
                     out.append((base + (k,), "names", f"{tn}.{xn} names the attribute '{a}' in {k}, which {tn} does not declare"))
             for a in set(x.get("required_inputs", [])) & set(x.get("optional_inputs", [])):
                 out.append((base + ("optional_inputs",), "names", f"{tn}.{xn} lists '{a}' as both a required and an optional input"))
@@ -560,7 +569,7 @@ def name_errors(doc, library=None, ordered=True):
         for c in sorted(conds - used):
             out.append((("types", tn, "conditions", c), "names", f"condition '{c}' of {tn} is used by no transition"))
         out += value_errors(doc, tn, t)
-        out += read_errors(tn, t)
+        out += read_errors(tn, t) + indexed_errors(tn, t, library)
         for mn, m in (t.get("metrics") or {}).items():
             out += metric_errors(tn, t, mn, m)
     return out
@@ -626,10 +635,6 @@ def present(expr, known, inputs):
     return bool(m) and m.group(1) in inputs
 
 
-def copies_from(x):
-    return [e for e, _loc in copies(x)]
-
-
 def required_errors(tn, xn, x, required, always):
     """Every transition into a state sets each attribute the state requires."""
     base = ("types", tn, "transitions", xn)
@@ -663,7 +668,7 @@ def value_errors(doc, tn, t):
     enums = {n: set(m) for n, m in (doc.get("enumerations") or {}).items()}
     own = {k: set(v.get("states") or {}) for k, v in types(doc)}
     exprs = [(("types", tn, sec, n, "expression"), n, c["expression"])
-             for sec in ("conditions", "invariants") for n, c in (t.get(sec) or {}).items()]
+             for sec in ("conditions", "invariants", "derived_attributes") for n, c in (t.get(sec) or {}).items()]
     exprs += [(("types", tn, "transitions", xn, "effect") + path, xn, e) for xn, x in (t.get("transitions") or {}).items()
               for st, kind, path, _d in walk(x.get("effect")) for e in step_expressions(st, kind)]
     exprs += [(("types", tn, "observations", o, "invariants", n, "expression"), n, i["expression"])
@@ -688,6 +693,9 @@ KEYWORDS = {"and", "or", "not", "implies", "is", "null", "in", "where", "if", "t
 AGGREGATES = ("count", "sum", "min", "max", "all", "any", "none")
 DURATION_UNITS = {"s", "min", "h", "days", "weeks"}
 FLOW_DATA = {"intervals", "transitions", "labels"}
+# the kinds of actor, a fixed enumeration expressions write bare (declaration-syntax.md §8.1)
+ACTOR_KINDS = set(json.loads((FORMAT / "flow.schema.json").read_text())
+                  ["definitions"]["attribute"]["properties"]["actor_kind"]["enum"])
 OBSERVATION_MEMBERS = {"now", "subject", "corrects", "occurred_at", "recorded_at", "recorded_by_kind",
                        "declaration_version"}
 
@@ -701,7 +709,7 @@ def reads(expr):
     out = set()
     for m in re.finditer(r"(?<![\w.])(this\.)?([a-z][a-z0-9_]*)\b(?!\s*\()", text):
         name, before, after = m.group(2), text[:m.start()], text[m.end():]
-        if name in KEYWORDS or name in bound or re.match(r"\s*:=", after) or re.search(r"\bmetric\(\s*$", before):
+        if name in KEYWORDS or name in ACTOR_KINDS or name in bound or re.match(r"\s*:=", after) or re.search(r"\bmetric\(\s*$", before):
             continue
         if name in DURATION_UNITS and re.search(r"\d\s*$", before):
             continue
@@ -716,9 +724,21 @@ def read_errors(tn, t):
     on: for a type, its attributes and observation kinds; for an observation
     kind's invariant, that kind's fields. An effect also reads the names its
     foreach and create steps bind."""
-    members = set(t.get("attributes") or {}) | set(t.get("observations") or {}) | NOT_AN_ATTRIBUTE
+    derived = list(t.get("derived_attributes") or {})
+    stored = set(t.get("attributes") or {}) | set(t.get("observations") or {})
+    members = stored | set(derived) | NOT_AN_ATTRIBUTE
     exprs = [(("types", tn, sec, n, "expression"), n, c["expression"], members)
              for sec in ("conditions", "invariants") for n, c in (t.get(sec) or {}).items()]
+    out = []
+    for i, d in enumerate(derived):
+        path = ("types", tn, "derived_attributes", d, "expression")
+        read = reads(t["derived_attributes"][d]["expression"])
+        for r in sorted(read & set(derived[i:])):
+            out.append((path, "order", f"derived attribute '{d}' reads itself" if r == d else
+                        f"derived attribute '{d}' reads '{r}', which is declared after it; a derived attribute reads only those above it"))
+        for r in sorted(read & {"inputs", "this_event"}):
+            out.append((path, "names", f"derived attribute '{d}' reads '{r}', which only a transition has"))
+        exprs.append((path, d, t["derived_attributes"][d]["expression"], members | set(derived[i:])))
     for xn, x in (t.get("transitions") or {}).items():
         walked = list(walk(x.get("effect")))
         binds = {st["foreach"]["item"] for st, kind, _p, _d in walked if kind == "foreach"}
@@ -729,10 +749,48 @@ def read_errors(tn, t):
         fields = set(ob.get("attributes") or {}) | OBSERVATION_MEMBERS
         exprs += [(("types", tn, "observations", o, "invariants", n, "expression"), n, i["expression"], fields)
                   for n, i in (ob.get("invariants") or {}).items()]
-    return [(path, "names", f"{name} reads '{r}', which {tn} does not declare"
-                            if scope is not None and "observations" not in path else
-                            f"{name} reads '{r}', which is not a field of the observation {path[3]}")
-            for path, name, text, scope in exprs for r in sorted(reads(text) - scope)]
+    return out + [(path, "names", f"{name} reads '{r}', which {tn} does not declare"
+                                  if "observations" not in path else
+                                  f"{name} reads '{r}', which is not a field of the observation {path[3]}")
+                  for path, name, text, scope in exprs for r in sorted(reads(text) - scope)]
+
+
+def stores(spec, library):
+    """Whether a single reference end holds the value (declaration-syntax.md §3.3):
+    it does unless its opposite is also single and it is not the end marked stored."""
+    other = ((library.get(spec["reference"]) or {}).get("attributes") or {}).get(spec.get("opposite"))
+    return other is None or str(other.get("reference", "")).endswith("[]") or bool(spec.get("stored"))
+
+
+def indexed_errors(tn, t, library):
+    """An indexed derived attribute reads only this object's stored, indexed
+    values: indexed attributes, stored single references and the state, and no
+    clock, other object or flow data (the model's check 46)."""
+    attrs = t.get("attributes") or {}
+    out = []
+    for d, spec in (t.get("derived_attributes") or {}).items():
+        if not spec.get("indexed"):
+            continue
+        text = " ".join(spec["expression"].split())
+        why = []
+        for r in sorted(reads(text) - {"state", "this"}):
+            a = attrs.get(r)
+            if r == "now":
+                why.append("reads now, the clock")
+            elif a is None:
+                why.append(f"reads '{r}', which is not a stored attribute")
+            elif str(a.get("reference", "")).endswith("[]") or str(a.get("type", "")).endswith("[]"):
+                why.append(f"reads '{r}', a set")
+            elif "reference" in a and re.search(rf"(?<![\w.]){r}\s*\.", text):
+                why.append(f"reads through '{r}' into another object")
+            elif "reference" in a and not stores(a, library):
+                why.append(f"reads '{r}', whose value the other end of the relationship stores")
+            elif "reference" not in a and not a.get("indexed"):
+                why.append(f"reads '{r}', which is not indexed")
+        if re.search(r"\b(?:time_in|entered_at)\(|\bthis\.(?:intervals|transitions)\b", text):
+            why.append("reads the object's flow data")
+        out += [(("types", tn, "derived_attributes", d, "indexed"), "names", f"derived attribute '{d}' is indexed and {w}") for w in why]
+    return out
 
 
 def metric_errors(tn, t, mn, m):
@@ -885,6 +943,9 @@ def to_text(doc):
         for an, spec in (t.get("attributes") or {}).items():
             for line in attribute_line(an, spec, module=dict(types(doc))).split("\n"):
                 emit(("  " + line) if not line.startswith("  ") else line, T + ("attributes", an))
+        for dn, d in (t.get("derived_attributes") or {}).items():
+            emit(f"  derive {dn} = {' '.join(d['expression'].split())}" + (" indexed" if d.get("indexed") else ""),
+                 T + ("derived_attributes", dn))
         for sn, v in (t.get("states") or {}).items():
             req = v.get("required_attributes") or []
             if req:
@@ -1075,6 +1136,16 @@ def self_test(people, service, inventory, delivery, approvals):
          plant(approvals, "expression: submitted_at is not null", "expression: decided_at is not null")),
         ("an observation invariant that reads what is not a field of its kind", "names", "service.yaml",
          plant(service, "expression: value is null or", "expression: voltage is null or")),
+        ("a derived attribute that reads one declared after it", "order", "service.yaml",
+         plant(service, "        expression: signed_off_by_user is not null\n", "        expression: handoffs > 0\n")),
+        ("a transition that writes a derived attribute", "names", "service.yaml",
+         plant(service, "          - assign: { location: signed_off_by_user, expr: inputs.signed_off_by }\n",
+               "          - assign: { location: signed_off_by_user, expr: inputs.signed_off_by }\n"
+               "          - assign: { location: handoffs, expr: \"0\" }\n")),
+        ("an indexed derived attribute that reads an attribute that is not indexed", "names", "service.yaml",
+         plant(service, "        expression: signed_off_by_user is not null\n", "        expression: photo is not null\n")),
+        ("an indexed derived attribute that reads the clock", "names", "service.yaml",
+         plant(service, "        expression: signed_off_by_user is not null\n", "        expression: engineer is not null and now > now\n")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",

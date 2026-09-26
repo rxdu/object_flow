@@ -179,6 +179,16 @@
             "$ref": "#/definitions/condition"
           }
         },
+        "derived_attributes": {
+          "description": "Attributes whose value is an expression over the object, never written (UML Property::isDerived); each reads only those declared above it.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/derivedAttribute"
+          }
+        },
         "invariants": {
           "description": "Conditions that hold for every object of the type at all times.",
           "type": "object",
@@ -667,6 +677,28 @@
         "expression": {
           "$ref": "#/definitions/expression",
           "description": "The invariant in the expression language."
+        }
+      }
+    },
+    "derivedAttribute": {
+      "type": "object",
+      "required": [
+        "description",
+        "expression"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "$ref": "#/definitions/description",
+          "description": "What the value is."
+        },
+        "expression": {
+          "$ref": "#/definitions/expression",
+          "description": "The value, in the expression language (declaration-syntax.md §8); its type is the expression's."
+        },
+        "indexed": {
+          "type": "boolean",
+          "description": "Queries may filter on it; it then reads only this object's indexed attributes, single references and state, and no clock (declaration-syntax.md §7, check 46)."
         }
       }
     },

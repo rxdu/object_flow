@@ -62,6 +62,15 @@ types:
         final: true
         required_attributes: [signed_off_by_user]
 
+    derived_attributes:
+      signed_off:
+        description: The job has been signed off; queries may filter on it.
+        expression: signed_off_by_user is not null
+        indexed: true
+      handoffs:
+        description: How many times the job has passed from one engineer to another.
+        expression: count(i in this.intervals(engineer) where i.value is not null) - 1
+
     conditions:
       engineer_active:
         description: The engineer being assigned is active.

@@ -36,7 +36,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 (step 2, `schema`)
 
 1. A name MUST be unique among the names of its section. A repeated key is refused by step 1.
-2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations`, `machines` and `types`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a type declares, in this order, `description`, `tracking`, `state_machine`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used. (step 3, `order`)
+2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations`, `machines` and `types`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a type declares, in this order, `description`, `tracking`, `state_machine`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used. (step 3, `order`)
 3. Reserved words of the text language MAY be used as names, as `declaration-syntax.md` §9.2 allows, with these exceptions (step 3, `names`):
    - a category MUST NOT be named `any`, `terminal` or `superseding`, and a transition MUST NOT be named `any` (the text language's check 33);
    - an attribute, including an observation's, MUST NOT be named `state`, `inputs`, `actor`, `this`, `now`, `referrers` or `this_event`, since an expression resolves those words before any attribute;
@@ -65,6 +65,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 | `attributes` | no | §4.3 |
 | `observations` | no | §4.4 |
 | `states` | unless the type binds a `state_machine` | §4.5 |
+| `derived_attributes` | no | §4.11 |
 | `invariants` | no | §4.6 |
 | `conditions` | no | §4.7 |
 | `transitions` | unless the type binds a `state_machine` | §4.8 |
@@ -212,11 +213,27 @@ The attributes a machine requires are its attributes for every rule of §4.5 to 
 
 A type that binds a machine declares no `states` (step 2, `schema`), and MUST declare every attribute and invariant the machine requires, each attribute with the same `type` or `reference` and the same optionality (step 3, `names`; the model's check 16). It MAY declare transitions of its own, which only it has; an initial transition of its own **replaces** the machine's initial transitions for that type. Any other transition, and any condition, MUST NOT share a name with one of the machine's (step 3, `names`). A binder whose objects are created by the machine's initial transition MUST NOT declare a required attribute the machine does not write (step 4, `check 8`), and so declares an initial transition of its own when its objects need one from the start.
 
+### 4.11 Derived attributes
+
+A **derived attribute** is a value computed from the object and never written: UML's derived property (`Property::isDerived`, shown `/name` in a class), whose value OCL states with `derive:`, and the model's `derive` (`declaration-syntax.md` §2, §8.3). A type declares its derived attributes under `derived_attributes`, after its states, whose names an expression reads, and before its invariants and conditions, which read derived attributes:
+
+| Key | Required | Value |
+|---|---|---|
+| `description` | yes | what the value is |
+| `expression` | yes | the value, in the expression language (§5); its type is the expression's |
+| `indexed` | no | `true` lets a query filter on it (`declaration-syntax.md` §7) |
+
+A derived attribute is read by its name wherever an attribute is: in a condition, an invariant, an effect's expression and another derived attribute. It reads only the derived attributes declared above it, so derived attributes never form a cycle (step 3, `order`; the model's check 3), and it reads neither `inputs` nor `this_event`, since it is evaluated outside any request (step 3, `names`). Its name MUST differ from every attribute and observation kind of the type, which share one scope of names (step 3, `names`; the model's check 33). Nothing writes it: a transition that takes it as an input, or assigns, adds to, removes from or clears it, is refused, and so is a state that requires it, since `required_attributes` names stored attributes; an invariant may read it instead (step 3, `names`). `if … then … else` is allowed in its expression (`declaration-syntax.md` §8.3), and like every expression it MUST NOT read `actor` (step 4, `check 64`) or call `metric(…)` (step 4, `check 56`).
+
+An **indexed** derived attribute reads only what the store holds on the object itself: attributes marked `indexed`, single references that store their value (§4.3, Relationships), and `state`. It MUST NOT read `now`, another derived attribute, a set, a path through a reference into another object, or the object's flow data, `entered_at`, `time_in`, `this.intervals` or `this.transitions` (step 3, `names`; the model's check 46).
+
+A derived attribute is declared in a section of its own rather than among the attributes, where UML lists it, because its expression reads the type's states, which are declared after the attributes; a `derive:` key on an attribute would read a name defined further down (§3).
+
 ## 5. Expressions
 
 An `expression` is written in the expression language of `declaration-syntax.md` §8, which this format does not change. Within it:
 - an attribute of the object is read by its name, and a value the caller supplies is read as `inputs.<attribute>`;
-- every name an expression reads at the start of a path MUST be declared where the expression is evaluated: for a type, one of its attributes or observation kinds; for a machine, an attribute it requires (§4.10); for an observation kind's invariant, one of that kind's fields; and in an effect, also the name a `foreach` or `create` step binds. The names an aggregate binds, `count(l in lines where …)`, are declared by it (step 3, `names`);
+- every name an expression reads at the start of a path MUST be declared where the expression is evaluated: for a type, one of its attributes, observation kinds or derived attributes (§4.11); for a machine, an attribute it requires (§4.10); for an observation kind's invariant, one of that kind's fields; and in an effect, also the name a `foreach` or `create` step binds. The names an aggregate binds, `count(l in lines where …)`, are declared by it (step 3, `names`);
 - `state` is the object's current state, and `now` is the time of the request;
 - an enumeration value and a state of another type are written qualified, `<Enumeration>.<VALUE>` and `<Type>.<STATE>`; a value of an enumeration or of a type the module declares MUST exist, and a bare upper-case name MUST be a state of the type (step 3, `names`);
 - absence is tested with `is null` and `is not null`; a comparison with an absent value is unknown, and a guard that is unknown refuses (`declaration-syntax.md` §8.2);
@@ -247,6 +264,7 @@ Each form converts to the text language as follows, and means what that declarat
 | `backdating_limit: 2 days` | `backdatable within 2 days` |
 | `machines: { M: { requires: …, states: …, transitions: … } }` | `machine M version 1 { requires attr …; state …; … }` |
 | `state_machine: M` on a type | `machine M` in the type, with only the type's own transitions |
+| `derived_attributes: { d: { expression: e, indexed: true } }` | `derive d = e indexed` |
 | `only_via: [W.t]` | `only via W.t` in the transition's head |
 | `reference: T, opposite: e` (and `stored: true`) | `ref <name> : T inverse e` (`stored`) |
 | `reference: "T[]", aggregation: composite, opposite: e` | `part <name> : T[] inverse e` |
@@ -265,8 +283,8 @@ A description is checked in four steps, and each stops the check if it finds any
 |---|---|---|
 | 1. strict loading | `yaml` | a file YAML cannot parse, including a `?` unquoted inside an inline collection, or a key repeated in a mapping |
 | 2. structure | `schema` | a missing or unknown key, a value of the wrong form, a name in the wrong case, a transition kind without the `from` and `to` it requires, a metric without the `state` or `transition` its measure requires |
-| 3. names and order | `order` | sections out of order, a type used before it is declared |
-| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose effect names an attribute it does not require, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
+| 3. names and order | `order` | sections out of order, a derived attribute that reads itself or one declared after it |
+| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
@@ -325,7 +343,7 @@ These are open in `authoring-flows.md` §3 and §7, and an answer would change t
 
 These words are reserved by the format. `scripts/check-flow-format-doc.py` holds this list equal to the keys and values `flow.schema.json` and the checker define.
 
-**Keys:** `module`, `imports`, `categories`, `enumerations`, `machines`, `requires`, `state_machine`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `optional`, `unique`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `state`, `transition`, `group_by`, `flag_when`.
+**Keys:** `module`, `imports`, `categories`, `enumerations`, `machines`, `requires`, `state_machine`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `optional`, `unique`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `state`, `transition`, `group_by`, `flag_when`.
 
 **Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `composite`, `month`, `week`, `actor`.
 
@@ -410,7 +428,7 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | effect steps: assign, clear | §5.2 | written (§4.8) |
 | effect steps: create, call, for, add, remove | §5.2 | written (§4.8) |
 | effect step: supersede | §5.2, §6.1 | not yet |
-| derivations | §2 | not yet |
+| derivations | §2 | written (§4.11) |
 | assertions and admissions | §6.3 | not yet |
 | erasure and correction | §6.4 | not yet |
 | deletion guards | §6.5 | not yet |
