@@ -866,6 +866,23 @@ def name_errors(doc, library=None, ordered=True):
     return out
 
 
+def event_inputs(target, x):
+    """The inputs of a transition that take an event: declared ones of type
+    event, and attribute inputs whose attribute is one."""
+    attrs = (target or {}).get("attributes") or {}
+    named = {i for i, spec in (x.get("inputs") or {}).items() if spec.get("type") == "event"}
+    named |= {a for a in x.get("required_inputs", []) + x.get("optional_inputs", []) if (attrs.get(a) or {}).get("type") == "event"}
+    return named
+
+
+def event_errors(where, tn, xn, target_name, x, given, target):
+    """An event-typed input accepts only this_event, which stops an approval
+    being recorded against an old event (declaration-syntax.md §6.7; the
+    model's check 25)."""
+    return [(where, "names", f"{tn}.{xn} passes {' '.join(str(given[i]).split())} to {target_name}'s event input '{i}', which accepts only this_event (check 25)")
+            for i in sorted(event_inputs(target, x) & set(given)) if " ".join(str(given[i]).split()) != "this_event"]
+
+
 def create_errors(doc, library, where, tn, xn, c):
     """A create names a type of the module, or an imported one, and an initial
     transition of it, and supplies that transition's required inputs."""
@@ -881,6 +898,7 @@ def create_errors(doc, library, where, tn, xn, c):
     given = set(c.get("inputs") or {})
     out = [(where, "names", f"{tn}.{xn} passes '{i}' to {c['type']}.{c['transition']}, which takes no input '{i}'")
            for i in sorted(given - taken(t))]
+    out += event_errors(where, tn, xn, f"{c['type']}.{c['transition']}", t, c.get("inputs") or {}, target)
     out += [(where, "names", f"{tn}.{xn} creates a {c['type']} without the input '{i}', which {c['type']}.{c['transition']} requires")
             for i in sorted(required_input_names(t) - given) if "default" not in ((t.get("inputs") or {}).get(i) or {})]
     return out
@@ -909,6 +927,7 @@ def call_errors(library, where, t, tn, xn, x, c):
         return [(where, "names", f"{tn}.{xn} calls {kind}.{c['transition']}, an initial transition; create an object with create")]
     given = set(c.get("inputs") or {})
     out = [(where, "names", f"{tn}.{xn} passes '{i}' to {kind}.{c['transition']}, which takes no input '{i}'") for i in sorted(given - taken(called))]
+    out += event_errors(where, tn, xn, f"{kind}.{c['transition']}", called, c.get("inputs") or {}, other)
     out += [(where, "names", f"{tn}.{xn} calls {kind}.{c['transition']} without the input '{i}', which it requires")
             for i in sorted(required_input_names(called) - given) if "default" not in ((called.get("inputs") or {}).get(i) or {})]
     return out
@@ -2062,6 +2081,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
                "      forget:\n        kind: internal\n        from: [PROSPECT]\n        description: Erases the customer's")),
         ("a proposable transition that only other transitions may take", "names", "delivery.yaml",
          plant(delivery, "        only_via: [Delivery.cancel]\n", "        only_via: [Delivery.cancel]\n        proposable: true\n")),
+        ("an event input given something other than this_event", "names", "delivery.yaml",
+         plant(delivery, "at_event: this_event } }", "at_event: now } }")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",

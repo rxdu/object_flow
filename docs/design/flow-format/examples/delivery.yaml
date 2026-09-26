@@ -37,6 +37,14 @@ types:
         cascade:
           - { on: [cancel], transition: discard, limit: 50 }
         survives: [complete]
+      approvals:
+        reference: "Approval[]"
+        aggregation: composite
+        opposite: delivery
+        description: The delivery's sign-offs, each recorded at the event it was given at.
+        cascade:
+          - { on: [cancel], transition: discard, limit: 50 }
+        survives: [complete]
 
     states:
       PREPARING:
@@ -65,6 +73,12 @@ types:
         description: A courier is assigned.
         expression: courier is not null
         remedy: unreachable_from_here
+      signed_off:
+        description: Someone has signed the delivery off, and neither its price nor its checklist has changed since.
+        expression: >-
+          any(a in approvals where a.state == Approval.GIVEN
+              and not changed_since([price, checklist_items], a.at_event))
+        remedy: delegable
 
     transitions:
       open:
@@ -97,9 +111,16 @@ types:
         guards:
           checklist_complete: deny
           courier_assigned: deny
+          signed_off: deny
         effect:
           - assign: { location: delivered_at, expr: now }
           - call: { target: unit, transition: deliver_externally, inputs: { sale_price: price } }
+      approve:
+        kind: internal
+        from: PREPARING
+        description: Signs the delivery off as it stands, recording the event the sign-off was given at.
+        effect:
+          - create: { type: Approval, transition: record, inputs: { delivery: this, approver: actor.id, at_event: this_event } }
       cancel:
         kind: external
         from: PREPARING
@@ -141,6 +162,31 @@ types:
         from: OPEN
         to: DISCARDED
         description: Removes an item whose delivery is called off.
+        only_via: [Delivery.cancel]
+
+  Approval:
+    description: A sign-off of a delivery, which a later change to its price or checklist makes stale.
+    tracking: record
+
+    attributes:
+      delivery: { reference: Delivery, opposite: approvals }
+      approver: { type: identity }
+      at_event: { type: event, description: The event the sign-off was recorded by. }
+
+    states:
+      GIVEN:     { category: closed }
+      DISCARDED: { category: closed, final: true }
+
+    transitions:
+      record:
+        kind: initial
+        to: GIVEN
+        only_via: [Delivery.approve]
+        required_inputs: [delivery, approver, at_event]
+      discard:
+        kind: external
+        from: GIVEN
+        to: DISCARDED
         only_via: [Delivery.cancel]
 
   Courier:
