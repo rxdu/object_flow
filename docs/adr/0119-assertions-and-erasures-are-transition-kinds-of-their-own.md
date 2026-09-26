@@ -1,6 +1,6 @@
 # ADR-0119: Assertions and erasures are transition kinds of their own
 
-- **Status:** Decided at the author's direction, 2026-09-26 ("go ahead with construct 8"); the author's own acceptance pending.
+- **Status:** Accepted by the author, 2026-09-26: "accept ADR-0119 and ADR-0120". Decided earlier the same day at the author's direction ("go ahead with construct 8").
 - **Date:** 2026-09-26
 - **Refines:** ADR-0115 (the transition kinds are UML's), ADR-0116 (the format replaces the text language)
 - **Relates to:** ADR-0015 (provenance), ADR-0087 (erasure follows supersession), ADR-0105 (erasure records an event and stays erased), ADR-0106 (an assertion's reason is an enumeration), `declaration-syntax.md` §4.2, §6.3 to §6.5, `flow-format.md` §4.13

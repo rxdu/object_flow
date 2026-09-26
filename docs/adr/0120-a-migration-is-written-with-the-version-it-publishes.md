@@ -1,6 +1,6 @@
 # ADR-0120: A migration is written with the version it publishes
 
-- **Status:** Decided at the author's direction, 2026-09-26 ("go ahead with the rest constructs"); the author's own acceptance pending.
+- **Status:** Accepted by the author, 2026-09-26: "accept ADR-0119 and ADR-0120". Decided earlier the same day at the author's direction ("go ahead with the rest constructs").
 - **Date:** 2026-09-26
 - **Refines:** ADR-0116 (the format replaces the text language), ADR-0099 (a publish changes a live object only by a recorded migration)
 - **Relates to:** ADR-0027 (declaration versions and mappings), ADR-0101 (migrations reach terminal objects), ADR-0105 (a migration is checked against every invariant), `declaration-syntax.md` §6.6, `flow-format.md` §4.16
