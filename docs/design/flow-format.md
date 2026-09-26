@@ -452,7 +452,7 @@ These are open in `authoring-flows.md` §3 and §7, and an answer would change t
 2. Whether the generated guards and invariants should carry written descriptions.
 3. Whether a transition whose source state does not require an attribute its target requires should be refused, as now, even when the attribute happens to be kept.
 4. ~~How two types that reference each other are ordered~~: *decided 2026-09-26*, the types of a module may reference each other in any order (ADR-0117).
-5. The order in which the constructs of Appendix B gain a form, which `TODO.md` sets.
+5. ~~The order in which the constructs of Appendix B gain a form~~: *decided 2026-09-26*, the author's order and the placement of the parts outside it, which `TODO.md` records.
 
 ## 10. Reserved vocabulary
 
