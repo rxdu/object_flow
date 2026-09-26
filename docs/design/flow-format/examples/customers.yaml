@@ -1,0 +1,181 @@
+# yaml-language-server: $schema=../flow.schema.json
+# Customers: personal data that can be corrected and erased, a state that can be
+# overridden, and a customer that cannot be closed while an order is open.
+module: customers
+categories: [live, closed]
+
+enumerations:
+  OverrideReason: [MIS_KEYED, LEGACY_DATA, CUSTOMER_REQUEST]
+
+sequences:
+  customer_number:
+    description: Numbers customers, in one series.
+
+types:
+  Customer:
+    description: A customer of the business, whose name and contact details are personal data.
+    tracking: record
+
+    attributes:
+      number:
+        type: string
+        identifier: { sequence: customer_number, format: "C-{n:5}" }
+        unique: true
+      name:  { type: string, optional: true, personal: true }
+      email: { type: string, optional: true, personal: true }
+      contacts:
+        reference: "Contact[]"
+        aggregation: composite
+        opposite: customer
+        description: The people to reach at the customer.
+        cascade:
+          - { on: [close], transition: discard, limit: 50 }
+      orders:
+        reference: "Order[]"
+        opposite: customer
+
+    states:
+      PROSPECT: { category: live }
+      ACTIVE:
+        category: live
+        required_attributes: [email]
+      DORMANT:
+        description: Has not ordered for a year; kept on record, and may still be closed.
+        category: closed
+      CLOSED: { category: closed, final: true }
+
+    conditions:
+      no_open_orders:
+        description: No object that refers to the customer, an order, is still open.
+        expression: none(r in referrers where r.state.category != closed)
+        remedy: dependent
+
+    transitions:
+      register:
+        kind: initial
+        to: PROSPECT
+        required_inputs: [name]
+        optional_inputs: [email]
+      activate:
+        kind: external
+        from: PROSPECT
+        to: ACTIVE
+        required_inputs: [email]
+      lapse:
+        kind: external
+        from: ACTIVE
+        to: DORMANT
+      close:
+        kind: external
+        from: [PROSPECT, ACTIVE, DORMANT]
+        to: CLOSED
+        description: Closes the customer's record, once no order of theirs is open.
+        guards:
+          no_open_orders: deny
+      add_contact:
+        kind: internal
+        from: [PROSPECT, ACTIVE]
+        description: Adds a person to reach at the customer.
+        inputs:
+          role:  { type: string }
+          phone: { type: string, optional: true, personal: true }
+        effect:
+          - create: { type: Contact, transition: add, inputs: { customer: this, role: inputs.role, phone: inputs.phone } }
+      correct_email:
+        kind: internal
+        from: [PROSPECT, ACTIVE, DORMANT]
+        description: Replaces an email address that was recorded wrongly.
+        corrects: [email]
+        required_inputs: [email]
+        inputs:
+          reason: { type: string }
+      correct_state:
+        kind: assertion
+        to: [PROSPECT, ACTIVE, DORMANT]
+        description: Puts the customer into the state they are really in, when the record is wrong.
+        inputs:
+          reason: { type: OverrideReason }
+          detail: { type: string, optional: true, personal: true }
+        may_admit: [active_invariant]
+      forget:
+        kind: erasure
+        description: Erases the customer's personal data, and their contacts'.
+        inputs:
+          reason: { type: string }
+        effect:
+          - foreach:
+              item: c
+              array: contacts
+              limit: 50
+              steps:
+                - call: { target: c, transition: forget, inputs: { reason: inputs.reason } }
+
+    metrics:
+      overrides:
+        description: How many times a customer's state was overridden, by reason.
+        source: transitions
+        item: t
+        filter: t.overrides
+        dimensions:
+          reason: t.reason
+        time_dimension: t.occurred_at
+        expression: count()
+
+  Contact:
+    description: A person to reach at a customer.
+    tracking: record
+
+    attributes:
+      customer: { reference: Customer, opposite: contacts }
+      role:     { type: string }
+      phone:    { type: string, optional: true, personal: true }
+
+    states:
+      LISTED:  { category: live }
+      REMOVED: { category: closed, final: true }
+
+    transitions:
+      add:
+        kind: initial
+        to: LISTED
+        only_via: [Customer.add_contact]
+        required_inputs: [customer, role]
+        optional_inputs: [phone]
+      discard:
+        kind: external
+        from: LISTED
+        to: REMOVED
+        only_via: [Customer.close]
+      forget:
+        kind: erasure
+        description: Erases the contact's phone number, as its customer is erased.
+        only_via: [Customer.forget]
+        inputs:
+          reason: { type: string }
+
+  Order:
+    description: An order a customer places.
+    tracking: record
+
+    attributes:
+      customer: { reference: Customer, opposite: orders }
+      total:    { type: money(SGD) }
+
+    states:
+      OPEN:      { category: live }
+      FULFILLED: { category: closed, final: true }
+      CANCELLED: { category: closed, final: true }
+
+    transitions:
+      place:
+        kind: initial
+        to: OPEN
+        required_inputs: [customer, total]
+      fulfil:
+        kind: external
+        from: OPEN
+        to: FULFILLED
+      cancel:
+        kind: external
+        from: OPEN
+        to: CANCELLED

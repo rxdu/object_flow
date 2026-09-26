@@ -136,13 +136,15 @@ Every condition MUST be used by at least one transition. (step 3, `names`)
 
 ### 4.8 Transitions
 
-A transition changes an object, and every change to an object is one. A transition's name is its **trigger** (UML `Transition::trigger`): a request names the transition it asks for. Each transition has a `kind`, one of UML's:
+A transition changes an object, and every change to an object is one. A transition's name is its **trigger** (UML `Transition::trigger`): a request names the transition it asks for. Each transition has a `kind`: one of UML's three, or one of the two the model adds, which UML has no term for (§4.13, ADR-0119):
 
 | `kind` | Means | `from` | `to` |
 |---|---|---|---|
 | `initial` | a new object comes into being in a state: the transition from UML's initial pseudostate | MUST be absent | the state |
 | `external` | the object moves from a state to another (UML `TransitionKind::external`) | one state, or a list of states | the state it moves to |
 | `internal` | the object changes without changing state (UML `TransitionKind::internal`) | the states it may be taken in | MUST be absent |
+| `assertion` | the request puts the object into a state it names, from any state, overriding the flow | MUST be absent | the states it may put the object in |
+| `erasure` | the object's personal attributes are erased, at any state, a final one included | MUST be absent | MUST be absent |
 
 (step 2, `schema`; every state named MUST be declared, step 3, `names`)
 
@@ -151,6 +153,8 @@ A transition changes an object, and every change to an object is one. A transiti
 | `kind`, `from`, `to` | as above | |
 | `description` | no | what the transition does, in one sentence |
 | `only_via` | no | the transitions, written `Type.transition`, that alone may take this one, by a `call`, a `create` or a cascade; no caller may request it (step 3, `names`) |
+| `corrects` | no | on an internal or external transition: the attributes it corrects, which it writes exactly (§4.13) |
+| `may_admit` | no | on an assertion: the invariants a request may admit breaking (§4.13) |
 | `required_inputs` | no | attributes the caller MUST supply; each is written to the attribute of the same name |
 | `optional_inputs` | no | attributes the caller MAY supply; each is written if supplied. An attribute that is not optional is always required |
 | `inputs` | no | declared inputs, which write no attribute of their own name (below) |
@@ -303,12 +307,40 @@ Each attribute or reference a placeholder reads MUST be written by every creatio
 
 An identifier implies none of them, since a scoped sequence repeats its numbers across scopes.
 
+### 4.13 Assertions, corrections, erasure and deletion guards
+
+These are the ways the model changes a record other than by the flow's own steps (`declaration-syntax.md` §4.2, §6.3 to §6.5). UML has no term for an assertion or an erasure, so both keep the model's words (ADR-0119).
+
+**An assertion** (`kind: assertion`) puts an object into a state the request names, from any state, when the record is wrong: an override. Its `to` lists the states it may put the object in, and the request names one of them as its input `to`. It MUST declare an input `reason` whose type is an enumeration, so that overrides are counted by reason; an explanation in words is a further input, optional and `personal`, since free text may name someone (step 3, `names`; the model's check 29). It MUST NOT declare an input named `to` or `admits`, which it has already (step 3, `names`).
+
+```yaml
+correct_state:
+  kind: assertion
+  to: [PROSPECT, ACTIVE, DORMANT]
+  description: Puts the customer into the state they are really in, when the record is wrong.
+  inputs:
+    reason: { type: OverrideReason }
+    detail: { type: string, optional: true, personal: true }
+  may_admit: [active_invariant]
+```
+
+`may_admit` lists the invariants a request of the assertion is permitted to break; the request names the ones it does break as its input `admits`, and each admission is recorded on the event. An admitted invariant is the type's own, one generated for a state's `required_attributes` included, or `<Type>.<invariant>`, an invariant of a type reachable from it by relationships whose ends name each other (step 3, `names`; the model's check 27). Only an assertion may admit (step 3, `names`). Step 3 does not require an assertion to set what its target state requires: the invariant is checked when the assertion applies, and the assertion may admit it.
+
+**A correction** is an internal or external transition marked `corrects: [<attribute>, …]`, whose events carry the `corrected` provenance. It MUST write exactly the attributes it lists, by its attribute inputs and its effect, and MUST declare an input `reason` (step 3, `names`; the model's check 28).
+
+**An erasure** (`kind: erasure`) erases every `personal` attribute of its object, at any state, a final one included, since requests to erase arrive for closed records (`declaration-syntax.md` §6.4). It declares neither `from` nor `to` (step 2, `schema`) and MUST declare an input `reason` (step 3, `names`; the model's check 29). It admits every invariant that reads what it erases, and once an object's own erasure is recorded, a request that writes one of its personal attributes is refused by the generated guard `not_erased`. A type need not declare an erasure; one that does MUST reach every part type holding a personal attribute, by calling that type's erasure in its effect, on the part's attribute or on a `foreach` item over it, or the person's data would stay in the parts (step 3, `names`; the model's check 39). An observation kind's fields are erased with their subject and need no call. Because an erasure writes absence, a `personal` attribute or field MUST be optional (step 3, `names`; the model's check 9).
+
+An assertion's and an erasure's guards MUST be `deny`, and neither has a `backdating_limit`: an assertion's time is when the store was told, and an erasure is not a step of the flow (step 4, `check 57`, `check 58`).
+
+**A deletion guard** is an ordinary condition over `referrers`, every object holding a live reference to this one, parts excepted, since they cascade (`declaration-syntax.md` §6.5). A type's `close` guarded by `none(r in referrers where r.state.category != closed)` is refused while an order of the customer's is open.
+
 ## 5. Expressions
 
 An `expression` is written in the expression language of `declaration-syntax.md` §8, which this format does not change. Within it:
 - an attribute of the object is read by its name, and a value the caller supplies is read as `inputs.<attribute>`;
 - every name an expression reads at the start of a path MUST be declared where the expression is evaluated: for a type, one of its attributes, observation kinds or derived attributes (§4.11); for a machine, an attribute it requires (§4.10); for an observation kind's invariant, one of that kind's fields; and in an effect, also the name a `foreach` or `create` step binds. A derived attribute and a uniqueness condition are evaluated outside any request, and read neither `inputs` nor `this_event`. The names an aggregate binds, `count(l in lines where …)`, are declared by it (step 3, `names`);
 - `state` is the object's current state, and `now` is the time of the request;
+- `referrers` is every object holding a live reference to this one, parts excepted, and a category is read by its name, as in `r.state.category != closed` (§4.13);
 - an enumeration value and a state of another type are written qualified, `<Enumeration>.<VALUE>` and `<Type>.<STATE>`; a value of an enumeration or of a type the module declares MUST exist, and a bare upper-case name MUST be a state of the type (step 3, `names`);
 - absence is tested with `is null` and `is not null`; a comparison with an absent value is unknown, and a guard that is unknown refuses (`declaration-syntax.md` §8.2);
 - an expression MUST NOT read `actor`: who may act is decided outside the flow (ADR-0114; step 4, `check 64`).
@@ -349,6 +381,9 @@ Each form converts to the text language as follows, and means what that declarat
 | `cascade: [{ on: [a], transition: t, limit: n }]`, `survives: [b]` | `cascade on a to T.t limit n`, `survives on { b }` |
 | `measure: median_time_in_state` | a metric over the type's intervals in the state, valued `median(i.duration)` |
 | `measure: transition_count` | a metric over the type's transitions along the transition's states, valued `count()` |
+| `kind: assertion`, `to: [A, B]`, `may_admit: [i]` | `assert x -> { A, B } { input to : state; input admits : invariant[]?; may admit i }` |
+| `kind: erasure` | `erase x { … }` |
+| `corrects: [a]` | `corrects a` |
 | `source: s`, `item: i`, `filter: f` | `from i in <T>.s where f`; `from i in <T>` for `objects`, and `from i in <Kind>` for an observation kind |
 | `dimensions: { d: e }`, `time_dimension: t` | `by d = e`, `window on t` |
 | `expression: v`, `flag_when: { n: c }` | `value v`, `flag n when c` |
@@ -364,7 +399,7 @@ A description is checked in four steps, and each stops the check if it finds any
 | 1. strict loading | `yaml` | a file YAML cannot parse, including a `?` unquoted inside an inline collection, or a key repeated in a mapping |
 | 2. structure | `schema` | a missing or unknown key, a value of the wrong form, a name in the wrong case, a transition kind without the `from` and `to` it requires, a metric without the `state` or `transition` its measure requires |
 | 3. names and order | `order` | sections out of order, a derived attribute that reads itself or one declared after it |
-| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a metric over a source its type does not have or reading anything but its item and the members its rows have, a flag reading neither the value nor a dimension, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
+| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a metric over a source its type does not have or reading anything but its item and the members its rows have, a flag reading neither the value nor a dimension, an assertion, erasure or correction without a `reason` input, an assertion's reason that is not an enumeration, an admission of an invariant neither the type's nor a related type's, a correction that does not write exactly what it lists, an erasure that does not reach a part type holding personal data, a personal attribute that is required, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
@@ -423,9 +458,9 @@ These are open in `authoring-flows.md` §3 and §7, and an answer would change t
 
 These words are reserved by the format. `scripts/check-flow-format-doc.py` holds this list equal to the keys and values `flow.schema.json` and the checker define.
 
-**Keys:** `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines`, `requires`, `state_machine`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `optional`, `identifier`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `source`, `filter`, `dimensions`, `time_dimension`, `state`, `transition`, `group_by`, `flag_when`.
+**Keys:** `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines`, `requires`, `state_machine`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `corrects`, `may_admit`, `optional`, `identifier`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `source`, `filter`, `dimensions`, `time_dimension`, `state`, `transition`, `group_by`, `flag_when`.
 
-**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `objects`, `intervals`, `transitions`, `attempts`, `attempt_counts`, `composite`, `in_scope`, `month`, `week`, `actor`.
+**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `assertion`, `erasure`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `objects`, `intervals`, `transitions`, `attempts`, `attempt_counts`, `composite`, `in_scope`, `month`, `week`, `actor`.
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
 
@@ -518,7 +553,8 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | invariants over relationships and type-scans | §3.4 | written, in the expression language (§4.6, §5) |
 | transitions: initial, external and internal | §4, §4.2 | written (§4.8) |
 | transition markings: `only via` | §4.2 | written (§4.8) |
-| transition markings: proposable, asserting | §4.2 | not yet; backdating is written |
+| transitions of kind `assert` and `erase` | §4.2 | written (§4.13) |
+| transition markings: proposable | §4.2 | not yet; backdating is written |
 | inputs that write an attribute of the same name | §5.1 | written (§4.8) |
 | inputs that write nothing, or another name | §5.1 | written (§4.8) |
 | guards, and their enforcement | §5.1 | written (§4.8) |
@@ -527,9 +563,9 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | effect steps: create, call, for, add, remove | §5.2 | written (§4.8) |
 | effect step: supersede | §5.2, §6.1 | not yet |
 | derivations | §2 | written (§4.11) |
-| assertions and admissions | §6.3 | not yet |
-| erasure and correction | §6.4 | not yet |
-| deletion guards | §6.5 | not yet |
+| assertions and admissions | §6.3 | written (§4.13) |
+| erasure and correction | §6.4 | written (§4.13) |
+| deletion guards | §6.5 | written (§4.13) |
 | migrations: removed and renamed members, backfill | §6.6 | not yet |
 | `this_event` and extension | §6.7 | not yet |
 | observations | §6.8 | written (§4.4) |

@@ -191,8 +191,16 @@ def sources(x):
     return [] if f is None else [f] if isinstance(f, str) else list(f)
 
 
+def targets(x):
+    t = x.get("to")
+    return [] if t is None else [t] if isinstance(t, str) else list(t)
+
+
 def pairs(x):
-    """The (from, to) state pairs a transition takes an object along."""
+    """The (from, to) state pairs a transition takes an object along; an
+    assertion and an erasure run from any state, so they have none."""
+    if x["kind"] in ("assertion", "erasure"):
+        return []
     if x["kind"] == "initial":
         return [(None, x["to"])]
     return [(s, x.get("to", s)) for s in sources(x)]
@@ -275,7 +283,9 @@ def schema_errors(doc):
         if e.validator == "oneOf" and isinstance(e.instance, dict) and "kind" in e.instance:
             rule = {"initial": "an initial transition declares `to` and no `from`",
                     "external": "an external transition declares `from` and `to`",
-                    "internal": "an internal transition declares `from` and no `to`"}.get(e.instance["kind"], e.message)
+                    "internal": "an internal transition declares `from` and no `to`",
+                    "assertion": "an assertion declares as `to` the states it may put an object in, and no `from`: it runs from any state",
+                    "erasure": "an erasure declares neither `from` nor `to`: it runs at any state"}.get(e.instance["kind"], e.message)
             out.append((tuple(e.absolute_path), "schema", rule))
         elif e.validator == "oneOf" and isinstance(e.instance, dict) and "tracking" in e.instance and "description" in e.instance:
             out.append((tuple(e.absolute_path), "schema",
@@ -401,7 +411,7 @@ def relationship_errors(doc, library):
                 for w in sorted(covered & kept):
                     out.append((here, "names", f"{tn}.{an} both cascades on and survives '{w}'"))
                 for xn, x in (t.get("transitions") or {}).items():
-                    if x.get("to") in finals and xn not in covered | kept:
+                    if x["kind"] == "external" and x.get("to") in finals and xn not in covered | kept:
                         out.append((here, "names", f"{tn}.{xn} enters the final state {x['to']}, and {tn}.{an} neither cascades on it nor survives it"))
             elif "cascade" in spec or "survives" in spec:
                 out.append((here, "names", f"{tn}.{an} has a cascade or survives, which only a composite end has"))
@@ -522,9 +532,9 @@ def name_errors(doc, library=None, ordered=True):
                                 f"state {s} requires the attribute '{a}', which {tn} does not declare"))
         for xn, x in (t.get("transitions") or {}).items():
             base = ("types", tn, "transitions", xn)
-            for s in sources(x) + ([x["to"]] if x.get("to") else []):
+            for s in sources(x) + targets(x):
                 if s not in states:
-                    key = "to" if s == x.get("to") else "from"
+                    key = "to" if s in targets(x) else "from"
                     out.append((base + (key,), "names", f"{tn}.{xn} names the state {s}, which {tn} does not declare"))
             conditions = t.get("conditions") or {}
             for g in (x.get("guards") or {}):
@@ -586,7 +596,8 @@ def name_errors(doc, library=None, ordered=True):
         for c in sorted(conds - used):
             out.append((("types", tn, "conditions", c), "names", f"condition '{c}' of {tn} is used by no transition"))
         out += value_errors(doc, tn, t)
-        out += read_errors(tn, t) + indexed_errors(tn, t, library) + identifier_errors(doc, tn, t, library)
+        out += read_errors(tn, t, doc.get("categories") or []) + indexed_errors(tn, t, library) + identifier_errors(doc, tn, t, library)
+        out += override_errors(doc, tn, t, library)
         for mn, m in (t.get("metrics") or {}).items():
             out += metric_errors(tn, t, mn, m)
     return out
@@ -656,9 +667,11 @@ def required_errors(tn, xn, x, required, always):
     """Every transition into a state sets each attribute the state requires."""
     base = ("types", tn, "transitions", xn)
     out = []
+    if x["kind"] in ("assertion", "erasure"):
+        return out   # it is checked against the invariants when it applies, and admits what it breaks
     src = sources(x)
-    targets = [x["to"]] if x.get("to") else src
-    for s in targets:
+    into = [x["to"]] if x.get("to") else src
+    for s in into:
         for a in sorted(required.get(s, set()) & set(cleared(x))):
             out.append((base + ("effect",), "required", f"{tn}.{xn} clears '{a}', which state {s} requires"))
     if x["kind"] == "internal":
@@ -746,14 +759,14 @@ def reads(expr):
     return out
 
 
-def read_errors(tn, t):
+def read_errors(tn, t, categories=()):
     """Every name an expression reads is a member of the object it is evaluated
     on: for a type, its attributes and observation kinds; for an observation
     kind's invariant, that kind's fields. An effect also reads the names its
     foreach and create steps bind."""
     derived = list(t.get("derived_attributes") or {})
     stored = set(t.get("attributes") or {}) | set(t.get("observations") or {})
-    members = stored | set(derived) | NOT_AN_ATTRIBUTE
+    members = stored | set(derived) | NOT_AN_ATTRIBUTE | set(categories)
     exprs = [(("types", tn, sec, n, "expression"), n, c["expression"], members)
              for sec in ("conditions", "invariants") for n, c in (t.get(sec) or {}).items()]
     exprs += [(("types", tn, "attributes", a, "unique", "where"), f"{tn}.{a}'s uniqueness condition", spec["unique"]["where"], members - REQUEST_ONLY)
@@ -994,6 +1007,109 @@ def formula_errors(tn, t, mn, m):
     return out
 
 
+def invariant_names(doc, tn, t):
+    """The invariants of a type: declared, generated for a state's required
+    attributes, and, for a machine, those it requires of its binders."""
+    names = set(t.get("invariants") or {})
+    names |= {f"{s.lower()}_invariant" for s, v in (t.get("states") or {}).items() if (v or {}).get("required_attributes")}
+    machine = (doc.get("machines") or {}).get(tn)
+    if machine:
+        names |= set((machine.get("requires") or {}).get("invariants") or [])
+    return names
+
+
+def related(tn, library):
+    """The types reachable from a type by relationships whose ends name each other."""
+    seen, todo = set(), [tn]
+    while todo:
+        for spec in ((library.get(todo.pop()) or {}).get("attributes") or {}).values():
+            other = str(spec.get("reference", "")).rstrip("[]")
+            if spec.get("opposite") and other and other not in seen and other != tn:
+                seen.add(other)
+                todo.append(other)
+    return seen
+
+
+def erasure_calls(x, attrs):
+    """(part attribute, transition) for each call an effect makes on a part:
+    on the attribute itself, or on a foreach item over it."""
+    items, out = {}, set()
+    for st, kind, _path, _d in walk(x.get("effect")):
+        if kind == "foreach" and "array" in st["foreach"]:
+            items[st["foreach"]["item"]] = " ".join(str(st["foreach"]["array"]).split())
+        if kind == "call":
+            target = " ".join(st["call"]["target"].split())
+            target = items.get(target, re.sub(r"^this\.", "", target))
+            if target in attrs:
+                out.add((target, st["call"]["transition"]))
+    return out
+
+
+def override_errors(doc, tn, t, library):
+    """Assertions, erasures and corrections (declaration-syntax.md §6.3, §6.4):
+    the model's checks 9, 27, 28, 29 and 39."""
+    attrs = t.get("attributes") or {}
+    enums = set(doc.get("enumerations") or {}) | {n for names in (doc.get("imports") or {}).values() for n in names}
+    out = []
+    for a, spec in attrs.items():
+        if spec.get("personal") and not optional(spec):
+            out.append((("types", tn, "attributes", a), "names", f"{tn}.{a} is personal and required; erasure writes absence, so a personal attribute is optional"))
+    for o, ob in (t.get("observations") or {}).items():
+        for a, spec in (ob.get("attributes") or {}).items():
+            if spec.get("personal") and not optional(spec):
+                out.append((("types", tn, "observations", o, "attributes", a), "names",
+                            f"{o}.{a} is personal and required; erasure writes absence, so a personal field is optional"))
+    own = invariant_names(doc, tn, t)
+    reach = related(tn, library)
+    for xn, x in (t.get("transitions") or {}).items():
+        base = ("types", tn, "transitions", xn)
+        kind = x["kind"]
+        inputs = x.get("inputs") or {}
+        reason = inputs.get("reason")
+        needs = {"assertion": "an assertion", "erasure": "an erasure"}.get(kind) or ("a correction" if x.get("corrects") else None)
+        if needs and reason is None:
+            out.append((base, "names", f"{tn}.{xn} is {needs}, and declares no input 'reason'"))
+        if kind == "assertion":
+            if reason is not None and reason.get("type") not in enums:
+                out.append((base + ("inputs", "reason"), "names", f"{tn}.{xn}'s reason is not an enumeration; an assertion's reasons are counted, so they are declared values"))
+            for i in sorted({"to", "admits"} & set(inputs)):
+                out.append((base + ("inputs", i), "names", f"{tn}.{xn} declares the input '{i}', which an assertion has already: the state it asks for, or the invariants it admits"))
+        if x.get("may_admit") and kind != "assertion":
+            out.append((base + ("may_admit",), "names", f"{tn}.{xn} may admit invariants, which only an assertion may"))
+        for inv in x.get("may_admit") or []:
+            if "." in inv:
+                on, name = inv.split(".")
+                if on not in reach:
+                    out.append((base + ("may_admit",), "names", f"{tn}.{xn} may admit {inv}, and {on} is not reachable from {tn} by a relationship whose ends name each other"))
+                elif name not in invariant_names(doc, on, library.get(on) or {}):
+                    out.append((base + ("may_admit",), "names", f"{tn}.{xn} may admit {inv}, which is not an invariant of {on}"))
+            elif inv not in own:
+                out.append((base + ("may_admit",), "names", f"{tn}.{xn} may admit '{inv}', which is not an invariant of {tn}"))
+        if x.get("corrects"):
+            if kind not in ("internal", "external"):
+                out.append((base + ("corrects",), "names", f"{tn}.{xn} corrects attributes, which only an internal or external transition may"))
+            written = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", []))
+            written |= {st[k]["location"] for st, k, _p, _d in walk(x.get("effect")) if k in ("assign", "add", "remove")}
+            written |= {a for st, k, _p, _d in walk(x.get("effect")) if k == "clear" for a in st["clear"]}
+            for a in sorted(set(x["corrects"]) - written):
+                out.append((base + ("corrects",), "names", f"{tn}.{xn} corrects '{a}' and does not write it"))
+            for a in sorted(written - set(x["corrects"])):
+                out.append((base + ("corrects",), "names", f"{tn}.{xn} writes '{a}', which it does not list in corrects; a correction writes exactly what it corrects"))
+        if kind == "erasure":
+            calls = erasure_calls(x, attrs)
+            for a, spec in attrs.items():
+                part = library.get(str(spec.get("reference", "")).rstrip("[]"))
+                if spec.get("aggregation") != "composite" or part is None:
+                    continue
+                if not any(s.get("personal") for s in (part.get("attributes") or {}).values()):
+                    continue
+                erasures = {n for n, px in (part.get("transitions") or {}).items() if px["kind"] == "erasure"}
+                if not any(c == a and n in erasures for c, n in calls):
+                    out.append((base, "names", f"{tn}.{xn} erases {tn} and does not call an erasure of its parts in '{a}', "
+                                               "which hold personal attributes"))
+    return out
+
+
 def metric_errors(tn, t, mn, m):
     if "source" in m:
         return formula_errors(tn, t, mn, m)
@@ -1004,6 +1120,9 @@ def metric_errors(tn, t, mn, m):
         xn = m["transition"]
         if xn not in trans:
             return [(base + ("transition",), "names", f"metric {mn} counts '{xn}', which is not a transition of {tn}")]
+        if trans[xn]["kind"] in ("assertion", "erasure"):
+            return [(base + ("transition",), "names", f"metric {mn} counts '{xn}', an {trans[xn]['kind']}, which runs from any state; "
+                                                      "count it with a formula over transitions, by t.transition")]
         twins = [o for o, x in trans.items() if o != xn and set(pairs(x)) & set(pairs(trans[xn]))]
         if twins:
             out.append((base + ("transition",), "names",
@@ -1087,8 +1206,10 @@ def transition_lines(xn, x, t, X, T):
     conds = t.get("conditions") or {}
     src = sources(x)
     where = src[0] if len(src) == 1 else "{ " + ", ".join(src) + " }"
-    head = {"initial": f"create {xn} -> {x.get('to')}", "external": f"do {xn} {where} -> {x.get('to')}",
-            "internal": f"act {xn} at {where}"}[x["kind"]]
+    into = targets(x)
+    onto = (into[0] if len(into) == 1 else "{ " + ", ".join(into) + " }") if into else ""
+    head = {"initial": f"create {xn} -> {onto}", "external": f"do {xn} {where} -> {onto}",
+            "internal": f"act {xn} at {where}", "assertion": f"assert {xn} -> {onto}", "erasure": f"erase {xn}"}[x["kind"]]
     if x.get("only_via"):
         head += " only via " + ", ".join(x["only_via"])
     accepts = x.get("required_inputs", []) + x.get("optional_inputs", [])
@@ -1103,6 +1224,11 @@ def transition_lines(xn, x, t, X, T):
         if "default" in spec:
             line += f" default {' '.join(spec['default'].split())}"
         body.append((line + (" personal" if spec.get("personal") else ""), X + ("inputs", i)))
+    if x["kind"] == "assertion":
+        # the target and the admissions are the request's inputs (declaration-syntax.md §6.3, check 38)
+        body.append(("input to : state", X + ("to",)))
+        if x.get("may_admit"):
+            body.append(("input admits : invariant[]?", X + ("may_admit",)))
     body += [(f"require {a}_provided: inputs.{a} is not null because self_serviceable", X + ("required_inputs",))
              for a in provided_guards(t, x)]
     for g, mode in (x.get("guards") or {}).items():
@@ -1110,6 +1236,10 @@ def transition_lines(xn, x, t, X, T):
             c = conds[g]
             mark = {"deny": "", "audit": " observe", "warn": " flag"}[mode]
             body.append((f"require {g}: {' '.join(c['expression'].split())}{mark} because {c['remedy']}", X + ("guards", g)))
+    if x.get("may_admit"):
+        body.append(("may admit " + ", ".join(x["may_admit"]), X + ("may_admit",)))
+    if x.get("corrects"):
+        body.append(("corrects " + ", ".join(x["corrects"]), X + ("corrects",)))
     body += effect_lines(x.get("effect"), X + ("effect",), "")
     if not body:
         return [(f"  {head} {{ }}", X)]
@@ -1331,7 +1461,7 @@ def report(found, notes):
     print(f"{len(found)} fatal · {len(notes)} notice{'s' if len(notes) != 1 else ''}")
 
 
-def self_test(people, service, inventory, delivery, approvals):
+def self_test(people, service, inventory, delivery, approvals, customers):
     def plant(text, old, new):
         assert text.count(old) >= 1, old
         return text.replace(old, new, 1)
@@ -1403,6 +1533,19 @@ def self_test(people, service, inventory, delivery, approvals):
         ("a metric whose item is declared after its filter", "order", "service.yaml",
          plant(plant(service, "        item: r\n        filter: r.outcome", "        filter: r.outcome"),
                "        time_dimension: r.occurred_at\n", "        time_dimension: r.occurred_at\n        item: r\n")),
+        ("an assertion whose reason is free text", "names", "customers.yaml",
+         plant(customers, "          reason: { type: OverrideReason }\n", "          reason: { type: string }\n")),
+        ("an assertion that may admit an invariant nobody declares", "names", "customers.yaml",
+         plant(customers, "may_admit: [active_invariant]", "may_admit: [active_rule]")),
+        ("an erasure that does not reach parts holding personal data", "names", "customers.yaml",
+         plant(customers, "                - call: { target: c, transition: forget, inputs: { reason: inputs.reason } }\n",
+               "                - call: { target: c, transition: discard }\n")),
+        ("a correction that writes what it does not list", "names", "customers.yaml",
+         plant(customers, "        corrects: [email]\n        required_inputs: [email]\n", "        corrects: [email]\n        required_inputs: [email, name]\n")),
+        ("a personal attribute that is required", "names", "customers.yaml",
+         plant(customers, "      name:  { type: string, optional: true, personal: true }\n", "      name:  { type: string, personal: true }\n")),
+        ("an erasure that names a target state", "schema", "customers.yaml",
+         plant(customers, "        kind: erasure\n        description: Erases the customer's", "        kind: erasure\n        to: CLOSED\n        description: Erases the customer's")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",
@@ -1453,7 +1596,8 @@ def main():
     people = (EXAMPLES / "people.yaml").read_text()
     clean = True
     needs = {"delivery.yaml": ["inventory.yaml"]}
-    for version in ("people.yaml", "inventory.yaml", "inventory-v2.yaml", "service.yaml", "service-v2.yaml", "delivery.yaml", "approvals.yaml"):
+    for version in ("people.yaml", "inventory.yaml", "inventory-v2.yaml", "service.yaml", "service-v2.yaml", "delivery.yaml", "approvals.yaml",
+                    "customers.yaml"):
         before = [(n, (EXAMPLES / n).read_text()) for n in needs.get(version, [])]
         files = [("people.yaml", people)] + before + ([(version, (EXAMPLES / version).read_text())] if version != "people.yaml" else [])
         found, notes = check(files)
@@ -1463,7 +1607,8 @@ def main():
             print(f"  {x[0]}:{x[1]} {x[3]} {x[4]}")
         clean &= not found
     ok = self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "inventory.yaml").read_text(),
-                   (EXAMPLES / "delivery.yaml").read_text(), (EXAMPLES / "approvals.yaml").read_text())
+                   (EXAMPLES / "delivery.yaml").read_text(), (EXAMPLES / "approvals.yaml").read_text(),
+                   (EXAMPLES / "customers.yaml").read_text())
     sys.exit(0 if clean and ok else 1)
 
 

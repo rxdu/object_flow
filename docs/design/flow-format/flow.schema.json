@@ -299,17 +299,19 @@
           "enum": [
             "initial",
             "external",
-            "internal"
+            "internal",
+            "assertion",
+            "erasure"
           ],
-          "description": "UML: initial transition, external transition, internal transition."
+          "description": "UML: initial transition, external transition, internal transition. And two with no UML counterpart: assertion, which puts an object into a state the request names, from any state, as an override; erasure, which erases the object's personal attributes at any state."
         },
         "from": {
           "$ref": "#/definitions/states",
           "description": "The source state, or states. Required for external and internal transitions; absent for an initial one."
         },
         "to": {
-          "$ref": "#/definitions/stateName",
-          "description": "The target state. Required for initial and external transitions; absent for an internal one."
+          "$ref": "#/definitions/states",
+          "description": "The target state: one for an initial or external transition; for an assertion, the states it may put an object in. Absent for an internal transition and an erasure."
         },
         "description": {
           "$ref": "#/definitions/description",
@@ -323,6 +325,23 @@
             "pattern": "^[A-Z][A-Za-z0-9]*\\.[a-z][a-z0-9_]*$"
           },
           "description": "The transitions, as Type.transition, that alone may take this one, by a call, a create or a cascade; no caller may request it."
+        },
+        "corrects": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/memberName"
+          },
+          "description": "The attributes this transition corrects: it writes exactly these, and its events carry the corrected provenance."
+        },
+        "may_admit": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^([A-Z][A-Za-z0-9]*\\.)?[a-z][a-z0-9_]*$"
+          },
+          "description": "On an assertion: the invariants a request may admit breaking, this type's or <Type>.<invariant> of a type reachable by a relationship."
         },
         "required_inputs": {
           "$ref": "#/definitions/names",
@@ -374,6 +393,9 @@
           "properties": {
             "kind": {
               "const": "initial"
+            },
+            "to": {
+              "$ref": "#/definitions/stateName"
             }
           },
           "required": [
@@ -389,6 +411,9 @@
           "properties": {
             "kind": {
               "const": "external"
+            },
+            "to": {
+              "$ref": "#/definitions/stateName"
             }
           },
           "required": [
@@ -408,6 +433,42 @@
           "not": {
             "required": [
               "to"
+            ]
+          }
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "assertion"
+            }
+          },
+          "required": [
+            "to"
+          ],
+          "not": {
+            "required": [
+              "from"
+            ]
+          }
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "erasure"
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "from"
+                ]
+              },
+              {
+                "required": [
+                  "to"
+                ]
+              }
             ]
           }
         }

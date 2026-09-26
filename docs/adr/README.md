@@ -120,3 +120,4 @@
 | [0116](0116-the-flow-description-format-replaces-the-text-language.md) | The flow description format replaces the text language | Accepted by the author |
 | [0117](0117-types-of-a-module-may-reference-each-other-and-relationships-use-uml-terms.md) | Types of a module may reference each other; relationships use UML's terms | Accepted by the author |
 | [0118](0118-metrics-are-written-under-their-type-in-semantic-layer-terms.md) | Metrics are written under their type, in the terms of semantic layers | Accepted by the author |
+| [0119](0119-assertions-and-erasures-are-transition-kinds-of-their-own.md) | Assertions and erasures are transition kinds of their own | Decided at the author's direction; acceptance pending |
