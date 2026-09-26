@@ -401,6 +401,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D387](#d387) | Two sentences of the unit's journey survived the withdrawals of ADR-0114 | Resolved in place |
 | [D388](#d388) | The flow checker resolved no import | Resolved by ADR-0121 |
 | [D389](#d389) | The flow review's appendix read an observation kind from a shared machine | Resolved in place |
+| [D390](#d390) | The flow checker read a money literal's currency as a state | Resolved in place |
+| [D391](#d391) | D385's resolution covered defaults and backfills and no other expression | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -2578,7 +2580,7 @@ ADR-0116 moves the design's examples to the flow description format, `unit-journ
 ### D385
 **The flow format refused a boolean or numeric default written as YAML's own.** `RobotModel`'s `label_photo_required: { type: bool, default: false }` was refused at step 2, "False is not of type 'string'", since the schema takes every expression as a string and YAML reads `false` as a boolean before the format sees it. No example had a boolean or numeric default. Found rewriting `unit-journey.md`.
 
-**Resolved in place**, 2026-09-26: `flow-format.md` §4.17 lets a default, and a migration's backfill, be written as YAML's own boolean or number, standing for that literal; the schema accepts it and the checker gives it its literal before any step reads it, which its self-test proves.
+**Resolved in place**, 2026-09-26: `flow-format.md` §4.17 lets a default, and a migration's backfill, be written as YAML's own boolean or number, standing for that literal; the schema accepts it and the checker gives it its literal before any step reads it, which its self-test proves. *(Widened the same day by D391, when the same refusal came back in a creation's inputs: the rule now holds for every expression.)*
 
 ### D386
 **The flow format said no expression may read the actor, which its own example does.** `flow-format.md` §5 said "an expression MUST NOT read `actor`", while the model's check 64 refuses `actor` everywhere but an outcome value, and `delivery.yaml`'s `approve` writes `actor.id`. Found writing `returns-module.md`'s `receive`, which records who handled the return as `actor.id`.
@@ -2599,3 +2601,13 @@ ADR-0116 moves the design's examples to the flow description format, `unit-journ
 **The flow review's appendix read an observation kind from a shared machine.** Its `UnitLifecycle` gave `restock` the guard `inspected: any(r in return_checks where …)`, and `return_checks` is an observation kind of the binder `Robot`. A machine requires attributes, references, parts and invariants of its binders, never an observation kind, and names nothing it does not require (`declaration-syntax.md` §4.1, check 35), so the declaration broke the model's own rule; `scripts/check-syntax-doc.py` passed it, its check 35 not looking at what a machine's guards read from observations. Found rewriting `flow-review.md`'s appendix in YAML, whose step 3 refused it: "inspected reads 'return_checks', which UnitLifecycle does not require".
 
 **Resolved in place**, 2026-09-26: `restock` and its guard are `Robot`'s own, as a binder may declare transitions of its own, and `flow-review.md` §8 says why. `TODO.md` holds the text checker's gap.
+
+### D390
+**The flow checker read a money literal's currency as a state.** The model writes an amount of money as a currency and a number, `USD 19.99` (`declaration-syntax.md` §8), and step 3 took `USD` for a bare upper-case name, which must be a state of the type: `Account.balance`'s `default: USD 0.00` was refused as naming "USD, which is not a state of Account", and so were four expressions of the payments ledger. No example had a money literal. Found rewriting `case-study-payments.md` in YAML.
+
+**Resolved in place**, 2026-09-26: step 3 reads three capital letters followed by a number as a money literal's currency, and `flow-format.md` §5 names the form.
+
+### D391
+**D385's resolution covered defaults and backfills and no other expression.** The payments ledger's `post` creates its entries with `inputs: { …, is_debit: true }`, and step 2 refused it, "True is not of type 'string'", the trap D385 had removed only from a default and a backfill. Found rewriting `case-study-payments.md`, the next document after the one that found D385.
+
+**Resolved in place**, 2026-09-26: every expression may be a YAML boolean or number, standing for that literal (`flow-format.md` §5). The checker finds where an expression goes from the schema itself, and converts a value only where no key takes it as YAML's own, which its self-test proves for a default, a creation's inputs and a `foreach` range, beside `final: true`, `indexed: true` and `limit`, which stay as they are.

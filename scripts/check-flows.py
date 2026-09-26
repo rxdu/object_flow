@@ -1021,6 +1021,8 @@ def value_errors(doc, tn, t):
                 what = "enumeration" if owner in enums else "type"
                 out.append((path, "names", f"{name} names {owner}.{value}, and the {what} {owner} has no {value}"))
         for m in re.finditer(r"(?<![.\w])[A-Z][A-Z0-9_]*(?![\w.])", text):
+            if re.fullmatch(r"[A-Z]{3}", m.group(0)) and re.match(r"\s+-?\d", text[m.end():]):
+                continue                    # a money literal's currency, as in USD 19.99 (declaration-syntax.md §8)
             if m.group(0) not in states:
                 out.append((path, "names", f"{name} names {m.group(0)}, which is not a state of {tn}; "
                                            "write an enumeration value qualified, as <Enumeration>.<VALUE>"))
@@ -1969,21 +1971,58 @@ def literal(v):
 
 
 def literals(doc):
-    """Give each default and backfill written as a YAML boolean or number its literal (§4.17)."""
-    def walk(node):
+    """Give each expression written as a YAML boolean or number its literal (§5).
+
+    The schema says where an expression goes, so the walk follows it down the
+    description, through references and alternatives, and converts a value
+    only where an expression is expected and no alternative takes the value
+    as YAML's own, as `final: true` and `limit: 50` are."""
+    schema = json.loads((FORMAT / "flow.schema.json").read_text())
+    defs, expression = schema["definitions"], "#/definitions/expression"
+
+    def branches(sch):
+        if "$ref" in sch:
+            return [sch] if sch["$ref"] == expression else branches(defs[sch["$ref"].rsplit("/", 1)[1]])
+        out = [sch]
+        for k in ("anyOf", "oneOf", "allOf"):
+            for b in sch.get(k, []):
+                out += branches(b)
+        for k in ("then", "else"):
+            if k in sch:
+                out += branches(sch[k])
+        return out
+
+    def native(sch):
+        t = sch.get("type")
+        types = set(t) if isinstance(t, list) else {t}
+        return bool(types & {"boolean", "integer", "number"}) or isinstance(sch.get("const"), (bool, int, float)) \
+            or any(isinstance(x, (bool, int, float)) for x in sch.get("enum", []))
+
+    def convert(value, schemas):
+        return (isinstance(value, (bool, int, float)) and any(c.get("$ref") == expression for c in schemas)
+                and not any(native(c) for c in schemas))
+
+    def walk(node, schemas):
         if isinstance(node, dict):
-            for k, v in node.items():
-                if k == "default":
-                    node[k] = literal(v)
+            for k in list(node):
+                inner = []
+                for sch in schemas:
+                    if k in (sch.get("properties") or {}):
+                        inner += branches(sch["properties"][k])
+                    elif isinstance(sch.get("additionalProperties"), dict):
+                        inner += branches(sch["additionalProperties"])
+                if convert(node[k], inner):
+                    node[k] = literal(node[k])
                 else:
-                    walk(v)
+                    walk(node[k], inner)
         elif isinstance(node, list):
-            for v in node:
-                walk(v)
-    walk(doc)
-    for attrs in ((doc.get("migration") or {}).get("backfill") or {}).values():
-        for a, v in attrs.items():
-            attrs[a] = literal(v)
+            inner = [b for sch in schemas if isinstance(sch.get("items"), dict) for b in branches(sch["items"])]
+            for i, v in enumerate(node):
+                if convert(v, inner):
+                    node[i] = literal(v)
+                else:
+                    walk(v, inner)
+    walk(doc, branches(schema))
 
 
 def check(files, previous=None):
@@ -2265,11 +2304,22 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     hit = "NO" in strict and False in loose
     ok &= hit
     print(f"  planted an enumeration value NO: the strict loader keeps {strict}, a plain YAML loader reads {loose}")
-    written = load("a: { default: false }\nb: { default: 0 }\nmigration: { backfill: { T: { c: true } } }\n")
+    written = load("module: m\ntypes:\n  T:\n    description: d\n    tracking: record\n"
+                   "    attributes: { a: { type: bool, default: false }, b: { type: int, default: 0, indexed: true } }\n"
+                   "    states: { S: { category: live, final: true } }\n"
+                   "    transitions:\n      t:\n        kind: initial\n        to: S\n        effect:\n"
+                   "          - create: { type: U, transition: u, inputs: { flag: true, n: 2 } }\n"
+                   "          - foreach: { item: i, range: 3, limit: 3, steps: [] }\n"
+                   "migration: { backfill: { T: { c: true } } }\n")
     literals(written)
-    hit = written == {"a": {"default": "false"}, "b": {"default": "0"}, "migration": {"backfill": {"T": {"c": "true"}}}}
+    t = written["types"]["T"]
+    step, loop = t["transitions"]["t"]["effect"]
+    hit = (t["attributes"]["a"]["default"] == "false" and t["attributes"]["b"] == {"type": "int", "default": "0", "indexed": True}
+           and t["states"]["S"]["final"] is True and step["create"]["inputs"] == {"flag": "true", "n": "2"}
+           and loop["foreach"]["range"] == "3" and loop["foreach"]["limit"] == 3
+           and written["migration"]["backfill"]["T"]["c"] == "true")
     ok &= hit
-    print(f"  a default and a backfill written as YAML's own boolean or number: {'read as their literals' if hit else 'MISREAD ' + str(written)}")
+    print(f"  expressions written as YAML's own boolean or number read as their literals, and nothing else: {'yes' if hit else 'NO ' + str(written)}")
     return ok
 
 

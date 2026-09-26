@@ -145,8 +145,19 @@
       "pattern": "^[0-9]+ (s|min|h|days?|weeks?)$"
     },
     "expression": {
-      "type": "string",
-      "minLength": 1
+      "description": "An expression of the model's expression language (declaration-syntax.md §8); a boolean or a number may be written as YAML's own, and stands for that literal.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": [
+            "boolean",
+            "number"
+          ]
+        }
+      ]
     },
     "remedy": {
       "enum": [
@@ -1113,7 +1124,7 @@
           "description": "true if the attribute may be without a value."
         },
         "default": {
-          "$ref": "#/definitions/literalOrExpression",
+          "$ref": "#/definitions/expression",
           "description": "The value every creation that does not write the attribute gives it: a literal, a qualified value or now."
         },
         "identifier": {
@@ -1420,7 +1431,7 @@
           "description": "true if erasure redacts the input from every event that recorded it."
         },
         "default": {
-          "$ref": "#/definitions/literalOrExpression",
+          "$ref": "#/definitions/expression",
           "description": "The value used when the caller leaves the input out; not allowed on an optional input."
         },
         "description": {
@@ -1620,7 +1631,7 @@
               "$ref": "#/definitions/memberName"
             },
             "additionalProperties": {
-              "$ref": "#/definitions/literalOrExpression"
+              "$ref": "#/definitions/expression"
             }
           }
         },
@@ -1747,20 +1758,6 @@
           "description": "Named flags, each an expression over value and the dimensions."
         }
       }
-    },
-    "literalOrExpression": {
-      "description": "An expression; a boolean or a number may be written as YAML's own, and stands for that literal.",
-      "anyOf": [
-        {
-          "$ref": "#/definitions/expression"
-        },
-        {
-          "type": [
-            "boolean",
-            "number"
-          ]
-        }
-      ]
     }
   }
 }
