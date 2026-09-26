@@ -1,0 +1,599 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "objectflow-flow-description-draft-2.schema.json",
+  "title": "ObjectFlow flow description (draft 2)",
+  "description": "The structure of a flow description, the one written form of an ObjectFlow flow (ADR-0116). Normative for structure only: the rules this schema cannot express, and the meaning of every key, are in docs/design/flow-format.md, and scripts/check-flows.py checks them all.",
+  "type": "object",
+  "required": [
+    "module",
+    "categories",
+    "types"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "module": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "imports": {
+      "description": "Types used from other modules, by module name.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/typeName"
+        }
+      }
+    },
+    "categories": {
+      "description": "The state categories the module's states use, such as live and closed.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/definitions/memberName"
+      }
+    },
+    "enumerations": {
+      "description": "Named sets of values. A value is written qualified, as Condition.DAMAGED.",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/definitions/typeName"
+      },
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "$ref": "#/definitions/stateName"
+        }
+      }
+    },
+    "types": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/definitions/typeName"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/type"
+      }
+    }
+  },
+  "definitions": {
+    "typeName": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9]*$"
+    },
+    "stateName": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "memberName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "names": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/memberName"
+      }
+    },
+    "states": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/stateName"
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/stateName"
+          }
+        }
+      ]
+    },
+    "description": {
+      "type": "string",
+      "minLength": 3
+    },
+    "duration": {
+      "type": "string",
+      "pattern": "^[0-9]+ (s|min|h|days?|weeks?)$"
+    },
+    "expression": {
+      "type": "string",
+      "minLength": 1
+    },
+    "remedy": {
+      "enum": [
+        "self_serviceable",
+        "delegable",
+        "temporal",
+        "dependent",
+        "unreachable_from_here"
+      ]
+    },
+    "type": {
+      "type": "object",
+      "required": [
+        "description",
+        "tracking",
+        "states",
+        "transitions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "$ref": "#/definitions/description",
+          "description": "What an object of the type is, in one or more sentences."
+        },
+        "tracking": {
+          "enum": [
+            "record",
+            "serial",
+            "quantity"
+          ],
+          "description": "record, serial or quantity (declaration-syntax.md §2)."
+        },
+        "states": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/definitions/stateName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/state"
+          },
+          "description": "The type's states, by name."
+        },
+        "transitions": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/transition"
+          },
+          "description": "The type's transitions, by name; a transition's name is its trigger."
+        },
+        "conditions": {
+          "description": "Named conditions, used as guards by the transitions.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/condition"
+          }
+        },
+        "invariants": {
+          "description": "Conditions that hold for every object of the type at all times.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/invariant"
+          }
+        },
+        "attributes": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/attribute"
+          },
+          "description": "The type's attributes, by name."
+        },
+        "observations": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/observation"
+          },
+          "description": "Datapoints recorded about an object and never changed afterwards, by name."
+        },
+        "metrics": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/metric"
+          },
+          "description": "Figures computed from the record of many objects."
+        }
+      }
+    },
+    "state": {
+      "type": "object",
+      "required": [
+        "category"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "$ref": "#/definitions/description",
+          "description": "What it means for an object to be in the state."
+        },
+        "category": {
+          "$ref": "#/definitions/memberName",
+          "description": "One of the module's categories."
+        },
+        "final": {
+          "type": "boolean",
+          "description": "No transition leaves this state (UML FinalState)."
+        },
+        "required_attributes": {
+          "$ref": "#/definitions/names",
+          "description": "Attributes that have a value whenever an object is in this state."
+        }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "initial",
+            "external",
+            "internal"
+          ],
+          "description": "UML: initial transition, external transition, internal transition."
+        },
+        "from": {
+          "$ref": "#/definitions/states",
+          "description": "The source state, or states. Required for external and internal transitions; absent for an initial one."
+        },
+        "to": {
+          "$ref": "#/definitions/stateName",
+          "description": "The target state. Required for initial and external transitions; absent for an internal one."
+        },
+        "description": {
+          "$ref": "#/definitions/description",
+          "description": "What the transition does, in one sentence."
+        },
+        "required_inputs": {
+          "$ref": "#/definitions/names",
+          "description": "Attributes the caller must supply; each is written to the attribute of the same name."
+        },
+        "optional_inputs": {
+          "$ref": "#/definitions/names",
+          "description": "Attributes the caller may supply; each is written if supplied."
+        },
+        "guards": {
+          "description": "Conditions evaluated, in this order, after the required inputs are checked.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "enum": [
+              "deny",
+              "audit",
+              "warn"
+            ]
+          }
+        },
+        "effect": {
+          "description": "The writes the transition makes, in this order (UML Transition::effect).",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/step"
+          }
+        },
+        "backdating_limit": {
+          "$ref": "#/definitions/duration",
+          "description": "How far in the past a caller may say the change happened."
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "initial"
+            }
+          },
+          "required": [
+            "to"
+          ],
+          "not": {
+            "required": [
+              "from"
+            ]
+          }
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "external"
+            }
+          },
+          "required": [
+            "from",
+            "to"
+          ]
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "internal"
+            }
+          },
+          "required": [
+            "from"
+          ],
+          "not": {
+            "required": [
+              "to"
+            ]
+          }
+        }
+      ]
+    },
+    "step": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "assign"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "assign": {
+              "description": "Writes the value of expr to the attribute named by location (SCXML <assign>).",
+              "type": "object",
+              "required": [
+                "location",
+                "expr"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "location": {
+                  "$ref": "#/definitions/memberName"
+                },
+                "expr": {
+                  "$ref": "#/definitions/expression"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "clear"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "clear": {
+              "$ref": "#/definitions/names"
+            }
+          }
+        }
+      ]
+    },
+    "condition": {
+      "type": "object",
+      "required": [
+        "description",
+        "expression",
+        "remedy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "$ref": "#/definitions/description",
+          "description": "The condition, stated as what holds when it is satisfied."
+        },
+        "expression": {
+          "$ref": "#/definitions/expression",
+          "description": "The condition in the expression language (declaration-syntax.md §8)."
+        },
+        "remedy": {
+          "$ref": "#/definitions/remedy",
+          "description": "What a caller can do when the condition fails (DESIGN.md §5.5)."
+        }
+      }
+    },
+    "invariant": {
+      "type": "object",
+      "required": [
+        "description",
+        "expression"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "$ref": "#/definitions/description",
+          "description": "The invariant, stated as what always holds."
+        },
+        "expression": {
+          "$ref": "#/definitions/expression",
+          "description": "The invariant in the expression language."
+        }
+      }
+    },
+    "attribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\([A-Za-z0-9, ]+\\))?(\\[\\])?$",
+          "description": "A built-in type (string, bool, int, decimal(p,s), money(ccy), timestamp, duration, identity, file) or an enumeration's name."
+        },
+        "reference": {
+          "$ref": "#/definitions/typeName",
+          "description": "The name of a type declared earlier in the module or imported."
+        },
+        "description": {
+          "$ref": "#/definitions/description",
+          "description": "What the attribute holds, where the name alone does not say."
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "true if the attribute may be without a value."
+        },
+        "unique": {
+          "type": "boolean",
+          "description": "true if no two objects of the type may hold the same value."
+        },
+        "indexed": {
+          "type": "boolean"
+        },
+        "personal": {
+          "type": "boolean"
+        },
+        "actor_kind": {
+          "enum": [
+            "human",
+            "agent",
+            "service"
+          ],
+          "description": "On an identity attribute: the kind of actor objects of this type are."
+        },
+        "assignee": {
+          "type": "boolean",
+          "description": "On a reference: it names who is responsible for the object."
+        },
+        "unit": {
+          "type": "string",
+          "description": "On an observation's attribute: the unit of the measured value."
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "required": [
+            "reference"
+          ]
+        }
+      ]
+    },
+    "observation": {
+      "type": "object",
+      "required": [
+        "kind",
+        "description",
+        "attributes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/typeName",
+          "description": "The observation kind's name."
+        },
+        "description": {
+          "$ref": "#/definitions/description"
+        },
+        "attributes": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/attribute"
+          }
+        },
+        "max_recording_delay": {
+          "$ref": "#/definitions/duration",
+          "description": "How long after the fact a datapoint may still be recorded."
+        },
+        "invariants": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/invariant"
+          }
+        }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "required": [
+        "description",
+        "measure"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "$ref": "#/definitions/description"
+        },
+        "measure": {
+          "enum": [
+            "median_time_in_state",
+            "transition_count"
+          ],
+          "description": "median_time_in_state of a state, or transition_count of a transition."
+        },
+        "state": {
+          "$ref": "#/definitions/stateName"
+        },
+        "transition": {
+          "$ref": "#/definitions/memberName"
+        },
+        "group_by": {
+          "$ref": "#/definitions/names",
+          "description": "month, week, actor, or an attribute of the type."
+        },
+        "flag_when": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/expression"
+          },
+          "description": "Named flags, each an expression over value."
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "measure": {
+              "const": "median_time_in_state"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "not": {
+            "required": [
+              "transition"
+            ]
+          }
+        },
+        {
+          "properties": {
+            "measure": {
+              "const": "transition_count"
+            }
+          },
+          "required": [
+            "transition"
+          ],
+          "not": {
+            "required": [
+              "state"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

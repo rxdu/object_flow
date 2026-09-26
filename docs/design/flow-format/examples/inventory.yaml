@@ -1,5 +1,5 @@
-# Inventory flow, version 2: photo_attached denies, and a sale below the list
-# price warns (docs/design/authoring-flows.md §3).
+# yaml-language-server: $schema=../flow.schema.json
+# Inventory flow: the lifecycle of one robot held in stock.
 module: inventory
 categories: [live, closed]
 
@@ -62,10 +62,6 @@ types:
         description: A photo of the item is attached.
         expression: inputs.photo is not null
         remedy: self_serviceable
-      not_below_list_price:
-        description: The sale price is not below the list price.
-        expression: inputs.sale_price >= list_price
-        remedy: delegable
 
     transitions:
       add:
@@ -103,8 +99,7 @@ types:
         optional_inputs: [photo]
         guards:
           not_damaged: deny
-          photo_attached: deny
-          not_below_list_price: warn
+          photo_attached: audit
         effect:
           - clear: [reserved_until]
       deliver_internally:

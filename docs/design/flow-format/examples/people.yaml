@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../flow.schema.json
 # Actors: who can make requests, declared once for every workflow.
 # Declares no roles: what an actor may do is decided by the application (ADR-0114).
 module: people

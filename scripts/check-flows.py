@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Check the YAML trial of the flow format (docs/design/yaml-trial/).
+"""Check flow descriptions against the flow format (docs/design/flow-format.md).
 
-The trial writes flows as structured YAML (authoring-flows.md §3). A module
+A flow is written as structured YAML, the one written form (ADR-0116). A module
 declares its imports, its state categories, its enumerations and its types, and each type declares
 its attributes, observations, states, invariants, conditions, transitions and
 metrics, in that order, so that every name is defined before it is used. To
@@ -44,8 +44,8 @@ The terms are UML's, SCXML's and Kubernetes', as ADR-0115 records. Every
 finding is reported at the YAML file and line it comes from. Audit and warn
 guards are reported as notices, as the publish report lists them.
 
-    check-yaml-trial.py                 the trial's modules, then a self-test
-    check-yaml-trial.py A.yaml B.yaml   these modules, in import order
+    check-flows.py                  the example modules, then a self-test
+    check-flows.py A.yaml B.yaml    these modules, in import order
 """
 import json
 import pathlib
@@ -58,7 +58,8 @@ import jsonschema
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TRIAL = ROOT / "docs/design/yaml-trial"
+FORMAT = ROOT / "docs/design/flow-format"
+EXAMPLES = FORMAT / "examples"
 CHECKER = ROOT / "scripts/check-syntax-doc.py"
 
 MODULE_ORDER = ["module", "imports", "categories", "enumerations", "types"]
@@ -175,7 +176,7 @@ def cleared(x):
 
 # ── steps 2 and 3 ──────────────────────────────────────────────────────────
 def schema_errors(doc):
-    schema = json.loads((TRIAL / "flow.schema.json").read_text())
+    schema = json.loads((FORMAT / "flow.schema.json").read_text())
     v = jsonschema.Draft7Validator(schema)
     out = []
     for e in sorted(v.iter_errors(doc), key=lambda e: list(e.absolute_path)):
@@ -539,13 +540,13 @@ def metric_text(tn, t, mn, m):
 
 def language_errors(converted):
     """Run the text checker over the converted modules, and map each finding back."""
-    doc, starts, line = "# yaml trial\n\n", [], 3
+    doc, starts, line = "# converted flow descriptions\n\n", [], 3
     for text, _paths in converted:
         starts.append(line + 1)
         doc += f"```text\n{text}```\n\n"
         line += text.count("\n") + 3
     with tempfile.TemporaryDirectory() as d:
-        p = pathlib.Path(d) / "yaml-trial.md"
+        p = pathlib.Path(d) / "converted.md"
         p.write_text(doc)
         r = subprocess.run([sys.executable, str(CHECKER), str(p)], capture_output=True, text=True)
     out = []
@@ -650,17 +651,17 @@ def main():
         found, notes = check(files)
         report(found, notes)
         sys.exit(1 if found else 0)
-    people = (TRIAL / "people.yaml").read_text()
+    people = (EXAMPLES / "people.yaml").read_text()
     clean = True
     for version in ("people.yaml", "inventory.yaml", "inventory-v2.yaml", "service.yaml", "service-v2.yaml"):
-        files = [("people.yaml", people)] + ([(version, (TRIAL / version).read_text())] if version != "people.yaml" else [])
+        files = [("people.yaml", people)] + ([(version, (EXAMPLES / version).read_text())] if version != "people.yaml" else [])
         found, notes = check(files)
         print(f"{version}: {'clean' if not found else str(len(found)) + ' finding(s)'}, "
               f"{len(notes)} notice{'s' if len(notes) != 1 else ''}")
         for x in found:
             print(f"  {x[0]}:{x[1]} {x[3]} {x[4]}")
         clean &= not found
-    ok = self_test(people, (TRIAL / "service.yaml").read_text(), (TRIAL / "inventory.yaml").read_text())
+    ok = self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "inventory.yaml").read_text())
     sys.exit(0 if clean and ok else 1)
 
 

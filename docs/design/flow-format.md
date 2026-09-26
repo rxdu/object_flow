@@ -1,6 +1,6 @@
 # The flow description format
 
-Status: **draft 2, 2026-09-26, under trial** (`authoring-flows.md` §3). Draft 2 adopts the established state-machine terms (ADR-0115, Appendix A). This document is the normative definition of the structured YAML form in which an ObjectFlow flow is described. Its machine-readable half is [`yaml-trial/flow.schema.json`](yaml-trial/flow.schema.json), and [`scripts/check-yaml-trial.py`](../../scripts/check-yaml-trial.py) implements every rule stated here; each rule names the step and the finding code that enforce it. Where this document and the implementation disagree, both are wrong until one is corrected, and `scripts/check-flow-format-doc.py` holds them to each other. The meaning of every form is the meaning of the text-language declaration it converts to, defined in [`declaration-syntax.md`](declaration-syntax.md); this document does not restate the engine's semantics.
+Status: **draft 2, 2026-09-26, adopted.** This is the one written form of an ObjectFlow flow (ADR-0116), with its terms taken from UML, SCXML and Kubernetes (ADR-0115, Appendix A). It is the normative definition of how a flow is written. Its machine-readable half is the schema [`flow-format/flow.schema.json`](flow-format/flow.schema.json) (§2), and [`scripts/check-flows.py`](../../scripts/check-flows.py) implements every rule stated here; each rule names the step and the finding code that enforce it. Where this document and the implementation disagree, both are wrong until one is corrected, and `scripts/check-flow-format-doc.py` holds them to each other. The meaning of every form is the meaning of the declaration it converts to, defined in [`declaration-syntax.md`](declaration-syntax.md), which remains the definition of the declaration model; this document does not restate the engine's semantics. The format does not yet express every construct of the model; Appendix B says which it does.
 
 ## 1. Scope and conformance
 
@@ -20,6 +20,9 @@ Every word in a description is one of two kinds, and the examples in this docume
 4. Inside an inline list `[…]` or an inline mapping `{…}`, a value containing a comma, a question mark, a colon followed by a space, a bracket, a brace or `#` MUST be quoted, as YAML requires; for example `{ type: "decimal(10,3)" }`. Unquoted, such a value either fails to parse (step 1, `yaml`) or parses into the wrong structure (step 2, `schema`).
 5. Comments begin with `#` and are ignored.
 6. Nothing in a description has a default: every required key is written, including `tracking` and every condition's `remedy`. (step 2, `schema`)
+7. A description SHOULD name its schema on its first line, as `# yaml-language-server: $schema=<path to flow.schema.json>`. Editors built on the YAML language server read this line to validate the description and describe each key as it is typed; a relative path is resolved from the description's own location. (not checked)
+
+**The schema.** [`flow-format/flow.schema.json`](flow-format/flow.schema.json) is a JSON Schema (draft-07) of a description's structure, versioned with this document's draft and carrying a description of each key for editors. It is normative for structure only, which is step 2 of §7: what it cannot express, the order of declarations, the names a description declares and uses, and the attributes a state requires, is stated in this document and checked in steps 1, 3 and 4. Its `$id` is relative until the schema is published at a stable address.
 
 ## 3. Names
 
@@ -246,16 +249,16 @@ types:
           - assign: { location: published_at, expr: now }
 ```
 
-A full description is [`yaml-trial/inventory.yaml`](yaml-trial/inventory.yaml); [`yaml-trial/service.yaml`](yaml-trial/service.yaml) adds an import, an assignee and observations.
+A full description is [`flow-format/examples/inventory.yaml`](flow-format/examples/inventory.yaml); [`flow-format/examples/service.yaml`](flow-format/examples/service.yaml) adds an import, an assignee and observations.
 
 ## 9. Open questions
 
 These are open in `authoring-flows.md` §3 and §7, and an answer would change this document:
-1. Whether this form replaces the text language as the written form of every flow.
-2. Whether version numbers are computed at publication, which this format assumes by having none.
-3. Whether the generated guards and invariants should carry written descriptions.
-4. Whether a transition whose source state does not require an attribute its target requires should be refused, as now, even when the attribute happens to be kept.
-5. How two types that reference each other are ordered, since every name is defined before it is used.
+1. Whether version numbers are computed at publication, which this format assumes by having none.
+2. Whether the generated guards and invariants should carry written descriptions.
+3. Whether a transition whose source state does not require an attribute its target requires should be refused, as now, even when the attribute happens to be kept.
+4. How two types that reference each other are ordered, since every name is defined before it is used.
+5. The order in which the constructs of Appendix B gain a form, which `TODO.md` sets.
 
 ## 10. Reserved vocabulary
 
@@ -315,3 +318,45 @@ On 2026-09-26 the author answered "adopt standards and update our specs" (ADR-01
 6. The delivered grouping is drawn as a comment, which declares nothing, rather than as a frame, which in UML declares a composite state.
 
 The text language keeps its own keywords until the author decides whether this format replaces it.
+
+## Appendix B. Coverage of the declaration model
+
+The declaration model is defined in `declaration-syntax.md`; this table says, for each of its parts, whether this format can write it yet (ADR-0116). A flow that needs a construct marked *not yet* cannot be written until the construct has a form, each added with its section here, its schema, its conversion, an example and planted mistakes that prove its checks.
+
+| Part of the model | `declaration-syntax.md` | This format |
+|---|---|---|
+| module, imports, categories, enumerations | §1 | written (§4.1) |
+| sequences and identifiers minted from them | §1, §3.1 | not yet |
+| external evaluators | §1, §6.2 | not yet |
+| a type, its tracking mode and description | §2 | written (§4.2) |
+| abstract types, families and `extends` | §2 | not yet |
+| named machines shared by several types, binders | §2, §4 | not yet |
+| mirror types and external identifiers | §2 | not yet |
+| states, categories and final states | §2.1 | written (§4.5) |
+| attributes: type, optional, unique, indexed, personal | §3.1 | written (§4.3) |
+| attributes: counters, defaults, scoped and compound uniqueness | §3.1, §7 | not yet |
+| references, including an assignee | §3.2, §6.10 | written (§4.3) |
+| parts, composition, inverse ends and cascades | §3.2, §3.3 | not yet |
+| invariants over one object | §3.4 | written (§4.6, §4.5) |
+| invariants over relationships and type-scans | §3.4 | not yet, since relationships are not |
+| transitions: initial, external and internal | §4, §4.2 | written (§4.8) |
+| transition markings: `only via`, proposable, asserting | §4.2 | not yet; backdating is written |
+| inputs that write an attribute of the same name | §5.1 | written (§4.8) |
+| inputs that write nothing, or another name | §5.1 | not yet |
+| guards, and their enforcement | §5.1 | written (§4.8) |
+| eager and deferred evaluation of guards | §5.1 | not yet |
+| effect steps: assign, clear | §5.2 | written (§4.8) |
+| effect steps: create, call, for, add, remove, supersede | §5.2, §6.1 | not yet |
+| derivations | §2 | not yet |
+| assertions and admissions | §6.3 | not yet |
+| erasure and correction | §6.4 | not yet |
+| deletion guards | §6.5 | not yet |
+| migrations: removed and renamed members, backfill | §6.6 | not yet |
+| `this_event` and extension | §6.7 | not yet |
+| observations | §6.8 | written (§4.4) |
+| labels | §6.8 | not yet |
+| metrics: median time in a state, transition counts | §6.9 | written (§4.9) |
+| metrics: the rest of the metric language | §6.9 | not yet |
+| standard metrics | §6.11 | provided for every type, with nothing to write |
+| quantity tracking and its counters | §7 | not yet |
+| expressions | §8 | written: the same language (§5) |

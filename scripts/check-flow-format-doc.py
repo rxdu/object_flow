@@ -2,7 +2,7 @@
 """Hold the flow format specification to its implementation.
 
 docs/design/flow-format.md states the YAML flow format; flow.schema.json and
-scripts/check-yaml-trial.py implement it. This checks that they agree:
+scripts/check-flows.py implement it. This checks that they agree:
 
 1. the reserved keys of §10 are exactly the property names the schema defines;
 2. the reserved values of §10 are exactly the schema's enumerated values, the
@@ -21,8 +21,8 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs/design/flow-format.md"
-SCHEMA = ROOT / "docs/design/yaml-trial/flow.schema.json"
-CHECKER = ROOT / "scripts/check-yaml-trial.py"
+SCHEMA = ROOT / "docs/design/flow-format/flow.schema.json"
+CHECKER = ROOT / "scripts/check-flows.py"
 
 
 def schema_vocabulary(schema):

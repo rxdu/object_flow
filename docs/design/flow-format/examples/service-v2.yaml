@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../flow.schema.json
 # Service flow: what a service job is, how it progresses, and what it records.
 module: service
 imports: { people: [User] }
@@ -72,6 +73,10 @@ types:
         description: A photo is attached.
         expression: inputs.photo is not null
         remedy: self_serviceable
+      at_least_one_passed:
+        description: At least one inspection passed.
+        expression: any(r in inspections where r.outcome == CheckOutcome.PASS)
+        remedy: dependent
 
     transitions:
       open:
@@ -98,7 +103,8 @@ types:
         optional_inputs: [photo]
         guards:
           no_unresolved_failure: deny
-          photo_attached: audit
+          photo_attached: deny
+          at_least_one_passed: warn
 
     metrics:
       time_working:

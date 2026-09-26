@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0116 — a declaration is written in the flow description format (`flow-format.md`); the text language survives only as the internal form the checks read.
 
 ## Context
 

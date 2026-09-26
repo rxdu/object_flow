@@ -26,20 +26,21 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 
 **[`PRD.md`](PRD.md) is the baseline.** It states what the product must do; this document states the model that does it. A design choice here is justified by the PRD requirement or use case it serves and is checked against the PRD, never the reverse: where the two disagree, the design changes, or the author revises the PRD first (the author, 2026-09-23). [`design/data-driven-engine.md`](design/data-driven-engine.md) records how each choice of ADR-0081 to ADR-0086 was tested against the PRD's use cases, and this document incorporates them. [`design/traceability.md`](design/traceability.md) maps every PRD requirement and use case to the sections and decisions that meet it, and `scripts/check-traceability.py` holds the map against the PRD.
 
-This document is the single description of the **model**: what an object is, what a transition guarantees, how a request executes, what the store refuses. The **language** those things are written in belongs to [`design/declaration-syntax.md`](design/declaration-syntax.md), which owns every grammar, every spelling and the sixty-four publish checks.
+This document is the single description of the **model**: what an object is, what a transition guarantees, how a request executes, what the store refuses. A flow is **written** in the flow description format, [`design/flow-format.md`](design/flow-format.md), with its schema and its checker (ADR-0116). The **declaration model** itself, every construct, its meaning and the sixty-four publish checks, belongs to [`design/declaration-syntax.md`](design/declaration-syntax.md), whose text notation is no longer written by anyone: it is the internal form the flow description is converted to and the checks read, until they run on the model directly.
 
-Five further documents carry the parts an implementation needs, each owning what it names:
+Seven further documents carry the parts an implementation needs, each owning what it names:
 
 | Document | Owns |
 |---|---|
-| [`design/declaration-syntax.md`](design/declaration-syntax.md) | the language, every grammar and the publish checks |
+| [`design/flow-format.md`](design/flow-format.md) | the written form of a flow: its structure, names, schema and validity |
+| [`design/declaration-syntax.md`](design/declaration-syntax.md) | the declaration model: every construct, its meaning and the publish checks, in the internal notation |
 | [`design/storage-schema.md`](design/storage-schema.md) | the tables, the indexes a guarantee rests on, and the DDL a change emits |
 | [`design/library-api.md`](design/library-api.md) | the operations a program calls and the shapes they take |
 | [`design/publish-and-import.md`](design/publish-and-import.md) | what publishing checks and reports, and how production data arrives |
 | [`design/renderers.md`](design/renderers.md) | the rule set, agent tool schemas and form hints |
 | [`design/adversarial-harness.md`](design/adversarial-harness.md) | the acceptance test, and what would falsify the guarantee |
 
-**Amended for ADR-0081 to ADR-0106.** Those decisions changed all six documents above and the cutover plan, and each has been amended and says so in its header:
+**Amended for ADR-0081 to ADR-0106.** Those decisions changed the six documents above after the flow description format, which came later (ADR-0116), and the cutover plan, and each has been amended and says so in its header:
 - **the syntax:** seven constructs, checks 54 to 61, the request rule, `length` and formatted serials;
 - **the schema:** the attempt log, the interval index, the observation and label tables, the file reference index, the settled cursor and each object's `recorded_from`;
 - **the API:** `metric`, `diagnostics` and `export`, and a remedy class on every verdict;
@@ -47,7 +48,7 @@ Five further documents carry the parts an implementation needs, each owning what
 - **publish and import:** the `DeclarationChange`, checked mappings with `admit`, and imported entry times;
 - **the harness:** its checks on intervals, read sets, refusals and erasure, and the barrier that interleaves requests.
 
-Where a rule appears in both, this document states what it means and the syntax document states how it is written. That division exists because it failed twice: the outcome grammar was restated here and had gone stale in three of six lines, and a later audit found thirty-two rules stated in both documents of which six had drifted to the superseded version. When the two disagree, the syntax document is the one with a checker.
+Where a rule appears in both, this document states what it means and the syntax document states it for the model; how it is written is `flow-format.md`'s. That division exists because it failed twice: the outcome grammar was restated here and had gone stale in three of six lines, and a later audit found thirty-two rules stated in both documents of which six had drifted to the superseded version. When the two disagree, the syntax document is the one with a checker.
 
 Each decision, with the alternatives it rejected, is an ADR in [`adr/`](adr/); the case studies that shaped it and the catalogue of what it deliberately does not cover are in [`design/`](design/).
 
