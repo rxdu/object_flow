@@ -74,6 +74,8 @@ NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "thi
 ONLY_ON_OBSERVATIONS = {"unit"}
 ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "opposite", "stored", "aggregation", "cascade",
                  "survives"}
+METRIC_ORDER = ["description", "measure", "state", "transition", "source", "item", "filter", "dimensions",
+                "group_by", "time_dimension", "expression", "flag_when"]
 TYPE_ORDER = ["description", "tracking", "state_machine", "attributes", "observations", "states",
               "derived_attributes", "invariants", "conditions", "transitions", "metrics"]
 
@@ -281,9 +283,17 @@ def schema_errors(doc):
         elif e.validator == "oneOf" and e.absolute_path and e.absolute_path[-1] == "unique":
             out.append((tuple(e.absolute_path), "schema",
                         "unique is true, in_scope, { with: [<attribute>, …] } or { where: <expression> }, one of them"))
-        elif e.validator == "oneOf" and isinstance(e.instance, dict) and "measure" in e.instance:
-            out.append((tuple(e.absolute_path), "schema",
-                        "a median_time_in_state metric names a `state`, and a transition_count names a `transition`"))
+        elif e.validator == "oneOf" and len(e.absolute_path) == 4 and e.absolute_path[2] == "metrics":
+            # a metric is a fixed measure or a formula; report the error of the form it chose
+            branch = 0 if isinstance(e.instance, dict) and "measure" in e.instance else 1
+            within = [c for c in e.context if c.schema_path[0] == branch]
+            plain = [c for c in within if c.validator != "oneOf"]
+            if within and not plain:
+                out.append((tuple(e.absolute_path), "schema",
+                            "a median_time_in_state metric names a `state`, and a transition_count names a `transition`"))
+            else:
+                best = jsonschema.exceptions.best_match(plain or e.context)
+                out.append((tuple(e.absolute_path) + tuple(best.absolute_path), "schema", best.message))
         elif e.validator == "oneOf" and e.context:
             # for a step, report the error of the branch its own key names
             branch = None
@@ -319,6 +329,8 @@ def order_errors(doc):
         in_order(list(m), MACHINE_ORDER, ("machines", mn), f"in {mn}, ")
     for tn, t in types(doc):
         in_order(list(t), TYPE_ORDER, ("types", tn), f"in {tn}, ")
+        for mn, m in (t.get("metrics") or {}).items():
+            in_order(list(m), METRIC_ORDER, ("types", tn, "metrics", mn), f"in the metric {mn}, ")
     return out
 
 
@@ -680,6 +692,12 @@ def value_errors(doc, tn, t):
               for st, kind, path, _d in walk(x.get("effect")) for e in step_expressions(st, kind)]
     exprs += [(("types", tn, "observations", o, "invariants", n, "expression"), n, i["expression"])
               for o, ob in (t.get("observations") or {}).items() for n, i in (ob.get("invariants") or {}).items()]
+    for mn, m in (t.get("metrics") or {}).items():
+        if "source" in m:
+            parts = [(k, m[k]) for k in ("filter", "time_dimension", "expression") if m.get(k)]
+            parts += [(("dimensions", d), e) for d, e in (m.get("dimensions") or {}).items()]
+            parts += [(("flag_when", f), c) for f, c in (m.get("flag_when") or {}).items()]
+            exprs += [(("types", tn, "metrics", mn) + (k if isinstance(k, tuple) else (k,)), f"metric {mn}", e) for k, e in parts]
     out = []
     for path, name, text in exprs:
         for m in re.finditer(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b", text):
@@ -910,7 +928,75 @@ def identifier_errors(doc, tn, t, library):
     return out
 
 
+# the members of a row of each source, beside a type's or a kind's own (declaration-syntax.md §6.9)
+OBJECT_ROW = {"id", "state", "open", "created_at", "created_by_kind", "recorded_from", "declaration_version",
+              "entered_at", "time_in", "intervals", "transitions", "attempts"}
+KIND_ROW = {"subject", "corrects", "occurred_at", "recorded_at", "recorded_by_kind", "declaration_version"}
+DATASET_ROWS = {
+    "intervals": {"object", "state", "entered_at", "left_at", "duration", "entered_by_kind", "declaration_version", "legacy", "held"},
+    "transitions": {"object", "transition", "from_state", "to_state", "completes", "returns", "occurred_at", "recorded_at",
+                    "actor_id", "actor_kind", "asserted", "overrides", "imported", "migrated", "redacted", "reason",
+                    "declaration_version", "held"},
+    "attempts": {"object", "transition", "verdict", "clause", "remedy", "unknown", "enforced", "flagged", "actor_id",
+                 "actor_kind", "at", "declaration_version"},
+    "attempt_counts": {"day", "object", "transition", "verdict", "clause", "remedy", "actor_kind", "enforced", "flagged",
+                       "declaration_version", "count"},
+}
+# every metric has these dimensions unless it declares them (declaration-syntax.md §6.9)
+STANDARD_DIMENSIONS = {"version", "actor_kind"}
+
+
+def row_members(t, source):
+    """The members a row of the source has, or None if the type has no such source."""
+    m = re.fullmatch(r"intervals\(([a-z][a-z0-9_]*)\)", source)
+    if m:
+        return DATASET_ROWS["intervals"] - {"state"} | {"value"}
+    if source in DATASET_ROWS:
+        return DATASET_ROWS[source]
+    if source == "objects":
+        return set(t.get("attributes") or {}) | set(t.get("observations") or {}) | set(t.get("derived_attributes") or {}) | OBJECT_ROW
+    ob = (t.get("observations") or {}).get(source)
+    return None if ob is None else set(ob.get("attributes") or {}) | KIND_ROW
+
+
+def formula_errors(tn, t, mn, m):
+    """A metric in the metric language reads its rows through its item, and its
+    flags read its value and its dimensions."""
+    base = ("types", tn, "metrics", mn)
+    source, item = m["source"], m["item"]
+    members = row_members(t, source)
+    out = []
+    if members is None:
+        out.append((base + ("source",), "names", f"metric {mn} reads '{source}', which is not objects, intervals, intervals(<member>), "
+                                                 f"transitions, attempts, attempt_counts or an observation kind of {tn}"))
+    tracked = re.fullmatch(r"intervals\(([a-z][a-z0-9_]*)\)", source)
+    if tracked and tracked.group(1) not in (t.get("attributes") or {}) and tracked.group(1) != "state":
+        out.append((base + ("source",), "names", f"metric {mn} reads the intervals of '{tracked.group(1)}', which {tn} does not declare"))
+    if item in NOT_AN_ATTRIBUTE | KEYWORDS | {"value"}:
+        out.append((base + ("item",), "names", f"metric {mn} names its rows '{item}', which an expression reads as something else"))
+    for d in (m.get("dimensions") or {}):
+        if d == "value":
+            out.append((base + ("dimensions", d), "names", f"metric {mn} has a dimension named 'value', which its flags read as the metric's value"))
+    parts = [(("filter",), m.get("filter")), (("time_dimension",), m.get("time_dimension")), (("expression",), m["expression"])]
+    parts += [(("dimensions", d), e) for d, e in (m.get("dimensions") or {}).items()]
+    for key, text in parts:
+        if text is None:
+            continue
+        for r in sorted(reads(text) - {item, "now"}):
+            out.append((base + key, "names", f"metric {mn} reads '{r}'; a metric reads its rows through '{item}'"))
+        for r in sorted(set(re.findall(rf"(?<![\w.]){item}\.([a-z][a-z0-9_]*)", " ".join(str(text).split())))):
+            if members is not None and r not in members:
+                out.append((base + key, "names", f"metric {mn} reads {item}.{r}, and a row of {source} has no member '{r}'"))
+    dims = set(m.get("dimensions") or {}) | STANDARD_DIMENSIONS
+    for f, c in (m.get("flag_when") or {}).items():
+        for r in sorted(reads(c) - dims - {"value", "now"}):
+            out.append((base + ("flag_when", f), "names", f"metric {mn}'s flag {f} reads '{r}', which is neither value nor a dimension"))
+    return out
+
+
 def metric_errors(tn, t, mn, m):
+    if "source" in m:
+        return formula_errors(tn, t, mn, m)
     base = ("types", tn, "metrics", mn)
     trans = t.get("transitions") or {}
     out = []
@@ -1144,6 +1230,20 @@ def effect_lines(steps, P, indent):
 def metric_text(tn, t, mn, m):
     M = ("types", tn, "metrics", mn)
     out = [(f"# {m['description']}", M), (f"metric {mn} version 1 {{", M)]
+    if "source" in m:
+        one = lambda e: " ".join(str(e).split())
+        src = m["source"]
+        ob = (t.get("observations") or {}).get(src)
+        rows = tn if src == "objects" else ob["kind"] if ob else f"{tn}.{src}"
+        out.append((f"  from      {m['item']} in {rows}" + (f" where {one(m['filter'])}" if m.get("filter") else ""), M + ("source",)))
+        if m.get("dimensions"):
+            out.append(("  by        " + ", ".join(f"{d} = {one(e)}" for d, e in m["dimensions"].items()), M + ("dimensions",)))
+        if m.get("time_dimension"):
+            out.append((f"  window on {one(m['time_dimension'])}", M + ("time_dimension",)))
+        out.append((f"  value     {one(m['expression'])}", M + ("expression",)))
+        out += [(f"  flag      {f} when {one(c)}", M + ("flag_when", f)) for f, c in (m.get("flag_when") or {}).items()]
+        out.append(("}", M))
+        return out
     tracked = {a for a, s in (t.get("attributes") or {}).items() if s.get("assignee")}
     if m["measure"] == "median_time_in_state":
         v, time, value = "i", "i.entered_at", "median(i.duration)"
@@ -1292,6 +1392,17 @@ def self_test(people, service, inventory, delivery, approvals):
          plant(delivery, "        unique: true\n", "        unique: in_scope\n")),
         ("a uniqueness that is none of its four forms", "schema", "delivery.yaml",
          plant(delivery, "        unique: true\n", "        unique: global\n")),
+        ("a metric that reads a member its rows do not have", "names", "service.yaml",
+         plant(service, "        filter: r.outcome != CheckOutcome", "        filter: r.outcom != CheckOutcome")),
+        ("a metric that reads a name other than its item", "names", "service.yaml",
+         plant(service, "        filter: r.outcome != CheckOutcome.NOT_APPLICABLE\n", "        filter: engineer is not null\n")),
+        ("a flag that reads neither the value nor a dimension", "names", "service.yaml",
+         plant(service, 'flag_when: { low: "value < 0.900" }', 'flag_when: { low: "value < threshold" }')),
+        ("a metric over a source its type does not have", "names", "service.yaml",
+         plant(service, "        source: inspections\n", "        source: labels\n")),
+        ("a metric whose item is declared after its filter", "order", "service.yaml",
+         plant(plant(service, "        item: r\n        filter: r.outcome", "        filter: r.outcome"),
+               "        time_dimension: r.occurred_at\n", "        time_dimension: r.occurred_at\n        item: r\n")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",

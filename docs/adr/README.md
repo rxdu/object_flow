@@ -116,3 +116,7 @@
 | [0112](0112-who-may-read-a-metric.md) | Who may read a metric, with splits by person restricted by default | **Superseded by ADR-0114** |
 | [0113](0113-an-observed-norm-is-held-as-data.md) | A norm observed in history is held as data, refreshed from a metric | Accepted by the author |
 | [0114](0114-objectflow-records-who-acted-and-never-evaluates-it.md) | ObjectFlow records who acted and never evaluates it | Accepted by the author |
+| [0115](0115-the-flow-format-uses-established-state-machine-terms.md) | The flow description format uses established state-machine terms | Accepted by the author |
+| [0116](0116-the-flow-description-format-replaces-the-text-language.md) | The flow description format replaces the text language | Accepted by the author |
+| [0117](0117-types-of-a-module-may-reference-each-other-and-relationships-use-uml-terms.md) | Types of a module may reference each other; relationships use UML's terms | Accepted by the author |
+| [0118](0118-metrics-are-written-under-their-type-in-semantic-layer-terms.md) | Metrics are written under their type, in the terms of semantic layers | Accepted by the author |

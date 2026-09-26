@@ -36,7 +36,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 (step 2, `schema`)
 
 1. A name MUST be unique among the names of its section. A repeated key is refused by step 1.
-2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines` and `types`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a type declares, in this order, `description`, `tracking`, `state_machine`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used. (step 3, `order`)
+2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines` and `types`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a metric declares, in this order, `description`, `measure`, `state`, `transition`, `source`, `item`, `filter`, `dimensions`, `group_by`, `time_dimension`, `expression` and `flag_when`; a type declares, in this order, `description`, `tracking`, `state_machine`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used. (step 3, `order`)
 3. Reserved words of the text language MAY be used as names, as `declaration-syntax.md` §9.2 allows, with these exceptions (step 3, `names`):
    - a category MUST NOT be named `any`, `terminal` or `superseding`, and a transition MUST NOT be named `any` (the text language's check 33);
    - an attribute, including an observation's, MUST NOT be named `state`, `inputs`, `actor`, `this`, `now`, `referrers` or `this_event`, since an expression resolves those words before any attribute;
@@ -189,17 +189,51 @@ A transition MUST NOT both write and clear one attribute. (step 3, `names`)
 
 ### 4.9 Metrics
 
-A metric is a figure computed from the record of many objects (`declaration-syntax.md` §6.9).
+A metric is a figure computed from the record of many objects (`declaration-syntax.md` §6.9). It is declared under the type whose rows it reads, since every source of rows belongs to one type (ADR-0118), and takes one of two forms: a fixed measure, or a formula in the model's metric language.
+
+**A fixed measure** names one of two figures the model provides:
 
 | Key | Required | Value |
 |---|---|---|
 | `description` | yes | what the figure is |
 | `measure` | yes | `median_time_in_state`, the median time objects spend in `state`; or `transition_count`, the number of times `transition` is taken |
 | `state` or `transition` | as `measure` requires | a declared state or transition (step 2, `schema`; step 3, `names`) |
-| `group_by` | no | dimensions: `month`, `week`, `actor` (the one who took the transition, only for `transition_count`), or an attribute of the type |
+| `group_by` | no | the dimensions to group by: `month`, `week`, `actor` (the one who took the transition, only for `transition_count`), or an attribute of the type |
 | `flag_when` | no | a mapping from a flag's name to an expression over `value`, such as `"value > 60 days"` |
 
 A `transition_count` counts the transitions along its transition's source and target states, so it MUST NOT name a transition that shares a source and target with another. (step 3, `names`)
+
+**A formula** aggregates an expression over the rows of a source, grouped by its dimensions:
+
+| Key | Required | Value |
+|---|---|---|
+| `description` | yes | what the figure is |
+| `source` | yes | the rows: `objects`, the type's objects; `intervals`, each span an object spent in one state; `intervals(<member>)`, each span a tracked member held one value; `transitions`, each transition taken; `attempts`, each request that did not apply; `attempt_counts`, their daily counts; or the name of one of the type's observation kinds, each observation of it |
+| `item` | yes | the name each row is read by, as a `foreach` step names its element |
+| `filter` | no | an expression over the row; only the rows it holds for are counted |
+| `dimensions` | no | a mapping from a dimension's name to an expression over the row; the figure is computed for each combination of their values |
+| `time_dimension` | no | a timestamp over the row, by which a guard's `over last <duration>` selects rows |
+| `expression` | yes | the value, combining aggregates over the rows of one group: `count()`, `count(where …)`, `count(distinct …)`, `sum`, `min`, `max`, `avg`, `median` and `percentile(<p>, …)` |
+| `flag_when` | no | a mapping from a flag's name to an expression over `value` and the dimensions |
+
+```yaml
+inspection_pass_rate:
+  description: The share of applicable inspections that pass, per engineer.
+  source: inspections
+  item: r
+  filter: r.outcome != CheckOutcome.NOT_APPLICABLE
+  dimensions:
+    engineer: r.subject.engineer
+  time_dimension: r.occurred_at
+  expression: count(where r.outcome == CheckOutcome.PASS) * 1.000 / count()
+  flag_when: { low: "value < 0.900" }
+```
+
+The source MUST be one the type has, and `intervals(<member>)` MUST name a member the type declares (step 3, `names`) that is tracked: the state, an enumeration attribute or a single stored reference (step 4, `check 58`). The filter, the dimensions, the time dimension and the expression read the row through `item` and read no other name but `now`, and each member of the row they read MUST be one the source's rows have, as `declaration-syntax.md` §6.9 lists them for each source (step 3, `names`). So `item` MUST NOT be a name an expression reads as something else, such as `state`, `now` or `value` (step 3, `names`). A flag reads `value`, the metric's dimensions, and `version` and `actor_kind`, which every metric has unless it declares them, and so no dimension is named `value` (step 3, `names`).
+
+The rest of the model's rules for a metric are its publish checks (step 4, `check 56`): a dimension reaches at most two hops from the row, no personal member is read anywhere in a metric, `avg`, `median`, `percentile` and the time buckets `day` to `year` are used in a metric only, and a guard's `metric(…)` binds only the metric's dimensions and windows only a metric with a `time_dimension`.
+
+The keys are the ones the semantic layers use for the same things (ADR-0118, Appendix A.4): dbt, Cube and Looker call the groups dimensions and narrow the rows with a filter, and dbt aggregates a metric against its time dimension. A metric over other metrics, the model's `combine`, is not written yet.
 
 ### 4.10 Shared state machines
 
@@ -315,6 +349,9 @@ Each form converts to the text language as follows, and means what that declarat
 | `cascade: [{ on: [a], transition: t, limit: n }]`, `survives: [b]` | `cascade on a to T.t limit n`, `survives on { b }` |
 | `measure: median_time_in_state` | a metric over the type's intervals in the state, valued `median(i.duration)` |
 | `measure: transition_count` | a metric over the type's transitions along the transition's states, valued `count()` |
+| `source: s`, `item: i`, `filter: f` | `from i in <T>.s where f`; `from i in <T>` for `objects`, and `from i in <Kind>` for an observation kind |
+| `dimensions: { d: e }`, `time_dimension: t` | `by d = e`, `window on t` |
+| `expression: v`, `flag_when: { n: c }` | `value v`, `flag n when c` |
 
 The generated guards and invariants take the names shown, which §3 reserves. The text language keeps its own keywords for these forms (`create`, `do`, `act`, `terminal`, `observe`, `flag`) until the author decides whether this format replaces it (ADR-0115).
 
@@ -327,7 +364,7 @@ A description is checked in four steps, and each stops the check if it finds any
 | 1. strict loading | `yaml` | a file YAML cannot parse, including a `?` unquoted inside an inline collection, or a key repeated in a mapping |
 | 2. structure | `schema` | a missing or unknown key, a value of the wrong form, a name in the wrong case, a transition kind without the `from` and `to` it requires, a metric without the `state` or `transition` its measure requires |
 | 3. names and order | `order` | sections out of order, a derived attribute that reads itself or one declared after it |
-| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
+| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a metric over a source its type does not have or reading anything but its item and the members its rows have, a flag reading neither the value nor a dimension, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
@@ -386,9 +423,9 @@ These are open in `authoring-flows.md` §3 and §7, and an answer would change t
 
 These words are reserved by the format. `scripts/check-flow-format-doc.py` holds this list equal to the keys and values `flow.schema.json` and the checker define.
 
-**Keys:** `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines`, `requires`, `state_machine`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `optional`, `identifier`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `state`, `transition`, `group_by`, `flag_when`.
+**Keys:** `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines`, `requires`, `state_machine`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `optional`, `identifier`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `source`, `filter`, `dimensions`, `time_dimension`, `state`, `transition`, `group_by`, `flag_when`.
 
-**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `composite`, `in_scope`, `month`, `week`, `actor`.
+**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `objects`, `intervals`, `transitions`, `attempts`, `attempt_counts`, `composite`, `in_scope`, `month`, `week`, `actor`.
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
 
@@ -439,7 +476,24 @@ On 2026-09-26 the author answered "adopt standards and update our specs" (ADR-01
 5. §4.5 names `required_attributes` as the state's invariant, generated as `<state>_invariant`, and §4.8 states that a transition's name is its trigger.
 6. The delivered grouping is drawn as a comment, which declares nothing, rather than as a frame, which in UML declares a composite state.
 
-The text language keeps its own keywords until the author decides whether this format replaces it.
+The text language kept its own keywords until the author decided that this format replaces it (ADR-0116); it survives only as the internal form the checker reads.
+
+### A.4 Metric terms
+
+On 2026-09-26 the author asked that the metric language's terms be verified before any was adopted, and then accepted them (ADR-0118). Each was checked against the product's current documentation that day:
+
+| This format | The model (§6.9) | dbt (MetricFlow) | Cube | Looker (LookML) |
+|---|---|---|---|---|
+| a metric under the type it reads | `metric`, at the top level | a simple metric under its semantic model; a ratio or derived one at the top level | a measure in its cube | a measure in its view |
+| `dimensions` | `by` | dimensions: "the non-aggregatable columns … that describe or categorize data" | dimensions: "attributes related to measures"; a query's "dimensions to group by" | `dimension` |
+| `filter` | `where`, in `from` | `filter`, "WHERE clause equivalent" | a measure's `filters` | a measure's `filters` |
+| `time_dimension` | `window on` | `agg_time_dimension` | `timeDimensions`, "grouping and filtering by a time dimension" | a `dimension_group` of `type: time` |
+| `day` … `year`, a week from Monday | the same (ADR-0106) | granularities `day` to `year` | the same; "week (starting on Monday)" | timeframes `date` to `year`; "weeks in Looker start on Monday" |
+| `avg`, `median`, `percentile` in an expression | the same | `agg: average`, `median`, `percentile` | `type: avg`; no median or percentile type | `type: average`, `median`, `percentile` |
+| `flag_when` | `flag` | none | none | none |
+| not yet | `combine` | a derived metric: `expr` over `input_metrics` | none | none |
+
+Sources: dbt's [latest spec](https://docs.getdbt.com/docs/build/latest-metrics-spec), [metrics overview](https://docs.getdbt.com/docs/build/metrics-overview), [dimensions](https://docs.getdbt.com/docs/build/dimensions) and [simple metrics](https://docs.getdbt.com/docs/build/simple); Cube's [dimensions](https://docs.cube.dev/reference/data-modeling/dimensions), [measures](https://docs.cube.dev/reference/data-modeling/measures) and [query format](https://docs.cube.dev/reference/core-data-apis/rest-api/query-format); Looker's [measure types](https://docs.cloud.google.com/looker/docs/reference/param-measure-types) and [dimension groups](https://docs.cloud.google.com/looker/docs/reference/param-field-dimension-group). dbt's week start day was not checked.
 
 ## Appendix B. Coverage of the declaration model
 
@@ -481,7 +535,8 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | observations | §6.8 | written (§4.4) |
 | labels | §6.8 | not yet |
 | metrics: median time in a state, transition counts | §6.9 | written (§4.9) |
-| metrics: the rest of the metric language | §6.9 | not yet |
+| metrics: the metric language, sources, dimensions, filters and flags | §6.9 | written (§4.9) |
+| metrics: combined metrics, `combine` | §6.9 | not yet (ADR-0118) |
 | standard metrics | §6.11 | provided for every type, with nothing to write |
 | quantity tracking and its counters | §7 | not yet |
 | expressions | §8 | written: the same language (§5) |

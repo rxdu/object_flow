@@ -922,6 +922,16 @@
       }
     },
     "metric": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/measureMetric"
+        },
+        {
+          "$ref": "#/definitions/formulaMetric"
+        }
+      ]
+    },
+    "measureMetric": {
       "type": "object",
       "required": [
         "description",
@@ -957,7 +967,7 @@
           "additionalProperties": {
             "$ref": "#/definitions/expression"
           },
-          "description": "Named flags, each an expression over value."
+          "description": "Named flags, each an expression over value and the dimensions."
         }
       },
       "oneOf": [
@@ -991,7 +1001,82 @@
             ]
           }
         }
-      ]
+      ],
+      "description": "A fixed measure: the median time in a state, or the number of times a transition is taken."
+    },
+    "formulaMetric": {
+      "type": "object",
+      "description": "A metric written in the model's metric language (declaration-syntax.md §6.9): an expression aggregated over the rows of a source, grouped by dimensions.",
+      "required": [
+        "description",
+        "source",
+        "item",
+        "expression"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "$ref": "#/definitions/description"
+        },
+        "source": {
+          "description": "The rows: objects, intervals, intervals(<member>), transitions, attempts, attempt_counts, or an observation kind of the type.",
+          "anyOf": [
+            {
+              "enum": [
+                "objects",
+                "intervals",
+                "transitions",
+                "attempts",
+                "attempt_counts"
+              ]
+            },
+            {
+              "type": "string",
+              "pattern": "^intervals\\([a-z][a-z0-9_]*\\)$"
+            },
+            {
+              "$ref": "#/definitions/memberName",
+              "description": "An observation kind of the type."
+            }
+          ]
+        },
+        "item": {
+          "$ref": "#/definitions/memberName",
+          "description": "The name each row is read by."
+        },
+        "filter": {
+          "$ref": "#/definitions/expression",
+          "description": "The rows counted: those the expression holds for (dbt's filter, a WHERE clause)."
+        },
+        "dimensions": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/expression"
+          },
+          "description": "The groups: a mapping from a dimension's name to an expression over the row."
+        },
+        "time_dimension": {
+          "$ref": "#/definitions/expression",
+          "description": "The timestamp a window over last <duration> selects rows by."
+        },
+        "expression": {
+          "$ref": "#/definitions/expression",
+          "description": "The value, aggregated over the rows of one group."
+        },
+        "flag_when": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/expression"
+          },
+          "description": "Named flags, each an expression over value and the dimensions."
+        }
+      }
     },
     "input": {
       "description": "A value the caller supplies with a request, recorded with the event and written only where an effect writes it.",

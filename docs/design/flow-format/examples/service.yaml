@@ -131,3 +131,21 @@ types:
         state: WORKING
         group_by: [engineer, month]
         flag_when: { slow: "value > 10 days" }
+      inspection_pass_rate:
+        description: The share of applicable inspections that pass, per engineer.
+        source: inspections
+        item: r
+        filter: r.outcome != CheckOutcome.NOT_APPLICABLE
+        dimensions:
+          engineer: r.subject.engineer
+        time_dimension: r.occurred_at
+        expression: count(where r.outcome == CheckOutcome.PASS) * 1.000 / count()
+        flag_when: { low: "value < 0.900" }
+      handoffs_per_job:
+        description: The average number of times a job changes hands, by the month it was opened.
+        source: objects
+        item: o
+        dimensions:
+          month: month(o.created_at)
+        time_dimension: o.created_at
+        expression: avg(o.handoffs)

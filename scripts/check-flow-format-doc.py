@@ -85,7 +85,8 @@ def main():
 
     section3 = re.search(r"^## 3\..*?(?=^## 4\.)", doc, re.M | re.S)
     lists = re.sub(r"`,? and `|`, `", ", ", section3.group(0) if section3 else "").replace("`", "")
-    for name, order in (("module", trial.MODULE_ORDER), ("machine", trial.MACHINE_ORDER), ("type", trial.TYPE_ORDER)):
+    for name, order in (("module", trial.MODULE_ORDER), ("machine", trial.MACHINE_ORDER), ("type", trial.TYPE_ORDER),
+                        ("metric", trial.METRIC_ORDER)):
         if ", ".join(order) not in lists:
             findings.append(f"§3 does not state the {name} order the checker enforces: {', '.join(order)}")
 
