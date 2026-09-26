@@ -6,6 +6,7 @@ categories: [inbound, live, closed]
 
 enumerations:
   CheckOutcome: [PASS, FAIL, NOT_APPLICABLE]
+  ReassignmentReason: [ABSENCE, WORKLOAD, SKILLS]
 
 types:
   InspectionCheck:
@@ -36,6 +37,7 @@ types:
     attributes:
       engineer: { reference: User, assignee: true }
       photo:    { type: file, optional: true }
+      signed_off_by_user: { reference: User, optional: true }
 
     observations:
       inspections:
@@ -55,7 +57,10 @@ types:
     states:
       OPEN:    { category: inbound }
       WORKING: { category: live }
-      DONE:    { category: closed, final: true }
+      DONE:
+        category: closed
+        final: true
+        required_attributes: [signed_off_by_user]
 
     conditions:
       engineer_active:
@@ -88,7 +93,11 @@ types:
       reassign:
         kind: internal
         from: [OPEN, WORKING]
+        description: Gives the job to another engineer, saying why.
         required_inputs: [engineer]
+        inputs:
+          reason: { type: ReassignmentReason }
+          note:   { type: string, optional: true, personal: true }
         guards:
           engineer_active: deny
       start:
@@ -100,11 +109,16 @@ types:
         kind: external
         from: WORKING
         to: DONE
+        description: Completes the job, signed off by the person responsible.
         optional_inputs: [photo]
+        inputs:
+          signed_off_by: { reference: User }
         guards:
           no_unresolved_failure: deny
           photo_attached: deny
           at_least_one_passed: warn
+        effect:
+          - assign: { location: signed_off_by_user, expr: inputs.signed_off_by }
 
     metrics:
       time_working:

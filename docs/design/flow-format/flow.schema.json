@@ -268,6 +268,16 @@
           "$ref": "#/definitions/names",
           "description": "Attributes the caller may supply; each is written if supplied."
         },
+        "inputs": {
+          "description": "Declared inputs that write no attribute of their own name, by name; read in expressions as inputs.<name>.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/input"
+          }
+        },
         "guards": {
           "description": "Conditions evaluated, in this order, after the required inputs are checked.",
           "type": "object",
@@ -592,6 +602,50 @@
               "state"
             ]
           }
+        }
+      ]
+    },
+    "input": {
+      "description": "A value the caller supplies with a request, recorded with the event and written only where an effect writes it.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\([A-Za-z0-9, ]+\\))?(\\[\\])?$",
+          "description": "A built-in type or an enumeration's name; [] makes the input a set."
+        },
+        "reference": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9]*(\\[\\])?$",
+          "description": "The type of object the input names; [] makes it a set of objects."
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "true if the caller may leave the input out."
+        },
+        "personal": {
+          "type": "boolean",
+          "description": "true if erasure redacts the input from every event that recorded it."
+        },
+        "default": {
+          "$ref": "#/definitions/expression",
+          "description": "The value used when the caller leaves the input out; not allowed on an optional input."
+        },
+        "description": {
+          "$ref": "#/definitions/description"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "required": [
+            "reference"
+          ]
         }
       ]
     }

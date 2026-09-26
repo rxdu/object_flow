@@ -99,7 +99,7 @@ An observation is a datapoint recorded about an object and never changed afterwa
 | `final` | no | `true` if no transition leaves the state: a final state (UML `FinalState`) |
 | `required_attributes` | no | attributes that have a value whenever an object is in the state; this is the state's invariant (UML `State::stateInvariant`) |
 
-Every transition into a state MUST set each attribute the state requires: by requiring it as an input, by assigning it a value that is provably present, or by leaving it in place from source states that all require it. A value is provably present when it is `now`, a literal, a qualified enumeration value, a required input (`inputs.<attribute>`), or an attribute that every source state requires or that is not optional; any other expression is not counted, even when it would have a value. A transition MUST NOT clear an attribute its target requires. (step 3, `required`)
+Every transition into a state MUST set each attribute the state requires: by requiring it as an input, by assigning it a value that is provably present, or by leaving it in place from source states that all require it. A value is provably present when it is `now`, a literal, a qualified enumeration value, an input that is not optional or has a default (`inputs.<name>`), or an attribute that every source state requires or that is not optional; any other expression is not counted, even when it would have a value. A transition MUST NOT clear an attribute its target requires. (step 3, `required`)
 
 ### 4.6 Invariants
 
@@ -135,9 +135,22 @@ A transition changes an object, and every change to an object is one. A transiti
 | `description` | no | what the transition does, in one sentence |
 | `required_inputs` | no | attributes the caller MUST supply; each is written to the attribute of the same name |
 | `optional_inputs` | no | attributes the caller MAY supply; each is written if supplied. An attribute that is not optional is always required |
+| `inputs` | no | declared inputs, which write no attribute of their own name (below) |
 | `guards` | no | a mapping from a condition's name to its enforcement, in the order the guards are evaluated |
 | `effect` | no | the list of writes the transition makes, in order (UML `Transition::effect`) |
 | `backdating_limit` | no | how far in the past a caller may say the change happened, a duration such as `2 days` |
+
+A **declared input** is a value the caller supplies that is not simply written to the attribute of its name: a reason recorded with the event, a value a guard tests, or one an effect writes elsewhere. Each is a parameter of the transition's trigger, in UML's terms:
+
+| Key | Value |
+|---|---|
+| `type` or `reference` | exactly one: a built-in type or an enumeration, or the type of object it names; `[]` makes it a set |
+| `optional` | `true` if the caller MAY leave it out; a set is never optional, since an empty set is supplied instead (step 3, `names`) |
+| `personal` | `true` if erasure redacts it from every event that recorded it |
+| `default` | an expression used when the caller leaves it out; not allowed on an optional input (step 4, `check 20`) |
+| `description` | what the input is for |
+
+Every input is recorded with the event, and every expression reads it as `inputs.<name>`, as it reads attribute inputs. A declared input MUST NOT share its name with an attribute the transition takes as an input, and every `inputs.<name>` a transition's guards and effect read MUST be an input of that transition; a condition several transitions use is checked against each of them (step 3, `names`). An input is written to an attribute of another name by an effect, `assign: { location: <attribute>, expr: inputs.<name> }`, and counts as a value provably present when it is not optional or has a default.
 
 A guard's **enforcement** is one of the three validation actions of Kubernetes admission policies:
 - `deny`: the transition is refused when the condition fails;
@@ -183,6 +196,7 @@ Each form converts to the text language as follows, and means what that declarat
 | `kind: external`, `from: [A, B]`, `to: C` | `do <name> { A, B } -> C` |
 | `kind: internal`, `from: [A, B]` | `act <name> at { A, B }` |
 | `required_inputs: [a]`, `optional_inputs: [b]` | `accepts a, b` |
+| `inputs: { r: { type: T, optional: true, personal: true } }` | `input r : T? personal` |
 | `required_inputs: [a]` where `a` is optional | also the guard `require a_provided: inputs.a is not null because self_serviceable`, evaluated before the transition's other guards |
 | `guards: { g: deny }` | `require g: <expression> because <remedy>` |
 | `guards: { g: audit }`, `{ g: warn }` | the same, marked `observe` or `flag` |
@@ -205,7 +219,7 @@ A description is checked in four steps, and each stops the check if it finds any
 | 1. strict loading | `yaml` | a file YAML cannot parse, including a `?` unquoted inside an inline collection, or a key repeated in a mapping |
 | 2. structure | `schema` | a missing or unknown key, a value of the wrong form, a name in the wrong case, a transition kind without the `from` and `to` it requires, a metric without the `state` or `transition` its measure requires |
 | 3. names and order | `order` | sections out of order, a type used before it is declared |
-| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
+| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
@@ -264,7 +278,7 @@ These are open in `authoring-flows.md` §3 and §7, and an answer would change t
 
 These words are reserved by the format. `scripts/check-flow-format-doc.py` holds this list equal to the keys and values `flow.schema.json` and the checker define.
 
-**Keys:** `module`, `imports`, `categories`, `enumerations`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `optional`, `unique`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `backdating_limit`, `measure`, `state`, `transition`, `group_by`, `flag_when`.
+**Keys:** `module`, `imports`, `categories`, `enumerations`, `types`, `description`, `tracking`, `attributes`, `observations`, `states`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `optional`, `unique`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `backdating_limit`, `measure`, `state`, `transition`, `group_by`, `flag_when`.
 
 **Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `month`, `week`, `actor`.
 
@@ -342,7 +356,7 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | transitions: initial, external and internal | §4, §4.2 | written (§4.8) |
 | transition markings: `only via`, proposable, asserting | §4.2 | not yet; backdating is written |
 | inputs that write an attribute of the same name | §5.1 | written (§4.8) |
-| inputs that write nothing, or another name | §5.1 | not yet |
+| inputs that write nothing, or another name | §5.1 | written (§4.8) |
 | guards, and their enforcement | §5.1 | written (§4.8) |
 | eager and deferred evaluation of guards | §5.1 | not yet |
 | effect steps: assign, clear | §5.2 | written (§4.8) |

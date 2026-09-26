@@ -30,6 +30,7 @@ The conversion is mechanical, and nothing in the YAML has a default:
     required_inputs: [a]                   accepts a; where a is optional, also
                                            a guard a_provided: inputs.a is not null
     optional_inputs: [a]                   accepts a
+    inputs: {r: {type: T, optional: true}} input r : T?  (read as inputs.r)
     guards: {g: deny|audit|warn}           require g: …  [observe|flag]
     effect: assign {location: b, expr: e}  set b := e
     effect: clear [a]                      clear a
@@ -147,6 +148,21 @@ def optional(spec):
     return bool(spec.get("optional"))
 
 
+def taken(x):
+    """Every input a transition takes: attribute inputs and declared inputs."""
+    return set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(x.get("inputs") or {})
+
+
+def required_input_names(x):
+    """The inputs a request always has a value for: required attribute inputs,
+    and declared inputs that are not optional or that carry a default."""
+    declared = {i for i, spec in (x.get("inputs") or {}).items() if not spec.get("optional") or "default" in spec}
+    return set(x.get("required_inputs", [])) | declared
+
+
+INPUT_READ = re.compile(r"\binputs\.([a-z][a-z0-9_]*)")
+
+
 def provided_guards(t, x):
     """The guards required_inputs generates: one per optional attribute."""
     attrs = t.get("attributes") or {}
@@ -216,6 +232,8 @@ def order_errors(doc):
         refs = [(("types", tn, "attributes", a), s["reference"]) for a, s in (t.get("attributes") or {}).items() if "reference" in s]
         refs += [(("types", tn, "observations", o, "attributes", a), s["reference"])
                  for o, ob in (t.get("observations") or {}).items() for a, s in ob["attributes"].items() if "reference" in s]
+        refs += [(("types", tn, "transitions", xn, "inputs", i), s["reference"].rstrip("[]"))
+                 for xn, x in (t.get("transitions") or {}).items() for i, s in (x.get("inputs") or {}).items() if "reference" in s]
         for path, r in refs:
             if r != tn and r not in declared and r in (doc.get("types") or {}):
                 out.append((path, "order", f"{tn} references {r}, which is declared after it; declare {r} first"))
@@ -283,10 +301,24 @@ def name_errors(doc):
                 if s not in states:
                     key = "to" if s == x.get("to") else "from"
                     out.append((base + (key,), "names", f"{tn}.{xn} names the state {s}, which {tn} does not declare"))
+            conditions = t.get("conditions") or {}
             for g in (x.get("guards") or {}):
                 used.add(g)
                 if g not in conds:
                     out.append((base + ("guards", g), "names", f"{tn}.{xn} guards on '{g}', which is not a condition of {tn}"))
+                    continue
+                for i in sorted(set(INPUT_READ.findall(conditions[g]["expression"])) - taken(x)):
+                    out.append((base + ("guards", g), "names",
+                                f"{tn}.{xn} guards on '{g}', which reads inputs.{i}, and {xn} takes no input '{i}'"))
+            for e, loc in assigns(x):
+                for i in sorted(set(INPUT_READ.findall(e)) - taken(x)):
+                    out.append((base + ("effect",), "names", f"{tn}.{xn} assigns inputs.{i} to '{loc}', and {xn} takes no input '{i}'"))
+            for i, spec in (x.get("inputs") or {}).items():
+                if i in set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])):
+                    out.append((base + ("inputs", i), "names", f"{tn}.{xn} declares the input '{i}' and also takes the attribute '{i}' as an input"))
+                kind = spec.get("type") or spec.get("reference")
+                if kind.endswith("[]") and spec.get("optional"):
+                    out.append((base + ("inputs", i), "names", f"{tn}.{xn}'s input '{i}' is a set, which is never optional: an empty set is supplied instead"))
             named = [(k, a) for k in ("required_inputs", "optional_inputs") for a in x.get(k, [])]
             named += [("effect", loc) for _e, loc in assigns(x)] + [("effect", a) for a in copies_from(x)] + [("effect", a) for a in cleared(x)]
             for k, a in named:
@@ -343,7 +375,7 @@ def required_errors(tn, xn, x, required, always):
     for a in sorted(required.get(x["to"], set())):
         if a in supplied or (a in kept and a not in cleared(x)):
             continue
-        if a in assigned and present(assigned[a], supplied | kept, x.get("required_inputs", [])):
+        if a in assigned and present(assigned[a], supplied | kept, required_input_names(x)):
             continue
         how = f"or require it in state {', '.join(src)}" if src else "since an initial transition starts from no state"
         out.append((base + ("to",), "required",
@@ -476,8 +508,15 @@ def to_text(doc):
                 head += " accepts " + ", ".join(accepts)
             if x.get("backdating_limit"):
                 head += f" backdatable within {x['backdating_limit']}"
-            body = [(f"require {a}_provided: inputs.{a} is not null because self_serviceable", X + ("required_inputs",))
-                    for a in provided_guards(t, x)]
+            body = []
+            for i, spec in (x.get("inputs") or {}).items():
+                kind = spec.get("type") or spec.get("reference")
+                line = f"input {i} : {kind}" + ("?" if spec.get("optional") else "")
+                if "default" in spec:
+                    line += f" default {' '.join(spec['default'].split())}"
+                body.append((line + (" personal" if spec.get("personal") else ""), X + ("inputs", i)))
+            body += [(f"require {a}_provided: inputs.{a} is not null because self_serviceable", X + ("required_inputs",))
+                     for a in provided_guards(t, x)]
             for g, mode in (x.get("guards") or {}).items():
                 if g in conds:
                     c = conds[g]
@@ -611,6 +650,8 @@ def self_test(people, service, inventory):
          plant(service, "photo_attached: audit", "photo_attached: enforce")),
         ("an initial transition that names a source state", "schema", "service.yaml",
          plant(service, "        kind: initial\n        to: OPEN\n", "        kind: initial\n        from: WORKING\n        to: OPEN\n")),
+        ("a guard that reads an input its transition does not take", "names", "service.yaml",
+         plant(service, "        backdating_limit: 2 days\n", "        backdating_limit: 2 days\n        guards:\n          engineer_active: deny\n")),
         ("a condition that reads who is asking", "check 64", "service.yaml",
          plant(plant(service, "          no_unresolved_failure: deny\n",
                      "          no_unresolved_failure: deny\n          assigned_engineer_only: deny\n"), *reads_actor)),
