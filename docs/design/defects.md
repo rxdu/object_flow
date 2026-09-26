@@ -405,6 +405,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D391](#d391) | D385's resolution covered defaults and backfills and no other expression | Resolved in place |
 | [D392](#d392) | The tickets study's fix-version validator read the resolution its own transition writes | Resolved in place |
 | [D393](#d393) | The approvals study's edit claimed to skip writes of required attributes | Resolved in place |
+| [D394](#d394) | A value cut at a comma was reported as an unexpected key | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -2623,3 +2624,8 @@ ADR-0116 moves the design's examples to the flow description format, `unit-journ
 **The approvals study's edit claimed to skip writes of required attributes.** `case-study-approvals-and-bookings.md` §2.2 declared `act edit at SUBMITTED accepts amount, vendor` with the comment "each write skipped when not supplied". An input on an attribute takes the attribute's optionality (`declaration-syntax.md` §5), `amount` and `vendor` are required, and only an optional attribute's input skips its write when not supplied (ADR-0052), so both were required and the comment described a behaviour the declaration did not have. Found rewriting §2.2 in YAML; a copy listing both as optional inputs is refused by `scripts/check-flows.py` at step 3.
 
 **Resolved in place**, 2026-09-26: `edit` requires both, with a correction note in §2.2.
+
+### D394
+**A value cut at a comma was reported as an unexpected key.** Inside an inline mapping YAML ends a value at a comma, so `{ category: todo, description: Applied, waiting to be screened. }` becomes a description and a key `waiting to be screened.`, and step 2 said only "Additional properties are not allowed ('waiting to be screened.' was unexpected)". `flow-format.md` §2 rule 4 requires the quoting, and says such a value "parses into the wrong structure (step 2, `schema`)", but the finding did not say that this was what happened. Found writing the Jira catalogue's modules, the second time in two days its author made the mistake (`docs/LESSONS.md`).
+
+**Resolved in place**, 2026-09-27: step 2 names a key that could not be a name, having a space or punctuation in it, as the rest of a value cut at a comma, and cites the rule; the checker's self-test plants one.

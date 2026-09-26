@@ -17,6 +17,9 @@
    and the keys beside it may be left out.
 4. A creation report quoted in a document with YAML modules is the report
    those modules produce (ADR-0109).
+5. A mermaid block whose first line is `%% <module>.<Type>` is the state
+   diagram scripts/flow-diagram.py draws for that type, so a diagram cannot
+   drift from the module it shows.
 
 Run with no arguments to check every document, or name the documents to
 report on. Exit status is non-zero if anything is reported.
@@ -45,6 +48,8 @@ def script(name):
 
 flows = script("check-flows")
 syntax = script("check-syntax-doc")
+drawing = script("flow-diagram")
+DIAGRAM = re.compile(r"^%% (\w+)\.(\w+)\s*$")
 
 
 def fences(text):
@@ -135,7 +140,7 @@ def rel(p):
 
 def check_docs(texts):
     """Findings over documents given as (path, text), as (path, line, message), and what was checked."""
-    findings, modules, excerpts, reports, text_modules = [], [], [], [], {}
+    findings, modules, excerpts, reports, text_modules, diagrams = [], [], [], [], {}, []
     for p, doc_text in texts:
         blocks = fences(doc_text)
         begun = {}
@@ -161,6 +166,7 @@ def check_docs(texts):
             text_modules.setdefault(m.group(1), []).append(
                 (p, named | {d.name for body in text for d in syntax.parse("\n".join(body), 0)}))
         reports += [(p, start, body[1:]) for info, start, body in blocks if info == "" and body and body[0] == syntax.REPORT_HEAD]
+        diagrams += [(p, start, body) for info, start, body in blocks if info == "mermaid" and body and DIAGRAM.match(body[0])]
 
     by_name = {}
     for m in modules:
@@ -241,8 +247,27 @@ def check_docs(texts):
             findings.append((p, start - 1, "the quoted creation report is not the one the modules produce: "
                                            + " | ".join(want)))
 
+    for p, start, body in diagrams:
+        mod_name, type_name = DIAGRAM.match(body[0]).groups()
+        # the document's own module of that name, its last version, or the module's home
+        own = [m for m in modules if m.doc == p and m.name == mod_name]
+        m = own[-1] if own else home(mod_name)
+        doc = parsed.get(m.label) if m else None
+        if doc is None:
+            findings.append((p, start, f"a diagram of {mod_name}.{type_name}, and no checked module {mod_name} to draw it from"))
+        elif type_name not in (doc.get("types") or {}):
+            findings.append((p, start, f"a diagram of {mod_name}.{type_name}, and {mod_name} declares no type {type_name}"))
+        else:
+            want = drawing.diagram(doc, type_name).rstrip("\n").split("\n")
+            got = list(body)
+            while got and not got[-1].strip():
+                got.pop()
+            if got != want:
+                first = next((i for i, (a, b) in enumerate(zip(got, want)) if a != b), min(len(got), len(want)))
+                findings.append((p, start + first, f"the diagram is not the one {mod_name}.{type_name} draws, from its line {first + 1}; "
+                                                   f"run scripts/flow-diagram.py on the module and paste its output"))
     checked = (len(modules), len({m.doc for m in modules}), len(excerpts),
-               len([r for r in reports if any(m.doc == r[0] for m in modules)]))
+               len([r for r in reports if any(m.doc == r[0] for m in modules)]), len(diagrams))
     return findings, checked
 
 
@@ -257,6 +282,8 @@ def self_test(texts):
     module = module[:module.index("\n```\n") + 5]
     plain = "# A planted document\n\n" + module
     report = "\n```\n" + syntax.REPORT_HEAD + "\nDocument.start -> PUBLISHED\n```\n"
+    drawn = drawing.diagram(flows.load(module[len("```yaml\n"):-len("```\n")]), "Document")
+    picture = "\n```mermaid\n" + drawn + "```\n"
     split = module.replace("\ntypes:\n", "\n```\n\nProse between the blocks.\n\n```yaml\n# documents, continued\ntypes:\n", 1)
 
     def planted(old, new, doc=spec):
@@ -280,6 +307,10 @@ def self_test(texts):
          {**base, trial: plain + "\n" + module.replace("      DRAFT:\n        description: Being written.\n        category: live\n", "")
                                                       .replace("        to: DRAFT\n", "        to: PUBLISHED\n")
                                                       .replace("        from: DRAFT\n", "        from: PUBLISHED\n")}),
+        ("a diagram that leaves out a transition its module has", "is not the one",
+         {**base, trial: plain + picture.replace("    DRAFT --> PUBLISHED: publish\n", "")}),
+        ("a diagram of a type its module does not declare", "declares no type",
+         {**base, trial: plain + picture.replace("%% documents.Document", "%% documents.Folder")}),
         ("a quoted creation report the modules do not produce", "quoted creation report",
          {**base, trial: plain + report}),
     ]
@@ -292,10 +323,10 @@ def self_test(texts):
         ok &= bool(hit)
         where = f"{rel(hit[0][0])}:{hit[0][1]} {hit[0][2][:90]}" if hit else f"MISSED {[f[2][:60] for f in found][:2]}"
         print(f"  planted {name}: {'caught' if hit else 'missed'}, at {where}")
-    found, _checked = check_docs(list({**base, trial: "# A planted document\n\n" + split}.items()))
+    found, _checked = check_docs(list({**base, trial: "# A planted document\n\n" + split + picture}.items()))
     clean = not [f for f in found if f[0] == trial]
     ok &= clean
-    print(f"  a module split across two blocks is checked as one: {'clean' if clean else [f[2] for f in found if f[0] == trial]}")
+    print(f"  a module split across two blocks, and the diagram it draws, are checked clean: {'yes' if clean else [f[2] for f in found if f[0] == trial]}")
     return ok
 
 
@@ -303,11 +334,12 @@ def main():
     docs = [p for p in sorted(ROOT.glob("docs/**/*.md")) if "adr" not in p.relative_to(ROOT).parts]
     wanted = {pathlib.Path(a).resolve() for a in sys.argv[1:]}
     texts = [(p, p.read_text()) for p in docs]
-    findings, (n_modules, n_docs, n_excerpts, n_reports) = check_docs(texts)
+    findings, (n_modules, n_docs, n_excerpts, n_reports, n_diagrams) = check_docs(texts)
     shown = [f for f in findings if not wanted or f[0].resolve() in wanted]
     for p, line, msg in sorted(shown, key=lambda f: (str(f[0]), f[1])):
         print(f"  {rel(p)}:{line} {msg}")
-    print(f"flow docs: {n_modules} module(s) in {n_docs} document(s), {n_excerpts} excerpt(s), {n_reports} report(s): "
+    print(f"flow docs: {n_modules} module(s) in {n_docs} document(s), {n_excerpts} excerpt(s), {n_reports} report(s), "
+          f"{n_diagrams} diagram(s): "
           + ("consistent" if not shown else f"{len(shown)} finding(s)"))
     ok = wanted or self_test(texts)
     return 1 if shown or not ok else 0

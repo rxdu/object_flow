@@ -225,3 +225,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** For every "(step N, code)" a new or edited sentence carries, run a mutation that breaks the rule and see that code fire, or read the implementing code; where neither shows it, say the rule is unchecked instead of citing a check.
 - **Context:** `flow-format.md` and any document that says which check enforces a rule.
 
+
+### Prose inside an inline YAML mapping is quoted
+
+- **Pattern:** Twice on 2026-09-26 and 2026-09-27, writing flow modules by hand, a description with a comma inside an inline mapping, `{ category: todo, description: Applied, waiting to be screened. }`, was cut by YAML into a description and a second key, and step 2 reported only "Additional properties are not allowed ('waiting to be screened.' was unexpected)". `flow-format.md` §2 rule 4 already required the quoting; the author of the rule broke it, in the orders study and then in three modules of the Jira catalogue.
+- **Correction:** Quote every prose value written inside `{ … }`, a description above all, or write it in the block form where YAML reads it whole. The checker now names a key that could not be a name as a value cut at a comma, citing the rule (D394).
+- **Context:** YAML flow descriptions, and any YAML whose inline mappings hold prose.

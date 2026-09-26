@@ -394,7 +394,18 @@ def schema_errors(doc):
             out.append((tuple(e.absolute_path) + tuple(best.absolute_path), "schema", best.message))
         else:
             out.append((tuple(e.absolute_path), "schema", e.message))
-    return out
+    return [(p, c, cut_value(m)) for p, c, m in out]
+
+
+def cut_value(message):
+    """A key that could not be a name, having a space or punctuation in it, is
+    the rest of a value an inline mapping cut at a comma, which the author meant
+    as one (§2 rule 4)."""
+    m = re.match(r"Additional properties are not allowed \('([^']*)' was unexpected\)", message)
+    if not m or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", m.group(1)):
+        return message
+    return (f"'{m.group(1)}' is not a key but the rest of a value cut at a comma: inside {{ … }}, "
+            "a value containing a comma is quoted, as in { description: \"One, two.\" } (§2 rule 4)")
 
 
 def order_errors(doc):
@@ -2304,6 +2315,12 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     hit = "NO" in strict and False in loose
     ok &= hit
     print(f"  planted an enumeration value NO: the strict loader keeps {strict}, a plain YAML loader reads {loose}")
+    cut = [x for x in check([("cut.yaml", "module: m\ncategories: [live]\ntypes:\n  T:\n    description: A type with one state.\n    tracking: record\n"
+                                          "    states: { S: { category: live, description: One, two. }, E: { category: live, final: true } }\n"
+                                          "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n")])[0]]
+    hit = bool(cut) and "§2 rule 4" in cut[0][4] and "'two.'" in cut[0][4]
+    ok &= hit
+    print(f"  planted a comma in an unquoted inline value: {'named as a cut value' if hit else 'MISSED ' + str(cut[:1])}")
     written = load("module: m\ntypes:\n  T:\n    description: d\n    tracking: record\n"
                    "    attributes: { a: { type: bool, default: false }, b: { type: int, default: 0, indexed: true } }\n"
                    "    states: { S: { category: live, final: true } }\n"

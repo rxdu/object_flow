@@ -26,6 +26,7 @@ A probe found a fourth: `scripts/check-flows.py` did not resolve imports at all.
 5. **A quoted creation report is the one the YAML modules produce**, computed by the text checker over their conversion, as ADR-0109's report is for text.
 6. **A fragment whose module was never written gets a module sized to it.** The CRM, orders, tickets and approvals case studies each showed one declaration of a module they never wrote out, and `publish-and-import.md` showed migration lines of none. Each now carries, in an appendix, a module that holds what its fragment needs and no more, and the fragment is an excerpt of it (the author's direction, 2026-09-26: "go with your recommendations").
 7. **What keeps the text notation**: `declaration-syntax.md` and the decision records, as ADR-0116 decided, and `first-consumer-walkthrough.md`, which the unit's journey superseded on 2026-09-24 and which stays the record it is.
+8. **A state diagram of a module is drawn from it, never by hand.** `scripts/flow-diagram.py` draws a type's lifecycle as a Mermaid state diagram in UML's notation, and a `mermaid` block whose first line is `%% <module>.<Type>` must be exactly what it draws, so a diagram cannot drift from the module it shows (added 2026-09-27, for the catalogue of Jira's flows).
 
 `scripts/check-flow-docs.py` implements the first three and the fifth, proves each, and the check of a later version, with a planted mistake, and runs from `scripts/check-corpus.py` beside the text checker.
 
@@ -41,6 +42,7 @@ A probe found a fourth: `scripts/check-flows.py` did not resolve imports at all.
 - **A case study's fragment kept in text, as a record of its time.** Each case study says its declarations are current, and the prose around them records the history; a current declaration in a superseded notation is neither.
 - **A case study's fragment replaced by an excerpt of the example built for its domain.** `customers.yaml`, `issues.yaml` and `approvals.yaml` hold other transitions than the fragments show, and a case study's point is its own declaration.
 - **The migration lines of `publish-and-import.md` kept in the model's form.** An author writes the `migration` section, and the model's lines name no type, a defect of its grammar `TODO.md` records.
+- **Diagrams drawn by hand beside the YAML.** A hand-drawn diagram is the excerpt problem again: it says what the module does in a second form nothing holds to the first.
 - **Refusing an import from a module not among the files.** A single module is a legitimate thing to check, and the publish resolves its imports against the store; a notice says what was not checked without refusing it.
 
 ## Consequences
