@@ -413,6 +413,15 @@ types:
           title: { type: string }
         effect:
           - create: { type: PostIncidentReview, transition: draft, inputs: { primary_incident: this, title: inputs.title } }
+    metrics:
+      incidents_opened:
+        description: Incidents opened, by month.
+        source: objects
+        item: i
+        dimensions:
+          month: month(i.created_at)
+        time_dimension: i.created_at
+        expression: count()
 
   PostIncidentReview:
     description: A review of why an incident happened and how to prevent it.
@@ -468,6 +477,15 @@ types:
         required_inputs: [resolution]
       cancel:  { kind: external, from: [OPEN, UNDER_INVESTIGATION, UNDER_REVIEW], to: CANCELED }
       archive: { kind: external, from: [COMPLETED, CANCELED], to: ARCHIVED }
+    metrics:
+      problems_opened:
+        description: Problems opened, by month.
+        source: objects
+        item: p
+        dimensions:
+          month: month(p.created_at)
+        time_dimension: p.created_at
+        expression: count()
 
   ChangeWindow:
     description: A maintenance window, or a freeze window in which no change should be implemented.
@@ -821,4 +839,14 @@ types:
         to: WITHDRAWN
         guards:
           empty: deny
+
+metrics:
+  problems_per_incident:
+    description: Problems opened for each incident opened, by month, which says how much of the incident load is being traced to a cause.
+    input_metrics:
+      problems: Problem.problems_opened
+      incidents: Incident.incidents_opened
+    group_by: [month]
+    expression: problems * 1.000 / incidents
+    flag_when: { few_traced: "value < 0.1" }
 

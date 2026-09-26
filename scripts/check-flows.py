@@ -63,7 +63,8 @@ FORMAT = ROOT / "docs/design/flow-format"
 EXAMPLES = FORMAT / "examples"
 CHECKER = ROOT / "scripts/check-syntax-doc.py"
 
-MODULE_ORDER = ["module", "imports", "categories", "enumerations", "sequences", "evaluators", "machines", "types", "migration"]
+MODULE_ORDER = ["module", "imports", "categories", "enumerations", "sequences", "evaluators", "machines", "types", "metrics", "migration"]
+COMBINED_ORDER = ["description", "input_metrics", "group_by", "expression", "flag_when"]
 MACHINE_ORDER = ["description", "requires", "states", "conditions", "transitions"]
 # names the text language gives a meaning in the same position (declaration-syntax.md §9.2, check 33)
 NOT_A_CATEGORY = {"any", "terminal", "superseding"}
@@ -413,6 +414,8 @@ def order_errors(doc):
         in_order(list(t), TYPE_ORDER, ("types", tn), f"in {tn}, ")
         for mn, m in (t.get("metrics") or {}).items():
             in_order(list(m), METRIC_ORDER, ("types", tn, "metrics", mn), f"in the metric {mn}, ")
+    for mn, m in (doc.get("metrics") or {}).items():
+        in_order(list(m), COMBINED_ORDER, ("metrics", mn), f"in the metric {mn}, ")
     return out
 
 
@@ -767,7 +770,7 @@ def reserved_name_errors(doc):
 def name_errors(doc, library=None, ordered=True):
     library = dict(library or {})
     library.update(dict(types(doc)))
-    out = (order_errors(doc) if ordered else []) + reserved_name_errors(doc) + relationship_errors(doc, library)
+    out = (order_errors(doc) if ordered else []) + reserved_name_errors(doc) + relationship_errors(doc, library) + combined_errors(doc)
     for tn, t in types(doc):
         states = t.get("states") or {}
         attrs = t.get("attributes") or {}
@@ -1517,6 +1520,67 @@ def evaluator_errors(doc, tn, t):
     return out
 
 
+AGGREGATE_CALL = re.compile(r"\b(count|sum|min|max|avg|median|percentile)\s*\(")
+
+
+def dimensions_of(m):
+    """The dimensions a metric has: those it declares or groups by, and the two every metric has."""
+    if "source" in m:
+        return set(m.get("dimensions") or {}) | STANDARD_DIMENSIONS
+    return set(m.get("group_by") or []) | STANDARD_DIMENSIONS
+
+
+def combined_errors(doc):
+    """A module's metrics share one namespace, as the model's metric
+    declarations do; a combined metric's inputs are metrics of the module's
+    types or combined metrics above it, so it never reaches itself; it groups
+    by their dimensions, and its value combines their values by name, with no
+    rows to aggregate (declaration-syntax.md §6.9, ADR-0098; the model's
+    checks 33 and 56)."""
+    out, owner = [], {}
+    for tn, t in types(doc):
+        for mn in (t.get("metrics") or {}):
+            if mn in owner:
+                out.append((("types", tn, "metrics", mn), "names", f"the metric {mn} is declared by both {owner[mn]} and {tn}; a module's metrics share one namespace"))
+            owner.setdefault(mn, tn)
+    kinds = dict(types(doc))
+    combined = doc.get("metrics") or {}
+    names = list(combined)
+    for i, (mn, m) in enumerate(combined.items()):
+        base = ("metrics", mn)
+        if mn in owner:
+            out.append((base, "names", f"the metric {mn} is also declared by {owner[mn]}; a module's metrics share one namespace"))
+        dims = set(STANDARD_DIMENSIONS)
+        for alias, ref in m["input_metrics"].items():
+            where = base + ("input_metrics", alias)
+            if "." in ref:
+                tn, name = ref.split(".")
+                target = ((kinds.get(tn) or {}).get("metrics") or {}).get(name)
+                if tn not in kinds:
+                    out.append((where, "names", f"metric {mn} combines {ref}, and the module declares no type {tn}"))
+                elif target is None:
+                    out.append((where, "names", f"metric {mn} combines {ref}, which is not a metric of {tn}"))
+                else:
+                    dims |= dimensions_of(target)
+            elif ref in names[i:]:
+                out.append((where, "order", f"metric {mn} combines {ref}, which is itself or declared after it; a combined metric combines those above it"))
+            elif ref not in combined:
+                out.append((where, "names", f"metric {mn} combines {ref}, which is neither a combined metric of this module nor written as <Type>.<metric>"))
+            else:
+                dims |= dimensions_of(combined[ref])
+        for d in m.get("group_by") or []:
+            if d not in dims:
+                out.append((base + ("group_by",), "names", f"metric {mn} groups by '{d}', which none of the metrics it combines has as a dimension"))
+        for r in sorted(reads(m["expression"]) - set(m["input_metrics"])):
+            out.append((base + ("expression",), "names", f"metric {mn} reads '{r}', which is not one of the metrics it combines"))
+        if AGGREGATE_CALL.search(str(m["expression"])):
+            out.append((base + ("expression",), "names", f"metric {mn} aggregates, and a combined metric has no rows: its value combines the values of the metrics it names"))
+        for f, c in (m.get("flag_when") or {}).items():
+            for r in sorted(reads(c) - set(m.get("group_by") or []) - STANDARD_DIMENSIONS - {"value", "now"}):
+                out.append((base + ("flag_when", f), "names", f"metric {mn}'s flag {f} reads '{r}', which is neither value nor a dimension"))
+    return out
+
+
 def metric_errors(tn, t, mn, m):
     if "source" in m:
         return formula_errors(tn, t, mn, m)
@@ -1756,6 +1820,18 @@ def to_text(doc):
             tail += metric_text(tn, merged, mn, m)
     for line, path in tail:
         emit(line, path)
+    one = lambda e: " ".join(str(e).split())
+    for mn, m in (doc.get("metrics") or {}).items():
+        M = ("metrics", mn)
+        emit(f"# {m['description']}", M)
+        emit(f"metric {mn} version 1 {{", M)
+        emit("  combine   " + ", ".join(f"{a} = {r.split('.')[-1]}" for a, r in m["input_metrics"].items()), M + ("input_metrics",))
+        if m.get("group_by"):
+            emit("  by        " + ", ".join(m["group_by"]), M + ("group_by",))
+        emit(f"  value     {one(m['expression'])}", M + ("expression",))
+        for f, c in (m.get("flag_when") or {}).items():
+            emit(f"  flag      {f} when {one(c)}", M + ("flag_when", f))
+        emit("}", M)
     mig = doc.get("migration") or {}
     for tn, maps in (mig.get("removed_states") or {}).items():
         for old, new in maps.items():
@@ -2083,6 +2159,14 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(delivery, "        only_via: [Delivery.cancel]\n", "        only_via: [Delivery.cancel]\n        proposable: true\n")),
         ("an event input given something other than this_event", "names", "delivery.yaml",
          plant(delivery, "at_event: this_event } }", "at_event: now } }")),
+        ("a metric name two types declare", "names", "servicedesk.yaml",
+         plant(servicedesk, "      problems_opened:\n", "      incidents_opened:\n")),
+        ("a combined metric that combines itself", "order", "servicedesk.yaml",
+         plant(servicedesk, "problems: Problem.problems_opened", "problems: problems_per_incident")),
+        ("a combined metric grouped by a dimension none of its inputs has", "names", "servicedesk.yaml",
+         plant(servicedesk, "    group_by: [month]\n    expression: problems", "    group_by: [week]\n    expression: problems")),
+        ("a combined metric that aggregates", "names", "servicedesk.yaml",
+         plant(servicedesk, "    expression: problems * 1.000 / incidents\n", "    expression: sum(problems) * 1.000 / incidents\n")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",

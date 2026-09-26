@@ -88,6 +88,16 @@
         "$ref": "#/definitions/type"
       }
     },
+    "metrics": {
+      "description": "Metrics that combine other metrics, across the module's types (declaration-syntax.md §6.9, ADR-0118).",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/definitions/memberName"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/combinedMetric"
+      }
+    },
     "migration": {
       "$ref": "#/definitions/migration",
       "description": "How a publish of this version moves the live objects of the version before it (declaration-syntax.md §6.6)."
@@ -1686,6 +1696,51 @@
           "type": "string",
           "pattern": "^[0-9]+ (s|min|h|days|weeks)$",
           "description": "How old a verdict may be and still be used, such as 30 min."
+        }
+      }
+    },
+    "combinedMetric": {
+      "type": "object",
+      "required": [
+        "description",
+        "input_metrics",
+        "expression"
+      ],
+      "additionalProperties": false,
+      "description": "A metric whose value combines other metrics' values, joined by their dimensions (dbt's derived metric).",
+      "properties": {
+        "description": {
+          "$ref": "#/definitions/description"
+        },
+        "input_metrics": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^([A-Z][A-Za-z0-9]*\\.)?[a-z][a-z0-9_]*$"
+          },
+          "description": "A mapping from the name the expression reads to a metric: <Type>.<metric>, or a combined metric declared above."
+        },
+        "group_by": {
+          "$ref": "#/definitions/names",
+          "description": "The dimensions to group by, each a dimension of an input metric."
+        },
+        "expression": {
+          "$ref": "#/definitions/expression",
+          "description": "The value, combining the input metrics' values by their names."
+        },
+        "flag_when": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/expression"
+          },
+          "description": "Named flags, each an expression over value and the dimensions."
         }
       }
     }
