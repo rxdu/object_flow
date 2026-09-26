@@ -73,6 +73,11 @@ BUILT_IN_CATEGORIES = {"closed"}
 NOT_A_TRANSITION = {"any"}
 # a bare name in an expression resolves to these before an attribute (declaration-syntax.md §9.2), so no attribute may take one
 NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "this_event"}
+# what every object has beside its state, read by name as the state is (declaration-syntax.md §8),
+# and what a mirror has besides; a member of one of the reserved names would shadow it (the model's check 33)
+OBJECT_MEMBERS = {"id", "open", "created_at", "created_by_kind", "recorded_from", "declaration_version"}
+MIRROR_MEMBERS = {"imported_at"}
+SHADOWING = {"id", "open", "created_at", "created_by_kind", "imported_at"}
 # keys the text language has a form for on one kind of attribute only; elsewhere they would be dropped
 ONLY_ON_OBSERVATIONS = {"unit"}
 ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "external", "default", "opposite", "stored", "aggregation", "cascade",
@@ -748,6 +753,9 @@ def reserved_name_errors(doc):
         for path, a in owned:
             if a in NOT_AN_ATTRIBUTE:
                 out.append((path, "names", f"'{a}' cannot name an attribute: in an expression it means something else first"))
+            elif a in SHADOWING:
+                out.append((path, "names", f"'{a}' cannot name a member: every object{' that is a mirror' if a in MIRROR_MEMBERS else ''} "
+                                           "has one of that name, which it would shadow (the model's check 33)"))
         for a, spec in attrs.items():
             for k in sorted(ONLY_ON_OBSERVATIONS & set(spec)):
                 out.append((("types", tn, "attributes", a, k), "names", f"'{k}' applies only to an observation's attribute, not to {tn}.{a}"))
@@ -1059,7 +1067,7 @@ def read_errors(tn, t, categories=()):
     foreach and create steps bind."""
     derived = list(t.get("derived_attributes") or {})
     stored = set(t.get("attributes") or {}) | set(t.get("observations") or {})
-    members = stored | set(derived) | NOT_AN_ATTRIBUTE | set(categories)
+    members = stored | set(derived) | NOT_AN_ATTRIBUTE | OBJECT_MEMBERS | set(categories) | (MIRROR_MEMBERS if t.get("mirror") else set())
     exprs = [(("types", tn, sec, n, "expression"), n, c["expression"], members)
              for sec in ("conditions", "invariants") for n, c in (t.get(sec) or {}).items()]
     exprs += [(("types", tn, "attributes", a, "unique", "where"), f"{tn}.{a}'s uniqueness condition", spec["unique"]["where"], members - REQUEST_ONLY)
@@ -1953,6 +1961,31 @@ def language_errors(converted):
     return out
 
 
+def literal(v):
+    """A boolean or a number written as YAML's own, as the expression language writes that literal."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    return str(v) if isinstance(v, (int, float)) else v
+
+
+def literals(doc):
+    """Give each default and backfill written as a YAML boolean or number its literal (§4.17)."""
+    def walk(node):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k == "default":
+                    node[k] = literal(v)
+                else:
+                    walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+    walk(doc)
+    for attrs in ((doc.get("migration") or {}).get("backfill") or {}).values():
+        for a, v in attrs.items():
+            attrs[a] = literal(v)
+
+
 def check(files, previous=None):
     """Findings and notices over modules given in import order, as (file, line,
     severity, code, message); previous maps a file to the text of the version
@@ -1975,6 +2008,7 @@ def check(files, previous=None):
         if errors:
             found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in errors]
             continue
+        literals(doc)
         for mod, names in (doc.get("imports") or {}).items():
             if mod not in declared:
                 notes.append((f, line_of(idx, ("imports", mod)), "notice", "imports",
@@ -2213,6 +2247,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(service, "imports: { people: [User] }", "imports: { people: [User, Robot] }")),
         ("an import from a module not among the files checked", "imports", "service.yaml",
          plant(service, "imports: { people: [User] }", "imports: { staff: [User] }")),
+        ("an attribute named like a member every object has", "names", "inventory.yaml",
+         plant(inventory, "      model:             { type: string }\n", "      model:             { type: string }\n      created_at:        { type: timestamp }\n")),
         ("a `?` inside an inline mapping", "yaml", "service.yaml",
          plant(service, "      photo:    { type: file, optional: true }", "      photo:    { type: file? }")),
     ]
@@ -2229,6 +2265,11 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     hit = "NO" in strict and False in loose
     ok &= hit
     print(f"  planted an enumeration value NO: the strict loader keeps {strict}, a plain YAML loader reads {loose}")
+    written = load("a: { default: false }\nb: { default: 0 }\nmigration: { backfill: { T: { c: true } } }\n")
+    literals(written)
+    hit = written == {"a": {"default": "false"}, "b": {"default": "0"}, "migration": {"backfill": {"T": {"c": "true"}}}}
+    ok &= hit
+    print(f"  a default and a backfill written as YAML's own boolean or number: {'read as their literals' if hit else 'MISREAD ' + str(written)}")
     return ok
 
 

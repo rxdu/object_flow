@@ -4,7 +4,9 @@
 1. A ```yaml block beginning `module:` begins a module, and one whose first
    line is `# <module>, continued` continues the module of that name begun
    earlier in the same document. Each module is checked by
-   scripts/check-flows.py, after the modules it imports.
+   scripts/check-flows.py, after the modules it imports. A module a document
+   begins twice is two versions of it, and the later is checked against the
+   earlier, as the format's examples are against the version before.
 2. A module's imports resolve among the design documents' modules, never the
    format's examples, which are a corpus of their own. A module written in
    YAML is checked before the one importing it. A module still written in the
@@ -59,8 +61,10 @@ def fences(text):
 
 
 class Module:
-    def __init__(self, name, doc):
+    def __init__(self, name, doc, previous=None):
         self.name, self.doc, self.body, self.lines = name, doc, [], []
+        self.previous = previous                    # the version this document wrote before it
+
 
     def add(self, start, body):
         self.body += body
@@ -72,7 +76,7 @@ class Module:
 
     @property
     def label(self):
-        return f"{self.doc.name}:{self.name}"
+        return f"{self.doc.name}:{self.name}:{self.lines[0] if self.lines else 0}"
 
     def doc_line(self, n):
         return self.lines[n - 1] if 0 < n <= len(self.lines) else (self.lines[0] if self.lines else 1)
@@ -138,7 +142,7 @@ def check_docs(texts):
             if info != "yaml" or not body:
                 continue
             if m := re.match(r"^module:\s*(\w+)", body[0]):
-                begun[m.group(1)] = Module(m.group(1), p)
+                begun[m.group(1)] = Module(m.group(1), p, begun.get(m.group(1)))
                 modules.append(begun[m.group(1)])
                 begun[m.group(1)].add(start, body)
             elif m := CONTINUED.match(body[0]):
@@ -150,8 +154,11 @@ def check_docs(texts):
                 excerpts.append((p, start, body))
         text = [body for info, _s, body in blocks if info == "text"]
         if text and (m := re.match(r"module\s+(\w+)", text[0][0] if text[0] else "")):
+            # the text parser reads types, machines, observations and metrics; the other
+            # declarations a module may export are named on their own line
+            named = {n for body in text for n in re.findall(r"^\s*(?:enum|sequence|evaluator)\s+(\w+)", "\n".join(body), re.M)}
             text_modules.setdefault(m.group(1), []).append(
-                (p, {d.name for body in text for d in syntax.parse("\n".join(body), 0)}))
+                (p, named | {d.name for body in text for d in syntax.parse("\n".join(body), 0)}))
         reports += [(p, start, body[1:]) for info, start, body in blocks if info == "" and body and body[0] == syntax.REPORT_HEAD]
 
     by_name = {}
@@ -159,7 +166,8 @@ def check_docs(texts):
         by_name.setdefault(m.name, []).append(m)
 
     def home(name):
-        found = by_name.get(name, [])
+        later = {id(m.previous) for m in modules if m.previous}
+        found = [m for m in by_name.get(name, []) if id(m) not in later]
         if len(found) > 1:
             found = [m for m in found if m.doc.name == MODULE_HOMES.get(name)]
         return found[0] if len(found) == 1 else None
@@ -201,7 +209,8 @@ def check_docs(texts):
                 else:
                     findings.append((m.doc, line, f"imports {dep}, which no design document declares"))
         visit(m)
-        found, _notes = flows.check([(d.label, d.text) for d in order] + [(m.label, m.text)])
+        previous = {m.label: m.previous.text} if m.previous else None
+        found, _notes = flows.check([(d.label, d.text) for d in order] + [(m.label, m.text)], previous)
         for f, line, _sev, code, msg in found:
             if f == m.label:
                 findings.append((m.doc, m.doc_line(line), f"{code}: {msg}"))
@@ -263,6 +272,10 @@ def self_test(texts):
          {**base, trial: plain.replace("module: documents\n", "module: documents\nimports: { nowhere: [Customer] }\n")}),
         ("a module the flow checker refuses, at the line it is on", "names:",
          {**base, trial: plain.replace("        to: PUBLISHED\n", "        to: PUBLISH\n")}),
+        ("a later version that removes a state with no mapping", "migration",
+         {**base, trial: plain + "\n" + module.replace("      DRAFT:\n        description: Being written.\n        category: live\n", "")
+                                                      .replace("        to: DRAFT\n", "        to: PUBLISHED\n")
+                                                      .replace("        from: DRAFT\n", "        from: PUBLISHED\n")}),
         ("a quoted creation report the modules do not produce", "quoted creation report",
          {**base, trial: plain + report}),
     ]

@@ -40,6 +40,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 3. Reserved words of the text language MAY be used as names, as `declaration-syntax.md` §9.2 allows, with these exceptions (step 3, `names`):
    - a category MUST NOT be named `any`, `terminal` or `superseding`, and a transition MUST NOT be named `any` (the text language's check 33);
    - an attribute, including an observation's, MUST NOT be named `state`, `inputs`, `actor`, `this`, `now`, `referrers` or `this_event`, since an expression resolves those words before any attribute;
+   - a member MUST NOT be named `id`, `open`, `created_at` or `created_by_kind`, which every object has, or `imported_at`, which every mirror has, since it would shadow them (§5; the model's check 33);
    - a condition MUST NOT be named `<attribute>_provided`, and an invariant MUST NOT be named `<state>_invariant` with the state in lower case, since those are the names of generated guards and invariants (§6).
 
 ## 4. Structure
@@ -468,6 +469,8 @@ PartStock:
 
 A **default** is the value every creation that does not take the attribute as an input gives it, written first, so that it is recorded on the event as any write is; it never writes an object that already exists, and a publish that adds an attribute gives live objects a value by a backfill (§4.16). Being written before anything else, a default reads no member and no input: it is a literal, a qualified value or `now` (step 3, `names`). A required attribute with a default is written by every creation, and so satisfies a state that requires it (step 4, `check 8`). A creation that takes the attribute as an input takes it as the attribute's optionality says, so a default applies where the input is not taken at all, as a request is raised at medium priority and an agent sets another by a transition of its own.
 
+A default, or a migration's backfill, that is a boolean or a number MAY be written as YAML's own, `default: false` or `default: 0`, and stands for that literal; any other value is an expression in a YAML string, and a text literal is quoted inside it, `site: '"HQ"'` (step 2, `schema`). A YAML author writes `false` bare, and refusing it as not a string would be a trap, since YAML reads it as a boolean before the format sees it; the rewrite of `unit-journey.md` found the refusal on 2026-09-26.
+
 ### 4.18 External evaluators
 
 An **evaluator** is a system outside the store that a guard may ask, such as the accounting system that owns invoices (`declaration-syntax.md` §6.2). A module declares its evaluators under `evaluators`, each with a `description` and its `functions`; a function declares a `description`, its `arguments` in the order a call passes them, each as a declared input is (§4.8), and, optionally, `fresh`, how old a verdict may be and still be used, a duration such as `30 min`.
@@ -513,12 +516,12 @@ The successor is an input that names an object, or a name an earlier `create` st
 An `expression` is written in the expression language of `declaration-syntax.md` §8, which this format does not change. Within it:
 - an attribute of the object is read by its name, and a value the caller supplies is read as `inputs.<attribute>`;
 - every name an expression reads at the start of a path MUST be declared where the expression is evaluated: for a type, one of its attributes, observation kinds or derived attributes (§4.11); for a machine, an attribute it requires (§4.10); for an observation kind's invariant, one of that kind's fields; and in an effect, also the name a `foreach` or `create` step binds. A derived attribute and a uniqueness condition are evaluated outside any request, and read neither `inputs` nor `this_event`. The names an aggregate binds, `count(l in lines where …)`, are declared by it (step 3, `names`);
-- `state` is the object's current state, and `now` is the time of the request;
+- `state` is the object's current state, and `now` is the time of the request. Every object also has `id`, `open` (true while its state is neither `closed` nor final), `created_at`, `created_by_kind`, `recorded_from` and `declaration_version`, and every mirror `imported_at`, each read by its name as `state` is (`declaration-syntax.md` §8, ADR-0096, ADR-0106). Step 3 refused them until 2026-09-26, when rewriting `returns-module.md` read `created_at`, which the model admits wherever `state` is;
 - `this_event` is the event the current transition will record. An attribute or input of type `event` holds one, and an event-typed input accepts only `this_event`, so a sign-off cannot be recorded against an old event (`declaration-syntax.md` §6.7; step 3, `names`; the model's check 25). `changed_since([<attribute>, …], <event>)` is true when any of the attributes, or any part of a composite end named, has changed since that event, as `signed_off` in the delivery example requires of an approval: `any(a in approvals where not changed_since([price, checklist_items], a.at_event))`;
 - `referrers` is every object holding a live reference to this one, parts excepted, and a category is read by its name, as in `r.state.category != closed` (§4.13);
 - an enumeration value and a state of another type are written qualified, `<Enumeration>.<VALUE>` and `<Type>.<STATE>`; a value of an enumeration or of a type the module declares MUST exist, and a bare upper-case name MUST be a state of the type (step 3, `names`);
 - absence is tested with `is null` and `is not null`; a comparison with an absent value is unknown, and a guard that is unknown refuses (`declaration-syntax.md` §8.2);
-- an expression MUST NOT read `actor`: who may act is decided outside the flow (ADR-0114; step 4, `check 64`).
+- only an effect's value MAY read `actor`, as `assign: { location: handled_by, expr: actor.id }` records who acted; a condition, an invariant, a derived attribute, a default, a metric and every other expression MUST NOT, since who may act is decided outside the flow (ADR-0114; step 4, `check 64`). *(Corrected 2026-09-26: this said that no expression may read `actor`, which overstated the model's check 64 and contradicted the delivery example, whose `approve` writes `actor.id`.)*
 
 ## 6. What a description declares
 

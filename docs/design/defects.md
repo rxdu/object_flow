@@ -395,6 +395,11 @@ Findings from every review of this design. It began as the implementation-readin
 | [D381](#d381) | Nothing stopped two engine releases from serving one store | Resolved by ADR-0110 |
 | [D382](#d382) | Nothing said how a new engine release is installed over an existing store | Resolved by ADR-0110 |
 | [D383](#d383) | The rule set prints no invariant | Resolved in place |
+| [D384](#d384) | The flow format refused the members every object has, and reserved none of their names | Resolved in place |
+| [D385](#d385) | The flow format refused a boolean or numeric default written as YAML's own | Resolved in place |
+| [D386](#d386) | The flow format said no expression may read the actor, which its own example does | Resolved in place |
+| [D387](#d387) | Two sentences of the unit's journey survived the withdrawals of ADR-0114 | Resolved in place |
+| [D388](#d388) | The flow checker resolved no import | Resolved by ADR-0121 |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -2559,3 +2564,32 @@ The author judged the walkthrough's inventory item over-simplified and asked for
 **The rule set prints no invariant.** `renderers.md` §2 prints a type's attributes, parts, references, states, transitions with their guards and outcomes, and its metrics, and the document nowhere mentions an invariant. ADR-0109 made an invariant over the object's own `state` the way to hold every route into a state to a condition, so a reviewer reading the rule set cannot see the one rule that holds whichever transition entered the state. Found writing the rule set of `yaml-trial/inventory.yaml`, whose `RESERVED` is entered by `reserve` from two states and by `reopen`, and is held to its reservation fields by the invariant `reservation_named`; confirmed by `grep -n -i invariant docs/design/renderers.md`, which finds nothing.
 
 **Resolved in place**, 2026-09-25, at the author's direction ("yes", to the proposal that invariants print as the walkthrough's scene 4 shows them): `renderers.md` §2 prints an `Invariants` section after the states, in declaration order, each invariant with its name and a description rendered from its expression, and its `Robot` example shows the section.
+
+## Found rewriting the unit's journey and the returns module in YAML, 2026-09-26
+
+ADR-0116 moves the design's examples to the flow description format, `unit-journey.md` first. Rewriting it and `returns-module.md`, the module that imports it, and building the check that holds the documents' YAML (ADR-0121), found these.
+
+### D384
+**The flow format refused the members every object has, and reserved none of their names.** Every object has `id`, `open`, `created_at`, `created_by_kind`, `recorded_from` and `declaration_version`, and a mirror `imported_at`, readable wherever `state` is, and a member named `id`, `open`, `created_at`, `created_by_kind` or `imported_at` is a publish error because it would shadow one (`declaration-syntax.md` §8, check 33). `flow-format.md` §5 let an expression read only declared members, `state` and `now`, and §3 reserved none of these names. Found writing `returns-module.md`'s `prior_returns`, `count(r in Return where r.unit == unit and r.created_at < created_at)`, which step 3 refused as reading `created_at`, "which Return does not declare"; the examples had avoided it by writing `this.intervals`.
+
+**Resolved in place**, 2026-09-26: §5 names the members every object and every mirror has, §3 reserves the five the model reserves, and `scripts/check-flows.py` admits and reserves them, a plant proving the reservation.
+
+### D385
+**The flow format refused a boolean or numeric default written as YAML's own.** `RobotModel`'s `label_photo_required: { type: bool, default: false }` was refused at step 2, "False is not of type 'string'", since the schema takes every expression as a string and YAML reads `false` as a boolean before the format sees it. No example had a boolean or numeric default. Found rewriting `unit-journey.md`.
+
+**Resolved in place**, 2026-09-26: `flow-format.md` §4.17 lets a default, and a migration's backfill, be written as YAML's own boolean or number, standing for that literal; the schema accepts it and the checker gives it its literal before any step reads it, which its self-test proves.
+
+### D386
+**The flow format said no expression may read the actor, which its own example does.** `flow-format.md` §5 said "an expression MUST NOT read `actor`", while the model's check 64 refuses `actor` everywhere but an outcome value, and `delivery.yaml`'s `approve` writes `actor.id`. Found writing `returns-module.md`'s `receive`, which records who handled the return as `actor.id`.
+
+**Resolved in place**, 2026-09-26: §5 says that only an effect's value may read `actor`, with a correction note.
+
+### D387
+**Two sentences of the unit's journey survived the withdrawals of ADR-0114.** `unit-journey.md` §2 said "The module line states production's request rule once", although the commit that carried ADR-0114 (`0477059`) removed that line, `requests by agent require version, key`; and §3 said `add_opening_stock` is "gated on `ASSERT`", a capability the same commit removed with the guard that tested it. Found rewriting the module, and confirmed by `git show 0477059 -- docs/design/unit-journey.md`.
+
+**Resolved in place**, 2026-09-26: both sentences are corrected, each with a note saying what it said.
+
+### D388
+**The flow checker resolved no import.** `scripts/check-flows.py` took a module's `imports` on trust: a copy of `service.yaml` importing `peple: [Usr]`, neither a module nor a type anywhere, passed all four steps. Found by that probe, building the check of the documents' YAML.
+
+**Resolved by ADR-0121**, 2026-09-26: an import whose module is among the files checked must name what that module declares, and one whose module is not is reported by the `imports` notice. The same probe found that a qualified name of a type nothing declares or imports, `Usr.ACTIVE`, still passes; `TODO.md` holds it.

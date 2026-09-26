@@ -1113,7 +1113,7 @@
           "description": "true if the attribute may be without a value."
         },
         "default": {
-          "$ref": "#/definitions/expression",
+          "$ref": "#/definitions/literalOrExpression",
           "description": "The value every creation that does not write the attribute gives it: a literal, a qualified value or now."
         },
         "identifier": {
@@ -1420,7 +1420,7 @@
           "description": "true if erasure redacts the input from every event that recorded it."
         },
         "default": {
-          "$ref": "#/definitions/expression",
+          "$ref": "#/definitions/literalOrExpression",
           "description": "The value used when the caller leaves the input out; not allowed on an optional input."
         },
         "description": {
@@ -1620,7 +1620,7 @@
               "$ref": "#/definitions/memberName"
             },
             "additionalProperties": {
-              "$ref": "#/definitions/expression"
+              "$ref": "#/definitions/literalOrExpression"
             }
           }
         },
@@ -1747,6 +1747,20 @@
           "description": "Named flags, each an expression over value and the dimensions."
         }
       }
+    },
+    "literalOrExpression": {
+      "description": "An expression; a boolean or a number may be written as YAML's own, and stands for that literal.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/expression"
+        },
+        {
+          "type": [
+            "boolean",
+            "number"
+          ]
+        }
+      ]
     }
   }
 }

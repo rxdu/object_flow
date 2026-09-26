@@ -91,6 +91,7 @@ def main():
             findings.append(f"§3 does not state the {name} order the checker enforces: {', '.join(order)}")
 
     reserved = trial.NOT_A_CATEGORY | trial.NOT_A_TRANSITION | trial.NOT_AN_ATTRIBUTE | trial.ONLY_ON_OBSERVATIONS | trial.ONLY_ON_TYPES
+    reserved |= trial.OBJECT_MEMBERS | trial.MIRROR_MEMBERS | trial.SHADOWING
     for w in sorted(reserved):
         if f"`{w}`" not in doc:
             findings.append(f"the document never names `{w}`, which the checker reserves or restricts")

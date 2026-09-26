@@ -19,13 +19,13 @@ A probe found a fourth: `scripts/check-flows.py` did not resolve imports at all.
 
 ## Decision
 
-1. **A module may be written across blocks.** A `yaml` block beginning `module:` begins a module, and a block whose first line is `# <module>, continued` continues the module of that name begun earlier in the same document. The blocks are checked as one module, and a finding is reported at the document's line.
+1. **A module may be written across blocks.** A `yaml` block beginning `module:` begins a module, and a block whose first line is `# <module>, continued` continues the module of that name begun earlier in the same document. The blocks are checked as one module, and a finding is reported at the document's line. A document that begins a module twice writes two versions of it, as `returns-module.md` writes two publishes, and the later is checked against the earlier, as the format's examples are against the version before (`flow-format.md` §4.16); an import resolves to the later.
 2. **Every other `yaml` block is an excerpt, and is part of a checked module.** Each key it shows is in a module of the documents or an example, at one place, with the same value. The keys beside it may be left out, and nothing it shows may differ.
 3. **A document's imports resolve among the design documents' modules**, never the format's examples, which are a corpus of their own. A module written in YAML is checked before the one that imports it. A module still written in the text notation must declare each name imported from it, and step 4 of the checker, which converts to the text notation, resolves the rest through the text checker's own import resolution. A module declared by more than one document names its home, as the text checker's `MODULE_HOMES` does.
 4. **`scripts/check-flows.py` resolves an import whenever the module is among its files**: each name must be one that module declares (step 3, `names`). Where the module is not among them, step 3 reports an `imports` notice, since steps 2 and 3 cannot check what is imported from it.
 5. **A quoted creation report is the one the YAML modules produce**, computed by the text checker over their conversion, as ADR-0109's report is for text.
 
-`scripts/check-flow-docs.py` implements the first three and the fifth, proves each with a planted mistake, and runs from `scripts/check-corpus.py` beside the text checker.
+`scripts/check-flow-docs.py` implements the first three and the fifth, proves each, and the check of a later version, with a planted mistake, and runs from `scripts/check-corpus.py` beside the text checker.
 
 ## Alternatives rejected
 
@@ -43,4 +43,5 @@ A probe found a fourth: `scripts/check-flows.py` did not resolve imports at all.
 - `flow-format.md` §4.1 states that an import resolves when its module is among the files checked, and §7 adds the `names` finding and the `imports` notice. The specification's seven drifted excerpts now show their examples' text.
 - `scripts/check-flows.py` resolves imports and plants an undeclared name and an absent module. `scripts/check-syntax-doc.py` runs its checks only when run, so the doc checker can use its parser and its creation report.
 - `scripts/check-corpus.py` runs `scripts/check-flow-docs.py`.
+- `unit-journey.md` and `returns-module.md`, which imports it, are the first documents rewritten, in one change, since the text checker would otherwise resolve the returns module's import against `flow-review.md`'s variant of the journey. Their blocks are regrouped into the format's order: the machine before the types, and each metric with its type (ADR-0118). Rewriting them found D384 to D387, each resolved in place: the format refused the members every object has, refused `default: false`, and overstated check 64, and two sentences of the journey had survived ADR-0114.
 - A qualified name whose type nothing declares or imports, such as `Usr.ACTIVE`, still passes all four steps. The probe that found import resolution missing found this too, and `TODO.md` records it.
