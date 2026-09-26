@@ -7,6 +7,8 @@ Status: design iteration 4, 2026-09-08. Companion to the earlier case studies. D
 *Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
 
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
+>
+> **Rewritten 2026-09-26 in the flow description format** (ADR-0116). The placement of §2a is an excerpt of the module in the appendix, written then so that the excerpt is part of a checked module (ADR-0121); `scripts/check-flow-docs.py` checks both.
 ## 1. Why this case
 
 Every earlier case has few, long-lived, richly related objects. An order system has millions of small ones that live for days, arrive in bursts, and are written by anonymous callers who retry. Stock is a **quantity**, not a serialised unit, so a guard compares numbers and an outcome subtracts them. Money is everywhere, and money means sums. Payment truth lives in a **gateway**, not the store. The event log becomes the busiest table in the system, which forces the ordering, retention and stored-versus-folded questions TODO.md had left open.
@@ -36,24 +38,39 @@ Every earlier case has few, long-lived, richly related objects. An order system 
 
 ## 2a. Placement, declared
 
-```text
-
-create place -> PLACED accepts customer, address {
-  input cart : Cart
-  require open:  inputs.cart.state == Cart.ACTIVE               because dependent
-  require lines: count(l in inputs.cart.lines) > 0              because self_serviceable
-  for l in inputs.cart.lines limit 500 {
-    create OrderLine.add(order      := this,
-                         product    := l.product,
-                         qty        := l.qty,
-                         unit_price := l.product.price)
-    call l.product.reserve(qty := l.qty)
-  }
-  call inputs.cart.convert(successor := this)
-}
+```yaml
+Order:
+  conditions:
+    open:
+      description: The cart is still open.
+      expression: inputs.cart.state == Cart.ACTIVE
+      remedy: dependent
+    lines:
+      description: The cart has at least one line.
+      expression: count(l in inputs.cart.lines) > 0
+      remedy: self_serviceable
+  transitions:
+    place:
+      kind: initial
+      to: PLACED
+      required_inputs: [customer, address]
+      inputs:
+        cart: { reference: Cart }
+      guards:
+        open: deny
+        lines: deny
+      effect:
+        - foreach:
+            item: l
+            array: inputs.cart.lines
+            limit: 500
+            steps:
+              - create: { type: OrderLine, transition: add, inputs: { order: this, product: l.product, qty: l.qty, unit_price: l.product.price } }
+              - call: { target: l.product, transition: reserve, inputs: { qty: l.qty } }
+        - call: { target: inputs.cart, transition: convert, inputs: { successor: this } }
 ```
 
-Three things in that declaration exist only because of the repair. `this` is usable inside a creation outcome, so the order can create its own lines (ADR-0052). The reservation cascade takes an input (ADR-0046). And because cascades apply sequentially and writes are read-modify-write (ADR-0038), two lines for one product are evaluated against each other, so an order can no longer oversell itself. Under the superseded rule both guards read the same pre-write count and both passed.
+The placement is an excerpt of `Order` in the module of the appendix, which holds what placing an order needs and no more. Three things in that declaration exist only because of the repair. `this` is usable inside a creation outcome, so the order can create its own lines (ADR-0052). The reservation cascade takes an input (ADR-0046). And because cascades apply sequentially and writes are read-modify-write (ADR-0038), two lines for one product are evaluated against each other, so an order can no longer oversell itself. Under the superseded rule both guards read the same pre-write count and both passed.
 
 The price is snapshotted onto the line rather than referenced, for the reason the first consumer learned about applied configurations: a delivery records what it promised, not what the catalogue says today.
 
@@ -65,7 +82,7 @@ The price is snapshotted onto the line rather than referenced, for the reason th
 
 **Order and subscribers.** A busy log needs a stated ordering guarantee and a subscription model that survives a dead consumer. **ADR-0034**: events are strictly ordered per object and causally ordered across a cascade; a global position exists for cursors and is monotonic, but a pull cursor must tolerate a bounded window in which a lower position becomes visible after a higher one. Subscriptions are a built-in object type with a filter over type or family, transition names, and the `changes_state` flag, and a lifecycle of `active → revoked`, with lag and death **derived** from the acknowledged position rather than states anything drives (ADR-0043 superseded the three-state form proposed here). Attribute-level filters are not offered; the consumer filters after delivery.
 
-**Two clarifications.** An outcome may iterate any collection-valued expression, including a relationship reached from an input (`for l in inputs.cart.lines limit 500 { … }`, ADR-0046, ADR-0052). And a type may declare which attributes are **indexed**; publishing reports which transitions are sweepable and which derived attributes are queryable, and **rejects** a type-scan guard or visibility predicate that reads an unindexed attribute (check 7).
+**Two clarifications.** An outcome may iterate any collection-valued expression, including a relationship reached from an input (a `foreach` over `inputs.cart.lines` with a `limit` of 500, ADR-0046, ADR-0052). And a type may declare which attributes are **indexed**; publishing reports which transitions are sweepable and which derived attributes are queryable, and **rejects** a type-scan guard or visibility predicate that reads an unindexed attribute (check 7).
 
 ## 4. What held without change
 
@@ -78,3 +95,212 @@ The price is snapshotted onto the line rather than referenced, for the reason th
 - Very large cascades (a cart of thousands of lines).
 - Gapless order numbering under rollback.
 - Analytics over the whole log.
+
+## Appendix: the module the placement belongs to
+
+What §2a's placement needs and no more: a product whose stock is counted, a cart and its lines, and an order and its lines. A cart line is created through its cart, as a part is (the model's check 11), and the cart's lines survive its conversion, since the order supersedes the cart and does not take its lines. The customer is an `identity`, since a guest is an id the upper layer mints (§2).
+
+```yaml
+module: orders
+categories: [live, closed]
+
+types:
+  Product:
+    description: A product whose stock is counted, not tracked unit by unit.
+    tracking: quantity
+
+    attributes:
+      name:     { type: string, indexed: true }
+      price:    { type: money(USD) }
+      on_hand:  { type: counter, indexed: true }
+      reserved: { type: counter, indexed: true }
+
+    states:
+      ACTIVE:       { category: live }
+      DISCONTINUED: { category: closed, final: true }
+
+    derived_attributes:
+      available:
+        description: The stock on hand and not reserved; a query may filter on it.
+        expression: on_hand - reserved
+        indexed: true
+
+    conditions:
+      in_stock:
+        description: Enough stock is available for the quantity reserved.
+        expression: on_hand - reserved >= inputs.qty
+        remedy: dependent
+
+    transitions:
+      create:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [name, price]
+      receive_stock:
+        kind: internal
+        from: ACTIVE
+        inputs:
+          qty: { type: int }
+        effect:
+          - assign: { location: on_hand, expr: on_hand + inputs.qty }
+      reserve:
+        kind: internal
+        from: ACTIVE
+        only_via: [Order.place]
+        inputs:
+          qty: { type: int }
+        guards:
+          in_stock: deny
+        effect:
+          - assign: { location: reserved, expr: reserved + inputs.qty }
+      discontinue:
+        kind: external
+        from: ACTIVE
+        to: DISCONTINUED
+
+  Cart:
+    description: A shopper's cart, converted into the order placed from it.
+    tracking: record
+
+    attributes:
+      lines:
+        reference: "CartLine[]"
+        aggregation: composite
+        opposite: cart
+        survives: [convert]
+
+    states:
+      ACTIVE:    { category: live }
+      CONVERTED: { category: closed, final: true, superseding: true }
+
+    transitions:
+      open:
+        kind: initial
+        to: ACTIVE
+      add_line:
+        kind: internal
+        from: ACTIVE
+        inputs:
+          product: { reference: Product }
+          qty:     { type: int }
+        effect:
+          - create: { type: CartLine, transition: add, inputs: { cart: this, product: inputs.product, qty: inputs.qty } }
+      convert:
+        kind: external
+        from: ACTIVE
+        to: CONVERTED
+        only_via: [Order.place]
+        inputs:
+          successor: { reference: Order }
+        effect:
+          - supersede: inputs.successor
+
+  CartLine:
+    description: A quantity of one product in a cart.
+    tracking: record
+
+    attributes:
+      cart:    { reference: Cart, opposite: lines }
+      product: { reference: Product }
+      qty:     { type: int }
+
+    states:
+      IN_CART: { category: live }
+      REMOVED: { category: closed, final: true }
+
+    transitions:
+      add:
+        kind: initial
+        to: IN_CART
+        only_via: [Cart.add_line]
+        required_inputs: [cart, product, qty]
+      change_qty:
+        kind: internal
+        from: IN_CART
+        required_inputs: [qty]
+      remove:
+        kind: external
+        from: IN_CART
+        to: REMOVED
+
+  Order:
+    description: An order placed from a cart, which snapshots each line's price and reserves its stock as it is placed.
+    tracking: record
+
+    attributes:
+      customer: { type: identity, indexed: true, description: "The customer's id, a guest's included." }
+      address:  { type: string }
+      lines:
+        reference: "OrderLine[]"
+        aggregation: composite
+        opposite: order
+        survives: [cancel, complete]
+
+    states:
+      PLACED:    { category: live }
+      COMPLETED: { category: closed, final: true }
+      CANCELLED: { category: closed, final: true }
+
+    derived_attributes:
+      total:
+        description: The order's total, from the prices its lines captured.
+        expression: "sum(l in lines: l.qty * l.unit_price)"
+
+    conditions:
+      open:
+        description: The cart is still open.
+        expression: inputs.cart.state == Cart.ACTIVE
+        remedy: dependent
+      lines:
+        description: The cart has at least one line.
+        expression: count(l in inputs.cart.lines) > 0
+        remedy: self_serviceable
+
+    transitions:
+      place:
+        kind: initial
+        to: PLACED
+        required_inputs: [customer, address]
+        inputs:
+          cart: { reference: Cart }
+        guards:
+          open: deny
+          lines: deny
+        effect:
+          - foreach:
+              item: l
+              array: inputs.cart.lines
+              limit: 500
+              steps:
+                - create: { type: OrderLine, transition: add, inputs: { order: this, product: l.product, qty: l.qty, unit_price: l.product.price } }
+                - call: { target: l.product, transition: reserve, inputs: { qty: l.qty } }
+          - call: { target: inputs.cart, transition: convert, inputs: { successor: this } }
+      complete:
+        kind: external
+        from: PLACED
+        to: COMPLETED
+      cancel:
+        kind: external
+        from: PLACED
+        to: CANCELLED
+
+  OrderLine:
+    description: A quantity of one product on an order, at the price it was placed at.
+    tracking: record
+
+    attributes:
+      order:      { reference: Order, opposite: lines }
+      product:    { reference: Product }
+      qty:        { type: int }
+      unit_price: { type: money(USD) }
+
+    states:
+      PLACED: { category: closed, final: true }
+
+    transitions:
+      add:
+        kind: initial
+        to: PLACED
+        only_via: [Order.place]
+        required_inputs: [order, product, qty, unit_price]
+```

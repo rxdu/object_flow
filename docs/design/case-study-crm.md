@@ -7,6 +7,8 @@ Status: design iteration 3, 2026-09-08. Companion to [`first-consumer-walkthroug
 *Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
 
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
+>
+> **Rewritten 2026-09-26 in the flow description format** (ADR-0116). The merge of §3 is an excerpt of the module in the appendix, written then so that the excerpt is part of a checked module (ADR-0121); `scripts/check-flow-docs.py` checks both.
 ## 1. Why this case
 
 A CRM stresses what the previous two did not. Its objects are **joined many-to-many with labelled, attributed links** — a contact is the decision maker on one deal and the billing contact on another, and has one primary company among several. Its lifecycle is thin and its data is thick: most of the work is property edits, not transitions. It is the natural home of **duplicate merging**, of **record ownership** that governs who may see and edit what, and of **legal erasure** that must reach into history — the first requirement anywhere in these studies that pushes against the recorded property. And its first consumer overlap is real: the inventory system has decided to mirror its customers from Xero and has not built it — `wr:docs/adr/0003` is accepted design intent with no external-id column and no Xero code (`wr:docs/adr/0003`).
@@ -41,19 +43,44 @@ A CRM stresses what the previous two did not. Its objects are **joined many-to-m
 
 Which value wins is domain logic, so the consumer resolves the values and the store records the merge. The surviving fields are **declared**, not passed as a map: ADR-0046 refuses a dynamic attribute set because it cannot be checked at publish or printed in a rule set, and ADR-0052 makes an unsupplied optional input skip its write rather than clear the field.
 
-```text
-
-act merge_in at ACTIVE accepts email, phone, company {
-  input loser : Contact
-  require distinct: inputs.loser != this                 because self_serviceable
-  require live:     inputs.loser.state == Contact.ACTIVE because dependent
-  for a in inputs.loser.associations limit 1000 { call a.repoint(contact := this) }
-  for v in inputs.loser.activities   limit 5000 { call v.repoint(contact := this) }
-  call inputs.loser.merged_into(successor := this)
-}
+```yaml
+Contact:
+  conditions:
+    distinct:
+      description: The contact merged in is another contact.
+      expression: inputs.loser != this
+      remedy: self_serviceable
+    live:
+      description: The contact merged in is still live.
+      expression: inputs.loser.state == Contact.ACTIVE
+      remedy: dependent
+  transitions:
+    merge_in:
+      kind: internal
+      from: ACTIVE
+      optional_inputs: [email, phone, company]
+      inputs:
+        loser: { reference: Contact }
+      guards:
+        distinct: deny
+        live: deny
+      effect:
+        - foreach:
+            item: a
+            array: inputs.loser.associations
+            limit: 1000
+            steps:
+              - call: { target: a, transition: repoint, inputs: { contact: this } }
+        - foreach:
+            item: v
+            array: inputs.loser.activities
+            limit: 5000
+            steps:
+              - call: { target: v, transition: repoint, inputs: { contact: this } }
+        - call: { target: inputs.loser, transition: merged_into, inputs: { successor: this } }
 ```
 
-`merged_into` is a superseding terminal transition (ADR-0028). The loser keeps its id and history; the survivor's history records the merge with the loser as cause; the read surface presents a combined timeline by following `supersedes`. Every re-pointed link records its previous target in its own history, which is what a later, consumer-built unmerge would read.
+The merge is an excerpt of `Contact` in the module of the appendix, which holds what the merge needs and no more. `merged_into` enters `MERGED`, a superseding final state, and names the survivor with `supersede` (ADR-0028). The loser keeps its id and history; the survivor's history records the merge with the loser as cause; the read surface presents a combined timeline by following `supersedes`. Every re-pointed link records its previous target in its own history, which is what a later, consumer-built unmerge would read.
 
 ## 4. What the model could not say, and what was decided
 
@@ -78,3 +105,166 @@ Pipelines are named machines bound by per-pipeline types. Stage requirements are
 - Erasing a value that a guard or derived attribute elsewhere depends on.
 - Erasure versus content-addressed file references.
 - Moving a deal between pipelines yields a new object id.
+
+## Appendix: the module the merge belongs to
+
+What §3's merge needs and no more: a contact, the company it may belong to, and the two kinds of record the merge re-points. A contact's email is unique among live contacts only, since a merged contact keeps its email, which its survivor may take; unique across every contact, the survivor could never take it. A contact holds personal data and may be superseded, so it declares an erasure, which the format requires of such a type.
+
+```yaml
+module: crm
+categories: [live, closed]
+
+types:
+  Company:
+    description: A company contacts belong to.
+    tracking: record
+
+    attributes:
+      name:     { type: string, indexed: true }
+      contacts: { reference: "Contact[]", opposite: company }
+
+    states:
+      ACTIVE:   { category: live }
+      ARCHIVED: { category: closed, final: true }
+
+    transitions:
+      create:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [name]
+      archive:
+        kind: external
+        from: ACTIVE
+        to: ARCHIVED
+
+  Contact:
+    description: A person the business is in touch with, merged into another contact when it turns out to be a duplicate.
+    tracking: record
+
+    attributes:
+      email:
+        type: string
+        optional: true
+        personal: true
+        indexed: true
+        unique: { where: state == ACTIVE }
+        description: Unique among live contacts, since a merged contact keeps its email, which its survivor may take.
+      phone:        { type: string, optional: true, personal: true }
+      company:      { reference: Company, optional: true, opposite: contacts }
+      associations: { reference: "Association[]", opposite: contact }
+      activities:   { reference: "Activity[]", opposite: contact }
+
+    states:
+      ACTIVE: { category: live }
+      MERGED: { category: closed, final: true, superseding: true }
+
+    conditions:
+      distinct:
+        description: The contact merged in is another contact.
+        expression: inputs.loser != this
+        remedy: self_serviceable
+      live:
+        description: The contact merged in is still live.
+        expression: inputs.loser.state == Contact.ACTIVE
+        remedy: dependent
+
+    transitions:
+      create:
+        kind: initial
+        to: ACTIVE
+        optional_inputs: [email, phone, company]
+      merge_in:
+        kind: internal
+        from: ACTIVE
+        optional_inputs: [email, phone, company]
+        inputs:
+          loser: { reference: Contact }
+        guards:
+          distinct: deny
+          live: deny
+        effect:
+          - foreach:
+              item: a
+              array: inputs.loser.associations
+              limit: 1000
+              steps:
+                - call: { target: a, transition: repoint, inputs: { contact: this } }
+          - foreach:
+              item: v
+              array: inputs.loser.activities
+              limit: 5000
+              steps:
+                - call: { target: v, transition: repoint, inputs: { contact: this } }
+          - call: { target: inputs.loser, transition: merged_into, inputs: { successor: this } }
+      merged_into:
+        kind: external
+        from: ACTIVE
+        to: MERGED
+        only_via: [Contact.merge_in]
+        inputs:
+          successor: { reference: Contact }
+        effect:
+          - supersede: inputs.successor
+      forget:
+        kind: erasure
+        inputs:
+          reason: { type: string }
+
+  Association:
+    description: A labelled link between a contact and a company, such as the billing contact, with a primary flag.
+    tracking: record
+
+    attributes:
+      contact:  { reference: Contact, opposite: associations }
+      target:   { reference: Company }
+      label:    { type: string }
+      primary:  { type: bool, default: false }
+
+    states:
+      ACTIVE:  { category: live }
+      REMOVED: { category: closed, final: true }
+
+    transitions:
+      link:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [contact, target, label, primary]
+      repoint:
+        kind: internal
+        from: ACTIVE
+        only_via: [Contact.merge_in]
+        required_inputs: [contact]
+      unlink:
+        kind: external
+        from: ACTIVE
+        to: REMOVED
+
+  Activity:
+    description: An email, call, meeting or note on a contact's timeline, which is never edited, only invalidated.
+    tracking: record
+
+    attributes:
+      contact: { reference: Contact, opposite: activities }
+      at:      { type: timestamp, indexed: true }
+      summary: { type: string, optional: true, personal: true }
+
+    states:
+      RECORDED:    { category: closed }
+      INVALIDATED: { category: closed, final: true }
+
+    transitions:
+      record:
+        kind: initial
+        to: RECORDED
+        required_inputs: [contact, at]
+        optional_inputs: [summary]
+      repoint:
+        kind: internal
+        from: RECORDED
+        only_via: [Contact.merge_in]
+        required_inputs: [contact]
+      invalidate:
+        kind: external
+        from: RECORDED
+        to: INVALIDATED
+```

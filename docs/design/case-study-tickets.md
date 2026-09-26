@@ -9,6 +9,8 @@ Status: design iteration 2, 2026-09-07. Companion to [`first-consumer-walkthroug
 *Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
 
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current; the surrounding prose records how the study reached them.
+>
+> **Rewritten 2026-09-26 in the flow description format** (ADR-0116). The resolution of §2a is an excerpt of the module in the appendix, written then so that the excerpt is part of a checked module (ADR-0121); `scripts/check-flow-docs.py` checks both.
 ## 1. Why this case
 
 Issue tracking differs from the inventory system in ways that stress different parts of the model. Nothing is physical, so no guard reads a photo or a serial. The lifecycle is **user-configured per context**: the same issue type has a different workflow in different projects. Objects are joined by **typed, directional links** that guards read. Objects change kind — a subtask becomes an issue, an issue moves to another project. Workflows are **edited while thousands of issues are live**. And every issue carries a human-readable key that is minted, not supplied.
@@ -27,14 +29,14 @@ The Jira vocabulary below is used because the author's first consumer already re
 | Transition screen (fields shown on transition) | the transition's **declared** inputs; ADR-0047 withdrew the claim that the list could be derived from the guards, and publishing instead checks the two against each other |
 | Condition ("only assignee may execute") | the upper layer's: it reads the assignee and sends the version it read, so its check cannot race a reassignment (ADR-0114) |
 | Validator ("resolution required", "fix version required to close") | guard over inputs; requiredness attaches to the transition (ADR-0002) |
-| Post-function: set resolution, clear resolution on reopen, set resolved date | outcome writes: `set resolution := inputs.resolution`, `clear resolution`, `set resolved_at := now` (ADR-0021 amendment) |
-| Post-function: assign to project lead | outcome write from a related attribute: `assignee := project.lead` |
+| Post-function: set resolution, clear resolution on reopen, set resolved date | effect steps: `required_inputs: [resolution]`, `clear: [resolution]`, `assign: { location: resolved_at, expr: now }` (ADR-0021 amendment) |
+| Post-function: assign to project lead | an effect writing a related attribute: `assign: { location: assignee, expr: project.lead }` |
 | Post-function: fire event | the event log (ADR-0013) |
 | Post-function that computes or reaches outside (send mail, call a webhook) | an effect; a consumer subscribed to the event (ADR-0007) |
 | Update on the same status (edit fields without transitioning) | action — a self-transition (ADR-0016) |
-| Subtask; "parent cannot be Done while subtasks open" | composition; collection guard `none(t in subtasks where t.state.category != done)` |
+| Subtask; "parent cannot be Done while subtasks open" | composition; collection guard `none(t in subtasks where t.state.category != closed)`, Jira's Done being the built-in `closed` (§6) |
 | Epic link, parent link | reference to another issue |
-| Issue link with type and direction (blocks / is blocked by, duplicates, relates to) | a **link object** with a reference to each side, since a many-to-many pair has no end to be stored on and publishing rejects it (check 41); adding or removing a link is an action; guards read it: `none(blocked_by where state.category != done)` |
+| Issue link with type and direction (blocks / is blocked by, duplicates, relates to) | a **link object** with a reference to each side, since a many-to-many pair has no end to be stored on and publishing rejects it (check 41); adding or removing a link is an internal transition; guards read it: `none(l in blocked_by where l.blocker.state.category != closed)` |
 | Resolve as duplicate | a terminal transition recording a `duplicate_of` reference; **not** an identity merge |
 | Version (unreleased → released → archived), Component, Sprint (future → active → closed) | objects with their own small state machines; issues reference them; "cannot add to a closed sprint" is a guard on the action |
 | Comment, worklog | parts — small objects with an author, a timestamp and a posted → edited → removed lifecycle |
@@ -52,24 +54,49 @@ The Jira vocabulary below is used because the author's first consumer already re
 
 ## 2a. Resolution, declared
 
-```text
-
-do resolve IN_PROGRESS -> DONE accepts resolution, fix_version {
-  require subtasks: none(t in subtasks   where t.state.category != done)    because dependent
-  require blockers: none(b in blocked_by where b.state.category != done)    because dependent
-  require versioned: resolution == Resolution.FIXED
-                     implies inputs.fix_version is not null                 because self_serviceable
-  set resolved_at := now
-}
-
-do reopen DONE -> IN_PROGRESS {
-  input reason : string
-  clear resolution
-  clear resolved_at
-}
+```yaml
+WorkItem:
+  conditions:
+    subtasks:
+      description: Every subtask is done.
+      expression: none(t in subtasks where t.state.category != closed)
+      remedy: dependent
+    blockers:
+      description: No work item that blocks this one is still open.
+      expression: >-
+        none(l in blocked_by where l.state == IssueLink.ACTIVE
+             and l.blocker.state.category != closed)
+      remedy: dependent
+    versioned:
+      description: A fixed work item names the version it is fixed in.
+      expression: inputs.resolution == Resolution.FIXED implies inputs.fix_version is not null
+      remedy: self_serviceable
+  transitions:
+    resolve:
+      kind: external
+      from: IN_PROGRESS
+      to: DONE
+      required_inputs: [resolution]
+      optional_inputs: [fix_version]
+      guards:
+        subtasks: deny
+        blockers: deny
+        versioned: deny
+      effect:
+        - assign: { location: resolved_at, expr: now }
+    reopen:
+      kind: external
+      from: DONE
+      to: IN_PROGRESS
+      inputs:
+        reason: { type: string }
+      effect:
+        - clear: [resolution, resolved_at]
 ```
 
-Two Jira post-functions appear here as ordinary outcome writes, `resolved_at := now` and clearing the resolution on reopen. The validator that requires a fix version for a FIXED resolution is a guard over an input, which is where requiredness belongs (ADR-0002). `blocked_by` is a declared inverse, which ADR-0045 requires of anything an invariant traverses and which a guard may traverse freely.
+The resolution is an excerpt of `WorkItem` in the module of the appendix, which holds what resolving needs and no more. Two Jira post-functions appear here as ordinary writes, an `assign` of `now` to `resolved_at` and a `clear` of the resolution on reopen. The validator that requires a fix version for a FIXED resolution is a guard over the transition's inputs, which is where requiredness belongs (ADR-0002). `blocked_by` is the declared opposite of the link objects' `blocked`, which ADR-0045 requires of anything an invariant traverses and which a guard may traverse freely.
+
+*(Corrected 2026-09-26, rewriting this declaration in YAML: its `versioned` guard read `resolution`, the attribute `resolve` writes, and a guard is evaluated before its transition's writes (`DESIGN.md` §6, steps 4 and 5). On a work item not yet resolved it read an absent value, so `resolution == Resolution.FIXED` was unknown, and the guard refused whenever no fix version was given (`declaration-syntax.md` §8.2): it required a fix version for every resolution. It now reads `inputs.resolution` (D392). The rewrite also follows §6's answers: Jira's Done is the built-in category `closed`, not `done`, and a blocker is reached through the link object that §2 maps an issue link to.)*
 
 ## 3. What the model could not say, and what was decided
 
@@ -374,3 +401,162 @@ The author asked next: "how about the flows in jira's service management?" This 
 Every flow Jira Service Management's workflows, approvals and SLAs configure can be expressed. Four things JSM does by automation are declarations here: the priority from impact and urgency, a standard change's pre-authorization, an affected service's responders joining an incident, and a linked problem's status. One thing JSM only shows, the freeze window, is enforced. The one limit by decision is **working-hours calendars**: an SLA is written and measured on absolute time, and business hours are a non-goal of the first release. It is the limit a service desk will feel most; asked, the author kept it on 2026-09-26, "keep the calendar non-goal" (PRD revision 11). No construct it needs is still to come: `extends` for asset object types, migrations for deleting statuses under live requests, and evaluators for a guard that must ask an outside system were written after this answer was first given.
 
 What remains is by design an application's: the portal and what it shows, who may see and do what (customers, organizations, internal notes), notifications, queues, escalations and on-call, the CI/CD tool's side of gating, and the transitions JSM takes by itself, each served by the engine's queries and its record.
+
+## Appendix: the module the resolution belongs to
+
+What §2a's resolution needs and no more: a work item with its subtasks, the versions work is fixed in, and the link object by which one work item blocks another. A subtask is created through its work item, as a part is (the model's check 11). `flow-format/examples/issues.yaml` is the full answer for Jira (§6); this module is §2a's.
+
+```yaml
+module: tickets
+categories: [todo, in_progress, closed]
+
+enumerations:
+  Resolution: [FIXED, WONT_FIX, DUPLICATE, CANNOT_REPRODUCE]
+
+types:
+  Version:
+    description: A version work is fixed in, released once.
+    tracking: record
+
+    attributes:
+      name: { type: string, indexed: true }
+
+    states:
+      UNRELEASED: { category: in_progress }
+      RELEASED:   { category: closed, final: true }
+
+    transitions:
+      create:
+        kind: initial
+        to: UNRELEASED
+        required_inputs: [name]
+      release:
+        kind: external
+        from: UNRELEASED
+        to: RELEASED
+
+  WorkItem:
+    description: An issue, resolved only when its subtasks and its blockers are done.
+    tracking: record
+
+    attributes:
+      summary:     { type: string }
+      resolution:  { type: Resolution, optional: true }
+      fix_version: { reference: Version, optional: true }
+      resolved_at: { type: timestamp, optional: true }
+      subtasks:
+        reference: "Subtask[]"
+        aggregation: composite
+        opposite: parent
+        survives: [archive]
+      blocks:     { reference: "IssueLink[]", opposite: blocker }
+      blocked_by: { reference: "IssueLink[]", opposite: blocked }
+
+    states:
+      TO_DO:       { category: todo }
+      IN_PROGRESS: { category: in_progress }
+      DONE:        { category: closed }
+      ARCHIVED:    { category: closed, final: true }
+
+    conditions:
+      subtasks:
+        description: Every subtask is done.
+        expression: none(t in subtasks where t.state.category != closed)
+        remedy: dependent
+      blockers:
+        description: No work item that blocks this one is still open.
+        expression: >-
+          none(l in blocked_by where l.state == IssueLink.ACTIVE
+               and l.blocker.state.category != closed)
+        remedy: dependent
+      versioned:
+        description: A fixed work item names the version it is fixed in.
+        expression: inputs.resolution == Resolution.FIXED implies inputs.fix_version is not null
+        remedy: self_serviceable
+
+    transitions:
+      create:
+        kind: initial
+        to: TO_DO
+        required_inputs: [summary]
+      start:
+        kind: external
+        from: TO_DO
+        to: IN_PROGRESS
+      add_subtask:
+        kind: internal
+        from: [TO_DO, IN_PROGRESS]
+        inputs:
+          summary: { type: string }
+        effect:
+          - create: { type: Subtask, transition: add, inputs: { parent: this, summary: inputs.summary } }
+      resolve:
+        kind: external
+        from: IN_PROGRESS
+        to: DONE
+        required_inputs: [resolution]
+        optional_inputs: [fix_version]
+        guards:
+          subtasks: deny
+          blockers: deny
+          versioned: deny
+        effect:
+          - assign: { location: resolved_at, expr: now }
+      reopen:
+        kind: external
+        from: DONE
+        to: IN_PROGRESS
+        inputs:
+          reason: { type: string }
+        effect:
+          - clear: [resolution, resolved_at]
+      archive:
+        kind: external
+        from: any
+        to: ARCHIVED
+
+  Subtask:
+    description: A piece of a work item, done on its own.
+    tracking: record
+
+    attributes:
+      parent:  { reference: WorkItem, opposite: subtasks }
+      summary: { type: string }
+
+    states:
+      TO_DO: { category: todo }
+      DONE:  { category: closed, final: true }
+
+    transitions:
+      add:
+        kind: initial
+        to: TO_DO
+        only_via: [WorkItem.add_subtask]
+        required_inputs: [parent, summary]
+      finish:
+        kind: external
+        from: TO_DO
+        to: DONE
+
+  IssueLink:
+    description: A link saying that one work item blocks another, a link object since the pair is many-to-many.
+    tracking: record
+
+    attributes:
+      blocker: { reference: WorkItem, opposite: blocks }
+      blocked: { reference: WorkItem, opposite: blocked_by }
+
+    states:
+      ACTIVE:  { category: closed }
+      REMOVED: { category: closed, final: true }
+
+    transitions:
+      link:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [blocker, blocked]
+      unlink:
+        kind: external
+        from: ACTIVE
+        to: REMOVED
+```

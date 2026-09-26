@@ -121,19 +121,24 @@ class PublishReport:
 
 Three severities rather than two, because the middle one is the interesting case. A new invariant that eleven live objects violate is not a defect in the declaration and not something to wave through: it is a decision, and §4 is where it gets made. Anything a person must decide blocks the publish until the decision is recorded, and the decision is recorded in a file rather than in an argument to the command.
 
-`creations_past_first_state` lists each creation into a state other than its lifecycle's first, with the path it skips and, for each transition on it, which clauses the creation carries, which the type holds as invariants of the same name, and which nothing carries (ADR-0109). It never refuses a publish: opening stock and a walk-in intake start partway through the lifecycle on purpose. `scripts/check-syntax-doc.py` computes it, and verifies the journey's, which `unit-journey.md` quotes.
+`creations_past_first_state` lists each creation into a state other than its lifecycle's first, with the path it skips and, for each transition on it, which clauses the creation carries, which the type holds as invariants of the same name, and which nothing carries (ADR-0109). It never refuses a publish: opening stock and a walk-in intake start partway through the lifecycle on purpose. `scripts/check-syntax-doc.py` computes it, and `scripts/check-flow-docs.py` verifies that the journey's, which `unit-journey.md` quotes, is the one the journey's module produces.
 
 `worst_case_fanout` is each loop's own declared bound; `observed_fanout` is the maximum that loop actually reaches over the live objects. ADR-0071 dropped the product of the two, which multiplied invented numbers into a total that looked authoritative.
 
 ## 3. Mappings
 
-A mapping is declaration text, in the migration forms of the syntax §6.6, carried by the publish that needs it:
+A mapping is declaration text, the `migration` section of the module the publish carries (`flow-format.md` §4.16, ADR-0120), which the conversion writes in the model's migration forms (`declaration-syntax.md` §6.6). Each mapping names its type or enumeration, as the model's lines do not:
 
-```text
-removed state  LEGACY_HOLD -> AVAILABLE
-removed member RetirementReason.OBSOLETE -> FAILED
-renamed attr   old_name    -> new_name
-backfill       manufacturer_serial := "UNKNOWN"
+```yaml
+migration:
+  removed_states:
+    Robot: { LEGACY_HOLD: AVAILABLE }
+  removed_members:
+    RetirementReason: { OBSOLETE: FAILED }
+  renamed_attributes:
+    Robot: { old_name: new_name }
+  backfill:
+    Robot: { manufacturer_serial: '"UNKNOWN"' }
 ```
 
 A removed state's mapping is applied as **one recorded migration transition per object**, with provenance `migrated`, the publish event as its cause and the publishing actor as the actor (ADR-0027). So a hundred objects in a removed state produce a hundred events, each answering "why is this object in this state" for anyone who reads its history later.
@@ -142,8 +147,10 @@ A removed enum member's mapping and a `backfill` are applied the same way, one r
 
 **A migration is PRD F2's third route, not an assertion** (ADR-0105). Its authority is the publish's approval, and it carries no reason of its own. It is checked against every invariant, in the dry run and again in the publish, so what the dry run reports is what the publish does. A violation it would leave — or a new invariant's — is resolved before the publish by the objects' own transitions, by a different mapping, or by an `admit`:
 
-```text
-admit Robot.one_open_engagement because OverrideReason.LEGACY_DATA
+```yaml
+migration:
+  admit:
+    - { invariant: Robot.retired_with_reason, reason: OverrideReason.LEGACY_DATA }
 ```
 
 An `admit`'s reason is a member of a declared enum, as an assertion's is, so overrides stay countable per reason. It records an admission, with its reason, on each violating object's migration event, an object no other mapping changes receiving a `migrated` event carrying only the admission. That admission is an override in the PRD's sense — its Override concept names the migration path — so `exceptions(type)` lists the object and `override_counts` counts it. A new invariant an `admit` covers is not compiled to a constraint, and an existing one that is compiled has its constraint dropped before the migration writes, since a constraint cannot yield for one row; it stays uncompiled while any admission of it stands, and the report says so (`storage-schema.md` §8, §10, ADR-0074).
@@ -276,3 +283,115 @@ What this does **not** solve is a legacy *read* of a migrated type. Only writes 
 **Still open.**
 
 - **The three judgements of §5** — whether a child outlives its parent, whether a status column is a lifecycle or an attribute, and whether a table is a type at all. The rest of the mapping goes by shape; these do not, and each is a question to ask rather than a default to take.
+
+## Appendix: the two versions the mappings of §3 belong to
+
+The mappings of §3 are excerpts of the second version's `migration`, written on 2026-09-26 so that they are part of a checked module (ADR-0121): a unit that had a hold for the legacy system, a retirement reason later merged, a name later renamed, no manufacturer serial, and no rule that a retirement records its reason. `scripts/check-flow-docs.py` checks both versions, and the second against the first, as successive versions of one module.
+
+```yaml
+module: units
+categories: [live, closed]
+
+enumerations:
+  RetirementReason: [FAILED, DAMAGED, OBSOLETE, LOST]
+  OverrideReason: [LEGACY_DATA, MIS_SCANNED]
+
+types:
+  Robot:
+    description: A robot unit, as the version before the migration declares it.
+    tracking: serial
+
+    attributes:
+      serial:            { type: string, indexed: true, unique: true }
+      old_name:          { type: string, optional: true }
+      retirement_reason: { type: RetirementReason, optional: true }
+
+    states:
+      AVAILABLE:   { category: live }
+      LEGACY_HOLD: { category: live }
+      RETIRED:     { category: closed, final: true }
+
+    transitions:
+      add:
+        kind: initial
+        to: AVAILABLE
+        required_inputs: [serial]
+      name:
+        kind: internal
+        from: [AVAILABLE, LEGACY_HOLD]
+        optional_inputs: [old_name]
+      hold:
+        kind: external
+        from: AVAILABLE
+        to: LEGACY_HOLD
+      release:
+        kind: external
+        from: LEGACY_HOLD
+        to: AVAILABLE
+      retire:
+        kind: external
+        from: [AVAILABLE, LEGACY_HOLD]
+        to: RETIRED
+        optional_inputs: [retirement_reason]
+```
+
+```yaml
+module: units
+categories: [live, closed]
+
+enumerations:
+  RetirementReason: [FAILED, DAMAGED, LOST]
+  OverrideReason: [LEGACY_DATA, MIS_SCANNED]
+
+types:
+  Robot:
+    description: A robot unit, as the version the migration publishes declares it.
+    tracking: serial
+
+    attributes:
+      serial:              { type: string, indexed: true, unique: true }
+      new_name:            { type: string, optional: true }
+      manufacturer_serial: { type: string }
+      retirement_reason:   { type: RetirementReason, optional: true }
+
+    states:
+      AVAILABLE: { category: live }
+      RETIRED:   { category: closed, final: true }
+
+    invariants:
+      retired_with_reason:
+        description: A retired unit records why it was retired.
+        expression: state != RETIRED or retirement_reason is not null
+
+    transitions:
+      add:
+        kind: initial
+        to: AVAILABLE
+        required_inputs: [serial, manufacturer_serial]
+      name:
+        kind: internal
+        from: AVAILABLE
+        optional_inputs: [new_name]
+      retire:
+        kind: external
+        from: AVAILABLE
+        to: RETIRED
+        required_inputs: [retirement_reason]
+
+migration:
+  description: >-
+    Version 2 releases every unit held for the legacy system, merges the
+    obsolete retirement reason into failed, renames the unit's name, records a
+    manufacturer serial for every unit, and admits the units retired without a
+    reason before one was required.
+  removed_states:
+    Robot: { LEGACY_HOLD: AVAILABLE }
+  removed_members:
+    RetirementReason: { OBSOLETE: FAILED }
+  renamed_attributes:
+    Robot: { old_name: new_name }
+  backfill:
+    Robot: { manufacturer_serial: '"UNKNOWN"' }
+  admit:
+    - { invariant: Robot.retired_with_reason, reason: OverrideReason.LEGACY_DATA }
+```

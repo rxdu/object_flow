@@ -403,6 +403,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D389](#d389) | The flow review's appendix read an observation kind from a shared machine | Resolved in place |
 | [D390](#d390) | The flow checker read a money literal's currency as a state | Resolved in place |
 | [D391](#d391) | D385's resolution covered defaults and backfills and no other expression | Resolved in place |
+| [D392](#d392) | The tickets study's fix-version validator read the resolution its own transition writes | Resolved in place |
+| [D393](#d393) | The approvals study's edit claimed to skip writes of required attributes | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -2611,3 +2613,13 @@ ADR-0116 moves the design's examples to the flow description format, `unit-journ
 **D385's resolution covered defaults and backfills and no other expression.** The payments ledger's `post` creates its entries with `inputs: { …, is_debit: true }`, and step 2 refused it, "True is not of type 'string'", the trap D385 had removed only from a default and a backfill. Found rewriting `case-study-payments.md`, the next document after the one that found D385.
 
 **Resolved in place**, 2026-09-26: every expression may be a YAML boolean or number, standing for that literal (`flow-format.md` §5). The checker finds where an expression goes from the schema itself, and converts a value only where no key takes it as YAML's own, which its self-test proves for a default, a creation's inputs and a `foreach` range, beside `final: true`, `indexed: true` and `limit`, which stay as they are.
+
+### D392
+**The tickets study's fix-version validator read the resolution its own transition writes.** `case-study-tickets.md` §2a's `resolve` accepts `resolution`, and its guard `versioned` read `resolution == Resolution.FIXED implies inputs.fix_version is not null`. A guard is evaluated before its transition's writes (`DESIGN.md` §6, steps 4 and 5), so on a work item not yet resolved the guard read an absent resolution, the comparison was unknown, and a guard that is unknown refuses (`declaration-syntax.md` §8.2): every resolution needed a fix version, not only FIXED. It is the class the Jira study found in two example guards (`case-study-tickets.md` §7.8). Found by reading, rewriting §2a in YAML; `scripts/check-flows.py` passes the original form, as nothing yet notices a guard reading its own transition's writes.
+
+**Resolved in place**, 2026-09-26: the guard reads `inputs.resolution`, with a correction note in §2a; `TODO.md`'s proposed notice lists this case.
+
+### D393
+**The approvals study's edit claimed to skip writes of required attributes.** `case-study-approvals-and-bookings.md` §2.2 declared `act edit at SUBMITTED accepts amount, vendor` with the comment "each write skipped when not supplied". An input on an attribute takes the attribute's optionality (`declaration-syntax.md` §5), `amount` and `vendor` are required, and only an optional attribute's input skips its write when not supplied (ADR-0052), so both were required and the comment described a behaviour the declaration did not have. Found rewriting §2.2 in YAML; a copy listing both as optional inputs is refused by `scripts/check-flows.py` at step 3.
+
+**Resolved in place**, 2026-09-26: `edit` requires both, with a correction note in §2.2.

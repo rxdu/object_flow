@@ -249,7 +249,10 @@ def check_docs(texts):
 def self_test(texts):
     """Plant a mistake of each kind in a copy of the documents and require it reported."""
     spec = ROOT / "docs/design/flow-format.md"
-    base = dict(texts)
+    # a plant needs the specification, whose excerpts it plants in, the text
+    # module a planted import names, and the planted document; checking every
+    # document for every plant would only repeat the main run
+    base = {p: t for p, t in texts if p in (spec, ROOT / "docs/design/declaration-syntax.md")}
     module = base[spec][base[spec].index("```yaml\nmodule: documents"):]
     module = module[:module.index("\n```\n") + 5]
     plain = "# A planted document\n\n" + module
