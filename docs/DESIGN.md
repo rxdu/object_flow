@@ -13,12 +13,13 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 - ADR-0110, on 2026-09-25: the engine is an internal service; authentication and the mapping of roles to capabilities are the upper layers'; an actor's kind is declared with its type.
 - ADR-0114, on 2026-09-25: ObjectFlow records who acted and never evaluates it; who may do and see what is the upper layers', which supersedes ADR-0030 and ADR-0112.
 - ADR-0111 to ADR-0113, on 2026-09-25, from checking the design against the first consumer's PRD as a case study: a rule may be a flag, a metric may restrict who reads it with splits by person restricted by default, and a norm observed in history is held as data. ADR-0114 superseded ADR-0112 the same day.
+- ADR-0102, on 2026-09-26: the unit's whole journey, from request to service and loan, written from the first consumer's production code.
 - ADR-0115 to ADR-0120, on 2026-09-26: the flow description format, its established terms, its relationships, metrics, assertions and erasures, and migrations.
 - ADR-0065 to ADR-0073, which the author ruled on.
 
 **Decided at the author's direction, the author's own acceptance pending:** none since 2026-09-26, when the author accepted the last of them.
 
-**Proposed and awaiting the author:** ADR-0102, which writes the unit's whole journey from the first consumer's production code.
+**Proposed and awaiting the author:** none since 2026-09-26, when the author accepted ADR-0102, which writes the unit's whole journey from the first consumer's production code.
 
 **Awaiting review:** ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 and the six implementation documents of 2026-09-09, with ADR-0078 to ADR-0080 first, being the three decided at the author's direction rather than by the author.
 

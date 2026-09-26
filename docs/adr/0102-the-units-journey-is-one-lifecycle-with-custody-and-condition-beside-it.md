@@ -1,6 +1,6 @@
 # ADR-0102: The unit's journey is one lifecycle, with custody and condition beside it, and a missing unit is a state
 
-- **Status:** Proposed — written 2026-09-24 at the author's request to extend the unit's transitions from requested to serviced and loaned, from the first consumer's production code; awaiting the author's acceptance
+- **Status:** Accepted by the author, 2026-09-26: "accept ADR-0102 too". Written 2026-09-24 at the author's request to extend the unit's transitions from requested to serviced and loaned, from the first consumer's production code, and amended in place by ADR-0103 and ADR-0109 while it was proposed
 - **Date:** 2026-09-24
 - **Amended by:** ADR-0103 — written before the review against the PRD; amended in place, being still proposed: a closed `RETIRED`, a backdatable receipt, production's serial format, the module's request rule and a declared utilisation. Three of those needed the language to grow, in ADR-0103. ADR-0109 — the label and the manufacturer serial are invariants of every unit on offer, the opening-stock creation copies none of intake's guards, and two acts record a unit's serial and photos (D379).
 - **Relates to:** ADR-0079 (a role is a capability), ADR-0085 (a trial clause), and the first consumer's own ADR-0002 (`wr:docs/adr/0002-unit-engagement-and-leasing-model.md`)
