@@ -212,3 +212,10 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** A page's build and its publication were sent as one parallel batch on 2026-09-26. The build failed, on a recursive schema definition the vocabulary walker followed forever, and the publication went ahead with the previous build's file, so a version went out that did not contain the change it was published for.
 - **Correction:** Run the build and its checks first, and publish in a later step, only after they succeed. Anything that consumes a build's output waits for the build's result.
 - **Context:** The walkthrough and specification pages, and any artifact generated from repository files.
+
+### A quote is checked against the page's raw text, not a fetcher's summary
+
+- **Pattern:** On 2026-09-26 two things read through a fetch tool that summarises a page with a model came back wrong. ADR-0118 and `flow-format.md` Appendix A.4 quoted Cube's query format as listing "dimensions to group by", and the page says "An array of dimensions". A summary of Jira's approval-step page said the step "does not require a Premium edition", which the page does not say and Atlassian's overview contradicts. Both read as quotations, and the first was committed as one.
+- **Correction:** Before a quotation goes into a document, fetch the page's raw text (`curl`, strip the markup) and find the quoted words in it; use the summarising fetch to locate a page, never as the source of a quote. A researcher asked for quotes is told the same, and its quotes are sampled against the raw text.
+- **Context:** Any document that cites external sources: ADRs, the format's Appendix A, case studies.
+

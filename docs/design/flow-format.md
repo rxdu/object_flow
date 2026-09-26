@@ -523,7 +523,7 @@ On 2026-09-26 the author asked that the metric language's terms be verified befo
 | This format | The model (§6.9) | dbt (MetricFlow) | Cube | Looker (LookML) |
 |---|---|---|---|---|
 | a metric under the type it reads | `metric`, at the top level | a simple metric under its semantic model; a ratio or derived one at the top level | a measure in its cube | a measure in its view |
-| `dimensions` | `by` | dimensions: "the non-aggregatable columns … that describe or categorize data" | dimensions: "attributes related to measures"; a query's "dimensions to group by" | `dimension` |
+| `dimensions` | `by` | dimensions: "the non-aggregatable columns … that describe or categorize data" | dimensions: "attributes related to measures"; a query's `dimensions`, "An array of dimensions" | `dimension` |
 | `filter` | `where`, in `from` | `filter`, "WHERE clause equivalent" | a measure's `filters` | a measure's `filters` |
 | `time_dimension` | `window on` | `agg_time_dimension` | `timeDimensions`, "grouping and filtering by a time dimension" | a `dimension_group` of `type: time` |
 | `day` … `year`, a week from Monday | the same (ADR-0106) | granularities `day` to `year` | the same; "week (starting on Monday)" | timeframes `date` to `year`; "weeks in Looker start on Monday" |
@@ -531,7 +531,7 @@ On 2026-09-26 the author asked that the metric language's terms be verified befo
 | `flag_when` | `flag` | none | none | none |
 | not yet | `combine` | a derived metric: `expr` over `input_metrics` | none | none |
 
-Sources: dbt's [latest spec](https://docs.getdbt.com/docs/build/latest-metrics-spec), [metrics overview](https://docs.getdbt.com/docs/build/metrics-overview), [dimensions](https://docs.getdbt.com/docs/build/dimensions) and [simple metrics](https://docs.getdbt.com/docs/build/simple); Cube's [dimensions](https://docs.cube.dev/reference/data-modeling/dimensions), [measures](https://docs.cube.dev/reference/data-modeling/measures) and [query format](https://docs.cube.dev/reference/core-data-apis/rest-api/query-format); Looker's [measure types](https://docs.cloud.google.com/looker/docs/reference/param-measure-types) and [dimension groups](https://docs.cloud.google.com/looker/docs/reference/param-field-dimension-group). dbt's week start day was not checked.
+Sources: dbt's [latest spec](https://docs.getdbt.com/docs/build/latest-metrics-spec), [metrics overview](https://docs.getdbt.com/docs/build/metrics-overview), [dimensions](https://docs.getdbt.com/docs/build/dimensions) and [simple metrics](https://docs.getdbt.com/docs/build/simple); Cube's [dimensions](https://docs.cube.dev/reference/data-modeling/dimensions), [measures](https://docs.cube.dev/reference/data-modeling/measures) and [query format](https://docs.cube.dev/reference/core-data-apis/rest-api/query-format); Looker's [measure types](https://docs.cloud.google.com/looker/docs/reference/param-measure-types) and [dimension groups](https://docs.cloud.google.com/looker/docs/reference/param-field-dimension-group). dbt's week start day was not checked. *Retracted 2026-09-26: the Cube cell first quoted a query's "dimensions to group by", wording a summarising fetch produced and the page does not contain; it was invented. Every other quote in this table was then checked against the pages' raw text.*
 
 ## Appendix B. Coverage of the declaration model
 
