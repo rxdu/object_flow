@@ -1043,6 +1043,7 @@ def read_errors(tn, t, categories=()):
         exprs += [(("types", tn, "observations", o, "invariants", n, "expression"), n, i["expression"], fields)
                   for n, i in (ob.get("invariants") or {}).items()]
     return out + [(path, "names", f"{name} reads '{r}', which only a transition has" if r in REQUEST_ONLY else
+                                  f"{name} reads labels, which are read only as a metric's source, source: labels (check 55)" if r == "labels" else
                                   f"{name} reads '{r}', which is not a field of the observation {path[3]}" if "observations" in path else
                                   f"{name} reads '{r}', which {tn} does not declare")
                   for path, name, text, scope in exprs for r in sorted(reads(text) - scope)]
@@ -1211,6 +1212,8 @@ DATASET_ROWS = {
                  "actor_kind", "at", "declaration_version"},
     "attempt_counts": {"day", "object", "transition", "verdict", "clause", "remedy", "actor_kind", "enforced", "flagged",
                        "declaration_version", "count"},
+    # every type carries labels without declaring any; a label's note is personal and not readable (§6.8)
+    "labels": {"subject", "name", "subject_state", "occurred_at", "recorded_at", "recorded_by_kind", "declaration_version"},
 }
 # every metric has these dimensions unless it declares them (declaration-syntax.md §6.9)
 STANDARD_DIMENSIONS = {"version", "actor_kind"}
@@ -1238,7 +1241,7 @@ def formula_errors(tn, t, mn, m):
     out = []
     if members is None:
         out.append((base + ("source",), "names", f"metric {mn} reads '{source}', which is not objects, intervals, intervals(<member>), "
-                                                 f"transitions, attempts, attempt_counts or an observation kind of {tn}"))
+                                                 f"transitions, attempts, attempt_counts, labels or an observation kind of {tn}"))
     tracked = re.fullmatch(r"intervals\(([a-z][a-z0-9_]*)\)", source)
     if tracked and tracked.group(1) not in (t.get("attributes") or {}) and tracked.group(1) != "state":
         out.append((base + ("source",), "names", f"metric {mn} reads the intervals of '{tracked.group(1)}', which {tn} does not declare"))
@@ -1256,7 +1259,8 @@ def formula_errors(tn, t, mn, m):
             out.append((base + key, "names", f"metric {mn} reads '{r}'; a metric reads its rows through '{item}'"))
         for r in sorted(set(re.findall(rf"(?<![\w.]){item}\.([a-z][a-z0-9_]*)", " ".join(str(text).split())))):
             if members is not None and r not in members:
-                out.append((base + key, "names", f"metric {mn} reads {item}.{r}, and a row of {source} has no member '{r}'"))
+                out.append((base + key, "names", f"metric {mn} reads {item}.{r}, a label's note, which is personal and not readable"
+                            if source == "labels" and r == "note" else f"metric {mn} reads {item}.{r}, and a row of {source} has no member '{r}'"))
     dims = set(m.get("dimensions") or {}) | STANDARD_DIMENSIONS
     for f, c in (m.get("flag_when") or {}).items():
         for r in sorted(reads(c) - dims - {"value", "now"}):
@@ -1821,7 +1825,7 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
         ("a flag that reads neither the value nor a dimension", "names", "service.yaml",
          plant(service, 'flag_when: { low: "value < 0.900" }', 'flag_when: { low: "value < threshold" }')),
         ("a metric over a source its type does not have", "names", "service.yaml",
-         plant(service, "        source: inspections\n", "        source: labels\n")),
+         plant(service, "        source: inspections\n", "        source: comments\n")),
         ("a metric whose item is declared after its filter", "order", "service.yaml",
          plant(plant(service, "        item: r\n        filter: r.outcome", "        filter: r.outcome"),
                "        time_dimension: r.occurred_at\n", "        time_dimension: r.occurred_at\n        item: r\n")),
@@ -1876,6 +1880,10 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(service_v2, "invariant: ServiceJob.photo_when_done,", "invariant: ServiceJob.photo_required,")),
         ("a required field added to an observation kind", "names", "service-v2.yaml",
          plant(service_v2, "          note:    { type: string, optional: true }\n", "          note:    { type: string, optional: true }\n          probe:   { type: string }\n")),
+        ("a metric that reads a label's personal note", "names", "servicedesk.yaml",
+         plant(servicedesk, "          name: l.name\n", "          name: l.note\n")),
+        ("a guard that reads labels", "names", "servicedesk.yaml",
+         plant(servicedesk, "        expression: entered_at(RESOLVED) + 3 days <= now\n", "        expression: entered_at(RESOLVED) + 3 days <= now and count(x in labels) == 0\n")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",

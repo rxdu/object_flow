@@ -1260,7 +1260,7 @@
           "$ref": "#/definitions/description"
         },
         "source": {
-          "description": "The rows: objects, intervals, intervals(<member>), transitions, attempts, attempt_counts, or an observation kind of the type.",
+          "description": "The rows: objects, intervals, intervals(<member>), transitions, attempts, attempt_counts, labels, or an observation kind of the type.",
           "anyOf": [
             {
               "enum": [
@@ -1268,7 +1268,8 @@
                 "intervals",
                 "transitions",
                 "attempts",
-                "attempt_counts"
+                "attempt_counts",
+                "labels"
               ]
             },
             {

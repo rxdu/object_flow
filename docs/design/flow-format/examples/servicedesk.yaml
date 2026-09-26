@@ -279,6 +279,15 @@ types:
           month: month(r.resolved_at)
         time_dimension: r.resolved_at
         expression: count(where r.sla_met) * 1.000 / count()
+      labels_by_state:
+        description: How often each label is applied to requests, by the state they were in, which shows where the flow and the work disagree.
+        source: labels
+        item: l
+        dimensions:
+          name: l.name
+          state: l.subject_state
+        time_dimension: l.occurred_at
+        expression: count()
       satisfaction:
         description: The average satisfaction score, by month.
         source: ratings

@@ -219,7 +219,7 @@ A `transition_count` counts the transitions along its transition's source and ta
 | Key | Required | Value |
 |---|---|---|
 | `description` | yes | what the figure is |
-| `source` | yes | the rows: `objects`, the type's objects; `intervals`, each span an object spent in one state; `intervals(<member>)`, each span a tracked member held one value; `transitions`, each transition taken; `attempts`, each request that did not apply; `attempt_counts`, their daily counts; or the name of one of the type's observation kinds, each observation of it |
+| `source` | yes | the rows: `objects`, the type's objects; `intervals`, each span an object spent in one state; `intervals(<member>)`, each span a tracked member held one value; `transitions`, each transition taken; `attempts`, each request that did not apply; `attempt_counts`, their daily counts; `labels`, each label applied to an object of the type; or the name of one of the type's observation kinds, each observation of it |
 | `item` | yes | the name each row is read by, as a `foreach` step names its element |
 | `filter` | no | an expression over the row; only the rows it holds for are counted |
 | `dimensions` | no | a mapping from a dimension's name to an expression over the row; the figure is computed for each combination of their values |
@@ -243,6 +243,8 @@ inspection_pass_rate:
 The source MUST be one the type has, and `intervals(<member>)` MUST name a member the type declares (step 3, `names`) that is tracked: the state, an enumeration attribute or a single stored reference (step 4, `check 58`). The filter, the dimensions, the time dimension and the expression read the row through `item` and read no other name but `now`, and each member of the row they read MUST be one the source's rows have, as `declaration-syntax.md` §6.9 lists them for each source (step 3, `names`). So `item` MUST NOT be a name an expression reads as something else, such as `state`, `now` or `value` (step 3, `names`). A flag reads `value`, the metric's dimensions, and `version` and `actor_kind`, which every metric has unless it declares them, and so no dimension is named `value` (step 3, `names`).
 
 The rest of the model's rules for a metric are its publish checks (step 4, `check 56`): a dimension reaches at most two hops from the row, no personal member is read anywhere in a metric, `avg`, `median`, `percentile` and the time buckets `day` to `year` are used in a metric only, and a guard's `metric(…)` binds only the metric's dimensions and windows only a metric with a `time_dimension`.
+
+**Labels.** Every type carries labels without declaring any: a label is a built-in observation with a `name`, a personal `note` and the `subject_state` the object was in, applied by a request, never declared (`declaration-syntax.md` §6.8). A label is read only as a metric's source, `source: labels`, whose rows have `subject`, `name`, `subject_state`, `occurred_at`, `recorded_at`, `recorded_by_kind` and `declaration_version`, and not the note, which is personal; an expression anywhere else that reads labels is refused (step 3, `names`; the model's check 55). A label becomes a rule only by promotion to a state, an attribute or an observation kind, which is a published version.
 
 The keys are the ones the semantic layers use for the same things (ADR-0118, Appendix A.4): dbt, Cube and Looker call the groups dimensions and narrow the rows with a filter, and dbt aggregates a metric against its time dimension. A metric over other metrics, the model's `combine`, is not written yet.
 
@@ -546,7 +548,7 @@ These words are reserved by the format. `scripts/check-flow-format-doc.py` holds
 
 **Keys:** `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines`, `requires`, `state_machine`, `types`, `description`, `abstract`, `extends`, `mirror`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `corrects`, `may_admit`, `optional`, `identifier`, `external`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `migration`, `removed_states`, `removed_members`, `renamed_attributes`, `backfill`, `admit`, `invariant`, `reason`, `measure`, `source`, `filter`, `dimensions`, `time_dimension`, `state`, `transition`, `group_by`, `flag_when`.
 
-**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `assertion`, `erasure`, `any`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `objects`, `intervals`, `transitions`, `attempts`, `attempt_counts`, `composite`, `in_scope`, `month`, `week`, `actor`.
+**Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `assertion`, `erasure`, `any`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `objects`, `intervals`, `transitions`, `attempts`, `attempt_counts`, `labels`, `composite`, `in_scope`, `month`, `week`, `actor`.
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
 
@@ -655,7 +657,7 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | migrations: removed and renamed members, backfill | §6.6 | written (§4.16) |
 | `this_event` and extension | §6.7 | not yet |
 | observations | §6.8 | written (§4.4) |
-| labels | §6.8 | not yet |
+| labels | §6.8 | written (§4.9): applied by request, read as a metric's source |
 | metrics: median time in a state, transition counts | §6.9 | written (§4.9) |
 | metrics: the metric language, sources, dimensions, filters and flags | §6.9 | written (§4.9) |
 | metrics: combined metrics, `combine` | §6.9 | not yet (ADR-0118) |
