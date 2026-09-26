@@ -152,6 +152,10 @@
           "$ref": "#/definitions/typeName",
           "description": "The abstract base this type inherits attributes, derived attributes and invariants from, and its tracking; never its transitions."
         },
+        "mirror": {
+          "type": "boolean",
+          "description": "true for a type another system owns: this store holds it, only the import writes it, and it takes no transition but an erasure (ADR-0075, ADR-0101)."
+        },
         "tracking": {
           "enum": [
             "record",
@@ -269,6 +273,16 @@
                 "required": [
                   "abstract"
                 ]
+              },
+              {
+                "properties": {
+                  "mirror": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "mirror"
+                ]
               }
             ]
           }
@@ -292,6 +306,16 @@
                 },
                 "required": [
                   "abstract"
+                ]
+              },
+              {
+                "properties": {
+                  "mirror": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "mirror"
                 ]
               }
             ]
@@ -336,6 +360,46 @@
               {
                 "required": [
                   "metrics"
+                ]
+              },
+              {
+                "properties": {
+                  "mirror": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "mirror"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "properties": {
+            "mirror": {
+              "const": true
+            }
+          },
+          "required": [
+            "mirror",
+            "states"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "state_machine"
+                ]
+              },
+              {
+                "properties": {
+                  "abstract": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "abstract"
                 ]
               }
             ]
@@ -974,6 +1038,10 @@
         },
         "identifier": {
           "$ref": "#/definitions/identifier"
+        },
+        "external": {
+          "$ref": "#/definitions/memberName",
+          "description": "The system that owns this value, such as legacy or xero; its values are unique per source and may be absent."
         },
         "unique": {
           "description": "No two objects hold the same value: true across the type; in_scope, per the identifier's scope; with, together with the attributes listed; where, among the objects the expression holds for.",

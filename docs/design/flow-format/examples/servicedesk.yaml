@@ -683,7 +683,7 @@ types:
     extends: Asset
     state_machine: AssetLifecycle
     attributes:
-      assigned_to: { type: identity, optional: true }
+      assigned_to: { reference: Employee, optional: true }
     transitions:
       assign:
         kind: internal
@@ -701,3 +701,22 @@ types:
         kind: internal
         from: [IN_STOCK, IN_USE]
         required_inputs: [hostname]
+
+  Employee:
+    description: A person employed by the organization, as the HR system records them; the HR system owns the record, and only the import writes it.
+    mirror: true
+    tracking: record
+    attributes:
+      employee_id: { type: string, external: hr, indexed: true }
+      name:        { type: string, optional: true, personal: true }
+      department:  { type: string, optional: true }
+    states:
+      EMPLOYED: { category: active }
+      LEFT:     { category: closed, final: true }
+    transitions:
+      forget:
+        kind: erasure
+        description: Erases this store's copy of the person's name; the HR system erases its own.
+        inputs:
+          reason: { type: string }
+

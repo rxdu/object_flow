@@ -74,11 +74,11 @@ NOT_A_TRANSITION = {"any"}
 NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "this_event"}
 # keys the text language has a form for on one kind of attribute only; elsewhere they would be dropped
 ONLY_ON_OBSERVATIONS = {"unit"}
-ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "opposite", "stored", "aggregation", "cascade",
+ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "external", "opposite", "stored", "aggregation", "cascade",
                  "survives"}
 METRIC_ORDER = ["description", "measure", "state", "transition", "source", "item", "filter", "dimensions",
                 "group_by", "time_dimension", "expression", "flag_when"]
-TYPE_ORDER = ["description", "abstract", "extends", "tracking", "state_machine", "attributes", "observations", "states",
+TYPE_ORDER = ["description", "abstract", "extends", "mirror", "tracking", "state_machine", "attributes", "observations", "states",
               "derived_attributes", "invariants", "conditions", "transitions", "metrics"]
 
 
@@ -353,8 +353,8 @@ def schema_errors(doc):
             out.append((tuple(e.absolute_path), "schema", rule))
         elif e.validator == "oneOf" and len(e.absolute_path) == 2 and e.absolute_path[0] == "types":
             out.append((tuple(e.absolute_path), "schema",
-                        "a type declares its own states and transitions, binds a state_machine, or is abstract, and only one of them; "
-                        "an abstract type has no lifecycle, conditions, observations or metrics"))
+                        "a type declares its own states and transitions, binds a state_machine, is abstract, or is a mirror with states, "
+                        "and only one of them; an abstract type has no lifecycle, conditions, observations or metrics"))
         elif e.validator == "anyOf" and len(e.absolute_path) == 2 and e.absolute_path[0] == "types":
             out.append((tuple(e.absolute_path), "schema",
                         "a type declares its tracking, extends a base that does, or is abstract"))
@@ -519,6 +519,14 @@ def family_errors(doc, library):
                     out.append((here + (key, n), "names", f"{tn} declares '{n}', which it inherits from {owner}; a member has one declaration"))
         if not t.get("abstract") and "tracking" not in t and not any("tracking" in kinds[c] for c in chain):
             out.append((here, "names", f"{tn} has no tracking, declared or inherited"))
+        members = dict(t.get("attributes") or {})
+        for c in chain:
+            members.update(kinds[c].get("attributes") or {})
+        if t.get("mirror") and not any(a.get("external") for a in members.values()):
+            out.append((here, "names", f"{tn} is a mirror and declares no external identifier, by which the import matches its objects"))
+        for a, spec in (t.get("attributes") or {}).items():
+            if spec.get("external") and "reference" in spec:
+                out.append((here + ("attributes", a, "external"), "names", f"{tn}.{a} is a reference; an external identifier is a value the other system gives"))
     return out
 
 
@@ -1265,7 +1273,8 @@ def notices(doc):
 def markings(spec):
     """The markings an attribute or a reference carries after its type, in the
     model's words (declaration-syntax.md §3.1, §3.2)."""
-    marks = [m for m in ("indexed", "personal") if spec.get(m)]
+    marks = [f'external "{spec["external"]}"'] if spec.get("external") else []
+    marks += [m for m in ("indexed", "personal") if spec.get(m)]
     u = spec.get("unique")
     if u is True:
         marks.append("unique")
@@ -1399,7 +1408,7 @@ def to_text(doc):
         conds = t.get("conditions") or {}
         emit(f"# {t['description']}", T)
         emit(f"type {tn}" + (f" extends {t['extends']}" if t.get("extends") else "") + " version 1"
-             + (" abstract" if t.get("abstract") else "") + " {", T)
+             + (" abstract" if t.get("abstract") else "") + (" mirror" if t.get("mirror") else "") + " {", T)
         if t.get("tracking"):
             emit(f"  tracking {t['tracking']}", T + ("tracking",))
         if t.get("state_machine"):
@@ -1677,13 +1686,20 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
         ("a type that extends one that is not abstract", "names", "servicedesk.yaml",
          plant(servicedesk, "  Laptop:\n    description: A laptop, assigned to the person who uses it.\n    extends: Asset\n", "  Laptop:\n    description: A laptop, assigned to the person who uses it.\n    extends: Alert\n")),
         ("a subtype that redeclares what it inherits", "names", "servicedesk.yaml",
-         plant(servicedesk, "      assigned_to: { type: identity, optional: true }\n",
-               "      assigned_to: { type: identity, optional: true }\n      name: { type: string }\n")),
+         plant(servicedesk, "      assigned_to: { reference: Employee, optional: true }\n",
+               "      assigned_to: { reference: Employee, optional: true }\n      name: { type: string }\n")),
         ("two abstract types that extend each other", "names", "servicedesk.yaml",
          plant(plant(servicedesk, "    abstract: true\n    tracking: serial\n", "    abstract: true\n    extends: Hardware\n    tracking: serial\n"),
                "  Laptop:\n", "  Hardware:\n    description: Hardware of any kind.\n    abstract: true\n    extends: Asset\n\n  Laptop:\n")),
         ("an inherited identifier whose scope a subtype's creation does not write", "names", "servicedesk.yaml",
          plant(servicedesk, 'identifier: { sequence: asset_key, format: "IT-{n}" }', 'identifier: { sequence: asset_key, scope: service, format: "IT-{n}" }')),
+        ("a mirror that declares no external identifier", "names", "servicedesk.yaml",
+         plant(servicedesk, "      employee_id: { type: string, external: hr, indexed: true }\n", "      employee_id: { type: string, indexed: true }\n")),
+        ("an external identifier on a reference", "names", "servicedesk.yaml",
+         plant(servicedesk, "      assigned_to: { reference: Employee, optional: true }\n", "      assigned_to: { reference: Employee, optional: true, external: hr }\n")),
+        ("a mirror with a transition of its own", "check 53", "servicedesk.yaml",
+         plant(servicedesk, "    transitions:\n      forget:\n        kind: erasure\n",
+               "    transitions:\n      transfer:\n        kind: internal\n        from: EMPLOYED\n        optional_inputs: [department]\n      forget:\n        kind: erasure\n")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",

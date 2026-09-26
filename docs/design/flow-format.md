@@ -36,7 +36,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 (step 2, `schema`)
 
 1. A name MUST be unique among the names of its section. A repeated key is refused by step 1.
-2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines` and `types`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a metric declares, in this order, `description`, `measure`, `state`, `transition`, `source`, `item`, `filter`, `dimensions`, `group_by`, `time_dimension`, `expression` and `flag_when`; a type declares, in this order, `description`, `abstract`, `extends`, `tracking`, `state_machine`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used. (step 3, `order`)
+2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines` and `types`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a metric declares, in this order, `description`, `measure`, `state`, `transition`, `source`, `item`, `filter`, `dimensions`, `group_by`, `time_dimension`, `expression` and `flag_when`; a type declares, in this order, `description`, `abstract`, `extends`, `mirror`, `tracking`, `state_machine`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used. (step 3, `order`)
 3. Reserved words of the text language MAY be used as names, as `declaration-syntax.md` §9.2 allows, with these exceptions (step 3, `names`):
    - a category MUST NOT be named `any`, `terminal` or `superseding`, and a transition MUST NOT be named `any` (the text language's check 33);
    - an attribute, including an observation's, MUST NOT be named `state`, `inputs`, `actor`, `this`, `now`, `referrers` or `this_event`, since an expression resolves those words before any attribute;
@@ -63,6 +63,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 | `description` | yes | one or more sentences saying what an object of the type is |
 | `abstract` | no | `true` for a base with no objects of its own (§4.14) |
 | `extends` | no | the abstract base the type inherits from (§4.14) |
+| `mirror` | no | `true` for a type another system owns, written only by the import (§4.15) |
 | `tracking` | unless inherited, or the type is abstract | `record`, `serial` or `quantity` (`declaration-syntax.md` §2) |
 | `state_machine` | no | the shared state machine the type binds (§4.10), in place of its own `states` |
 | `attributes` | no | §4.3 |
@@ -71,7 +72,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 | `derived_attributes` | no | §4.11 |
 | `invariants` | no | §4.6 |
 | `conditions` | no | §4.7 |
-| `transitions` | unless the type binds a `state_machine` or is abstract | §4.8 |
+| `transitions` | unless the type binds a `state_machine`, is abstract, or is a mirror | §4.8 |
 | `metrics` | no | §4.9 |
 
 ### 4.3 Attributes
@@ -88,6 +89,7 @@ Each attribute is a mapping with exactly one of `type` and `reference`. (step 2,
 | `cascade`, `survives` | on a composite end: what its parts do when the whole takes a transition (below) |
 | `optional` | `true` if the attribute may be without a value; otherwise it always has one |
 | `identifier` | the value is minted from a sequence when the object is created (§4.12) |
+| `external` | the system that owns the value, such as `xero`: its values are unique for each source and may be absent (§4.15) |
 | `unique` | `true` if no two objects of the type may hold the same value; `in_scope`, `with` and `where` restrict it (§4.12) |
 | `indexed`, `personal` | as `declaration-syntax.md` §3.1 defines them |
 | `actor_kind` | `human`, `agent` or `service`, on the `identity` attribute of a type whose objects make requests |
@@ -95,7 +97,7 @@ Each attribute is a mapping with exactly one of `type` and `reference`. (step 2,
 | `unit` | the unit of a measured value |
 | `description` | one sentence, where the name alone does not say what the attribute holds |
 
-`unit` applies only to an observation's attribute, and `unique`, `indexed`, `identifier`, `actor_kind`, `assignee`, `opposite`, `stored`, `aggregation`, `cascade` and `survives` only to a type's attribute, since the model has no form for them elsewhere. (step 3, `names`)
+`unit` applies only to an observation's attribute, and `unique`, `indexed`, `identifier`, `external`, `actor_kind`, `assignee`, `opposite`, `stored`, `aggregation`, `cascade` and `survives` only to a type's attribute, since the model has no form for them elsewhere. (step 3, `names`)
 
 **Relationships.** Both ends of a relationship are declared, each on its own type, so that a type reads completely on its own, and each names the other with `opposite`; the two ends MUST name each other and be in one module (step 3, `names`). Exactly one end stores the value, as `declaration-syntax.md` §3.3 fixes: of a single end and a set end, the single one; of two single ends, the one marked `stored`; two set ends cannot store a pair, which is then a type of its own with a reference to each side (step 4, `check 41`). An end with no `opposite` is a reference with no named way back, and MUST be single.
 
@@ -360,6 +362,29 @@ Laptop:
 
 A base MUST be declared in the module or imported and MUST be abstract, and following a type's bases MUST NOT come back to it (step 3, `names`; the model's check 43). A type MUST NOT declare a member it inherits (step 3, `names`; the model's check 33). A type with objects MUST have a tracking mode, its own or inherited (step 2, `schema`; step 3, `names`; the model's check 42). A base's own rules are checked once, at the base, over its own members, so a base's invariant reads no member only a subtype has, and names states by their category, since a base has no states; what depends on each type's creations, such as an inherited identifier's scope, is checked for each type that extends it.
 
+### 4.15 Mirror types and external identifiers
+
+**An external identifier** is an attribute whose value another system gives, marked `external: <source>`, such as a customer's contact in Xero: its values are unique for each source and may be absent (`declaration-syntax.md` §3.1). It is a value, never a reference (step 3, `names`). A type that holds one is still this store's, and its transitions, such as `link_xero` in the customers example, are requested by the sync with that system.
+
+**A mirror** is a type another system owns: this store holds it, and only the import writes it (`declaration-syntax.md` §2, ADR-0075). It is marked `mirror: true`, declares its attributes, its states and its external identifier, which the import matches objects by (step 3, `names`), and binds no machine (step 2, `schema`).
+
+```yaml
+Employee:
+  description: A person employed by the organization, as the HR system records them.
+  mirror: true
+  tracking: record
+  attributes:
+    employee_id: { type: string, external: hr, indexed: true }
+    name:        { type: string, optional: true, personal: true }
+  states:
+    EMPLOYED: { category: active }
+    LEFT:     { category: closed, final: true }
+  transitions:
+    forget: { kind: erasure, inputs: { reason: { type: string } } }
+```
+
+A mirror takes no transition but an erasure, since erasure is this store's obligation over its own copy (ADR-0101); nothing of this store may write it, by a `call` or a `create`, or join it to a type this store owns by `extends` or a composition, while mirrors may extend and compose with each other (step 4, `check 53`). A type this store owns may reference a mirror, and read it in a guard, as `Laptop.assigned_to` names an `Employee`. The rules about a lifecycle, such as a state needing a way out, do not apply to a mirror, whose states another system moves.
+
 ## 5. Expressions
 
 An `expression` is written in the expression language of `declaration-syntax.md` §8, which this format does not change. Within it:
@@ -397,6 +422,7 @@ Each form converts to the text language as follows, and means what that declarat
 | `machines: { M: { requires: …, states: …, transitions: … } }` | `machine M version 1 { requires attr …; state …; … }` |
 | `state_machine: M` on a type | `machine M` in the type, with only the type's own transitions |
 | `abstract: true`, `extends: B` | `type T extends B version 1 abstract { … }`, with only the type's own members |
+| `mirror: true`; `external: s` | `type T version 1 mirror { … }`; `external "s"` |
 | `derived_attributes: { d: { expression: e, indexed: true } }` | `derive d = e indexed` |
 | `sequences: { s: … }` | `sequence s version 1` |
 | `identifier: { sequence: s, scope: r, format: f }` | `identifier from s scoped by r format "f"` |
@@ -427,7 +453,7 @@ A description is checked in four steps, and each stops the check if it finds any
 | 1. strict loading | `yaml` | a file YAML cannot parse, including a `?` unquoted inside an inline collection, or a key repeated in a mapping |
 | 2. structure | `schema` | a missing or unknown key, a value of the wrong form, a name in the wrong case, a transition kind without the `from` and `to` it requires, a metric without the `state` or `transition` its measure requires |
 | 3. names and order | `order` | sections out of order, a derived attribute that reads itself or one declared after it |
-| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a metric over a source its type does not have or reading anything but its item and the members its rows have, a flag reading neither the value nor a dimension, an assertion, erasure or correction without a `reason` input, an assertion's reason that is not an enumeration, an admission of an invariant neither the type's nor a related type's, a correction that does not write exactly what it lists, an erasure that does not reach a part type holding personal data, a personal attribute that is required, a type that extends one that is undeclared or not abstract or comes back to itself, redeclares what it inherits, or has no tracking, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
+| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a metric over a source its type does not have or reading anything but its item and the members its rows have, a flag reading neither the value nor a dimension, an assertion, erasure or correction without a `reason` input, an assertion's reason that is not an enumeration, an admission of an invariant neither the type's nor a related type's, a correction that does not write exactly what it lists, an erasure that does not reach a part type holding personal data, a personal attribute that is required, a type that extends one that is undeclared or not abstract or comes back to itself, redeclares what it inherits, or has no tracking, a mirror without an external identifier, an external identifier on a reference, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
@@ -486,7 +512,7 @@ These are open in `authoring-flows.md` §3 and §7, and an answer would change t
 
 These words are reserved by the format. `scripts/check-flow-format-doc.py` holds this list equal to the keys and values `flow.schema.json` and the checker define.
 
-**Keys:** `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines`, `requires`, `state_machine`, `types`, `description`, `abstract`, `extends`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `corrects`, `may_admit`, `optional`, `identifier`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `source`, `filter`, `dimensions`, `time_dimension`, `state`, `transition`, `group_by`, `flag_when`.
+**Keys:** `module`, `imports`, `categories`, `enumerations`, `sequences`, `machines`, `requires`, `state_machine`, `types`, `description`, `abstract`, `extends`, `mirror`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `corrects`, `may_admit`, `optional`, `identifier`, `external`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `measure`, `source`, `filter`, `dimensions`, `time_dimension`, `state`, `transition`, `group_by`, `flag_when`.
 
 **Values:** `true`, `false`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `assertion`, `erasure`, `any`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `objects`, `intervals`, `transitions`, `attempts`, `attempt_counts`, `composite`, `in_scope`, `month`, `week`, `actor`.
 
@@ -570,7 +596,7 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | a type, its tracking mode and description | §2 | written (§4.2) |
 | abstract types, families and `extends` | §2 | written (§4.14) |
 | named machines shared by several types, binders | §2, §4 | written (§4.10) |
-| mirror types and external identifiers | §2 | not yet |
+| mirror types and external identifiers | §2 | written (§4.15) |
 | states, categories and final states | §2.1 | written (§4.5) |
 | attributes: type, optional, unique, indexed, personal | §3.1 | written (§4.3) |
 | attributes: scoped, compound and partial uniqueness | §3.1 | written (§4.12) |

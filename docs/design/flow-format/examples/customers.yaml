@@ -23,6 +23,11 @@ types:
         unique: true
       name:  { type: string, optional: true, personal: true }
       email: { type: string, optional: true, personal: true }
+      xero_contact_id:
+        type: string
+        optional: true
+        external: xero
+        description: The customer's contact in Xero, which owns it.
       contacts:
         reference: "Contact[]"
         aggregation: composite
@@ -81,6 +86,11 @@ types:
           phone: { type: string, optional: true, personal: true }
         effect:
           - create: { type: Contact, transition: add, inputs: { customer: this, role: inputs.role, phone: inputs.phone } }
+      link_xero:
+        kind: internal
+        from: [PROSPECT, ACTIVE, DORMANT]
+        description: Records the customer's Xero contact, as the sync with Xero requests.
+        required_inputs: [xero_contact_id]
       correct_email:
         kind: internal
         from: [PROSPECT, ACTIVE, DORMANT]
