@@ -50,7 +50,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 |---|---|---|
 | `module` | yes | the module's name |
 | `imports` | no | a mapping from another module's name to the list of its types this module uses |
-| `categories` | yes | the list of state categories the module's states use; `closed` has the meaning `declaration-syntax.md` §1 gives it |
+| `categories` | yes | the list of state categories the module's states use. `closed` is in every vocabulary whether or not it is listed, and has the meaning `declaration-syntax.md` §1 gives it: work is open until it enters a `closed` or final state, which the standard metrics read |
 | `enumerations` | no | a mapping from an enumeration's name to its list of values |
 | `sequences` | no | a mapping from a sequence's name to its `description` (§4.12) |
 | `machines` | no | a mapping from a shared state machine's name to its declaration (§4.10) |

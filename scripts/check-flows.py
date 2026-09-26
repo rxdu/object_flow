@@ -67,6 +67,8 @@ MODULE_ORDER = ["module", "imports", "categories", "enumerations", "sequences", 
 MACHINE_ORDER = ["description", "requires", "states", "conditions", "transitions"]
 # names the text language gives a meaning in the same position (declaration-syntax.md §9.2, check 33)
 NOT_A_CATEGORY = {"any", "terminal", "superseding"}
+# every vocabulary has `closed`, whether or not a module declares it (declaration-syntax.md §1)
+BUILT_IN_CATEGORIES = {"closed"}
 NOT_A_TRANSITION = {"any"}
 # a bare name in an expression resolves to these before an attribute (declaration-syntax.md §9.2), so no attribute may take one
 NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "this_event"}
@@ -531,7 +533,7 @@ def name_errors(doc, library=None, ordered=True):
         minted = {a for a, s in attrs.items() if s.get("identifier")}
         used = set()
         for s, v in states.items():
-            if v["category"] not in (doc.get("categories") or []):
+            if v["category"] not in set(doc.get("categories") or []) | BUILT_IN_CATEGORIES:
                 out.append((("types", tn, "states", s, "category"), "names",
                             f"state {s} has the category '{v['category']}', which the module does not declare in categories"))
             for a in (v or {}).get("required_attributes", []):
@@ -607,7 +609,7 @@ def name_errors(doc, library=None, ordered=True):
         for c in sorted(conds - used):
             out.append((("types", tn, "conditions", c), "names", f"condition '{c}' of {tn} is used by no transition"))
         out += value_errors(doc, tn, t)
-        out += read_errors(tn, t, doc.get("categories") or []) + indexed_errors(tn, t, library) + identifier_errors(doc, tn, t, library)
+        out += read_errors(tn, t, set(doc.get("categories") or []) | BUILT_IN_CATEGORIES) + indexed_errors(tn, t, library) + identifier_errors(doc, tn, t, library)
         out += override_errors(doc, tn, t, library)
         for mn, m in (t.get("metrics") or {}).items():
             out += metric_errors(tn, t, mn, m)
