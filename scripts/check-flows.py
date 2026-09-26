@@ -63,7 +63,8 @@ FORMAT = ROOT / "docs/design/flow-format"
 EXAMPLES = FORMAT / "examples"
 CHECKER = ROOT / "scripts/check-syntax-doc.py"
 
-MODULE_ORDER = ["module", "imports", "categories", "enumerations", "types"]
+MODULE_ORDER = ["module", "imports", "categories", "enumerations", "machines", "types"]
+MACHINE_ORDER = ["description", "requires", "states", "conditions", "transitions"]
 # names the text language gives a meaning in the same position (declaration-syntax.md §9.2, check 33)
 NOT_A_CATEGORY = {"any", "terminal", "superseding"}
 NOT_A_TRANSITION = {"any"}
@@ -72,7 +73,7 @@ NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "thi
 # keys the text language has a form for on one kind of attribute only; elsewhere they would be dropped
 ONLY_ON_OBSERVATIONS = {"unit"}
 ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "opposite", "stored", "aggregation", "cascade", "survives"}
-TYPE_ORDER = ["description", "tracking", "attributes", "observations", "states",
+TYPE_ORDER = ["description", "tracking", "state_machine", "attributes", "observations", "states",
               "invariants", "conditions", "transitions", "metrics"]
 
 
@@ -130,6 +131,56 @@ def line_of(idx, path):
 # ── reading a module ───────────────────────────────────────────────────────
 def types(doc):
     return list((doc.get("types") or {}).items())
+
+
+def machine_as_type(m):
+    """A machine, checked as a type whose attributes are those it requires."""
+    return {"description": m["description"], "tracking": "record",
+            "attributes": (m.get("requires") or {}).get("attributes") or {},
+            "states": m["states"], "conditions": m.get("conditions") or {}, "transitions": m["transitions"]}
+
+
+def bound(t, machines):
+    """A type with the machine it binds merged in: the machine's states, its
+    conditions, and its transitions, of which the initial ones give way to a
+    binder's own (declaration-syntax.md §2.1)."""
+    m = machines.get(t.get("state_machine"))
+    if m is None:
+        return t
+    own = t.get("transitions") or {}
+    own_initial = any(x["kind"] == "initial" for x in own.values())
+    merged = {k: v for k, v in m["transitions"].items() if not (own_initial and v["kind"] == "initial")}
+    merged.update(own)
+    conditions = dict(m.get("conditions") or {})
+    conditions.update(t.get("conditions") or {})
+    return dict(t, states=m["states"], transitions=merged, conditions=conditions)
+
+
+def view(doc):
+    """The module as the checks see it: each machine as a type, each binder
+    merged with its machine; and a map back from each view path to the YAML."""
+    machines = doc.get("machines") or {}
+    kinds = {mn: machine_as_type(m) for mn, m in machines.items()}
+    kinds.update({tn: bound(t, machines) for tn, t in (doc.get("types") or {}).items()})
+    v = dict(doc, types=kinds)
+
+    def back(path):
+        """The YAML path a view path stands for, or None where it is a
+        machine's part of a binder, which is reported at the machine."""
+        if len(path) < 2 or path[0] != "types":
+            return path
+        name = path[1]
+        if name in machines:
+            rest = path[2:]
+            if rest[:1] == ("attributes",):
+                rest = ("requires",) + rest
+            return ("machines", name) + rest
+        t = (doc.get("types") or {}).get(name) or {}
+        if t.get("state_machine") and len(path) >= 4 and path[2] in ("states", "transitions", "conditions"):
+            if path[3] not in (t.get(path[2]) or {}):
+                return None
+        return path
+    return v, back
 
 
 def sources(x):
@@ -228,6 +279,9 @@ def schema_errors(doc):
                     "external": "an external transition declares `from` and `to`",
                     "internal": "an internal transition declares `from` and no `to`"}.get(e.instance["kind"], e.message)
             out.append((tuple(e.absolute_path), "schema", rule))
+        elif e.validator == "oneOf" and isinstance(e.instance, dict) and "tracking" in e.instance and "description" in e.instance:
+            out.append((tuple(e.absolute_path), "schema",
+                        "a type either declares its own states and transitions or binds a state_machine, and never both"))
         elif e.validator == "oneOf" and isinstance(e.instance, dict) and "measure" in e.instance:
             out.append((tuple(e.absolute_path), "schema",
                         "a median_time_in_state metric names a `state`, and a transition_count names a `transition`"))
@@ -262,6 +316,8 @@ def order_errors(doc):
             elif top is None or order.index(k) > order.index(top):
                 top = k
     in_order(list(doc), MODULE_ORDER, (), "")
+    for mn, m in (doc.get("machines") or {}).items():
+        in_order(list(m), MACHINE_ORDER, ("machines", mn), f"in {mn}, ")
     for tn, t in types(doc):
         in_order(list(t), TYPE_ORDER, ("types", tn), f"in {tn}, ")
     return out
@@ -341,6 +397,51 @@ def relationship_errors(doc, library):
     return out
 
 
+def machine_errors(doc):
+    """A binder names a declared or imported machine and declares what it
+    requires; a machine's states require no attributes, since the invariant
+    they generate belongs to each binder, which declares it instead."""
+    out = []
+    machines = doc.get("machines") or {}
+    imported = {n for names in (doc.get("imports") or {}).values() for n in names}
+    for mn, m in machines.items():
+        if mn in (doc.get("types") or {}):
+            out.append((("machines", mn), "names", f"{mn} names both a machine and a type"))
+        for sn, st in m["states"].items():
+            if st.get("required_attributes"):
+                out.append((("machines", mn, "states", sn, "required_attributes"), "names",
+                            f"state {sn} of the machine {mn} requires attributes; declare them as an invariant of each type that binds {mn}"))
+    for tn, t in types(doc):
+        mn = t.get("state_machine")
+        if not mn:
+            continue
+        m = machines.get(mn)
+        if m is None:
+            if mn not in imported:
+                out.append((("types", tn, "state_machine"), "names", f"{tn} binds {mn}, which is neither a machine of this module nor imported"))
+            continue
+        req = m.get("requires") or {}
+        for a, want in (req.get("attributes") or {}).items():
+            have = (t.get("attributes") or {}).get(a)
+            if have is None:
+                out.append((("types", tn, "state_machine"), "names", f"{tn} binds {mn}, which requires the attribute '{a}', and {tn} does not declare it"))
+                continue
+            # check 16: the same type, optionality included
+            sig = lambda s: (s.get("type"), s.get("reference"), bool(s.get("optional")))
+            if sig(have) != sig(want):
+                out.append((("types", tn, "attributes", a), "names", f"{tn} declares '{a}' as {attribute_line(a, have).split(chr(10))[0].strip()}, and its machine {mn} requires {attribute_line(a, want).split(chr(10))[0].strip()}"))
+        for i in req.get("invariants") or []:
+            if i not in (t.get("invariants") or {}):
+                out.append((("types", tn, "state_machine"), "names", f"{tn} binds {mn}, which requires the invariant '{i}', and {tn} does not declare it"))
+        for c in (t.get("conditions") or {}):
+            if c in (m.get("conditions") or {}):
+                out.append((("types", tn, "conditions", c), "names", f"{tn} declares the condition '{c}', which its machine {mn} also declares"))
+        for x in (t.get("transitions") or {}):
+            if x in m["transitions"] and m["transitions"][x]["kind"] != "initial":
+                out.append((("types", tn, "transitions", x), "names", f"{tn} declares the transition '{x}', which its machine {mn} also declares"))
+    return out
+
+
 def reserved_name_errors(doc):
     """Names the format keeps for itself: text-language collisions and generated names."""
     out = []
@@ -378,10 +479,10 @@ def reserved_name_errors(doc):
     return out
 
 
-def name_errors(doc, library=None):
+def name_errors(doc, library=None, ordered=True):
     library = dict(library or {})
     library.update(dict(types(doc)))
-    out = order_errors(doc) + reserved_name_errors(doc) + relationship_errors(doc, library)
+    out = (order_errors(doc) if ordered else []) + reserved_name_errors(doc) + relationship_errors(doc, library)
     for tn, t in types(doc):
         states = t.get("states") or {}
         attrs = t.get("attributes") or {}
@@ -653,6 +754,41 @@ def attribute_line(name, spec, observation=False, module=None):
     return f"attr {name} {t}" + "".join(" " + m for m in marks)
 
 
+def transition_lines(xn, x, t, X, T):
+    """One transition in the internal form, each line with its YAML path; t
+    supplies the attributes and conditions its guards name."""
+    conds = t.get("conditions") or {}
+    src = sources(x)
+    where = src[0] if len(src) == 1 else "{ " + ", ".join(src) + " }"
+    head = {"initial": f"create {xn} -> {x.get('to')}", "external": f"do {xn} {where} -> {x.get('to')}",
+            "internal": f"act {xn} at {where}"}[x["kind"]]
+    if x.get("only_via"):
+        head += " only via " + ", ".join(x["only_via"])
+    accepts = x.get("required_inputs", []) + x.get("optional_inputs", [])
+    if accepts:
+        head += " accepts " + ", ".join(accepts)
+    if x.get("backdating_limit"):
+        head += f" backdatable within {x['backdating_limit']}"
+    body = []
+    for i, spec in (x.get("inputs") or {}).items():
+        kind = spec.get("type") or spec.get("reference")
+        line = f"input {i} : {kind}" + ("?" if spec.get("optional") else "")
+        if "default" in spec:
+            line += f" default {' '.join(spec['default'].split())}"
+        body.append((line + (" personal" if spec.get("personal") else ""), X + ("inputs", i)))
+    body += [(f"require {a}_provided: inputs.{a} is not null because self_serviceable", X + ("required_inputs",))
+             for a in provided_guards(t, x)]
+    for g, mode in (x.get("guards") or {}).items():
+        if g in conds:
+            c = conds[g]
+            mark = {"deny": "", "audit": " observe", "warn": " flag"}[mode]
+            body.append((f"require {g}: {' '.join(c['expression'].split())}{mark} because {c['remedy']}", X + ("guards", g)))
+    body += effect_lines(x.get("effect"), X + ("effect",), "")
+    if not body:
+        return [(f"  {head} {{ }}", X)]
+    return [(f"  {head} {{", X)] + [("    " + b, p) for b, p in body] + [("  }", X)]
+
+
 def to_text(doc):
     """The module in the text language, and for each line the YAML path it came from."""
     lines, paths = [], []
@@ -668,18 +804,35 @@ def to_text(doc):
     for en, members in (doc.get("enumerations") or {}).items():
         emit(f"enum {en} version 1 {{ {', '.join(members)} }}", ("enumerations", en))
     tail = []
+    machines = doc.get("machines") or {}
+    for mn, m in machines.items():
+        M = ("machines", mn)
+        emit(f"# {m['description']}", M)
+        emit(f"machine {mn} version 1 {{", M)
+        for an, spec in ((m.get("requires") or {}).get("attributes") or {}).items():
+            emit("  requires " + attribute_line(an, spec).split("\n")[0], M + ("requires", "attributes", an))
+        for i in (m.get("requires") or {}).get("invariants") or []:
+            emit(f"  requires invariant {i}", M + ("requires", "invariants"))
+        for sn, st in m["states"].items():
+            emit(f"  state {sn} category {st['category']}" + (" terminal" if st.get("final") else ""), M + ("states", sn))
+        for xn, x in m["transitions"].items():
+            for line, path in transition_lines(xn, x, machine_as_type(m), M + ("transitions", xn), M):
+                emit(line, path)
+        emit("}", M)
     for tn, t in types(doc):
         T = ("types", tn)
         conds = t.get("conditions") or {}
         emit(f"# {t['description']}", T)
         emit(f"type {tn} version 1 {{", T)
         emit(f"  tracking {t['tracking']}", T + ("tracking",))
-        for sn, v in t["states"].items():
+        if t.get("state_machine"):
+            emit(f"  machine  {t['state_machine']}", T + ("state_machine",))
+        for sn, v in (t.get("states") or {}).items():
             emit(f"  state {sn} category {v['category']}" + (" terminal" if v.get("final") else ""), T + ("states", sn))
         for an, spec in (t.get("attributes") or {}).items():
             for line in attribute_line(an, spec, module=dict(types(doc))).split("\n"):
                 emit(("  " + line) if not line.startswith("  ") else line, T + ("attributes", an))
-        for sn, v in t["states"].items():
+        for sn, v in (t.get("states") or {}).items():
             req = v.get("required_attributes") or []
             if req:
                 cond = " and ".join(f"{a} is not null" for a in req)
@@ -688,42 +841,10 @@ def to_text(doc):
                      T + ("states", sn, "required_attributes"))
         for iname, inv in (t.get("invariants") or {}).items():
             emit(f"  invariant {iname}: {' '.join(inv['expression'].split())}", T + ("invariants", iname))
-        for xn, x in t["transitions"].items():
-            X = T + ("transitions", xn)
-            src = sources(x)
-            where = src[0] if len(src) == 1 else "{ " + ", ".join(src) + " }"
-            head = {"initial": f"create {xn} -> {x.get('to')}", "external": f"do {xn} {where} -> {x.get('to')}",
-                    "internal": f"act {xn} at {where}"}[x["kind"]]
-            if x.get("only_via"):
-                head += " only via " + ", ".join(x["only_via"])
-            accepts = x.get("required_inputs", []) + x.get("optional_inputs", [])
-            if accepts:
-                head += " accepts " + ", ".join(accepts)
-            if x.get("backdating_limit"):
-                head += f" backdatable within {x['backdating_limit']}"
-            body = []
-            for i, spec in (x.get("inputs") or {}).items():
-                kind = spec.get("type") or spec.get("reference")
-                line = f"input {i} : {kind}" + ("?" if spec.get("optional") else "")
-                if "default" in spec:
-                    line += f" default {' '.join(spec['default'].split())}"
-                body.append((line + (" personal" if spec.get("personal") else ""), X + ("inputs", i)))
-            body += [(f"require {a}_provided: inputs.{a} is not null because self_serviceable", X + ("required_inputs",))
-                     for a in provided_guards(t, x)]
-            for g, mode in (x.get("guards") or {}).items():
-                if g in conds:
-                    c = conds[g]
-                    mark = {"deny": "", "audit": " observe", "warn": " flag"}[mode]
-                    body.append((f"require {g}: {' '.join(c['expression'].split())}{mark} because {c['remedy']}",
-                                 X + ("guards", g)))
-            body += effect_lines(x.get("effect"), X + ("effect",), "")
-            if body:
-                emit(f"  {head} {{", X)
-                for b, p in body:
-                    emit("    " + b, p)
-                emit("  }", X)
-            else:
-                emit(f"  {head} {{ }}", X)
+        merged = bound(t, machines)
+        for xn, x in (t.get("transitions") or {}).items():
+            for line, path in transition_lines(xn, x, merged, T + ("transitions", xn), T):
+                emit(line, path)
         emit("}", T)
         for coll, ob in (t.get("observations") or {}).items():
             O = T + ("observations", coll)
@@ -834,9 +955,21 @@ def check(files):
             continue
         loaded.append((f, text, idx, doc))
         errors = schema_errors(doc)
-        found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in errors or name_errors(doc, library)]
-        library.update(dict(types(doc)) if isinstance(doc, dict) else {})
-        notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in notices(doc)]
+        if errors:
+            found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in errors]
+            continue
+        v, back = view(doc)
+        seen = set()
+        for p, c, m in order_errors(doc) + machine_errors(doc) + name_errors(v, library, ordered=False):
+            p = back(p)
+            if p is not None and p[0] == "machines" and "'" in m:
+                # a machine's attributes, always quoted, are the ones it requires of its binders
+                m = m.replace(f", which {p[1]} does not declare", f", which {p[1]} does not require")
+            if p is not None and (p, m) not in seen:
+                seen.add((p, m))
+                found.append((f, line_of(idx, p), "fatal", c, m))
+        library.update(dict(types(v)))
+        notes += [(f, line_of(idx, back(p)), "notice", c, m) for p, c, m in notices(v) if back(p) is not None]
     if not found and len(loaded) == len(files):
         converted = [to_text(doc) for _f, _t, _i, doc in loaded]
         for i, path, code, msg in language_errors(converted):
@@ -851,7 +984,7 @@ def report(found, notes):
     print(f"{len(found)} fatal · {len(notes)} notice{'s' if len(notes) != 1 else ''}")
 
 
-def self_test(people, service, inventory, delivery):
+def self_test(people, service, inventory, delivery, approvals):
     def plant(text, old, new):
         assert text.count(old) >= 1, old
         return text.replace(old, new, 1)
@@ -883,6 +1016,12 @@ def self_test(people, service, inventory, delivery):
          plant(delivery, "delivery: { reference: Delivery, opposite: checklist_items }", "delivery: { reference: Delivery, opposite: items }")),
         ("an only_via that names a missing transition", "names", "delivery.yaml",
          plant(delivery, "only_via: [Delivery.cancel]", "only_via: [Delivery.abort]")),
+        ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
+         plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
+        ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",
+         plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      submitted_at: { type: date, optional: true }\n      item:")),
+        ("a binder that redeclares a transition of its machine", "names", "approvals.yaml",
+         plant(approvals, "      attach_receipt:\n", "      reject:\n        kind: external\n        from: DRAFT\n        to: REJECTED\n      attach_receipt:\n")),
         ("a condition that reads who is asking", "check 64", "service.yaml",
          plant(plant(service, "          no_unresolved_failure: deny\n",
                      "          no_unresolved_failure: deny\n          assigned_engineer_only: deny\n"), *reads_actor)),
@@ -927,7 +1066,7 @@ def main():
     people = (EXAMPLES / "people.yaml").read_text()
     clean = True
     needs = {"delivery.yaml": ["inventory.yaml"]}
-    for version in ("people.yaml", "inventory.yaml", "inventory-v2.yaml", "service.yaml", "service-v2.yaml", "delivery.yaml"):
+    for version in ("people.yaml", "inventory.yaml", "inventory-v2.yaml", "service.yaml", "service-v2.yaml", "delivery.yaml", "approvals.yaml"):
         before = [(n, (EXAMPLES / n).read_text()) for n in needs.get(version, [])]
         files = [("people.yaml", people)] + before + ([(version, (EXAMPLES / version).read_text())] if version != "people.yaml" else [])
         found, notes = check(files)
@@ -937,7 +1076,7 @@ def main():
             print(f"  {x[0]}:{x[1]} {x[3]} {x[4]}")
         clean &= not found
     ok = self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "inventory.yaml").read_text(),
-                   (EXAMPLES / "delivery.yaml").read_text())
+                   (EXAMPLES / "delivery.yaml").read_text(), (EXAMPLES / "approvals.yaml").read_text())
     sys.exit(0 if clean and ok else 1)
 
 

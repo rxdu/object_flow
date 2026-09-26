@@ -83,9 +83,10 @@ def main():
     for c in sorted(stated - reported):
         findings.append(f"§7 states the finding code `{c}`, which the checker never reports")
 
-    for name, order in (("module", trial.MODULE_ORDER), ("type", trial.TYPE_ORDER)):
-        want = ", ".join(f"`{k}`" for k in order)
-        if want.replace("`", "") not in re.sub(r"`, and `|`, `", ", ", doc).replace("`", ""):
+    section3 = re.search(r"^## 3\..*?(?=^## 4\.)", doc, re.M | re.S)
+    lists = re.sub(r"`,? and `|`, `", ", ", section3.group(0) if section3 else "").replace("`", "")
+    for name, order in (("module", trial.MODULE_ORDER), ("machine", trial.MACHINE_ORDER), ("type", trial.TYPE_ORDER)):
+        if ", ".join(order) not in lists:
             findings.append(f"§3 does not state the {name} order the checker enforces: {', '.join(order)}")
 
     reserved = trial.NOT_A_CATEGORY | trial.NOT_A_TRANSITION | trial.NOT_AN_ATTRIBUTE | trial.ONLY_ON_OBSERVATIONS | trial.ONLY_ON_TYPES

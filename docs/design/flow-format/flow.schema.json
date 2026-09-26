@@ -48,6 +48,16 @@
         }
       }
     },
+    "machines": {
+      "description": "State machines several types share, by name (UML StateMachine).",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/definitions/typeName"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/machine"
+      }
+    },
     "types": {
       "type": "object",
       "minProperties": 1,
@@ -117,9 +127,7 @@
       "type": "object",
       "required": [
         "description",
-        "tracking",
-        "states",
-        "transitions"
+        "tracking"
       ],
       "additionalProperties": false,
       "properties": {
@@ -134,6 +142,10 @@
             "quantity"
           ],
           "description": "record, serial or quantity (declaration-syntax.md §2)."
+        },
+        "state_machine": {
+          "$ref": "#/definitions/typeName",
+          "description": "The shared state machine this type binds, declared in the module or imported (UML classifierBehavior); a binder declares no states of its own."
         },
         "states": {
           "type": "object",
@@ -207,7 +219,30 @@
           },
           "description": "Figures computed from the record of many objects."
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "states",
+            "transitions"
+          ],
+          "not": {
+            "required": [
+              "state_machine"
+            ]
+          }
+        },
+        {
+          "required": [
+            "state_machine"
+          ],
+          "not": {
+            "required": [
+              "states"
+            ]
+          }
+        }
+      ]
     },
     "state": {
       "type": "object",
@@ -921,6 +956,73 @@
           "type": "integer",
           "minimum": 1,
           "description": "The most parts the cascade may reach in one request."
+        }
+      }
+    },
+    "machine": {
+      "type": "object",
+      "required": [
+        "description",
+        "states",
+        "transitions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "$ref": "#/definitions/description"
+        },
+        "requires": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "What a type that binds this machine must declare.",
+          "properties": {
+            "attributes": {
+              "type": "object",
+              "propertyNames": {
+                "$ref": "#/definitions/memberName"
+              },
+              "additionalProperties": {
+                "$ref": "#/definitions/attribute"
+              },
+              "description": "The attributes the machine's conditions and effects read or write, as a binder must declare them."
+            },
+            "invariants": {
+              "$ref": "#/definitions/names",
+              "description": "The invariants a binder must declare."
+            }
+          }
+        },
+        "states": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/definitions/stateName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/state"
+          },
+          "description": "The type's states, by name."
+        },
+        "conditions": {
+          "description": "Named conditions, used as guards by the transitions.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/condition"
+          }
+        },
+        "transitions": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/transition"
+          },
+          "description": "The type's transitions, by name; a transition's name is its trigger."
         }
       }
     }
