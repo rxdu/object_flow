@@ -801,6 +801,9 @@ def actor_reads(text, base):
 
 def line_checks(text, base, capdecl, reserved, machine_caps):
     out = []
+    # a reserved word may name a member (§9.2), and a bare name resolves to the member
+    # first; where one is named labels, only <Type>.labels is the label source (check 55)
+    member_labels = bool(re.search(r"^\s*(attr|ref|part|owner|counter|derive)\s+labels\b", text, flags=re.M))
     for i, l in enumerate(text.split("\n")):
         ln, code = base + i, l.strip().split("#")[0]
         if re.search(r"(==|!=)\s*null|null\s*(==|!=)", code): out.append((21, "comparison against a bare null", ln))
@@ -811,7 +814,7 @@ def line_checks(text, base, capdecl, reserved, machine_caps):
             out.append((21, f"for without limit: {code[:48]}", ln))
         if re.match(r"^\s*do\s+\w+\s+at\s", code): out.append((21, f"'do' with 'at': {code[:48]}", ln))
         st = code.strip()
-        if re.search(r"\blabels\b", st) and not (
+        if re.search(r"\b[A-Z]\w*\.labels\b" if member_labels else r"\blabels\b", st) and not (
                 (st.startswith("labels by") and not re.search(r"\blabels\b", st[9:]))
                 or re.match(r"^from\s+\w+\s+in\s+\w+\.labels\b", st)):
             out.append((55, f"a label read outside a metric's source: {st[:48]}", ln))
