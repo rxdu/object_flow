@@ -206,7 +206,8 @@ def check_traceability():
 
 
 def check_declarations():
-    """Every document that states declarations must pass the syntax checker.
+    """Every document that states declarations must pass its checker: the syntax
+    checker for the text notation, and scripts/check-flow-docs.py for YAML.
 
     Decision records are exempt: they are historical, and several deliberately
     quote the notation of their own moment with a note saying what replaced it.
@@ -228,6 +229,13 @@ def check_declarations():
             n = len([x for x in r.stdout.split("\n") if x.startswith("  check")])
             findings.append(f"{p.relative_to(ROOT)}: {n} declaration finding(s); "
                             f"run scripts/check-syntax-doc.py on it")
+    # the YAML flow descriptions in the documents, and their excerpts (ADR-0121)
+    r = subprocess.run([sys.executable, str(ROOT / "scripts/check-flow-docs.py")], capture_output=True, text=True)
+    if r.returncode != 0:
+        for line in r.stdout.splitlines():
+            if line.startswith("  docs/") or "missed" in line:
+                findings.append(line.strip())
+        findings.append("run scripts/check-flow-docs.py: " + (r.stdout.strip().splitlines() or ["no output"])[-1])
 
 
 _ONES = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven "

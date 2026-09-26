@@ -1957,7 +1957,7 @@ def check(files, previous=None):
     """Findings and notices over modules given in import order, as (file, line,
     severity, code, message); previous maps a file to the text of the version
     before it, against which its migration is checked."""
-    found, notes, loaded, library = [], [], [], {}
+    found, notes, loaded, library, declared = [], [], [], {}, {}
     for f, text in files:
         try:
             idx = line_index(text)
@@ -1975,6 +1975,17 @@ def check(files, previous=None):
         if errors:
             found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in errors]
             continue
+        for mod, names in (doc.get("imports") or {}).items():
+            if mod not in declared:
+                notes.append((f, line_of(idx, ("imports", mod)), "notice", "imports",
+                              f"{mod} is not among the files checked, so steps 2 and 3 cannot check what is imported from it"))
+                continue
+            for n in names:
+                if n not in declared[mod]:
+                    found.append((f, line_of(idx, ("imports", mod)), "fatal", "names",
+                                  f"imports '{n}' from {mod}, which does not declare it"))
+        declared[doc["module"]] = {n for k in ("enumerations", "sequences", "evaluators", "machines", "types")
+                                   for n in (doc.get(k) or {})}
         v, back = view(doc, library)
         seen = set()
         pair, pair_notes = [], []
@@ -2198,6 +2209,10 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
                                               "        expression: serial is not null\n\n    conditions:\n")),
         ("a unit on an attribute that is not an observation's", "names", "inventory.yaml",
          plant(inventory, "      list_price:        { type: money(SGD) }", "      list_price:        { type: money(SGD), unit: SGD }")),
+        ("an import of a name its module does not declare", "names", "service.yaml",
+         plant(service, "imports: { people: [User] }", "imports: { people: [User, Robot] }")),
+        ("an import from a module not among the files checked", "imports", "service.yaml",
+         plant(service, "imports: { people: [User] }", "imports: { staff: [User] }")),
         ("a `?` inside an inline mapping", "yaml", "service.yaml",
          plant(service, "      photo:    { type: file, optional: true }", "      photo:    { type: file? }")),
     ]
@@ -2205,7 +2220,7 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     for name, expect, f, text in planted:
         before = [("inventory.yaml", inventory)] if f == "delivery.yaml" else []
         found, notes = check([("people.yaml", people)] + before + [(f, text)], {"service-v2.yaml": service} if f == "service-v2.yaml" else None)
-        hit = [x for x in found + (notes if expect == "migration" else []) if x[3] == expect]
+        hit = [x for x in found + (notes if expect in ("migration", "imports") else []) if x[3] == expect]
         ok &= bool(hit)
         where = f"{hit[0][0]}:{hit[0][1]} {hit[0][4]}" if hit else f"MISSED ({found[:1]})"
         print(f"  planted {name}: {'caught' if hit else 'missed'} by {expect}, at {where}")

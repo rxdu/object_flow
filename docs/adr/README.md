@@ -122,3 +122,4 @@
 | [0118](0118-metrics-are-written-under-their-type-in-semantic-layer-terms.md) | Metrics are written under their type, in the terms of semantic layers | Accepted by the author |
 | [0119](0119-assertions-and-erasures-are-transition-kinds-of-their-own.md) | Assertions and erasures are transition kinds of their own | Accepted by the author |
 | [0120](0120-a-migration-is-written-with-the-version-it-publishes.md) | A migration is written with the version it publishes | Accepted by the author |
+| [0121](0121-the-designs-yaml-is-checked-where-it-stands.md) | The design's YAML is checked where it stands | Decided at the author's direction; acceptance pending |

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-26: "yes, replace the text language with yaml", in answer to whether the YAML form should become the written form of every flow (`authoring-flows.md` §7, question 3), asked with the review of ADR-0115.
 - **Date:** 2026-09-26
-- **Refined by:** ADR-0117 — the types of a module may reference each other in any order, and relationships are written in UML's terms (construct 3 of §4's plan). ADR-0118 — metrics are written under their type, and `combine` waits (construct 7). ADR-0119 — assertions, erasures and corrections are written (construct 8). ADR-0120 — a migration is a section of the module it publishes, checked against the previous version (construct 9c).
+- **Refined by:** ADR-0117 — the types of a module may reference each other in any order, and relationships are written in UML's terms (construct 3 of §4's plan). ADR-0118 — metrics are written under their type, and `combine` waits (construct 7). ADR-0119 — assertions, erasures and corrections are written (construct 8). ADR-0120 — a migration is a section of the module it publishes, checked against the previous version (construct 9c). ADR-0121 — the design's YAML is checked where it stands, for decision 5: a module may span blocks, an excerpt is part of a checked module, and imports resolve.
 - **Refines:** ADR-0010 (the declaration is data), ADR-0115 (the text language kept its keywords until this decision)
 - **Relates to:** `docs/design/declaration-syntax.md`, `docs/design/flow-format.md`, `docs/design/authoring-flows.md` §3
 

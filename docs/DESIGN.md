@@ -17,7 +17,7 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 - ADR-0115 to ADR-0120, on 2026-09-26: the flow description format, its established terms, its relationships, metrics, assertions and erasures, and migrations.
 - ADR-0065 to ADR-0073, which the author ruled on.
 
-**Decided at the author's direction, the author's own acceptance pending:** none since 2026-09-26, when the author accepted the last of them.
+**Decided at the author's direction, the author's own acceptance pending:** ADR-0121, on 2026-09-26: the design's YAML is checked where it stands, a module across blocks, every excerpt part of a checked module, and imports resolved.
 
 **Proposed and awaiting the author:** none since 2026-09-26, when the author accepted ADR-0102, which writes the unit's whole journey from the first consumer's production code.
 

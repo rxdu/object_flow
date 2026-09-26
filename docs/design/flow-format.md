@@ -49,7 +49,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 | Key | Required | Value |
 |---|---|---|
 | `module` | yes | the module's name |
-| `imports` | no | a mapping from another module's name to the list of its types this module uses |
+| `imports` | no | a mapping from another module's name to the list of its types, enumerations, sequences, evaluators and machines this module uses; where that module is among the files checked, before this one, each name MUST be one it declares (step 3, `names`), and where it is not, step 3 reports an `imports` notice, since steps 2 and 3 cannot check what is imported from it |
 | `categories` | yes | the list of state categories the module's states use. `closed` is in every vocabulary whether or not it is listed, and has the meaning `declaration-syntax.md` §1 gives it: work is open until it enters a `closed` or final state, which the standard metrics read |
 | `enumerations` | no | a mapping from an enumeration's name to its list of values |
 | `sequences` | no | a mapping from a sequence's name to its `description` (§4.12) |
@@ -259,7 +259,7 @@ The rest of the model's rules for a metric are its publish checks (step 4, `chec
 ```yaml
 metrics:
   problems_per_incident:
-    description: Problems opened for each incident opened, by month.
+    description: Problems opened for each incident opened, by month, which says how much of the incident load is being traced to a cause.
     input_metrics:
       problems: Problem.problems_opened
       incidents: Incident.incidents_opened
@@ -374,7 +374,7 @@ A type that declares `extends: <Base>` inherits the base's attributes, derived a
 
 ```yaml
 Asset:
-  description: A configuration item, the base of every kind of asset.
+  description: A configuration item in the asset schema, the base of every kind of asset; it has no objects of its own.
   abstract: true
   tracking: serial
   attributes:
@@ -396,7 +396,7 @@ A base MUST be declared in the module or imported and MUST be abstract, and foll
 
 ```yaml
 Employee:
-  description: A person employed by the organization, as the HR system records them.
+  description: A person employed by the organization, as the HR system records them; the HR system owns the record, and only the import writes it.
   mirror: true
   tracking: record
   attributes:
@@ -406,7 +406,11 @@ Employee:
     EMPLOYED: { category: active }
     LEFT:     { category: closed, final: true }
   transitions:
-    forget: { kind: erasure, inputs: { reason: { type: string } } }
+    forget:
+      kind: erasure
+      description: Erases this store's copy of the person's name; the HR system erases its own.
+      inputs:
+        reason: { type: string }
 ```
 
 A mirror takes no transition but an erasure, since erasure is this store's obligation over its own copy (ADR-0101); nothing of this store may write it, by a `call` or a `create`, or join it to a type this store owns by `extends` or a composition, while mirrors may extend and compose with each other (step 4, `check 53`). A type this store owns may reference a mirror, and read it in a guard, as `Laptop.assigned_to` names an `Employee`. The rules about a lifecycle, such as a state needing a way out, do not apply to a mirror, whose states another system moves.
@@ -426,7 +430,10 @@ A publish changes a live object only by a recorded migration (`declaration-synta
 
 ```yaml
 migration:
-  description: Version 2 renames the photo, records each job's site, and merges a reassignment reason.
+  description: >-
+    Version 2 renames the photo to the completion photo, records the site of
+    every job, merges the skills reason for a reassignment into workload, and
+    admits the finished jobs from before the photo was required.
   removed_members:
     ReassignmentReason: { SKILLS: WORKLOAD }
   renamed_attributes:
@@ -454,7 +461,7 @@ PartStock:
     reserved: { type: counter, indexed: true }
   derived_attributes:
     available:
-      description: The parts on hand and not reserved.
+      description: The parts on hand and not reserved; a query may filter on it.
       expression: on_hand - reserved
       indexed: true
 ```
@@ -577,11 +584,11 @@ A description is checked in four steps, and each stops the check if it finds any
 | 1. strict loading | `yaml` | a file YAML cannot parse, including a `?` unquoted inside an inline collection, or a key repeated in a mapping |
 | 2. structure | `schema` | a missing or unknown key, a value of the wrong form, a name in the wrong case, a transition kind without the `from` and `to` it requires, a metric without the `state` or `transition` its measure requires |
 | 3. names and order | `order` | sections out of order, a derived attribute that reads itself or one declared after it |
-| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a metric over a source its type does not have or reading anything but its item and the members its rows have, a flag reading neither the value nor a dimension, an assertion, erasure or correction without a `reason` input, an assertion's reason that is not an enumeration, an admission of an invariant neither the type's nor a related type's, a correction that does not write exactly what it lists, an erasure that does not reach a part type holding personal data, a personal attribute that is required, a type that extends one that is undeclared or not abstract or comes back to itself, redeclares what it inherits, or has no tracking, a mirror without an external identifier, an external identifier on a reference, a counter that is optional, has a default or belongs to an observation, a default that reads a member or an input, a call to an evaluator's undeclared function or with the wrong number of arguments, a verdict inside a larger expression or outside a condition, an evaluation marked where no evaluator is called, a proposable transition that is only via others, an event input given anything but `this_event`, a summary naming what is not a member, a metric name two metrics of the module share, a combined metric over an undeclared metric or one not above it, grouped by a dimension its inputs lack, reading beyond its inputs or aggregating, a supersede outside a transition into a superseding state or such a transition without one, a successor that is `this` or neither an object input nor a created name, a type with personal data in supersession and no erasure, a migration mapping that names what this version still has or lacks the target of, a backfill of no stored attribute or one reading beyond the object, an admission of no invariant or reason, and, against the previous version, a state removed with no mapping, a mapping from what it did not have, or a required field added to an observation kind, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
+| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, an imported name its module, checked before, does not declare, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a metric over a source its type does not have or reading anything but its item and the members its rows have, a flag reading neither the value nor a dimension, an assertion, erasure or correction without a `reason` input, an assertion's reason that is not an enumeration, an admission of an invariant neither the type's nor a related type's, a correction that does not write exactly what it lists, an erasure that does not reach a part type holding personal data, a personal attribute that is required, a type that extends one that is undeclared or not abstract or comes back to itself, redeclares what it inherits, or has no tracking, a mirror without an external identifier, an external identifier on a reference, a counter that is optional, has a default or belongs to an observation, a default that reads a member or an input, a call to an evaluator's undeclared function or with the wrong number of arguments, a verdict inside a larger expression or outside a condition, an evaluation marked where no evaluator is called, a proposable transition that is only via others, an event input given anything but `this_event`, a summary naming what is not a member, a metric name two metrics of the module share, a combined metric over an undeclared metric or one not above it, grouped by a dimension its inputs lack, reading beyond its inputs or aggregating, a supersede outside a transition into a superseding state or such a transition without one, a successor that is `this` or neither an object input nor a created name, a type with personal data in supersession and no erasure, a migration mapping that names what this version still has or lacks the target of, a backfill of no stored attribute or one reading beyond the object, an admission of no invariant or reason, and, against the previous version, a state removed with no mapping, a mapping from what it did not have, or a required field added to an observation kind, a transition that both writes and clears an attribute, an optional input on an attribute that is not optional, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
-Step 3 also reports three notices, which are not fatal: `audit`, for each guard that audits; `warn`, for each guard that warns; and `migration`, for what a publish over live objects of the previous version would need (§4.16).
+Step 3 also reports four notices, which are not fatal: `audit`, for each guard that audits; `warn`, for each guard that warns; `imports`, for a module imported from that is not among the files checked; and `migration`, for what a publish over live objects of the previous version would need (§4.16).
 
 ## 8. A minimal valid description
 
