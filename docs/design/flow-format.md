@@ -216,6 +216,7 @@ A type that binds a machine declares no `states` (step 2, `schema`), and MUST de
 
 An `expression` is written in the expression language of `declaration-syntax.md` §8, which this format does not change. Within it:
 - an attribute of the object is read by its name, and a value the caller supplies is read as `inputs.<attribute>`;
+- every name an expression reads at the start of a path MUST be declared where the expression is evaluated: for a type, one of its attributes or observation kinds; for a machine, an attribute it requires (§4.10); for an observation kind's invariant, one of that kind's fields; and in an effect, also the name a `foreach` or `create` step binds. The names an aggregate binds, `count(l in lines where …)`, are declared by it (step 3, `names`);
 - `state` is the object's current state, and `now` is the time of the request;
 - an enumeration value and a state of another type are written qualified, `<Enumeration>.<VALUE>` and `<Type>.<STATE>`; a value of an enumeration or of a type the module declares MUST exist, and a bare upper-case name MUST be a state of the type (step 3, `names`);
 - absence is tested with `is null` and `is not null`; a comparison with an absent value is unknown, and a guard that is unknown refuses (`declaration-syntax.md` §8.2);

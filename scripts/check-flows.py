@@ -560,6 +560,7 @@ def name_errors(doc, library=None, ordered=True):
         for c in sorted(conds - used):
             out.append((("types", tn, "conditions", c), "names", f"condition '{c}' of {tn} is used by no transition"))
         out += value_errors(doc, tn, t)
+        out += read_errors(tn, t)
         for mn, m in (t.get("metrics") or {}).items():
             out += metric_errors(tn, t, mn, m)
     return out
@@ -680,6 +681,58 @@ def value_errors(doc, tn, t):
                 out.append((path, "names", f"{name} names {m.group(0)}, which is not a state of {tn}; "
                                            "write an enumeration value qualified, as <Enumeration>.<VALUE>"))
     return out
+
+
+KEYWORDS = {"and", "or", "not", "implies", "is", "null", "in", "where", "if", "then", "else",
+            "true", "false", "distinct", "over", "last", "fresh"}
+AGGREGATES = ("count", "sum", "min", "max", "all", "any", "none")
+DURATION_UNITS = {"s", "min", "h", "days", "weeks"}
+FLOW_DATA = {"intervals", "transitions", "labels"}
+OBSERVATION_MEMBERS = {"now", "subject", "corrects", "occurred_at", "recorded_at", "recorded_by_kind",
+                       "declaration_version"}
+
+
+def reads(expr):
+    """The member names an expression reads: each lower-case name that begins a
+    path, `this.<name>` included, less keywords, function names, the names an
+    aggregate binds, duration units and a metric's own arguments."""
+    text = re.sub(r'"[^"]*"', '""', " ".join(str(expr).split()))
+    bound = set(re.findall(r"\b(?:%s)\(\s*(?:distinct\s+)?([a-z][a-z0-9_]*)\s+in\b" % "|".join(AGGREGATES), text))
+    out = set()
+    for m in re.finditer(r"(?<![\w.])(this\.)?([a-z][a-z0-9_]*)\b(?!\s*\()", text):
+        name, before, after = m.group(2), text[:m.start()], text[m.end():]
+        if name in KEYWORDS or name in bound or re.match(r"\s*:=", after) or re.search(r"\bmetric\(\s*$", before):
+            continue
+        if name in DURATION_UNITS and re.search(r"\d\s*$", before):
+            continue
+        if m.group(1) and name in FLOW_DATA:
+            continue
+        out.add(name)
+    return out
+
+
+def read_errors(tn, t):
+    """Every name an expression reads is a member of the object it is evaluated
+    on: for a type, its attributes and observation kinds; for an observation
+    kind's invariant, that kind's fields. An effect also reads the names its
+    foreach and create steps bind."""
+    members = set(t.get("attributes") or {}) | set(t.get("observations") or {}) | NOT_AN_ATTRIBUTE
+    exprs = [(("types", tn, sec, n, "expression"), n, c["expression"], members)
+             for sec in ("conditions", "invariants") for n, c in (t.get(sec) or {}).items()]
+    for xn, x in (t.get("transitions") or {}).items():
+        walked = list(walk(x.get("effect")))
+        binds = {st["foreach"]["item"] for st, kind, _p, _d in walked if kind == "foreach"}
+        binds |= {st["create"]["result"] for st, kind, _p, _d in walked if kind == "create" and st["create"].get("result")}
+        exprs += [(("types", tn, "transitions", xn, "effect") + path, xn, e, members | binds)
+                  for st, kind, path, _d in walked for e in step_expressions(st, kind)]
+    for o, ob in (t.get("observations") or {}).items():
+        fields = set(ob.get("attributes") or {}) | OBSERVATION_MEMBERS
+        exprs += [(("types", tn, "observations", o, "invariants", n, "expression"), n, i["expression"], fields)
+                  for n, i in (ob.get("invariants") or {}).items()]
+    return [(path, "names", f"{name} reads '{r}', which {tn} does not declare"
+                            if scope is not None and "observations" not in path else
+                            f"{name} reads '{r}', which is not a field of the observation {path[3]}")
+            for path, name, text, scope in exprs for r in sorted(reads(text) - scope)]
 
 
 def metric_errors(tn, t, mn, m):
@@ -1016,6 +1069,12 @@ def self_test(people, service, inventory, delivery, approvals):
          plant(delivery, "delivery: { reference: Delivery, opposite: checklist_items }", "delivery: { reference: Delivery, opposite: items }")),
         ("an only_via that names a missing transition", "names", "delivery.yaml",
          plant(delivery, "only_via: [Delivery.cancel]", "only_via: [Delivery.abort]")),
+        ("a condition that reads an attribute the type does not declare", "names", "inventory.yaml",
+         plant(inventory, "expression: condition != Condition.DAMAGED", "expression: grade != Condition.DAMAGED")),
+        ("a machine condition that reads an attribute the machine does not require", "names", "approvals.yaml",
+         plant(approvals, "expression: submitted_at is not null", "expression: decided_at is not null")),
+        ("an observation invariant that reads what is not a field of its kind", "names", "service.yaml",
+         plant(service, "expression: value is null or", "expression: voltage is null or")),
         ("a binder that lacks an attribute its machine requires", "names", "approvals.yaml",
          plant(approvals, "      submitted_at: { type: timestamp, optional: true }\n      item:", "      item:")),
         ("a binder whose attribute differs in type from what its machine requires", "names", "approvals.yaml",
