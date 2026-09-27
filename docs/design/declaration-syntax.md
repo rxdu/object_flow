@@ -856,12 +856,12 @@ type Handover version 1 {
   do hand_over PREPARING -> HANDED_OVER {
     require all_checked: all(c in PdiCheck where c.configuration == configuration
                                              and c.state == PdiCheck.ACTIVE:
-                             any(r in pdi_results where r.check == c))           because self_serviceable
+                             any(r in pdi_results where r.check == c))           because unreachable_from_here
   }
 }
 ```
 
-`Handover` is a delivery reduced to its gate. The gate scans the catalogue, so the event of each hand-over records, in its read set, the checks the scan matched and the results it read (PRD UC-4, L2). Retiring a check is a transition on the catalogue, so a gate is loosened only through a recorded, attributed change, which is UC-19's fourth route (PRD D7); who may retire one is the upper layer's. Changing a checklist creates and retires `PdiCheck` objects and needs no publish.
+`Handover` is a delivery reduced to its gate. *(Corrected 2026-09-27: the gate said `because self_serviceable`. Since ADR-0122 decision 30 that class means correcting an input of the transition requested, `hand_over` takes none, and a missing result is written by a recording, another request, which is `unreachable_from_here`; writing the metric scenarios found it (D446).)* The gate scans the catalogue, so the event of each hand-over records, in its read set, the checks the scan matched and the results it read (PRD UC-4, L2). Retiring a check is a transition on the catalogue, so a gate is loosened only through a recorded, attributed change, which is UC-19's fourth route (PRD D7); who may retire one is the upper layer's. Changing a checklist creates and retires `PdiCheck` objects and needs no publish.
 
 **A kind is sugar for a type**, and the rule set prints what it expands to:
 - a `tracking record` type of the same name, with one state, `RECORDED`, of category `closed` and `terminal`;

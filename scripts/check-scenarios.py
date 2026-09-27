@@ -1,29 +1,28 @@
 #!/usr/bin/env python3
 """Recompute the values docs/design/metric-scenarios.md expects, from its history.
 
-The scenarios fix a flow, the robot inventory of unit-journey.md with the agent
-type the document declares, a history of requests over it, and the values the
-standard and declared metrics give when read at the history's `now`. This:
+The scenarios fix a flow, the robot inventory of unit-journey.md, a history of
+requests over it, and the values its reads return. This:
 
   1. replays the history against the modules: every request names an actor the
      store holds, whose kind is its type's; every transition is one its type
      declares, requestable, of the request's kind and taken from a state it
-     leaves; every refusal names a guard the transition declares, with its
-     declared remedy, or a verdict with the remedy DESIGN.md §5.5 fixes; and
-     every guard, effect and invariant the history reaches is evaluated from a
-     transcription this script holds, each checked against the module's text,
-     so an applied request passes its guards and a refused one fails first on
-     the clause it names;
-  2. publishes the lead's metric into the module and runs the flow checker;
-  3. computes each read the document quotes, by declaration-syntax.md §6.9's
-     rules, and compares it with the document's table.
+     leaves; every recording names a kind its subject declares; every refusal
+     names the first check that fails, a generated guard, a declared guard or a
+     call's, with its remedy, or a verdict with the remedy DESIGN.md §5.5 fixes;
+     and every guard, effect and invariant the history reaches is evaluated
+     from a transcription this script holds, each checked against the module's
+     text, so an applied request passes and a refused one fails as it says;
+  2. applies each published version to the module, at its time, and runs the
+     flow checker over it against the version before;
+  3. computes each read the document quotes, after the history above it, by
+     declaration-syntax.md §6.9's rules, and compares it with the table.
 
 It is not an engine: it evaluates only what it transcribes, and refuses a
 history that reaches anything else. Its self-test, which runs after the check
-unless `--no-self-test` is given, plants a wrong value, an illegal transition, a
-refusal on the wrong clause, an unknown agent and two invalid published metrics,
-and shows each caught.
+unless `--no-self-test` is given, plants mistakes and shows each caught.
 """
+import copy
 import importlib.util
 import math
 import pathlib
@@ -42,11 +41,23 @@ spec.loader.exec_module(flows)
 
 
 class Refused(Exception):
-    pass
+    """The history is not one the modules allow."""
+
+
+class Fails(Exception):
+    """A request fails: its verdict, clause, remedy and the object a refused call targeted."""
+    def __init__(self, verdict, clause=None, remedy=None, call=None):
+        super().__init__(verdict, clause)
+        self.v = {"verdict": verdict, "clause": clause, "remedy": remedy, "call": call}
 
 
 def when(s):
     return datetime.strptime(str(s), "%Y-%m-%dT%H:%MZ")
+
+
+def span(s):
+    n, unit = str(s).split()
+    return timedelta(**{unit if unit.endswith("s") else unit + "s": int(n)})
 
 
 def fences(text):
@@ -81,13 +92,30 @@ def one(expr):
 
 
 # ── the transcription: what the history reaches, as the modules say it ─────────
-# Each guard, invariant and effect below is the module's text and a Python
-# reading of it; `transcribed()` refuses to run if the module's text differs.
+# Each guard, invariant, effect and declared metric below is the module's text
+# and a Python reading of it; `transcribed()` refuses to run if the module's text
+# differs, in every version the history reaches.
+def all_checked(s, o, i):
+    ok = True
+    results = s.current(o.id, "pdi_results")
+    s.read(results)
+    for u in sorted(s.units(o.id)):
+        checks = [c for c in s.objects.values() if c.type == "PdiCheck" and c.attrs["model"] == s.objects[u].attrs["model"]
+                  and c.state == "ACTIVE"]
+        s.read(checks)
+        for c in checks:
+            if not any(r.fields["unit"] == u and r.fields["check"] == c.id for r in results):
+                ok = False
+    return ok
+
+
 GUARDS = {
     ("Delivery", "not_internal"): ("not internal", lambda s, o, i: not o.attrs.get("internal", False)),
     ("Delivery", "is_internal"): ("internal", lambda s, o, i: bool(o.attrs.get("internal", False))),
     ("Delivery", "filled"): ("count(u in units) >= 1 and none(u in pegged)",
                              lambda s, o, i: len(s.units(o.id)) >= 1 and not s.pegged(o.id)),
+    ("Delivery", "all_checked"): ("all(u in units: all(c in PdiCheck where c.model == u.model and c.state == PdiCheck.ACTIVE: "
+                                  "any(r in pdi_results where r.unit == u and r.check == c)))", all_checked),
     ("Robot", "open"): ("inputs.slot.state == Delivery.PREPARATION",
                         lambda s, o, i: s.objects[i["slot"]].state == "PREPARATION"),
     ("Robot", "labelled"): ("label_printed_at is not null", lambda s, o, i: o.attrs.get("label_printed_at") is not None),
@@ -97,6 +125,9 @@ GUARDS = {
     ("Robot", "photo"): ("model.label_photo_required implies count(p in photos) >= 1",
                          lambda s, o, i: not s.objects[o.attrs["model"]].attrs.get("label_photo_required", False)
                          or len(o.attrs.get("photos", [])) >= 1),
+    ("Shipment", "ordered"): ("all(u in inputs.with_units: u.state == Robot.REQUESTED)",
+                              lambda s, o, i: all(s.objects[u].state == "REQUESTED" for u in i["with_units"])),
+    ("Shipment", "ours"): ("inputs.robot.shipment == this", lambda s, o, i: s.objects[i["robot"]].attrs.get("shipment") == o.id),
 }
 INVARIANTS = {
     ("Robot", "one_open_engagement"): ("count(l in engagement_lines where l.open) <= 1", lambda s, o: True),
@@ -113,21 +144,21 @@ INVARIANTS = {
 
 
 def call_each(array, transition, inputs=None, where=None):
-    """A foreach step calling `transition` on each element of a derived set end."""
-    def run(s, o, i, actor, at):
+    """A foreach step calling `transition` on each element of a set end."""
+    def run(s, o, i, occ):
         items = s.units(o.id) if array == "units" else s.pegged(o.id)
         for u in sorted(items):
             if where is None or s.objects[u].state == where:
-                s.call(u, "Robot", transition, {k: v(s, o) for k, v in (inputs or {}).items()}, actor, at)
+                s.call(u, "Robot", transition, {k: v(s, o) for k, v in (inputs or {}).items()}, occ)
     return run
 
 
 EFFECTS = {
     # (type, transition): (the module's effect, as loaded; what it does)
     ("Delivery", "peg_slot"): ([{"call": {"target": "inputs.robot", "transition": "peg_to", "inputs": {"slot": "this"}}}],
-                               lambda s, o, i, a, t: s.call(i["robot"], "Robot", "peg_to", {"slot": o.id}, a, t)),
+                               lambda s, o, i, t: s.call(i["robot"], "Robot", "peg_to", {"slot": o.id}, t)),
     ("Delivery", "bind_slot"): ([{"call": {"target": "inputs.robot", "transition": "reserve", "inputs": {"slot": "this"}}}],
-                                lambda s, o, i, a, t: s.call(i["robot"], "Robot", "reserve", {"slot": o.id}, a, t)),
+                                lambda s, o, i, t: s.call(i["robot"], "Robot", "reserve", {"slot": o.id}, t)),
     ("Delivery", "complete_sale"): ([{"foreach": {"item": "u", "array": "units", "limit": 500, "steps": [
         {"call": {"target": "u", "transition": "sell", "inputs": {"buyer": "customer"}}}]}}],
         call_each("units", "sell", {"buyer": lambda s, o: o.attrs["customer"]})),
@@ -137,26 +168,43 @@ EFFECTS = {
         {"call": {"target": "u", "transition": "unsell"}}]}},
         {"foreach": {"item": "u", "array": "units", "where": "u.state == Robot.DEVELOPMENT", "limit": 500, "steps": [
             {"call": {"target": "u", "transition": "recall_internal"}}]}}],
-        lambda s, o, i, a, t: (call_each("units", "unsell", where="SOLD")(s, o, i, a, t),
-                               call_each("units", "recall_internal", where="DEVELOPMENT")(s, o, i, a, t))),
-    ("Robot", "peg_to"): ([{"assign": {"location": "peg", "expr": "inputs.slot"}}], lambda s, o, i, a, t: o.set("peg", i["slot"])),
-    ("Robot", "reserve"): ([{"assign": {"location": "binding", "expr": "inputs.slot"}}], lambda s, o, i, a, t: o.set("binding", i["slot"])),
-    ("Robot", "sell"): ([{"assign": {"location": "sold_to", "expr": "inputs.buyer"}}], lambda s, o, i, a, t: o.set("sold_to", i["buyer"])),
-    ("Robot", "unsell"): ([{"clear": ["binding", "sold_to"]}], lambda s, o, i, a, t: o.clear("binding", "sold_to")),
+        lambda s, o, i, t: (call_each("units", "unsell", where="SOLD")(s, o, i, t),
+                            call_each("units", "recall_internal", where="DEVELOPMENT")(s, o, i, t))),
+    ("Shipment", "dispatch"): ([{"foreach": {"item": "u", "array": "inputs.with_units", "limit": 200, "steps": [
+        {"call": {"target": "u", "transition": "ship", "inputs": {"via_shipment": "this"}}}]}}],
+        lambda s, o, i, t: [s.call(u, "Robot", "ship", {"via_shipment": o.id}, t) for u in sorted(i["with_units"])]),
+    ("Shipment", "add_unit"): ([{"call": {"target": "inputs.robot", "transition": "ship", "inputs": {"via_shipment": "this"}}}],
+                               lambda s, o, i, t: s.call(i["robot"], "Robot", "ship", {"via_shipment": o.id}, t)),
+    ("Shipment", "receive_unit"): ([{"call": {"target": "inputs.robot", "transition": "receive"}}],
+                                   lambda s, o, i, t: s.call(i["robot"], "Robot", "receive", {}, t)),
+    ("Robot", "ship"): ([{"assign": {"location": "shipment", "expr": "inputs.via_shipment"}}],
+                        lambda s, o, i, t: o.set("shipment", i["via_shipment"])),
+    ("Robot", "peg_to"): ([{"assign": {"location": "peg", "expr": "inputs.slot"}}], lambda s, o, i, t: o.set("peg", i["slot"])),
+    ("Robot", "reserve"): ([{"assign": {"location": "binding", "expr": "inputs.slot"}}], lambda s, o, i, t: o.set("binding", i["slot"])),
+    ("Robot", "sell"): ([{"assign": {"location": "sold_to", "expr": "inputs.buyer"}}], lambda s, o, i, t: o.set("sold_to", i["buyer"])),
+    ("Robot", "unsell"): ([{"clear": ["binding", "sold_to"]}], lambda s, o, i, t: o.clear("binding", "sold_to")),
     ("Robot", "record_label_print"): ([{"assign": {"location": "label_printed_at", "expr": "now"}}],
-                                      lambda s, o, i, a, t: o.set("label_printed_at", t)),
-    ("Robot", "inventorize"): ([{"clear": ["peg"]}], lambda s, o, i, a, t: o.clear("peg")),
-    ("Robot", "correct_state"): ([{"clear": ["peg", "binding", "used_in"]}], lambda s, o, i, a, t: o.clear("peg", "binding", "used_in")),
+                                      lambda s, o, i, t: o.set("label_printed_at", t)),
+    ("Robot", "inventorize"): ([{"clear": ["peg"]}], lambda s, o, i, t: o.clear("peg")),
+    ("Robot", "correct_state"): ([{"clear": ["peg", "binding", "used_in"]}], lambda s, o, i, t: o.clear("peg", "binding", "used_in")),
 }
-NO_EFFECT = {("Delivery", "open"), ("Robot", "add_opening_stock"), ("Robot", "add_to_intake"), ("Robot", "deliver_internal"),
-             ("RobotModel", "add"), ("User", "add"), ("Agent", "issue")}
+NO_EFFECT = {("Delivery", "open"), ("Robot", "add_opening_stock"), ("Robot", "add_to_intake"), ("Robot", "request"),
+             ("Robot", "deliver_internal"), ("Robot", "receive"), ("Shipment", "arrive"), ("RobotModel", "add"),
+             ("User", "add"), ("Agent", "issue"), ("PdiCheck", "add"), ("PdiCheck", "retire")}
 FIXED_REMEDY = {"unavailable": "unreachable_from_here", "stale": "self_serviceable", "not found": "unreachable_from_here",
                 "not requestable": "unreachable_from_here", "invalid input": "self_serviceable",
                 "unknown transition": "self_serviceable"}
+DECLARED_METRICS = {
+    ("Delivery", "delivery_wait"): {"source": "intervals", "item": "i", "dimensions": {
+        "state": "i.state", "customer": "i.object.customer", "configuration": "i.object.units.model"},
+        "expression": "median(i.duration)"},
+    ("Delivery", "open_shortfall"): {"source": "availability_checks", "item": "r", "filter": "r.subject.open", "dimensions": {
+        "model": "r.model", "week": "week(r.occurred_at)"}, "time_dimension": "r.occurred_at", "expression": "sum(r.shortfall)"},
+}
 
 
 def literal(v):
-    """A loaded effect with its expressions as the loader leaves them, for comparison."""
+    """A loaded structure with its expressions as the loader leaves them, for comparison."""
     if isinstance(v, dict):
         return {k: literal(x) for k, x in v.items()}
     if isinstance(v, list):
@@ -184,13 +232,55 @@ class Obj:
             self.attrs[k] = None
 
 
+class Observation:
+    def __init__(self, oid, kind, subject, coll, fields, occurred, recorded, corrects, actor_kind):
+        self.id, self.type, self.subject, self.coll, self.fields = oid, kind, subject, coll, dict(fields)
+        self.occurred, self.recorded, self.corrects, self.kind = occurred, recorded, corrects, actor_kind
+        self.corrected_by = None
+
+
+# ── publishing a version ────────────────────────────────────────────────────────
+def insert(mapping, key, value, order):
+    """`mapping` with `key` added in the declared order of its section, as step 3 requires."""
+    if key in mapping or not order or key not in order:
+        mapping[key] = value
+        return
+    items = list(mapping.items())
+    pos = next((n for n, (k, _v) in enumerate(items) if k in order and order.index(k) > order.index(key)), len(items))
+    items.insert(pos, (key, value))
+    mapping.clear()
+    mapping.update(items)
+
+
+def patched(text, adds):
+    """The module's text with each `<path>: <value>` of a publish added in its section's order."""
+    doc = flows.load(text)
+    for path, value in adds.items():
+        keys, node = path.split("."), doc
+        for depth, k in enumerate(keys):
+            order = flows.MODULE_ORDER if depth == 0 else flows.TYPE_ORDER if depth == 2 and keys[0] == "types" else None
+            if depth == len(keys) - 1:
+                insert(node, k, copy.deepcopy(value), order)
+            else:
+                if k not in node:
+                    insert(node, k, {}, order)
+                node = node[k]
+    return yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, width=10_000)
+
+
 class Store:
-    def __init__(self, mods, history):
-        self.mods, self.h = mods, history
-        self.now, self.port = when(history["now"]), when(history["port"])
-        self.objects, self.events, self.attempts = {}, [], []
+    def __init__(self, mods_text, publishes):
+        self.text = dict(mods_text)
+        self.publishes = sorted(publishes, key=lambda p: when(p["at"]))
+        self.version, self.findings = 1, []
+        self.objects, self.obs, self.events, self.attempts, self.reading = {}, {}, [], [], None
+        self.now = self.port = self.at = self.kind = None
+        self.load()
+
+    def load(self):
+        self.mods = {n: flows.load(t) for n, t in self.text.items()}
         self.types = {}
-        for m in mods.values():
+        for m in self.mods.values():
             for tn, t in (m.get("types") or {}).items():
                 view = dict(t)
                 if t.get("state_machine"):
@@ -202,26 +292,50 @@ class Store:
 
     def transcribed(self):
         for (tn, c), (text, _f) in GUARDS.items():
-            got = one(self.types[tn]["conditions"][c]["expression"])
-            assert got == text, f"{tn}.{c} is now `{got}`; the transcription reads `{text}`"
+            cond = (self.types.get(tn, {}).get("conditions") or {}).get(c)
+            if cond:
+                assert one(cond["expression"]) == text, f"{tn}.{c} is now `{one(cond['expression'])}`; the transcription reads `{text}`"
         for (tn, c), (text, _f) in INVARIANTS.items():
             got = one(self.types[tn]["invariants"][c]["expression"])
             assert got == text, f"{tn}.{c} is now `{got}`; the transcription reads `{text}`"
-        for tn, t in self.types.items():
-            for c in (t.get("invariants") or {}):
-                assert (tn, c) in INVARIANTS or tn not in ("Robot", "RobotModel"), f"{tn}.{c} is not transcribed"
+        for tn in ("Robot", "RobotModel"):
+            for c in (self.types[tn].get("invariants") or {}):
+                assert (tn, c) in INVARIANTS, f"{tn}.{c} is not transcribed"
         for (tn, x), (effect, _f) in EFFECTS.items():
             got = literal(self.types[tn]["transitions"][x].get("effect"))
             assert got == literal(effect), f"{tn}.{x}'s effect is now {got}; the transcription reads {literal(effect)}"
         for tn, x in NO_EFFECT:
-            assert not self.types[tn]["transitions"][x].get("effect"), f"{tn}.{x} now has an effect"
+            if tn in self.types:
+                assert not self.types[tn]["transitions"][x].get("effect"), f"{tn}.{x} now has an effect"
+        for (tn, mn), want in DECLARED_METRICS.items():
+            got = (self.types[tn].get("metrics") or {}).get(mn)
+            if got:
+                got = {k: v for k, v in literal(got).items() if k != "description"}
+                assert got == literal(want), f"{tn}.{mn} is now {got}; the transcription reads {literal(want)}"
 
-    # derived ends, read from the stored ones
+    def publish(self, p):
+        prev = self.text["inventory_journey"]
+        new = patched(prev, p["add"])
+        files = [("operations_shared.yaml", self.text["operations_shared"]), ("inventory_journey.yaml", new)]
+        errs, _notes = flows.check(files, {"inventory_journey.yaml": prev})
+        self.findings += [f"the version published at {p['at']}: {e[3]} {e[4]}" for e in errs if e[0] == "inventory_journey.yaml"]
+        self.text["inventory_journey"] = new
+        self.version += 1
+        self.load()
+
+    # derived ends and collections, read from the stored ones
     def units(self, d):
         return {r for r, o in self.objects.items() if o.type == "Robot" and o.attrs.get("binding") == d}
 
     def pegged(self, d):
         return {r for r, o in self.objects.items() if o.type == "Robot" and o.attrs.get("peg") == d}
+
+    def current(self, subject, coll):
+        return [o for o in self.obs.values() if o.subject == subject and o.coll == coll and o.corrected_by is None]
+
+    def read(self, objs):
+        if self.reading is not None:
+            self.reading.update(o.id for o in objs)
 
     def final(self, tn, state):
         return bool(self.types[tn]["states"][state].get("final"))
@@ -245,53 +359,138 @@ class Store:
         return state in (f if isinstance(f, list) else [f])
 
     def guards(self, tn, xn, x, o, inputs):
-        """The first declared guard that fails, or None; every guard reached must be transcribed."""
         for g in (x.get("guards") or {}):
             if (tn, g) not in GUARDS:
                 raise Refused(f"{tn}.{xn}'s guard {g} is not transcribed, so this history cannot reach it")
             if not GUARDS[(tn, g)][1](self, o, inputs):
-                return g
-        return None
+                raise Fails("unsatisfied", g, self.types[tn]["conditions"][g]["remedy"])
 
     def check_invariants(self, o):
         for (tn, c), (_t, f) in INVARIANTS.items():
             if tn == o.type and not f(self, o):
                 raise Refused(f"{o.id} would break {tn}.{c}")
 
-    def record(self, o, xn, frm, to, kind, at, **extra):
-        self.events.append({"object": o.id, "type": o.type, "transition": xn, "from": frm, "to": to, "kind": kind,
-                            "at": at, "overrides": False, "imported": False, "reason": None, **extra})
-
-    def call(self, oid, tn, xn, inputs, kind, at):
+    def call(self, oid, tn, xn, inputs, occ):
         o = self.objects[oid]
         x = self.types[tn]["transitions"][xn]
-        if not self.leaves(tn, x, o.state):
-            raise Refused(f"the call {tn}.{xn} on {oid}, in {o.state}, is from a state it does not leave")
-        failed = self.guards(tn, xn, x, o, inputs)
-        if failed:
-            raise Refused(f"the call {tn}.{xn} on {oid} fails {failed}")
-        self.apply(o, tn, xn, x, inputs, kind, at)
+        try:
+            if not self.leaves(tn, x, o.state):
+                raise Fails("unavailable", None, "unreachable_from_here")
+            # a called transition takes the request's occurred time, and checks only that it does not
+            # precede the current interval of what it changes on its own object (flow-format.md §4.8)
+            if x["kind"] == "external" and occ < o.intervals[-1][1]:
+                raise Fails("unsatisfied", "occurred_within", "self_serviceable")
+            self.guards(tn, xn, x, o, inputs)
+        except Fails as f:
+            f.v["call"] = oid
+            raise
+        self.apply(o, tn, xn, x, inputs, occ)
 
-    def apply(self, o, tn, xn, x, inputs, kind, at, to=None):
+    def apply(self, o, tn, xn, x, inputs, occ, to=None):
         frm = o.state
         for a in (x.get("required_inputs") or []) + (x.get("optional_inputs") or []):
             if a in inputs:
                 o.set(a, inputs[a])
         if (tn, xn) in EFFECTS:
-            EFFECTS[(tn, xn)][1](self, o, inputs, kind, at)
+            EFFECTS[(tn, xn)][1](self, o, inputs, occ)
         elif (tn, xn) not in NO_EFFECT and x.get("effect"):
             raise Refused(f"{tn}.{xn}'s effect is not transcribed")
         target = to or x.get("to")
         if x["kind"] in ("external", "assertion") and target:
             o.state = target
             o.state_source = "asserted" if x["kind"] == "assertion" else "observed"
-            o.open_interval(target, at, kind)
+            o.open_interval(target, occ, self.kind)
         self.check_invariants(o)
-        self.record(o, xn, frm, o.state, kind, at, overrides=x["kind"] == "assertion",
-                    reason=inputs.get("reason") if x["kind"] == "assertion" else None)
+        self.events.append({"object": o.id, "type": tn, "transition": xn, "from": frm, "to": o.state, "kind": self.kind,
+                            "occurred": occ, "recorded": self.at, "overrides": x["kind"] == "assertion",
+                            "imported": False, "reason": inputs.get("reason") if x["kind"] == "assertion" else None,
+                            "reads": set()})
 
-    def replay(self):
-        for imp in self.h.get("imported") or []:
+    # ── one request ──
+    def attempt(self, r):
+        """Take the request on this store; raise Fails with its first failure."""
+        at = self.at = when(r["at"])
+        self.kind = self.kind_of(r["actor"])
+        occ = when(r["occurred_at"]) if r.get("occurred_at") else at
+        inputs = {k: (when(v) if k.endswith("_at") else v) for k, v in (r.get("inputs") or {}).items()}
+        if r.get("record"):
+            self.record(r, at, occ)
+            return
+        tn = r.get("create") or self.objects[r["object"]].type
+        x = self.types[tn]["transitions"].get(r["transition"])
+        if x is None:
+            raise Refused(f"{tn} declares no transition {r['transition']}")
+        if x.get("only_via"):
+            raise Refused(f"{tn}.{r['transition']} is only via {x['only_via']}")
+        if r.get("create"):
+            if x["kind"] != "initial" or r["object"] in self.objects:
+                raise Refused(f"{r['object']}: {tn}.{r['transition']} is not a creation of a new object")
+            o = Obj(r["object"], tn, x["to"], {}, occ, self.kind)
+            self.objects[o.id] = o
+            self.guards(tn, r["transition"], x, o, inputs)
+            self.apply(o, tn, r["transition"], {**x, "kind": "created"}, inputs, occ)
+            return
+        o = self.objects[r["object"]]
+        if x["kind"] == "initial":
+            raise Refused(f"{tn}.{r['transition']} is a creation, requested on {o.id}")
+        if x["kind"] == "assertion":
+            to = inputs.get("to")
+            if to not in x["to"] or to == o.state or self.final(tn, o.state):
+                raise Refused(f"{o.id}: {tn}.{r['transition']} to {to} from {o.state} is not an assertion it may make")
+            self.apply(o, tn, r["transition"], x, inputs, occ, to=to)
+            return
+        if not self.leaves(tn, x, o.state):
+            raise Fails("unavailable", None, "unreachable_from_here")
+        if r.get("occurred_at"):
+            limit = x.get("backdating_limit")
+            changes = x["kind"] == "external"
+            if limit is None or at - occ > span(limit) or occ > at or (changes and occ < o.intervals[-1][1]):
+                raise Fails("unsatisfied", "occurred_within", "self_serviceable")
+        self.reading = set()
+        self.guards(tn, r["transition"], x, o, inputs)
+        reads, self.reading = self.reading, None
+        n = len(self.events)
+        self.apply(o, tn, r["transition"], x, inputs, occ)
+        for e in self.events[n:]:
+            if e["object"] == o.id and e["transition"] == r["transition"]:
+                e["reads"] = reads
+
+    def record(self, r, at, occ):
+        subj = self.objects[r["subject"]]
+        spec_ = (self.types[subj.type].get("observations") or {}).get(r["record"])
+        if spec_ is None:
+            raise Refused(f"{subj.type} declares no observation {r['record']}")
+        # the generated guards, in order: occurred_within, subject_open, corrects_current, subject_owned
+        if r.get("occurred_at"):
+            limit = spec_.get("max_recording_delay")
+            if limit is None or at - occ > span(limit) or occ > at:
+                raise Fails("unsatisfied", "occurred_within", "self_serviceable")
+        fixed = r.get("corrects")
+        if not fixed and self.final(subj.type, subj.state):
+            raise Refused(f"{subj.id} is final; subject_open's remedy is not transcribed")
+        if fixed:
+            old = self.obs.get(fixed)
+            if old is None or old.coll != r["record"] or old.subject != subj.id or old.corrected_by:
+                raise Refused(f"{r['object']} corrects {fixed}, which corrects_current refuses")
+        if self.types[subj.type].get("mirror"):
+            raise Refused(f"{subj.id} is a mirror's; subject_owned refuses")
+        fields = r.get("fields") or {}
+        for a, s_ in (spec_.get("attributes") or {}).items():
+            if not s_.get("optional") and a not in fields:
+                raise Refused(f"{r['object']} leaves out {a}")
+        unknown = set(fields) - set(spec_.get("attributes") or {})
+        if unknown:
+            raise Refused(f"{r['object']} has no field {sorted(unknown)}")
+        o = Observation(r["object"], spec_["kind"], subj.id, r["record"], fields, occ, at, fixed, self.kind)
+        self.obs[o.id] = o
+        if fixed:
+            self.obs[fixed].corrected_by = o.id
+
+    def replay(self, block):
+        self.now = when(block["now"])
+        if block.get("port"):
+            self.port = when(block["port"])
+        for imp in block.get("imported") or []:
             at = when(imp["entered"]) if imp.get("entered") else self.port
             o = Obj(imp["object"], imp["type"], imp["state"], {k: (when(v) if k.endswith("_at") else v)
                                                                for k, v in (imp.get("attributes") or {}).items()},
@@ -302,77 +501,56 @@ class Store:
             o.recorded_from = (when(silent[1]) if silent else o.created_at if imp.get("created") else self.port)
             self.objects[o.id] = o
             self.events.append({"object": o.id, "type": o.type, "transition": "import", "from": None, "to": o.state,
-                                "kind": "unknown", "at": self.port, "overrides": True, "imported": True, "reason": None})
+                                "kind": "unknown", "occurred": self.port, "recorded": self.port, "overrides": True,
+                                "imported": True, "reason": None, "reads": set()})
         last = None
-        for r in self.h["requests"]:
+        for r in block.get("requests") or []:
             at = when(r["at"])
             assert last is None or at >= last, f"request at {r['at']} is out of order"
             last = at
-            kind = self.kind_of(r["actor"])
-            inputs = dict(r.get("inputs") or {})
-            for k, v in inputs.items():
-                if k.endswith("_at"):
-                    inputs[k] = when(v)
-            tn = r.get("create") or self.objects[r["object"]].type
-            x = self.types[tn]["transitions"].get(r["transition"])
-            if x is None:
-                raise Refused(f"{tn} declares no transition {r['transition']}")
-            if x.get("only_via"):
-                raise Refused(f"{tn}.{r['transition']} is only via {x['only_via']}")
+            while self.publishes and when(self.publishes[0]["at"]) <= at:
+                self.publish(self.publishes.pop(0))
             if r.get("refused"):
-                self.refuse(r, tn, x, inputs, kind, at)
+                self.refused(r, at)
                 continue
-            if r.get("create"):
-                if x["kind"] != "initial" or r["object"] in self.objects:
-                    raise Refused(f"{r['object']}: {tn}.{r['transition']} is not a creation of a new object")
-                o = Obj(r["object"], tn, x["to"], {}, at, kind)
-                self.objects[o.id] = o
-                o.state = x["to"]
-                self.apply(o, tn, r["transition"], {**x, "kind": "created"}, inputs, kind, at)
-                continue
-            o = self.objects[r["object"]]
-            if x["kind"] == "initial":
-                raise Refused(f"{tn}.{r['transition']} is a creation, requested on {o.id}")
-            if x["kind"] == "assertion":
-                to = inputs.get("to")
-                if to not in x["to"] or to == o.state or self.final(tn, o.state):
-                    raise Refused(f"{o.id}: {tn}.{r['transition']} to {to} from {o.state} is not an assertion it may make")
-                self.apply(o, tn, r["transition"], x, inputs, kind, at, to=to)
-                continue
-            if not self.leaves(tn, x, o.state):
-                raise Refused(f"{o.id}: {tn}.{r['transition']} is not taken from {o.state}")
-            failed = self.guards(tn, r["transition"], x, o, inputs)
-            if failed:
-                raise Refused(f"{o.id}: {tn}.{r['transition']} fails {failed}, and the history says it applied")
-            self.apply(o, tn, r["transition"], x, inputs, kind, at)
+            try:
+                self.attempt(r)
+            except Fails as f:
+                raise Refused(f"the request at {r['at']} on {r.get('object') or r.get('subject')} fails with {f.v}, "
+                              "and the history says it applies")
+        while self.publishes and when(self.publishes[0]["at"]) <= self.now:
+            self.publish(self.publishes.pop(0))
 
-    def refuse(self, r, tn, x, inputs, kind, at):
-        v = r["refused"]
-        o = self.objects.get(r["object"])
-        if v["verdict"] == "unsatisfied":
-            if x.get("guards", {}).get(v["clause"]) is None:
-                raise Refused(f"{tn}.{r['transition']} declares no guard {v['clause']}")
-            declared = self.types[tn]["conditions"][v["clause"]]["remedy"]
-            if v["remedy"] != declared:
-                raise Refused(f"{v['clause']}'s remedy is {declared}, not {v['remedy']}")
-            if not self.leaves(tn, x, o.state):
-                raise Refused(f"{o.id} is in {o.state}, so the refusal would be unavailable, not {v['clause']}")
-            first = self.guards(tn, r["transition"], x, o, inputs)
-            if first != v["clause"]:
-                raise Refused(f"{o.id}: {tn}.{r['transition']} fails first on {first}, not {v['clause']}")
+    def refused(self, r, at):
+        want = {"verdict": r["refused"]["verdict"], "clause": r["refused"].get("clause"),
+                "remedy": r["refused"]["remedy"], "call": r["refused"].get("call")}
+        if want["verdict"] == "stale":
+            # a moved version is the caller's to know, and the store's to detect; the verdict's remedy is fixed
+            if FIXED_REMEDY["stale"] != want["remedy"]:
+                raise Refused("a stale refusal carries self_serviceable")
         else:
-            if FIXED_REMEDY.get(v["verdict"]) != v["remedy"]:
-                raise Refused(f"a {v['verdict']} refusal carries {FIXED_REMEDY.get(v['verdict'])}, not {v['remedy']}")
-            if v["verdict"] == "unavailable" and self.leaves(tn, x, o.state):
-                raise Refused(f"{o.id} is in {o.state}, which {tn}.{r['transition']} leaves")
-        self.attempts.append({"object": r["object"], "type": tn, "transition": r["transition"], "verdict": v["verdict"],
-                              "clause": v.get("clause"), "remedy": v["remedy"], "kind": kind, "at": at, "enforced": True})
+            trial = copy.deepcopy(self)
+            try:
+                trial.attempt(r)
+                raise Refused(f"the request at {r['at']} on {r.get('object') or r.get('subject')} applies, "
+                              "and the history says it is refused")
+            except Fails as f:
+                if f.v != want:
+                    raise Refused(f"the request at {r['at']} fails with {f.v}, and the history says {want}")
+        if r.get("record"):
+            tn = self.types[self.objects[r["subject"]].type]["observations"][r["record"]]["kind"]
+        else:
+            tn = r.get("create") or self.objects[r["object"]].type
+        self.attempts.append({"object": None if r.get("record") or r.get("create") else r["object"], "type": tn,
+                              "transition": "record" if r.get("record") else r["transition"],
+                              "verdict": want["verdict"], "clause": want["clause"], "remedy": want["remedy"],
+                              "kind": self.kind_of(r["actor"]), "at": at, "enforced": True})
 
 
 # ── the reads, by declaration-syntax.md §6.9 ────────────────────────────────────
 def duration(s, o, iv):
     """A span's exit less its entry; a current one to `now` while the object is open, and none on a finished object."""
-    state, entered, left, _k = iv
+    _state, entered, left, _k = iv
     if left is not None:
         return left - entered
     return s.now - entered if s.open(o) else None
@@ -388,16 +566,9 @@ def week(t):
     return f"{y}-W{w:02d}"
 
 
-def interval_rows(s, tn):
-    for o in s.objects.values():
-        if o.type == tn:
-            for iv in o.intervals:
-                yield o, iv
-
-
 def group(rows, keep):
     """Rows of (dimensions, body, gap) grouped by the kept dimensions; a set-valued dimension's
-    row is counted once under each distinct value."""
+    row is counted once under each distinct value (ADR-0123)."""
     out = {}
     for dims, body, gap in rows:
         keys = [()]
@@ -412,34 +583,37 @@ def group(rows, keep):
     return out
 
 
-def read(s, spec):
-    m = re.fullmatch(r"metric\((\w+(?:\.\w+)?), keep: \[([\w, ]*)\]\)", spec)
-    if m:
-        name, keep = m.group(1), [k.strip() for k in m.group(2).split(",") if k.strip()]
-        return metric(s, name, keep), keep + ["value", "gaps"]
-    if spec == "exceptions(Robot)":
-        return [{"object": o.id, "state": o.state} for o in s.objects.values()
-                if o.type == "Robot" and o.state_source == "asserted"], ["object", "state"]
-    if spec == 'query(Delivery, filter: "state.category != closed", order: "entered_at(state)")':
-        rows = [(o.intervals[-1][1], o) for o in s.objects.values() if o.type == "Delivery" and s.open(o)]
-        return [{"object": o.id, "state": o.state, "entered": t, "gaps": {o.id} if t < o.recorded_from else set()}
-                for t, o in sorted(rows, key=lambda r: r[0])], ["object", "state", "entered", "gaps"]
-    raise SystemExit(f"no read of that form: {spec}")
+def row_filter(expr):
+    """The one filter shape the document's reads use: `<item>.<member> == <value>`."""
+    if not expr:
+        return lambda dims: True
+    m = re.fullmatch(r'\w+\.(\w+) == (?:\w+\.)?"?(\w+)"?', expr)
+    member, value = m.group(1), m.group(2)
+    return lambda dims: dims.get(member) == value
 
 
-def metric(s, name, keep):
+def rows_of(groups, keep, agg):
+    return [{**dict(zip(keep, k)), "value": agg([b for b in g["bodies"] if b is not None]), "gaps": g["gaps"]}
+            for k, g in groups.items()]
+
+
+def metric(s, name, keep, filt):
     tn, _, std = name.partition(".")
-    if name == "Delivery.time_in_state" or name == "delivery_wait":
-        tn = "Delivery"
+    keepf = row_filter(filt)
+    if std == "time_in_state" or name == "delivery_wait":
+        tn = "Delivery" if name == "delivery_wait" else tn
         rows = []
-        for o, iv in interval_rows(s, tn):
-            d = duration(s, o, iv)
-            dims = {"state": iv[0], "month": iv[1].strftime("%Y-%m"), "actor_kind": iv[3],
-                    "customer": o.attrs.get("customer"),
-                    "configuration": frozenset(s.objects[u].attrs["model"] for u in s.units(o.id))}
-            rows.append((dims, d, o.id if iv[1] < o.recorded_from else None))
-        return [{**dict(zip(keep, k)), "value": nearest_rank([b for b in g["bodies"] if b is not None], 0.5), "gaps": g["gaps"]}
-                for k, g in group(rows, keep).items()]
+        for o in s.objects.values():
+            if o.type != tn:
+                continue
+            for iv in o.intervals:
+                dims = {"state": iv[0], "month": iv[1].strftime("%Y-%m"), "actor_kind": iv[3]}
+                if name == "delivery_wait":
+                    dims.update(customer=o.attrs.get("customer"),
+                                configuration=frozenset(s.objects[u].attrs["model"] for u in s.units(o.id)))
+                if keepf(dims):
+                    rows.append((dims, duration(s, o, iv), o.id if iv[1] < o.recorded_from else None))
+        return rows_of(group(rows, keep), keep, lambda b: nearest_rank(b, 0.5))
     if std in ("oldest_open", "work_in_progress"):
         rows = []
         for o in s.objects.values():
@@ -450,23 +624,59 @@ def metric(s, name, keep):
                 # interval's entry, `work_in_progress` only the current state
                 gap = o.id if std == "oldest_open" and entered < o.recorded_from else None
                 rows.append(({"state": o.state}, body, gap))
-        agg = max if std == "oldest_open" else len
-        return [{**dict(zip(keep, k)), "value": agg(g["bodies"]) if std == "oldest_open" else len(g["bodies"]), "gaps": g["gaps"]}
-                for k, g in group(rows, keep).items()]
+        return rows_of(group(rows, keep), keep, (lambda b: max(b) if b else None) if std == "oldest_open" else len)
     if std == "refusals":
         counts = {}
         for a in s.attempts:
             if a["type"] == tn and a["enforced"]:
                 key = (a["at"].date(), a["object"], a["transition"], a["verdict"], a["clause"], a["remedy"], a["kind"])
                 counts[key] = counts.get(key, 0) + 1
-        rows = [({"transition": k[2], "clause": k[4], "remedy": k[5], "actor_kind": k[6],
-                  "week": week(datetime(k[0].year, k[0].month, k[0].day))}, n, None) for k, n in counts.items()]
-        return [{**dict(zip(keep, k)), "value": sum(g["bodies"]), "gaps": set()} for k, g in group(rows, keep).items()]
+        rows = []
+        for k, n in counts.items():
+            dims = {"transition": k[2], "clause": k[4], "remedy": k[5], "actor_kind": k[6],
+                    "week": week(datetime(k[0].year, k[0].month, k[0].day))}
+            if keepf(dims):
+                rows.append((dims, n, None))
+        return rows_of(group(rows, keep), keep, sum)
     if std == "override_counts":
-        rows = [({"state": e["to"], "reason": e["reason"], "week": week(e["at"]), "actor_kind": e["kind"]}, 1, None)
+        rows = [({"state": e["to"], "reason": e["reason"], "week": week(e["occurred"]), "actor_kind": e["kind"]}, 1, None)
                 for e in s.events if e["type"] == tn and e["overrides"] and not e["imported"]]
-        return [{**dict(zip(keep, k)), "value": len(g["bodies"]), "gaps": set()} for k, g in group(rows, keep).items()]
+        return rows_of(group(rows, keep), keep, len)
+    if name == "open_shortfall":
+        rows = [({"model": o.fields["model"], "week": week(o.occurred)}, o.fields["shortfall"], None)
+                for o in s.obs.values() if o.coll == "availability_checks" and o.corrected_by is None
+                and s.open(s.objects[o.subject])]
+        return rows_of(group(rows, keep), keep, sum)
     raise SystemExit(f"no metric {name} in this checker")
+
+
+def read(s, spec_):
+    m = re.fullmatch(r'metric\((\w+(?:\.\w+)?), keep: \[([\w, ]*)\](?:, filter: "(.+)")?\)', spec_)
+    if m:
+        keep = [k.strip() for k in m.group(2).split(",") if k.strip()]
+        return metric(s, m.group(1), keep, (m.group(3) or "").replace('\\"', '"')), keep + ["value", "gaps"]
+    if spec_ == "exceptions(Robot)":
+        return [{"object": o.id, "state": o.state} for o in s.objects.values()
+                if o.type == "Robot" and o.state_source == "asserted"], ["object", "state"]
+    if spec_ == 'query(Delivery, filter: "state.category != closed", order: "entered_at(state)")':
+        rows = [(o.intervals[-1][1], o) for o in s.objects.values() if o.type == "Delivery" and s.open(o)]
+        return [{"object": o.id, "state": o.state, "entered": t, "gaps": {o.id} if t < o.recorded_from else set()}
+                for t, o in sorted(rows, key=lambda r: r[0])], ["object", "state", "entered", "gaps"]
+    m = re.fullmatch(r"read set of (\w+)\.(\w+): (.+)", spec_)
+    if m:
+        kinds = {k.strip() for k in m.group(3).split(",")}
+        ev = [e for e in s.events if e["object"] == m.group(1) and e["transition"] == m.group(2)][-1]
+        out = []
+        for oid in ev["reads"]:
+            t = s.objects[oid].type if oid in s.objects else s.obs[oid].type
+            if t in kinds:
+                out.append({"object": oid, "kind": t})
+        return out, ["object", "kind"]
+    m = re.fullmatch(r"events\((\w+)\)", spec_)
+    if m:
+        return [{"transition": e["transition"], "occurred_at": e["occurred"], "recorded_at": e["recorded"]}
+                for e in s.events if e["object"] == m.group(1)], ["transition", "occurred_at", "recorded_at"]
+    raise SystemExit(f"no read of that form: {spec_}")
 
 
 def show(v):
@@ -507,61 +717,75 @@ def expected_tables(text):
     return out
 
 
+ORDERED = ("query(", "events(")
+
+
 def check(text, journey_text, verbose=True):
     """Findings, as strings; empty when the document's history and every value it quotes hold."""
     found = []
     blocks = fences(text)
     mods_text = modules_of(journey_text)
     mods_text.update(modules_of(text))
-    history = yaml.safe_load(next(b for i, _s, b in blocks if i == "yaml scenario"))
-    publish = next((b for i, _s, b in blocks if i == "yaml publish"), None)
-    # 2. the lead's metric, published into Delivery, passes every step
-    if publish:
-        jt = mods_text["inventory_journey"]
-        cut = jt.index("\n  ServiceJob:")
-        spliced = jt[:cut].rstrip("\n") + "\n\n    metrics:\n" + "".join("      " + ln + "\n" for ln in publish.rstrip("\n").split("\n")) + jt[cut:]
-        agents = [n for n in mods_text if n not in ("operations_shared", "inventory_journey")]
-        files = [("operations_shared.yaml", mods_text["operations_shared"]), ("inventory_journey.yaml", spliced)]
-        files += [(f"{n}.yaml", mods_text[n]) for n in agents]
-        errs, _notes = flows.check(files)
-        found += [f"the published metric: {e[0]}:{e[1]} {e[3]} {e[4]}" for e in errs]
-    mods = {n: flows.load(t) for n, t in mods_text.items()}
-    s = Store(mods, history)
+    publishes = [yaml.safe_load(b) for i, _s, b in blocks if i == "yaml publish"]
+    histories = [(start, yaml.safe_load(b)) for i, start, b in blocks if i == "yaml scenario"]
+    reads = expected_tables(text)
     try:
-        s.replay()
-    except Refused as e:
-        return found + [f"the history: {e}"]
-    for line, spec_, header, rows in expected_tables(text):
+        s = Store(mods_text, publishes)
+    except AssertionError as e:
+        return [f"the transcription: {e}"]
+    steps = sorted([(start, "history", h) for start, h in histories]
+                   + [(line, "read", (line, sp, hd, rw)) for line, sp, hd, rw in reads], key=lambda x: x[0])
+    for _line, what, item in steps:
+        if what == "history":
+            try:
+                s.replay(item)
+            except Refused as e:
+                return found + s.findings + [f"the history: {e}"]
+            except AssertionError as e:
+                return found + s.findings + [f"the transcription: {e}"]
+            continue
+        line, spec_, header, rows = item
         got, cols = read(s, spec_)
         if header != cols:
             found.append(f"line {line}: `{spec_}` has columns {header}, and the read returns {cols}")
             continue
         want = [tuple(r) for r in rows]
         have = [tuple(show(g[c]) for c in cols) for g in got]
-        ordered = spec_.startswith("query(")
+        ordered = spec_.startswith(ORDERED)
         if (want != have) if ordered else (sorted(want) != sorted(have)):
-            found.append(f"line {line}: `{spec_}` expects\n      {sorted(want) if not ordered else want}\n    and the history gives\n      {sorted(have) if not ordered else have}")
+            found.append(f"line {line}: `{spec_}` expects\n      {want if ordered else sorted(want)}\n"
+                         f"    and the history gives\n      {have if ordered else sorted(have)}")
         elif verbose:
             print(f"  {spec_}: {len(want)} row(s) hold")
-    return found
+    return found + s.findings
+
+
+PLANTS = [
+    ("a value the history does not give", r"^\| PREPARATION \| 3d 12h \|.*$", lambda m: m.group(0).replace("3d 12h", "3d 11h")),
+    ("a transition from a state it does not leave", "object: D03, transition: revoke }", "object: D03, transition: complete_sale }"),
+    ("a refusal on a clause that holds", "{ verdict: unsatisfied, clause: not_internal, remedy: unreachable_from_here }",
+     "{ verdict: unsatisfied, clause: filled, remedy: dependent }"),
+    ("an agent the store does not hold", "actor: A-SCOUT", "actor: A-NOBODY"),
+    ("a published dimension three hops long", "configuration: i.object.units.model", "configuration: i.object.units.model.units"),
+    ("a published metric reading a member its rows lack", "      state: i.state\n", "      state: i.stat\n"),
+    ("a completion before its checks have results",
+     "actor: A-SCOUT, object: D09, transition: complete_sale, refused: { verdict: unsatisfied, clause: all_checked, remedy: unreachable_from_here } }",
+     "actor: A-SCOUT, object: D09, transition: complete_sale }"),
+    ("a receipt backdated past its bound, said to apply",
+     "inputs: { robot: R32 }, occurred_at: 2026-10-05T16:00Z, refused: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable } }",
+     "inputs: { robot: R32 }, occurred_at: 2026-10-05T16:00Z }"),
+    ("a correction left out, so the gate reads the mistake", "outcome: PASS }, corrects: P2 }", "outcome: PASS } }"),
+]
 
 
 def self_test(text, journey_text):
     ok = True
-    table_row = re.search(r"^\| PREPARATION \| 3d 12h \|.*$", text, re.M)
-    plants = [
-        ("a value the history does not give", text.replace(table_row.group(0), table_row.group(0).replace("3d 12h", "3d 11h"), 1)),
-        ("a transition from a state it does not leave",
-         text.replace("object: D03, transition: revoke }", "object: D03, transition: complete_sale }", 1)),
-        ("a refusal on a clause that holds",
-         text.replace("{ verdict: unsatisfied, clause: not_internal, remedy: unreachable_from_here }",
-                      "{ verdict: unsatisfied, clause: filled, remedy: dependent }", 1)),
-        ("an agent the store does not hold", text.replace("actor: A-SCOUT", "actor: A-NOBODY", 1)),
-        ("a published dimension three hops long",
-         text.replace("configuration: i.object.units.model", "configuration: i.object.units.model.units", 1)),
-        ("a published metric reading a member its rows lack", text.replace("    state: i.state\n", "    state: i.stat\n", 1)),
-    ]
-    for name, planted in plants:
+    for name, old, new in PLANTS:
+        if callable(new):
+            planted = re.sub(old, new, text, count=1, flags=re.M)
+        else:
+            assert text.count(old) >= 1, name
+            planted = text.replace(old, new, 1)
         assert planted != text, name
         caught = check(planted, journey_text, verbose=False)
         ok &= bool(caught)
@@ -574,8 +798,8 @@ def main():
     found = check(text, journey)
     for f in found:
         print(f"  {DOC.relative_to(ROOT)}: {f}")
-    reads = len(expected_tables(text))
-    print(f"metric scenarios: {reads} read(s) against one history: " + ("consistent" if not found else f"{len(found)} finding(s)"))
+    print(f"metric scenarios: {len(expected_tables(text))} read(s) against the history: "
+          + ("consistent" if not found else f"{len(found)} finding(s)"))
     ok = self_test(text, journey) if "--no-self-test" not in sys.argv else True
     return 1 if found or not ok else 0
 

@@ -232,7 +232,7 @@ A `transition_count` counts the transitions along its transition's source and ta
 | Key | Required | Value |
 |---|---|---|
 | `description` | yes | what the figure is |
-| `source` | yes | the rows: `objects`, the type's objects; `intervals`, each span an object spent in one state; `intervals(<member>)`, each span a tracked member held one value; `transitions`, each transition taken; `attempts`, each request that did not apply; `attempt_counts`, their daily counts; `labels`, each label applied to an object of the type; or the name of one of the type's observation kinds, each observation of it |
+| `source` | yes | the rows: `objects`, the type's objects; `intervals`, each span an object spent in one state; `intervals(<member>)`, each span a tracked member held one value; `transitions`, each transition taken; `attempts`, each request that did not apply; `attempt_counts`, their daily counts; `labels`, each label applied to an object of the type; or the name of one of the type's observations as its `observations` section keys it, such as `inspections`, each observation of it. The format names the collection where the model's metric names the kind (step 2, `schema`) |
 | `item` | yes | the name each row is read by, as a `foreach` step names its element |
 | `filter` | no | an expression over the row; only the rows it holds for are counted |
 | `dimensions` | no | a mapping from a dimension's name to an expression over the row; the figure is computed for each combination of their values |
