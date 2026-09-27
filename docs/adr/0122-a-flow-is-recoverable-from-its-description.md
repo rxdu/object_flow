@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-27: "go ahead with your recommendations, ensure there is no ambiguity after the revision". Each decision below is the recommendation `flow-recoverability-review.md` made for a finding, and D397's is the one that review left to the author.
 - **Date:** 2026-09-27
-- **Amended:** 2026-09-27, the same day: decisions 14 to 19 from a second review, and 20 to 24 from a third, by fresh readers of the corrected specification and examples (`flow-recoverability-review.md` §5), at the author's direction ("check again with fresh agents and see if all issues have been fixed").
+- **Amended:** 2026-09-27, the same day: decisions 14 to 19 from a second review, 20 to 24 from a third, and 25 and 26 from a fourth, by fresh readers of the corrected specification and examples (`flow-recoverability-review.md` §5), at the author's direction ("check again with fresh agents and see if all issues have been fixed").
 - **Refines:** ADR-0116 (the format replaces the text language), ADR-0071 (bounded loops), ADR-0098 (metrics and `combine`), ADR-0029 (sequences)
 - **Relates to:** `flow-format.md` §4.1, §4.3, §4.8, §4.9, §4.12, §4.17, §5; `declaration-syntax.md` §3.3, §4.2, §5.1, §5.2, §6.9; `DESIGN.md` §3, §5.5, §6; `flow-recoverability-review.md`
 
@@ -36,6 +36,8 @@ The author asked whether a flow builder, given the specification and the YAML, c
 22. **An assertion changes the state** (D419): its `to` must be listed and differ from the current state, or the request is `invalid input`; it is never taken at a final state; and its effect may write what the state it puts the object in cannot hold.
 23. **Adding a held value, or removing an absent one, leaves a set as it is** (D419), and the transition still applies.
 24. **A uniqueness has a name** (D419): the invariant a `unique` attribute or a one-to-one end generates is `<attribute>_unique`, reserved as the generated guards' and invariants' names are; and a cascade's `on` and an attribute's `survives` may name the type's transitions, which follow the attributes.
+25. **An assertion's guards and admissions are stated** (D421). An assertion evaluates the generated guards every request does, `occurred_within` among them, and its own, and none of the flow's; an `admits` naming an invariant `may_admit` does not list is `invalid input`, and one the request does not break records nothing.
+26. **A refusal says what failed, in order** (D421). The effect's refusals come in the order its steps run, a loop's limit checked when it starts; `occurred_within` bounds a time before the current interval as well as one too far back; and an invariant refusal names every invariant that fails, in the order declared.
 
 ## Alternatives rejected
 

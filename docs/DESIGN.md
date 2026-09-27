@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 420 entries and five cosmetics; 420 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 422 entries and five cosmetics; 422 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -241,7 +241,7 @@ Evaluating a request yields one **verdict**, and every refusal names a remedy cl
 | `unavailable` | The object is not in a state the transition may be taken in (ADR-0122) | `unreachable_from_here` |
 | `unknown transition` | The type declares no transition of that name the request can take: an initial one for a creation, any other for an object (ADR-0122) | `self_serviceable` |
 | `invalid input` | An input the transition does not take, one not of its declared type, a reference naming no object or one of another type, a set repeating an element, or a required input left out or null, except a required input of an optional or defaulted attribute, which its generated guard refuses (ADR-0122) | `self_serviceable` |
-| invariant violated | Names the invariant and the conflicting objects | `dependent` where it names other objects; `self_serviceable` where only this object's values conflict |
+| invariant violated | Names every invariant that fails, in the order declared, and the conflicting objects (ADR-0122) | `dependent` where it names other objects; `self_serviceable` where only this object's values conflict |
 
 The **remedy class** tells a caller what to do next:
 
@@ -314,7 +314,7 @@ Every request names an **actor**, and optionally the principal it acts for, as t
 
 The engine records who acted:
 - **An actor's kind is declared, not sent.** A type that holds actors marks one `identity` attribute `actor human`, `actor agent` or `actor service`, and a request's actor is the object whose actor identity the request names, with its type's kind (ADR-0110).
-- **An unknown actor is refused.** A request whose actor, or principal, names no such object is refused, naming the generated clause `actor_known`, remedy `dependent`, so every event names someone the record can resolve (§6). Whether the actor is still live is not checked: revoking a departed user's session is the upper layer's, and the record shows who acted if it was not revoked.
+- **An unknown actor is refused.** A request whose actor, or principal, names no such object is refused, naming the generated clause `actor_known`, remedy `dependent`, so every event names someone the record can resolve (§6). Whether the actor's object is in a closed or final state is not checked: revoking a departed user's session is the upper layer's, and the record shows who acted if it was not revoked.
 - **One identity, one actor.** An actor identity names one actor across every such type and is never reused, so history's attribution stays unambiguous.
 - **No roles.** A declaration holds no role, the requester's or anyone else's: who may be assigned which work, like who may act, is the upper layer's, and a type holding actors records only who they are and their kind (ADR-0114 §9).
 - **Recorded, never read by a rule.** Every event and attempt records the actor, its kind, the principal and the caller's `context`. An outcome may write `actor.id`, `actor.kind` or `actor.principal` into an attribute or an argument, such as the approver of an approval, which records who acted and decides nothing (check 64).
@@ -492,7 +492,7 @@ A refusal is re-evaluated by replaying the request over those versions and value
 
 Row locks are taken as objects are reached, for contention rather than correctness: serialisable isolation is what makes a guard's reads safe, including reads of objects the request never writes. A serialisation failure is retried to a declared bound and then refused with `stale`. **A contended row does not queue** on PostgreSQL: the second request waits for the first and then fails with a serialisation error, which the retry absorbs, and the lock only makes the loser fail at its first touch of the row rather than after doing its work (ADR-0090, probed). On SQLite a contended request waits out the busy timeout, and a timeout exceeded counts as a serialisation failure, so either backend answers a race with a verdict, never a fault. The sequence mint draws from a pool of its own, so a burst of creations cannot starve the request pool (ADR-0090).
 
-An **asserting** transition (§8) differs in two ways: step 4 evaluates only its own guards, which are its reason requirement rather than the type's; and step 7 refuses on any invariant violation the request did not explicitly admit. A **migration** a publish applies runs steps 5 to 8 for each object as part of the publish's transaction, with the publish's `admit` lines as its admissions (§5.9, ADR-0105).
+An **asserting** transition (§8) differs in two ways: step 4 evaluates the generated guards every request does and its own guards, which are its reason requirement, and none of the flow's (ADR-0122); and step 7 refuses on any invariant violation the request did not explicitly admit. A **migration** a publish applies runs steps 5 to 8 for each object as part of the publish's transaction, with the publish's `admit` lines as its admissions (§5.9, ADR-0105).
 
 ## 7. History, events and delivery
 

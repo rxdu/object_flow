@@ -548,7 +548,7 @@ machines:
           reason: { type: OverrideReason }
           detail: { type: string, optional: true, personal: true }
         may_admit: [one_open_engagement]
-        description: Puts the unit into the state it is really in when the record is wrong, releasing any peg, binding or part claim, which none of those states holds for a delivery or a job.
+        description: Puts the unit into the state it is really in when the record is wrong, releasing it from any delivery or job that pegged, bound or claimed it, so neither finds it afterwards.
         effect:
           - clear: [peg, binding, used_in]
 
@@ -821,7 +821,7 @@ types:
         expression: none(u in units where u.state == Robot.PROCUREMENT)
         remedy: self_serviceable
       reconciled:
-        description: Every unit of the shipment has been received, flagged missing or taken off it.
+        description: No unit of the shipment is still in procurement.
         expression: none(u in units where u.state == Robot.PROCUREMENT)
         remedy: self_serviceable
       pristine:
@@ -1407,7 +1407,7 @@ types:
         flag_when: { any_overdue: "value > 0" }
 
   EngagementLine:
-    description: One unit on one engagement, open from when it is added until the unit leaves it, by a swap or its retirement, or the engagement ends, whether scheduled, out or returning.
+    description: One unit on one engagement, open from when it is added until the unit leaves it, by a swap or its retirement, or the engagement ends, whether scheduled, out or returning; a unit an assertion moves stays on its line until the engagement ends.
     tracking: record
 
     attributes:

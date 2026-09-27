@@ -8,7 +8,7 @@ Status: **catalogue**, 2026-09-27. Beside the robot inventory example, the typic
 - A status's category is one of Jira's three, "Each status falls into one of three categories: ‘To do', ‘In progress’, and ‘Done’." ([Set up a workflow](https://support.atlassian.com/jira-software-cloud/docs/set-up-a-workflow-in-a-team-managed-software-project/)), written as the categories `todo`, `in_progress` and the built-in `closed` (`case-study-tickets.md` §6.1).
 - Every lifecycle in the model ends in a final state (the model's check 15), and a Jira workflow need not, since Done may be left again. Each work item's flow therefore ends in `ARCHIVED`, reached from any status, which is Jira's archiving: "If you archive a work item, it will only appear in Archived work items and can no longer be edited." ([Archive a work item](https://support.atlassian.com/jira-software-cloud/docs/archive-an-issue/)) The service flows end in the closed statuses Atlassian names.
 - The diagrams are UML state machines: `[*]` is where an object starts and ends, an edge is labelled with its transition and, in brackets, the guards it declares, and a status's colour is its category. A transition from any status starts at the dashed `any status`, as Jira's workflow editor draws a global transition, and stands for an edge from every other status that is not final: no transition leaves a status for itself (ADR-0122). A status lists the internal transitions it may take, which change no status, under its name as `↻`. Not drawn: the guard the format generates for a required input of an optional attribute (`flow-format.md` §6), an erasure, which changes no status, and a type that only supports a flow's main one, which its module declares.
-- Who may take a transition, Jira's conditions on roles and permissions, and screens, boards and notifications are the upper layer's (ADR-0114, PRD N6). A transition Jira takes by itself, by automation, is requested by an application, and the flow declares the guard that holds it (`case-study-tickets.md` §7.2).
+- Who may take a transition, Jira's conditions on roles and permissions, and screens, boards and notifications are the upper layer's (ADR-0114, PRD N6). A transition Jira takes by itself, by automation, is requested by an application; where the automation waits for a condition, such as three days after a resolution, the flow declares the guard that holds it, and where it waits for nothing the flow can read, such as a standard change's approval or a deployment's result, the transition is unguarded and the application decides when to request it (`case-study-tickets.md` §7.2).
 
 **The people.** The flows that name a person import them from one module:
 
@@ -2180,7 +2180,7 @@ types:
         kind: external
         from: PEER_REVIEW
         to: PLANNING
-        description: Passes the change manager or peer review; the shipped automation requests it for a standard change.
+        description: Passes the change manager or peer review; for a standard change, the application's automation requests it, and no approval is enforced.
       submit_to_cab:
         kind: external
         from: PLANNING
@@ -2193,7 +2193,7 @@ types:
         kind: external
         from: AWAITING_IMPLEMENTATION
         to: IMPLEMENTING
-        description: Starts the implementation, where deployment gating allows the deployment.
+        description: Starts the implementation; with deployment gating, the application requests it when the deployment is allowed.
       complete:
         kind: external
         from: IMPLEMENTING
@@ -2202,7 +2202,7 @@ types:
         kind: external
         from: [PEER_REVIEW, AWAITING_CAB_APPROVAL, AWAITING_IMPLEMENTATION]
         to: DECLINED
-        description: Declines the change at a review, or where deployment gating prevents the deployment.
+        description: Declines the change at a review, or, with deployment gating, when the application finds the deployment prevented.
       cancel:
         kind: external
         from: [PEER_REVIEW, PLANNING, AWAITING_CAB_APPROVAL, AWAITING_IMPLEMENTATION]
