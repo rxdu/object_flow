@@ -25,6 +25,7 @@ unless `--no-self-test` is given, plants mistakes and shows each caught.
 import copy
 import importlib.util
 import math
+from decimal import Decimal
 import pathlib
 import re
 import sys
@@ -53,6 +54,11 @@ class Fails(Exception):
 
 def when(s):
     return datetime.strptime(str(s), "%Y-%m-%dT%H:%MZ")
+
+
+def value(v):
+    """A request's or an import's value: a timestamp written as one is read as one, whatever its name."""
+    return when(v) if isinstance(v, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\dZ", v) else v
 
 
 def span(s):
@@ -188,18 +194,41 @@ EFFECTS = {
     ("Robot", "inventorize"): ([{"clear": ["peg"]}], lambda s, o, i, t: o.clear("peg")),
     ("Robot", "correct_state"): ([{"clear": ["peg", "binding", "used_in"]}], lambda s, o, i, t: o.clear("peg", "binding", "used_in")),
 }
-NO_EFFECT = {("Delivery", "open"), ("Robot", "add_opening_stock"), ("Robot", "add_to_intake"), ("Robot", "request"),
+NO_EFFECT = {("Service", "register"), ("Delivery", "open"), ("Robot", "add_opening_stock"), ("Robot", "add_to_intake"), ("Robot", "request"),
              ("Robot", "deliver_internal"), ("Robot", "receive"), ("Shipment", "arrive"), ("RobotModel", "add"),
              ("User", "add"), ("Agent", "issue"), ("PdiCheck", "add"), ("PdiCheck", "retire")}
 FIXED_REMEDY = {"unavailable": "unreachable_from_here", "stale": "self_serviceable", "not found": "unreachable_from_here",
                 "not requestable": "unreachable_from_here", "invalid input": "self_serviceable",
                 "unknown transition": "self_serviceable"}
+FIRST = "none(s in r.subject.pdi_results where s.unit == r.unit and s.check == r.check and s.recorded_at < r.recorded_at)"
 DECLARED_METRICS = {
     ("Delivery", "delivery_wait"): {"source": "intervals", "item": "i", "dimensions": {
         "state": "i.state", "customer": "i.object.customer", "configuration": "i.object.units.model"},
         "expression": "median(i.duration)"},
     ("Delivery", "open_shortfall"): {"source": "availability_checks", "item": "r", "filter": "r.subject.open", "dimensions": {
         "model": "r.model", "week": "week(r.occurred_at)"}, "time_dimension": "r.occurred_at", "expression": "sum(r.shortfall)"},
+    ("Robot", "supplier_lead_time"): {"source": "objects", "item": "o",
+        "filter": "o.entered_at(REQUESTED) is not null and o.entered_at(INTAKE) is not null",
+        "dimensions": {"supplier": "o.model.manufacturer", "month": "month(o.entered_at(INTAKE))"},
+        "time_dimension": "o.entered_at(INTAKE)", "expression": "median(o.entered_at(INTAKE) - o.created_at)"},
+    ("Robot", "supplier_lead_time_p80"): {"source": "objects", "item": "o",
+        "filter": "o.entered_at(REQUESTED) is not null and o.entered_at(INTAKE) is not null",
+        "dimensions": {"supplier": "o.model.manufacturer", "month": "month(o.entered_at(INTAKE))"},
+        "time_dimension": "o.entered_at(INTAKE)", "expression": "percentile(0.8, o.entered_at(INTAKE) - o.created_at)"},
+    ("Robot", "weak_battery_units"): {"source": "battery_days", "item": "b", "filter": "b.min_health < 80.0",
+        "dimensions": {"model": "b.subject.model", "week": "week(b.occurred_at)"}, "expression": "count(distinct b.subject)"},
+    ("Delivery", "first_results_inspected"): {"source": "pdi_results", "item": "r", "filter": FIRST,
+        "dimensions": {"model": "r.unit.model", "month": "month(r.occurred_at)"}, "expression": "count(distinct r.unit)"},
+    ("Delivery", "first_results_failed"): {"source": "pdi_results", "item": "r",
+        "filter": "r.outcome == CheckOutcome.FAIL and " + FIRST,
+        "dimensions": {"model": "r.unit.model", "month": "month(r.occurred_at)"}, "expression": "count(distinct r.unit)"},
+    ("Delivery", "on_time_rate"): {"source": "transitions", "item": "t",
+        "filter": "t.to_state == Delivery.DELIVERED and t.object.promised_date is not null",
+        "dimensions": {"month": "month(t.occurred_at)", "customer": "t.object.customer"},
+        "expression": "count(where t.occurred_at <= t.object.promised_date) * 1.000 / count()"},
+    ("", "first_pass_yield"): {"input_metrics": {"inspected": "Delivery.first_results_inspected",
+                                                 "failed": "Delivery.first_results_failed"},
+                               "group_by": ["model", "month"], "expression": "(inspected - failed) * 1.000 / inspected"},
 }
 
 
@@ -215,14 +244,18 @@ def literal(v):
 class Obj:
     def __init__(self, oid, tn, state, attrs, at, kind):
         self.id, self.type, self.state, self.attrs = oid, tn, state, dict(attrs)
-        self.created_at, self.recorded_from, self.state_source = at, at, "observed"
-        self.intervals = []                         # [state, entered, left, entered_by_kind]
+        self.created_at, self.recorded_from, self.state_source, self.undated = at, at, "observed", False
+        self.intervals = []                         # [state, entered, left, entered_by_kind, legacy]
         self.open_interval(state, at, kind)
 
     def open_interval(self, state, at, kind):
         if self.intervals:
             self.intervals[-1][2] = at
-        self.intervals.append([state, at, None, kind])
+        self.intervals.append([state, at, None, kind, False])
+
+    def entered_at(self, state):
+        """When the object last entered `state`, legacy intervals included, or None."""
+        return max((iv[1] for iv in self.intervals if iv[0] == state), default=None)
 
     def set(self, k, v):
         self.attrs[k] = v
@@ -308,7 +341,8 @@ class Store:
             if tn in self.types:
                 assert not self.types[tn]["transitions"][x].get("effect"), f"{tn}.{x} now has an effect"
         for (tn, mn), want in DECLARED_METRICS.items():
-            got = (self.types[tn].get("metrics") or {}).get(mn)
+            got = ((self.mods["inventory_journey"].get("metrics") or {}) if not tn
+                   else (self.types[tn].get("metrics") or {})).get(mn)
             if got:
                 got = {k: v for k, v in literal(got).items() if k != "description"}
                 assert got == literal(want), f"{tn}.{mn} is now {got}; the transcription reads {literal(want)}"
@@ -412,7 +446,7 @@ class Store:
         at = self.at = when(r["at"])
         self.kind = self.kind_of(r["actor"])
         occ = when(r["occurred_at"]) if r.get("occurred_at") else at
-        inputs = {k: (when(v) if k.endswith("_at") else v) for k, v in (r.get("inputs") or {}).items()}
+        inputs = {k: value(v) for k, v in (r.get("inputs") or {}).items()}
         if r.get("record"):
             self.record(r, at, occ)
             return
@@ -492,10 +526,13 @@ class Store:
             self.port = when(block["port"])
         for imp in block.get("imported") or []:
             at = when(imp["entered"]) if imp.get("entered") else self.port
-            o = Obj(imp["object"], imp["type"], imp["state"], {k: (when(v) if k.endswith("_at") else v)
-                                                               for k, v in (imp.get("attributes") or {}).items()},
+            o = Obj(imp["object"], imp["type"], imp["state"], {k: value(v) for k, v in (imp.get("attributes") or {}).items()},
                     at, imp.get("entered_by", "unknown"))
-            o.created_at = when(imp["created"]) if imp.get("created") else self.port
+            legacy = [[st, when(a), when(b), imp.get("entered_by", "unknown"), True] for st, a, b in imp.get("legacy") or []]
+            o.intervals = legacy + o.intervals
+            known = [iv[1] for iv in o.intervals] + ([self.port] if not imp.get("entered") else [])
+            o.created_at = when(imp["created"]) if imp.get("created") else min(known)
+            o.undated = not imp.get("created")
             o.state_source = "imported"
             silent = imp.get("silent")
             o.recorded_from = (when(silent[1]) if silent else o.created_at if imp.get("created") else self.port)
@@ -550,7 +587,7 @@ class Store:
 # ── the reads, by declaration-syntax.md §6.9 ────────────────────────────────────
 def duration(s, o, iv):
     """A span's exit less its entry; a current one to `now` while the object is open, and none on a finished object."""
-    _state, entered, left, _k = iv
+    entered, left = iv[1], iv[2]
     if left is not None:
         return left - entered
     return s.now - entered if s.open(o) else None
@@ -584,10 +621,10 @@ def group(rows, keep):
 
 
 def row_filter(expr):
-    """The one filter shape the document's reads use: `<item>.<member> == <value>`."""
+    """The one filter shape the document's reads use: `<item>[.<path>].<member> == <value>`."""
     if not expr:
         return lambda dims: True
-    m = re.fullmatch(r'\w+\.(\w+) == (?:\w+\.)?"?(\w+)"?', expr)
+    m = re.fullmatch(r'\w+(?:\.\w+)*\.(\w+) == (?:[A-Z]\w*\.(?=[A-Z_]+\b))?"?([\w-]+)"?', expr)
     member, value = m.group(1), m.group(2)
     return lambda dims: dims.get(member) == value
 
@@ -597,9 +634,57 @@ def rows_of(groups, keep, agg):
             for k, g in groups.items()]
 
 
-def metric(s, name, keep, filt):
+def first_results(s):
+    """The pre-delivery results nothing has corrected and nothing recorded earlier for the same unit and check."""
+    cur = [o for o in s.obs.values() if o.coll == "pdi_results" and o.corrected_by is None]
+    return [r for r in cur if not any(x.subject == r.subject and x.fields["unit"] == r.fields["unit"]
+                                      and x.fields["check"] == r.fields["check"] and x.recorded < r.recorded for x in cur)]
+
+
+def distinct_units(s, results):
+    out = {}
+    for r in results:
+        out.setdefault((s.objects[r.fields["unit"]].attrs["model"], r.occurred.strftime("%Y-%m")), set()).add(r.fields["unit"])
+    return out
+
+
+def rate(num, den):
+    return (Decimal(num) * Decimal("1.000") / Decimal(den)).quantize(Decimal("0.001")) if den else None
+
+
+def metric(s, name, keep, filt, over=None):
     tn, _, std = name.partition(".")
     keepf = row_filter(filt)
+    if name in ("supplier_lead_time", "supplier_lead_time_p80"):
+        rows = []
+        for o in s.objects.values():
+            got, ordered = o.entered_at("INTAKE"), o.entered_at("REQUESTED")
+            if o.type != "Robot" or got is None or ordered is None or (over and got < s.now - over):
+                continue
+            gap = o.id if o.undated or got < o.recorded_from or ordered < o.recorded_from else None
+            rows.append(({"supplier": s.objects[o.attrs["model"]].attrs.get("manufacturer"), "month": got.strftime("%Y-%m")},
+                         got - o.created_at, gap))
+        return rows_of(group(rows, keep), keep, lambda b: nearest_rank(b, 0.5 if name == "supplier_lead_time" else 0.8))
+    if name == "weak_battery_units":
+        rows = [({"model": s.objects[b.subject].attrs["model"], "week": week(b.occurred)}, b.subject, None)
+                for b in s.obs.values() if b.coll == "battery_days" and b.corrected_by is None and b.fields["min_health"] < 80.0]
+        return rows_of(group(rows, keep), keep, lambda b: len(set(b)))
+    if name == "first_pass_yield":
+        assert keep == ["model", "month"], "first_pass_yield is read by the dimensions it names"
+        first = first_results(s)
+        ins = distinct_units(s, first)
+        fail = distinct_units(s, [r for r in first if r.fields["outcome"] == "FAIL"])
+        return [{"model": k[0], "month": k[1], "value": rate(len(ins.get(k, ())) - len(fail.get(k, ())), len(ins.get(k, ()))),
+                 "gaps": set()} for k in set(ins) | set(fail)]
+    if name == "on_time_rate":
+        rows = []
+        for e in s.events:
+            o = s.objects[e["object"]]
+            if e["type"] == "Delivery" and e["to"] == "DELIVERED" and e["from"] != "DELIVERED" and o.attrs.get("promised_date"):
+                dims = {"month": e["occurred"].strftime("%Y-%m"), "customer": o.attrs.get("customer")}
+                if keepf(dims):
+                    rows.append((dims, e["occurred"] <= o.attrs["promised_date"], None))
+        return rows_of(group(rows, keep), keep, lambda b: rate(sum(b), len(b)))
     if std == "time_in_state" or name == "delivery_wait":
         tn = "Delivery" if name == "delivery_wait" else tn
         rows = []
@@ -651,10 +736,22 @@ def metric(s, name, keep, filt):
 
 
 def read(s, spec_):
-    m = re.fullmatch(r'metric\((\w+(?:\.\w+)?), keep: \[([\w, ]*)\](?:, filter: "(.+)")?\)', spec_)
+    reader = re.search(r"\) as ([\w-]+)$", spec_)
+    if reader:
+        # no read is filtered by who is asking (PRD T5): the reader must be one the store holds, and changes nothing
+        s.kind_of(reader.group(1))
+        spec_ = spec_[:reader.start() + 1]
+    m = re.fullmatch(r'metric\((\w+(?:\.\w+)?), keep: \[([\w, ]*)\](?:, filter: "(.+?)")?(?:, over: "(\d+ days)")?\)', spec_)
     if m:
         keep = [k.strip() for k in m.group(2).split(",") if k.strip()]
-        return metric(s, m.group(1), keep, (m.group(3) or "").replace('\\"', '"')), keep + ["value", "gaps"]
+        return (metric(s, m.group(1), keep, (m.group(3) or "").replace('\\"', '"'), span(m.group(4)) if m.group(4) else None),
+                keep + ["value", "gaps"])
+    m = re.fullmatch(r"recorded\((\w+)\.(\w+)\)", spec_)
+    if m:
+        got = sorted((o for o in s.obs.values() if o.subject == m.group(1) and o.coll == m.group(2) and o.corrected_by is None),
+                     key=lambda o: o.occurred)
+        return [{"object": o.id, "occurred_at": o.occurred, "min_health": o.fields["min_health"], "samples": o.fields["samples"]}
+                for o in got], ["object", "occurred_at", "min_health", "samples"]
     if spec_ == "exceptions(Robot)":
         return [{"object": o.id, "state": o.state} for o in s.objects.values()
                 if o.type == "Robot" and o.state_source == "asserted"], ["object", "state"]
@@ -692,6 +789,8 @@ def show(v):
         return " ".join(parts) or "0"
     if isinstance(v, datetime):
         return v.strftime("%Y-%m-%dT%H:%MZ")
+    if isinstance(v, bool):
+        return str(v).lower()
     if isinstance(v, (set, frozenset)):
         return ", ".join(sorted(v)) if v else ""
     return str(v)
@@ -717,7 +816,7 @@ def expected_tables(text):
     return out
 
 
-ORDERED = ("query(", "events(")
+ORDERED = ("query(", "events(", "recorded(")
 
 
 def check(text, journey_text, verbose=True):
@@ -775,6 +874,12 @@ PLANTS = [
      "inputs: { robot: R32 }, occurred_at: 2026-10-05T16:00Z, refused: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable } }",
      "inputs: { robot: R32 }, occurred_at: 2026-10-05T16:00Z }"),
     ("a correction left out, so the gate reads the mistake", "outcome: PASS }, corrects: P2 }", "outcome: PASS } }"),
+    ("a legacy unit given the order date its mapping lacked", "{ object: L05, type: Robot, state: AVAILABLE, entered:",
+     "{ object: L05, type: Robot, state: AVAILABLE, created: 2026-04-06T00:00Z, entered:"),
+    ("a summary past its bound, said to apply",
+     "fields: { min_health: 90.0, mean_health: 93.0, samples: 86400 }, refused: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable } }",
+     "fields: { min_health: 90.0, mean_health: 93.0, samples: 86400 } }"),
+    ("a first result recorded as a pass", "object: P3, fields: { unit: R02, check: K1, outcome: FAIL", "object: P3, fields: { unit: R02, check: K1, outcome: PASS"),
 ]
 
 

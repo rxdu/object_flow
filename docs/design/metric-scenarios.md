@@ -1,8 +1,8 @@
-# Metric scenarios: UC-1 to UC-6
+# Metric scenarios: UC-1 to UC-9
 
-Status: **worked scenarios**, 2026-09-27, written at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". The author then asked for the next three: "write the scenarios for UC-4 to UC-6" (§8 to §12). Each of the PRD's first six use cases is written here as a fixed flow, a fixed history and the values its reads return, so a builder has a test and a reader has something to compute and compare (`TODO.md`, "Write the metric use cases as checked scenarios").
+Status: **worked scenarios**, 2026-09-27, written at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". The author then asked for the next three, "write the scenarios for UC-4 to UC-6" (§8 to §12), and then "write the scenarios for UC-7 to UC-9" (§13 to §17). Each of the PRD's first nine use cases is written here as a fixed flow, a fixed history and the values its reads return, so a builder has a test and a reader has something to compute and compare (`TODO.md`, "Write the metric use cases as checked scenarios").
 
-**Method.** One store and one history, in two parts, with each use case's questions asked of it. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the agent type that writing these scenarios added to it (§1). Every value below is derived by hand from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
+**Method.** One store and one history, in three parts, with each use case's questions asked of it. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the agent type that writing these scenarios added to it (§1). Every value below is derived by hand from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
 - a request whose actor the store does not hold;
 - a transition the type does not declare, that is `only_via` others, or that is taken from a state it does not leave;
 - a refusal on a guard the transition does not declare, with a remedy other than the declared one, or on a clause that is not the first to fail;
@@ -10,9 +10,9 @@ Status: **worked scenarios**, 2026-09-27, written at the author's direction: "wr
 - a recording its subject's kinds do not include, or one its generated guards refuse;
 - a published version the flow checker refuses, checked against the version before it.
 
-The script evaluates guards, effects and invariants from a transcription it holds, and checks each against the module's text before it runs. It is not an engine, and it refuses a history that reaches anything it has not transcribed. Its self-test plants nine mistakes, from a wrong value to a correction left out, and shows each caught.
+The script evaluates guards, effects and invariants from a transcription it holds, and checks each against the module's text before it runs. It is not an engine, and it refuses a history that reaches anything it has not transcribed. Its self-test plants twelve mistakes, from a wrong value to a first result recorded as a pass, and shows each caught.
 
-**What is inferred.** The use cases speak of the first consumer's deliveries, and the reviewed flow is thinner in two places: its delivery has no product configuration and no checklist. §6 lists each inference with what it rests on. Two questions the specification left open were decided to write the values (§7, ADR-0123). UC-4 to UC-6 need inspection and availability datapoints the journey lacks, so the history's second part publishes a version that adds them (§8), and §12 lists what they inferred and found.
+**What is inferred.** The use cases speak of the first consumer's deliveries, and the reviewed flow is thinner in two places: its delivery has no product configuration and no checklist. §6 lists each inference with what it rests on. Two questions the specification left open were decided to write the values (§7, ADR-0123). UC-4 to UC-6 need inspection and availability datapoints the journey lacks, so the history's second part publishes a version that adds them (§8), and §12 lists what they inferred and found. UC-7 to UC-9 add a telemetry summary, three formulas and legacy history, in a third part (§13), and §17 lists theirs.
 
 ## 1. The store
 
@@ -43,8 +43,8 @@ imported:
   - { object: U-BEN, type: User, state: ACTIVE, attributes: { login: ben } }
   - { object: C-ACME, type: Customer, state: ACTIVE, attributes: { legacy_key: "C-1001", name: Acme Robotics } }
   - { object: C-BOREAL, type: Customer, state: ACTIVE, attributes: { legacy_key: "C-1002", name: Boreal Logistics } }
-  - { object: M-ARM, type: RobotModel, state: ACTIVE, attributes: { name: Arm 7, warranty_months: 24 } }
-  - { object: M-ROVER, type: RobotModel, state: ACTIVE, attributes: { name: Rover 2, warranty_months: 24 } }
+  - { object: M-ARM, type: RobotModel, state: ACTIVE, attributes: { name: Arm 7, manufacturer: Armtek, warranty_months: 24 } }
+  - { object: M-ROVER, type: RobotModel, state: ACTIVE, attributes: { name: Rover 2, manufacturer: Roverline, warranty_months: 24 } }
   - { object: R01, type: Robot, state: AVAILABLE, attributes: { model: M-ARM, label_printed_at: 2026-08-03T00:00Z } }
   - { object: R02, type: Robot, state: AVAILABLE, attributes: { model: M-ARM, label_printed_at: 2026-08-03T00:00Z } }
   - { object: R03, type: Robot, state: AVAILABLE, attributes: { model: M-ARM, label_printed_at: 2026-08-03T00:00Z } }
@@ -52,6 +52,12 @@ imported:
   - { object: D01, type: Delivery, state: PREPARATION, created: 2026-08-20T00:00Z, entered: 2026-08-20T00:00Z, entered_by: human, attributes: { customer: C-ACME } }
   - { object: D07, type: Delivery, state: PREPARATION, attributes: { customer: C-BOREAL } }
   - { object: D08, type: Delivery, state: PREPARATION, entered: 2026-08-15T00:00Z, entered_by: human, silent: [2026-08-25T00:00Z, 2026-08-28T00:00Z], attributes: { customer: C-ACME } }
+  - { object: L01, type: Robot, state: AVAILABLE, created: 2025-10-06T00:00Z, entered: 2025-11-20T00:00Z, entered_by: human, legacy: [[REQUESTED, 2025-10-06T00:00Z, 2025-11-17T00:00Z], [INTAKE, 2025-11-17T00:00Z, 2025-11-20T00:00Z]], attributes: { model: M-ARM, label_printed_at: 2025-11-18T00:00Z } }
+  - { object: L02, type: Robot, state: SOLD, created: 2026-01-12T00:00Z, entered: 2026-03-02T00:00Z, entered_by: human, legacy: [[REQUESTED, 2026-01-12T00:00Z, 2026-02-09T00:00Z], [INTAKE, 2026-02-09T00:00Z, 2026-02-11T00:00Z], [AVAILABLE, 2026-02-11T00:00Z, 2026-03-02T00:00Z]], attributes: { model: M-ARM, label_printed_at: 2026-02-10T00:00Z, sold_to: C-BOREAL } }
+  - { object: L03, type: Robot, state: AVAILABLE, created: 2026-03-02T00:00Z, entered: 2026-04-29T00:00Z, entered_by: human, legacy: [[REQUESTED, 2026-03-02T00:00Z, 2026-04-27T00:00Z], [INTAKE, 2026-04-27T00:00Z, 2026-04-29T00:00Z]], attributes: { model: M-ROVER, label_printed_at: 2026-04-28T00:00Z } }
+  - { object: L04, type: Robot, state: AVAILABLE, created: 2026-06-01T00:00Z, entered: 2026-07-08T00:00Z, entered_by: human, legacy: [[REQUESTED, 2026-06-01T00:00Z, 2026-07-06T00:00Z], [INTAKE, 2026-07-06T00:00Z, 2026-07-08T00:00Z]], attributes: { model: M-ROVER, label_printed_at: 2026-07-07T00:00Z } }
+  - { object: L05, type: Robot, state: AVAILABLE, entered: 2026-05-10T00:00Z, entered_by: human, legacy: [[REQUESTED, 2026-04-06T00:00Z, 2026-05-04T00:00Z], [INTAKE, 2026-05-04T00:00Z, 2026-05-10T00:00Z]], attributes: { model: M-ARM, label_printed_at: 2026-05-05T00:00Z } }
+  - { object: L06, type: Robot, state: SOLD, created: 2025-08-04T00:00Z, entered: 2025-10-01T00:00Z, entered_by: human, legacy: [[REQUESTED, 2025-08-04T00:00Z, 2025-09-10T00:00Z], [INTAKE, 2025-09-10T00:00Z, 2025-09-12T00:00Z], [AVAILABLE, 2025-09-12T00:00Z, 2025-10-01T00:00Z]], attributes: { model: M-ROVER, label_printed_at: 2025-09-11T00:00Z, sold_to: C-ACME } }
 
 requests:
   - { at: 2026-09-01T01:00Z, actor: U-ANA, create: Agent, object: A-SCOUT, transition: issue, inputs: { key_id: scout, name: Scout } }
@@ -62,7 +68,7 @@ requests:
   - { at: 2026-09-01T02:00Z, actor: U-ANA, create: Robot, object: R09, transition: add_opening_stock, inputs: { model: M-ARM, label_printed_at: 2026-09-01T02:00Z } }
   - { at: 2026-09-02T00:00Z, actor: U-ANA, object: D01, transition: bind_slot, inputs: { robot: R05 } }
   - { at: 2026-09-04T00:00Z, actor: U-ANA, object: D01, transition: complete_sale }
-  - { at: 2026-09-05T00:00Z, actor: U-ANA, create: RobotModel, object: M-KESTREL, transition: add, inputs: { name: Kestrel K2, warranty_months: 12, label_photo_required: true } }
+  - { at: 2026-09-05T00:00Z, actor: U-ANA, create: RobotModel, object: M-KESTREL, transition: add, inputs: { name: Kestrel K2, manufacturer: Kestrel Dynamics, warranty_months: 12, label_photo_required: true } }
   - { at: 2026-09-07T00:00Z, actor: U-BEN, create: Delivery, object: D02, transition: open, inputs: { customer: C-BOREAL } }
   - { at: 2026-09-07T05:00Z, actor: U-BEN, create: Robot, object: R10, transition: add_to_intake, inputs: { model: M-ROVER } }
   - { at: 2026-09-07T06:00Z, actor: U-BEN, object: D02, transition: peg_slot, inputs: { robot: R10 } }
@@ -589,3 +595,304 @@ Read: `metric(Shipment.refusals, keep: [transition, clause, remedy])`
 1. **The model's inspection gate declares `self_serviceable` on a transition that takes no input** (D446). `declaration-syntax.md` §6.8's `hand_over` requires `all_checked ... because self_serviceable`. Since ADR-0122 decision 30, that class means correcting an input of the transition requested, and a missing result is written by a recording, another request, which is `unreachable_from_here`. The version above declares the corrected class, and the model's example is corrected in place.
 2. **A refused call's attempt counts under the requested transition, with the call's clause** (determined). R33's receipt is counted as `receive_unit` refused by `occurred_within`, the clause of the call to `receive` that failed. The refusal carries the call's verdict, the step and the object (`flow-format.md` §4.8). The standard `refusals` has no dimension for a call, so the two causes of `occurred_within` above count together.
 3. **A result may be recorded on a delivered delivery.** `subject_open` refuses a recording only on a final subject, and `DELIVERED` is closed but not final. A result recorded after a completion changes nothing the completion read, since its read set is fixed on its event. Determined; noted because a lead may expect the checklist to close with the delivery.
+
+## 13. The end of October: a version adds formulas and a telemetry summary
+
+The history continues from `now` of §8. The reads below are taken at the new `now`, `2026-11-02T00:00Z`, a Monday; W44 runs from Monday 26 October. The reads of §3 to §11 hold as written, at their own `now`.
+
+**What the first part ported, and §3 to §11 did not read.** Six robots came from the legacy system at the port with their order and receipt history, L01 to L06. The legacy record has an "ordered" status and a "received" one, and no status for a unit in transit. So each ported robot's history is a stay in `REQUESTED` from its order and a stay in `INTAKE` from its receipt, as legacy intervals (`publish-and-import.md` §4, "Intervals"). L05's mapping gives no order date, so it is undated. The ported models name their manufacturers, Armtek and Roverline.
+
+On 20 October the operations lead publishes version 4 of the journey:
+- **A daily battery summary on each unit**, `battery_days`, which a telemetry service records from the readings the unit reports every second (UC-7).
+- **Supplier lead time**, at the median and the eightieth percentile (UC-8, UC-9).
+- **First-pass yield**, as two distinct counts over the pre-delivery results and one combined metric that divides them (UC-8).
+- **A promised date on each delivery**, taken when it is opened, and **the on-time delivery rate** against it (UC-8).
+- **A count of units with a weak day** (UC-7).
+
+```yaml publish
+at: 2026-10-20T00:00Z
+add:
+  types.Robot.observations.battery_days:
+    kind: BatteryDay
+    description: One day of a unit's battery health, summarised by the telemetry service from the readings the unit reports every second.
+    attributes:
+      min_health: { type: "decimal(4,1)", unit: "%" }
+      mean_health: { type: "decimal(4,1)", unit: "%" }
+      samples: { type: int }
+    max_recording_delay: 2 days
+  types.Robot.metrics.supplier_lead_time:
+    description: The median time from ordering a unit to receiving it, by its model's manufacturer and the month it was received.
+    source: objects
+    item: o
+    filter: o.entered_at(REQUESTED) is not null and o.entered_at(INTAKE) is not null
+    dimensions:
+      supplier: o.model.manufacturer
+      month: month(o.entered_at(INTAKE))
+    time_dimension: o.entered_at(INTAKE)
+    expression: median(o.entered_at(INTAKE) - o.created_at)
+  types.Robot.metrics.supplier_lead_time_p80:
+    description: The time from ordering a unit to receiving it that four in five units beat, by manufacturer and month received.
+    source: objects
+    item: o
+    filter: o.entered_at(REQUESTED) is not null and o.entered_at(INTAKE) is not null
+    dimensions:
+      supplier: o.model.manufacturer
+      month: month(o.entered_at(INTAKE))
+    time_dimension: o.entered_at(INTAKE)
+    expression: percentile(0.8, o.entered_at(INTAKE) - o.created_at)
+  types.Robot.metrics.weak_battery_units:
+    description: The units whose battery fell below 80 % on some day, by model and week.
+    source: battery_days
+    item: b
+    filter: b.min_health < 80.0
+    dimensions:
+      model: b.subject.model
+      week: week(b.occurred_at)
+    expression: count(distinct b.subject)
+  types.Delivery.attributes.promised_date: { type: timestamp, optional: true }
+  types.Delivery.transitions.open.optional_inputs: [internal, promised_date]
+  types.Delivery.metrics.first_results_inspected:
+    description: The units with a first recorded result for some pre-delivery check, by model and month.
+    source: pdi_results
+    item: r
+    filter: >-
+      none(s in r.subject.pdi_results where s.unit == r.unit and s.check == r.check
+                                     and s.recorded_at < r.recorded_at)
+    dimensions:
+      model: r.unit.model
+      month: month(r.occurred_at)
+    expression: count(distinct r.unit)
+  types.Delivery.metrics.first_results_failed:
+    description: The units whose first recorded result for some pre-delivery check failed, by model and month.
+    source: pdi_results
+    item: r
+    filter: >-
+      r.outcome == CheckOutcome.FAIL
+      and none(s in r.subject.pdi_results where s.unit == r.unit and s.check == r.check
+                                         and s.recorded_at < r.recorded_at)
+    dimensions:
+      model: r.unit.model
+      month: month(r.occurred_at)
+    expression: count(distinct r.unit)
+  types.Delivery.metrics.on_time_rate:
+    description: The share of deliveries completed by their promised date, by the month they were completed and the customer.
+    source: transitions
+    item: t
+    filter: t.to_state == Delivery.DELIVERED and t.object.promised_date is not null
+    dimensions:
+      month: month(t.occurred_at)
+      customer: t.object.customer
+    expression: count(where t.occurred_at <= t.object.promised_date) * 1.000 / count()
+  metrics.first_pass_yield:
+    description: The share of inspected units whose every check passed at its first recorded result, by model and month.
+    input_metrics:
+      inspected: Delivery.first_results_inspected
+      failed: Delivery.first_results_failed
+    group_by: [model, month]
+    expression: (inspected - failed) * 1.000 / inspected
+```
+
+**What happens.**
+- **Services:** Ana registers two services: the telemetry summariser, and the reporting service behind the weekly report.
+- **D12 (Acme, promised 1 November):** Ben binds R03 and R06, two Arm 7s. R06 fails its battery check at first and passes after charging. D12 completes on 30 October, on time.
+- **D13 (Boreal, promised 28 October):** R04, a Rover 2, passes its drive and lidar checks at 19:00 and 19:30 UTC on 31 October. D13 completes at 20:00 UTC, 3 days 20 hours late. In Singapore, eight hours ahead, that is already 1 November.
+- **D14:** Scout opens it for Acme, promised 5 November.
+- **Battery summaries:** from 27 October the telemetry service records each day's battery summary for R08 and R09, in the development pool, and for L03. Its summary for a day three days past is refused.
+
+```yaml scenario
+now: 2026-11-02T00:00Z
+
+requests:
+  - { at: 2026-10-20T01:00Z, actor: U-ANA, create: Service, object: S-TELEMETRY, transition: register, inputs: { name: telemetry } }
+  - { at: 2026-10-20T01:00Z, actor: U-ANA, create: Service, object: S-REPORTS, transition: register, inputs: { name: reports } }
+  - { at: 2026-10-26T00:00Z, actor: U-BEN, create: Delivery, object: D12, transition: open, inputs: { customer: C-ACME, promised_date: 2026-11-01T00:00Z } }
+  - { at: 2026-10-26T01:00Z, actor: U-BEN, create: Delivery, object: D13, transition: open, inputs: { customer: C-BOREAL, promised_date: 2026-10-28T00:00Z } }
+  - { at: 2026-10-26T02:00Z, actor: U-BEN, object: D12, transition: bind_slot, inputs: { robot: R03 } }
+  - { at: 2026-10-26T02:01Z, actor: U-BEN, object: D12, transition: bind_slot, inputs: { robot: R06 } }
+  - { at: 2026-10-26T03:00Z, actor: U-BEN, object: D13, transition: bind_slot, inputs: { robot: R04 } }
+  - { at: 2026-10-27T00:00Z, actor: A-SCOUT, create: Delivery, object: D14, transition: open, inputs: { customer: C-ACME, promised_date: 2026-11-05T00:00Z } }
+  - { at: 2026-10-27T01:00Z, actor: S-TELEMETRY, record: battery_days, subject: R08, object: B1, occurred_at: 2026-10-26T00:00Z, fields: { min_health: 91.0, mean_health: 94.2, samples: 86400 } }
+  - { at: 2026-10-27T01:00Z, actor: S-TELEMETRY, record: battery_days, subject: R09, object: B2, occurred_at: 2026-10-26T00:00Z, fields: { min_health: 88.0, mean_health: 92.5, samples: 86400 } }
+  - { at: 2026-10-27T01:00Z, actor: S-TELEMETRY, record: battery_days, subject: L03, object: B3, occurred_at: 2026-10-26T00:00Z, fields: { min_health: 95.0, mean_health: 97.1, samples: 86400 } }
+  - { at: 2026-10-27T01:00Z, actor: S-TELEMETRY, record: battery_days, subject: R09, object: B4, occurred_at: 2026-10-24T00:00Z, fields: { min_health: 90.0, mean_health: 93.0, samples: 86400 }, refused: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable } }
+  - { at: 2026-10-28T01:00Z, actor: S-TELEMETRY, record: battery_days, subject: R08, object: B5, occurred_at: 2026-10-27T00:00Z, fields: { min_health: 78.5, mean_health: 90.3, samples: 86400 } }
+  - { at: 2026-10-28T01:00Z, actor: S-TELEMETRY, record: battery_days, subject: R09, object: B6, occurred_at: 2026-10-27T00:00Z, fields: { min_health: 72.0, mean_health: 85.6, samples: 86400 } }
+  - { at: 2026-10-28T09:00Z, actor: U-BEN, record: pdi_results, subject: D12, object: Q1, fields: { unit: R03, check: K1, outcome: PASS, reading: 49.0 } }
+  - { at: 2026-10-28T09:10Z, actor: U-BEN, record: pdi_results, subject: D12, object: Q2, fields: { unit: R06, check: K1, outcome: FAIL, reading: 29.5 } }
+  - { at: 2026-10-28T15:00Z, actor: U-BEN, record: pdi_results, subject: D12, object: Q3, fields: { unit: R06, check: K1, outcome: PASS, reading: 48.8 } }
+  - { at: 2026-10-29T01:00Z, actor: S-TELEMETRY, record: battery_days, subject: R08, object: B7, occurred_at: 2026-10-28T00:00Z, fields: { min_health: 76.0, mean_health: 88.9, samples: 86400 } }
+  - { at: 2026-10-30T10:00Z, actor: U-BEN, object: D12, transition: complete_sale }
+  - { at: 2026-10-31T19:00Z, actor: U-BEN, record: pdi_results, subject: D13, object: Q4, fields: { unit: R04, check: K3, outcome: PASS } }
+  - { at: 2026-10-31T19:30Z, actor: U-BEN, record: pdi_results, subject: D13, object: Q5, fields: { unit: R04, check: K4, outcome: PASS } }
+  - { at: 2026-10-31T20:00Z, actor: U-BEN, object: D13, transition: complete_sale }
+```
+
+## 14. UC-7: where machine data stops
+
+> A robot reports battery health every second. *Acceptance:* the design says where that data lives and what, if anything, is recorded here — a daily summary per unit, for instance. (PRD §7)
+
+**Where the data lives.** The design says so in two places:
+- ADR-0081 §4: "Machine telemetry at sensor rates stays outside; a service may record summaries of it as observations".
+- `DESIGN.md` §12 lists high-rate machine telemetry as out of scope, and `data-driven-engine.md` §3.7 names "a daily battery-health reading per unit" as what a service records.
+
+The per-second readings stay in the telemetry system, 86,400 a day per unit. What reaches the store is one `BatteryDay` per unit per day, recorded by a service, an actor whose kind the store knows (PRD T6). Each summary carries the number of readings it covers.
+
+Read: `recorded(R08.battery_days)`
+
+| object | occurred_at | min_health | samples |
+|---|---|---|---|
+| B1 | 2026-10-26T00:00Z | 91.0 | 86400 |
+| B5 | 2026-10-27T00:00Z | 78.5 | 86400 |
+| B7 | 2026-10-28T00:00Z | 76.0 | 86400 |
+
+A summary is a datapoint like any other, so a metric reads it, and its recording has the kind's bound:
+
+Read: `metric(weak_battery_units, keep: [model, week])`
+
+| model | week | value | gaps |
+|---|---|---|---|
+| M-ROVER | 2026-W44 | 1 | |
+| M-ARM | 2026-W44 | 1 | |
+
+R08, a Rover 2, fell below 80 % on 27 and 28 October and counts once, as `count(distinct b.subject)` counts units, not days. R09, an Arm 7, fell below on the 27th. L03 stayed above.
+
+Read: `metric(BatteryDay.refusals, keep: [transition, clause, remedy])`
+
+| transition | clause | remedy | value | gaps |
+|---|---|---|---|---|
+| record | occurred_within | self_serviceable | 1 | |
+
+The summary for R09's 24 October arrived 3 days and 1 hour later, past the kind's 2 days, and was refused.
+
+## 15. UC-8: a formula, declared once
+
+> A quality lead defines first-pass yield per robot model per month: the share of inspected configured robots whose every check passed at its first recorded result. A procurement lead defines supplier lead time, ordered to received, at the median and the eightieth percentile. Operations defines the on-time delivery rate against each delivery's promised date. *Acceptance:* each is declared once; a screen, an agent and a report reading it over the same data get identical values, and one an application narrows by a filter gets the value over the rows the filter selects; and each says it is computed in UTC calendar time. (PRD §7)
+
+**First-pass yield** is one declaration read by name, `first_pass_yield`. A metric's value aggregates the rows of one group, and the yield is a share of *units*, so it combines two distinct counts over each unit's first results: the units inspected, and the units with a first result that failed. A first result is one nothing recorded earlier for the same unit and check, and a result a correction replaced is not read at all (`declaration-syntax.md` §6.8). The first results in October:
+- **Arm 7:**
+  - R01 passed both checks at first; P4, the correction, stands in for the mistaken P2.
+  - R02 failed its battery check at first (P3).
+  - R03 passed.
+  - R06 failed its battery check at first (Q2).
+  - Four units, two failed: 0.500.
+- **Rover 2:**
+  - R23's drive test (P7) passed.
+  - R04's drive and lidar checks passed at 19:00 and 19:30 UTC on 31 October, October in UTC although November in Singapore.
+  - Two units, none failed: 1.000.
+
+A screen, an agent and a report read the same declaration over the same rows, and the engine filters no read by who is asking (PRD T5). So the three reads below differ only in their reader, and the script checks each reader is one the store holds:
+
+Read: `metric(first_pass_yield, keep: [model, month]) as U-ANA`
+
+| model | month | value | gaps |
+|---|---|---|---|
+| M-ARM | 2026-10 | 0.500 | |
+| M-ROVER | 2026-10 | 1.000 | |
+
+Read: `metric(first_pass_yield, keep: [model, month]) as A-SCOUT`
+
+| model | month | value | gaps |
+|---|---|---|---|
+| M-ARM | 2026-10 | 0.500 | |
+| M-ROVER | 2026-10 | 1.000 | |
+
+Read: `metric(first_pass_yield, keep: [model, month]) as S-REPORTS`
+
+| model | month | value | gaps |
+|---|---|---|---|
+| M-ARM | 2026-10 | 0.500 | |
+| M-ROVER | 2026-10 | 1.000 | |
+
+**The on-time delivery rate** reads each completion into `DELIVERED` of a delivery with a promised date:
+- D12 completed on 30 October, before its 1 November: on time.
+- D13 completed at 20:00 UTC on 31 October, after its 28 October: late. It is counted in October, the month of its completion in UTC.
+- The deliveries completed before the promised date existed have none, and are not counted.
+
+An application that narrows the read to one customer gets the value over the rows its filter selects.
+
+Read: `metric(on_time_rate, keep: [month])`
+
+| month | value | gaps |
+|---|---|---|
+| 2026-10 | 0.500 | |
+
+Read: `metric(on_time_rate, keep: [month], filter: "t.object.customer == C-ACME")`
+
+| month | value | gaps |
+|---|---|---|
+| 2026-10 | 1.000 | |
+
+**Supplier lead time** is §16's.
+
+**UTC calendar time.** Every time bucket is a UTC calendar bucket, whatever a session's time zone (`declaration-syntax.md` §6.9; PRD C6). Two of the values above depend on it: D13's late completion and R04's first results fall in October in UTC, and would fall in November for a reader in Singapore who bucketed by local time.
+
+## 16. UC-9: a new metric over old data
+
+> Supplier lead time is defined today, and the lead wants the last twelve months. *Acceptance:* the metric covers history recorded before it was defined, as far as the data exists. (PRD §7)
+
+Supplier lead time was declared on 20 October. It reads each unit ordered and received, from its creation, when it was ordered, to its last entry into `INTAKE`, when it was received, by its model's manufacturer. A metric is computed on read over every row its source holds, so it covers every unit received before it was declared:
+- the legacy robots, from their ported intervals;
+- the four Rover 2s of §11.
+
+Units taken in without an order, such as the Kestrel units and the opening stock, never entered `REQUESTED`, and are not counted. The ported units' lead times:
+
+| Unit | Supplier | Ordered | Received | Lead time |
+|---|---|---|---|---|
+| L06 | Roverline | 4 Aug 2025 | 10 Sep 2025 | 37d |
+| L01 | Armtek | 6 Oct 2025 | 17 Nov 2025 | 42d |
+| L02 | Armtek | 12 Jan 2026 | 9 Feb 2026 | 28d |
+| L03 | Roverline | 2 Mar 2026 | 27 Apr 2026 | 56d |
+| L05 | Armtek | undated; its first known time is 6 Apr 2026 | 4 May 2026 | 28d, a gap |
+| L04 | Roverline | 1 Jun 2026 | 6 Jul 2026 | 35d |
+
+**As far as the data exists.** L05's mapping gave no order date, so its creation time is the earliest the port knew of it, and it is undated. Every read over it names L05 in its `gaps` (`declaration-syntax.md` §6.9). Its value is kept, and the reader is told the value may be too short.
+
+Read: `metric(supplier_lead_time, keep: [supplier, month])`
+
+| supplier | month | value | gaps |
+|---|---|---|---|
+| Roverline | 2025-09 | 37d | |
+| Armtek | 2025-11 | 42d | |
+| Armtek | 2026-02 | 28d | |
+| Roverline | 2026-04 | 56d | |
+| Armtek | 2026-05 | 28d | L05 |
+| Roverline | 2026-07 | 35d | |
+| Roverline | 2026-10 | 5d 7h 10m | |
+
+October's Rover 2s took 4d 14h, 5d 7h 10m, 5d 7h 30m and 7d 8h, and the median of four is the lower middle.
+
+**The last twelve months.** A month has no fixed length, so a window is not written in months (`declaration-syntax.md` §8.3). The lead reads the last 365 days by the time each unit was received, the metric's `time_dimension`, which leaves out L06, received in September 2025:
+
+Read: `metric(supplier_lead_time, keep: [supplier], over: "365 days")`
+
+| supplier | value | gaps |
+|---|---|---|
+| Armtek | 28d | L05 |
+| Roverline | 5d 7h 30m | |
+
+Read: `metric(supplier_lead_time_p80, keep: [supplier], over: "365 days")`
+
+| supplier | value | gaps |
+|---|---|---|
+| Armtek | 42d | L05 |
+| Roverline | 35d | |
+
+The values for each supplier:
+- **Armtek:** 28d, 28d and 42d. The median is the second, 28d. The eightieth percentile is the smallest value whose rank is at least 2.4, the third, 42d.
+- **Roverline:** six units, 4d 14h to 56d. The median is the third, 5d 7h 30m. The eightieth percentile is the fifth, 35d. The legacy units' longer waits sit behind this year's short Rover shipments.
+
+## 17. What is inferred, and what UC-7 to UC-9 found
+
+**Inferences**, each resting on a requirement or the reviewed flow:
+1. **A service records the telemetry summary** (UC-7). ADR-0081 §4 and `data-driven-engine.md` §3.7 say a service summarises telemetry and records the summary. The journey declared no actor type for a service, so `operations_shared` now declares `Service` as the format's `people.yaml` does, alongside `Agent` (D448).
+2. **The supplier is the model's manufacturer** (UC-8, UC-9). The journey records no supplier; what it knows of where a unit comes from is its model's `manufacturer`.
+3. **Ordered is created, received is entering `INTAKE`** (UC-8, UC-9). A unit is ordered by `request`, which creates it in `REQUESTED`, and received by `receive`, which puts it in `INTAKE`. The lead time is the time between, from the unit's own record.
+4. **The legacy record had no in-transit status.** The ported robots' histories go from `REQUESTED` to `INTAKE`, as a legacy system with only "ordered" and "received" would give them.
+5. **"The last twelve months" is the last 365 days** (UC-9), since a window is written in fixed units and a month is not one.
+6. **A check not applicable is not a failure** (UC-8). First-pass yield counts a unit as failed only where a first result is `FAIL`, so R01, whose mistaken "not applicable" was corrected, and any unit with a check that does not apply to it, pass.
+7. **A promised date is taken when the delivery is opened** (UC-8), as the order's commitment is (§12). Deliveries opened before version 4 have none and are not counted, as a formula over data that was never recorded cannot count it.
+
+**Findings.**
+1. **No actor type for a service** (D448). As with the agent (D445), the journey's shared module declared none, so the telemetry service could not act. Resolved in place, as `Agent` was.
+2. **A per-unit share takes a combined metric of two distinct counts** (determined). A metric's value aggregates the rows of one group, and first-pass yield is a share of units over rows of results. So it is written as two metrics counting distinct units and a combined metric dividing them, which the format allows. A reader wanting it in one declaration would need `count(distinct … where …)`, which the model does not offer.
+3. **A metric filter may read the subject's other observations.** `first_results_inspected`'s filter reads `r.subject.pdi_results`, each row's delivery's other results, to find a first one. The flow checker accepts it in all four steps. The model's text says a row's own flow data is a collection an aggregate may range over, and does not say whether another observation of the same subject is one (`declaration-syntax.md` §6.9). `TODO.md` holds the question.
