@@ -1233,7 +1233,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         expression: sum(i.duration)
 
   Lease:
-    description: The commercial agreement above one engagement, which ends once the engagement closes or converts into a sale.
+    description: The commercial agreement above one engagement, ended by its own request once the engagement has closed, or converted into a sale.
     tracking: record
 
     attributes:
