@@ -83,3 +83,7 @@ Fresh readers found every fifth-round finding resolved but one, and that one was
 
 Two of the inventory reader's remedy findings, `filled` and `Lease.out`, are classes that hold in the usual case and not at every edge. Each review had found a new such edge, and a builder carries the declared class as written, so ADR-0122 now says so and leaves the edges to the author (decision 34). Checking where the old invariant remedy was still written found the library API several decisions behind (D433). ADR-0122, amended with decisions 31 to 35, and corrections in place resolve each; a seventh review checks them (§10).
 
+## 10. The seventh review
+
+Fresh readers found every sixth-round finding resolved. The Jira reader found all twenty flows fully determined for the third round running, with no finding on an outcome or a verdict. The inventory reader found no finding on an outcome, 84 of 85 transitions fully determined and the last determined but for one refusal's remedy. Both readers reached the same rule from two sides: the remedy decision 33 gave an invariant refusal. Its order told a duplicate that another object must change, and it read an input a request left out two ways (D434). Two Jira names and descriptions misled (D435). ADR-0122, amended with decision 36, and corrections in place resolve each; an eighth review checks them (§11).
+

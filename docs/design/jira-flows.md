@@ -612,7 +612,7 @@ types:
         kind: external
         from: ACTIVE
         to: CLOSED
-        description: Completes the sprint, moving each unfinished parent work item to the backlog.
+        description: Completes the sprint, moving each unfinished work item that is not a subtask to the backlog.
         guards:
           subtasks_done: deny
         effect:
@@ -628,7 +628,7 @@ types:
         kind: external
         from: ACTIVE
         to: CLOSED
-        description: Completes the sprint, moving each unfinished parent work item to a future sprint.
+        description: Completes the sprint, moving each unfinished work item that is not a subtask to a future sprint.
         inputs:
           next_sprint: { reference: Sprint }
         guards:
@@ -691,7 +691,7 @@ types:
       archive:     { kind: external, from: any, to: ARCHIVED }
 ```
 
-Completing moves each unfinished parent to the backlog, and completing into a future sprint moves them there: two transitions, since the behaviour differs by whether a next sprint is given and no step is conditional (`DESIGN.md` §5.4). The module declares the work items the sprint moves; only the sprint is drawn. *(Corrected 2026-09-27: this section first wrote completing as one transition whose two loops chose by whether the input was given, and cited `case-study-payments.md` §5 for the idiom, which says the opposite: a conditional step is what the model forbids. The recoverability review found it (D409), and step 3 now refuses it (ADR-0122).)*
+Completing moves each unfinished work item that is not a subtask to the backlog, and completing into a future sprint moves them there: two transitions, since the behaviour differs by whether a next sprint is given and no step is conditional (`DESIGN.md` §5.4). The module declares the work items the sprint moves; only the sprint is drawn. *(Corrected 2026-09-27: this section first wrote completing as one transition whose two loops chose by whether the input was given, and cited `case-study-payments.md` §5 for the idiom, which says the opposite: a conditional step is what the model forbids. The recoverability review found it (D409), and step 3 now refuses it (ADR-0122).)*
 
 ### 1.7 Versions
 
@@ -714,8 +714,8 @@ stateDiagram-v2
     RELEASED --> UNRELEASED: unrelease
     UNRELEASED --> ARCHIVED: archive
     RELEASED --> ARCHIVED: archive
-    ARCHIVED --> RELEASED: unarchive_released [was_released]
-    ARCHIVED --> UNRELEASED: unarchive_unreleased [never_released]
+    ARCHIVED --> RELEASED: unarchive_released [archived_released]
+    ARCHIVED --> UNRELEASED: unarchive_unreleased [archived_unreleased]
     any_status --> DELETED: delete
     any_status --> DELETED: delete_moving [live_target]
     DELETED --> [*]
@@ -751,11 +751,11 @@ types:
       DELETED:    { category: closed, final: true }
 
     conditions:
-      was_released:
+      archived_released:
         description: The version was archived from Released, which keeps the release date that unreleasing clears.
         expression: release_date is not null
         remedy: unreachable_from_here
-      never_released:
+      archived_unreleased:
         description: The version was archived from Unreleased, so it holds no release date.
         expression: release_date is null
         remedy: unreachable_from_here
@@ -815,14 +815,14 @@ types:
         to: RELEASED
         description: Unarchives a version archived from Released, back to Released.
         guards:
-          was_released: deny
+          archived_released: deny
       unarchive_unreleased:
         kind: external
         from: ARCHIVED
         to: UNRELEASED
         description: Unarchives a version archived from Unreleased, back to Unreleased.
         guards:
-          never_released: deny
+          archived_unreleased: deny
       delete:
         kind: external
         from: any

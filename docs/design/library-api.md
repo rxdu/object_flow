@@ -218,10 +218,10 @@ class InvalidInput:
 class InvariantFailure:
     object_id: str
     invariant: str
-    remedy: Remedy                        # inferred as a guard's is: DEPENDENT where it reads
-                                          # another object; else SELF_SERVICEABLE where the
-                                          # request writes from an input a value it reads;
-                                          # else UNREACHABLE_FROM_HERE (ADR-0122)
+    remedy: Remedy                        # SELF_SERVICEABLE where the transition takes an input
+                                          # it writes to a value the invariant reads; else
+                                          # DEPENDENT where it reads another object; else
+                                          # UNREACHABLE_FROM_HERE (DESIGN.md §5.5, ADR-0122)
 
 
 @dataclass(frozen=True)

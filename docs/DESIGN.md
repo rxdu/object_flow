@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 433 entries and five cosmetics; 433 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 435 entries and five cosmetics; 435 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -241,7 +241,7 @@ Evaluating a request yields one **verdict**, and every refusal names a remedy cl
 | `unavailable` | The object is not in a state the transition may be taken in; names the state it is in (ADR-0122) | `unreachable_from_here` |
 | `unknown transition` | The type declares no transition of that name the request can take: an initial one for a creation, any other for an object (ADR-0122) | `self_serviceable` |
 | `invalid input` | An input the transition does not take, one not of its declared type, a reference naming no object or one of another type, a set repeating an element, or a required input left out or null, except a required input of an optional or defaulted attribute, which its generated guard refuses; names every input at fault, by name (ADR-0122) | `self_serviceable` |
-| invariant violated | Names each object on which an invariant fails, in ascending id order, every invariant that fails on it, in the order its type declares them, and the conflicting objects (ADR-0122) | each failing invariant's, inferred as a guard's is (`declaration-syntax.md` §5.1): `dependent` where it reads another object, through a relationship or a type scan; else `self_serviceable` where the transition requested writes, from one of its inputs, a value it reads, an assertion's `to` writing the state; else `unreachable_from_here`. The refusal's is the first named invariant's (ADR-0122) |
+| invariant violated | Names each object on which an invariant fails, in ascending id order, every invariant that fails on it, in the order its type declares them, and the conflicting objects (ADR-0122) | each failing invariant's, a property of the transition requested and fixed when the flow is published, not of what one request supplied: `self_serviceable` where the transition takes an input, supplied or not, that it writes to a value the invariant reads, on the object the invariant fails on or on one it reads through, an attribute input writing its attribute and an assertion's `to` the state; else `dependent` where the invariant reads another object, through a relationship or a type scan; else `unreachable_from_here`. The refusal's is the first named invariant's (ADR-0122) |
 
 The **remedy class** tells a caller what to do next:
 
