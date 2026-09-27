@@ -943,7 +943,7 @@
                   }
                 }
               ],
-              "description": "Runs steps for each element of array, or for each number from 1 to range, at most limit times (SCXML <foreach>)."
+              "description": "Runs steps for each element of array that satisfies where, or for each number from 1 to range, over a snapshot taken when the loop starts; a request that would run more than limit times is refused with over-limit, never truncated (SCXML <foreach>; ADR-0122)."
             }
           }
         },
