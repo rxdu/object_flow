@@ -6,7 +6,7 @@ Findings from every review of this design. It began as the implementation-readin
 
 **Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
 
-**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 15 are open — D395 to D409, found on 2026-09-27 reviewing whether a builder can recover the robot inventory and the Jira flows from the specification and the YAML (`flow-recoverability-review.md`), await the author; D383, found extending the walkthrough's inventory item on 2026-09-25, was resolved in place the same day at the author's direction; an operations review of the worked example on 2026-09-24 found D289, corrected in place; an audit of the first consumer's production code the same day found D275 to D281, of which D280 and D281 were corrected in place, reviewing the design against the PRD with the unit's journey found D282 and D283, and verifying ADR-0103's first draft found D284 to D288; ADR-0103 resolved D275 to D279, D282 and D284 to D288, and D283 was corrected in place; the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 0 are open — D395 to D409, found on 2026-09-27 reviewing whether a builder can recover the robot inventory and the Jira flows from the specification and the YAML (`flow-recoverability-review.md`), were resolved the same day by ADR-0122 and in place; D383, found extending the walkthrough's inventory item on 2026-09-25, was resolved in place the same day at the author's direction; an operations review of the worked example on 2026-09-24 found D289, corrected in place; an audit of the first consumer's production code the same day found D275 to D281, of which D280 and D281 were corrected in place, reviewing the design against the PRD with the unit's journey found D282 and D283, and verifying ADR-0103's first draft found D284 to D288; ADR-0103 resolved D275 to D279, D282 and D284 to D288, and D283 was corrected in place; the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
@@ -406,21 +406,21 @@ Findings from every review of this design. It began as the implementation-readin
 | [D392](#d392) | The tickets study's fix-version validator read the resolution its own transition writes | Resolved in place |
 | [D393](#d393) | The approvals study's edit claimed to skip writes of required attributes | Resolved in place |
 | [D394](#d394) | A value cut at a comma was reported as an unexpected key | Resolved in place |
-| [D395](#d395) | A loop's limit does not say what it counts | Open |
-| [D396](#d396) | A loop's collection has no stated moment of evaluation | Open |
-| [D397](#d397) | A transition from any status taken in its own target is not said to re-enter it | Open |
-| [D398](#d398) | The format contradicts the model on a defaulted attribute a creation takes | Open |
-| [D399](#d399) | A pair of single ends is not said to be one-to-one | Open |
-| [D400](#d400) | A combined metric does not say what becomes of the input dimensions it does not group by | Open |
-| [D401](#d401) | A dimension's absent value has no stated group | Open |
-| [D402](#d402) | A sequence's start, step and gaps are not stated | Open |
-| [D403](#d403) | Several refusals have no verdict | Open |
-| [D404](#d404) | An explicit null for an optional input has no stated meaning | Open |
-| [D405](#d405) | The checker lets a loop's where make a step conditional | Open |
-| [D406](#d406) | The checker lets a set reference with no opposite through | Open |
-| [D407](#d407) | The diagram notation promises guards it does not draw | Open |
-| [D408](#d408) | The robot inventory example leaves objects stuck | Open |
-| [D409](#d409) | The Jira catalogue's flows have defects | Open |
+| [D395](#d395) | A loop's limit does not say what it counts | Resolved by ADR-0122 |
+| [D396](#d396) | A loop's collection has no stated moment of evaluation | Resolved by ADR-0122 |
+| [D397](#d397) | A transition from any status taken in its own target is not said to re-enter it | Resolved by ADR-0122 |
+| [D398](#d398) | The format contradicts the model on a defaulted attribute a creation takes | Resolved by ADR-0122 |
+| [D399](#d399) | A pair of single ends is not said to be one-to-one | Resolved by ADR-0122 |
+| [D400](#d400) | A combined metric does not say what becomes of the input dimensions it does not group by | Resolved by ADR-0122 |
+| [D401](#d401) | A dimension's absent value has no stated group | Resolved by ADR-0122 |
+| [D402](#d402) | A sequence's start, step and gaps are not stated | Resolved by ADR-0122 |
+| [D403](#d403) | Several refusals have no verdict | Resolved by ADR-0122 |
+| [D404](#d404) | An explicit null for an optional input has no stated meaning | Resolved by ADR-0122 |
+| [D405](#d405) | The checker lets a loop's where make a step conditional | Resolved by ADR-0122 |
+| [D406](#d406) | The checker lets a set reference with no opposite through | Resolved by ADR-0122 |
+| [D407](#d407) | The diagram notation promises guards it does not draw | Resolved in place |
+| [D408](#d408) | The robot inventory example leaves objects stuck | Resolved in place |
+| [D409](#d409) | The Jira catalogue's flows have defects | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -2647,79 +2647,79 @@ ADR-0116 moves the design's examples to the flow description format, `unit-journ
 
 ## Found reviewing whether a builder can recover the flows, 2026-09-27
 
-The author asked whether a flow builder, given the specification and the YAML, could recover the robot inventory and the Jira flows without ambiguity. Two readers with no context reconstructed them from the specification alone, and every finding was checked against the text it cites; [`flow-recoverability-review.md`](flow-recoverability-review.md) records the method, the readings and a recommendation for each. All are open.
+The author asked whether a flow builder, given the specification and the YAML, could recover the robot inventory and the Jira flows without ambiguity. Two readers with no context reconstructed them from the specification alone, and every finding was checked against the text it cites; [`flow-recoverability-review.md`](flow-recoverability-review.md) records the method, the readings and a recommendation for each. The author accepted every recommendation the same day, and ADR-0122 records the decisions.
 
 ### D395
 **A loop's limit does not say what it counts.** `flow-format.md` §4.8 and §4.3 say a `limit` "bounds that loop" and "the parts reached in one request", and neither says whether it counts the whole collection or the elements `where` selects, nor whether a part passed over counts; the schema says "at most limit times" where the prose refuses. Under one reading the inventory's `retire` and `swap_unit` are refused on any unit that has ever been on two engagements. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §1)
 
-**Open.**
+**Resolved by ADR-0122**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): a `foreach`'s limit counts the elements its `where` selects, a cascade's the parts it drives, and exceeding either refuses; the schema's wording is corrected.
 
 ### D396
 **A loop's collection has no stated moment of evaluation.** Nothing says whether a `foreach`'s collection and `where` are read once when the loop starts or as it advances, and the inventory's `Delivery.cancel` and `ServiceJob.void` remove each element from the collection they loop over. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §1)
 
-**Open.**
+**Resolved by ADR-0122**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): a loop's collection and `where` are read once, when it starts.
 
 ### D397
 **A transition from any status taken in its own target is not said to re-enter it.** `from: any` includes the target state (`flow-format.md` §4.8), an external transition is UML's, which exits and re-enters, and `DESIGN.md` §6 updates intervals only for a changed state; whether `entered_at` and the intervals restart decides every time-in-status figure of the free-moving Jira workflows. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §1)
 
-**Open.**
+**Resolved by ADR-0122**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): `from: any` is every other state that is not final, so no transition leaves a state for itself; the format's "target state included" is corrected with a note.
 
 ### D398
 **The format contradicts the model on a defaulted attribute a creation takes.** `flow-format.md` §4.17 says a creation takes a defaulted attribute "as the attribute's optionality says", so it must be supplied; `declaration-syntax.md` §5.1, the meaning of the form it converts to, says "An accepted attribute not supplied to a `create` takes its default". The format's sentence is this record's own. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §1)
 
-**Open.**
+**Resolved by ADR-0122**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): a defaulted attribute may be an optional input, taking its default when a creation leaves it out, as the model says; the format's §4.17 is corrected with a note, and the examples' defaulted inputs are optional.
 
 ### D399
 **A pair of single ends is not said to be one-to-one.** Nothing says whether two objects may store the same value in a single end whose opposite is single, as two leases on one engagement would. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §1)
 
-**Open.**
+**Resolved by ADR-0122**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): a pair of single ends is one-to-one.
 
 ### D400
 **A combined metric does not say what becomes of the input dimensions it does not group by.** `flow-format.md` §4.9 joins inputs "by their dimensions" and lets `group_by` name some of them, and says nothing of the rest, nor of `version` and `actor_kind`; `pool_utilisation`'s value depends on it. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §1)
 
-**Open.**
+**Resolved by ADR-0122**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): a combined metric aggregates each input to the dimensions it names.
 
 ### D401
 **A dimension's absent value has no stated group.** `declaration-syntax.md` §6.9 leaves out a row whose aggregated body is absent and says nothing of an absent dimension, which decides whether a unit an assertion retired is counted in `Robot.retirements`. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §1)
 
-**Open.**
+**Resolved by ADR-0122**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): an absent dimension value is a group of its own.
 
 ### D402
 **A sequence's start, step and gaps are not stated.** `flow-format.md` §4.12 names SQL's `CREATE SEQUENCE` and fixes neither the first number nor the step; the glossary's "not gapless" is not in the format. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §1)
 
-**Open.**
+**Resolved by ADR-0122**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): a sequence starts at 1 and rises by 1, not gapless.
 
 ### D403
 **Several refusals have no verdict.** `DESIGN.md` §5.5 names no verdict for a request or call from a state its transition does not leave, a reference input naming no object or one of another type, or a set input with a repeated element. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §1)
 
-**Open.**
+**Resolved by ADR-0122**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): `unavailable` and `invalid input` are verdicts, and a refused call or creation refuses its request with its verdict.
 
 ### D404
 **An explicit null for an optional input has no stated meaning.** "each is written if supplied" (`flow-format.md` §4.8) does not say whether a null is supplied. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §1)
 
-**Open.**
+**Resolved by ADR-0122**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): a null input is not supplied.
 
 ### D405
 **The checker lets a loop's where make a step conditional.** A `foreach` whose `where` tests an input chooses between behaviours, which `DESIGN.md` §5.4 forbids and the model's check 48 refuses for an unsupplied optional input inside a step's expression; the Jira catalogue's sprints and versions pass all four steps with it. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §2)
 
-**Open.**
+**Resolved by ADR-0122**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): step 3 refuses an optional input read inside a larger expression of a step, proven by a plant.
 
 ### D406
 **The checker lets a set reference with no opposite through.** `flow-format.md` §4.3 says an end with no `opposite` "MUST be single", and the model's check 41 rejects a set-valued `ref` with no `inverse`; a probe on copies of `delivery.yaml` and `service.yaml` passes all four steps. A machine's required set end, whose opposite is on the binder, is an exception the text does not state. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §2)
 
-**Open.**
+**Resolved by ADR-0122**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): step 3 refuses a set of references with no opposite, a machine's requirements excepted, proven by a plant.
 
 ### D407
 **The diagram notation promises guards it does not draw.** `jira-flows.md` says an edge shows "the guards that refuse it", and `scripts/flow-diagram.py` draws neither the generated `<attribute>_provided` guards nor an erasure, and the notation does not say which of a module's types are drawn. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §2)
 
-**Open.**
+**Resolved in place**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): the notation says the diagram draws the guards a transition declares, and names what it does not draw: generated guards, erasures and supporting types.
 
 ### D408
 **The robot inventory example leaves objects stuck.** Six defects, each determined by the specification: a unit discarded while pegged freezes its delivery; a returned part cannot be voided or bound; revoking an internal delivery undoes a lease's sale, and a unit on loan can be recalled to stock; an engagement whose unit was retired while scheduled cannot be dispatched; a deleted unit blocks `revert_commit`; `swap_unit` with a unit not out adds one. The flow review's appendix carries the same module. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §3)
 
-**Open.**
+**Resolved in place**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): every defect is corrected in `unit-journey.md` and in the flow review's appendix, with a note in the journey.
 
 ### D409
 **The Jira catalogue's flows have defects.** Eight: the sprints' and versions' choice by a loop's `where` (D405), whose note cites the payments study for an idiom that study forbids; a version's delete and release refused for ever by an archived work item; `approvers` as a set reference with no opposite (D406); an archive cascade bounded at 100 subtasks with nothing bounding how many are added; a `self_serviceable` guard on a transition with no input; a Done resolution kept after leaving Done; no guard on a sprint or version target; and a description promising a rule nothing enforces. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §3)
 
-**Open.**
+**Resolved in place**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): every defect is corrected in the catalogue's modules, the sprint's wrong citation retracted with a note.

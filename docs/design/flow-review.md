@@ -213,7 +213,7 @@ The promised date, the service clock, the checklist revision, the fulfilment sta
 
 ## Appendix: the module with the declared proposals applied
 
-A variant of [`unit-journey.md`](unit-journey.md) §2, to be deleted from here once the author has decided and the module is amended. It is written in the flow description format, in the journey's order, and `scripts/check-flow-docs.py` checks it with all four steps of the flow checker (ADR-0121).
+A variant of [`unit-journey.md`](unit-journey.md) §2, to be deleted from here once the author has decided and the module is amended. It is written in the flow description format, in the journey's order, and `scripts/check-flow-docs.py` checks it with all four steps of the flow checker (ADR-0121). It carries the journey's corrections of 2026-09-27 (D408, `unit-journey.md` §2).
 
 ```yaml
 module: inventory_journey
@@ -355,6 +355,7 @@ machines:
         to: CANCELLED
         effect:
           - assign: { location: cancellation_reason, expr: CancellationReason.DISCARDED }
+          - clear: [peg]
       cancel:
         kind: external
         from: [REQUESTED, PROCUREMENT, INTAKE]
@@ -375,7 +376,8 @@ machines:
           - assign: { location: peg, expr: inputs.slot }
       unpeg:
         kind: internal
-        from: [REQUESTED, PROCUREMENT, MISSING, INTAKE]
+        from: any
+        description: Releases the unit's peg, in whatever state it is, so that its delivery can be cancelled.
         only_via: [Delivery.cancel]
         effect:
           - clear: [peg]
@@ -484,6 +486,8 @@ machines:
         from: DEVELOPMENT
         to: AVAILABLE
         only_via: [Delivery.revoke]
+        guards:
+          home: deny
         effect:
           - clear: [binding]
       accept_return:
@@ -491,7 +495,7 @@ machines:
         from: SOLD
         to: RETURNED
         effect:
-          - clear: [binding, sold_to]
+          - clear: [binding, used_in, sold_to]
 
       release_to_stock:
         kind: external
@@ -510,6 +514,7 @@ machines:
           buyer: { reference: Customer }
         effect:
           - assign: { location: sold_to, expr: inputs.buyer }
+          - clear: [binding]
       transfer_to_pool:
         kind: external
         from: AVAILABLE
@@ -533,6 +538,8 @@ machines:
         kind: external
         from: [AVAILABLE, CANCELLED]
         to: DELETED
+        effect:
+          - clear: [peg]
 
       correct_state:
         kind: assertion
@@ -751,13 +758,13 @@ types:
       add:
         kind: initial
         to: ACTIVE
-        required_inputs: [name, warranty_months, label_photo_required, manufacturer_serial_required]
-        optional_inputs: [manufacturer, maker_code]
+        required_inputs: [name, warranty_months]
+        optional_inputs: [manufacturer, maker_code, label_photo_required, manufacturer_serial_required]
       edit:
         kind: internal
         from: ACTIVE
-        required_inputs: [warranty_months, label_photo_required, manufacturer_serial_required]
-        optional_inputs: [manufacturer, maker_code]
+        required_inputs: [warranty_months]
+        optional_inputs: [manufacturer, maker_code, label_photo_required, manufacturer_serial_required]
       set_reorder_point:
         kind: internal
         from: ACTIVE
@@ -815,10 +822,11 @@ types:
         expression: none(u in units where u.state == Robot.PROCUREMENT)
         remedy: self_serviceable
       pristine:
-        description: Every unit the commit put on offer is still on offer, so the commit can be undone.
+        description: Every unit of the shipment that is not missing, cancelled or deleted is still on offer, so the commit can be undone.
         expression: >-
           all(u in units where u.state != Robot.MISSING
-                           and u.state != Robot.CANCELLED:
+                           and u.state != Robot.CANCELLED
+                           and u.state != Robot.DELETED:
               u.state == Robot.AVAILABLE)
         remedy: dependent
 
@@ -998,7 +1006,8 @@ types:
       open:
         kind: initial
         to: PREPARATION
-        required_inputs: [customer, internal]
+        required_inputs: [customer]
+        optional_inputs: [internal]
       peg_slot:
         kind: internal
         from: PREPARATION
@@ -1272,13 +1281,17 @@ types:
         description: The unit swapped in is fit and on no open engagement.
         expression: inputs.in_robot.leasable
         remedy: dependent
+      swapping_out:
+        description: The unit swapped out is out on this engagement.
+        expression: any(l in lines where l.robot == inputs.out_robot and l.open)
+        remedy: self_serviceable
       nonempty:
-        description: The engagement has at least one unit.
-        expression: count(l in lines) >= 1
+        description: The engagement has at least one unit on it.
+        expression: count(l in lines where l.open) >= 1
         remedy: self_serviceable
       fit:
         description: Every unit on the engagement is fit to go out.
-        expression: "all(l in lines: l.robot.fit)"
+        expression: "all(l in lines where l.open: l.robot.fit)"
         remedy: dependent
       checked:
         description: Every unit coming back has a return check recorded since the return began.
@@ -1322,6 +1335,7 @@ types:
           out_robot: { reference: Robot }
           in_robot:  { reference: Robot }
         guards:
+          swapping_out: deny
           incoming_leasable: deny
         effect:
           - foreach:

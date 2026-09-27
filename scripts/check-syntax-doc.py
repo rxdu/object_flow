@@ -1140,8 +1140,8 @@ def creation_report(decls):
             frm, to, via = ends(kind, head)
             if to is None:
                 continue
-            if frm == ["any"]:
-                frm = [s for s in states if s not in terminal]
+            if frm == ["any"]:                 # every other state that is not terminal (ADR-0122)
+                frm = [s for s in states if s not in terminal and s != to]
             edges.append((name, frm, to, via, body))
         invs, anc = set(d.invariants), by_name.get(d.base) if d.base else None
         while anc is not None:

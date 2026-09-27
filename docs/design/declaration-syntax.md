@@ -416,7 +416,7 @@ Both ends of a relationship are declared, each in its own type, so a type reads 
 |---|---|
 | `part` / `owner` | the `owner`. The child holds the parent, which is what makes re-parenting one write |
 | `ref` with one singular end (`T` or `T?`) and one set end (`T[]`) | the singular end |
-| `ref` with two singular ends | ambiguous; exactly one must be marked `stored` (check 41) |
+| `ref` with two singular ends | ambiguous; exactly one must be marked `stored` (check 41). The pair is one-to-one: no two objects hold the same value in the stored end (ADR-0122) |
 | `ref` with two set ends | neither end can hold it. Declare a type for the association carrying a `ref` to each side; publishing rejects the pair (check 41) |
 | `ref` with **no `inverse`**, so only one end is declared | that end, which must be singular. A set-valued `ref` with no `inverse` has nowhere to live and is rejected (check 41) |
 
@@ -570,6 +570,8 @@ A required **part** whose element type differs per binder is declared against an
 | `assert` | `any` | an input drawn from a declared set (§6.3) |
 | `erase` | any state, terminal included | the same state |
 
+`any` in a `do` is every non-terminal state other than its target, so no `do` leaves a state for itself and none re-enters one; in an `act` it is every non-terminal state (ADR-0122).
+
 Markings follow the states and precede the body:
 
 ```text
@@ -667,7 +669,7 @@ Without it a bug that is reopened keeps the resolution it was closed with, which
 
 **Absence skips a step, and only in two places.** A step or argument whose expression is *exactly* an unsupplied optional input is skipped, and a `call` whose path runs through an absent optional relationship end is skipped. The second is what makes an erasure's `call card.forget(…)` correct when the card is optional and absent; everywhere else absence in a path is an error, since it would otherwise hide a missing write (check 48). Neither is the state-based skip of §3.2, which belongs to a cascade: a `call` on an object that exists and cannot take the transition fails rather than being passed over. Any larger expression containing one is a publish error (check 48), so `set amount := inputs.amount` and `set amount := inputs.amount + 0` cannot be confused. A skipped write does not stamp the attribute's last-written index, so a no-op edit does not invalidate an approval.
 
-`limit` is mandatory on every loop and on every cascade clause (checks 21 and 47), and bounds **that loop**. Publishing reports each loop's own bound and the observed maximum fan-out over the live objects (ADR-0071). It does not report a product across nested loops: multiplying bounds an author invented produces a precise number that means nothing. A request exceeding a loop's bound is refused with `over-limit` naming that loop.
+`limit` is mandatory on every loop and on every cascade clause (checks 21 and 47), and bounds **that loop**. Publishing reports each loop's own bound and the observed maximum fan-out over the live objects (ADR-0071). It does not report a product across nested loops: multiplying bounds an author invented produces a precise number that means nothing. A request exceeding a loop's bound is refused with `over-limit` naming that loop. The limit counts what the loop acts on: the elements that satisfy its `where`, or the parts a cascade drives, those passed over in a terminal state not counted. A loop's collection and `where` are evaluated once, when it starts, and it runs over that snapshot even where its steps change the collection. An optional input given as null is not supplied (ADR-0122).
 
 ## 6. The remaining constructs
 
@@ -911,7 +913,7 @@ metric <name> version <n> {
 }
 ```
 
-A **metric** is a declared formula across many objects, grouped and windowed as it declares; a formula over one object is a derived attribute (ADR-0084, PRD C1, PRD §5). It has either a `from` or a `combine`, and a `value`; `by`, `window on` and each `flag` are optional.
+A **metric** is a declared formula across many objects, grouped and windowed as it declares; a formula over one object is a derived attribute (ADR-0084, PRD C1, PRD §5). It has either a `from` or a `combine`, and a `value`; `by`, `window on` and each `flag` are optional. A `combine` aggregates each input over every dimension its `by` does not name before combining them, and keeps `version` and `actor_kind` only when named; a row whose dimension has no value is counted under the absent value, never dropped (ADR-0122).
 
 ```text
 metric time_working version 1 {

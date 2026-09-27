@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — recommendation accepted by the author 2026-09-08
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0122 — a limit counts what its loop acts on, the elements its `where` selects or the parts a cascade drives, and a loop's collection is read once when it starts.
 - **Refines:** ADR-0041, ADR-0047
 - **Answers:** open question 4
 

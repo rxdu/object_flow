@@ -123,3 +123,4 @@
 | [0119](0119-assertions-and-erasures-are-transition-kinds-of-their-own.md) | Assertions and erasures are transition kinds of their own | Accepted by the author |
 | [0120](0120-a-migration-is-written-with-the-version-it-publishes.md) | A migration is written with the version it publishes | Accepted by the author |
 | [0121](0121-the-designs-yaml-is-checked-where-it-stands.md) | The design's YAML is checked where it stands | Accepted by the author |
+| [0122](0122-a-flow-is-recoverable-from-its-description.md) | A flow is recoverable from its description | Accepted by the author |

@@ -182,6 +182,7 @@ machines:
         to: CANCELLED
         effect:
           - assign: { location: cancellation_reason, expr: CancellationReason.DISCARDED }
+          - clear: [peg]
       cancel:
         kind: external
         from: [REQUESTED, PROCUREMENT, INTAKE]
@@ -202,7 +203,8 @@ machines:
           - assign: { location: peg, expr: inputs.slot }
       unpeg:
         kind: internal
-        from: [REQUESTED, PROCUREMENT, MISSING, INTAKE]
+        from: any
+        description: Releases the unit's peg, in whatever state it is, so that its delivery can be cancelled.
         only_via: [Delivery.cancel]
         effect:
           - clear: [peg]
@@ -309,6 +311,8 @@ machines:
         from: DEVELOPMENT
         to: AVAILABLE
         only_via: [Delivery.revoke]
+        guards:
+          home: deny
         effect:
           - clear: [binding]
       accept_return:
@@ -316,7 +320,7 @@ machines:
         from: SOLD
         to: AVAILABLE
         effect:
-          - clear: [binding, sold_to]
+          - clear: [binding, used_in, sold_to]
 
       release_to_stock:
         kind: external
@@ -335,6 +339,7 @@ machines:
           buyer: { reference: Customer }
         effect:
           - assign: { location: sold_to, expr: inputs.buyer }
+          - clear: [binding]
       retire:
         kind: external
         from: DEVELOPMENT
@@ -354,6 +359,8 @@ machines:
         kind: external
         from: [AVAILABLE, CANCELLED]
         to: DELETED
+        effect:
+          - clear: [peg]
 
       correct_state:
         kind: assertion
@@ -527,13 +534,13 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
       add:
         kind: initial
         to: ACTIVE
-        required_inputs: [name, warranty_months, label_photo_required, manufacturer_serial_required]
-        optional_inputs: [manufacturer, maker_code]
+        required_inputs: [name, warranty_months]
+        optional_inputs: [manufacturer, maker_code, label_photo_required, manufacturer_serial_required]
       edit:
         kind: internal
         from: ACTIVE
-        required_inputs: [warranty_months, label_photo_required, manufacturer_serial_required]
-        optional_inputs: [manufacturer, maker_code]
+        required_inputs: [warranty_months]
+        optional_inputs: [manufacturer, maker_code, label_photo_required, manufacturer_serial_required]
       set_reorder_point:
         kind: internal
         from: ACTIVE
@@ -593,10 +600,11 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         expression: none(u in units where u.state == Robot.PROCUREMENT)
         remedy: self_serviceable
       pristine:
-        description: Every unit the commit put on offer is still on offer, so the commit can be undone.
+        description: Every unit of the shipment that is not missing, cancelled or deleted is still on offer, so the commit can be undone.
         expression: >-
           all(u in units where u.state != Robot.MISSING
-                           and u.state != Robot.CANCELLED:
+                           and u.state != Robot.CANCELLED
+                           and u.state != Robot.DELETED:
               u.state == Robot.AVAILABLE)
         remedy: dependent
 
@@ -752,7 +760,8 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
       open:
         kind: initial
         to: PREPARATION
-        required_inputs: [customer, internal]
+        required_inputs: [customer]
+        optional_inputs: [internal]
       peg_slot:
         kind: internal
         from: PREPARATION
@@ -1020,13 +1029,17 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         description: The unit swapped in is fit and on no open engagement.
         expression: inputs.in_robot.leasable
         remedy: dependent
+      swapping_out:
+        description: The unit swapped out is out on this engagement.
+        expression: any(l in lines where l.robot == inputs.out_robot and l.open)
+        remedy: self_serviceable
       nonempty:
-        description: The engagement has at least one unit.
-        expression: count(l in lines) >= 1
+        description: The engagement has at least one unit on it.
+        expression: count(l in lines where l.open) >= 1
         remedy: self_serviceable
       fit:
         description: Every unit on the engagement is fit to go out.
-        expression: "all(l in lines: l.robot.fit)"
+        expression: "all(l in lines where l.open: l.robot.fit)"
         remedy: dependent
       return_known:
         description: A lease has an expected return.
@@ -1064,6 +1077,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
           out_robot: { reference: Robot }
           in_robot:  { reference: Robot }
         guards:
+          swapping_out: deny
           incoming_leasable: deny
         effect:
           - foreach:
@@ -1233,6 +1247,8 @@ metrics:
 ```
 
 Pool utilisation, the share of a pooled unit's time spent on loan, is the question ADR-0002 asks first ("how much did we use it?"). `pool_utilisation` divides `time_on_loan` by `time_in_pool` per model, over the whole history. Writing this module found that a duration could not be divided by a duration (`design/defects.md` D275), and ADR-0103 made the quotient of two like quantities a decimal. It is not declared per month: a metric buckets a span by the month it began, so a unit that joined the pool in January would put all its pool time in January, and apportioning a span across months is a known limit (`edge-cases.md`, ADR-0103 §5).
+
+*(Corrected 2026-09-27, when a review asked whether a builder given only the specification and the module could recover it (D408, ADR-0122): `discard` and `delete` now clear the unit's peg, and `unpeg` is taken from any state, so no unit leaves its delivery unable to be cancelled; `accept_return` clears `used_in`, so a returned part can be voided or bound; `convert_lease` clears the internal delivery's `binding`, and `recall_internal` refuses a unit on loan; the engagement's `nonempty` and `fit` read its open lines, and `swap_unit` requires the unit it swaps out to be on it; `pristine` passes over deleted units; and the model's two flags and a delivery's `internal` are optional inputs that take their defaults when left out.)*
 
 ## 3. Every transition, against production
 

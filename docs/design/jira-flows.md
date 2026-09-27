@@ -7,7 +7,7 @@ Status: **catalogue**, 2026-09-27. Beside the robot inventory example, the typic
 **Reading a flow.**
 - A status's category is one of Jira's three, "Each status falls into one of three categories: ‘To do', ‘In progress’, and ‘Done’." ([Set up a workflow](https://support.atlassian.com/jira-software-cloud/docs/set-up-a-workflow-in-a-team-managed-software-project/)), written as the categories `todo`, `in_progress` and the built-in `closed` (`case-study-tickets.md` §6.1).
 - Every lifecycle in the model ends in a final state (the model's check 15), and a Jira workflow need not, since Done may be left again. Each work item's flow therefore ends in `ARCHIVED`, reached from any status, which is Jira's archiving: "If you archive a work item, it will only appear in Archived work items and can no longer be edited." ([Archive a work item](https://support.atlassian.com/jira-software-cloud/docs/archive-an-issue/)) The service flows end in the closed statuses Atlassian names.
-- The diagrams are UML state machines: `[*]` is where an object starts and ends, an edge is labelled with its transition and, in brackets, the guards that refuse it, and a status's colour is its category. A transition from any status starts at the dashed `any status`, as Jira's workflow editor draws a global transition, and stands for an edge from every status that is not final. A status lists the internal transitions it may take, which change no status, under its name as `↻`.
+- The diagrams are UML state machines: `[*]` is where an object starts and ends, an edge is labelled with its transition and, in brackets, the guards it declares, and a status's colour is its category. A transition from any status starts at the dashed `any status`, as Jira's workflow editor draws a global transition, and stands for an edge from every other status that is not final: no transition leaves a status for itself (ADR-0122). A status lists the internal transitions it may take, which change no status, under its name as `↻`. Not drawn: the guard the format generates for a required input of an optional attribute (`flow-format.md` §6), an erasure, which changes no status, and a type that only supports a flow's main one, which its module declares.
 - Who may take a transition, Jira's conditions on roles and permissions, and screens, boards and notifications are the upper layer's (ADR-0114, PRD N6). A transition Jira takes by itself, by automation, is requested by an application, and the flow declares the guard that holds it (`case-study-tickets.md` §7.2).
 
 **The people.** The flows that name a person import them from one module:
@@ -133,7 +133,7 @@ A company-managed Scrum space's board uses the simplified workflow: three status
 - Statuses, stated: "Has three default statuses for Scrum boards: To do, In progress, Done" ([What is a simplified Jira workflow?](https://support.atlassian.com/jira-software-cloud/docs/what-is-a-simplified-jira-workflow/))
 - Transitions, stated as a rule: "Allows work items to be dragged freely between columns" ([What is a simplified Jira workflow?](https://support.atlassian.com/jira-software-cloud/docs/what-is-a-simplified-jira-workflow/))
 - Rules, stated: "Automatically sets a resolution of 'Done' when work items are transitioned to the 'successful' column" ([What is a simplified Jira workflow?](https://support.atlassian.com/jira-software-cloud/docs/what-is-a-simplified-jira-workflow/)), and "Displays no screens on any transitions, all transitions will happen instantly." ([What is a simplified Jira workflow?](https://support.atlassian.com/jira-software-cloud/docs/what-is-a-simplified-jira-workflow/))
-- Not stated: whether a work item dragged out of Done loses its resolution; the flow keeps it.
+- Chosen here: a work item dragged out of Done loses its resolution, which is what the model's `clear` exists for (`declaration-syntax.md` §5.2); Atlassian does not state what Jira does.
 
 ```mermaid
 %% jira_scrum.WorkItem
@@ -187,12 +187,16 @@ types:
         kind: external
         from: any
         to: TO_DO
-        description: Drags the work item to To do, from any column.
+        description: Drags the work item to To do, from any column, clearing the resolution it may have had in Done.
+        effect:
+          - clear: [resolution]
       start:
         kind: external
         from: any
         to: IN_PROGRESS
-        description: Drags the work item to In progress, from any column.
+        description: Drags the work item to In progress, from any column, clearing the resolution it may have had in Done.
+        effect:
+          - clear: [resolution]
       done:
         kind: external
         from: any
@@ -272,17 +276,23 @@ types:
         kind: external
         from: any
         to: BACKLOG
-        description: Drags the work item to Backlog, from any column.
+        description: Drags the work item to Backlog, from any column, clearing the resolution it may have had in Done.
+        effect:
+          - clear: [resolution]
       select:
         kind: external
         from: any
         to: SELECTED_FOR_DEVELOPMENT
-        description: Drags the work item to Selected for development, from any column.
+        description: Drags the work item to Selected for development, from any column, clearing the resolution it may have had in Done.
+        effect:
+          - clear: [resolution]
       start:
         kind: external
         from: any
         to: IN_PROGRESS
-        description: Drags the work item to In progress, from any column.
+        description: Drags the work item to In progress, from any column, clearing the resolution it may have had in Done.
+        effect:
+          - clear: [resolution]
       done:
         kind: external
         from: any
@@ -534,6 +544,7 @@ stateDiagram-v2
     [*] --> FUTURE: create
     FUTURE --> ACTIVE: start [dated]
     ACTIVE --> CLOSED: complete [subtasks_done]
+    ACTIVE --> CLOSED: complete_into [subtasks_done, next_is_future]
     CLOSED --> [*]
     FUTURE: ↻ plan
     classDef todo fill:#e8eef7,stroke:#6b7f99,color:#1a202c
@@ -568,8 +579,12 @@ types:
 
     conditions:
       dated:
-        description: The sprint has a start date and an end date.
+        description: The sprint has a start date and an end date, which plan sets.
         expression: start_date is not null and end_date is not null
+        remedy: unreachable_from_here
+      next_is_future:
+        description: The sprint the unfinished work moves to is another sprint, not yet started.
+        expression: inputs.next_sprint != this and inputs.next_sprint.state == Sprint.FUTURE
         remedy: self_serviceable
       subtasks_done:
         description: Every subtask in the sprint is done.
@@ -597,9 +612,7 @@ types:
         kind: external
         from: ACTIVE
         to: CLOSED
-        description: Completes the sprint, moving each unfinished parent work item to the next sprint if one is given, or else to the backlog.
-        inputs:
-          next_sprint: { reference: Sprint, optional: true }
+        description: Completes the sprint, moving each unfinished parent work item to the backlog.
         guards:
           subtasks_done: deny
         effect:
@@ -607,17 +620,29 @@ types:
           - foreach:
               item: w
               array: work_items
-              where: w.parent is null and w.state.category != closed and inputs.next_sprint is not null
-              limit: 500
-              steps:
-                - call: { target: w, transition: plan, inputs: { sprint: inputs.next_sprint } }
-          - foreach:
-              item: w
-              array: work_items
-              where: w.parent is null and w.state.category != closed and inputs.next_sprint is null
+              where: w.parent is null and w.state.category != closed
               limit: 500
               steps:
                 - call: { target: w, transition: unplan }
+      complete_into:
+        kind: external
+        from: ACTIVE
+        to: CLOSED
+        description: Completes the sprint, moving each unfinished parent work item to a future sprint.
+        inputs:
+          next_sprint: { reference: Sprint }
+        guards:
+          subtasks_done: deny
+          next_is_future: deny
+        effect:
+          - assign: { location: complete_date, expr: now }
+          - foreach:
+              item: w
+              array: work_items
+              where: w.parent is null and w.state.category != closed
+              limit: 500
+              steps:
+                - call: { target: w, transition: plan, inputs: { sprint: inputs.next_sprint } }
 
   WorkItem:
     description: A work item that may be planned into a sprint, a subtask when it has a parent.
@@ -658,7 +683,7 @@ types:
       archive:     { kind: external, from: any, to: ARCHIVED }
 ```
 
-Completing moves each unfinished parent to the next sprint when one is given, or else to the backlog. An effect has no conditional step, so it is two `foreach` steps whose `where` reads the input (`case-study-payments.md` §5). The module declares the work items the sprint moves; only the sprint is drawn.
+Completing moves each unfinished parent to the backlog, and completing into a future sprint moves them there: two transitions, since the behaviour differs by whether a next sprint is given and no step is conditional (`DESIGN.md` §5.4). The module declares the work items the sprint moves; only the sprint is drawn. *(Corrected 2026-09-27: this section first wrote completing as one transition whose two loops chose by whether the input was given, and cited `case-study-payments.md` §5 for the idiom, which says the opposite: a conditional step is what the model forbids. The recoverability review found it (D409), and step 3 now refuses it (ADR-0122).)*
 
 ### 1.7 Versions
 
@@ -668,7 +693,7 @@ A version, the release work is fixed in, is released, archived and deleted, and 
 - Statuses, stated: "Released — a bundled package" ([View and manage versions](https://support.atlassian.com/jira-software-cloud/docs/view-and-manage-versions-in-business-projects/)), "Unreleased — an open package" ([View and manage versions](https://support.atlassian.com/jira-software-cloud/docs/view-and-manage-versions-in-business-projects/)) and "Archived — a historical snapshot of a package" ([View and manage versions](https://support.atlassian.com/jira-software-cloud/docs/view-and-manage-versions-in-business-projects/)).
 - Transitions, stated: releasing, "select the version’s current status (for example, Unreleased) and then select Release." ([Release a version](https://support.atlassian.com/jira-software-cloud/docs/release-a-version-in-your-classic-project/)); unreleasing, "To revert the release of a version, simply select Unrelease" ([View and manage versions](https://support.atlassian.com/jira-software-cloud/docs/view-and-manage-versions-in-business-projects/)); archiving and unarchiving; and deleting, where "You can either move these work items to another version, or simply remove references to the version you want to delete." ([View and manage versions](https://support.atlassian.com/jira-software-cloud/docs/view-and-manage-versions-in-business-projects/))
 - Rules, stated: "Choose what to do with any unresolved work items, and enter a release date." ([Release a version](https://support.atlassian.com/jira-software-cloud/docs/release-a-version-in-your-classic-project/))
-- Chosen here: archiving from either status, and unarchiving back to the status the version had, told apart by its release date, since no page states where unarchiving leads. Unreleasing clears the release date.
+- Chosen here: archiving from either status, and unarchiving back to the status the version had, told apart by its release date, since no page states where unarchiving leads; unreleasing clears the release date; releasing and deleting are each two transitions, as the choice between moving the work items and not is, and an archived work item, which can no longer be edited, keeps its version.
 
 ```mermaid
 %% jira_version.Version
@@ -677,12 +702,14 @@ stateDiagram-v2
     state "any status" as any_status
     [*] --> UNRELEASED: create
     UNRELEASED --> RELEASED: release
+    UNRELEASED --> RELEASED: release_moving [unreleased_target]
     RELEASED --> UNRELEASED: unrelease
     UNRELEASED --> ARCHIVED: archive
     RELEASED --> ARCHIVED: archive
     ARCHIVED --> RELEASED: unarchive_released [was_released]
     ARCHIVED --> UNRELEASED: unarchive_unreleased [never_released]
     any_status --> DELETED: delete
+    any_status --> DELETED: delete_moving [live_target]
     DELETED --> [*]
     classDef in_progress fill:#dcebfb,stroke:#2f6fb3,color:#1a202c
     classDef closed fill:#e2f3e5,stroke:#2f855a,color:#1a202c
@@ -724,6 +751,16 @@ types:
         description: The version was not released before it was archived.
         expression: release_date is null
         remedy: unreachable_from_here
+      unreleased_target:
+        description: The version the unresolved work moves to is another version, not yet released.
+        expression: inputs.move_unresolved_to != this and inputs.move_unresolved_to.state == Version.UNRELEASED
+        remedy: self_serviceable
+      live_target:
+        description: The version the work items move to is another version, neither archived nor deleted.
+        expression: >-
+          inputs.move_to != this
+          and (inputs.move_to.state == Version.UNRELEASED or inputs.move_to.state == Version.RELEASED)
+        remedy: self_serviceable
 
     transitions:
       create:
@@ -734,15 +771,23 @@ types:
         kind: external
         from: UNRELEASED
         to: RELEASED
-        description: Releases the version on its release date, moving its unresolved work items to another version if one is given.
+        description: Releases the version on its release date, its unresolved work items staying in it.
+        required_inputs: [release_date]
+      release_moving:
+        kind: external
+        from: UNRELEASED
+        to: RELEASED
+        description: Releases the version on its release date, moving its unresolved work items, archived ones aside, to an unreleased version.
         required_inputs: [release_date]
         inputs:
-          move_unresolved_to: { reference: Version, optional: true }
+          move_unresolved_to: { reference: Version }
+        guards:
+          unreleased_target: deny
         effect:
           - foreach:
               item: w
               array: work_items
-              where: w.resolution is null and inputs.move_unresolved_to is not null
+              where: w.resolution is null and w.state != WorkItem.ARCHIVED
               limit: 1000
               steps:
                 - call: { target: w, transition: set_fix_version, inputs: { fix_version: inputs.move_unresolved_to } }
@@ -774,24 +819,32 @@ types:
         kind: external
         from: any
         to: DELETED
-        description: Deletes the version, moving its work items to another version if one is given, or else removing their reference to it.
-        inputs:
-          move_to: { reference: Version, optional: true }
+        description: Deletes the version, removing its work items' reference to it; an archived work item, which can no longer be edited, keeps it.
         effect:
           - foreach:
               item: w
               array: work_items
-              where: inputs.move_to is not null
-              limit: 1000
-              steps:
-                - call: { target: w, transition: set_fix_version, inputs: { fix_version: inputs.move_to } }
-          - foreach:
-              item: w
-              array: work_items
-              where: inputs.move_to is null
+              where: w.state != WorkItem.ARCHIVED
               limit: 1000
               steps:
                 - call: { target: w, transition: clear_fix_version }
+      delete_moving:
+        kind: external
+        from: any
+        to: DELETED
+        description: Deletes the version, moving its work items, archived ones aside, to another version.
+        inputs:
+          move_to: { reference: Version }
+        guards:
+          live_target: deny
+        effect:
+          - foreach:
+              item: w
+              array: work_items
+              where: w.state != WorkItem.ARCHIVED
+              limit: 1000
+              steps:
+                - call: { target: w, transition: set_fix_version, inputs: { fix_version: inputs.move_to } }
 
   WorkItem:
     description: A work item that names the version it is fixed in.
@@ -858,7 +911,7 @@ stateDiagram-v2
     TO_DO --> DONE: done [subtasks_done]
     any_status --> ARCHIVED: archive
     ARCHIVED --> [*]
-    TO_DO: ↻ add_subtask
+    TO_DO: ↻ add_subtask [room_for_subtask]
     DONE: ↻ clone
     classDef todo fill:#e8eef7,stroke:#6b7f99,color:#1a202c
     classDef closed fill:#e2f3e5,stroke:#2f855a,color:#1a202c
@@ -892,6 +945,10 @@ types:
       ARCHIVED: { category: closed, final: true }
 
     conditions:
+      room_for_subtask:
+        description: The task has fewer than 100 subtasks, the most its archive reaches.
+        expression: count(s in subtasks) < 100
+        remedy: unreachable_from_here
       subtasks_done:
         description: Every subtask of the task is done.
         expression: none(s in subtasks where s.state != Subtask.DONE)
@@ -907,6 +964,8 @@ types:
         from: TO_DO
         inputs:
           summary: { type: string }
+        guards:
+          room_for_subtask: deny
         effect:
           - create: { type: Subtask, transition: add, inputs: { task: this, summary: inputs.summary } }
       done:
@@ -953,7 +1012,7 @@ types:
         only_via: [Task.archive]
 ```
 
-Cloning is an internal transition that creates a new task from this one; there is no way from Done back to To Do.
+Cloning is an internal transition that creates a new task from this one; there is no way from Done back to To Do. A task holds at most 100 subtasks, chosen here, since its archive reaches that many and a request that would reach more is refused.
 
 ### 2.2 Project management
 
@@ -1045,8 +1104,8 @@ stateDiagram-v2
     REVIEW --> IN_PROGRESS: send_back
     any_status --> ARCHIVED: archive
     ARCHIVED --> [*]
-    TO_DO: ↻ add_subtask
-    IN_PROGRESS: ↻ add_subtask
+    TO_DO: ↻ add_subtask [room_for_subtask]
+    IN_PROGRESS: ↻ add_subtask [room_for_subtask]
     classDef todo fill:#e8eef7,stroke:#6b7f99,color:#1a202c
     classDef in_progress fill:#dcebfb,stroke:#2f6fb3,color:#1a202c
     classDef closed fill:#e2f3e5,stroke:#2f855a,color:#1a202c
@@ -1090,6 +1149,10 @@ types:
       ARCHIVED:    { category: closed, final: true }
 
     conditions:
+      room_for_subtask:
+        description: The case has fewer than 100 subtasks, the most its archive reaches.
+        expression: count(s in subtasks) < 100
+        remedy: unreachable_from_here
       subtasks_done:
         description: Every subtask of the case is done.
         expression: none(s in subtasks where s.state != Subtask.DONE)
@@ -1106,6 +1169,8 @@ types:
         from: [TO_DO, IN_PROGRESS]
         inputs:
           summary: { type: string }
+        guards:
+          room_for_subtask: deny
         effect:
           - create: { type: Subtask, transition: add, inputs: { case_item: this, summary: inputs.summary } }
       start:
@@ -1164,7 +1229,7 @@ types:
         only_via: [Case.archive]
 ```
 
-The reassignment is written in the transition into review, which assigns the case to the approver it names.
+The reassignment is written in the transition into review, which assigns the case to the approver it names. A case holds at most 100 subtasks, as a task does (§2.1).
 
 ### 2.4 Content management
 
@@ -1728,7 +1793,6 @@ types:
     attributes:
       summary:     { type: string }
       reporter:    { reference: User }
-      approvers:   { reference: "User[]" }
       approved_by: { type: identity, optional: true }
       resolution:  { type: Resolution, optional: true }
       resolved_at: { type: timestamp, optional: true }
@@ -1763,8 +1827,9 @@ types:
         kind: external
         from: WAITING_FOR_TRIAGE
         to: WAITING_FOR_APPROVAL
-        description: Moves the request to the status with the approval step; its approvers are notified.
-        required_inputs: [approvers]
+        description: Moves the request to the status with the approval step, naming its approvers, who are recorded with the event and notified.
+        inputs:
+          approvers: { reference: "User[]" }
         guards:
           has_approvers: deny
       approve:
@@ -1812,7 +1877,7 @@ types:
           resolved_three_days: deny
 ```
 
-The approval step is the two transitions out of Waiting for approval. Who may approve is the upper layer's; `approve` records who did, `actor.id` being the one value a flow may read of the actor (`flow-format.md` §5).
+The approval step is the two transitions out of Waiting for approval. The approvers are named as an input, recorded with the event and notified by the application; who may approve is the upper layer's, and `approve` records who did, `actor.id` being the one value a flow may read of the actor (`flow-format.md` §5).
 
 ### 3.3 Incidents
 
@@ -2009,7 +2074,7 @@ types:
         kind: external
         from: UNDER_INVESTIGATION
         to: COMPLETED
-        description: Completes the problem with its root cause; a known error is one with a documented root cause and a workaround.
+        description: Completes the problem with its root cause and a resolution, such as Known error.
         required_inputs: [root_cause, resolution]
       cancel:
         kind: external
@@ -2130,6 +2195,7 @@ The reviews are transitions without an approval guard, as the default workflow f
 - **D394.** A description with a comma inside an inline mapping was cut in two, and step 2 reported only an unexpected key; the checker now says that a value was cut at a comma and cites `flow-format.md` §2 rule 4.
 - **A return to where an object was is two transitions.** A version unarchived goes back to Released or Unreleased, whichever it was. UML writes that with a history pseudostate, which the model does not have, and the flow writes it with two transitions guarded on what the version recorded (§1.7). No other flow needed it.
 - **Jira's free movement is `from: any`.** Every simplified and team-managed workflow is written with one transition into each status, from any status. Drawn as edges from every status, the free-moving workflows were thickets of edges; drawn from one `any status` node, as Jira's own editor draws them, they read as Jira's do. The first drawing also showed a status with an internal transition under the transition's name instead of its own, which the generator now avoids by naming each such status.
+- **What a builder could not recover.** A review on 2026-09-27 gave readers only the specification and the modules (`flow-recoverability-review.md`). It found gaps the specification now closes (ADR-0122), among them that `from: any` left out whether a transition could leave a status for itself, which it now cannot, and defects of this catalogue, each corrected (D409): the sprints' and versions' choices are two transitions each, an archived work item no longer blocks a version's deletion, approvers are an input rather than a set with no way back, a whole's subtasks are bounded by its archive's reach, and a resolution is cleared when work leaves Done.
 - **What held.** Every flow Atlassian states in text is written as it states it, and every rule stated beside one is written as a guard, an effect or a required input, except the role restrictions and the automations, which are the upper layer's by design.
 
 ## 5. Templates whose workflow the text does not state

@@ -168,10 +168,12 @@ def bound(t, machines):
 
 
 def resolve_any(x, states):
-    """`from: any` is every state that is not final (declaration-syntax.md §4.2)."""
+    """`from: any` is every state that is not final, and for an external
+    transition every one but its target, so no transition leaves a state for
+    itself (declaration-syntax.md §4.2, ADR-0122)."""
     if x.get("from") != "any":
         return x
-    return dict(x, **{"from": [s for s, v in (states or {}).items() if not (v or {}).get("final")]})
+    return dict(x, **{"from": [s for s, v in (states or {}).items() if not (v or {}).get("final") and s != x.get("to")]})
 
 
 INHERITED = ("attributes", "derived_attributes", "invariants")
@@ -341,6 +343,26 @@ def step_expressions(st, kind):
     return []
 
 
+def conditional_step_errors(tn, t):
+    """An optional input, one the caller may leave out, is read in a step only
+    as the whole of an expression, which is skipped when it is absent: inside
+    a larger expression it would make the step conditional, which the model
+    forbids (DESIGN.md §5.4; the model's check 48; ADR-0122)."""
+    out = []
+    for xn, x in (t.get("transitions") or {}).items():
+        optional = {i for i, spec in (x.get("inputs") or {}).items() if spec.get("optional") and "default" not in spec}
+        optional |= set(x.get("optional_inputs") or [])
+        for st, kind, path, _d in walk(x.get("effect")):
+            for e in step_expressions(st, kind):
+                text = " ".join(str(e).split())
+                for n in sorted(optional):
+                    if text != f"inputs.{n}" and re.search(rf"\binputs\.{n}\b", text):
+                        out.append((("types", tn, "transitions", xn, "effect") + path, "names",
+                                    f"{tn}.{xn} reads the optional input '{n}' inside a larger expression of a step, which makes the step "
+                                    "conditional; declare one transition per case, each taking the input it needs (DESIGN.md §5.4; the model's check 48)"))
+    return out
+
+
 def cleared(x):
     return [a for group in steps(x, "clear") for a in group]
 
@@ -474,6 +496,10 @@ def relationship_errors(doc, library):
                     continue
                 if spec.get("stored") and back.get("stored"):
                     out.append((here + ("stored",), "names", f"{tn}.{an} and {target}.{spec['opposite']} are both marked stored; one end holds the value"))
+            elif many and tn not in (doc.get("machines") or {}):
+                # a machine's required end names no opposite: its binder's end does (§4.10)
+                out.append((here, "names", f"{tn}.{an} is a set of references with no opposite, which has nowhere to be stored; "
+                                           "an end with no opposite is single (§4.3; the model's check 41)"))
             if spec.get("aggregation") == "composite":
                 if "opposite" not in spec:
                     out.append((here, "names", f"{tn}.{an} is composite and names no opposite: a part names its whole"))
@@ -875,9 +901,9 @@ def name_errors(doc, library=None, ordered=True):
             for a in set(x.get("required_inputs", [])) & set(x.get("optional_inputs", [])):
                 out.append((base + ("optional_inputs",), "names", f"{tn}.{xn} lists '{a}' as both a required and an optional input"))
             for a in x.get("optional_inputs", []):
-                if a in always:
+                if a in always and "default" not in (attrs.get(a) or {}):
                     out.append((base + ("optional_inputs",), "names",
-                                f"{tn}.{xn} lists '{a}' as an optional input, but the attribute is not optional, so the input is required"))
+                                f"{tn}.{xn} lists '{a}' as an optional input, but the attribute is neither optional nor defaulted, so the input is required"))
             written = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | {loc for _e, loc in assigns(x)}
             for a in sorted(written & set(cleared(x))):
                 out.append((base + ("effect",), "names", f"{tn}.{xn} both writes and clears '{a}'"))
@@ -885,6 +911,7 @@ def name_errors(doc, library=None, ordered=True):
         for c in sorted(conds - used):
             out.append((("types", tn, "conditions", c), "names", f"condition '{c}' of {tn} is used by no transition"))
         out += value_errors(doc, tn, t)
+        out += conditional_step_errors(tn, t)
         out += (read_errors(tn, t, set(doc.get("categories") or []) | BUILT_IN_CATEGORIES | evaluator_names(doc))
                 + indexed_errors(tn, t, library) + identifier_errors(doc, tn, t, library) + evaluator_errors(doc, tn, t)
                 + supersession_errors(doc, tn, t, library))
@@ -2297,6 +2324,14 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(service, "imports: { people: [User] }", "imports: { people: [User, Robot] }")),
         ("an import from a module not among the files checked", "imports", "service.yaml",
          plant(service, "imports: { people: [User] }", "imports: { staff: [User] }")),
+        ("a set of references with no opposite", "names", "delivery.yaml",
+         plant(delivery, "      price:        { type: money(SGD) }\n", "      price:        { type: money(SGD) }\n      helpers:      { reference: \"Courier[]\" }\n")),
+        ("a step made conditional on an optional input", "names", "service.yaml",
+         plant(service, "          note:   { type: string, optional: true, personal: true }\n        guards:\n          engineer_active: deny\n",
+               "          note:   { type: string, optional: true, personal: true }\n        guards:\n          engineer_active: deny\n"
+               "        effect:\n          - assign: { location: photo, expr: \"if inputs.note is null then photo else photo\" }\n")),
+        ("an optional input on an attribute neither optional nor defaulted", "names", "inventory.yaml",
+         plant(inventory, "required_inputs: [serial, model, list_price, condition]", "required_inputs: [serial, list_price, condition]\n        optional_inputs: [model]")),
         ("an attribute named like a member every object has", "names", "inventory.yaml",
          plant(inventory, "      model:             { type: string }\n", "      model:             { type: string }\n      created_at:        { type: timestamp }\n")),
         ("a `?` inside an inline mapping", "yaml", "service.yaml",
@@ -2315,6 +2350,9 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     hit = "NO" in strict and False in loose
     ok &= hit
     print(f"  planted an enumeration value NO: the strict loader keeps {strict}, a plain YAML loader reads {loose}")
+    others = resolve_any({"kind": "external", "from": "any", "to": "B"}, {"A": {}, "B": {}, "C": {"final": True}})["from"]
+    ok &= others == ["A"]
+    print(f"  from: any leaves every state that is not final but its target: {'yes' if others == ['A'] else 'NO ' + str(others)}")
     cut = [x for x in check([("cut.yaml", "module: m\ncategories: [live]\ntypes:\n  T:\n    description: A type with one state.\n    tracking: record\n"
                                           "    states: { S: { category: live, description: One, two. }, E: { category: live, final: true } }\n"
                                           "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n")])[0]]
