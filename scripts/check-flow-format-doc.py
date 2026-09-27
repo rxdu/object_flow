@@ -62,6 +62,7 @@ def main():
     values |= {True, False}
     values = {str(v).lower() if isinstance(v, bool) else v for v in values}
     values |= {"month", "week", "actor"}
+    values |= trial.BUILT_IN_CATEGORIES      # a category every vocabulary has, whether or not it is listed
     for label, want in (("Keys", keys), ("Values", values)):
         got = listed(doc, label)
         if got is None:

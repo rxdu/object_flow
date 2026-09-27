@@ -148,11 +148,11 @@ machines:
       mfr_serial:
         description: The unit has the manufacturer serial its model requires.
         expression: model.manufacturer_serial_required implies manufacturer_serial is not null
-        remedy: unreachable_from_here
+        remedy: dependent
       photo:
         description: The unit has the label photo its model requires.
         expression: model.label_photo_required implies count(p in photos) >= 1
-        remedy: unreachable_from_here
+        remedy: dependent
       open:
         description: The delivery the unit is reserved for is still being prepared.
         expression: inputs.slot.state == Delivery.PREPARATION
@@ -637,7 +637,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         expression: inputs.robot.shipment == this
         remedy: self_serviceable
       last:
-        description: The unit is not the last one still in procurement, since the shipment would be left empty.
+        description: At least two of the shipment's units are still in procurement, so removing a unit cannot leave it with none.
         expression: count(u in units where u.state == Robot.PROCUREMENT) >= 2
         remedy: unreachable_from_here
       empty:

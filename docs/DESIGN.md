@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 427 entries and five cosmetics; 427 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 433 entries and five cosmetics; 433 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -238,10 +238,10 @@ Evaluating a request yields one **verdict**, and every refusal names a remedy cl
 | `not found` | No object has the id named (ADR-0114 withdrew the case of an object hidden from its reader) | `unreachable_from_here` |
 | `not requestable` | The transition is only via named parents, which are named in the verdict (ADR-0020, ADR-0041) | `unreachable_from_here` |
 | `over-limit` | A loop or cascade would exceed its declared limit, which is named; the limit counts the elements a loop's `where` selects and the parts a cascade drives (ADR-0041, ADR-0122) | `unreachable_from_here` |
-| `unavailable` | The object is not in a state the transition may be taken in (ADR-0122) | `unreachable_from_here` |
+| `unavailable` | The object is not in a state the transition may be taken in; names the state it is in (ADR-0122) | `unreachable_from_here` |
 | `unknown transition` | The type declares no transition of that name the request can take: an initial one for a creation, any other for an object (ADR-0122) | `self_serviceable` |
-| `invalid input` | An input the transition does not take, one not of its declared type, a reference naming no object or one of another type, a set repeating an element, or a required input left out or null, except a required input of an optional or defaulted attribute, which its generated guard refuses (ADR-0122) | `self_serviceable` |
-| invariant violated | Names each object on which an invariant fails, in ascending id order, every invariant that fails on it, in the order its type declares them, and the conflicting objects (ADR-0122) | `dependent` where it names other objects; `self_serviceable` where only this object's values conflict |
+| `invalid input` | An input the transition does not take, one not of its declared type, a reference naming no object or one of another type, a set repeating an element, or a required input left out or null, except a required input of an optional or defaulted attribute, which its generated guard refuses; names every input at fault, by name (ADR-0122) | `self_serviceable` |
+| invariant violated | Names each object on which an invariant fails, in ascending id order, every invariant that fails on it, in the order its type declares them, and the conflicting objects (ADR-0122) | each failing invariant's, inferred as a guard's is (`declaration-syntax.md` §5.1): `dependent` where it reads another object, through a relationship or a type scan; else `self_serviceable` where the transition requested writes, from one of its inputs, a value it reads, an assertion's `to` writing the state; else `unreachable_from_here`. The refusal's is the first named invariant's (ADR-0122) |
 
 The **remedy class** tells a caller what to do next:
 
@@ -250,7 +250,7 @@ The **remedy class** tells a caller what to do next:
 | `self_serviceable` | Satisfiable by an argument of the transition requested (ADR-0122) | Supply it, or correct it |
 | `delegable` | Another actor must act, such as an approval not yet given; if the transition is proposable, a Proposal can be filed | Ask them, or propose |
 | `temporal` | Only time will satisfy it | Come back later |
-| `dependent` | Another object must change state; names it | Work on that first |
+| `dependent` | Another object must change, its state or a value; names it (ADR-0122) | Work on that first |
 | `unreachable_from_here` | Nothing supplied, awaited, or asked of another actor or object satisfies it from here: another transition must come first, such as one that writes the value the clause reads, or none can (ADR-0122) | Take a different path |
 
 Availability is therefore three-way for a listing: available, available-with-input naming what must be supplied, or blocked with a verdict.

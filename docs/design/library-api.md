@@ -8,6 +8,8 @@ Draft, 2026-09-09, amended 2026-09-23. The request and verdict shapes of [`../DE
 
 **Amended 2026-09-25** for ADR-0114: the engine records who acted and never evaluates it. `Actor` loses `capabilities` and an unknown actor is refused as `actor_known`; `Unsatisfied`, `Flag` and `InvariantViolated` lose what hid objects from a requester; `Object` loses `partial`; `ReadSet` loses `capabilities` and `withheld`; `MetricPage` loses `complete` and `refused`, and `Diagnostic` its `complete`; `versioned`, `keyed` and a subscription's reader are withdrawn; and no read is filtered by who asks.
 
+**Amended 2026-09-27** for ADR-0122: the verdicts `Unavailable`, `UnknownTransition` and `InvalidInput`; `CallRefused`, which carries a called transition's or creation's refusal and the step that made it; and `InvariantViolated` names each failing invariant on each object, with the remedy inferred for it.
+
 **What is verified.** The Python below executes, and `scripts/check-api-doc.py` compares the operations it offers against the read surface DESIGN.md §10 declares, so the two cannot drift apart silently. It is **not** typechecked — there is no mypy in the environment this was written in, and the annotations are therefore reviewed and not proven.
 
 **Amended 2026-09-23** for ADR-0082 to ADR-0094: `metric`, `diagnostics` and `export`; `publish` of a `DeclarationChange`; the settled cursor for `pull` and `acknowledge`; the read set, writing transaction, occurred time and retry count on an event; the attempt and interval shapes; `Unsatisfied` naming what its remedy points at, and `Stale` its cause; and the injected dependencies, including the connection source.
@@ -195,16 +197,50 @@ class OverLimit:
 
 
 @dataclass(frozen=True)
-class InvariantViolated:
+class Unavailable:
+    state: str                            # the state the object is in, which the transition does not leave
+    remedy: Remedy = Remedy.UNREACHABLE_FROM_HERE   # (ADR-0122)
+
+
+@dataclass(frozen=True)
+class UnknownTransition:
+    transition: str                       # no transition of that name the request can take
+    remedy: Remedy = Remedy.SELF_SERVICEABLE        # (ADR-0122)
+
+
+@dataclass(frozen=True)
+class InvalidInput:
+    inputs: Sequence[str]                 # every input at fault, by name (ADR-0122)
+    remedy: Remedy = Remedy.SELF_SERVICEABLE        # (ADR-0122)
+
+
+@dataclass(frozen=True)
+class InvariantFailure:
+    object_id: str
     invariant: str
+    remedy: Remedy                        # inferred as a guard's is: DEPENDENT where it reads
+                                          # another object; else SELF_SERVICEABLE where the
+                                          # request writes from an input a value it reads;
+                                          # else UNREACHABLE_FROM_HERE (ADR-0122)
+
+
+@dataclass(frozen=True)
+class InvariantViolated:
+    failures: Sequence[InvariantFailure]  # by object id, then in the order the type declares them
     objects: Sequence[str]                # every object in the conflict
-    remedy: Remedy                        # DEPENDENT where it names other objects;
-                                          # SELF_SERVICEABLE over this object alone (ADR-0105)
+    remedy: Remedy                        # the first failure's (ADR-0122)
+
+
+@dataclass(frozen=True)
+class CallRefused:
+    step: str                             # the effect step whose call or creation was refused
+    verdict: "Verdict"                    # that call's or creation's refusal
+    remedy: Remedy                        # that refusal's (ADR-0122)
 
 
 Verdict = (
-    Satisfied | Unsatisfied | Stale | NotFound
-    | NotRequestable | OverLimit | InvariantViolated
+    Satisfied | Unsatisfied | Stale | NotFound | Unavailable | UnknownTransition
+    | InvalidInput | NotRequestable | OverLimit | InvariantViolated | CallRefused
 )
 
 

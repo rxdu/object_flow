@@ -752,11 +752,11 @@ types:
 
     conditions:
       was_released:
-        description: The version was released before it was archived.
+        description: The version was archived from Released, which keeps the release date that unreleasing clears.
         expression: release_date is not null
         remedy: unreachable_from_here
       never_released:
-        description: The version was not released before it was archived.
+        description: The version was archived from Unreleased, so it holds no release date.
         expression: release_date is null
         remedy: unreachable_from_here
       unreleased_target:
@@ -813,14 +813,14 @@ types:
         kind: external
         from: ARCHIVED
         to: RELEASED
-        description: Unarchives a version that was released, back to Released.
+        description: Unarchives a version archived from Released, back to Released.
         guards:
           was_released: deny
       unarchive_unreleased:
         kind: external
         from: ARCHIVED
         to: UNRELEASED
-        description: Unarchives a version that was never released, back to Unreleased.
+        description: Unarchives a version archived from Unreleased, back to Unreleased.
         guards:
           never_released: deny
       delete:
@@ -1295,7 +1295,7 @@ types:
 
     states:
       TO_DO:     { category: todo }
-      DRAFT:     { category: in_progress, description: "Being prepared for review, in the draft stage of writing." }
+      DRAFT:     { category: in_progress, description: "In the draft stage of writing, before it is published." }
       PUBLISHED:
         category: closed
         description: Published or released for internal consumption.
@@ -1654,7 +1654,7 @@ The service flows: a request on the default IT support workflow, a service reque
 
 ### 3.1 A request on the IT support workflow
 
-Every new service space gets the Jira Service Management IT Support Workflow, and its requests are closed by the service desk or automatically.
+Every new service space gets the Jira Service Management IT Support Workflow, and its requests are moved to Closed by the service desk or automatically.
 
 **Source.**
 - Statuses, stated: "Waiting for Triage The initial status when requests are created." ([Default configurations](https://support.atlassian.com/jira-cloud-administration/docs/default-configurations-for-jira-service-management/)) Waiting for Support comes "After requests have been triaged and each time the customer/reporter is waiting for a response." ([Default configurations](https://support.atlassian.com/jira-cloud-administration/docs/default-configurations-for-jira-service-management/)), and Waiting for Customer "After an agent has actioned a request and is waiting for a response from the customer/reporter." ([Default configurations](https://support.atlassian.com/jira-cloud-administration/docs/default-configurations-for-jira-service-management/)), which the transitions follow.
@@ -1693,7 +1693,7 @@ enumerations:
 
 types:
   Request:
-    description: A customer's request on the Jira Service Management IT Support Workflow, closed by the service desk or automatically three days after it is resolved.
+    description: A customer's request on the Jira Service Management IT Support Workflow, moved to Closed by the service desk or automatically three days after it is resolved.
     tracking: record
 
     attributes:
@@ -1946,7 +1946,7 @@ enumerations:
 
 types:
   Incident:
-    description: An incident on the IT service management template's incident workflow, escalated when needed and closed automatically after it is resolved.
+    description: An incident on the IT service management template's incident workflow, escalated when needed and moved to Closed automatically after it is resolved.
     tracking: record
 
     attributes:
@@ -2060,7 +2060,7 @@ enumerations:
 
 types:
   Problem:
-    description: A problem on the IT service management template's problem workflow, investigated for its root cause and a workaround, and closed for good.
+    description: A problem on the IT service management template's problem workflow, investigated for its root cause and a workaround, and at last moved to Closed, which it never leaves.
     tracking: record
 
     attributes:

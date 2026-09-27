@@ -456,6 +456,38 @@ def order_errors(doc):
             in_order(list(m), METRIC_ORDER, ("types", tn, "metrics", mn), f"in the metric {mn}, ")
     for mn, m in (doc.get("metrics") or {}).items():
         in_order(list(m), COMBINED_ORDER, ("metrics", mn), f"in the metric {mn}, ")
+    return out + derived_cycle_errors(doc)
+
+
+def derived_cycle_errors(doc):
+    """A derived attribute reads one of another type, through a relationship
+    or a type scan, wherever that one is declared; such reads MUST NOT form a
+    cycle (the model's check 3). `.<name>` of a derived attribute another type
+    of the module declares is taken as a read of it: two types' derived
+    attributes of one name are then both read, which can only add a cycle. An
+    imported module cannot read back into this one, so none passes through it."""
+    derived = {tn: list(t.get("derived_attributes") or {}) for tn, t in types(doc)}
+    edges = {}
+    for tn, t in types(doc):
+        for d, spec in (t.get("derived_attributes") or {}).items():
+            text = " ".join(str(spec["expression"]).split())
+            edges[(tn, d)] = [(u, e) for u, names in derived.items() if u != tn
+                              for e in names if re.search(rf"\.{e}\b", text)]
+    out, done = [], set()
+
+    def visit(node, trail):
+        if node in trail:
+            ring = trail[trail.index(node):] + [node]
+            if not set(ring) <= done:
+                done.update(ring)
+                out.append((("types", node[0], "derived_attributes", node[1], "expression"), "order",
+                            "derived attributes read each other in a cycle: " + " → ".join(f"{u}.{e}" for u, e in ring)))
+            return
+        for nxt in edges.get(node, []):
+            visit(nxt, trail + [node])
+
+    for node in edges:
+        visit(node, [])
     return out
 
 
@@ -2394,6 +2426,19 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
             if x[3] == "self_serviceable"]
     ok &= len(bare) == 1
     print(f"  planted a self_serviceable guard on a transition with no input: {'noticed' if len(bare) == 1 else 'MISSED'}")
+    end = "    states:\n      S: { category: live, description: Open. }\n      E: { category: live, final: true, description: Done. }\n"
+    ring = [x for x in check([("ring.yaml", "module: m\ncategories: [live]\ntypes:\n"
+                                            "  A:\n    description: One end.\n    tracking: record\n"
+                                            "    attributes:\n      b: { reference: B, optional: true, opposite: as_ }\n" + end +
+                                            "    derived_attributes:\n      x: { description: Reads B's y., expression: b.y + 1 }\n"
+                                            "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n"
+                                            "  B:\n    description: The other end.\n    tracking: record\n"
+                                            "    attributes:\n      as_: { reference: \"A[]\", opposite: b }\n" + end +
+                                            "    derived_attributes:\n      y: { description: Reads A's x., expression: count(a in as_ where a.x > 0) }\n"
+                                            "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n")])[0]
+            if x[3] == "order" and "cycle" in x[4]]
+    ok &= len(ring) == 1
+    print(f"  planted derived attributes of two types that read each other: {'caught, ' + ring[0][4] if len(ring) == 1 else 'MISSED'}")
     written = load("module: m\ntypes:\n  T:\n    description: d\n    tracking: record\n"
                    "    attributes: { a: { type: bool, default: false }, b: { type: int, default: 0, indexed: true } }\n"
                    "    states: { S: { category: live, final: true } }\n"
