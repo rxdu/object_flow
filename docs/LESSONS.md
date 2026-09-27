@@ -231,3 +231,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Twice on 2026-09-26 and 2026-09-27, writing flow modules by hand, a description with a comma inside an inline mapping, `{ category: todo, description: Applied, waiting to be screened. }`, was cut by YAML into a description and a second key, and step 2 reported only "Additional properties are not allowed ('waiting to be screened.' was unexpected)". `flow-format.md` §2 rule 4 already required the quoting; the author of the rule broke it, in the orders study and then in three modules of the Jira catalogue.
 - **Correction:** Quote every prose value written inside `{ … }`, a description above all, or write it in the block form where YAML reads it whole. The checker now names a key that could not be a name as a value cut at a comma, citing the rule (D394).
 - **Context:** YAML flow descriptions, and any YAML whose inline mappings hold prose.
+
+### A section number is read from the file, not recalled
+
+- **Pattern:** On 2026-09-27, writing register entry D424, `declaration-syntax.md` §4.4 and `DESIGN.md` §5.2 were cited from memory for text that sits under §4.2 and §5.4; the same session, an ADR's rejected alternative said an aggregate over an absent set is unknown, which no document states, and earlier a catalogue note cited `case-study-payments.md` §5 for an idiom that section contradicts. The first two were caught before the commit only because the sections were then looked up.
+- **Correction:** Find the heading a cited line sits under with a command, such as `awk 'NR<=N && /^#+ /{h=$0} NR==N{print h}' file`, before writing the `§`; and hold a rejected alternative's reasons to the same standard as a decision's, since a reader re-evaluating the decision will rely on them.
+- **Context:** Any document that cites another by section, and ADRs' rejected alternatives.
