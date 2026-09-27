@@ -546,7 +546,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
 ```yaml
 # inventory_journey, continued
   RobotModel:
-    description: A model of robot, whose flags decide what its units carry before they go on offer.
+    description: "A model of robot: its serial flag holds every unit on offer, and its photo flag a unit inventorized from intake."
     tracking: record
 
     attributes:
@@ -1233,7 +1233,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         expression: sum(i.duration)
 
   Lease:
-    description: The commercial agreement above one engagement, which ends when the units come back or converts into a sale.
+    description: The commercial agreement above one engagement, which ends once the engagement closes or converts into a sale.
     tracking: record
 
     attributes:
@@ -1310,7 +1310,7 @@ The one metric that crosses types is declared last:
 
 metrics:
   pool_utilisation:
-    description: "Time on engagements over time in the pool, by model, over the whole history: the share of a pooled unit's time spent out, which can exceed 1 where an assertion moves a unit out of the pool with its line still open."
+    description: "Time on engagements over time in the pool, by model, over the whole history: the share of a pooled unit's time on an engagement, scheduled, out or returning, which can exceed 1 where an assertion moves a unit out of the pool with its line still open."
     input_metrics:
       on_loan: EngagementLine.time_on_loan
       pool: Robot.time_in_pool

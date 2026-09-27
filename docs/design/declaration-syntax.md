@@ -442,7 +442,7 @@ An invariant is checked after every write to the object, and after a write to an
 | **traversal** | through a declared relationship end | this object is written, or any object reachable through that end |
 | **type-scan** | every object of a named type | any object of that type is written |
 
-A type-scan names a **type** where an aggregate names a collection — `none(v in Visit where …)` rather than `none(v in visits where …)`. **It ranges over every _other_ object of that type**: the object being written is never in the set — and the same holds for a type-scan in a **guard**, where the object being transitioned is excluded, so identical syntax means the same thing in both places — so no `v.id != this.id` clause is needed and writing one is an error (check 6).
+A type-scan names a **type** where an aggregate names a collection — `none(v in Visit where …)` rather than `none(v in visits where …)`. **It ranges over every _other_ object of that type**: the object the invariant is evaluated on, whether written or re-checked because a write reached it, is never in the set (ADR-0122) — and the same holds for a type-scan in a **guard**, where the object being transitioned is excluded, so identical syntax means the same thing in both places — so no `v.id != this.id` clause is needed and writing one is an error (check 6).
 
 That is right for uniqueness and it changes what a **count** means, so the count has to be read as "how many others":
 

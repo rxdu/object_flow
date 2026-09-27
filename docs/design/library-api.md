@@ -161,9 +161,10 @@ class Unsatisfied:
     clause: str
     remedy: Remedy
     unknown: bool
-    objects: Sequence[str] = ()           # the objects the failing clause read other than the
-                                          # one requested, a collection's by its `where`, in id
-                                          # order (DESIGN.md §5.5, ADR-0092, ADR-0122)
+    objects: Sequence[str] = ()           # the objects the failing clause reads evaluated in
+                                          # full, other than the one it is evaluated on, a
+                                          # collection's by its `where`, in id order
+                                          # (DESIGN.md §5.5, ADR-0092, ADR-0122)
     proposable: bool = False              # whether a proposal would be accepted
     consulted: Mapping[str, Any] = field(default_factory=dict)
                                           # the metric values and evaluator verdicts
@@ -235,6 +236,8 @@ class InvariantViolated:
 @dataclass(frozen=True)
 class CallRefused:
     step: str                             # the effect step whose call or creation was refused
+    object_id: str | None                 # the object it targeted, a loop's element among them;
+                                          # None for a creation that was refused
     verdict: "Verdict"                    # that call's or creation's refusal
     remedy: Remedy                        # that refusal's (ADR-0122)
 

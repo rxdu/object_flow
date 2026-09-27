@@ -91,3 +91,7 @@ Fresh readers found every sixth-round finding resolved. The Jira reader found al
 
 Fresh readers found every seventh-round finding resolved. The Jira reader found nothing: all twenty flows fully determined, with no finding of any kind, for the fourth round without a finding on an outcome or a verdict. The inventory reader found one question of validity: whether `User.login`, `unique` and not `indexed`, fails the model's check 7. The storage design settles it and no text said so (D436), and a probe found that no checker implements check 7's rule on type scans, which `TODO.md` now holds. It also found one gap on verdicts, which objects a refusal names (D437), and three descriptions and an admission that misled (D438). ADR-0122, amended with decisions 37 and 38, and corrections in place resolve each; a ninth review checks them (§12).
 
+## 12. The ninth review
+
+For the first time, neither reader found a finding on an outcome: every request's validity, application, writes, calls, creations and cascades are determined in both examples, and no object is stuck. The Jira reader found all twenty flows determined but for the objects two refusals name, and the inventory reader 77 of 85 transitions, the other eight also determined but for the objects some refusals name. All four findings on verdicts are cases decision 38's rule left open (D439). The inventory reader also found three descriptions that misled (D440). ADR-0122, amended with decision 39, and corrections in place resolve each; a tenth review checks them (§13).
+
