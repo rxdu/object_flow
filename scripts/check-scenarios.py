@@ -145,6 +145,19 @@ def yield_or_signed(s, o, i):
     return signed or ok
 
 
+def returns_by_model(s, model, until, over):
+    """Return.returns_by_model bound to `model := <model>, over last <over>`: the returns received in the window."""
+    return sum(1 for o in s.objects.values() if o.type == "Return" and s.objects[o.attrs["unit"]].attrs["model"] == model
+               and until - over <= o.created_at <= until)
+
+
+def second_eye(s, o, i):
+    model = s.objects[o.attrs["unit"]].attrs["model"]
+    n = returns_by_model(s, model, s.at, timedelta(days=30))
+    s.consulted[f"returns_by_model(model: {model})"] = n
+    return i.get("outcome") != "REPLACED" or o.attrs.get("approved_by") is not None or n < 5
+
+
 DERIVED = {
     ("RobotModel", "low_stock"): ("available_units < reorder_point", lambda s, o: sum(
         1 for u in s.objects.values() if u.type == "Robot" and u.attrs.get("model") == o.id and u.state == "AVAILABLE")
@@ -185,6 +198,11 @@ GUARDS = {
     ("Delivery", "yield_or_signed"): ("count(s in second_sign_offs) >= 1 or all(u in units: u.model.yield_floor is null or "
                                       "metric(first_pass_rate, model := u.model, over last 30 days) >= u.model.yield_floor)",
                                       yield_or_signed),
+    ("Robot", "rover_photo"): ('model.name != "Rover 2" or count(p in photos) >= 1',
+                               lambda s, o, i: s.objects[o.attrs["model"]].attrs.get("name") != "Rover 2"
+                               or len(o.attrs.get("photos") or []) >= 1),
+    ("Return", "second_eye"): ("inputs.outcome != ReturnOutcome.REPLACED or approved_by is not null or "
+                               "metric(returns_by_model, model := unit.model, over last 30 days) < 5", second_eye),
     ("Shipment", "ordered"): ("all(u in inputs.with_units: u.state == Robot.REQUESTED)",
                               lambda s, o, i: all(s.objects[u].state == "REQUESTED" for u in i["with_units"])),
     ("Shipment", "ours"): ("inputs.robot.shipment == this", lambda s, o, i: s.objects[i["robot"]].attrs.get("shipment") == o.id),
@@ -237,6 +255,12 @@ EFFECTS = {
                                lambda s, o, i, t: s.call(i["robot"], "Robot", "ship", {"via_shipment": o.id}, t)),
     ("Shipment", "receive_unit"): ([{"call": {"target": "inputs.robot", "transition": "receive"}}],
                                    lambda s, o, i, t: s.call(i["robot"], "Robot", "receive", {}, t)),
+    ("Robot", "add_photo"): ([{"add": {"location": "photos", "expr": "inputs.photo"}}],
+                             lambda s, o, i, t: o.set("photos", (o.attrs.get("photos") or []) + [i["photo"]])),
+    ("Return", "receive"): ([{"assign": {"location": "handled_by", "expr": "actor.id"}}],
+                            lambda s, o, i, t: o.set("handled_by", s.identity(s.actor))),
+    ("Return", "resolve"): ([{"assign": {"location": "outcome", "expr": "inputs.outcome"}}],
+                            lambda s, o, i, t: o.set("outcome", i["outcome"])),
     ("Robot", "ship"): ([{"assign": {"location": "shipment", "expr": "inputs.via_shipment"}}],
                         lambda s, o, i, t: o.set("shipment", i["via_shipment"])),
     ("Robot", "peg_to"): ([{"assign": {"location": "peg", "expr": "inputs.slot"}}], lambda s, o, i, t: o.set("peg", i["slot"])),
@@ -248,7 +272,8 @@ EFFECTS = {
     ("Robot", "inventorize"): ([{"clear": ["peg"]}], lambda s, o, i, t: o.clear("peg")),
     ("Robot", "correct_state"): ([{"clear": ["peg", "binding", "used_in"]}], lambda s, o, i, t: o.clear("peg", "binding", "used_in")),
 }
-NO_EFFECT = {("RobotModel", "set_reorder_point"), ("RobotModel", "set_yield_floor"), ("RobotModel", "set_usual_lead_time"),
+NO_EFFECT = {("Return", "inspect"), ("Return", "close"), ("Return", "await_parts"), ("Return", "parts_in"),
+             ("RobotModel", "set_reorder_point"), ("RobotModel", "set_yield_floor"), ("RobotModel", "set_usual_lead_time"),
              ("Warranty", "start"), ("Service", "register"), ("Delivery", "open"), ("Robot", "add_opening_stock"), ("Robot", "add_to_intake"), ("Robot", "request"),
              ("Robot", "deliver_internal"), ("Robot", "receive"), ("Shipment", "arrive"), ("RobotModel", "add"),
              ("User", "add"), ("Agent", "issue"), ("PdiCheck", "add"), ("PdiCheck", "retire")}
@@ -284,6 +309,17 @@ DECLARED_METRICS = {
     ("Delivery", "first_pass_rate"): {"source": "pdi_results", "item": "r", "filter": FIRST,
         "dimensions": {"model": "r.unit.model"}, "time_dimension": "r.occurred_at",
         "expression": "count(where r.outcome != CheckOutcome.FAIL) * 1.000 / count()"},
+    ("Return", "returns_by_model"): {"source": "objects", "item": "r", "dimensions": {"model": "r.unit.model"},
+                                     "time_dimension": "r.created_at", "expression": "count()"},
+    ("Return", "labelled_returns"): {"source": "labels", "item": "l", "filter": 'l.name == "missing-charger"',
+                                     "dimensions": {"state": "l.subject_state"}, "expression": "count(distinct l.subject)"},
+    ("Return", "labelled_wait"): {"source": "labels", "item": "l", "filter": 'l.name == "missing-charger"',
+                                  "dimensions": {"state": "l.subject_state"}, "expression": "median(l.subject.time_in(INSPECTING))"},
+    ("Return", "time_to_done"): {"source": "transitions", "item": "t", "filter": "t.to_state == Return.CLOSED and not t.migrated",
+                                 "dimensions": {"month": "month(t.occurred_at)"},
+                                 "expression": "median(t.occurred_at - t.object.created_at)"},
+    ("Robot", "trial_refusals"): {"source": "attempts", "item": "a", "filter": "not a.enforced",
+                                  "dimensions": {"clause": "a.clause", "actor": "a.actor_id"}, "expression": "count()"},
     ("", "first_pass_yield"): {"input_metrics": {"inspected": "Delivery.first_results_inspected",
                                                  "failed": "Delivery.first_results_failed"},
                                "group_by": ["model", "month"], "expression": "(inspected - failed) * 1.000 / inspected"},
@@ -343,9 +379,21 @@ def insert(mapping, key, value, order):
     mapping.update(items)
 
 
-def patched(text, adds):
-    """The module's text with each `<path>: <value>` of a publish added in its section's order."""
+def module_text(ref):
+    """`<document> <n>`: the n-th module a design document writes, as a version of it."""
+    name, n = ref.split()
+    blocks = [b for info, _s, b in fences((ROOT / "docs/design" / name).read_text()) if info == "yaml" and b.startswith("module:")]
+    return blocks[int(n) - 1]
+
+
+def patched(text, adds, removes=()):
+    """The module's text with each path of a publish removed, and each `<path>: <value>` added in its section's order."""
     doc = flows.load(text)
+    for path in removes:
+        keys, node = path.split("."), doc
+        for k in keys[:-1]:
+            node = node[k]
+        del node[keys[-1]]
     for path, value in adds.items():
         keys, node = path.split("."), doc
         for depth, k in enumerate(keys):
@@ -362,7 +410,9 @@ def patched(text, adds):
 class Store:
     def __init__(self, mods_text, publishes):
         self.text = dict(mods_text)
-        self.publishes = sorted(publishes, key=lambda p: when(p["at"]))
+        self.publishes = sorted((p for p in publishes if not p.get("change")), key=lambda p: when(p["at"]))
+        self.governed = {p["change"]: p for p in publishes if p.get("change")}
+        self.changes, self.observed, self.actor = {}, [], None
         self.version, self.findings = 1, []
         self.objects, self.obs, self.events, self.attempts, self.reading = {}, {}, [], [], None
         self.subscriptions, self.consulted, self.floors = {}, {}, {}
@@ -398,27 +448,43 @@ class Store:
             for c in (self.types[tn].get("invariants") or {}):
                 assert (tn, c) in INVARIANTS, f"{tn}.{c} is not transcribed"
         for (tn, x), (effect, _f) in EFFECTS.items():
-            got = literal(self.types[tn]["transitions"][x].get("effect"))
-            assert got == literal(effect), f"{tn}.{x}'s effect is now {got}; the transcription reads {literal(effect)}"
+            got = literal((self.types.get(tn, {}).get("transitions") or {}).get(x, {}).get("effect"))
+            assert not got or got == literal(effect), f"{tn}.{x}'s effect is now {got}; the transcription reads {literal(effect)}"
         for tn, x in NO_EFFECT:
             if x in (self.types.get(tn, {}).get("transitions") or {}):
                 assert not self.types[tn]["transitions"][x].get("effect"), f"{tn}.{x} now has an effect"
         for (tn, mn), want in DECLARED_METRICS.items():
             got = ((self.mods["inventory_journey"].get("metrics") or {}) if not tn
-                   else (self.types[tn].get("metrics") or {})).get(mn)
+                   else (self.types.get(tn, {}).get("metrics") or {})).get(mn)
             if got:
                 got = {k: v for k, v in literal(got).items() if k != "description"}
                 assert got == literal(want), f"{tn}.{mn} is now {got}; the transcription reads {literal(want)}"
 
-    def publish(self, p):
-        prev = self.text["inventory_journey"]
-        new = patched(prev, p["add"])
-        files = [("operations_shared.yaml", self.text["operations_shared"]), ("inventory_journey.yaml", new)]
-        errs, _notes = flows.check(files, {"inventory_journey.yaml": prev})
-        self.findings += [f"the version published at {p['at']}: {e[3]} {e[4]}" for e in errs if e[0] == "inventory_journey.yaml"]
-        self.text["inventory_journey"] = new
+    def publish(self, p, at=None, kind="human"):
+        at = at or when(p["at"])
+        mods = p.get("modules") or {"inventory_journey": {"add": p.get("add") or {}}}
+        prev = dict(self.text)
+        for name, change in mods.items():
+            base = module_text(change["text"]) if change.get("text") else self.text[name]
+            self.text[name] = patched(base, change.get("add") or {}, change.get("remove") or [])
+        order = [n for n in ("operations_shared", "inventory_journey", "returns") if n in self.text]
+        order += [n for n in self.text if n not in order]
+        files = [(f"{n}.yaml", self.text[n]) for n in order]
+        errs, _notes = flows.check(files, {f"{n}.yaml": prev[n] for n in mods if n in prev})
+        self.findings += [f"the version published at {at:%Y-%m-%dT%H:%MZ}: {e[0]} {e[3]} {e[4]}"
+                          for e in errs if e[0][:-len(".yaml")] in mods]
         self.version += 1
         self.load()
+        # a publish changes a live object only by a recorded migration (flow-format.md §4.16)
+        for name in mods:
+            for tn, mapping in ((self.mods[name].get("migration") or {}).get("removed_states") or {}).items():
+                for o in self.objects.values():
+                    if o.type == tn and o.state in mapping:
+                        frm, o.state = o.state, mapping[o.state]
+                        o.open_interval(o.state, at, kind)
+                        self.events.append({"object": o.id, "type": tn, "transition": "migrate", "from": frm, "to": o.state,
+                                            "kind": kind, "occurred": at, "recorded": at, "overrides": False, "imported": False,
+                                            "migrated": True, "reason": None, "reads": set(), "version": self.version})
 
     # derived ends and collections, read from the stored ones
     def units(self, d):
@@ -441,6 +507,11 @@ class Store:
         st = self.types[o.type]["states"][o.state]
         return st.get("category") != "closed" and not st.get("final")
 
+    def identity(self, actor):
+        """The value the actor's object holds in its attribute marked `actor_kind` (ADR-0122 decision 21)."""
+        o = self.objects[actor]
+        return next(o.attrs[a] for a, s_ in (self.types[o.type].get("attributes") or {}).items() if s_.get("actor_kind"))
+
     def kind_of(self, actor):
         o = self.objects.get(actor)
         if o is None:
@@ -456,11 +527,15 @@ class Store:
         return state in (f if isinstance(f, list) else [f])
 
     def guards(self, tn, xn, x, o, inputs):
-        for g in (x.get("guards") or {}):
+        for g, mode in (x.get("guards") or {}).items():
             if (tn, g) not in GUARDS:
                 raise Refused(f"{tn}.{xn}'s guard {g} is not transcribed, so this history cannot reach it")
             if not GUARDS[(tn, g)][1](self, o, inputs):
-                raise Fails("unsatisfied", g, self.types[tn]["conditions"][g]["remedy"])
+                remedy = self.types[tn]["conditions"][g]["remedy"]
+                if mode == "audit":
+                    self.observed.append((g, remedy))
+                    continue
+                raise Fails("unsatisfied", g, remedy)
 
     def check_invariants(self, o):
         for (tn, c), (_t, f) in INVARIANTS.items():
@@ -488,10 +563,10 @@ class Store:
         for a in (x.get("required_inputs") or []) + (x.get("optional_inputs") or []):
             if a in inputs:
                 o.set(a, inputs[a])
-        if (tn, xn) in EFFECTS:
+        if x.get("effect"):
+            if (tn, xn) not in EFFECTS:
+                raise Refused(f"{tn}.{xn}'s effect is not transcribed")
             EFFECTS[(tn, xn)][1](self, o, inputs, occ)
-        elif (tn, xn) not in NO_EFFECT and x.get("effect"):
-            raise Refused(f"{tn}.{xn}'s effect is not transcribed")
         target = to or x.get("to")
         if x["kind"] in ("external", "assertion") and target:
             o.state = target
@@ -501,7 +576,7 @@ class Store:
         self.events.append({"object": o.id, "type": tn, "transition": xn, "from": frm, "to": o.state, "kind": self.kind,
                             "occurred": occ, "recorded": self.at, "overrides": x["kind"] == "assertion",
                             "imported": False, "reason": inputs.get("reason") if x["kind"] == "assertion" else None,
-                            "reads": set()})
+                            "reads": set(), "migrated": False, "version": self.version})
 
     # ── one request ──
     def attempt(self, r):
@@ -510,7 +585,24 @@ class Store:
         self.kind = self.kind_of(r["actor"])
         occ = when(r["occurred_at"]) if r.get("occurred_at") else at
         inputs = {k: value(v) for k, v in (r.get("inputs") or {}).items()}
-        self.consulted, self.floors = {}, {}
+        self.consulted, self.floors, self.observed, self.actor = {}, {}, [], r["actor"]
+        # a flow changes only through a DeclarationChange: drafted, submitted with its impact, approved (publish-and-import.md §1)
+        if r.get("draft"):
+            self.changes[r["draft"]] = {"drafted_by": self.identity(r["actor"]), "drafted_kind": self.kind, "drafted_at": at,
+                                        "evidence": [(e, read(self, e)[0]) for e in r.get("evidence") or []]}
+            return
+        if r.get("submit"):
+            self.changes[r["submit"]]["impact"] = self.impact(self.governed[r["submit"]])
+            return
+        if r.get("approve"):
+            ch = self.changes[r["approve"]]
+            if "impact" not in ch:
+                raise Refused(f"{r['approve']} is approved before it was submitted with its impact")
+            if self.impact(self.governed[r["approve"]]) != ch["impact"]:
+                raise Fails("impact_unchanged", None, "self_serviceable")
+            self.publish(self.governed.pop(r["approve"]), at, self.kind)
+            ch.update(approved_by=self.identity(r["actor"]), approved_kind=self.kind, approved_at=at, version=self.version)
+            return
         if r.get("record"):
             self.record(r, at, occ)
             return
@@ -557,6 +649,10 @@ class Store:
         reads, self.reading = self.reading, None
         n = len(self.events)
         self.apply(o, tn, r["transition"], x, inputs, occ)
+        for g, remedy in self.observed:
+            self.attempts.append({"object": o.id, "type": tn, "transition": r["transition"], "verdict": "unsatisfied",
+                                  "clause": g, "remedy": remedy, "kind": self.kind, "actor": self.identity(r["actor"]),
+                                  "at": at, "enforced": False, "consulted": {}, "floors": {}})
         for e in self.events[n:]:
             if e["object"] == o.id and e["transition"] == r["transition"]:
                 e["reads"], e["consulted"] = reads, dict(self.consulted)
@@ -611,7 +707,7 @@ class Store:
             self.objects[o.id] = o
             self.events.append({"object": o.id, "type": o.type, "transition": "import", "from": None, "to": o.state,
                                 "kind": "unknown", "occurred": self.port, "recorded": self.port, "overrides": True,
-                                "imported": True, "reason": None, "reads": set()})
+                                "imported": True, "reason": None, "reads": set(), "migrated": False, "version": 1})
         last = None
         for r in block.get("requests") or []:
             at = when(r["at"])
@@ -629,6 +725,23 @@ class Store:
                               "and the history says it applies")
         while self.publishes and when(self.publishes[0]["at"]) <= self.now:
             self.publish(self.publishes.pop(0))
+
+    def impact(self, p):
+        """A change's impact report, for the change this history drafts: each object a guard it enforces
+        would now refuse, in a state its transition leaves (publish-and-import.md §1)."""
+        rows = []
+        for path, value in ((p.get("modules") or {}).get("inventory_journey", {}).get("add") or {}).items():
+            k = path.split(".")
+            if value != "deny" or k[-2] != "guards":
+                continue
+            kind_, owner, xn, g = k[0], k[1], k[3], k[-1]
+            types = [tn for tn, t in self.types.items() if (t.get("state_machine") == owner if kind_ == "machines" else tn == owner)]
+            for tn in types:
+                x = self.types[tn]["transitions"][xn]
+                for o in sorted(self.objects.values(), key=lambda o: o.id):
+                    if o.type == tn and self.leaves(tn, x, o.state) and not GUARDS[(tn, g)][1](self, o, {}):
+                        rows.append({"object": o.id, "transition": xn, "clause": g})
+        return rows
 
     def refused(self, r, at):
         want = {"verdict": r["refused"]["verdict"], "clause": r["refused"].get("clause"),
@@ -655,7 +768,7 @@ class Store:
         self.attempts.append({"object": None if r.get("record") or r.get("create") else r["object"], "type": tn,
                               "transition": "record" if r.get("record") else r["transition"],
                               "verdict": want["verdict"], "clause": want["clause"], "remedy": want["remedy"],
-                              "kind": self.kind_of(r["actor"]), "at": at, "enforced": True,
+                              "kind": self.kind_of(r["actor"]), "actor": self.identity(r["actor"]), "at": at, "enforced": True,
                               "consulted": consulted, "floors": objects})
 
 
@@ -709,6 +822,11 @@ def rows_of(groups, keep, agg):
             for k, g in groups.items()]
 
 
+def time_in(s, o, state):
+    """`o.time_in(<state>)`: the total of the object's spans in the state, each by §6.9's rule for a span."""
+    return sum((d for iv in o.intervals if iv[0] == state for d in [duration(s, o, iv)] if d is not None), timedelta())
+
+
 def first_results(s):
     """The pre-delivery results nothing has corrected and nothing recorded earlier for the same unit and check."""
     cur = [o for o in s.obs.values() if o.coll == "pdi_results" and o.corrected_by is None]
@@ -746,6 +864,21 @@ def metric(s, name, keep, filt, over=None):
         rows = [({"model": s.objects[b.subject].attrs["model"], "week": week(b.occurred)}, b.subject, None)
                 for b in s.obs.values() if b.coll == "battery_days" and b.corrected_by is None and b.fields["min_health"] < 80.0]
         return rows_of(group(rows, keep), keep, lambda b: len(set(b)))
+    if name in ("labelled_returns", "labelled_wait"):
+        rows = [({"state": l.fields["subject_state"]},
+                 l.subject if name == "labelled_returns" else time_in(s, s.objects[l.subject], "INSPECTING"), None)
+                for l in s.obs.values() if l.coll == "labels" and l.fields["name"] == "missing-charger"
+                and s.objects[l.subject].type == "Return"]
+        return rows_of(group(rows, keep), keep, (lambda b: len(set(b))) if name == "labelled_returns" else (lambda b: nearest_rank(b, 0.5)))
+    if name == "time_to_done":
+        rows = [({"version": e["version"], "month": e["occurred"].strftime("%Y-%m")},
+                 e["occurred"] - s.objects[e["object"]].created_at, None)
+                for e in s.events if e["type"] == "Return" and e["to"] == "CLOSED" and e["from"] != "CLOSED" and not e["migrated"]]
+        return rows_of(group(rows, keep), keep, lambda b: nearest_rank(b, 0.5))
+    if name == "trial_refusals":
+        rows = [({"clause": a["clause"], "actor": a["actor"]}, 1, None)
+                for a in s.attempts if a["type"] == "Robot" and not a["enforced"]]
+        return rows_of(group(rows, keep), keep, len)
     if name == "first_pass_yield":
         assert keep == ["model", "month"], "first_pass_yield is read by the dimensions it names"
         first = first_results(s)
@@ -843,6 +976,22 @@ def read(s, spec_):
     if m:
         e = [e for e in s.events if e["object"] == m.group(1) and e["transition"] == m.group(2)][-1]
         return [{"reference": k, "value": v} for k, v in sorted(e.get("consulted", {}).items())], ["reference", "value"]
+    m = re.fullmatch(r"change ([\w-]+)", spec_)
+    if m:
+        ch = s.changes[m.group(1)]
+        return [{k: ch.get(k) for k in ("drafted_by", "drafted_kind", "approved_by", "approved_kind", "version")}], \
+            ["drafted_by", "drafted_kind", "approved_by", "approved_kind", "version"]
+    m = re.fullmatch(r"impact of ([\w-]+)", spec_)
+    if m:
+        return s.changes[m.group(1)]["impact"], ["object", "transition", "clause"]
+    m = re.fullmatch(r"evidence of ([\w-]+)", spec_)
+    if m:
+        rows = []
+        for e, got in s.changes[m.group(1)]["evidence"]:
+            for g in got:
+                rows.append({"read": e, "group": ", ".join(f"{k} = {show(v)}" for k, v in g.items() if k not in ("value", "gaps")),
+                             "value": g["value"]})
+        return rows, ["read", "group", "value"]
     m = re.fullmatch(r"labels\(([\w-]+)\)", spec_)
     if m:
         return [{"object": o.id, "name": o.fields["name"], "recorded_by_kind": o.kind, "subject_state": o.fields["subject_state"]}
@@ -993,6 +1142,8 @@ PLANTS = [
      "metric(first_pass_yield, model := u.model, over last 30 days)"),
     ("a completion said to apply without its second sign-off",
      "  - { at: 2026-11-07T01:00Z, actor: U-ANA, record: second_sign_offs, subject: D14, object: SS1, fields: {} }\n", ""),
+    ("a state dropped with no mapping", "        removed_states:\n          Return: { RESOLVED: CLOSED }\n", ""),
+    ("a change published without its approval", "  - { at: 2026-12-07T15:00Z, actor: U-ANA, approve: DC1 }\n", ""),
 ]
 
 

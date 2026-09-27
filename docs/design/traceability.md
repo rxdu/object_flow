@@ -128,9 +128,9 @@ Current: 82 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | UC-10 | DESIGN §5.5, §5.12; ADR-0098, ADR-0114; declaration-syntax.md §6.9; library-api.md §4; metric-scenarios.md §19 | covered | |
 | UC-11 | DESIGN §10, §5.12; library-api.md §6; renderers.md §3; ADR-0114; metric-scenarios.md §20 | covered | |
 | UC-12 | DESIGN §5.12; declaration-syntax.md §6.9, §8.3; ADR-0113; metric-scenarios.md §21 | covered | |
-| UC-13 | DESIGN §5.9, §5.11, §5.12, §10; declaration-syntax.md §6.6, §6.8, §6.9; publish-and-import.md §3; library-api.md §6; ADR-0098; ADR-0105; returns-module.md §1, §2 | covered |  |
-| UC-14 | DESIGN §5.5; declaration-syntax.md §5.1; ADR-0097; storage-schema.md §6; ADR-0106 | covered |  |
-| UC-15 | DESIGN §9; publish-and-import.md §1; ADR-0097; ADR-0114 | covered |  |
+| UC-13 | DESIGN §5.9, §5.11, §5.12, §10; declaration-syntax.md §6.6, §6.8, §6.9; publish-and-import.md §3; library-api.md §6; ADR-0098; ADR-0105; returns-module.md §1, §2; metric-scenarios.md §24, §27 | covered |  |
+| UC-14 | DESIGN §5.5; declaration-syntax.md §5.1; ADR-0097; storage-schema.md §6; ADR-0106; metric-scenarios.md §25 | covered |  |
+| UC-15 | DESIGN §9; publish-and-import.md §1; ADR-0097; ADR-0114; metric-scenarios.md §26 | covered |  |
 | UC-16 | DESIGN §5.1, §5.12; ADR-0096; declaration-syntax.md §6.9, §8.1; ADR-0098; ADR-0101; ADR-0106 | covered |  |
 | UC-17 | DESIGN §8, §5.12; ADR-0087, ADR-0096; storage-schema.md §9; ADR-0100; ADR-0101; ADR-0105, ADR-0106 | covered |  |
 | UC-18 | DESIGN §5.13, §11; ADR-0096; declaration-syntax.md §6.9, §6.10; ADR-0098; declaration-syntax.md §6.11; ADR-0101; ADR-0106; unit-journey.md §2 | covered |  |

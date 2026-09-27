@@ -1,8 +1,8 @@
-# Metric scenarios: UC-1 to UC-12
+# Metric scenarios: UC-1 to UC-15
 
-Status: **worked scenarios**, 2026-09-27, written at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". The author then asked for the next three, "write the scenarios for UC-4 to UC-6" (§8 to §12), then "write the scenarios for UC-7 to UC-9" (§13 to §17), and then "write the scenarios for UC-10 to UC-12" (§18 to §22). Each of the PRD's first twelve use cases is written here as a fixed flow, a fixed history and the values its reads return, so a builder has a test and a reader has something to compute and compare (`TODO.md`, "Write the metric use cases as checked scenarios").
+Status: **worked scenarios**, 2026-09-27, written at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". The author then asked for the next three, "write the scenarios for UC-4 to UC-6" (§8 to §12), then "write the scenarios for UC-7 to UC-9" (§13 to §17), then "write the scenarios for UC-10 to UC-12" (§18 to §22), and then "write the scenarios for UC-13 to UC-15" (§23 to §28). Each of the PRD's first fifteen use cases is written here as a fixed flow, a fixed history and the values its reads return, so a builder has a test and a reader has something to compute and compare (`TODO.md`, "Write the metric use cases as checked scenarios").
 
-**Method.** One store and one history, in four parts, with each use case's questions asked of it. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the agent type that writing these scenarios added to it (§1). Every value below is derived by hand from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
+**Method.** One store and one history, in six parts, with each use case's questions asked of it. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the agent type that writing these scenarios added to it (§1). Every value below is derived by hand from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
 - a request whose actor the store does not hold;
 - a transition the type does not declare, that is `only_via` others, or that is taken from a state it does not leave;
 - a refusal on a guard the transition does not declare, with a remedy other than the declared one, or on a clause that is not the first to fail;
@@ -10,9 +10,9 @@ Status: **worked scenarios**, 2026-09-27, written at the author's direction: "wr
 - a recording its subject's kinds do not include, or one its generated guards refuse;
 - a published version the flow checker refuses, checked against the version before it.
 
-The script evaluates guards, effects and invariants from a transcription it holds, and checks each against the module's text before it runs. It is not an engine, and it refuses a history that reaches anything it has not transcribed. Its self-test plants fourteen mistakes, from a wrong value to a completion without its second sign-off, and shows each caught.
+The script evaluates guards, effects and invariants from a transcription it holds, and checks each against the module's text before it runs. It is not an engine, and it refuses a history that reaches anything it has not transcribed. Its self-test plants sixteen mistakes, from a wrong value to a change published without its approval, and shows each caught.
 
-**What is inferred.** The use cases speak of the first consumer's deliveries, and the reviewed flow is thinner in two places: its delivery has no product configuration and no checklist. §6 lists each inference with what it rests on. Two questions the specification left open were decided to write the values (§7, ADR-0123). UC-4 to UC-6 need inspection and availability datapoints the journey lacks, so the history's second part publishes a version that adds them (§8), and §12 lists what they inferred and found. UC-7 to UC-9 add a telemetry summary, three formulas and legacy history, in a third part (§13), and §17 lists theirs. UC-10 to UC-12 add a rule on a metric, an agent's escalation and the business exceptions, in a fourth (§18), and §22 lists theirs.
+**What is inferred.** The use cases speak of the first consumer's deliveries, and the reviewed flow is thinner in two places: its delivery has no product configuration and no checklist. §6 lists each inference with what it rests on. Two questions the specification left open were decided to write the values (§7, ADR-0123). UC-4 to UC-6 need inspection and availability datapoints the journey lacks, so the history's second part publishes a version that adds them (§8), and §12 lists what they inferred and found. UC-7 to UC-9 add a telemetry summary, three formulas and legacy history, in a third part (§13), and §17 lists theirs. UC-10 to UC-12 add a rule on a metric, an agent's escalation and the business exceptions, in a fourth (§18), and §22 lists theirs. UC-13 to UC-15 install the returns module's versions, put a rule on trial and enforce it by a governed change, in a fifth and a sixth (§23, §27), and §28 lists theirs.
 
 ## 1. The store
 
@@ -1243,3 +1243,368 @@ What the relay concludes from each event:
 1. **A combined metric cannot be read over a window** (UC-10). The first-pass yield of §15 is a combined metric, and a combined metric has no `time_dimension`, so a guard's `over last 30 days` cannot apply to it: step 4 refuses it by check 56, "'over last' on metric first_pass_yield, which declares no 'window on'", as a probe showed. The rule reads a per-check first-pass rate instead. `TODO.md` holds the question: give a combined metric a time dimension, or add `count(distinct … where …)` so the yield is one metric.
 2. **In the journey, "order ready" is not one transition** (UC-12). A delivery fills when a unit is bound or when its last pegged unit leaves intake, and a subscription names transitions of one type. So order ready is two subscriptions and a read of `filled`, and `filled` knows no count of slots: a delivery is ready at its first binding. The first consumer's slots, one per unit ordered, have no counterpart in the journey. `TODO.md` holds the question.
 3. **A metric's consulted value is recorded whichever side decides** (determined). D14 completed on the sign-off, and its event still holds 0.750, since every metric reference in a guard is consulted before the transaction.
+
+## 23. The last weeks of 2026: returns start coarse, and a rule goes on trial
+
+The history continues from `now` of §18. It has two more parts:
+- the fifth, read at `2026-12-14T00:00Z` (§24 to §26);
+- the sixth, read at `2027-01-11T00:00Z` (§27).
+
+Each is a Monday. The reads of §3 to §21 hold as written, at their own `now`.
+
+**Returns start coarse** (UC-13). UC-13 speaks of service jobs, and the journey's service job already has its working state. The design's worked example of a flow that starts coarse is returns: `returns-module.md` writes its first publish with no rules at all, and its second promoting a label into a state. The scenario installs that module as it is written, so each version the store publishes is one the document checker already checks (§28).
+
+**A rule goes on trial** (UC-14). A photo is proposed as required before a Rover 2 goes on offer. The rule, `rover_photo`, is published as an audited guard on `inventorize`: evaluated on every request, refusing nothing, and each failure recorded (`flow-format.md` §4.8, `audit`). With it comes a count of the refusals a rule on trial would have made, by rule and by who would have been refused.
+
+On 16 November the lead publishes version 6. It installs the returns module's first version and puts the rule on trial:
+
+```yaml publish
+at: 2026-11-16T01:00Z
+modules:
+  returns:
+    text: returns-module.md 1
+  inventory_journey:
+    add:
+      machines.UnitLifecycle.conditions.rover_photo:
+        description: A Rover 2 has a label photo before it goes on offer.
+        expression: 'model.name != "Rover 2" or count(p in photos) >= 1'
+        remedy: unreachable_from_here
+      machines.UnitLifecycle.transitions.inventorize.guards.rover_photo: audit
+      types.Robot.metrics.trial_refusals:
+        description: The refusals a rule on trial would have made, by the rule and by who would have been refused.
+        source: attempts
+        item: a
+        filter: not a.enforced
+        dimensions:
+          clause: a.clause
+          actor: a.actor_id
+        expression: count()
+```
+
+**What happens.**
+- **Returns T1 to T6.** Ben receives six returns and inspects each. He labels four `missing-charger` as it happens: three while they are being inspected, and T4 on arrival. T1, T2 and T4 are resolved and closed. T6 is resolved and never closed.
+- **The trial.** Rover 2 units leave intake while the rule is on trial:
+  - Ben takes R31 through without a photo;
+  - Scout takes R33 through without one;
+  - Ben photographs R32 first.
+- **Enforcing the rule (UC-15).** Scout drafts enforcing it, submits the change and attaches the evidence. Ana approves it on 7 December, as version 7. Two days later Ben's request to take R11 through without a photo is refused. He photographs it and it goes through.
+- **Evidence for the label.** On 13 December, after a month of labels, the lead declares three metrics on the returns, as version 8, to see what the label says.
+
+```yaml publish
+at: 2026-12-13T00:00Z
+modules:
+  returns:
+    add:
+      types.Return.metrics.labelled_returns:
+        description: The returns labelled missing-charger, by the state each was in when labelled.
+        source: labels
+        item: l
+        filter: 'l.name == "missing-charger"'
+        dimensions:
+          state: l.subject_state
+        expression: count(distinct l.subject)
+      types.Return.metrics.labelled_wait:
+        description: How long the returns labelled missing-charger spent being inspected, by the state each was in when labelled.
+        source: labels
+        item: l
+        filter: 'l.name == "missing-charger"'
+        dimensions:
+          state: l.subject_state
+        expression: median(l.subject.time_in(INSPECTING))
+      types.Return.metrics.time_to_done:
+        description: The time from receiving a return to closing it, by the month closed; every metric can be split by version.
+        source: transitions
+        item: t
+        filter: t.to_state == Return.CLOSED and not t.migrated
+        dimensions:
+          month: month(t.occurred_at)
+        expression: median(t.occurred_at - t.object.created_at)
+```
+
+```yaml scenario
+now: 2026-12-14T00:00Z
+
+requests:
+  - { at: 2026-11-17T09:00Z, actor: U-BEN, create: Return, object: T1, transition: receive, inputs: { unit: R05, customer: C-ACME } }
+  - { at: 2026-11-17T10:00Z, actor: U-BEN, object: T1, transition: inspect }
+  - { at: 2026-11-18T09:00Z, actor: U-BEN, create: Return, object: T2, transition: receive, inputs: { unit: R07, customer: C-BOREAL } }
+  - { at: 2026-11-18T10:00Z, actor: U-BEN, object: T2, transition: inspect }
+  - { at: 2026-11-18T11:00Z, actor: U-BEN, label: missing-charger, subject: T1, object: LB2 }
+  - { at: 2026-11-20T09:00Z, actor: U-BEN, create: Return, object: T3, transition: receive, inputs: { unit: R10, customer: C-BOREAL } }
+  - { at: 2026-11-20T10:00Z, actor: U-BEN, object: T2, transition: resolve }
+  - { at: 2026-11-21T09:00Z, actor: U-BEN, object: T3, transition: inspect }
+  - { at: 2026-11-21T10:00Z, actor: U-BEN, label: missing-charger, subject: T3, object: LB3 }
+  - { at: 2026-11-21T11:00Z, actor: U-BEN, object: T2, transition: close }
+  - { at: 2026-11-23T09:00Z, actor: U-BEN, object: R31, transition: record_label_print }
+  - { at: 2026-11-23T09:05Z, actor: U-BEN, object: R31, transition: inventorize }
+  - { at: 2026-11-24T09:00Z, actor: U-BEN, create: Return, object: T4, transition: receive, inputs: { unit: L02, customer: C-BOREAL } }
+  - { at: 2026-11-24T10:00Z, actor: U-BEN, label: missing-charger, subject: T4, object: LB4 }
+  - { at: 2026-11-25T09:00Z, actor: U-BEN, object: T4, transition: inspect }
+  - { at: 2026-11-26T09:00Z, actor: A-SCOUT, object: R33, transition: record_label_print }
+  - { at: 2026-11-26T09:05Z, actor: A-SCOUT, object: R33, transition: inventorize }
+  - { at: 2026-11-27T09:00Z, actor: U-BEN, object: T1, transition: resolve }
+  - { at: 2026-11-28T09:00Z, actor: U-BEN, object: T1, transition: close }
+  - { at: 2026-11-30T09:00Z, actor: U-BEN, object: R32, transition: add_photo, inputs: { photo: r32-label.jpg } }
+  - { at: 2026-11-30T09:01Z, actor: U-BEN, object: R32, transition: record_label_print }
+  - { at: 2026-11-30T09:05Z, actor: U-BEN, object: R32, transition: inventorize }
+  - { at: 2026-12-01T09:00Z, actor: U-BEN, create: Return, object: T5, transition: receive, inputs: { unit: R02, customer: C-ACME } }
+  - { at: 2026-12-01T10:00Z, actor: U-BEN, object: T5, transition: inspect }
+  - { at: 2026-12-02T09:00Z, actor: U-BEN, label: missing-charger, subject: T5, object: LB5 }
+  - { at: 2026-12-02T10:00Z, actor: U-BEN, object: T4, transition: resolve }
+  - { at: 2026-12-03T09:00Z, actor: U-BEN, object: T4, transition: close }
+  - { at: 2026-12-03T11:00Z, actor: U-BEN, create: Return, object: T6, transition: receive, inputs: { unit: R06, customer: C-ACME } }
+  - { at: 2026-12-04T09:00Z, actor: U-BEN, object: T6, transition: inspect }
+  - { at: 2026-12-05T09:00Z, actor: U-BEN, object: T6, transition: resolve }
+  - { at: 2026-12-07T09:00Z, actor: A-SCOUT, draft: DC1, evidence: ["metric(trial_refusals, keep: [clause, actor])", "metric(Robot.override_counts, keep: [state, reason])"] }
+  - { at: 2026-12-07T09:05Z, actor: A-SCOUT, submit: DC1 }
+  - { at: 2026-12-07T15:00Z, actor: U-ANA, approve: DC1 }
+  - { at: 2026-12-09T09:00Z, actor: U-BEN, object: R11, transition: record_label_print }
+  - { at: 2026-12-09T09:05Z, actor: U-BEN, object: R11, transition: inventorize, refused: { verdict: unsatisfied, clause: rover_photo, remedy: unreachable_from_here } }
+  - { at: 2026-12-09T10:00Z, actor: U-BEN, object: R11, transition: add_photo, inputs: { photo: r11-label.jpg } }
+  - { at: 2026-12-09T10:05Z, actor: U-BEN, object: R11, transition: inventorize }
+```
+
+## 24. UC-13, the first month: a label, counted and related to states
+
+> Service jobs start as `OPEN → DONE`. Engineers label jobs "waiting for parts" as it happens. After a month the engine shows how many jobs carry the label, in which state it was applied, and how long those jobs waited. […] *Acceptance:* the label is countable and relatable to states from the first day; […] (PRD §7, abridged; the rest is §27's)
+
+The returns' first version has four states and no rules, no metrics and no datapoint kinds. The label needed none of them. Every type carries labels without declaring any, and a label records the state its subject was in (`declaration-syntax.md` §6.8). The lead's metrics were declared a month after the first label, and a metric is computed on read, so they count every label from the first day:
+
+Read: `metric(labelled_returns, keep: [state])`
+
+| state | value | gaps |
+|---|---|---|
+| INSPECTING | 3 | |
+| RECEIVED | 1 | |
+
+**How long those returns waited.** Each labelled return's total time in `INSPECTING`, read through the label's subject:
+- **Labelled while inspecting:**
+  - T1: 9d 23h, until it was resolved.
+  - T3: 22d 15h, still being inspected at `now`.
+  - T5: 12d 14h, still being inspected.
+  - The median of the three is 12d 14h.
+- **Labelled on arrival:** T4, 7d 1h.
+
+Read: `metric(labelled_wait, keep: [state])`
+
+| state | value | gaps |
+|---|---|---|
+| INSPECTING | 12d 14h | |
+| RECEIVED | 7d 1h | |
+
+Beside every return's time being inspected, with nothing declared:
+
+Read: `metric(Return.time_in_state, keep: [state], filter: "i.state == Return.INSPECTING")`
+
+| state | value | gaps |
+|---|---|---|
+| INSPECTING | 7d 1h | |
+
+The six stays in `INSPECTING` are 1d, 2d, 7d 1h, 9d 23h, 12d 14h and 22d 15h, so the median is the third. A return labelled while inspecting waits a median 12d 14h against 7d 1h over all six. That is the evidence the team promotes the label on (§27).
+
+## 25. UC-14: trial a rule
+
+> A proposed rule — a photo is required before a unit of one model becomes `AVAILABLE` — runs for two weeks without enforcing. *Acceptance:* the refusals it would have made are recorded and countable, including who would have been refused; enforcing it is a flow change. (PRD §7)
+
+**The refusals it would have made are recorded, and countable by who.** An audited clause is evaluated on every request, and where it fails the request goes through and the would-be refusal is recorded in the attempt log (`DESIGN.md` §5.5). R31's and R33's requests to leave intake went through, and each left a record naming the rule and who asked. R32, photographed first, left none.
+
+Read: `metric(trial_refusals, keep: [clause, actor])`
+
+| clause | actor | value | gaps |
+|---|---|---|---|
+| rover_photo | ben | 1 | |
+| rover_photo | scout | 1 | |
+
+`actor` names the person or agent who asked, by the identity they act under (ADR-0122 decision 21). A dimension that names an actor is marked in the declaration a reader reads, so an upper layer can decide who may see it (PRD T7).
+
+**Enforcing it is a flow change.** The rule was enforced by version 7, a governed change (§26). From then it refuses: R11's request, without a photo, was refused on 9 December. The standard `refusals` counts enforced refusals only, so the trial's two are not in it:
+
+Read: `metric(Robot.refusals, keep: [clause, remedy], filter: "a.clause == \"rover_photo\"")`
+
+| clause | remedy | value | gaps |
+|---|---|---|---|
+| rover_photo | unreachable_from_here | 1 | |
+
+## 26. UC-15: an agent drafts a change
+
+> An agent reads UC-2's and UC-3's evidence and drafts a flow change. The impact report says what it would affect; a person approves it, the upper layer deciding who may; it is published and attributed to both. *Acceptance:* no flow change applies without passing the governed path; the evidence and the approval are part of the record. (PRD §7)
+
+Scout drafts the change that enforces the trial rule. It attaches its evidence:
+- the trial's would-be refusals (§25);
+- UC-3's override counts, which show units of a model whose photo rule did not fit, put on offer by override (§5).
+
+A flow changes only through a `DeclarationChange`: drafted, submitted, which attaches its impact report, and approved, which publishes it (`publish-and-import.md` §1). The change's source is the publish below, applied only when the change is approved.
+
+```yaml publish
+change: DC1
+modules:
+  inventory_journey:
+    add:
+      machines.UnitLifecycle.transitions.inventorize.guards.rover_photo: deny
+```
+
+**The impact report says what it would affect.** A submit runs the publish's checks as a dry run and reads the live objects. Among what it reads are "which a clause the change stops observing would now refuse" (`publish-and-import.md` §1, step 3). One unit was in intake without a photo, R11. At approval the report is computed again, and the approval is refused as `impact_unchanged` if it now names anything the attached one did not; it did not.
+
+Read: `impact of DC1`
+
+| object | transition | clause |
+|---|---|---|
+| R11 | inventorize | rover_photo |
+
+**The evidence and the approval are part of the record.** The change records who drafted it, who approved it, the kind of each, and the version it published. It also keeps the evidence it was drafted with, the values as they stood on 7 December.
+
+Read: `change DC1`
+
+| drafted_by | drafted_kind | approved_by | approved_kind | version |
+|---|---|---|---|---|
+| scout | agent | ana | human | 7 |
+
+Read: `evidence of DC1`
+
+| read | group | value |
+|---|---|---|
+| metric(trial_refusals, keep: [clause, actor]) | clause = rover_photo, actor = ben | 1 |
+| metric(trial_refusals, keep: [clause, actor]) | clause = rover_photo, actor = scout | 1 |
+| metric(Robot.override_counts, keep: [state, reason]) | state = AVAILABLE, reason = SUPPLIER_EXCEPTION | 4 |
+| metric(Robot.override_counts, keep: [state, reason]) | state = AVAILABLE, reason = MIS_SCANNED | 1 |
+| metric(Robot.override_counts, keep: [state, reason]) | state = DEVELOPMENT, reason = LEGACY_DATA | 1 |
+
+**No flow change applies without passing the governed path.** Version 7 exists only because Ana approved DC1: the publish above names its change and has no time of its own, and the script applies it at the approval and at nothing else. Who may approve, and that the approver is not the drafter, are the upper layer's (PRD F7, ADR-0114).
+
+## 27. UC-13, refined: a state promoted, and a state dropped
+
+> […] The team publishes a `WAITING_PARTS` state with its transitions, and moves the jobs in flight into it. Later a version drops a state nobody uses any more, and the few jobs still in it are moved by a declared mapping. *Acceptance:* […] the new version moves in-flight jobs by recorded transitions; the jobs in a removed state are moved by the declared mapping, and each move is recorded; time-to-done is comparable across the two versions. (PRD §7, abridged)
+
+On 14 December the team publishes the returns' second version, as `returns-module.md` §2 writes it. It adds:
+- `AWAITING_PARTS`, with `await_parts` and `parts_in`;
+- who received each return;
+- how often the unit came back;
+- a rule on replacements.
+
+The lead's three metrics are declared on it again, since a version is the whole module. This is version 9.
+
+```yaml publish
+at: 2026-12-14T01:00Z
+modules:
+  returns:
+    text: returns-module.md 2
+    add:
+      types.Return.metrics.labelled_returns:
+        description: The returns labelled missing-charger, by the state each was in when labelled.
+        source: labels
+        item: l
+        filter: 'l.name == "missing-charger"'
+        dimensions:
+          state: l.subject_state
+        expression: count(distinct l.subject)
+      types.Return.metrics.labelled_wait:
+        description: How long the returns labelled missing-charger spent being inspected, by the state each was in when labelled.
+        source: labels
+        item: l
+        filter: 'l.name == "missing-charger"'
+        dimensions:
+          state: l.subject_state
+        expression: median(l.subject.time_in(INSPECTING))
+      types.Return.metrics.time_to_done:
+        description: The time from receiving a return to closing it, by the month closed; every metric can be split by version.
+        source: transitions
+        item: t
+        filter: t.to_state == Return.CLOSED and not t.migrated
+        dimensions:
+          month: month(t.occurred_at)
+        expression: median(t.occurred_at - t.object.created_at)
+```
+
+**Version 10 drops `RESOLVED`.** A resolved return waited in `RESOLVED` until someone asked to close it, and T6 had waited three weeks. On 28 December version 10 drops the state: `resolve` closes a return at once. Its migration moves the returns still resolved into `CLOSED`, each by a recorded migration (`flow-format.md` §4.16).
+
+```yaml publish
+at: 2026-12-28T00:00Z
+modules:
+  returns:
+    remove: [types.Return.states.RESOLVED, types.Return.transitions.close]
+    add:
+      types.Return.transitions.resolve.to: CLOSED
+      migration:
+        description: Version 10 drops RESOLVED, since a resolved return was only ever waiting to be closed, and closes the returns still in it.
+        removed_states:
+          Return: { RESOLVED: CLOSED }
+```
+
+**What happens.**
+- **The in-flight returns move by recorded transitions.** T3 and T5, labelled and still being inspected, are moved into `AWAITING_PARTS` by `await_parts`. T3's parts come in on the 18th, and it is resolved the next day, into `RESOLVED`.
+- **T7** arrives and is resolved and closed under version 9.
+- **Version 10's mapping** moves T3 and T6 from `RESOLVED` into `CLOSED`.
+- **Under version 10:** T8 is resolved straight into `CLOSED`, and so is T5, when its parts come in in January.
+
+```yaml scenario
+now: 2027-01-11T00:00Z
+
+requests:
+  - { at: 2026-12-14T02:00Z, actor: U-BEN, object: T3, transition: await_parts }
+  - { at: 2026-12-14T02:05Z, actor: U-BEN, object: T5, transition: await_parts }
+  - { at: 2026-12-18T09:00Z, actor: U-BEN, object: T3, transition: parts_in }
+  - { at: 2026-12-19T09:00Z, actor: U-BEN, object: T3, transition: resolve, inputs: { outcome: REPAIRED } }
+  - { at: 2026-12-20T09:00Z, actor: U-BEN, create: Return, object: T7, transition: receive, inputs: { unit: L06, customer: C-ACME } }
+  - { at: 2026-12-21T09:00Z, actor: U-BEN, object: T7, transition: inspect }
+  - { at: 2026-12-22T09:00Z, actor: U-BEN, object: T7, transition: resolve, inputs: { outcome: REPAIRED } }
+  - { at: 2026-12-23T09:00Z, actor: U-BEN, object: T7, transition: close }
+  - { at: 2026-12-30T09:00Z, actor: U-BEN, create: Return, object: T8, transition: receive, inputs: { unit: R03, customer: C-ACME } }
+  - { at: 2026-12-30T10:00Z, actor: U-BEN, object: T8, transition: inspect }
+  - { at: 2027-01-02T09:00Z, actor: U-BEN, object: T8, transition: resolve, inputs: { outcome: REPAIRED } }
+  - { at: 2027-01-04T09:00Z, actor: U-BEN, object: T5, transition: parts_in }
+  - { at: 2027-01-05T09:00Z, actor: U-BEN, object: T5, transition: resolve, inputs: { outcome: REPAIRED } }
+```
+
+**Each move of a removed state is recorded.** T6, resolved on 5 December and never closed, was moved by the mapping, and its history shows the move as an event of its own:
+
+Read: `events(T6)`
+
+| transition | occurred_at | recorded_at |
+|---|---|---|
+| receive | 2026-12-03T11:00Z | 2026-12-03T11:00Z |
+| inspect | 2026-12-04T09:00Z | 2026-12-04T09:00Z |
+| resolve | 2026-12-05T09:00Z | 2026-12-05T09:00Z |
+| migrate | 2026-12-28T00:00Z | 2026-12-28T00:00Z |
+
+**The new state is measured from its first day.**
+
+Read: `metric(Return.time_in_state, keep: [state], filter: "i.state == Return.AWAITING_PARTS")`
+
+| state | value | gaps |
+|---|---|---|
+| AWAITING_PARTS | 4d 7h | |
+
+T3 waited 4d 7h for its parts, and T5 21d 6h 55m. The median of two is the lower.
+
+**Time-to-done is comparable across the versions.** Every metric can be split by the declaration version its rows were recorded under (PRD M3). A declaration version counts every publish of the store, not each version of one module (`DESIGN.md` §5.9). So the returns' three versions are declaration versions 6, 9 and 10:
+- version 6 is the first returns version, with the rule on trial;
+- versions 7 and 8, in between, changed the robot's rule and the returns' metrics, and no return closed under them;
+- the migration's moves are not the flow, and `time_to_done` leaves them out, as the standard metrics do (`declaration-syntax.md` §6.11).
+
+Read: `metric(time_to_done, keep: [version])`
+
+| version | value | gaps |
+|---|---|---|
+| 6 | 9d | |
+| 9 | 3d | |
+| 10 | 3d | |
+
+The values for each version:
+- **Version 6:** T2 took 3d 2h, T4 9d and T1 11d, so the median is 9d.
+- **Version 9:** T7 took 3d.
+- **Version 10:** T8 took 3d and T5, which waited for parts, 35d. The median of two is the lower, 3d.
+
+## 28. What is inferred, and what UC-13 to UC-15 found
+
+**Inferences**, each resting on a requirement or a reviewed or checked flow:
+1. **UC-13's service jobs are the returns of `returns-module.md`** (UC-13). The journey's service job has its working state already. The returns module is the design's own worked example of a flow that starts with no rules and promotes a label, and `traceability.md` cites it for UC-13. Its two versions are installed exactly as written, `text: returns-module.md 1` and `2`, so the check that document's modules pass is the check these versions pass.
+2. **The state nobody uses is `RESOLVED`** (UC-13). A resolved return only waits to be closed, and nothing reads the state. Dropping it closes a return at resolution.
+3. **"The two versions" are the returns' declaration versions** (UC-13), 6, 9 and 10, since a declaration version counts the store's publishes, not a module's.
+4. **The trial rule reads the model's name** (UC-14), `model.name != "Rover 2"`. The rule is about "a unit of one model", and the model's photo flag would enforce, not trial. Its remedy is `unreachable_from_here`, since the way through is another transition, `add_photo` (ADR-0122 decision 30).
+5. **The agent's evidence is the trial's refusals and UC-3's override counts** (UC-15). UC-15 names UC-2's and UC-3's evidence, and the change drafted here is about a photo rule, which UC-3's overrides bear on and UC-2's refusals by `filled` do not.
+6. **The earlier publishes were changes too.** `publish-and-import.md` §1 makes every publish the approval of a `DeclarationChange`. The scenario writes the earlier ones by their time alone, and writes this one with its drafting, since that is what UC-15 tests.
+
+**Findings.**
+1. **A version split separates every publish of the store** (determined). `time_to_done` by version distinguishes declaration versions, and a publish that changed another module starts a new one. Comparing "the two versions" of one flow means knowing which declaration versions changed it, which the publish history records. Nothing is missing, but a reader must know the split is by the store's version.
+2. **A label metric can reach the subject's time in a state** (determined). `labelled_wait` reads `l.subject.time_in(INSPECTING)` from a label row, and the flow checker accepts it in all four steps. A label is readable only as a metric's source, and this is how a label is related to how long its subject waited without reading the label anywhere else.
+3. **The impact report of a newly enforced clause** is "which a clause the change stops observing would now refuse" (`publish-and-import.md` §1, step 3). The scenario's dry run lists exactly those objects, R11, and checks at approval that the list has not changed. That is the only kind of change the scenario drafts, so the script computes no other kind of impact.
