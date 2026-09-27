@@ -41,7 +41,7 @@ beside it:  Engagement  SCHEDULED ─dispatch─▶ OUT ─start_return─▶ RE
 
 The module is written in the flow description format (`flow-format.md`, ADR-0116), in blocks that each continue it, with the reasoning between them. It is in the format's order: the vocabulary, the lifecycle every unit shares, then the types, each with the metrics that read its rows (ADR-0118), and last the one metric that combines two of them.
 
-**What the journey shares.** The people, the customers and two vocabularies the journey takes from the rest of the operations platform are a module of their own, which the journey imports. *(Corrected 2026-09-27: the journey imported them from the specification's `inventory` module, which declares a `Robot`, a `UnitLifecycle` and a `unit_serial` of its own, so the two modules could not be published in one closure (D410).)* A user leaves without a guard here, since a guard reading the journey's service jobs would make the two modules import each other.
+**What the journey shares.** The people, the agents, the customers and two vocabularies the journey takes from the rest of the operations platform are a module of their own, which the journey imports. *(Added 2026-09-27: the `Agent` type, as `declaration-syntax.md` §6.10 declares it. Without a type whose identity marks an agent, no agent could act on the store, since every request names an actor the store holds and takes its kind from that actor's type (PRD T6); writing the metric scenarios found it (D445).)* *(Corrected 2026-09-27: the journey imported them from the specification's `inventory` module, which declares a `Robot`, a `UnitLifecycle` and a `unit_serial` of its own, so the two modules could not be published in one closure (D410).)* A user leaves without a guard here, since a guard reading the journey's service jobs would make the two modules import each other.
 
 ```yaml
 module: operations_shared
@@ -72,6 +72,28 @@ types:
         kind: external
         from: ACTIVE
         to: LEFT
+
+  Agent:
+    description: An AI agent that acts on the platform under its own key.
+    tracking: record
+
+    attributes:
+      key_id: { type: identity, actor_kind: agent, unique: true }
+      name:   { type: string }
+
+    states:
+      ACTIVE:  { category: live }
+      REVOKED: { category: closed, final: true }
+
+    transitions:
+      issue:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [key_id, name]
+      revoke:
+        kind: external
+        from: ACTIVE
+        to: REVOKED
 
   Customer:
     description: A customer, as the legacy system holds them; this store holds a mirror, which only the import writes.

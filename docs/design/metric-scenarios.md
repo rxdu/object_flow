@@ -2,7 +2,7 @@
 
 Status: **worked scenarios**, 2026-09-27, written at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". Each of the PRD's first three use cases is written here as a fixed flow, a fixed history and the values its reads return, so a builder has a test and a reader has something to compute and compare (`TODO.md`, "Write the metric use cases as checked scenarios").
 
-**Method.** One store, one history, three questions. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the one type this document adds (§1). Every value below is derived by hand from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
+**Method.** One store, one history, three questions. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the agent type that writing these scenarios added to it (§1). Every value below is derived by hand from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
 - a request whose actor the store does not hold;
 - a transition the type does not declare, that is `only_via` others, or that is taken from a state it does not leave;
 - a refusal on a guard the transition does not declare, with a remedy other than the declared one, or on a clause that is not the first to fail;
@@ -14,35 +14,7 @@ The script evaluates guards, effects and invariants from a transcription it hold
 
 ## 1. The store
 
-The store holds the modules `operations_shared` and `inventory_journey` of `unit-journey.md` §2, and `scenario_agents` below. The journey declares no type whose identity marks an agent, so no agent could act on this store: every request must name an actor the store holds (PRD T6; `DESIGN.md` §6 step 1). The agent type is the one `declaration-syntax.md` §6.10 declares, written in the flow format.
-
-```yaml
-module: scenario_agents
-categories: [live, closed]
-
-types:
-  Agent:
-    description: An AI agent that acts on the store under its own key, as declaration-syntax.md §6.10 declares one.
-    tracking: record
-
-    attributes:
-      key_id: { type: identity, actor_kind: agent, unique: true }
-      name:   { type: string }
-
-    states:
-      ACTIVE:  { category: live }
-      REVOKED: { category: closed, final: true }
-
-    transitions:
-      issue:
-        kind: initial
-        to: ACTIVE
-        required_inputs: [key_id, name]
-      revoke:
-        kind: external
-        from: ACTIVE
-        to: REVOKED
-```
+The store holds the modules `operations_shared` and `inventory_journey` of `unit-journey.md` §2. The agent Scout is an `Agent`, the type `operations_shared` declares for agents. *(Corrected 2026-09-27: this document first declared the type in a module of its own, `scenario_agents`, since the journey declared none and no agent could act on the store (PRD T6; `DESIGN.md` §6 step 1). At the author's direction the type moved into `operations_shared` (D445).)*
 
 **The port.** At `2026-09-01T00:00Z` the store imported the legacy system's objects while every type was a mirror, and the publish of the journey cut them over (`publish-and-import.md` §7). `Customer` stays a mirror, which only the import writes. The history below begins after the cutover. The import's events are marked `imported` and keep provenance `asserted`, and each imported object's `state_source` is `imported` (`DESIGN.md` §8, §11).
 
@@ -326,7 +298,7 @@ The author allowed inference "based on clear requirements we've already discusse
 
 1. **A product configuration is the model of the delivery's units** (UC-1). The journey's delivery has no configuration. What it delivers is units, and a unit's kind is its `RobotModel`, which the journey uses as the product: its flags hold what a unit carries, and its units are counted by it. The model's own example of a set-valued dimension is "a delivery's configurations" (`declaration-syntax.md` §6.9). Here the set is the delivery's units, and the dimension reaches one hop past it.
 2. **The checklist not done is a unit not yet arrived** (UC-2). The journey's delivery has no checklist, and its completion waits on `filled`, whose failure means a pegged unit has not arrived. It is the same shape of refusal: a completion requested before the delivery's parts are ready, with the remedy `dependent`.
-3. **An agent type**, since the journey declares none (§1). It rests on PRD T6, that every actor's kind is declared with the type that holds it, and on `declaration-syntax.md` §6.10's `Agent`, copied as it is.
+3. **An agent type**, which the journey lacked (§1). It rests on PRD T6, that every actor's kind is declared with the type that holds it, and on `declaration-syntax.md` §6.10's `Agent`, copied as it is. At the author's direction it is now in `operations_shared` (D445).
 4. **The history's shape.** The port, the eight deliveries and the supplier are this document's. Each was chosen to put a rule under load:
    - an ended stay in a closed state;
    - an open stay, and a ported one;
