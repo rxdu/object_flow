@@ -116,9 +116,9 @@ Current: 82 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 
 | ID | Covered by | Status | What remains |
 |---|---|---|---|
-| UC-1 | DESIGN §5.12, §7, §11; declaration-syntax.md §6.9; publish-and-import.md §4; ADR-0098; ADR-0106 | covered |  |
-| UC-2 | DESIGN §6, §7, §5.12; ADR-0096; declaration-syntax.md §6.9; storage-schema.md §6; ADR-0098; declaration-syntax.md §6.11 | covered |  |
-| UC-3 | DESIGN §8, §10; ADR-0096; declaration-syntax.md §6.9; publish-and-import.md §4; ADR-0100 | covered |  |
+| UC-1 | DESIGN §5.12, §7, §11; declaration-syntax.md §6.9; publish-and-import.md §4; ADR-0098; ADR-0106; ADR-0123; metric-scenarios.md §3 | covered |  |
+| UC-2 | DESIGN §6, §7, §5.12; ADR-0096; declaration-syntax.md §6.9; storage-schema.md §6; ADR-0098; declaration-syntax.md §6.11; metric-scenarios.md §4 | covered |  |
+| UC-3 | DESIGN §8, §10; ADR-0096; declaration-syntax.md §6.9; publish-and-import.md §4; ADR-0100; metric-scenarios.md §5 | covered |  |
 | UC-4 | DESIGN §5.11, §5.5, §6; declaration-syntax.md §6.8; ADR-0099 | covered | |
 | UC-5 | DESIGN §5.11, §5.12; declaration-syntax.md §6.8, §6.9 | covered | |
 | UC-6 | DESIGN §5.4; declaration-syntax.md §4.2; ADR-0103 | covered | |

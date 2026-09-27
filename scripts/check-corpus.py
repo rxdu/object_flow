@@ -236,6 +236,11 @@ def check_declarations():
             if line.startswith("  docs/") or "missed" in line:
                 findings.append(line.strip())
         findings.append("run scripts/check-flow-docs.py: " + (r.stdout.strip().splitlines() or ["no output"])[-1])
+    # the metric scenarios: their history replays against the modules, and every value they quote holds
+    r = subprocess.run([sys.executable, str(ROOT / "scripts/check-scenarios.py")], capture_output=True, text=True)
+    if r.returncode != 0:
+        findings += [line.strip() for line in r.stdout.splitlines() if line.startswith("  docs/") or "MISSED" in line]
+        findings.append("run scripts/check-scenarios.py: " + (r.stdout.strip().splitlines() or ["no output"])[-1])
 
 
 _ONES = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven "
