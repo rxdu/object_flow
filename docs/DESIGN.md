@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 448 entries and five cosmetics; 448 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 449 entries and five cosmetics; 449 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -19,7 +19,7 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 - ADR-0122, on 2026-09-27: a flow is recoverable from its description, the gaps a review by readers given only the specification found (D395 to D407) closed.
 - ADR-0065 to ADR-0073, which the author ruled on.
 
-**Decided at the author's direction, the author's own acceptance pending:** ADR-0123, on 2026-09-27: a set-valued dimension counts a row once under each distinct value it reaches, and a group whose rows all lack a body is reported, both found writing the metric scenarios (`design/metric-scenarios.md`).
+**Decided at the author's direction, the author's own acceptance pending:** ADR-0123, on 2026-09-27: a set-valued dimension counts a row once under each distinct value it reaches, and a group whose rows all lack a body is reported; and ADR-0124, the same day: a combined metric read by fewer dimensions than it groups by combines its inputs over them. Both were found writing the metric scenarios (`design/metric-scenarios.md`).
 
 **Proposed and awaiting the author:** none since 2026-09-26, when the author accepted ADR-0102, which writes the unit's whole journey from the first consumer's production code.
 

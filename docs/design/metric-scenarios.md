@@ -1,8 +1,8 @@
-# Metric scenarios: UC-1 to UC-15
+# Metric scenarios: UC-1 to UC-18
 
-Status: **worked scenarios**, 2026-09-27, written at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". The author then asked for the next three, "write the scenarios for UC-4 to UC-6" (§8 to §12), then "write the scenarios for UC-7 to UC-9" (§13 to §17), then "write the scenarios for UC-10 to UC-12" (§18 to §22), and then "write the scenarios for UC-13 to UC-15" (§23 to §28). Each of the PRD's first fifteen use cases is written here as a fixed flow, a fixed history and the values its reads return, so a builder has a test and a reader has something to compute and compare (`TODO.md`, "Write the metric use cases as checked scenarios").
+Status: **worked scenarios**, 2026-09-27, written at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". The author then asked for the next three, "write the scenarios for UC-4 to UC-6" (§8 to §12), then "write the scenarios for UC-7 to UC-9" (§13 to §17), then "write the scenarios for UC-10 to UC-12" (§18 to §22), then "write the scenarios for UC-13 to UC-15" (§23 to §28), and then "write the scenarios for UC-16 to UC-18" (§29 to §33). Each of the PRD's first eighteen use cases is written here as a fixed flow, a fixed history and the values its reads return, so a builder has a test and a reader has something to compute and compare (`TODO.md`, "Write the metric use cases as checked scenarios").
 
-**Method.** One store and one history, in six parts, with each use case's questions asked of it. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the agent type that writing these scenarios added to it (§1). Every value below is derived by hand from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
+**Method.** One store and one history, in nine parts, with each use case's questions asked of it. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the agent type that writing these scenarios added to it (§1). Every value below is derived by hand from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
 - a request whose actor the store does not hold;
 - a transition the type does not declare, that is `only_via` others, or that is taken from a state it does not leave;
 - a refusal on a guard the transition does not declare, with a remedy other than the declared one, or on a clause that is not the first to fail;
@@ -10,9 +10,9 @@ Status: **worked scenarios**, 2026-09-27, written at the author's direction: "wr
 - a recording its subject's kinds do not include, or one its generated guards refuse;
 - a published version the flow checker refuses, checked against the version before it.
 
-The script evaluates guards, effects and invariants from a transcription it holds, and checks each against the module's text before it runs. It is not an engine, and it refuses a history that reaches anything it has not transcribed. Its self-test plants sixteen mistakes, from a wrong value to a change published without its approval, and shows each caught.
+The script evaluates guards, effects and invariants from a transcription it holds, and checks each against the module's text before it runs. It is not an engine, and it refuses a history that reaches anything it has not transcribed. Its self-test plants nineteen mistakes, from a wrong value to an erasure never requested, and shows each caught.
 
-**What is inferred.** The use cases speak of the first consumer's deliveries, and the reviewed flow is thinner in two places: its delivery has no product configuration and no checklist. §6 lists each inference with what it rests on. Two questions the specification left open were decided to write the values (§7, ADR-0123). UC-4 to UC-6 need inspection and availability datapoints the journey lacks, so the history's second part publishes a version that adds them (§8), and §12 lists what they inferred and found. UC-7 to UC-9 add a telemetry summary, three formulas and legacy history, in a third part (§13), and §17 lists theirs. UC-10 to UC-12 add a rule on a metric, an agent's escalation and the business exceptions, in a fourth (§18), and §22 lists theirs. UC-13 to UC-15 install the returns module's versions, put a rule on trial and enforce it by a governed change, in a fifth and a sixth (§23, §27), and §28 lists theirs.
+**What is inferred.** The use cases speak of the first consumer's deliveries, and the reviewed flow is thinner in two places: its delivery has no product configuration and no checklist. §6 lists each inference with what it rests on. Two questions the specification left open were decided to write the values (§7, ADR-0123). UC-4 to UC-6 need inspection and availability datapoints the journey lacks, so the history's second part publishes a version that adds them (§8), and §12 lists what they inferred and found. UC-7 to UC-9 add a telemetry summary, three formulas and legacy history, in a third part (§13), and §17 lists theirs. UC-10 to UC-12 add a rule on a metric, an agent's escalation and the business exceptions, in a fourth (§18), and §22 lists theirs. UC-13 to UC-15 install the returns module's versions, put a rule on trial and enforce it by a governed change, in a fifth and a sixth (§23, §27), and §28 lists theirs. UC-16 to UC-18 split by the kind of actor, hand service jobs between engineers and erase a customer, in a seventh part (§29) and an eighth and a ninth (§32), and §33 lists theirs.
 
 ## 1. The store
 
@@ -41,6 +41,7 @@ port: 2026-09-01T00:00Z
 imported:
   - { object: U-ANA, type: User, state: ACTIVE, attributes: { login: ana } }
   - { object: U-BEN, type: User, state: ACTIVE, attributes: { login: ben } }
+  - { object: U-CHEN, type: User, state: ACTIVE, attributes: { login: chen } }
   - { object: C-ACME, type: Customer, state: ACTIVE, attributes: { legacy_key: "C-1001", name: Acme Robotics } }
   - { object: C-BOREAL, type: Customer, state: ACTIVE, attributes: { legacy_key: "C-1002", name: Boreal Logistics } }
   - { object: M-ARM, type: RobotModel, state: ACTIVE, attributes: { name: Arm 7, manufacturer: Armtek, warranty_months: 24 } }
@@ -60,6 +61,7 @@ imported:
   - { object: L06, type: Robot, state: SOLD, created: 2025-08-04T00:00Z, entered: 2025-10-01T00:00Z, entered_by: human, legacy: [[REQUESTED, 2025-08-04T00:00Z, 2025-09-10T00:00Z], [INTAKE, 2025-09-10T00:00Z, 2025-09-12T00:00Z], [AVAILABLE, 2025-09-12T00:00Z, 2025-10-01T00:00Z]], attributes: { model: M-ROVER, label_printed_at: 2025-09-11T00:00Z, sold_to: C-ACME } }
   - { object: L07, type: Robot, state: REQUESTED, created: 2026-07-20T00:00Z, entered: 2026-07-20T00:00Z, entered_by: human, attributes: { model: M-ARM } }
   - { object: E01, type: Engagement, state: OUT, entered: 2026-08-25T00:00Z, entered_by: human, attributes: { kind: LEASE, expected_return: 2026-11-10T00:00Z } }
+  - { object: SJ1, type: ServiceJob, state: OPEN, created: 2026-08-24T00:00Z, created_by: human, entered: 2026-08-24T00:00Z, entered_by: human, legacy_members: { engineer: [[null, 2026-08-24T00:00Z, 2026-08-26T00:00Z], [U-BEN, 2026-08-26T00:00Z, 2026-08-29T00:00Z]] }, member_entered: { engineer: 2026-08-29T00:00Z }, attributes: { kind: REPAIR, robot: L06, customer: C-ACME, engineer: U-CHEN } }
 
 requests:
   - { at: 2026-09-01T01:00Z, actor: U-ANA, create: Agent, object: A-SCOUT, transition: issue, inputs: { key_id: scout, name: Scout } }
@@ -244,8 +246,8 @@ Read: `metric(Delivery.refusals, keep: [transition, clause, remedy, actor_kind, 
 Where each count comes from:
 - **Scout's refusals by `filled`:** two in W37, from 8 and 9 September. One in W38, from Sunday 20 September. Three in W39, from 21, 22 and 23 September.
 - **Ben's other refusals:**
-  - an `unavailable` refusal when he asked to complete D02 after it was delivered (W37);
-  - `not_internal` when he asked to sell D04, an internal delivery (W38);
+  - an `unavailable` refusal when Ben asked to complete D02 after it was delivered (W37);
+  - `not_internal` when Ben asked to sell D04, an internal delivery (W38);
   - a `stale` refusal when D06's binding request carried an old version (W39).
 
 Read over every week, the answer to "which rule refuses most" is `filled`, and all of it is the agent's:
@@ -263,7 +265,7 @@ Read: `metric(Delivery.refusals, keep: [clause, remedy, actor_kind])`
 
 > Units are often put into `AVAILABLE` by override rather than through `INTAKE`, because, say, the label-and-photo rule does not fit one supplier's parts. *Acceptance:* override counts per target state and per reason, excluding the objects placed there by the data import, and each override reviewable. (PRD §7)
 
-Kestrel K2 requires a label photo, and its units arrive without one. Ana's three requests to inventorize them were refused by `photo`, and she put each on offer by `correct_state`, with the reason `SUPPLIER_EXCEPTION`. She did the same for R04, a ported unit left in intake. Ben corrected R23, mis-scanned at intake, and Scout moved R09 into the development pool, the legacy record having had it wrong. The import placed R01 to R03 in `AVAILABLE`, and those events are marked `imported`, so the counts leave them out.
+Kestrel K2 requires a label photo, and its units arrive without one. Ana's three requests to inventorize them were refused by `photo`, and Ana put each on offer by `correct_state`, with the reason `SUPPLIER_EXCEPTION`, and did the same for R04, a ported unit left in intake. Ben corrected R23, mis-scanned at intake, and Scout moved R09 into the development pool, the legacy record having had it wrong. The import placed R01 to R03 in `AVAILABLE`, and those events are marked `imported`, so the counts leave them out.
 
 Read: `metric(Robot.override_counts, keep: [state, reason])`
 
@@ -1282,12 +1284,12 @@ modules:
 ```
 
 **What happens.**
-- **Returns T1 to T6.** Ben receives six returns and inspects each. He labels four `missing-charger` as it happens: three while they are being inspected, and T4 on arrival. T1, T2 and T4 are resolved and closed. T6 is resolved and never closed.
+- **Returns T1 to T6.** Ben receives six returns, inspects each and labels four `missing-charger` as it happens: three while they are being inspected, and T4 on arrival. T1, T2 and T4 are resolved and closed. T6 is resolved and never closed.
 - **The trial.** Rover 2 units leave intake while the rule is on trial:
   - Ben takes R31 through without a photo;
   - Scout takes R33 through without one;
   - Ben photographs R32 first.
-- **Enforcing the rule (UC-15).** Scout drafts enforcing it, submits the change and attaches the evidence. Ana approves it on 7 December, as version 7. Two days later Ben's request to take R11 through without a photo is refused. He photographs it and it goes through.
+- **Enforcing the rule (UC-15).** Scout drafts enforcing it, submits the change and attaches the evidence. Ana approves it on 7 December, as version 7. Two days later Ben's request to take R11 through without a photo is refused. Ben photographs it and it goes through.
 - **Evidence for the label.** On 13 December, after a month of labels, the lead declares three metrics on the returns, as version 8, to see what the label says.
 
 ```yaml publish
@@ -1608,3 +1610,344 @@ The values for each version:
 1. **A version split separates every publish of the store** (determined). `time_to_done` by version distinguishes declaration versions, and a publish that changed another module starts a new one. Comparing "the two versions" of one flow means knowing which declaration versions changed it, which the publish history records. Nothing is missing, but a reader must know the split is by the store's version.
 2. **A label metric can reach the subject's time in a state** (determined). `labelled_wait` reads `l.subject.time_in(INSPECTING)` from a label row, and the flow checker accepts it in all four steps. A label is readable only as a metric's source, and this is how a label is related to how long its subject waited without reading the label anywhere else.
 3. **The impact report of a newly enforced clause** is "which a clause the change stops observing would now refuse" (`publish-and-import.md` §1, step 3). The scenario's dry run lists exactly those objects, R11, and checks at approval that the list has not changed. That is the only kind of change the scenario drafts, so the script computes no other kind of impact.
+
+## 29. January 2027: service jobs change hands
+
+The history continues from `now` of §27. The reads of §30 and §31 are taken at `2027-01-25T00:00Z`, a Monday. The reads of §3 to §27 hold as written, at their own `now`.
+
+**What the first part ported, and nothing had read.**
+- **Chen**, an engineer, a user of the legacy system.
+- **SJ1**, a repair still open. The legacy audit trail shows it unassigned for its first two days, then Ben's, then Chen's from 29 August. The port brings those as legacy intervals of `engineer` (`publish-and-import.md` §4, "Intervals").
+
+On 11 January the lead publishes version 11. It adds a split of delivery cycle time by who opened the delivery (UC-16), and makes a reassignment proposable, so an agent can propose one for a person to approve (UC-18).
+
+```yaml publish
+at: 2027-01-11T01:00Z
+modules:
+  inventory_journey:
+    add:
+      types.ServiceJob.transitions.reassign.proposable: true
+      types.Delivery.metrics.delivery_cycle_time:
+        description: The time from opening a delivery to delivering it, by the kind of actor that opened it.
+        source: transitions
+        item: t
+        filter: t.to_state == Delivery.DELIVERED and t.from_state == Delivery.PREPARATION
+        dimensions:
+          creator: t.object.created_by_kind
+        expression: median(t.occurred_at - t.object.created_at)
+```
+
+**What happens.**
+- **Diya joins**, added by Ana.
+- **Ana opens four service jobs:**
+  - J1, a maintenance job for Ben, which Ben starts and finishes.
+  - J2, a repair for Chen. It moves to Diya, then back to Chen; Chen starts it and Ana finishes it.
+  - J3, an upgrade for Ben on a unit in the development pool, not yet started.
+  - J4, a maintenance job for Diya.
+- **A proposal:** Scout, balancing the workload, proposes moving J4 to Ben, and Ana approves.
+
+```yaml scenario
+now: 2027-01-25T00:00Z
+
+requests:
+  - { at: 2027-01-11T02:00Z, actor: U-ANA, create: User, object: U-DIYA, transition: add, inputs: { login: diya } }
+  - { at: 2027-01-12T09:00Z, actor: U-ANA, create: ServiceJob, object: J1, transition: open, inputs: { kind: MAINTENANCE, robot: R05, customer: C-ACME, engineer: U-BEN } }
+  - { at: 2027-01-12T10:00Z, actor: U-ANA, create: ServiceJob, object: J2, transition: open, inputs: { kind: REPAIR, robot: R07, customer: C-BOREAL, engineer: U-CHEN } }
+  - { at: 2027-01-13T09:00Z, actor: U-BEN, object: J1, transition: start }
+  - { at: 2027-01-13T10:00Z, actor: U-ANA, create: ServiceJob, object: J3, transition: open, inputs: { kind: UPGRADE, robot: R08, customer: C-ACME, engineer: U-BEN } }
+  - { at: 2027-01-14T09:00Z, actor: U-ANA, object: J2, transition: reassign, inputs: { engineer: U-DIYA } }
+  - { at: 2027-01-14T10:00Z, actor: U-ANA, create: ServiceJob, object: J4, transition: open, inputs: { kind: MAINTENANCE, robot: L03, customer: C-BOREAL, engineer: U-DIYA } }
+  - { at: 2027-01-15T09:00Z, actor: U-BEN, object: J1, transition: finish }
+  - { at: 2027-01-18T09:00Z, actor: U-ANA, object: J2, transition: reassign, inputs: { engineer: U-CHEN } }
+  - { at: 2027-01-19T09:00Z, actor: U-CHEN, object: J2, transition: start }
+  - { at: 2027-01-20T10:00Z, actor: U-ANA, object: J2, transition: finish }
+  - { at: 2027-01-20T11:00Z, actor: A-SCOUT, propose: PR1, object: J4, transition: reassign, inputs: { engineer: U-BEN } }
+  - { at: 2027-01-21T09:00Z, actor: U-ANA, approve_proposal: PR1 }
+```
+
+## 30. UC-16: people and agents on the same flow
+
+> The lead compares cycle time, refusal rate and rework for deliveries created by agents with those created by people. *Acceptance:* every metric can be split by the kind of actor. (PRD §7)
+
+**Every metric can be split by the kind of actor.** Every metric has an `actor_kind` dimension, taken from its rows (`declaration-syntax.md` §6.9). Which actor that is depends on the row:
+- the object's creator, for a row that is an object;
+- whoever entered a stay, for an interval;
+- whoever requested it, for a transition or a refusal.
+
+UC-16's lead asks about deliveries *created* by agents. A transition row's `actor_kind` is its requester's, so the lead's cycle time reads the creator through the row's object, `t.object.created_by_kind`.
+
+**Cycle time, by who opened the delivery.**
+- **People opened seven of the delivered ones.** Their times from opening to delivery were 1d, 1d 1h, 2d, 3d 12h, 4d 10h, 5d 9h and 5d 19h, with a median of 3d 12h.
+- **Scout opened D14**, which took 11d 2h, held by the sign-off of §19.
+- **D01's creator is `unknown`.** It was ported, and its mapping did not say who opened it (`publish-and-import.md` §4, "Created").
+
+Read: `metric(delivery_cycle_time, keep: [creator])`
+
+| creator | value | gaps |
+|---|---|---|
+| human | 3d 12h | |
+| agent | 11d 2h | |
+| unknown | 15d | |
+
+**Refusal rate, by who asked.** The standard `refusal_rate` combines the refusals and the transitions taken (`declaration-syntax.md` §6.11). Bound to `complete_sale` and kept by `actor_kind`, each input is counted over the rows the binding selects and the kept dimension groups, and the two are then combined (§33):
+- **Agents** asked to complete a delivery seven times and were refused each time, by `filled` six times and by `all_checked` once.
+- **People** were refused four times and completed eight: 4 in 12, 0.333.
+
+Read: `metric(Delivery.refusal_rate, bind: {transition: complete_sale}, keep: [actor_kind])`
+
+| actor_kind | value | gaps |
+|---|---|---|
+| agent | 1.000 | |
+| human | 0.333 | |
+
+**Rework.** In the journey a delivery never returns to a state it held, so the standard `rework` has no rows to split. Kept by `actor_kind`, the read is empty rather than zero, since no row exists:
+
+Read: `metric(Delivery.rework, keep: [actor_kind])`
+
+| actor_kind | value | gaps |
+|---|---|---|
+
+**The same split on a standard metric.** Throughput counts completions by who requested them, and every delivery completion was a person's, including D14's, which Scout opened:
+
+Read: `metric(Delivery.throughput, keep: [state, actor_kind])`
+
+| state | actor_kind | value | gaps |
+|---|---|---|---|
+| DELIVERED | human | 9 | |
+
+## 31. UC-18: who has what, and where do handoffs hurt?
+
+> Service jobs have an engineer-of-record, which an agent may not be, and a user with active services must have them reassigned before being removed. A service lead asks how much open work each engineer holds, how long jobs wait before anyone is assigned, which jobs changed hands more than once or went back to an earlier engineer, whether cycle time differs by engineer, and how often a job is completed by someone other than its assignee. An agent balancing the workload reads the same numbers before proposing a reassignment, and a person makes it. *Acceptance:* every assignment from the first day the flow runs, including the one made at creation, is recorded with who made it; every question above is a standard metric for any type that declares an assignee; the legacy system's reassignments arrive with the port wherever its audit trail recorded them; choosing the engineer stays with the person or agent. (PRD §7, abridged)
+
+The journey's `ServiceJob` marks `engineer` as its assignee, a reference to a `User`, so an agent, an `Agent`, cannot be one (`declaration-syntax.md` §6.10). Each question is one of the standard assignment metrics every type with an assignee has, read by name with the assignee's suffix (§6.11).
+
+**Every assignment is recorded, with who made it, from the one at creation.** The interval index keeps each value `engineer` held, from the job's creation, and who set it:
+
+Read: `intervals(J2.engineer)`
+
+| value | entered_at | entered_by_kind | legacy |
+|---|---|---|---|
+| U-CHEN | 2027-01-12T10:00Z | human | false |
+| U-DIYA | 2027-01-14T09:00Z | human | false |
+| U-CHEN | 2027-01-18T09:00Z | human | false |
+
+**The legacy system's reassignments arrive with the port.** SJ1's two days unassigned and its engineers before the port are legacy intervals. Its current engineer's interval begins when the legacy record says Chen took it, not at the port:
+
+Read: `intervals(SJ1.engineer)`
+
+| value | entered_at | entered_by_kind | legacy |
+|---|---|---|---|
+| absent | 2026-08-24T00:00Z | human | true |
+| U-BEN | 2026-08-26T00:00Z | human | true |
+| U-CHEN | 2026-08-29T00:00Z | human | false |
+
+**How much open work each engineer holds.** SJ1 is Chen's. J3 and J4 are Ben's, J4 since the proposal:
+
+Read: `metric(ServiceJob.open_work.engineer, keep: [assignee])`
+
+| assignee | value | gaps |
+|---|---|---|
+| U-BEN | 2 | |
+| U-CHEN | 1 | |
+
+**How long jobs wait before anyone is assigned.** The journey requires an engineer when a job is opened, so every job opened in the store is assigned at once. Only SJ1, ported, waited: two days, in August.
+
+Read: `metric(ServiceJob.time_to_first_assignment.engineer, keep: [month])`
+
+| month | value | gaps |
+|---|---|---|
+| 2026-08 | 2d | |
+| 2027-01 | 0 | |
+
+**Which jobs changed hands more than once, or went back to an earlier engineer.** Handoffs are the engineers a job has had, less one. A return is a job going back to an engineer it had before. J2 changed hands twice and went back to Chen, so it is the one both flags name: `changed_hands_more_than_once` when the handoffs are more than 1, and `returned_to_earlier` when the returns are more than 0.
+
+Read: `metric(ServiceJob.handoffs_by_object.engineer, keep: [object])`
+
+| object | value | gaps |
+|---|---|---|
+| SJ1 | 1 | |
+| J1 | 0 | |
+| J2 | 2 | |
+| J3 | 0 | |
+| J4 | 1 | |
+
+Read: `metric(ServiceJob.returns_by_object.engineer, keep: [object])`
+
+| object | value | gaps |
+|---|---|---|
+| SJ1 | 0 | |
+| J1 | 0 | |
+| J2 | 1 | |
+| J3 | 0 | |
+| J4 | 0 | |
+
+**Whether cycle time differs by engineer.** Cycle time is attributed to whoever held the job when it completed:
+- Ben finished J1 three days after it was opened.
+- J2 was Chen's when Ana finished it, eight days after it was opened.
+
+Read: `metric(ServiceJob.cycle_time_by_assignee.engineer, keep: [assignee])`
+
+| assignee | value | gaps |
+|---|---|---|
+| U-BEN | 3d | |
+| U-CHEN | 8d | |
+
+**How often someone other than the assignee acts.** Each transition on a job with an engineer counts as the assignee's or someone else's. The assignee is the engineer the job held before the transition's own writes, and a creation has none.
+- **Reassignments:** Ana made all three, and none of the jobs was Ana's.
+- **Starts:** each engineer started their own.
+- **Finishes:** Ben finished J1, and Ana finished J2, which was Chen's.
+
+Read: `metric(ServiceJob.acted_by_non_assignee.engineer, keep: [transition])`
+
+| transition | value | gaps |
+|---|---|---|
+| reassign | 1.000 | |
+| start | 0.000 | |
+| finish | 0.500 | |
+
+**An agent reads the same numbers and proposes; a person makes it.** Scout reads `open_work` as anyone does and proposes moving J4 from Diya to Ben. A proposal is a request filed for approval, and approving it executes the request as the approver (`DESIGN.md` §9). So the reassignment is Ana's, and the interval index records it as a person's. Which engineer, and whether to propose at all, are Scout's and Ana's, not the engine's.
+
+Read: `proposal PR1`
+
+| proposed_by | proposed_kind | approved_by | approved_kind | state |
+|---|---|---|---|---|
+| scout | agent | ana | human | executed |
+
+## 32. UC-17: erase a customer
+
+> A customer asks to be erased. *Acceptance:* their personal values are removed from objects, history and datapoints; metrics built from those datapoints keep their counts and expose no personal value. (PRD §7)
+
+The journey's customer is a mirror of the legacy system's, and held no personal value. On 25 January the lead publishes version 12. It gives a customer who is a person a contact name and email, both `personal`, and an erasure, which a mirror may declare (`declaration-syntax.md` §2; `flow-format.md` §4.13):
+
+```yaml publish
+at: 2027-01-25T01:00Z
+modules:
+  operations_shared:
+    add:
+      types.Customer.attributes.contact_name: { type: string, optional: true, personal: true }
+      types.Customer.attributes.contact_email: { type: string, optional: true, personal: true }
+      types.Customer.transitions:
+        forget:
+          kind: erasure
+          description: Erases a private customer's contact details, at their request.
+          inputs:
+            reason: { type: string }
+```
+
+**Dana Lim**, a private customer, arrives with the legacy system's next refresh of the customers, since only the import writes a mirror. Dana buys a Rover 2, R31, on delivery D18. Ben's first result for its drive test carries a remark naming Dana.
+
+```yaml scenario
+now: 2027-02-01T00:00Z
+
+imported:
+  - { object: C-DANA, type: Customer, state: ACTIVE, at: 2027-01-26T00:00Z, attributes: { legacy_key: "C-1003", name: Private customer C-1003, contact_name: Dana Lim, contact_email: dana@example.net } }
+
+requests:
+  - { at: 2027-01-26T09:00Z, actor: U-BEN, create: Delivery, object: D18, transition: open, inputs: { customer: C-DANA, promised_date: 2027-02-05T00:00Z } }
+  - { at: 2027-01-26T10:00Z, actor: U-BEN, object: D18, transition: bind_slot, inputs: { robot: R31 } }
+  - { at: 2027-01-27T09:00Z, actor: U-BEN, record: pdi_results, subject: D18, object: Q10, fields: { unit: R31, check: K3, outcome: PASS, remark: Dana Lim asked for the drive test to be filmed } }
+  - { at: 2027-01-27T09:10Z, actor: U-BEN, record: pdi_results, subject: D18, object: Q11, fields: { unit: R31, check: K4, outcome: FAIL } }
+  - { at: 2027-01-27T15:00Z, actor: U-BEN, record: pdi_results, subject: D18, object: Q12, fields: { unit: R31, check: K4, outcome: PASS } }
+  - { at: 2027-01-28T09:00Z, actor: U-BEN, object: D18, transition: complete_sale }
+```
+
+**Before the erasure**, on 1 February:
+
+Read: `get(C-DANA)`
+
+| attribute | value |
+|---|---|
+| contact_email | dana@example.net |
+| contact_name | Dana Lim |
+| legacy_key | C-1003 |
+| name | Private customer C-1003 |
+
+Read: `results(D18)`
+
+| object | unit | check | outcome | remark |
+|---|---|---|---|---|
+| Q10 | R31 | K3 | PASS | Dana Lim asked for the drive test to be filmed |
+| Q11 | R31 | K4 | FAIL | absent |
+| Q12 | R31 | K4 | PASS | absent |
+
+The results are counted by first-pass yield (§15). R31 failed its lidar check at first, so January's Rover 2 yield is 0.000:
+
+Read: `metric(first_pass_yield, keep: [model, month])`
+
+| model | month | value | gaps |
+|---|---|---|---|
+| M-ARM | 2026-10 | 0.500 | |
+| M-ROVER | 2026-10 | 1.000 | |
+| M-ARM | 2026-11 | 1.000 | |
+| M-ROVER | 2026-11 | 1.000 | |
+| M-ROVER | 2027-01 | 0.000 | |
+
+**The erasure.** Dana asks to be erased, and on 2 February Ana requests the customer's `forget`. The remark on D18's result is personal too, but it is a datapoint of the delivery, not of the customer, so erasing the customer does not reach it. Ana removes it with the `forget` every datapoint has, requested on that one result, "how a personal value recorded about someone other than the subject is removed without erasing the subject" (`declaration-syntax.md` §6.8).
+
+```yaml scenario
+now: 2027-02-08T00:00Z
+
+requests:
+  - { at: 2027-02-02T09:00Z, actor: U-ANA, object: C-DANA, transition: forget, inputs: { reason: At the customer's request } }
+  - { at: 2027-02-02T09:05Z, actor: U-ANA, forget: Q10, inputs: { reason: The remark names the customer } }
+```
+
+**Their personal values are removed from the object, from history and from datapoints.** Erasure replaces each personal value with absence, on the object and in every event that carried it (`DESIGN.md` §8):
+- **The object:** the customer keeps its legacy key and the legacy system's label, which are not personal.
+- **History:** the import event that brought the customer's details now carries none.
+- **The datapoint:** the result keeps its unit, check and outcome, and loses its remark.
+
+Read: `get(C-DANA)`
+
+| attribute | value |
+|---|---|
+| contact_email | absent |
+| contact_name | absent |
+| legacy_key | C-1003 |
+| name | Private customer C-1003 |
+
+Read: `payloads(C-DANA)`
+
+| transition | attribute | value |
+|---|---|---|
+| import | contact_email | absent |
+| import | contact_name | absent |
+| import | legacy_key | C-1003 |
+| import | name | Private customer C-1003 |
+
+Read: `results(D18)`
+
+| object | unit | check | outcome | remark |
+|---|---|---|---|---|
+| Q10 | R31 | K3 | PASS | absent |
+| Q11 | R31 | K4 | FAIL | absent |
+| Q12 | R31 | K4 | PASS | absent |
+
+**Metrics keep their counts and expose no personal value.** A metric counts rows, and erasure removes no row and changes no value a metric reads. A metric reads no personal field, and step 4 refuses one that does (check 56), so no metric could have exposed the remark:
+
+Read: `metric(first_pass_yield, keep: [model, month])`
+
+| model | month | value | gaps |
+|---|---|---|---|
+| M-ARM | 2026-10 | 0.500 | |
+| M-ROVER | 2026-10 | 1.000 | |
+| M-ARM | 2026-11 | 1.000 | |
+| M-ROVER | 2026-11 | 1.000 | |
+| M-ROVER | 2027-01 | 0.000 | |
+
+## 33. What is inferred, and what UC-16 to UC-18 found
+
+**Inferences**, each resting on a requirement or the reviewed flow:
+1. **"Created by agents" reads the creator** (UC-16), `t.object.created_by_kind`, since a transition's own `actor_kind` is its requester's. The lead's cycle time is declared for it; the standard metrics split by who requested.
+2. **Cycle time is from opening to delivery** (UC-16), since the journey has no standard cycle time for a type without an assignee.
+3. **The service job is the journey's, and its engineers are users** (UC-18), as the journey declares. Chen, the ported job's legacy history and Diya are this document's.
+4. **An agent's reassignment is a proposal a person approves** (UC-18): "proposing a reassignment, and a person makes it". A proposal is the model's way to file a request for someone else's approval, so `reassign` is published as `proposable`.
+5. **A private customer's contact details are personal, and a mirror's refresh brings them** (UC-17). The journey's customer is a company in the legacy system. A person as a customer needs personal attributes, which an erasure can reach, and only the import writes a mirror.
+6. **A remark naming the customer is forgotten on its own** (UC-17), since it is the delivery's datapoint, and the model's way to remove a personal value about someone other than the subject is `forget` on that datapoint.
+
+**Findings.**
+1. **Reading a combined metric by fewer dimensions than it groups by, or with one bound, was unstated** (D449, ADR-0124). A reader keeps or binds dimensions, and "aggregating over the rest" cannot mean summing or averaging the combined values: a rate of rates is not a rate. The read of `refusal_rate` above counts each input over the rows the read selects and combines them after, as ADR-0122 decision 6 already does for a combined metric's own `group_by`. ADR-0124 decides it.
+2. **Finding what names a person is not the engine's** (UC-17, determined). Erasing a customer reaches the customer's attributes and every event that carried them. A remark about the customer on another object's datapoint is reached only by a `forget` requested on it. Nothing in the store indexes which free text names whom, so whoever handles an erasure request finds those datapoints. The journey's remarks are free text, and a flow that records who a remark is about in a reference would let a request find them.
+3. **In the journey, time unassigned exists only in ported history** (UC-18, determined). `ServiceJob.open` requires an engineer, so every job opened in the store is assigned at creation. `time_to_first_assignment` measures the legacy system's habit, not the store's.
+4. **"Reassign before removal" is not in the journey** (UC-18). `User.leave` has no guard (`unit-journey.md` §2). A guard reading service jobs would need `operations_shared` to refer to the journey's `ServiceJob`, while the journey imports `operations_shared`, and the specification does not say whether two modules may import each other. UC-18's acceptance does not ask for it, and `TODO.md` holds the question.
+5. **A quotient in a metric has no stated rounding** (UC-16). `refused * 1.000 / (refused + applied)` has the decimal's scale, three places (`declaration-syntax.md` §8.3). The model says a quotient rounds half to even only where it is `set` into an attribute, or where it divides two like quantities. The scenario's rates, 4 in 12 and 7 in 7, come out the same whether the fourth place is rounded or cut; 4 in 11 would not. `TODO.md` holds the question.

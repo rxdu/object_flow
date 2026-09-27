@@ -203,6 +203,12 @@ GUARDS = {
                                or len(o.attrs.get("photos") or []) >= 1),
     ("Return", "second_eye"): ("inputs.outcome != ReturnOutcome.REPLACED or approved_by is not null or "
                                "metric(returns_by_model, model := unit.model, over last 30 days) < 5", second_eye),
+    ("ServiceJob", "active"): ("inputs.engineer.state == User.ACTIVE", lambda s, o, i: s.objects[i["engineer"]].state == "ACTIVE"),
+    ("ServiceJob", "delivered"): ("inputs.robot.state == Robot.SOLD or inputs.robot.state == Robot.DEVELOPMENT",
+                                  lambda s, o, i: s.objects[i["robot"]].state in ("SOLD", "DEVELOPMENT")),
+    ("ServiceJob", "theirs"): ("inputs.robot.state == Robot.DEVELOPMENT or inputs.robot.sold_to == inputs.customer",
+                               lambda s, o, i: s.objects[i["robot"]].state == "DEVELOPMENT"
+                               or s.objects[i["robot"]].attrs.get("sold_to") == i["customer"]),
     ("Shipment", "ordered"): ("all(u in inputs.with_units: u.state == Robot.REQUESTED)",
                               lambda s, o, i: all(s.objects[u].state == "REQUESTED" for u in i["with_units"])),
     ("Shipment", "ours"): ("inputs.robot.shipment == this", lambda s, o, i: s.objects[i["robot"]].attrs.get("shipment") == o.id),
@@ -224,7 +230,8 @@ INVARIANTS = {
 def call_each(array, transition, inputs=None, where=None):
     """A foreach step calling `transition` on each element of a set end."""
     def run(s, o, i, occ):
-        items = s.units(o.id) if array == "units" else s.pegged(o.id)
+        items = (s.units(o.id) if array == "units" else s.pegged(o.id) if array == "pegged"
+                 else {r for r, x in s.objects.items() if x.type == "Robot" and x.attrs.get("used_in") == o.id})
         for u in sorted(items):
             if where is None or s.objects[u].state == where:
                 s.call(u, "Robot", transition, {k: v(s, o) for k, v in (inputs or {}).items()}, occ)
@@ -248,6 +255,9 @@ EFFECTS = {
             {"call": {"target": "u", "transition": "recall_internal"}}]}}],
         lambda s, o, i, t: (call_each("units", "unsell", where="SOLD")(s, o, i, t),
                             call_each("units", "recall_internal", where="DEVELOPMENT")(s, o, i, t))),
+    ("ServiceJob", "finish"): ([{"foreach": {"item": "p", "array": "parts_used", "limit": 50, "steps": [
+        {"call": {"target": "p", "transition": "consume", "inputs": {"buyer": "customer"}}}]}}],
+        call_each("parts_used", "consume", {"buyer": lambda s, o: o.attrs["customer"]})),
     ("Shipment", "dispatch"): ([{"foreach": {"item": "u", "array": "inputs.with_units", "limit": 200, "steps": [
         {"call": {"target": "u", "transition": "ship", "inputs": {"via_shipment": "this"}}}]}}],
         lambda s, o, i, t: [s.call(u, "Robot", "ship", {"via_shipment": o.id}, t) for u in sorted(i["with_units"])]),
@@ -272,7 +282,8 @@ EFFECTS = {
     ("Robot", "inventorize"): ([{"clear": ["peg"]}], lambda s, o, i, t: o.clear("peg")),
     ("Robot", "correct_state"): ([{"clear": ["peg", "binding", "used_in"]}], lambda s, o, i, t: o.clear("peg", "binding", "used_in")),
 }
-NO_EFFECT = {("Return", "inspect"), ("Return", "close"), ("Return", "await_parts"), ("Return", "parts_in"),
+NO_EFFECT = {("Customer", "forget"), ("ServiceJob", "open"), ("ServiceJob", "reassign"), ("ServiceJob", "start"), ("User", "add"),
+             ("Return", "inspect"), ("Return", "close"), ("Return", "await_parts"), ("Return", "parts_in"),
              ("RobotModel", "set_reorder_point"), ("RobotModel", "set_yield_floor"), ("RobotModel", "set_usual_lead_time"),
              ("Warranty", "start"), ("Service", "register"), ("Delivery", "open"), ("Robot", "add_opening_stock"), ("Robot", "add_to_intake"), ("Robot", "request"),
              ("Robot", "deliver_internal"), ("Robot", "receive"), ("Shipment", "arrive"), ("RobotModel", "add"),
@@ -320,6 +331,9 @@ DECLARED_METRICS = {
                                  "expression": "median(t.occurred_at - t.object.created_at)"},
     ("Robot", "trial_refusals"): {"source": "attempts", "item": "a", "filter": "not a.enforced",
                                   "dimensions": {"clause": "a.clause", "actor": "a.actor_id"}, "expression": "count()"},
+    ("Delivery", "delivery_cycle_time"): {"source": "transitions", "item": "t",
+        "filter": "t.to_state == Delivery.DELIVERED and t.from_state == Delivery.PREPARATION",
+        "dimensions": {"creator": "t.object.created_by_kind"}, "expression": "median(t.occurred_at - t.object.created_at)"},
     ("", "first_pass_yield"): {"input_metrics": {"inspected": "Delivery.first_results_inspected",
                                                  "failed": "Delivery.first_results_failed"},
                                "group_by": ["model", "month"], "expression": "(inspected - failed) * 1.000 / inspected"},
@@ -339,6 +353,7 @@ class Obj:
     def __init__(self, oid, tn, state, attrs, at, kind):
         self.id, self.type, self.state, self.attrs = oid, tn, state, dict(attrs)
         self.created_at, self.recorded_from, self.state_source, self.undated = at, at, "observed", False
+        self.created_by_kind, self.members = kind, {}     # members: {member: [[value, entered, left, kind, legacy]]}
         self.intervals = []                         # [state, entered, left, entered_by_kind, legacy]
         self.open_interval(state, at, kind)
 
@@ -346,6 +361,15 @@ class Obj:
         if self.intervals:
             self.intervals[-1][2] = at
         self.intervals.append([state, at, None, kind, False])
+
+    def hold(self, member, value, at, kind):
+        """A tracked member takes a value: its current interval ends and a new one opens (DESIGN.md §7)."""
+        spans = self.members.setdefault(member, [])
+        if spans and spans[-1][2] is None:
+            if spans[-1][0] == value:
+                return
+            spans[-1][2] = at
+        spans.append([value, at, None, kind, False])
 
     def entered_at(self, state):
         """When the object last entered `state`, legacy intervals included, or None."""
@@ -415,7 +439,7 @@ class Store:
         self.changes, self.observed, self.actor = {}, [], None
         self.version, self.findings = 1, []
         self.objects, self.obs, self.events, self.attempts, self.reading = {}, {}, [], [], None
-        self.subscriptions, self.consulted, self.floors = {}, {}, {}
+        self.subscriptions, self.consulted, self.floors, self.proposals = {}, {}, {}, {}
         self.now = self.port = self.at = self.kind = None
         self.load()
 
@@ -507,6 +531,9 @@ class Store:
         st = self.types[o.type]["states"][o.state]
         return st.get("category") != "closed" and not st.get("final")
 
+    def tracked(self, tn):
+        return [a for a, s_ in (self.types[tn].get("attributes") or {}).items() if s_.get("assignee")]
+
     def identity(self, actor):
         """The value the actor's object holds in its attribute marked `actor_kind` (ADR-0122 decision 21)."""
         o = self.objects[actor]
@@ -560,6 +587,7 @@ class Store:
 
     def apply(self, o, tn, xn, x, inputs, occ, to=None):
         frm = o.state
+        held = {m: (None if x["kind"] == "created" else o.attrs.get(m)) for m in self.tracked(tn)}
         for a in (x.get("required_inputs") or []) + (x.get("optional_inputs") or []):
             if a in inputs:
                 o.set(a, inputs[a])
@@ -572,8 +600,13 @@ class Store:
             o.state = target
             o.state_source = "asserted" if x["kind"] == "assertion" else "observed"
             o.open_interval(target, occ, self.kind)
+        for m in self.tracked(tn):
+            o.hold(m, o.attrs.get(m), occ, self.kind)
         self.check_invariants(o)
         self.events.append({"object": o.id, "type": tn, "transition": xn, "from": frm, "to": o.state, "kind": self.kind,
+                            "actor": self.identity(self.actor) if self.actor else None, "held": held,
+                            "payload": {a: inputs[a] for a in (x.get("required_inputs") or []) + (x.get("optional_inputs") or [])
+                                        if a in inputs},
                             "occurred": occ, "recorded": self.at, "overrides": x["kind"] == "assertion",
                             "imported": False, "reason": inputs.get("reason") if x["kind"] == "assertion" else None,
                             "reads": set(), "migrated": False, "version": self.version})
@@ -603,6 +636,26 @@ class Store:
             self.publish(self.governed.pop(r["approve"]), at, self.kind)
             ch.update(approved_by=self.identity(r["actor"]), approved_kind=self.kind, approved_at=at, version=self.version)
             return
+        if r.get("propose"):
+            tn = self.objects[r["object"]].type
+            if not self.types[tn]["transitions"][r["transition"]].get("proposable"):
+                raise Refused(f"{tn}.{r['transition']} is not proposable")
+            self.proposals[r["propose"]] = {"request": {k: v for k, v in r.items() if k in ("object", "transition", "inputs")},
+                                            "proposed_by": self.identity(r["actor"]), "proposed_kind": self.kind, "state": "pending"}
+            return
+        if r.get("approve_proposal"):
+            pr = self.proposals[r["approve_proposal"]]
+            self.attempt({**pr["request"], "at": r["at"], "actor": r["actor"]})
+            pr.update(approved_by=self.identity(r["actor"]), approved_kind=self.kind_of(r["actor"]), state="executed")
+            return
+        if r.get("forget"):
+            ob = self.obs[r["forget"]]
+            subj = self.objects[ob.subject]
+            spec_ = next(v for v in (self.types[subj.type].get("observations") or {}).values() if v["kind"] == ob.type)
+            for a, s_ in (spec_.get("attributes") or {}).items():
+                if s_.get("personal"):
+                    ob.fields[a] = None
+            return
         if r.get("record"):
             self.record(r, at, occ)
             return
@@ -631,6 +684,20 @@ class Store:
         o = self.objects[r["object"]]
         if x["kind"] == "initial":
             raise Refused(f"{tn}.{r['transition']} is a creation, requested on {o.id}")
+        if x["kind"] == "erasure":
+            personal = [a for a, s_ in (self.types[tn].get("attributes") or {}).items() if s_.get("personal")]
+            for a in personal:
+                o.attrs[a] = None
+            for e in self.events:
+                if e["object"] == o.id:
+                    for a in personal:
+                        if a in (e.get("payload") or {}):
+                            e["payload"][a] = None
+            self.events.append({"object": o.id, "type": tn, "transition": r["transition"], "from": o.state, "to": o.state,
+                                "kind": self.kind, "actor": self.identity(r["actor"]), "held": {}, "payload": {},
+                                "occurred": at, "recorded": at, "overrides": True, "imported": False, "migrated": False,
+                                "reason": "erasure", "reads": set(), "version": self.version})
+            return
         if x["kind"] == "assertion":
             to = inputs.get("to")
             if to not in x["to"] or to == o.state or self.final(tn, o.state):
@@ -693,21 +760,30 @@ class Store:
         if block.get("port"):
             self.port = when(block["port"])
         for imp in block.get("imported") or []:
-            at = when(imp["entered"]) if imp.get("entered") else self.port
+            port = when(imp["at"]) if imp.get("at") else self.port
+            at = when(imp["entered"]) if imp.get("entered") else port
             o = Obj(imp["object"], imp["type"], imp["state"], {k: value(v) for k, v in (imp.get("attributes") or {}).items()},
                     at, imp.get("entered_by", "unknown"))
             legacy = [[st, when(a), when(b), imp.get("entered_by", "unknown"), True] for st, a, b in imp.get("legacy") or []]
             o.intervals = legacy + o.intervals
-            known = [iv[1] for iv in o.intervals] + ([self.port] if not imp.get("entered") else [])
+            known = [iv[1] for iv in o.intervals] + ([port] if not imp.get("entered") else [])
             o.created_at = when(imp["created"]) if imp.get("created") else min(known)
             o.undated = not imp.get("created")
+            o.created_by_kind = imp.get("created_by", "unknown")
+            for m, spans in (imp.get("legacy_members") or {}).items():
+                o.members[m] = [[v, when(a), when(b), imp.get("entered_by", "unknown"), True] for v, a, b in spans]
+            for m in self.tracked(o.type):
+                entered = (imp.get("member_entered") or {}).get(m)
+                o.members.setdefault(m, []).append([o.attrs.get(m), when(entered) if entered else port, None,
+                                                    imp.get("entered_by", "unknown"), False])
             o.state_source = "imported"
             silent = imp.get("silent")
-            o.recorded_from = (when(silent[1]) if silent else o.created_at if imp.get("created") else self.port)
+            o.recorded_from = (when(silent[1]) if silent else o.created_at if imp.get("created") else port)
             self.objects[o.id] = o
             self.events.append({"object": o.id, "type": o.type, "transition": "import", "from": None, "to": o.state,
-                                "kind": "unknown", "occurred": self.port, "recorded": self.port, "overrides": True,
-                                "imported": True, "reason": None, "reads": set(), "migrated": False, "version": 1})
+                                "kind": "unknown", "occurred": port, "recorded": port, "overrides": True,
+                                "imported": True, "reason": None, "reads": set(), "migrated": False, "version": self.version,
+                                "payload": dict(o.attrs)})
         last = None
         for r in block.get("requests") or []:
             at = when(r["at"])
@@ -845,7 +921,7 @@ def rate(num, den):
     return (Decimal(num) * Decimal("1.000") / Decimal(den)).quantize(Decimal("0.001")) if den else None
 
 
-def metric(s, name, keep, filt, over=None):
+def metric(s, name, keep, filt, over=None, bind=None):
     tn, _, std = name.partition(".")
     keepf = row_filter(filt)
     if name in ("supplier_lead_time", "supplier_lead_time_p80"):
@@ -864,6 +940,66 @@ def metric(s, name, keep, filt, over=None):
         rows = [({"model": s.objects[b.subject].attrs["model"], "week": week(b.occurred)}, b.subject, None)
                 for b in s.obs.values() if b.coll == "battery_days" and b.corrected_by is None and b.fields["min_health"] < 80.0]
         return rows_of(group(rows, keep), keep, lambda b: len(set(b)))
+    if name == "delivery_cycle_time":
+        rows = [({"creator": s.objects[e["object"]].created_by_kind}, e["occurred"] - s.objects[e["object"]].created_at, None)
+                for e in s.events if e["type"] == "Delivery" and e["from"] == "PREPARATION" and e["to"] == "DELIVERED"]
+        return rows_of(group(rows, keep), keep, lambda b: nearest_rank(b, 0.5))
+    if std in ("throughput", "rework"):
+        rows = []
+        for e in s.events:
+            if e["type"] != tn or e["imported"] or e["migrated"] or e["from"] is None:
+                continue
+            o = s.objects[e["object"]]
+            before = [iv[0] for iv in o.intervals if iv[1] < e["occurred"]]
+            st = lambda x: s.types[tn]["states"][x]
+            is_open = lambda x: st(x).get("category") != "closed" and not st(x).get("final")
+            hit = (is_open(e["from"]) and not is_open(e["to"])) if std == "throughput" else \
+                (e["to"] != e["from"] and e["to"] in before[:-1])
+            if hit:
+                rows.append(({"state": e["to"], "actor_kind": e["kind"], "week": week(e["occurred"])}, 1, None))
+        return rows_of(group(rows, keep), keep, len)
+    if std == "refusal_rate":
+        bound = bind or {}
+        refused, applied = {}, {}
+        for a in s.attempts:
+            if a["type"] == tn and a["enforced"] and all({"transition": a["transition"]}.get(k) == v for k, v in bound.items()):
+                k = tuple({"transition": a["transition"], "actor_kind": a["kind"]}[d] for d in keep)
+                refused[k] = refused.get(k, 0) + 1
+        for e in s.events:
+            if e["type"] == tn and not e["imported"] and not e["migrated"] and e["from"] is not None \
+                    and all({"transition": e["transition"]}.get(k) == v for k, v in bound.items()):
+                k = tuple({"transition": e["transition"], "actor_kind": e["kind"]}[d] for d in keep)
+                applied[k] = applied.get(k, 0) + 1
+        return [{**dict(zip(keep, k)), "value": rate(refused.get(k, 0), refused.get(k, 0) + applied.get(k, 0)), "gaps": set()}
+                for k in set(refused) | set(applied)]
+    if name.startswith("ServiceJob.") and name.endswith(".engineer"):
+        m = name.split(".")[1]
+        jobs = [o for o in s.objects.values() if o.type == "ServiceJob"]
+        spans = lambda o: [iv for iv in o.members.get("engineer", []) if iv[0] is not None]
+        if m == "open_work":
+            rows = [({"assignee": o.attrs.get("engineer")}, 1, None) for o in jobs if s.open(o)]
+            return rows_of(group(rows, keep), keep, len)
+        if m == "time_to_first_assignment":
+            rows = [({"month": o.created_at.strftime("%Y-%m")}, min(iv[1] for iv in spans(o)) - o.created_at, None)
+                    for o in jobs if spans(o)]
+            return rows_of(group(rows, keep), keep, lambda b: nearest_rank(b, 0.5))
+        if m in ("handoffs_by_object", "returns_by_object"):
+            rows = [({"object": o.id}, len(spans(o)) - (1 if m == "handoffs_by_object" else len({iv[0] for iv in spans(o)})), None)
+                    for o in jobs]
+            return rows_of(group(rows, keep), keep, sum)
+        if m == "cycle_time_by_assignee":
+            rows = []
+            for e in s.events:
+                st = s.types["ServiceJob"]["states"]
+                if e["type"] == "ServiceJob" and e["from"] and st[e["from"]].get("category") != "closed" \
+                        and st[e["to"]].get("category") == "closed" and not e["imported"]:
+                    rows.append(({"assignee": e["held"]["engineer"], "state": e["to"]},
+                                 e["occurred"] - s.objects[e["object"]].created_at, None))
+            return rows_of(group(rows, keep), keep, lambda b: nearest_rank(b, 0.5))
+        if m == "acted_by_non_assignee":
+            rows = [({"transition": e["transition"]}, e["actor"] != s.identity(e["held"]["engineer"]), None)
+                    for e in s.events if e["type"] == "ServiceJob" and not e["imported"] and e.get("held", {}).get("engineer")]
+            return rows_of(group(rows, keep), keep, lambda b: rate(sum(b), len(b)))
     if name in ("labelled_returns", "labelled_wait"):
         rows = [({"state": l.fields["subject_state"]},
                  l.subject if name == "labelled_returns" else time_in(s, s.objects[l.subject], "INSPECTING"), None)
@@ -951,11 +1087,36 @@ def read(s, spec_):
         # no read is filtered by who is asking (PRD T5): the reader must be one the store holds, and changes nothing
         s.kind_of(reader.group(1))
         spec_ = spec_[:reader.start() + 1]
-    m = re.fullmatch(r'metric\((\w+(?:\.\w+)?), keep: \[([\w, ]*)\](?:, filter: "(.+?)")?(?:, over: "(\d+ days)")?\)', spec_)
+    m = re.fullmatch(r'metric\(([\w.]+)(?:, bind: \{(\w+): (\w+)\})?, keep: \[([\w, ]*)\](?:, filter: "(.+?)")?(?:, over: "(\d+ days)")?\)', spec_)
     if m:
-        keep = [k.strip() for k in m.group(2).split(",") if k.strip()]
-        return (metric(s, m.group(1), keep, (m.group(3) or "").replace('\\"', '"'), span(m.group(4)) if m.group(4) else None),
+        keep = [k.strip() for k in m.group(4).split(",") if k.strip()]
+        bind = {m.group(2): m.group(3)} if m.group(2) else None
+        return (metric(s, m.group(1), keep, (m.group(5) or "").replace('\\"', '"'), span(m.group(6)) if m.group(6) else None, bind),
                 keep + ["value", "gaps"])
+    m = re.fullmatch(r"intervals\(([\w-]+)\.(\w+)\)", spec_)
+    if m:
+        return [{"value": v, "entered_at": a, "entered_by_kind": k, "legacy": str(leg).lower()}
+                for v, a, _b, k, leg in s.objects[m.group(1)].members[m.group(2)]], ["value", "entered_at", "entered_by_kind", "legacy"]
+    m = re.fullmatch(r"get\(([\w-]+)\)", spec_)
+    if m:
+        o = s.objects[m.group(1)]
+        return [{"attribute": a, "value": v} for a, v in sorted(o.attrs.items())], ["attribute", "value"]
+    m = re.fullmatch(r"payloads\(([\w-]+)\)", spec_)
+    if m:
+        return [{"transition": e["transition"], "attribute": a, "value": v}
+                for e in s.events if e["object"] == m.group(1) for a, v in sorted((e.get("payload") or {}).items())], \
+            ["transition", "attribute", "value"]
+    m = re.fullmatch(r"results\(([\w-]+)\)", spec_)
+    if m:
+        got = sorted((o for o in s.obs.values() if o.subject == m.group(1) and o.coll == "pdi_results" and o.corrected_by is None),
+                     key=lambda o: o.recorded)
+        return [{"object": o.id, "unit": o.fields["unit"], "check": o.fields["check"], "outcome": o.fields["outcome"],
+                 "remark": o.fields.get("remark")} for o in got], ["object", "unit", "check", "outcome", "remark"]
+    m = re.fullmatch(r"proposal ([\w-]+)", spec_)
+    if m:
+        pr = s.proposals[m.group(1)]
+        return [{k: pr.get(k) for k in ("proposed_by", "proposed_kind", "approved_by", "approved_kind", "state")}], \
+            ["proposed_by", "proposed_kind", "approved_by", "approved_kind", "state"]
     m = re.fullmatch(r'query\((\w+), filter: "(\w+)"\)', spec_)
     if m:
         tn, d = m.groups()
@@ -1074,7 +1235,7 @@ def expected_tables(text):
     return out
 
 
-ORDERED = ("events(", "recorded(", "pull(")
+ORDERED = ("events(", "recorded(", "pull(", "intervals(", "payloads(", "results(")
 
 
 def check(text, journey_text, verbose=True):
@@ -1144,6 +1305,11 @@ PLANTS = [
      "  - { at: 2026-11-07T01:00Z, actor: U-ANA, record: second_sign_offs, subject: D14, object: SS1, fields: {} }\n", ""),
     ("a state dropped with no mapping", "        removed_states:\n          Return: { RESOLVED: CLOSED }\n", ""),
     ("a change published without its approval", "  - { at: 2026-12-07T15:00Z, actor: U-ANA, approve: DC1 }\n", ""),
+    ("a proposal on a transition that is not proposable", "      types.ServiceJob.transitions.reassign.proposable: true\n", ""),
+    ("a personal attribute declared required", "contact_email: { type: string, optional: true, personal: true }",
+     "contact_email: { type: string, personal: true }"),
+    ("an erasure never requested",
+     "  - { at: 2027-02-02T09:00Z, actor: U-ANA, object: C-DANA, transition: forget, inputs: { reason: At the customer's request } }\n", ""),
 ]
 
 

@@ -237,3 +237,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** On 2026-09-27, writing register entry D424, `declaration-syntax.md` §4.4 and `DESIGN.md` §5.2 were cited from memory for text that sits under §4.2 and §5.4; the same session, an ADR's rejected alternative said an aggregate over an absent set is unknown, which no document states, and earlier a catalogue note cited `case-study-payments.md` §5 for an idiom that section contradicts. The first two were caught before the commit only because the sections were then looked up.
 - **Correction:** Find the heading a cited line sits under with a command, such as `awk 'NR<=N && /^#+ /{h=$0} NR==N{print h}' file`, before writing the `§`; and hold a rejected alternative's reasons to the same standard as a decision's, since a reader re-evaluating the decision will rely on them.
 - **Context:** Any document that cites another by section, and ADRs' rejected alternatives.
+
+### A claim that a document says something is found in it before it is written
+
+- **Pattern:** On 2026-09-27, writing the findings for UC-16 to UC-18, `metric-scenarios.md` §33 said `User.leave` has no guard "as the journey's own prose says", with a reason, and the journey says nothing about it: the reason was an inference. The same hour ADR-0124's draft said "every standard combined metric groups by five dimensions", and `refusal_rate` is the only standard combined metric. Both were caught before the commit by searching the cited files.
+- **Correction:** For every "as X says", "X declares" or "every Y", search X or the list of Y for it before writing the sentence. What the search does not find is written as this document's inference, and a generalisation is narrowed to the cases it was checked against.
+- **Context:** Findings sections, ADRs and register entries, which readers take as sourced.

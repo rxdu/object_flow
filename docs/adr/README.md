@@ -125,3 +125,4 @@
 | [0121](0121-the-designs-yaml-is-checked-where-it-stands.md) | The design's YAML is checked where it stands | Accepted by the author |
 | [0122](0122-a-flow-is-recoverable-from-its-description.md) | A flow is recoverable from its description | Accepted by the author |
 | [0123](0123-a-set-dimension-counts-each-value-once-and-an-empty-group-is-reported.md) | A set dimension counts each value once, and a group with no body is reported | Decided at the author's direction; awaiting the author's review |
+| [0124](0124-a-combined-metric-read-by-fewer-dimensions-combines-its-inputs-over-them.md) | A combined metric read by fewer dimensions combines its inputs over them | Decided at the author's direction; awaiting the author's review |
