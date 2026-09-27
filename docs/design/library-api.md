@@ -161,8 +161,9 @@ class Unsatisfied:
     clause: str
     remedy: Remedy
     unknown: bool
-    objects: Sequence[str] = ()           # what a dependent remedy says to work on,
-                                          # or the object the clause read (ADR-0092)
+    objects: Sequence[str] = ()           # the objects the failing clause read other than the
+                                          # one requested, a collection's by its `where`, in id
+                                          # order (DESIGN.md §5.5, ADR-0092, ADR-0122)
     proposable: bool = False              # whether a proposal would be accepted
     consulted: Mapping[str, Any] = field(default_factory=dict)
                                           # the metric values and evaluator verdicts

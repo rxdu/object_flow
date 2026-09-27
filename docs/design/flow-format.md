@@ -333,7 +333,7 @@ A `format` holds literal text and these placeholders, and MUST contain `{n}` or 
 
 Each attribute or reference a placeholder reads MUST be written by every creation, as a scope must, and an optional attribute MAY be read only inside `[ … ]` (step 3, `names`; the model's check 44). So `format: "{delivery.number}-{n:2}"` numbers a delivery's checklist items `DLV-000123-01`, `DLV-000123-02` and so on, one series for each delivery.
 
-**Uniqueness.** `unique` takes one of four forms, each the model's sugar for an invariant (`declaration-syntax.md` §3.1):
+**Uniqueness.** `unique` takes one of four forms, each the model's sugar for an invariant (`declaration-syntax.md` §3.1). Each is enforced by a unique index on every backend (`storage-schema.md` §8), so a `unique` attribute is indexed without the `indexed` marking, which it may still carry, and a type scan over it meets the model's check 7 (ADR-0122):
 
 | Form | No two objects hold the same value |
 |---|---|

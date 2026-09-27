@@ -414,7 +414,6 @@ machines:
         inputs:
           reason: { type: OverrideReason }
           detail: { type: string, optional: true, personal: true }
-        may_admit: [one_open_engagement]
         description: Puts the unit into the state it is really in when the record is wrong, releasing it from any delivery or job that pegged, bound or claimed it, so neither finds it afterwards.
         effect:
           - clear: [peg, binding, used_in]
@@ -1258,7 +1257,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         expression: engagement.state == Engagement.OUT
         remedy: dependent
       returned:
-        description: The leased units have come back.
+        description: "The engagement is closed: its units returned, never sent out, or sold when the lease converted."
         expression: engagement.state == Engagement.CLOSED
         remedy: dependent
 
@@ -1311,7 +1310,7 @@ The one metric that crosses types is declared last:
 
 metrics:
   pool_utilisation:
-    description: The share of a pooled unit's time spent on engagements, from being added to leaving, by model, over the whole history.
+    description: "Time on engagements over time in the pool, by model, over the whole history: the share of a pooled unit's time spent out, which can exceed 1 where an assertion moves a unit out of the pool with its line still open."
     input_metrics:
       on_loan: EngagementLine.time_on_loan
       pool: Robot.time_in_pool
