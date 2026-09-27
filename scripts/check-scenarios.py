@@ -58,7 +58,11 @@ def when(s):
 
 def value(v):
     """A request's or an import's value: a timestamp written as one is read as one, whatever its name."""
-    return when(v) if isinstance(v, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\dZ", v) else v
+    if isinstance(v, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\dZ", v):
+        return when(v)
+    if isinstance(v, str) and re.fullmatch(r"\d+ (days?|hours?|minutes?)", v):
+        return span(v)
+    return v
 
 
 def span(s):
@@ -115,6 +119,53 @@ def all_checked(s, o, i):
     return ok
 
 
+def first_pass_rate(s, model, until, over):
+    """Delivery.first_pass_rate bound to `model := <model>, over last <over>`, as consulted at `until`."""
+    rows = [r for r in first_results(s) if s.objects[r.fields["unit"]].attrs["model"] == model
+            and until - over <= r.occurred <= until]
+    return rate(sum(r.fields["outcome"] != "FAIL" for r in rows), len(rows))
+
+
+def yield_or_signed(s, o, i):
+    """`count(s in second_sign_offs) >= 1 or all(u in units: u.model.yield_floor is null or
+    metric(first_pass_rate, model := u.model, over last 30 days) >= u.model.yield_floor)`. Every metric
+    reference is consulted before the transaction, whichever side decides (declaration-syntax.md §6.9)."""
+    signed = len(s.current(o.id, "second_sign_offs")) >= 1
+    ok = True
+    for u in sorted(s.units(o.id)):
+        model = s.objects[u].attrs["model"]
+        value = first_pass_rate(s, model, s.at, timedelta(days=30))
+        s.consulted[f"first_pass_rate(model: {model})"] = value
+        floor = s.objects[model].attrs.get("yield_floor")
+        s.read([s.objects[model]])
+        if floor is not None:
+            s.floors[f"{model}.yield_floor"] = Decimal(str(floor)).quantize(Decimal("0.001"))
+        if floor is not None and (value is None or value < Decimal(str(floor))):
+            ok = False
+    return signed or ok
+
+
+DERIVED = {
+    ("RobotModel", "low_stock"): ("available_units < reorder_point", lambda s, o: sum(
+        1 for u in s.objects.values() if u.type == "Robot" and u.attrs.get("model") == o.id and u.state == "AVAILABLE")
+        < o.attrs.get("reorder_point", 0)),
+    ("Shipment", "overdue"): ("state == IN_TRANSIT and eta < now",
+                              lambda s, o: o.state == "IN_TRANSIT" and o.attrs.get("eta") is not None and o.attrs["eta"] < s.now),
+    ("Engagement", "overdue"): ("state == OUT and expected_return < now",
+                                lambda s, o: o.state == "OUT" and o.attrs.get("expected_return") is not None
+                                and o.attrs["expected_return"] < s.now),
+    ("Robot", "backorder_ageing"): ("peg is not null and (state == REQUESTED or state == PROCUREMENT) and "
+                                    "model.usual_lead_time is not null and created_at + model.usual_lead_time < now",
+                                    lambda s, o: o.attrs.get("peg") is not None and o.state in ("REQUESTED", "PROCUREMENT")
+                                    and s.objects[o.attrs["model"]].attrs.get("usual_lead_time") is not None
+                                    and o.created_at + s.objects[o.attrs["model"]].attrs["usual_lead_time"] < s.now),
+    ("Delivery", "date_at_risk"): ("state == PREPARATION and promised_date is not null and promised_date < now + 2 days",
+                                   lambda s, o: o.state == "PREPARATION" and o.attrs.get("promised_date") is not None
+                                   and o.attrs["promised_date"] < s.now + timedelta(days=2)),
+    ("Warranty", "expiring"): ("state == ACTIVE and ends_at < now + 30 days",
+                               lambda s, o: o.state == "ACTIVE" and o.attrs["ends_at"] < s.now + timedelta(days=30)),
+}
+
 GUARDS = {
     ("Delivery", "not_internal"): ("not internal", lambda s, o, i: not o.attrs.get("internal", False)),
     ("Delivery", "is_internal"): ("internal", lambda s, o, i: bool(o.attrs.get("internal", False))),
@@ -131,6 +182,9 @@ GUARDS = {
     ("Robot", "photo"): ("model.label_photo_required implies count(p in photos) >= 1",
                          lambda s, o, i: not s.objects[o.attrs["model"]].attrs.get("label_photo_required", False)
                          or len(o.attrs.get("photos", [])) >= 1),
+    ("Delivery", "yield_or_signed"): ("count(s in second_sign_offs) >= 1 or all(u in units: u.model.yield_floor is null or "
+                                      "metric(first_pass_rate, model := u.model, over last 30 days) >= u.model.yield_floor)",
+                                      yield_or_signed),
     ("Shipment", "ordered"): ("all(u in inputs.with_units: u.state == Robot.REQUESTED)",
                               lambda s, o, i: all(s.objects[u].state == "REQUESTED" for u in i["with_units"])),
     ("Shipment", "ours"): ("inputs.robot.shipment == this", lambda s, o, i: s.objects[i["robot"]].attrs.get("shipment") == o.id),
@@ -194,7 +248,8 @@ EFFECTS = {
     ("Robot", "inventorize"): ([{"clear": ["peg"]}], lambda s, o, i, t: o.clear("peg")),
     ("Robot", "correct_state"): ([{"clear": ["peg", "binding", "used_in"]}], lambda s, o, i, t: o.clear("peg", "binding", "used_in")),
 }
-NO_EFFECT = {("Service", "register"), ("Delivery", "open"), ("Robot", "add_opening_stock"), ("Robot", "add_to_intake"), ("Robot", "request"),
+NO_EFFECT = {("RobotModel", "set_reorder_point"), ("RobotModel", "set_yield_floor"), ("RobotModel", "set_usual_lead_time"),
+             ("Warranty", "start"), ("Service", "register"), ("Delivery", "open"), ("Robot", "add_opening_stock"), ("Robot", "add_to_intake"), ("Robot", "request"),
              ("Robot", "deliver_internal"), ("Robot", "receive"), ("Shipment", "arrive"), ("RobotModel", "add"),
              ("User", "add"), ("Agent", "issue"), ("PdiCheck", "add"), ("PdiCheck", "retire")}
 FIXED_REMEDY = {"unavailable": "unreachable_from_here", "stale": "self_serviceable", "not found": "unreachable_from_here",
@@ -226,6 +281,9 @@ DECLARED_METRICS = {
         "filter": "t.to_state == Delivery.DELIVERED and t.object.promised_date is not null",
         "dimensions": {"month": "month(t.occurred_at)", "customer": "t.object.customer"},
         "expression": "count(where t.occurred_at <= t.object.promised_date) * 1.000 / count()"},
+    ("Delivery", "first_pass_rate"): {"source": "pdi_results", "item": "r", "filter": FIRST,
+        "dimensions": {"model": "r.unit.model"}, "time_dimension": "r.occurred_at",
+        "expression": "count(where r.outcome != CheckOutcome.FAIL) * 1.000 / count()"},
     ("", "first_pass_yield"): {"input_metrics": {"inspected": "Delivery.first_results_inspected",
                                                  "failed": "Delivery.first_results_failed"},
                                "group_by": ["model", "month"], "expression": "(inspected - failed) * 1.000 / inspected"},
@@ -307,6 +365,7 @@ class Store:
         self.publishes = sorted(publishes, key=lambda p: when(p["at"]))
         self.version, self.findings = 1, []
         self.objects, self.obs, self.events, self.attempts, self.reading = {}, {}, [], [], None
+        self.subscriptions, self.consulted, self.floors = {}, {}, {}
         self.now = self.port = self.at = self.kind = None
         self.load()
 
@@ -328,6 +387,10 @@ class Store:
             cond = (self.types.get(tn, {}).get("conditions") or {}).get(c)
             if cond:
                 assert one(cond["expression"]) == text, f"{tn}.{c} is now `{one(cond['expression'])}`; the transcription reads `{text}`"
+        for (tn, d), (text, _f) in DERIVED.items():
+            got = (self.types.get(tn, {}).get("derived_attributes") or {}).get(d)
+            if got:
+                assert one(got["expression"]) == text, f"{tn}.{d} is now `{one(got['expression'])}`; the transcription reads `{text}`"
         for (tn, c), (text, _f) in INVARIANTS.items():
             got = one(self.types[tn]["invariants"][c]["expression"])
             assert got == text, f"{tn}.{c} is now `{got}`; the transcription reads `{text}`"
@@ -338,7 +401,7 @@ class Store:
             got = literal(self.types[tn]["transitions"][x].get("effect"))
             assert got == literal(effect), f"{tn}.{x}'s effect is now {got}; the transcription reads {literal(effect)}"
         for tn, x in NO_EFFECT:
-            if tn in self.types:
+            if x in (self.types.get(tn, {}).get("transitions") or {}):
                 assert not self.types[tn]["transitions"][x].get("effect"), f"{tn}.{x} now has an effect"
         for (tn, mn), want in DECLARED_METRICS.items():
             got = ((self.mods["inventory_journey"].get("metrics") or {}) if not tn
@@ -447,8 +510,17 @@ class Store:
         self.kind = self.kind_of(r["actor"])
         occ = when(r["occurred_at"]) if r.get("occurred_at") else at
         inputs = {k: value(v) for k, v in (r.get("inputs") or {}).items()}
+        self.consulted, self.floors = {}, {}
         if r.get("record"):
             self.record(r, at, occ)
+            return
+        if r.get("label"):
+            subj = self.objects[r["subject"]]
+            self.obs[r["object"]] = Observation(r["object"], "label", subj.id, "labels",
+                                                {"name": r["label"], "subject_state": subj.state}, at, at, None, self.kind)
+            return
+        if r.get("subscribe"):
+            self.subscriptions[r["subscribe"]] = {"filter": r["filter"], "from": len(self.events)}
             return
         tn = r.get("create") or self.objects[r["object"]].type
         x = self.types[tn]["transitions"].get(r["transition"])
@@ -487,7 +559,7 @@ class Store:
         self.apply(o, tn, r["transition"], x, inputs, occ)
         for e in self.events[n:]:
             if e["object"] == o.id and e["transition"] == r["transition"]:
-                e["reads"] = reads
+                e["reads"], e["consulted"] = reads, dict(self.consulted)
 
     def record(self, r, at, occ):
         subj = self.objects[r["subject"]]
@@ -561,6 +633,7 @@ class Store:
     def refused(self, r, at):
         want = {"verdict": r["refused"]["verdict"], "clause": r["refused"].get("clause"),
                 "remedy": r["refused"]["remedy"], "call": r["refused"].get("call")}
+        consulted, objects = {}, {}
         if want["verdict"] == "stale":
             # a moved version is the caller's to know, and the store's to detect; the verdict's remedy is fixed
             if FIXED_REMEDY["stale"] != want["remedy"]:
@@ -574,6 +647,7 @@ class Store:
             except Fails as f:
                 if f.v != want:
                     raise Refused(f"the request at {r['at']} fails with {f.v}, and the history says {want}")
+                consulted, objects = dict(trial.consulted), dict(trial.floors)
         if r.get("record"):
             tn = self.types[self.objects[r["subject"]].type]["observations"][r["record"]]["kind"]
         else:
@@ -581,7 +655,8 @@ class Store:
         self.attempts.append({"object": None if r.get("record") or r.get("create") else r["object"], "type": tn,
                               "transition": "record" if r.get("record") else r["transition"],
                               "verdict": want["verdict"], "clause": want["clause"], "remedy": want["remedy"],
-                              "kind": self.kind_of(r["actor"]), "at": at, "enforced": True})
+                              "kind": self.kind_of(r["actor"]), "at": at, "enforced": True,
+                              "consulted": consulted, "floors": objects})
 
 
 # ── the reads, by declaration-syntax.md §6.9 ────────────────────────────────────
@@ -662,8 +737,10 @@ def metric(s, name, keep, filt, over=None):
             if o.type != "Robot" or got is None or ordered is None or (over and got < s.now - over):
                 continue
             gap = o.id if o.undated or got < o.recorded_from or ordered < o.recorded_from else None
-            rows.append(({"supplier": s.objects[o.attrs["model"]].attrs.get("manufacturer"), "month": got.strftime("%Y-%m")},
-                         got - o.created_at, gap))
+            maker = s.objects[o.attrs["model"]].attrs.get("manufacturer")
+            dims = {"supplier": maker, "manufacturer": maker, "month": got.strftime("%Y-%m")}
+            if keepf(dims):
+                rows.append((dims, got - o.created_at, gap))
         return rows_of(group(rows, keep), keep, lambda b: nearest_rank(b, 0.5 if name == "supplier_lead_time" else 0.8))
     if name == "weak_battery_units":
         rows = [({"model": s.objects[b.subject].attrs["model"], "week": week(b.occurred)}, b.subject, None)
@@ -746,6 +823,38 @@ def read(s, spec_):
         keep = [k.strip() for k in m.group(2).split(",") if k.strip()]
         return (metric(s, m.group(1), keep, (m.group(3) or "").replace('\\"', '"'), span(m.group(4)) if m.group(4) else None),
                 keep + ["value", "gaps"])
+    m = re.fullmatch(r'query\((\w+), filter: "(\w+)"\)', spec_)
+    if m:
+        tn, d = m.groups()
+        assert d in (s.types[tn].get("derived_attributes") or {}), f"{tn} declares no derived attribute {d}"
+        return [{"object": o.id} for o in s.objects.values() if o.type == tn and DERIVED[(tn, d)][1](s, o)], ["object"]
+    if spec_ == 'query(Robot, filter: "state == REQUESTED or state == PROCUREMENT", order: "created_at")':
+        got = sorted((o for o in s.objects.values() if o.type == "Robot" and o.state in ("REQUESTED", "PROCUREMENT")),
+                     key=lambda o: o.created_at)
+        return [{"object": o.id, "state": o.state, "created_at": o.created_at} for o in got], ["object", "state", "created_at"]
+    m = re.fullmatch(r"refusal of (\w+)\.(\w+)", spec_)
+    if m:
+        a = [a for a in s.attempts if a["object"] == m.group(1) and a["transition"] == m.group(2)][-1]
+        return [{"clause": a["clause"], "remedy": a["remedy"],
+                 "consulted": ", ".join(f"{k} = {v}" for k, v in sorted(a["consulted"].items())),
+                 "threshold": ", ".join(f"{k} = {v}" for k, v in sorted(a["floors"].items()))}], \
+            ["clause", "remedy", "consulted", "threshold"]
+    m = re.fullmatch(r"consulted of (\w+)\.(\w+)", spec_)
+    if m:
+        e = [e for e in s.events if e["object"] == m.group(1) and e["transition"] == m.group(2)][-1]
+        return [{"reference": k, "value": v} for k, v in sorted(e.get("consulted", {}).items())], ["reference", "value"]
+    m = re.fullmatch(r"labels\(([\w-]+)\)", spec_)
+    if m:
+        return [{"object": o.id, "name": o.fields["name"], "recorded_by_kind": o.kind, "subject_state": o.fields["subject_state"]}
+                for o in s.obs.values() if o.coll == "labels" and o.subject == m.group(1)], \
+            ["object", "name", "recorded_by_kind", "subject_state"]
+    m = re.fullmatch(r"pull\(([\w-]+)\)", spec_)
+    if m:
+        sub_ = s.subscriptions[m.group(1)]
+        f = sub_["filter"]
+        return [{"object": e["object"], "transition": e["transition"], "occurred_at": e["occurred"]}
+                for e in s.events[sub_["from"]:] if e["type"] == f["type"] and e["transition"] in f["transitions"]], \
+            ["object", "transition", "occurred_at"]
     m = re.fullmatch(r"recorded\((\w+)\.(\w+)\)", spec_)
     if m:
         got = sorted((o for o in s.obs.values() if o.subject == m.group(1) and o.coll == m.group(2) and o.corrected_by is None),
@@ -769,7 +878,7 @@ def read(s, spec_):
             if t in kinds:
                 out.append({"object": oid, "kind": t})
         return out, ["object", "kind"]
-    m = re.fullmatch(r"events\((\w+)\)", spec_)
+    m = re.fullmatch(r"events\(([\w-]+)\)", spec_)
     if m:
         return [{"transition": e["transition"], "occurred_at": e["occurred"], "recorded_at": e["recorded"]}
                 for e in s.events if e["object"] == m.group(1)], ["transition", "occurred_at", "recorded_at"]
@@ -816,7 +925,7 @@ def expected_tables(text):
     return out
 
 
-ORDERED = ("query(", "events(", "recorded(")
+ORDERED = ("events(", "recorded(", "pull(")
 
 
 def check(text, journey_text, verbose=True):
@@ -850,7 +959,7 @@ def check(text, journey_text, verbose=True):
             continue
         want = [tuple(r) for r in rows]
         have = [tuple(show(g[c]) for c in cols) for g in got]
-        ordered = spec_.startswith(ORDERED)
+        ordered = spec_.startswith(ORDERED) or "order:" in spec_
         if (want != have) if ordered else (sorted(want) != sorted(have)):
             found.append(f"line {line}: `{spec_}` expects\n      {want if ordered else sorted(want)}\n"
                          f"    and the history gives\n      {have if ordered else sorted(have)}")
@@ -880,6 +989,10 @@ PLANTS = [
      "fields: { min_health: 90.0, mean_health: 93.0, samples: 86400 }, refused: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable } }",
      "fields: { min_health: 90.0, mean_health: 93.0, samples: 86400 } }"),
     ("a first result recorded as a pass", "object: P3, fields: { unit: R02, check: K1, outcome: FAIL", "object: P3, fields: { unit: R02, check: K1, outcome: PASS"),
+    ("a guard windowing a combined metric", "metric(first_pass_rate, model := u.model, over last 30 days)",
+     "metric(first_pass_yield, model := u.model, over last 30 days)"),
+    ("a completion said to apply without its second sign-off",
+     "  - { at: 2026-11-07T01:00Z, actor: U-ANA, record: second_sign_offs, subject: D14, object: SS1, fields: {} }\n", ""),
 ]
 
 

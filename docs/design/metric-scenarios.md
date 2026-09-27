@@ -1,8 +1,8 @@
-# Metric scenarios: UC-1 to UC-9
+# Metric scenarios: UC-1 to UC-12
 
-Status: **worked scenarios**, 2026-09-27, written at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". The author then asked for the next three, "write the scenarios for UC-4 to UC-6" (§8 to §12), and then "write the scenarios for UC-7 to UC-9" (§13 to §17). Each of the PRD's first nine use cases is written here as a fixed flow, a fixed history and the values its reads return, so a builder has a test and a reader has something to compute and compare (`TODO.md`, "Write the metric use cases as checked scenarios").
+Status: **worked scenarios**, 2026-09-27, written at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". The author then asked for the next three, "write the scenarios for UC-4 to UC-6" (§8 to §12), then "write the scenarios for UC-7 to UC-9" (§13 to §17), and then "write the scenarios for UC-10 to UC-12" (§18 to §22). Each of the PRD's first twelve use cases is written here as a fixed flow, a fixed history and the values its reads return, so a builder has a test and a reader has something to compute and compare (`TODO.md`, "Write the metric use cases as checked scenarios").
 
-**Method.** One store and one history, in three parts, with each use case's questions asked of it. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the agent type that writing these scenarios added to it (§1). Every value below is derived by hand from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
+**Method.** One store and one history, in four parts, with each use case's questions asked of it. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the agent type that writing these scenarios added to it (§1). Every value below is derived by hand from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
 - a request whose actor the store does not hold;
 - a transition the type does not declare, that is `only_via` others, or that is taken from a state it does not leave;
 - a refusal on a guard the transition does not declare, with a remedy other than the declared one, or on a clause that is not the first to fail;
@@ -10,9 +10,9 @@ Status: **worked scenarios**, 2026-09-27, written at the author's direction: "wr
 - a recording its subject's kinds do not include, or one its generated guards refuse;
 - a published version the flow checker refuses, checked against the version before it.
 
-The script evaluates guards, effects and invariants from a transcription it holds, and checks each against the module's text before it runs. It is not an engine, and it refuses a history that reaches anything it has not transcribed. Its self-test plants twelve mistakes, from a wrong value to a first result recorded as a pass, and shows each caught.
+The script evaluates guards, effects and invariants from a transcription it holds, and checks each against the module's text before it runs. It is not an engine, and it refuses a history that reaches anything it has not transcribed. Its self-test plants fourteen mistakes, from a wrong value to a completion without its second sign-off, and shows each caught.
 
-**What is inferred.** The use cases speak of the first consumer's deliveries, and the reviewed flow is thinner in two places: its delivery has no product configuration and no checklist. §6 lists each inference with what it rests on. Two questions the specification left open were decided to write the values (§7, ADR-0123). UC-4 to UC-6 need inspection and availability datapoints the journey lacks, so the history's second part publishes a version that adds them (§8), and §12 lists what they inferred and found. UC-7 to UC-9 add a telemetry summary, three formulas and legacy history, in a third part (§13), and §17 lists theirs.
+**What is inferred.** The use cases speak of the first consumer's deliveries, and the reviewed flow is thinner in two places: its delivery has no product configuration and no checklist. §6 lists each inference with what it rests on. Two questions the specification left open were decided to write the values (§7, ADR-0123). UC-4 to UC-6 need inspection and availability datapoints the journey lacks, so the history's second part publishes a version that adds them (§8), and §12 lists what they inferred and found. UC-7 to UC-9 add a telemetry summary, three formulas and legacy history, in a third part (§13), and §17 lists theirs. UC-10 to UC-12 add a rule on a metric, an agent's escalation and the business exceptions, in a fourth (§18), and §22 lists theirs.
 
 ## 1. The store
 
@@ -58,6 +58,8 @@ imported:
   - { object: L04, type: Robot, state: AVAILABLE, created: 2026-06-01T00:00Z, entered: 2026-07-08T00:00Z, entered_by: human, legacy: [[REQUESTED, 2026-06-01T00:00Z, 2026-07-06T00:00Z], [INTAKE, 2026-07-06T00:00Z, 2026-07-08T00:00Z]], attributes: { model: M-ROVER, label_printed_at: 2026-07-07T00:00Z } }
   - { object: L05, type: Robot, state: AVAILABLE, entered: 2026-05-10T00:00Z, entered_by: human, legacy: [[REQUESTED, 2026-04-06T00:00Z, 2026-05-04T00:00Z], [INTAKE, 2026-05-04T00:00Z, 2026-05-10T00:00Z]], attributes: { model: M-ARM, label_printed_at: 2026-05-05T00:00Z } }
   - { object: L06, type: Robot, state: SOLD, created: 2025-08-04T00:00Z, entered: 2025-10-01T00:00Z, entered_by: human, legacy: [[REQUESTED, 2025-08-04T00:00Z, 2025-09-10T00:00Z], [INTAKE, 2025-09-10T00:00Z, 2025-09-12T00:00Z], [AVAILABLE, 2025-09-12T00:00Z, 2025-10-01T00:00Z]], attributes: { model: M-ROVER, label_printed_at: 2025-09-11T00:00Z, sold_to: C-ACME } }
+  - { object: L07, type: Robot, state: REQUESTED, created: 2026-07-20T00:00Z, entered: 2026-07-20T00:00Z, entered_by: human, attributes: { model: M-ARM } }
+  - { object: E01, type: Engagement, state: OUT, entered: 2026-08-25T00:00Z, entered_by: human, attributes: { kind: LEASE, expected_return: 2026-11-10T00:00Z } }
 
 requests:
   - { at: 2026-09-01T01:00Z, actor: U-ANA, create: Agent, object: A-SCOUT, transition: issue, inputs: { key_id: scout, name: Scout } }
@@ -896,3 +898,348 @@ The values for each supplier:
 1. **No actor type for a service** (D448). As with the agent (D445), the journey's shared module declared none, so the telemetry service could not act. Resolved in place, as `Agent` was.
 2. **A per-unit share takes a combined metric of two distinct counts** (determined). A metric's value aggregates the rows of one group, and first-pass yield is a share of units over rows of results. So it is written as two metrics counting distinct units and a combined metric dividing them, which the format allows. A reader wanting it in one declaration would need `count(distinct … where …)`, which the model does not offer.
 3. **A metric filter may read the subject's other observations.** `first_results_inspected`'s filter reads `r.subject.pdi_results`, each row's delivery's other results, to find a first one. The flow checker accepts it in all four steps. The model's text says a row's own flow data is a collection an aggregate may range over, and does not say whether another observation of the same subject is one (`declaration-syntax.md` §6.9). `TODO.md` holds the question.
+
+## 18. November: a version adds a rule on a metric, and the business exceptions
+
+The history continues from `now` of §13. The reads below are taken at the new `now`, `2026-11-16T00:00Z`, a Monday. The reads of §3 to §16 hold as written, at their own `now`.
+
+**What the first part ported, and nothing had read.** Two more objects came from the legacy system at the port:
+- **L07**, an Arm 7 ordered on 20 July and never received.
+- **E01**, a lease out since August and due back on 10 November.
+
+On 2 November the lead publishes version 5 of the journey:
+- **A rule that reads a metric** (UC-10). Each model may carry a `yield_floor`, and completing a delivery needs, for every unit, its model's first-pass rate over the last 30 days at or above the floor, or a second sign-off. The rate is a metric with a `time_dimension`, so a guard can window it.
+- **A norm held as data** (UC-12, ADR-0113). Each model may carry a `usual_lead_time`, which the reporting service refreshes from supplier lead time by a declared transition.
+- **The three business exceptions the journey lacked** (UC-12), each a derived attribute over a stored operand and `now` (`data-driven-engine.md` §3.10):
+  - backorder ageing, against the norm;
+  - a delivery date at risk;
+  - a warranty expiring, on a new `Warranty` type.
+
+```yaml publish
+at: 2026-11-02T00:00Z
+add:
+  types.RobotModel.attributes.yield_floor: { type: "decimal(4,3)", optional: true }
+  types.RobotModel.attributes.usual_lead_time: { type: duration, optional: true }
+  types.RobotModel.transitions.set_yield_floor:
+    kind: internal
+    from: ACTIVE
+    description: Sets the first-pass rate below which a delivery of the model needs a second sign-off.
+    required_inputs: [yield_floor]
+  types.RobotModel.transitions.set_usual_lead_time:
+    kind: internal
+    from: ACTIVE
+    description: Records the model's usual lead time, which the reporting service refreshes from supplier lead time.
+    required_inputs: [usual_lead_time]
+  types.Robot.derived_attributes.backorder_ageing:
+    description: The unit is promised to a delivery and not yet received, longer than its model's usual lead time.
+    expression: >-
+      peg is not null and (state == REQUESTED or state == PROCUREMENT)
+      and model.usual_lead_time is not null and created_at + model.usual_lead_time < now
+  types.Delivery.observations.second_sign_offs:
+    kind: SecondSignOff
+    description: A second sign-off on the delivery, by someone other than whoever asked to complete it.
+    attributes:
+      remark: { type: string, optional: true, personal: true }
+  types.Delivery.derived_attributes.date_at_risk:
+    description: The delivery is still being prepared within two days of the date promised for it.
+    expression: state == PREPARATION and promised_date is not null and promised_date < now + 2 days
+  types.Delivery.conditions.yield_or_signed:
+    description: Every unit's model passes its checks at first often enough over the last 30 days, or the delivery has a second sign-off.
+    expression: >-
+      count(s in second_sign_offs) >= 1
+      or all(u in units: u.model.yield_floor is null
+                         or metric(first_pass_rate, model := u.model, over last 30 days) >= u.model.yield_floor)
+    remedy: delegable
+  types.Delivery.transitions.complete_sale.guards.yield_or_signed: deny
+  types.Delivery.transitions.complete_internal.guards.yield_or_signed: deny
+  types.Delivery.metrics.first_pass_rate:
+    description: The share of pre-delivery checks passed at their first recorded result, by model.
+    source: pdi_results
+    item: r
+    filter: >-
+      none(s in r.subject.pdi_results where s.unit == r.unit and s.check == r.check
+                                     and s.recorded_at < r.recorded_at)
+    dimensions:
+      model: r.unit.model
+    time_dimension: r.occurred_at
+    expression: count(where r.outcome != CheckOutcome.FAIL) * 1.000 / count()
+  types.Warranty:
+    description: A unit's warranty, whose end the sales application computes from the sale and the model's warranty months.
+    tracking: record
+    attributes:
+      unit: { reference: Robot }
+      ends_at: { type: timestamp, indexed: true }
+    states:
+      ACTIVE: { category: live }
+      ENDED: { category: closed, final: true }
+    derived_attributes:
+      expiring:
+        description: The warranty is in force and ends within 30 days.
+        expression: state == ACTIVE and ends_at < now + 30 days
+    transitions:
+      start:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [unit, ends_at]
+      end:
+        kind: external
+        from: ACTIVE
+        to: ENDED
+```
+
+**What happens.**
+- **Thresholds.** Ana sets the Arm 7's yield floor to 0.800 and its reorder point to 2. The reporting service sets each model's usual lead time from supplier lead time's eightieth percentile: 42 days for the Arm 7, 35 for the Rover 2.
+- **Subscriptions.** The reporting service subscribes to every binding of a unit to a delivery, and to every unit leaving intake, for "order ready".
+- **D14 (Acme), UC-10:**
+  - Ben binds L01 and L05, and both pass their battery checks.
+  - Asked on 7 November to complete D14, the store refuses: the Arm 7's first-pass rate over the last 30 days is 0.750, below its floor. Ana records a second sign-off, and D14 completes.
+  - D15, a Rover 2 for Boreal, completes on the 10th, the Rover 2 having no floor.
+- **Orders and a shipment.** Ben orders three more units: R40 and R41, Rover 2s, and R42, an Arm 7. R40 leaves on shipment S2, due on 10 November and still in transit.
+- **Two more deliveries:**
+  - D16 pegs L07, the Arm 7 ordered in July.
+  - D17 pegs R30, still in intake, binds L04, and is promised for 17 November. R30 leaves intake on the 14th, which fills D17.
+- **Warranties.** Ana starts three: on L02, R05 and L06, the last ending on 1 December.
+- **UC-11.** On 16 November the procurement agent, Buyer, reads supplier lead time and the open orders, ranks them, and escalates L07 with a label.
+
+```yaml scenario
+now: 2026-11-16T00:00Z
+
+requests:
+  - { at: 2026-11-02T01:00Z, actor: U-ANA, object: M-ARM, transition: set_yield_floor, inputs: { yield_floor: 0.800 } }
+  - { at: 2026-11-02T01:05Z, actor: U-ANA, object: M-ARM, transition: set_reorder_point, inputs: { reorder_point: 2 } }
+  - { at: 2026-11-02T02:00Z, actor: U-ANA, create: Agent, object: A-BUYER, transition: issue, inputs: { key_id: buyer, name: Buyer } }
+  - { at: 2026-11-02T03:00Z, actor: U-BEN, create: Robot, object: R40, transition: request, inputs: { model: M-ROVER } }
+  - { at: 2026-11-02T04:00Z, actor: S-REPORTS, object: M-ARM, transition: set_usual_lead_time, inputs: { usual_lead_time: 42 days } }
+  - { at: 2026-11-02T04:00Z, actor: S-REPORTS, object: M-ROVER, transition: set_usual_lead_time, inputs: { usual_lead_time: 35 days } }
+  - { at: 2026-11-02T05:00Z, actor: S-REPORTS, subscribe: SUB-BOUND, filter: { type: Delivery, transitions: [bind_slot] } }
+  - { at: 2026-11-02T05:00Z, actor: S-REPORTS, subscribe: SUB-ARRIVED, filter: { type: Robot, transitions: [inventorize] } }
+  - { at: 2026-11-03T00:00Z, actor: U-BEN, create: Robot, object: R42, transition: request, inputs: { model: M-ARM } }
+  - { at: 2026-11-03T01:00Z, actor: U-BEN, create: Shipment, object: S2, transition: dispatch, inputs: { with_units: [R40], eta: 2026-11-10T00:00Z } }
+  - { at: 2026-11-03T02:00Z, actor: U-BEN, create: Delivery, object: D16, transition: open, inputs: { customer: C-BOREAL, promised_date: 2026-12-01T00:00Z } }
+  - { at: 2026-11-03T03:00Z, actor: U-BEN, object: D16, transition: peg_slot, inputs: { robot: L07 } }
+  - { at: 2026-11-04T00:00Z, actor: U-BEN, object: D14, transition: bind_slot, inputs: { robot: L01 } }
+  - { at: 2026-11-04T00:01Z, actor: U-BEN, object: D14, transition: bind_slot, inputs: { robot: L05 } }
+  - { at: 2026-11-04T01:00Z, actor: U-BEN, record: pdi_results, subject: D14, object: Q6, fields: { unit: L01, check: K1, outcome: PASS } }
+  - { at: 2026-11-04T01:05Z, actor: U-BEN, record: pdi_results, subject: D14, object: Q7, fields: { unit: L05, check: K1, outcome: PASS } }
+  - { at: 2026-11-07T00:00Z, actor: U-BEN, object: D14, transition: complete_sale, refused: { verdict: unsatisfied, clause: yield_or_signed, remedy: delegable } }
+  - { at: 2026-11-07T01:00Z, actor: U-ANA, record: second_sign_offs, subject: D14, object: SS1, fields: {} }
+  - { at: 2026-11-07T02:00Z, actor: U-BEN, object: D14, transition: complete_sale }
+  - { at: 2026-11-08T00:00Z, actor: U-BEN, create: Delivery, object: D15, transition: open, inputs: { customer: C-BOREAL, promised_date: 2026-11-20T00:00Z } }
+  - { at: 2026-11-08T01:00Z, actor: U-BEN, object: D15, transition: bind_slot, inputs: { robot: L03 } }
+  - { at: 2026-11-08T02:00Z, actor: U-BEN, record: pdi_results, subject: D15, object: Q8, fields: { unit: L03, check: K3, outcome: PASS } }
+  - { at: 2026-11-08T02:05Z, actor: U-BEN, record: pdi_results, subject: D15, object: Q9, fields: { unit: L03, check: K4, outcome: PASS } }
+  - { at: 2026-11-09T00:00Z, actor: U-BEN, create: Robot, object: R41, transition: request, inputs: { model: M-ROVER } }
+  - { at: 2026-11-10T00:00Z, actor: U-BEN, object: D15, transition: complete_sale }
+  - { at: 2026-11-12T00:00Z, actor: U-BEN, create: Delivery, object: D17, transition: open, inputs: { customer: C-ACME, promised_date: 2026-11-17T00:00Z } }
+  - { at: 2026-11-12T01:00Z, actor: U-ANA, create: Warranty, object: W1, transition: start, inputs: { unit: L02, ends_at: 2027-03-02T00:00Z } }
+  - { at: 2026-11-12T01:00Z, actor: U-ANA, create: Warranty, object: W2, transition: start, inputs: { unit: L06, ends_at: 2026-12-01T00:00Z } }
+  - { at: 2026-11-12T01:00Z, actor: U-ANA, create: Warranty, object: W3, transition: start, inputs: { unit: R05, ends_at: 2027-09-04T00:00Z } }
+  - { at: 2026-11-12T01:30Z, actor: U-BEN, object: D17, transition: peg_slot, inputs: { robot: R30 } }
+  - { at: 2026-11-12T02:00Z, actor: U-BEN, object: D17, transition: bind_slot, inputs: { robot: L04 } }
+  - { at: 2026-11-14T00:00Z, actor: U-BEN, object: R30, transition: record_label_print }
+  - { at: 2026-11-14T01:00Z, actor: U-BEN, object: R30, transition: inventorize }
+  - { at: 2026-11-16T00:00Z, actor: A-BUYER, label: late-risk, subject: L07, object: LB1 }
+```
+
+## 19. UC-10: a rule that reads a metric
+
+> *Hypothetical; no first-consumer process asks for this yet.* Deliveries of a robot model whose first-pass yield over the last thirty days is below a threshold need a second sign-off. *Acceptance:* the refusal names the threshold and the value; the record of every completion holds the value it was decided on; the threshold changes only through a governed path. (PRD §7)
+
+**The rule.** `yield_or_signed` passes if the delivery has a second sign-off, or if every unit's model has no floor or a first-pass rate at or above it over the last 30 days. A metric reference binds its dimension from the loop's unit, `model := u.model`. It is consulted before the transaction, and its value is recorded on the event or the refusal, whichever side of the `or` decides (`declaration-syntax.md` §6.9, "In a guard"). Its remedy is `delegable`: the way through is a second sign-off, which someone else records (`DESIGN.md` §5.5).
+
+**Why a first-pass *rate*.** UC-10 names first-pass *yield*, and the yield of §15 is a combined metric. A combined metric has no `time_dimension`, so a guard cannot window it over the last 30 days (§22). The rule reads the share of checks passed at their first result, by model, which has one.
+
+**The refusal names the threshold and the value.** On 7 November the rule read the Arm 7's first results since 8 October:
+- Q1, R03's pass;
+- Q2, R06's first failure;
+- Q6 and Q7, L01's and L05's passes.
+
+That is three in four, 0.750, below the floor of 0.800. D09's results of 5 and 6 October had fallen out of the window.
+
+Read: `refusal of D14.complete_sale`
+
+| clause | remedy | consulted | threshold |
+|---|---|---|---|
+| yield_or_signed | delegable | first_pass_rate(model: M-ARM) = 0.750 | M-ARM.yield_floor = 0.800 |
+
+**The record of every completion holds the value it was decided on.** D14 completed with Ana's sign-off, and its event keeps the value the rule consulted, 0.750, though the sign-off decided it. D15's keeps the Rover 2's rate: 1.000, from Q4, Q5, Q8 and Q9, the Rover 2's first results since 11 October.
+
+Read: `consulted of D14.complete_sale`
+
+| reference | value |
+|---|---|
+| first_pass_rate(model: M-ARM) | 0.750 |
+
+Read: `consulted of D15.complete_sale`
+
+| reference | value |
+|---|---|
+| first_pass_rate(model: M-ROVER) | 1.000 |
+
+**The threshold changes only through a governed path.** The floor is an attribute of the model, written only by `set_yield_floor`, a declared transition whose event records who set it and when (PRD L4). The Arm 7's history:
+
+Read: `events(M-ARM)`
+
+| transition | occurred_at | recorded_at |
+|---|---|---|
+| import | 2026-09-01T00:00Z | 2026-09-01T00:00Z |
+| set_yield_floor | 2026-11-02T01:00Z | 2026-11-02T01:00Z |
+| set_reorder_point | 2026-11-02T01:05Z | 2026-11-02T01:05Z |
+| set_usual_lead_time | 2026-11-02T04:00Z | 2026-11-02T04:00Z |
+
+Read: `metric(Delivery.refusals, keep: [clause, remedy, actor_kind], filter: "a.clause == \"yield_or_signed\"")`
+
+| clause | remedy | actor_kind | value | gaps |
+|---|---|---|---|---|
+| yield_or_signed | delegable | human | 1 | |
+
+## 20. UC-11: an agent decides with data
+
+> A procurement agent ranks open purchase orders by risk of being late, from supplier lead-time metrics and each order's age, and escalates the riskiest. *Acceptance:* the agent reads the same metric definitions a person would, narrowed as the application it works through narrows any read; its escalations are recorded as its actions; the ranking itself is the agent's, not the engine's. (PRD §7)
+
+An open purchase order is a unit ordered and not yet received, in `REQUESTED` or `PROCUREMENT` (§17). Buyer, an agent, reads two things through the engine:
+- the eightieth percentile of supplier lead time over the last 365 days, the same declaration a person reads (§16);
+- the open orders, oldest first.
+
+Read: `metric(supplier_lead_time_p80, keep: [supplier], over: "365 days") as A-BUYER`
+
+| supplier | value | gaps |
+|---|---|---|
+| Armtek | 42d | L05 |
+| Roverline | 35d | |
+
+The procurement application Buyer works through serves the Roverline desk, and narrows every read it passes on to Roverline's units. The narrowed read gives the value over the rows the filter selects:
+
+Read: `metric(supplier_lead_time_p80, keep: [supplier], filter: "o.model.manufacturer == Roverline", over: "365 days") as A-BUYER`
+
+| supplier | value | gaps |
+|---|---|---|
+| Roverline | 35d | |
+
+Read: `query(Robot, filter: "state == REQUESTED or state == PROCUREMENT", order: "created_at")`
+
+| object | state | created_at |
+|---|---|---|
+| L07 | REQUESTED | 2026-07-20T00:00Z |
+| R40 | PROCUREMENT | 2026-11-02T03:00Z |
+| R42 | REQUESTED | 2026-11-03T00:00Z |
+| R41 | REQUESTED | 2026-11-09T00:00Z |
+
+**The ranking is the agent's.** Buyer divides each order's age by its supplier's eightieth percentile, a rule of its own that no declaration holds:
+
+| Order | Supplier | Age at `now` | Risk |
+|---|---|---|---|
+| L07 | Armtek | 119d | 2.83 |
+| R40 | Roverline | 13d 21h | 0.40 |
+| R42 | Armtek | 13d | 0.31 |
+| R41 | Roverline | 7d | 0.20 |
+
+The engine returned the values and the ages. The division, the order and the choice to escalate L07 are Buyer's, and no read of the engine gives them. A different agent reading the same values could rank by something else.
+
+**Its escalations are recorded as its actions.** Buyer escalates L07 by labelling it `late-risk`. A label is a request, recorded with its actor and kind, and needs no declaration (`declaration-syntax.md` §6.8, PRD D6). Had the flow a transition for escalating, Buyer would request it; the journey has none, and a label is how information not yet modelled is recorded.
+
+Read: `labels(L07)`
+
+| object | name | recorded_by_kind | subject_state |
+|---|---|---|---|
+| LB1 | late-risk | agent | REQUESTED |
+
+## 21. UC-12: business exceptions from declared conditions
+
+> The first consumer's alert catalogue holds six business exceptions — low stock, procurement overdue, backorder ageing, delivery date at risk, lease overdue, warranty expiring — and one notice that is not an exception at all: order ready, which is an event, the last slot filled. *Acceptance:* each of the six conditions is declared once and answerable by a query a scheduler or an agent runs; a threshold one of them reads, such as a reorder point per model, is held on an object and changes only by that object's recorded transition; order ready is a subscription to the transition that fills the last slot; sending any alert is an upper-layer application's; and an ageing condition, such as backorder ageing, can compare against the norm observed for that kind of work in the flow's own history instead of a fixed number. (PRD §7)
+
+**Each of the six is declared once and answered by a query.** Each is a derived attribute of the object it is about, over a stored operand and `now` (`data-driven-engine.md` §3.10). Three were in the journey already, and version 5 added three. A scheduler or an agent asks for the objects in which each holds:
+
+| Exception | Declared as | Holds at `now` for |
+|---|---|---|
+| Low stock | `RobotModel.low_stock`: fewer units on offer than the model's reorder point | M-ARM: none on offer, reorder point 2 |
+| Procurement overdue | `Shipment.overdue`: in transit past its expected arrival | S2, due on 10 November |
+| Backorder ageing | `Robot.backorder_ageing`: promised to a delivery, not received, longer than its model's usual lead time | L07: pegged to D16, ordered 119 days ago against the Arm 7's 42 |
+| Delivery date at risk | `Delivery.date_at_risk`: still being prepared within two days of its promised date | D17, promised for 17 November |
+| Lease overdue | `Engagement.overdue`: out past its expected return | E01, due back on 10 November |
+| Warranty expiring | `Warranty.expiring`: in force, ending within 30 days | W2, ending on 1 December |
+
+Read: `query(RobotModel, filter: "low_stock")`
+
+| object |
+|---|
+| M-ARM |
+
+Read: `query(Shipment, filter: "overdue")`
+
+| object |
+|---|
+| S2 |
+
+Read: `query(Robot, filter: "backorder_ageing")`
+
+| object |
+|---|
+| L07 |
+
+Read: `query(Delivery, filter: "date_at_risk")`
+
+| object |
+|---|
+| D17 |
+
+Read: `query(Engagement, filter: "overdue")`
+
+| object |
+|---|
+| E01 |
+
+Read: `query(Warranty, filter: "expiring")`
+
+| object |
+|---|
+| W2 |
+
+**A threshold is held on an object.** The reorder point is the model's attribute, written only by `set_reorder_point`. The yield floor and the usual lead time are the same: each change is an event, and `events(M-ARM)` in §19 shows all three.
+
+**An ageing condition compares against the norm observed in the flow's own history.** Backorder ageing does not compare against a fixed number. It compares against the model's `usual_lead_time`, which the reporting service set from supplier lead time's eightieth percentile by a declared transition (ADR-0113). The norm is observed, since it comes from the store's own metric; governed, since only a recorded transition writes it; and explainable, since the condition reads a value on the record. A condition cannot read the metric itself, since a metric is read only in a guard (`declaration-syntax.md` §6.9).
+
+**Order ready is a subscription.** A delivery is ready when it is `filled`: at least one unit bound and no unit still pegged. The subscription filter names a type and transitions (`DESIGN.md` §7), and in the journey a delivery fills in either of two ways:
+- by binding a unit;
+- by its last pegged unit leaving intake, a Robot's transition.
+
+So the reporting service subscribes to both and reads the delivery's `filled` after each event (§22).
+
+Read: `pull(SUB-BOUND)`
+
+| object | transition | occurred_at |
+|---|---|---|
+| D14 | bind_slot | 2026-11-04T00:00Z |
+| D14 | bind_slot | 2026-11-04T00:01Z |
+| D15 | bind_slot | 2026-11-08T01:00Z |
+| D17 | bind_slot | 2026-11-12T02:00Z |
+
+Read: `pull(SUB-ARRIVED)`
+
+| object | transition | occurred_at |
+|---|---|---|
+| R30 | inventorize | 2026-11-14T01:00Z |
+
+What the relay concludes from each event:
+- **D14 is ready at its first binding**, of L01, since `filled` asks for one unit, not a number.
+- **D15 is ready at its binding.**
+- **D17 is not ready at its binding**, since R30 was still pegged.
+- **D17 is ready when R30 leaves intake**, an event the first subscription could not see.
+
+**Sending any alert is an upper layer's.** The engine answered six queries and delivered two subscriptions' events. Whether the reporting service posts to Slack, raises a Jira issue or does nothing is not in any declaration, and the engine posts nothing (`data-driven-engine.md` §3.10; ADR-0105).
+
+## 22. What is inferred, and what UC-10 to UC-12 found
+
+**Inferences**, each resting on a requirement or the reviewed flow:
+1. **The threshold of UC-10 is a floor per model**, `RobotModel.yield_floor`, written by its own transition, as the reorder point is (PRD L4). A model with no floor never needs the sign-off.
+2. **A second sign-off is a datapoint on the delivery.** It follows the model's approval pattern, "a recorded part of the approved object", with a gate counting it (`DESIGN.md` §5.5). Who may sign, and that it is someone other than who asked, are the upper layer's (ADR-0114).
+3. **An open purchase order is a unit ordered and not received** (UC-11). The journey has no purchase-order type; a unit in `REQUESTED` or `PROCUREMENT` is what one is for.
+4. **An escalation is a label** (UC-11), as the journey declares no transition for it and a label records what is not yet modelled.
+5. **Backorder ageing is about the unit promised to a delivery**, since in the journey the delivery pegs a unit not yet received. "Its reference to a unit has been empty" is, here, a peg on a unit that has not arrived (`data-driven-engine.md` §3.10).
+6. **The norm is supplier lead time's eightieth percentile, held per model** by the reporting service, and a warranty's end date is computed by the sales application, since a warranty is counted in months and a month has no fixed length (`declaration-syntax.md` §8.3).
+7. **A delivery date is at risk within two days of the promise**, a fixed window written in the declaration, as `data-driven-engine.md` §3.10 says a fixed window is.
+
+**Findings.**
+1. **A combined metric cannot be read over a window** (UC-10). The first-pass yield of §15 is a combined metric, and a combined metric has no `time_dimension`, so a guard's `over last 30 days` cannot apply to it: step 4 refuses it by check 56, "'over last' on metric first_pass_yield, which declares no 'window on'", as a probe showed. The rule reads a per-check first-pass rate instead. `TODO.md` holds the question: give a combined metric a time dimension, or add `count(distinct … where …)` so the yield is one metric.
+2. **In the journey, "order ready" is not one transition** (UC-12). A delivery fills when a unit is bound or when its last pegged unit leaves intake, and a subscription names transitions of one type. So order ready is two subscriptions and a read of `filled`, and `filled` knows no count of slots: a delivery is ready at its first binding. The first consumer's slots, one per unit ordered, have no counterpart in the journey. `TODO.md` holds the question.
+3. **A metric's consulted value is recorded whichever side decides** (determined). D14 completed on the sign-off, and its event still holds 0.750, since every metric reference in a guard is consulted before the transaction.
