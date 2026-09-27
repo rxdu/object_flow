@@ -127,6 +127,7 @@ In design, under review by its author. What exists:
 - [**Traceability**](docs/design/traceability.md): every requirement mapped to what meets it; a checker fails while any is not covered.
 - **Worked examples**: [a unit's journey](docs/design/unit-journey.md), [a returns flow](docs/design/returns-module.md), and [an operations review](docs/design/flow-review.md) of the journey.
 - **Jira's typical flows**: [a catalogue](docs/design/jira-flows.md) of the workflows Jira's templates ship, each a checked module with its state diagram, saying which parts Atlassian states and which the catalogue chose.
+- **Can a builder recover a flow?** [A review](docs/design/flow-recoverability-review.md) of the robot inventory and the Jira flows by readers given only the specification and the YAML, with its open findings.
 
 Next come the author's review of the open decisions, then the first implementation; its language and the service's transport are still open. [`TODO.md`](TODO.md) says exactly where things stand.
 
