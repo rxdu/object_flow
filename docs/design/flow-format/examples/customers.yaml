@@ -226,7 +226,7 @@ types:
       invoiced:
         description: The order has an invoice number.
         expression: invoice_number is not null
-        remedy: self_serviceable
+        remedy: unreachable_from_here
       invoice_valid_in_xero:
         description: The order's invoice is valid in Xero, as Xero said within the last half hour.
         expression: xero.invoice_valid(invoice_number)

@@ -86,13 +86,13 @@ Each attribute is a mapping with exactly one of `type` and `reference`. (step 2,
 
 | Key | Value |
 |---|---|
-| `type` | a built-in type (`string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `duration`, `identity`, `file`, `event`) or an enumeration's name; or `counter`, on a type tracked by quantity (§4.17) |
+| `type` | a built-in type (`string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `duration`, `identity`, `file`, `event`) or an enumeration's name, `[]` making the attribute a set of values; or `counter`, on a type tracked by quantity (§4.17) |
 | `reference` | the name of a type the module declares or imports; `[]` makes the attribute a set of references |
 | `opposite` | the attribute of the referenced type that is the other end of this relationship (UML `Property::opposite`) |
 | `stored` | `true` on the one of two single ends that holds the value |
 | `aggregation` | `composite` on a whole's end: the referenced objects are its parts (UML `AggregationKind::composite`) |
 | `cascade`, `survives` | on a composite end: what its parts do when the whole takes a transition (below) |
-| `optional` | `true` if the attribute may be without a value; otherwise it always has one |
+| `optional` | `true` if the attribute may be without a value; otherwise it always has one. A set, of values or of references, is never optional and never absent: a creation that does not take it as an input creates it empty, and `clear` empties it (ADR-0122) |
 | `default` | the value a creation that does not take the attribute as an input gives it (§4.17) |
 | `identifier` | the value is minted from a sequence when the object is created (§4.12) |
 | `external` | the system that owns the value, such as `xero`: its values are unique for each source, and it MAY be optional, as an object not yet matched to that system has none (§4.15) |
@@ -142,7 +142,7 @@ A condition is a named test that transitions use as guards.
 | `description` | yes | the condition, stated as what holds when it is satisfied |
 | `expression` | yes | §5 |
 | `evaluation` | no | for a condition that asks an evaluator: `eager` or `deferred` (§4.18) |
-| `remedy` | yes | what a caller can do when it fails: `self_serviceable` (supply an input), `delegable` (another actor must act), `temporal` (only time will satisfy it), `dependent` (another object must change first) or `unreachable_from_here` (nothing the caller supplies, waits for, or asks of another actor or object will satisfy it from here: another transition must come first, or none can); `DESIGN.md` §5.5 |
+| `remedy` | yes | what a caller can do when it fails: `self_serviceable` (supply or correct an input of the transition requested), `delegable` (another actor must act), `temporal` (only time will satisfy it), `dependent` (another object must change first) or `unreachable_from_here` (nothing the caller supplies, waits for, or asks of another actor or object will satisfy it from here: another transition must come first, such as one that writes the value the condition reads, or none can); `DESIGN.md` §5.5; a condition whose transition takes no input is never `self_serviceable` (step 3 notice `self_serviceable`, ADR-0122) |
 
 Every condition MUST be used by at least one transition. (step 3, `names`)
 
@@ -175,7 +175,7 @@ A transition changes an object, and every change to an object is one. A transiti
 | `inputs` | no | declared inputs, which write no attribute of their own name (below) |
 | `guards` | no | a mapping from a condition's name to its enforcement, in the order the guards are evaluated |
 | `effect` | no | the list of writes the transition makes, in order (UML `Transition::effect`) |
-| `backdating_limit` | no | how far in the past a caller may say the change happened, a duration such as `2 days` |
+| `backdating_limit` | no | how far in the past a caller may say the change happened, a duration such as `2 days`. The requested transition's `occurred_within` checks the bound and that the time does not precede its object's current interval; each transition the request calls or cascades to takes the same occurred time and checks only that it does not precede the current interval of the state or tracked value that transition changes on its own object, a failure refusing the call, and so the request, as `unsatisfied` by `occurred_within` (ADR-0122) |
 
 A **declared input** is a value the caller supplies that is not simply written to the attribute of its name: a reason recorded with the event, a value a guard tests, or one an effect writes elsewhere. Each is a parameter of the transition's trigger, in UML's terms:
 
@@ -209,7 +209,7 @@ A transition MUST NOT both write and clear one attribute. (step 3, `names`)
 
 An optional input is read in a step only as the whole of an expression, which is skipped when the input is absent; it MUST NOT appear inside a larger expression of a step, since the step would then be conditional on whether it was given, which the model forbids: behaviour that differs by that is two transitions, each taking what it needs (step 3, `names`; the model's check 48; ADR-0122). An optional input given as null is not supplied.
 
-**Refusals.** A request is refused with the first of these that applies, in the order a request is executed (`DESIGN.md` §6), and each carries its remedy (`DESIGN.md` §5.5): the generated guard `actor_known` (`unsatisfied`, remedy `dependent`) when the request's actor, or its principal, names no object of a type that marks an actor identity; `not found` when the object does not exist; `unknown transition` when the object's type, or for a creation the type named, declares no transition of that name the request can take, an initial one for a creation and any other for an object; `stale` when its expected version is out of date; `not requestable` when the transition is `only_via` others; `unavailable` when the object is not in a state the transition may be taken in; `invalid input` when an input is one the transition does not take, is not of its declared type, names no object or one of another type, or repeats an element of a set, or when a declared input that is not optional, or a required input of an attribute neither optional nor defaulted, is left out or given as null; `unsatisfied` when a guard fails, the generated guards first, `occurred_within`, `whole_open` and `not_erased` and, for a recording, `subject_open`, `corrects_current` and `subject_owned`, then the `<attribute>_provided` guards in the order of `required_inputs` (§6), which refuse a required input of an optional or defaulted attribute left out or given as null, and then the transition's own guards in their order; then, as the effect runs, in the order its steps run, a call or creation that is refused, which refuses the request with its verdict and the step that made it, and `over-limit` when a loop or cascade would exceed its limit, which is checked when the loop starts, before its first run; and last, invariant violated, naming every invariant that fails, in the order declared (ADR-0122).
+**Refusals.** A request is refused with the first of these that applies, in the order a request is executed (`DESIGN.md` §6), and each carries its remedy (`DESIGN.md` §5.5): the generated guard `actor_known` (`unsatisfied`, remedy `dependent`) when the request's actor, or its principal, names no object of a type that marks an actor identity; `not found` when the object does not exist; `unknown transition` when the object's type, or for a creation the type named, declares no transition of that name the request can take, an initial one for a creation and any other for an object; `stale` when its expected version is out of date; `not requestable` when the transition is `only_via` others; `unavailable` when the object is not in a state the transition may be taken in; `invalid input` when an input is one the transition does not take, is not of its declared type, names no object or one of another type, or repeats an element of a set, or when a declared input that is not optional, or a required input of an attribute neither optional nor defaulted, is left out or given as null; `unsatisfied` when a guard fails, the generated guards first, `occurred_within`, `whole_open` and `not_erased` and, for a recording, `subject_open`, `corrects_current` and `subject_owned`, then the `<attribute>_provided` guards in the order of `required_inputs` (§6), which refuse a required input of an optional or defaulted attribute left out or given as null, and then the transition's own guards in their order; then, as the effect runs, in the order its steps run, a call or creation that is refused, which refuses the request with its verdict and the step that made it, and `over-limit` when a loop or cascade would exceed its limit, which is checked when the loop starts, before its first run; and last, invariant violated, naming each object on which an invariant fails, in ascending id order, and on each every invariant that fails, in the order its type declares them (ADR-0122).
 
 ### 4.9 Metrics
 
@@ -599,7 +599,7 @@ A description is checked in four steps, and each stops the check if it finds any
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
-Step 3 also reports four notices, which are not fatal: `audit`, for each guard that audits; `warn`, for each guard that warns; `imports`, for a module imported from that is not among the files checked; and `migration`, for what a publish over live objects of the previous version would need (§4.16).
+Step 3 also reports five notices, which are not fatal: `audit`, for each guard that audits; `warn`, for each guard that warns; `self_serviceable`, for each guard whose condition is `self_serviceable` on a transition that takes no input; `imports`, for a module imported from that is not among the files checked; and `migration`, for what a publish over live objects of the previous version would need (§4.16).
 
 ## 8. A minimal valid description
 

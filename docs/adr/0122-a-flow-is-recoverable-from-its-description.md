@@ -2,9 +2,9 @@
 
 - **Status:** Accepted by the author, 2026-09-27: "go ahead with your recommendations, ensure there is no ambiguity after the revision". Each decision below is the recommendation `flow-recoverability-review.md` made for a finding, and D397's is the one that review left to the author.
 - **Date:** 2026-09-27
-- **Amended:** 2026-09-27, the same day: decisions 14 to 19 from a second review, 20 to 24 from a third, and 25 and 26 from a fourth, by fresh readers of the corrected specification and examples (`flow-recoverability-review.md` §5), at the author's direction ("check again with fresh agents and see if all issues have been fixed").
+- **Amended:** 2026-09-27, the same day: decisions 14 to 19 from a second review, 20 to 24 from a third, 25 and 26 from a fourth, and 27 to 30 from a fifth, by fresh readers of the corrected specification and examples (`flow-recoverability-review.md` §5), at the author's direction ("check again with fresh agents and see if all issues have been fixed").
 - **Refines:** ADR-0116 (the format replaces the text language), ADR-0071 (bounded loops), ADR-0098 (metrics and `combine`), ADR-0029 (sequences)
-- **Relates to:** `flow-format.md` §4.1, §4.3, §4.8, §4.9, §4.12, §4.17, §5; `declaration-syntax.md` §3.3, §4.2, §5.1, §5.2, §6.9; `DESIGN.md` §3, §5.5, §6; `flow-recoverability-review.md`
+- **Relates to:** `flow-format.md` §4.1, §4.3, §4.7, §4.8, §4.9, §4.12, §4.17, §5, §7; `declaration-syntax.md` §3.1, §3.3, §4.2, §5.1, §5.2, §6.9; `DESIGN.md` §3, §5.4, §5.5, §6; `flow-recoverability-review.md`
 
 ## Context
 
@@ -37,7 +37,11 @@ The author asked whether a flow builder, given the specification and the YAML, c
 23. **Adding a held value, or removing an absent one, leaves a set as it is** (D419), and the transition still applies.
 24. **A uniqueness has a name** (D419): the invariant a `unique` attribute or a one-to-one end generates is `<attribute>_unique`, reserved as the generated guards' and invariants' names are; and a cascade's `on` and an attribute's `survives` may name the type's transitions, which follow the attributes.
 25. **An assertion's guards and admissions are stated** (D421). An assertion evaluates the generated guards every request does, `occurred_within` among them, and its own, and none of the flow's; an `admits` naming an invariant `may_admit` does not list is `invalid input`, and one the request does not break records nothing.
-26. **A refusal says what failed, in order** (D421). The effect's refusals come in the order its steps run, a loop's limit checked when it starts; `occurred_within` bounds a time before the current interval as well as one too far back; and an invariant refusal names every invariant that fails, in the order declared.
+26. **A refusal says what failed, in order** (D421). The effect's refusals come in the order its steps run, a loop's limit checked when it starts; `occurred_within` bounds a time before the current interval as well as one too far back; and an invariant refusal names every invariant that fails, in the order declared, and each object it fails on (decision 29).
+27. **A set is never absent** (D423). A set attribute, of values or of references, is empty until a value is added: a creation that does not take it as an input creates it empty, and `clear` empties it.
+28. **A backdated request checks each object it changes** (D424). The requested transition's `occurred_within` checks its bound and its own object's current interval; each transition it calls or cascades to takes the same occurred time and checks only that the time does not precede the current interval of what it changes on its own object, when it runs, a failure refusing the call and so the request.
+29. **An invariant refusal is ordered by object** (D425): each object on which an invariant fails, in ascending id order, and on each every invariant that fails, in the order its type declares them.
+30. **`self_serviceable` names an input of the transition requested** (D426). A guard is `self_serviceable` only where correcting an input of the request can satisfy it; one satisfied by a value another transition writes first is `unreachable_from_here`, and one waiting on other objects is `dependent`. Step 3 notices a `self_serviceable` guard on a transition that takes no input; the notice cannot see an input that exists and cannot help, as the journey's `last` had.
 
 ## Alternatives rejected
 
@@ -53,9 +57,14 @@ The author asked whether a flow builder, given the specification and the YAML, c
 - **An inner join for a combined metric** (decision 18). It drops exactly the groups one input lacks, such as a model never lent, which is what a utilisation flag exists to find.
 - **A new remedy class for "never"** (decision 17). A closed window and a reached cap already share `unreachable_from_here`, and the caller's next move for both is a different path.
 - **Verdicts left to the engine.** The attempt log's verdicts are what the metrics over attempts count, so two engines would disagree on them.
+- **A set that is absent until written** (decision 27). A required attribute must be present whenever the object exists (`declaration-syntax.md` §3.1), so a required set could not be created without an input for it, and an aggregate over an absent collection would need a rule of its own, which the empty set does not: `count` over it is 0 (`DESIGN.md` §5.7).
+- **Every call checking its own full bound** (decision 28). A transition taken only through a call cannot be backdatable (the model's check 58), so it would refuse every occurred time a backdated parent passes it; the bound is the requested transition's, and the interval is each object's.
+- **One entry per failing invariant, its objects listed under it** (decision 29). Ordering the invariants across types would need an order over types, and with imports an order over modules, which nothing defines; ids are already ordered.
+- **Refusing a `self_serviceable` guard on a transition with no input** (decision 30). The model's check 20 verifies only that a declared class is one of the five, and the format's checker is not stricter than the model; the pairing is a notice, as the publish report's other advice is.
 
 ## Consequences
 
 - `flow-format.md` §4.1, §4.3, §4.8, §4.9, §4.12, §4.17 and §7 state the decisions, §4.17 and §4.8 with correction notes; `declaration-syntax.md` §3.3, §4.2, §5.2 and §6.9 and `DESIGN.md` §3, §5.5 and §6 say the same.
 - `scripts/check-flows.py` reads `from: any` without the target, accepts a defaulted attribute as an optional input, and refuses a set reference with no opposite and a step conditional on an optional input, each proven by a plant; `scripts/check-syntax-doc.py` reads `any` the same way in the creation report.
 - The robot inventory, the flow review's appendix and the Jira catalogue are corrected for D408 and D409.
+- The fifth review's corrections: `flow-format.md` §4.3, §4.7, §4.8 and §7, `declaration-syntax.md` §3.1, §4.2 and §5.1, and `DESIGN.md` §5.4 and §5.5 state decisions 27 to 30; `scripts/check-flows.py` gains the notice `self_serviceable`; and seven remedies in the journey, the review's appendix and the format's examples are corrected (D426).

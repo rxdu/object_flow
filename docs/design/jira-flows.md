@@ -1654,7 +1654,7 @@ The service flows: a request on the default IT support workflow, a service reque
 
 ### 3.1 A request on the IT support workflow
 
-Every new service space gets the Jira Service Management IT Support Workflow, and its requests are closed by an agent or automatically.
+Every new service space gets the Jira Service Management IT Support Workflow, and its requests are closed by the service desk or automatically.
 
 **Source.**
 - Statuses, stated: "Waiting for Triage The initial status when requests are created." ([Default configurations](https://support.atlassian.com/jira-cloud-administration/docs/default-configurations-for-jira-service-management/)) Waiting for Support comes "After requests have been triaged and each time the customer/reporter is waiting for a response." ([Default configurations](https://support.atlassian.com/jira-cloud-administration/docs/default-configurations-for-jira-service-management/)), and Waiting for Customer "After an agent has actioned a request and is waiting for a response from the customer/reporter." ([Default configurations](https://support.atlassian.com/jira-cloud-administration/docs/default-configurations-for-jira-service-management/)), which the transitions follow.
@@ -1693,7 +1693,7 @@ enumerations:
 
 types:
   Request:
-    description: A customer's request on the Jira Service Management IT Support Workflow, closed by an agent or automatically three days after it is resolved.
+    description: A customer's request on the Jira Service Management IT Support Workflow, closed by the service desk or automatically three days after it is resolved.
     tracking: record
 
     attributes:
@@ -1730,7 +1730,7 @@ types:
         kind: external
         from: WAITING_FOR_SUPPORT
         to: WAITING_FOR_CUSTOMER
-        description: An agent replies and waits for the customer.
+        description: The service desk replies and waits for the customer.
       customer_replies:
         kind: external
         from: WAITING_FOR_CUSTOMER
@@ -1753,7 +1753,7 @@ types:
         kind: external
         from: RESOLVED
         to: CLOSED
-        description: An agent closes the resolved request.
+        description: The service desk closes the resolved request.
       auto_close:
         kind: external
         from: RESOLVED
@@ -1763,7 +1763,7 @@ types:
           resolved_three_days: deny
 ```
 
-Two transitions close a resolved request: `close`, an agent's, and `auto_close`, which the automation requests and a `temporal` guard holds until three days have passed. Reopening clears the resolution, which stops the clock, as the SLA's stop condition says.
+Two transitions close a resolved request: `close`, the service desk's, and `auto_close`, which the automation requests and a `temporal` guard holds until three days have passed. Reopening clears the resolution, which stops the clock, as the SLA's stop condition says.
 
 ### 3.2 A service request with an approval
 

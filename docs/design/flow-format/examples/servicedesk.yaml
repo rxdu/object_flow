@@ -562,7 +562,7 @@ types:
         expression: >-
           none(w in ChangeWindow where w.kind == WindowKind.FREEZE and w.state == ChangeWindow.SCHEDULED
                and w.starts_at <= planned_start and planned_start < w.ends_at)
-        remedy: self_serviceable
+        remedy: dependent
     transitions:
       request:
         kind: initial

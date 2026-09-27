@@ -178,7 +178,7 @@ types:
       estimated:
         description: The work item has an estimate.
         expression: story_points is not null
-        remedy: self_serviceable
+        remedy: unreachable_from_here
       not_blocked:
         description: No work item that blocks this one is still open.
         expression: >-

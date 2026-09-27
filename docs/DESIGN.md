@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 422 entries and five cosmetics; 422 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 427 entries and five cosmetics; 427 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -220,7 +220,7 @@ Rules that make an outcome readable and safe:
 - **Bounded.** Every loop and every cascade clause must declare a bound; exceeding one is refused with `over-limit` naming that loop (ADR-0071). The graph of transitions that reference each other in outcomes must be acyclic (ADR-0019).
 - **Shown where it lands.** A cascade is declared on the transition that causes it, and the printed rules of every type it reaches name it too: under each transition, every transition whose outcome can cause it, `only via` parents and other callers alike (ADR-0108, `docs/design/renderers.md` §2). That is what lets a cascade be supported without surprising anyone, which the author made the condition for it (PRD F8).
 
-A transition may be marked **only via** named parent transitions, meaning it is not requestable (ADR-0020); **proposable**, meaning a request for it may be filed as a Proposal and executed when one is approved (§9); or **asserting** (§8). It may also be marked **backdatable within** a duration: it then accepts the time the change actually happened, within that bound, never later than the time it is recorded, and never before the start of the current interval of any state or tracked value the request changes, and the event keeps both times, because a duration computed from when someone got round to recording a change is wrong (ADR-0083). Every transition the request cascades to records the same occurred time, since one request is one change (ADR-0095). The occurred time is a field of the request, and its bound is a generated guard, `occurred_within`, so a request outside it is refused naming a rule and a remedy like any other (ADR-0099).
+A transition may be marked **only via** named parent transitions, meaning it is not requestable (ADR-0020); **proposable**, meaning a request for it may be filed as a Proposal and executed when one is approved (§9); or **asserting** (§8). It may also be marked **backdatable within** a duration: it then accepts the time the change actually happened, within that bound, never later than the time it is recorded, and never before the start of the current interval of any state or tracked value the request changes, and the event keeps both times, because a duration computed from when someone got round to recording a change is wrong (ADR-0083). Every transition the request calls or cascades to records the same occurred time, since one request is one change (ADR-0095), and checks, when it runs, that the time does not precede the current interval of what it changes on its own object; how far back the time may reach is the requested transition's bound alone (ADR-0122). The occurred time is a field of the request, and its bound is a generated guard, `occurred_within`, so a request outside it is refused naming a rule and a remedy like any other (ADR-0099).
 
 Creation is a transition from nothing into an initial state, carrying its own guards. A type with several creation transitions is named explicitly at the creation site. Requiredness attaches to transitions, so `validate(object)` has no answer and `check(object, transition, inputs)` does (ADR-0002, ADR-0005).
 
@@ -241,17 +241,17 @@ Evaluating a request yields one **verdict**, and every refusal names a remedy cl
 | `unavailable` | The object is not in a state the transition may be taken in (ADR-0122) | `unreachable_from_here` |
 | `unknown transition` | The type declares no transition of that name the request can take: an initial one for a creation, any other for an object (ADR-0122) | `self_serviceable` |
 | `invalid input` | An input the transition does not take, one not of its declared type, a reference naming no object or one of another type, a set repeating an element, or a required input left out or null, except a required input of an optional or defaulted attribute, which its generated guard refuses (ADR-0122) | `self_serviceable` |
-| invariant violated | Names every invariant that fails, in the order declared, and the conflicting objects (ADR-0122) | `dependent` where it names other objects; `self_serviceable` where only this object's values conflict |
+| invariant violated | Names each object on which an invariant fails, in ascending id order, every invariant that fails on it, in the order its type declares them, and the conflicting objects (ADR-0122) | `dependent` where it names other objects; `self_serviceable` where only this object's values conflict |
 
 The **remedy class** tells a caller what to do next:
 
 | Remedy class | Meaning | Caller's next move |
 |---|---|---|
-| `self_serviceable` | Satisfiable by a transition argument | Supply it |
+| `self_serviceable` | Satisfiable by an argument of the transition requested (ADR-0122) | Supply it, or correct it |
 | `delegable` | Another actor must act, such as an approval not yet given; if the transition is proposable, a Proposal can be filed | Ask them, or propose |
 | `temporal` | Only time will satisfy it | Come back later |
 | `dependent` | Another object must change state; names it | Work on that first |
-| `unreachable_from_here` | Nothing supplied, awaited, or asked of another actor or object satisfies it from here: another transition must come first, or none can (ADR-0122) | Take a different path |
+| `unreachable_from_here` | Nothing supplied, awaited, or asked of another actor or object satisfies it from here: another transition must come first, such as one that writes the value the clause reads, or none can (ADR-0122) | Take a different path |
 
 Availability is therefore three-way for a listing: available, available-with-input naming what must be supplied, or blocked with a verdict.
 

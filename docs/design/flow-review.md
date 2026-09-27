@@ -815,15 +815,15 @@ types:
       last:
         description: The unit is not the last one still in procurement, since the shipment would be left empty.
         expression: count(u in units where u.state == Robot.PROCUREMENT) >= 2
-        remedy: self_serviceable
+        remedy: unreachable_from_here
       empty:
         description: No unit of the shipment is still in procurement.
         expression: none(u in units where u.state == Robot.PROCUREMENT)
-        remedy: self_serviceable
+        remedy: dependent
       reconciled:
         description: No unit of the shipment is still in procurement.
         expression: none(u in units where u.state == Robot.PROCUREMENT)
-        remedy: self_serviceable
+        remedy: dependent
       pristine:
         description: Every unit of the shipment that is not missing, cancelled or deleted is still on offer, so the commit can be undone.
         expression: >-
@@ -1310,7 +1310,7 @@ types:
       nonempty:
         description: The engagement has at least one unit on it.
         expression: count(l in lines where l.open) >= 1
-        remedy: self_serviceable
+        remedy: unreachable_from_here
       fit:
         description: Every unit on the engagement is fit to go out.
         expression: "all(l in lines where l.open: l.robot.fit)"
@@ -1407,7 +1407,7 @@ types:
         flag_when: { any_overdue: "value > 0" }
 
   EngagementLine:
-    description: One unit on one engagement, open from when it is added until the unit leaves it, by a swap or its retirement, or the engagement ends, whether scheduled, out or returning; a unit an assertion moves stays on its line until the engagement ends.
+    description: One unit on one engagement, open from when it is added until the unit leaves it, by a swap or its retirement, or the engagement ends, whether scheduled, out or returning; an assertion moving the unit does not end its line.
     tracking: record
 
     attributes:

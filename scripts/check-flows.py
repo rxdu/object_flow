@@ -1672,13 +1672,19 @@ def metric_errors(tn, t, mn, m):
 def notices(doc):
     out = []
     for tn, t in types(doc):
+        conds = t.get("conditions") or {}
         for xn, x in (t.get("transitions") or {}).items():
+            takes = x.get("required_inputs") or x.get("optional_inputs") or x.get("inputs")
             for g, mode in (x.get("guards") or {}).items():
                 path = ("types", tn, "transitions", xn, "guards", g)
                 if mode == "audit":
                     out.append((path, "audit", f"{g} is audited: its failures are recorded and it refuses nothing"))
                 elif mode == "warn":
                     out.append((path, "warn", f"{g} warns: a failure is reported with the result and refuses nothing"))
+                # "supply it" (DESIGN.md §5.5) has nothing to name on a transition that takes no input
+                if not takes and (conds.get(g) or {}).get("remedy") == "self_serviceable":
+                    out.append((path, "self_serviceable", f"{g}'s remedy is self_serviceable, 'supply it', "
+                                f"and {xn} takes no input a caller could supply"))
     return out
 
 
@@ -2285,8 +2291,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
         ("an evaluator's verdict inside a larger expression", "names", "customers.yaml",
          plant(customers, "        expression: xero.contact_exists(inputs.xero_contact_id)\n", "        expression: xero.contact_exists(inputs.xero_contact_id) and email is not null\n")),
         ("an evaluation marked on a condition that calls no evaluator", "names", "customers.yaml",
-         plant(customers, "        expression: invoice_number is not null\n        remedy: self_serviceable\n",
-               "        expression: invoice_number is not null\n        evaluation: eager\n        remedy: self_serviceable\n")),
+         plant(customers, "        expression: invoice_number is not null\n",
+               "        expression: invoice_number is not null\n        evaluation: eager\n")),
         ("an evaluator called by a derived attribute", "names", "customers.yaml",
          plant(customers, "    conditions:\n      contact_in_xero:",
                "    derived_attributes:\n      in_xero:\n        description: Xero knows the contact.\n        expression: xero.contact_exists(xero_contact_id)\n\n    conditions:\n      contact_in_xero:")),
@@ -2381,6 +2387,13 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     hit = bool(cut) and "§2 rule 4" in cut[0][4] and "'two.'" in cut[0][4]
     ok &= hit
     print(f"  planted a comma in an unquoted inline value: {'named as a cut value' if hit else 'MISSED ' + str(cut[:1])}")
+    bare = [x for x in check([("bare.yaml", "module: m\ncategories: [live]\ntypes:\n  T:\n    description: A type with two states.\n    tracking: record\n"
+                                            "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
+                                            "    conditions: { ready: { description: Ready., expression: 'true', remedy: self_serviceable } }\n"
+                                            "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E, guards: { ready: deny } } }\n")])[1]
+            if x[3] == "self_serviceable"]
+    ok &= len(bare) == 1
+    print(f"  planted a self_serviceable guard on a transition with no input: {'noticed' if len(bare) == 1 else 'MISSED'}")
     written = load("module: m\ntypes:\n  T:\n    description: d\n    tracking: record\n"
                    "    attributes: { a: { type: bool, default: false }, b: { type: int, default: 0, indexed: true } }\n"
                    "    states: { S: { category: live, final: true } }\n"
