@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-27: "go ahead with your recommendations, ensure there is no ambiguity after the revision". Each decision below is the recommendation `flow-recoverability-review.md` made for a finding, and D397's is the one that review left to the author.
 - **Date:** 2026-09-27
-- **Amended:** 2026-09-27, the same day: decisions 14 to 19, from a second review by fresh readers of the corrected specification and examples (`flow-recoverability-review.md` §5), at the author's direction ("check again with fresh agents and see if all issues have been fixed").
+- **Amended:** 2026-09-27, the same day: decisions 14 to 19 from a second review, and 20 to 24 from a third, by fresh readers of the corrected specification and examples (`flow-recoverability-review.md` §5), at the author's direction ("check again with fresh agents and see if all issues have been fixed").
 - **Refines:** ADR-0116 (the format replaces the text language), ADR-0071 (bounded loops), ADR-0098 (metrics and `combine`), ADR-0029 (sequences)
 - **Relates to:** `flow-format.md` §4.1, §4.3, §4.8, §4.9, §4.12, §4.17, §5; `declaration-syntax.md` §3.3, §4.2, §5.1, §5.2, §6.9; `DESIGN.md` §3, §5.5, §6; `flow-recoverability-review.md`
 
@@ -31,6 +31,11 @@ The author asked whether a flow builder, given the specification and the YAML, c
 17. **`unreachable_from_here` has one meaning** (D413): nothing the caller supplies, waits for, or asks of another actor or object will satisfy the guard from here, because another transition must come first or none can; a window that has closed and a cap that is reached are both.
 18. **An aggregate over no elements has a value, and a combined metric joins over every group** (D414). `count` and `sum` are 0, `all` and `none` true, `any` false, and `min`, `max`, `avg`, `median` and `percentile` absent; a combined metric's inputs are joined over every group any of them has, an input with no rows in a group contributing its value over no rows.
 19. **The schema says what the prose says** (D416): `from: any`, a cascade's limit, a null optional input and the names an import may list.
+20. **Every request has a verdict, and the guards an order** (D417). An actor or principal naming no actor is refused by the generated guard `actor_known`; a transition the type does not declare, or of the wrong kind for the request, is `unknown transition`; and the generated guards run first in a stated order, `occurred_within`, `whole_open`, `not_erased`, a recording's three, then the `<attribute>_provided` guards in the order of `required_inputs`. A creation resolves its actor like any request, and skips only the object checks.
+21. **`actor.id` is the identity the request named** (D418): the value the acting object holds in its attribute marked `actor_kind`, not the object's own `id`.
+22. **An assertion changes the state** (D419): its `to` must be listed and differ from the current state, or the request is `invalid input`; it is never taken at a final state; and its effect may write what the state it puts the object in cannot hold.
+23. **Adding a held value, or removing an absent one, leaves a set as it is** (D419), and the transition still applies.
+24. **A uniqueness has a name** (D419): the invariant a `unique` attribute or a one-to-one end generates is `<attribute>_unique`, reserved as the generated guards' and invariants' names are; and a cascade's `on` and an attribute's `survives` may name the type's transitions, which follow the attributes.
 
 ## Alternatives rejected
 

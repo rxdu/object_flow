@@ -1126,7 +1126,7 @@
         },
         "default": {
           "$ref": "#/definitions/expression",
-          "description": "The value every creation that does not write the attribute gives it: a literal, a qualified value or now."
+          "description": "The value every creation that does not take the attribute as an input gives it: a literal, a qualified value or now."
         },
         "identifier": {
           "$ref": "#/definitions/identifier"

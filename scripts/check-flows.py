@@ -817,6 +817,9 @@ def reserved_name_errors(doc):
             if i.endswith("_invariant") and i[:-len("_invariant")].upper() in states:
                 out.append((("types", tn, "invariants", i), "names",
                             f"'{i}' is the name of the invariant generated for a state's required_attributes; choose another name"))
+            if i.endswith("_unique") and i[:-len("_unique")] in attrs:
+                out.append((("types", tn, "invariants", i), "names",
+                            f"'{i}' is the name of the invariant a unique attribute or a one-to-one end generates; choose another name"))
     return out
 
 
@@ -2338,6 +2341,9 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(service, "imports: { people: [User] }", "imports: { people: [User, Robot] }")),
         ("an import from a module not among the files checked", "imports", "service.yaml",
          plant(service, "imports: { people: [User] }", "imports: { staff: [User] }")),
+        ("an invariant named like a generated uniqueness invariant", "names", "inventory.yaml",
+         plant(inventory, "    conditions:\n", "    invariants:\n      serial_unique:\n        description: A clash with a generated name.\n"
+                                              "        expression: serial is not null\n\n    conditions:\n")),
         ("a name a module in the closure also declares", "names", "service.yaml",
          plant(service, "enumerations:\n", "enumerations:\n  Service: [A, B]\n")),
         ("a set of references with no opposite", "names", "delivery.yaml",

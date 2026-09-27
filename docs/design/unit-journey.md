@@ -415,6 +415,9 @@ machines:
           reason: { type: OverrideReason }
           detail: { type: string, optional: true, personal: true }
         may_admit: [one_open_engagement]
+        description: Puts the unit into the state it is really in when the record is wrong, releasing any peg, binding or part claim, which none of those states holds for a delivery or a job.
+        effect:
+          - clear: [peg, binding, used_in]
 
 types:
   Robot:
@@ -1089,7 +1092,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
       room_for_unit:
         description: The engagement has fewer than 20 units on it, the most its end reaches.
         expression: count(l in lines where l.open) < 20
-        remedy: unreachable_from_here
+        remedy: dependent
       incoming_leasable:
         description: The unit swapped in is fit and on no open engagement.
         expression: inputs.in_robot.leasable
@@ -1190,7 +1193,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         flag_when: { any_overdue: "value > 0" }
 
   EngagementLine:
-    description: One unit on one engagement, open from when it is added until the engagement ends, scheduled or out.
+    description: One unit on one engagement, open from when it is added until the unit leaves it, by a swap or its retirement, or the engagement ends, whether scheduled, out or returning.
     tracking: record
 
     attributes:
@@ -1219,7 +1222,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
 
     metrics:
       time_on_loan:
-        description: The time units have spent on engagements, scheduled or out, by model, kind of engagement and month.
+        description: The time units have spent on engagements, from being added to leaving, by model, kind of engagement and the month the time began.
         source: intervals
         item: i
         filter: i.state == EngagementLine.OPEN
@@ -1308,7 +1311,7 @@ The one metric that crosses types is declared last:
 
 metrics:
   pool_utilisation:
-    description: The share of a pooled unit's time spent on engagements, scheduled or out, by model, over the whole history.
+    description: The share of a pooled unit's time spent on engagements, from being added to leaving, by model, over the whole history.
     input_metrics:
       on_loan: EngagementLine.time_on_loan
       pool: Robot.time_in_pool
@@ -1319,7 +1322,7 @@ metrics:
 
 Pool utilisation, the share of a pooled unit's time spent on engagements, scheduled or out, since a scheduled engagement already holds its units (§6), is the question ADR-0002 asks first ("how much did we use it?"). `pool_utilisation` divides `time_on_loan` by `time_in_pool` per model, over the whole history. Writing this module found that a duration could not be divided by a duration (`design/defects.md` D275), and ADR-0103 made the quotient of two like quantities a decimal. It is not declared per month: a metric buckets a span by the month it began, so a unit that joined the pool in January would put all its pool time in January, and apportioning a span across months is a known limit (`edge-cases.md`, ADR-0103 §5).
 
-*(Corrected 2026-09-27, when a review asked whether a builder given only the specification and the module could recover it (D408, ADR-0122): `discard` and `delete` now clear the unit's peg, and `unpeg` is taken from any state, so no unit leaves its delivery unable to be cancelled; `accept_return` clears `used_in`, so a returned part can be voided or bound; `convert_lease` clears the internal delivery's `binding`, and `recall_internal` refuses a unit on loan; the engagement's `nonempty` and `fit` read its open lines, and `swap_unit` requires the unit it swaps out to be on it; `pristine` passes over deleted units; and the model's two flags and a delivery's `internal` are optional inputs that take their defaults when left out.)*
+*(Corrected 2026-09-27, when a review asked whether a builder given only the specification and the module could recover it (D408, ADR-0122): `discard` and `delete` now clear the unit's peg, and `unpeg` is taken from any state, so no unit leaves its delivery unable to be cancelled; `accept_return` clears `used_in`, so a returned part can be voided or bound; `convert_lease` clears the internal delivery's `binding`, and `recall_internal` refuses a unit on loan; the engagement's `nonempty` and `fit` read its open lines, and `swap_unit` requires the unit it swaps out to be on it; `pristine` passes over deleted units; and the model's two flags and a delivery's `internal` are optional inputs that take their defaults when left out. A second and a third review added that the journey imports from a module of its own (D410), that an engagement holds at most the 20 units its end reaches, that `expected_return` and a shipment's tracking can be set later, that `reopen` re-checks its engineer and unit, and that `correct_state` releases a unit's peg, binding and part claim, which the states it puts a unit in never hold (D415, D420).)*
 
 ## 3. Every transition, against production
 

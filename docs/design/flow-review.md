@@ -548,6 +548,9 @@ machines:
           reason: { type: OverrideReason }
           detail: { type: string, optional: true, personal: true }
         may_admit: [one_open_engagement]
+        description: Puts the unit into the state it is really in when the record is wrong, releasing any peg, binding or part claim, which none of those states holds for a delivery or a job.
+        effect:
+          - clear: [peg, binding, used_in]
 
 types:
   Robot:
@@ -1295,7 +1298,7 @@ types:
       room_for_unit:
         description: The engagement has fewer than 20 units on it, the most its end reaches.
         expression: count(l in lines where l.open) < 20
-        remedy: unreachable_from_here
+        remedy: dependent
       incoming_leasable:
         description: The unit swapped in is fit and on no open engagement.
         expression: inputs.in_robot.leasable
@@ -1404,7 +1407,7 @@ types:
         flag_when: { any_overdue: "value > 0" }
 
   EngagementLine:
-    description: One unit on one engagement, open from when it is added until the engagement ends, scheduled or out.
+    description: One unit on one engagement, open from when it is added until the unit leaves it, by a swap or its retirement, or the engagement ends, whether scheduled, out or returning.
     tracking: record
 
     attributes:
@@ -1433,7 +1436,7 @@ types:
 
     metrics:
       time_on_loan:
-        description: The time units have spent on engagements, scheduled or out, by model, kind of engagement and month.
+        description: The time units have spent on engagements, from being added to leaving, by model, kind of engagement and the month the time began.
         source: intervals
         item: i
         filter: i.state == EngagementLine.OPEN
@@ -1508,7 +1511,7 @@ types:
 
 metrics:
   pool_utilisation:
-    description: The share of a pooled unit's time spent on engagements, scheduled or out, by model, over the whole history.
+    description: The share of a pooled unit's time spent on engagements, from being added to leaving, by model, over the whole history.
     input_metrics:
       on_loan: EngagementLine.time_on_loan
       pool: Robot.time_in_pool
