@@ -16,12 +16,13 @@
       "pattern": "^[a-z][a-z0-9_]*$"
     },
     "imports": {
-      "description": "Types used from other modules, by module name.",
+      "description": "Types, machines, enumerations, sequences and evaluators used from other modules, by module name, each from the module that declares it.",
       "type": "object",
       "additionalProperties": {
         "type": "array",
         "items": {
-          "$ref": "#/definitions/typeName"
+          "type": "string",
+          "pattern": "^([A-Z][A-Za-z0-9]*|[a-z][a-z0-9_]*)$"
         }
       }
     },
@@ -542,7 +543,7 @@
               "const": "any"
             }
           ],
-          "description": "The source state, or states, or any: every state that is not final. Required for external and internal transitions; absent for an initial one, an assertion and an erasure."
+          "description": "The source state, or states, or any: every state that is not final other than the target, or, for an internal transition, every state that is not final. Required for external and internal transitions; absent for an initial one, an assertion and an erasure."
         },
         "to": {
           "$ref": "#/definitions/states",
@@ -588,7 +589,7 @@
         },
         "optional_inputs": {
           "$ref": "#/definitions/names",
-          "description": "Attributes the caller may supply; each is written if supplied."
+          "description": "Attributes the caller may supply; each is written if supplied, and a null is not supplied. A defaulted attribute left out of a creation takes its default."
         },
         "inputs": {
           "description": "Declared inputs that write no attribute of their own name, by name; read in expressions as inputs.<name>.",
@@ -1485,7 +1486,7 @@
         "limit": {
           "type": "integer",
           "minimum": 1,
-          "description": "The most parts the cascade may reach in one request."
+          "description": "The most parts the cascade may drive in one request, those passed over in a final state not counted; a request that would drive more is refused with over-limit."
         }
       }
     },

@@ -217,7 +217,7 @@ A variant of [`unit-journey.md`](unit-journey.md) §2, to be deleted from here o
 
 ```yaml
 module: inventory_journey
-imports: { inventory: [User, Customer, RetirementReason, OverrideReason] }
+imports: { operations_shared: [User, Customer, RetirementReason, OverrideReason] }
 categories: [inbound, live, closed]
 
 enumerations:
@@ -652,7 +652,7 @@ types:
 
     metrics:
       inbound_dwell:
-        description: The median time units spend in each inbound stage, by model and month.
+        description: The median time units spend in procurement, missing or in intake, by stage, model and month.
         source: intervals
         item: i
         filter: i.state == Robot.PROCUREMENT or i.state == Robot.MISSING or i.state == Robot.INTAKE
@@ -664,7 +664,7 @@ types:
         expression: median(i.duration)
         flag_when: { slow: "value > 14 days" }
       missing_units:
-        description: The longest time a unit of each shipment has been missing.
+        description: The longest total time a unit of each shipment, now missing, has spent missing.
         source: objects
         item: u
         filter: u.state == Robot.MISSING
@@ -846,6 +846,11 @@ types:
               limit: 200
               steps:
                 - call: { target: u, transition: ship, inputs: { via_shipment: this } }
+      update_tracking:
+        kind: internal
+        from: IN_TRANSIT
+        description: Records the shipment's tracking number, carrier or expected arrival as they become known.
+        optional_inputs: [tracking_no, carrier, eta]
       add_unit:
         kind: internal
         from: IN_TRANSIT
@@ -1075,6 +1080,7 @@ types:
           - foreach:
               item: u
               array: units
+              where: u.state == Robot.RESERVED
               limit: 500
               steps:
                 - call: { target: u, transition: release }
@@ -1149,6 +1155,10 @@ types:
         description: A sold unit is serviced for the customer who bought it.
         expression: inputs.robot.state == Robot.DEVELOPMENT or inputs.robot.sold_to == inputs.customer
         remedy: self_serviceable
+      still_serviceable:
+        description: The unit is still in the pool, or still sold to the job's customer.
+        expression: robot.state == Robot.DEVELOPMENT or (robot.state == Robot.SOLD and robot.sold_to == customer)
+        remedy: dependent
       ours:
         description: The part is reserved for this job.
         expression: inputs.part.used_in == this
@@ -1227,6 +1237,11 @@ types:
         kind: external
         from: CANCELLED
         to: OPEN
+        description: Reopens a cancelled job for an active engineer, while its unit is still one the job may service.
+        required_inputs: [engineer]
+        guards:
+          active: deny
+          still_serviceable: deny
       delete:
         kind: external
         from: CANCELLED
@@ -1277,6 +1292,10 @@ types:
         description: The unit to add is fit and on no open engagement.
         expression: inputs.robot.leasable
         remedy: dependent
+      room_for_unit:
+        description: The engagement has fewer than 20 units on it, the most its end reaches.
+        expression: count(l in lines where l.open) < 20
+        remedy: unreachable_from_here
       incoming_leasable:
         description: The unit swapped in is fit and on no open engagement.
         expression: inputs.in_robot.leasable
@@ -1302,7 +1321,7 @@ types:
       return_known:
         description: A lease has an expected return.
         expression: kind != EngagementKind.LEASE or expected_return is not null
-        remedy: self_serviceable
+        remedy: unreachable_from_here
 
     transitions:
       schedule:
@@ -1316,9 +1335,15 @@ types:
         inputs:
           robot: { reference: Robot }
         guards:
+          room_for_unit: deny
           leasable: deny
         effect:
           - create: { type: EngagementLine, transition: open, inputs: { for_engagement: this, robot: inputs.robot } }
+      set_expected_return:
+        kind: internal
+        from: [SCHEDULED, OUT, RETURNING]
+        description: Sets or moves the date the units are expected back.
+        required_inputs: [expected_return]
       dispatch:
         kind: external
         from: SCHEDULED
@@ -1379,7 +1404,7 @@ types:
         flag_when: { any_overdue: "value > 0" }
 
   EngagementLine:
-    description: One unit on one engagement, open while the unit is out on it.
+    description: One unit on one engagement, open from when it is added until the engagement ends, scheduled or out.
     tracking: record
 
     attributes:
@@ -1408,7 +1433,7 @@ types:
 
     metrics:
       time_on_loan:
-        description: The time units have spent out on engagements, by model, kind of engagement and month.
+        description: The time units have spent on engagements, scheduled or out, by model, kind of engagement and month.
         source: intervals
         item: i
         filter: i.state == EngagementLine.OPEN
@@ -1483,7 +1508,7 @@ types:
 
 metrics:
   pool_utilisation:
-    description: The share of a pooled unit's time spent on loan, by model, over the whole history.
+    description: The share of a pooled unit's time spent on engagements, scheduled or out, by model, over the whole history.
     input_metrics:
       on_loan: EngagementLine.time_on_loan
       pool: Robot.time_in_pool

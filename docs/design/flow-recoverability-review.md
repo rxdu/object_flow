@@ -60,3 +60,8 @@ These are fully determined by the specification and wrong: each leaves an object
 - The order of guards and required inputs, and a traversal invariant re-checked when an object it reaches is written: settled by `flow-format.md` §4.8 and §6 and `declaration-syntax.md` §3.4.
 - Category lists that differ across an import: `flow-format.md` §4.1 has each module list the categories its states use, and the model's vocabulary is one across the closure, so they need not match.
 - Archiving an untouched work item counts as completing work (`declaration-syntax.md` §1): determined, and a question for the metrics rather than an ambiguity; `TODO.md` holds it.
+
+## 5. The second review
+
+After the corrections, two fresh readers under the same restrictions checked each earlier finding against the current text and reviewed the modules afresh. Every earlier finding was resolved, except that a required input of a defaulted attribute still converted to one the model lets be left out (D411) and the journey's import of `Customer` broke the new rule against re-exporting. The fresh review found seven more (D410 to D416): the journey's imports put two `Robot` types in one closure; refusals had no order and two had no verdict; `unreachable_from_here` had two meanings; a combined metric's join and an aggregate over no elements were unstated; defects of both examples, one of them an engagement that could never end past 20 units; and the schema and the declaration order lagged the prose. ADR-0122, amended, and corrections in place resolve each; a third review checks them (§6).
+

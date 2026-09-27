@@ -298,9 +298,11 @@ INPUT_READ = re.compile(r"\binputs\.([a-z][a-z0-9_]*)")
 
 
 def provided_guards(t, x):
-    """The guards required_inputs generates: one per optional attribute."""
+    """The guards required_inputs generates: one per optional or defaulted
+    attribute, so a required input stays required where the model's `accepts`
+    would let it be left out (ADR-0122)."""
     attrs = t.get("attributes") or {}
-    return [a for a in x.get("required_inputs", []) if a in attrs and optional(attrs[a])]
+    return [a for a in x.get("required_inputs", []) if a in attrs and (optional(attrs[a]) or "default" in attrs[a])]
 
 
 NAME = re.compile(r"[a-z][a-z0-9_]*")
@@ -2067,7 +2069,7 @@ def check(files, previous=None):
     """Findings and notices over modules given in import order, as (file, line,
     severity, code, message); previous maps a file to the text of the version
     before it, against which its migration is checked."""
-    found, notes, loaded, library, declared = [], [], [], {}, {}
+    found, notes, loaded, library, declared, uses = [], [], [], {}, {}, {}
     for f, text in files:
         try:
             idx = line_index(text)
@@ -2095,8 +2097,20 @@ def check(files, previous=None):
                 if n not in declared[mod]:
                     found.append((f, line_of(idx, ("imports", mod)), "fatal", "names",
                                   f"imports '{n}' from {mod}, which does not declare it"))
-        declared[doc["module"]] = {n for k in ("enumerations", "sequences", "evaluators", "machines", "types")
-                                   for n in (doc.get(k) or {})}
+        mine = {n: k for k in ("enumerations", "sequences", "evaluators", "machines", "types") for n in (doc.get(k) or {})}
+        # a name is declared once across the closure: the modules this one imports, and theirs (the model's check 33)
+        closure, todo = set(), [m for m in (doc.get("imports") or {}) if m in declared]
+        while todo:
+            m = todo.pop()
+            if m not in closure:
+                closure.add(m)
+                todo += [n for n in uses.get(m, ()) if n in declared]
+        for m in sorted(closure):
+            for n in sorted(set(mine) & declared[m]):
+                found.append((f, line_of(idx, (mine[n], n)), "fatal", "names",
+                              f"{n} is also declared by {m}, which is in this module's closure; a name is declared once across the closure (the model's check 33)"))
+        declared[doc["module"]] = set(mine)
+        uses[doc["module"]] = list(doc.get("imports") or {})
         v, back = view(doc, library)
         seen = set()
         pair, pair_notes = [], []
@@ -2324,6 +2338,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(service, "imports: { people: [User] }", "imports: { people: [User, Robot] }")),
         ("an import from a module not among the files checked", "imports", "service.yaml",
          plant(service, "imports: { people: [User] }", "imports: { staff: [User] }")),
+        ("a name a module in the closure also declares", "names", "service.yaml",
+         plant(service, "enumerations:\n", "enumerations:\n  Service: [A, B]\n")),
         ("a set of references with no opposite", "names", "delivery.yaml",
          plant(delivery, "      price:        { type: money(SGD) }\n", "      price:        { type: money(SGD) }\n      helpers:      { reference: \"Courier[]\" }\n")),
         ("a step made conditional on an optional input", "names", "service.yaml",

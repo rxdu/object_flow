@@ -6,7 +6,7 @@ Findings from every review of this design. It began as the implementation-readin
 
 **Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
 
-**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 0 are open — D395 to D409, found on 2026-09-27 reviewing whether a builder can recover the robot inventory and the Jira flows from the specification and the YAML (`flow-recoverability-review.md`), were resolved the same day by ADR-0122 and in place; D383, found extending the walkthrough's inventory item on 2026-09-25, was resolved in place the same day at the author's direction; an operations review of the worked example on 2026-09-24 found D289, corrected in place; an audit of the first consumer's production code the same day found D275 to D281, of which D280 and D281 were corrected in place, reviewing the design against the PRD with the unit's journey found D282 and D283, and verifying ADR-0103's first draft found D284 to D288; ADR-0103 resolved D275 to D279, D282 and D284 to D288, and D283 was corrected in place; the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. 0 are open — D395 to D416, found on 2026-09-27 reviewing whether a builder can recover the robot inventory and the Jira flows from the specification and the YAML (`flow-recoverability-review.md`), were resolved the same day by ADR-0122 and in place, D410 to D416 after a second review; D383, found extending the walkthrough's inventory item on 2026-09-25, was resolved in place the same day at the author's direction; an operations review of the worked example on 2026-09-24 found D289, corrected in place; an audit of the first consumer's production code the same day found D275 to D281, of which D280 and D281 were corrected in place, reviewing the design against the PRD with the unit's journey found D282 and D283, and verifying ADR-0103's first draft found D284 to D288; ADR-0103 resolved D275 to D279, D282 and D284 to D288, and D283 was corrected in place; the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
@@ -421,6 +421,13 @@ Findings from every review of this design. It began as the implementation-readin
 | [D407](#d407) | The diagram notation promises guards it does not draw | Resolved in place |
 | [D408](#d408) | The robot inventory example leaves objects stuck | Resolved in place |
 | [D409](#d409) | The Jira catalogue's flows have defects | Resolved in place |
+| [D410](#d410) | The robot inventory imported from a module that declares its own types | Resolved in place |
+| [D411](#d411) | A required input of a defaulted attribute converted to an input that could be left out | Resolved by ADR-0122 |
+| [D412](#d412) | Refusals had no order, and two had no verdict | Resolved by ADR-0122 |
+| [D413](#d413) | unreachable_from_here was defined two ways | Resolved by ADR-0122 |
+| [D414](#d414) | An aggregate over no elements and a combined metric's join were unstated | Resolved by ADR-0122 |
+| [D415](#d415) | The second review found defects of both examples | Resolved in place |
+| [D416](#d416) | The schema and the declaration order lagged the prose | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -2723,3 +2730,38 @@ The author asked whether a flow builder, given the specification and the YAML, c
 **The Jira catalogue's flows have defects.** Eight: the sprints' and versions' choice by a loop's `where` (D405), whose note cites the payments study for an idiom that study forbids; a version's delete and release refused for ever by an archived work item; `approvers` as a set reference with no opposite (D406); an archive cascade bounded at 100 subtasks with nothing bounding how many are added; a `self_serviceable` guard on a transition with no input; a Done resolution kept after leaving Done; no guard on a sprint or version target; and a description promising a rule nothing enforces. ([`flow-recoverability-review.md`](flow-recoverability-review.md) §3)
 
 **Resolved in place**, 2026-09-27, at the author's direction ("go ahead with your recommendations"): every defect is corrected in the catalogue's modules, the sprint's wrong citation retracted with a note.
+
+### D410
+**The robot inventory imported from a module that declares its own types.** The journey imported `User`, `Customer`, `RetirementReason` and `OverrideReason` from the specification's `inventory` module, which also declares `Robot`, `UnitLifecycle` and `unit_serial`, so the two could not be published in one closure (the model's check 33); step 3 could not see it, and the no-re-export rule made the `Customer` import invalid besides. Found by the second review ([`flow-recoverability-review.md`](flow-recoverability-review.md) §5).
+
+**Resolved in place**, 2026-09-27: the journey imports them from `operations_shared`, a module of its own in `unit-journey.md` §2, as do the returns module and the review's appendix; `flow-format.md` §3 says a name is declared once across the closure, and step 3 refuses a clash where the imported module is checked, proven by a plant.
+
+### D411
+**A required input of a defaulted attribute converted to an input that could be left out.** The generated `<attribute>_provided` guard covered only an optional attribute, and the model's `accepts` lets a defaulted attribute be left out of a `do`, so `RobotModel.set_reorder_point` without its input was refused by the format and applied by the model. Found by the second review ([`flow-recoverability-review.md`](flow-recoverability-review.md) §5).
+
+**Resolved by ADR-0122**, 2026-09-27: the guard is generated for a defaulted attribute too (decision 15).
+
+### D412
+**Refusals had no order, and two had no verdict.** Nothing said which verdict refuses a request that fails several checks, what refuses an input the transition does not take, or whether a required input of an optional attribute left out is `invalid input` or its generated guard's `unsatisfied`. Found by the second review ([`flow-recoverability-review.md`](flow-recoverability-review.md) §5).
+
+**Resolved by ADR-0122**, 2026-09-27: decision 16 orders the verdicts as a request is executed, and `DESIGN.md` §6 steps 3 and 4 say where each is decided.
+
+### D413
+**unreachable_from_here was defined two ways.** `flow-format.md` and `DESIGN.md` said another transition must come first, and `declaration-syntax.md` said there is no path from the state at all; a reached cap fitted neither. Found by the second review ([`flow-recoverability-review.md`](flow-recoverability-review.md) §5).
+
+**Resolved by ADR-0122**, 2026-09-27: decision 17 gives the three documents one meaning, covering both.
+
+### D414
+**An aggregate over no elements and a combined metric's join were unstated.** `pool_utilisation` for a model never lent had a pool time and no loan time, and nothing said whether its value was absent, unknown or zero, so the idlest models went unflagged under two readings. Found by the second review ([`flow-recoverability-review.md`](flow-recoverability-review.md) §5).
+
+**Resolved by ADR-0122**, 2026-09-27: decision 18 states the value of every aggregate over no elements and joins a combined metric over every group.
+
+### D415
+**The second review found defects of both examples.** An engagement with more than 20 open lines could never end; `expected_return` and a shipment's tracking could not be set after creation; `ServiceJob.reopen` skipped the guards of `open`; a delivery holding a unit an assertion had moved could not be cancelled; three metric descriptions did not say what they measure; and a Jira work item's own transitions planned it into a completed sprint or fixed it in a deleted version, which the sprint's and version's own paths refuse. Found by the second review ([`flow-recoverability-review.md`](flow-recoverability-review.md) §5).
+
+**Resolved in place**, 2026-09-27: each is corrected in `unit-journey.md`, the review's appendix and `jira-flows.md`.
+
+### D416
+**The schema and the declaration order lagged the prose.** The schema described `from: any`, a cascade's limit and optional inputs as the prose did before ADR-0122, required imports to be type names, and `flow-format.md` §3 gave no order for a combined metric's keys. Found by the second review ([`flow-recoverability-review.md`](flow-recoverability-review.md) §5).
+
+**Resolved in place**, 2026-09-27: each is corrected (decision 19).

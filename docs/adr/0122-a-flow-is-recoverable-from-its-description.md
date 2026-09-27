@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-27: "go ahead with your recommendations, ensure there is no ambiguity after the revision". Each decision below is the recommendation `flow-recoverability-review.md` made for a finding, and D397's is the one that review left to the author.
 - **Date:** 2026-09-27
+- **Amended:** 2026-09-27, the same day: decisions 14 to 19, from a second review by fresh readers of the corrected specification and examples (`flow-recoverability-review.md` §5), at the author's direction ("check again with fresh agents and see if all issues have been fixed").
 - **Refines:** ADR-0116 (the format replaces the text language), ADR-0071 (bounded loops), ADR-0098 (metrics and `combine`), ADR-0029 (sequences)
 - **Relates to:** `flow-format.md` §4.1, §4.3, §4.8, §4.9, §4.12, §4.17, §5; `declaration-syntax.md` §3.3, §4.2, §5.1, §5.2, §6.9; `DESIGN.md` §3, §5.5, §6; `flow-recoverability-review.md`
 
@@ -24,6 +25,12 @@ The author asked whether a flow builder, given the specification and the YAML, c
 11. **A step is never conditional on an input** (D405). An optional input is read in a step only as the whole of an expression, which is skipped when it is absent; step 3 refuses it inside a larger expression, as the model's check 48 does. Behaviour that differs by whether an input is given is two transitions.
 12. **A set of references names its opposite** (D406), and step 3 refuses one that does not; a machine's required set end is the exception, its opposite being on the binder.
 13. **A module does not re-export its imports.** A name is imported from the module that declares it.
+14. **A name is declared once across a closure** (D410). A type, machine, enumeration, sequence or evaluator MUST NOT share its name with one a module in its closure declares, as the model's check 33 refuses, and step 3 refuses it where the imported module is among the files checked.
+15. **A required input stays required** (D411). A required input of an optional or a defaulted attribute generates the guard `<attribute>_provided`, so the conversion to the model's `accepts`, which would let a defaulted attribute be left out of a `do`, keeps it required.
+16. **Refusals have an order** (D412). A request is refused with the first verdict that applies, in the order it is executed: `not found`, `stale`, `not requestable`, `unavailable`, `invalid input`, the generated guards and then the declared ones (`unsatisfied`), the effect's refused calls and creations and `over-limit`, and last an invariant violated. An input a transition does not take, and a required input left out or null, are `invalid input`, except a required input of an optional or defaulted attribute, which its generated guard refuses.
+17. **`unreachable_from_here` has one meaning** (D413): nothing the caller supplies, waits for, or asks of another actor or object will satisfy the guard from here, because another transition must come first or none can; a window that has closed and a cap that is reached are both.
+18. **An aggregate over no elements has a value, and a combined metric joins over every group** (D414). `count` and `sum` are 0, `all` and `none` true, `any` false, and `min`, `max`, `avg`, `median` and `percentile` absent; a combined metric's inputs are joined over every group any of them has, an input with no rows in a group contributing its value over no rows.
+19. **The schema says what the prose says** (D416): `from: any`, a cascade's limit, a null optional input and the names an import may list.
 
 ## Alternatives rejected
 
@@ -36,6 +43,8 @@ The author asked whether a flow builder, given the specification and the YAML, c
 - **Keeping every input dimension in a combined metric.** Its expression aggregates nothing, so it could not reduce a pair of inputs split by month to one value per model.
 - **Dropping a row with an absent dimension.** A total over all groups would then disagree with the same metric computed without that dimension.
 - **Gapless sequences.** They serialise every creation of a type behind one counter; `edge-cases.md` records gaplessness as out of scope.
+- **An inner join for a combined metric** (decision 18). It drops exactly the groups one input lacks, such as a model never lent, which is what a utilisation flag exists to find.
+- **A new remedy class for "never"** (decision 17). A closed window and a reached cap already share `unreachable_from_here`, and the caller's next move for both is a different path.
 - **Verdicts left to the engine.** The attempt log's verdicts are what the metrics over attempts count, so two engines would disagree on them.
 
 ## Consequences

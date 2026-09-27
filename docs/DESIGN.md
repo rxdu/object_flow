@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 409 entries and five cosmetics; 409 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 416 entries and five cosmetics; 416 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -238,8 +238,8 @@ Evaluating a request yields one **verdict**, and every refusal names a remedy cl
 | `not found` | No object has the id named (ADR-0114 withdrew the case of an object hidden from its reader) | `unreachable_from_here` |
 | `not requestable` | The transition is only via named parents, which are named in the verdict (ADR-0020, ADR-0041) | `unreachable_from_here` |
 | `over-limit` | A loop or cascade would exceed its declared limit, which is named; the limit counts the elements a loop's `where` selects and the parts a cascade drives (ADR-0041, ADR-0122) | `unreachable_from_here` |
-| `unavailable` | The object is not in a state the transition leaves (ADR-0122) | `unreachable_from_here` |
-| `invalid input` | A required input is missing, an input is not of its declared type, a reference input names no object or one of another type, or a set input repeats an element (ADR-0122) | `self_serviceable` |
+| `unavailable` | The object is not in a state the transition may be taken in (ADR-0122) | `unreachable_from_here` |
+| `invalid input` | An input the transition does not take, one not of its declared type, a reference naming no object or one of another type, a set repeating an element, or a required input left out or null, except a required input of an optional or defaulted attribute, which its generated guard refuses (ADR-0122) | `self_serviceable` |
 | invariant violated | Names the invariant and the conflicting objects | `dependent` where it names other objects; `self_serviceable` where only this object's values conflict |
 
 The **remedy class** tells a caller what to do next:
@@ -250,7 +250,7 @@ The **remedy class** tells a caller what to do next:
 | `delegable` | Another actor must act, such as an approval not yet given; if the transition is proposable, a Proposal can be filed | Ask them, or propose |
 | `temporal` | Only time will satisfy it | Come back later |
 | `dependent` | Another object must change state; names it | Work on that first |
-| `unreachable_from_here` | Wrong state; another transition comes first | Take a different path |
+| `unreachable_from_here` | Nothing supplied, awaited, or asked of another actor or object satisfies it from here: another transition must come first, or none can (ADR-0122) | Take a different path |
 
 Availability is therefore three-way for a listing: available, available-with-input naming what must be supplied, or blocked with a verdict.
 
@@ -471,8 +471,8 @@ External evaluators and metrics named by any guard in the request are consulted 
 
 1. Resolve the actor, and the principal if the request names one: each must be an object of a type that marks an `actor` identity, and its kind is that type's (§5.8). Otherwise refuse, naming `actor_known` (ADR-0110, ADR-0114). Then, if no object has the id the request names, refuse as `not found`.
 2. If this actor's idempotency key has been applied before to this request, return the original result, marked as a replay, **whatever `expected_version` the retry carries**: a retry is the original request re-sent, and its version is the one the original was checked against (ADR-0041, ADR-0076). A key applied before to a different request is a fault, not a verdict (ADR-0077).
-3. If an `expected_version` is given and differs, refuse with `stale`. This is possible only for a request that has not been applied.
-4. Evaluate the parent transition's guards, the generated ones included — `occurred_within`, `whole_open`, `not_erased`, and for a recording `subject_open`, `corrects_current` and `subject_owned` (ADR-0099, ADR-0100, ADR-0101, ADR-0105). A failure refuses the request, naming the clause, its object and its remedy class. A clause marked `observe` that fails refuses nothing; its would-be refusal is written to the attempt log in this transaction, linked to the event of step 8 (ADR-0085). A clause marked `flag` that fails refuses nothing either; it is written the same way, marked `flagged`, named on the event and returned to the caller with the verdict (ADR-0111).
+3. If the object does not exist, refuse with `not found`. If an `expected_version` is given and differs, refuse with `stale`. This is possible only for a request that has not been applied.
+4. Refuse a transition that is only via others with `not requestable`, an object not in a state the transition may be taken in with `unavailable`, and an input the transition does not take, of the wrong type, naming no object or one of another type, repeating an element of a set, or required and left out or null (other than a required input of an optional or defaulted attribute, which the generated `<attribute>_provided` guard refuses) with `invalid input`, in that order (ADR-0122). Evaluate the parent transition's guards, the generated ones included — `occurred_within`, `whole_open`, `not_erased`, and for a recording `subject_open`, `corrects_current` and `subject_owned` (ADR-0099, ADR-0100, ADR-0101, ADR-0105). A failure refuses the request, naming the clause, its object and its remedy class. A clause marked `observe` that fails refuses nothing; its would-be refusal is written to the attempt log in this transaction, linked to the event of step 8 (ADR-0085). A clause marked `flag` that fails refuses nothing either; it is written the same way, marked `flagged`, named on the event and returned to the caller with the verdict (ADR-0111).
 5. Apply the parent's outcome in full: its new state and its attribute writes, each value read at the moment it is applied (ADR-0054).
 6. Then, depth-first in declaration order and over collection elements in ascending object-id order, which is creation order (§5.1), each loop's collection read once as it starts (ADR-0122), take each cascaded transition or creation in turn, **skipping a part already in a terminal state**, since its disposition has happened and that is the only skip on account of state; for each of the rest evaluate its guards **against the state produced so far**, then apply its outcome immediately (ADR-0038). Every cascaded transition is recorded as the requesting actor's. Any failure aborts the whole request and rolls back, except a clause marked `observe` or `flag`, which refuses nothing at any depth and is logged, and a flag returned, as in step 4 (ADR-0100, ADR-0111).
 7. Check every invariant the written objects could violate — where a transition writes a part's `owner`, **both** the source whole and the destination whole count as written, so the source's invariants are re-checked and both have their part-event position stamped (ADR-0058), except those with an admitted violation still standing (ADR-0045, ADR-0054); an admitted violation whose invariant now holds is discharged, and the discharging position recorded. A `do` or `act` that writes an `owner` on an existing object — a re-parent — carries a generated guard, `whole_open`: the destination whole is not in a terminal state, as check 11 requires for a creation (ADR-0100, ADR-0101).

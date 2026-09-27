@@ -14,7 +14,7 @@ Four states, transitions with no guards, no invariants, no datapoint kinds and n
 module: returns
 imports:
   inventory_journey: [Robot, UnitLifecycle]
-  inventory: [Customer]
+  operations_shared: [Customer]
 categories: [inbound, live, closed]
 
 types:
@@ -57,7 +57,7 @@ It also adds what the first month made worth adding:
 module: returns
 imports:
   inventory_journey: [Robot, UnitLifecycle]
-  inventory: [Customer]
+  operations_shared: [Customer]
 categories: [inbound, live, closed]
 
 enumerations:

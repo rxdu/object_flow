@@ -660,6 +660,12 @@ types:
       DONE:        { category: closed }
       ARCHIVED:    { category: closed, final: true }
 
+    conditions:
+      sprint_open:
+        description: The sprint the work item is planned into has not been completed.
+        expression: inputs.sprint.state != Sprint.CLOSED
+        remedy: self_serviceable
+
     transitions:
       create:
         kind: initial
@@ -672,8 +678,10 @@ types:
       plan:
         kind: internal
         from: any
-        description: Plans the work item into a sprint.
+        description: Plans the work item into a sprint not yet completed.
         required_inputs: [sprint]
+        guards:
+          sprint_open: deny
       unplan:
         kind: internal
         from: any
@@ -861,12 +869,23 @@ types:
       DONE:        { category: closed, required_attributes: [resolution] }
       ARCHIVED:    { category: closed, final: true }
 
+    conditions:
+      version_live:
+        description: The version the work item is fixed in, if one is given, is neither archived nor deleted.
+        expression: >-
+          inputs.fix_version is null
+          or inputs.fix_version.state == Version.UNRELEASED
+          or inputs.fix_version.state == Version.RELEASED
+        remedy: self_serviceable
+
     transitions:
       create:
         kind: initial
         to: TO_DO
         required_inputs: [summary]
         optional_inputs: [fix_version]
+        guards:
+          version_live: deny
       start: { kind: external, from: TO_DO, to: IN_PROGRESS }
       done:
         kind: external
@@ -877,6 +896,8 @@ types:
         kind: internal
         from: any
         required_inputs: [fix_version]
+        guards:
+          version_live: deny
       clear_fix_version:
         kind: internal
         from: any

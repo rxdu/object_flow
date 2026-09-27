@@ -41,11 +41,57 @@ beside it:  Engagement  SCHEDULED ─dispatch─▶ OUT ─start_return─▶ RE
 
 The module is written in the flow description format (`flow-format.md`, ADR-0116), in blocks that each continue it, with the reasoning between them. It is in the format's order: the vocabulary, the lifecycle every unit shares, then the types, each with the metrics that read its rows (ADR-0118), and last the one metric that combines two of them.
 
+**What the journey shares.** The people, the customers and two vocabularies the journey takes from the rest of the operations platform are a module of their own, which the journey imports. *(Corrected 2026-09-27: the journey imported them from the specification's `inventory` module, which declares a `Robot`, a `UnitLifecycle` and a `unit_serial` of its own, so the two modules could not be published in one closure (D410).)* A user leaves without a guard here, since a guard reading the journey's service jobs would make the two modules import each other.
+
+```yaml
+module: operations_shared
+categories: [live, closed]
+
+enumerations:
+  RetirementReason: [FAILED, DAMAGED, OBSOLETE, LOST]
+  OverrideReason: [SUPPLIER_EXCEPTION, MIS_SCANNED, REPAIRED_OUTSIDE, LEGACY_DATA]
+
+types:
+  User:
+    description: A person who works on the platform, identified by the login they act under.
+    tracking: record
+
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+
+    states:
+      ACTIVE: { category: live }
+      LEFT:   { category: closed, final: true }
+
+    transitions:
+      add:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [login]
+      leave:
+        kind: external
+        from: ACTIVE
+        to: LEFT
+
+  Customer:
+    description: A customer, as the legacy system holds them; this store holds a mirror, which only the import writes.
+    mirror: true
+    tracking: record
+
+    attributes:
+      legacy_key: { type: string, external: legacy, indexed: true }
+      name:       { type: string }
+
+    states:
+      ACTIVE:   { category: live }
+      ARCHIVED: { category: closed }
+```
+
 The vocabulary. `CancellationReason` loses production's `MISSING_FROM_SHIPMENT`, which becomes a state (§4). Production records a retirement reason as free text and has not settled the vocabulary (`wr:TODO.md:243`), so `RetirementReason` is the specification's placeholder. The module states no rule about requests. *(Corrected 2026-09-26: this paragraph said that the module line states production's request rule, more strictly than production, that an agent sends an expected version and an idempotency key with every request (ADR-0103 §1). ADR-0114 withdrew that line, `requests by`, with everything else that said who may do what, and removed it from the module, but left this sentence; the rule is the upper layer's (ADR-0114 §3).)*
 
 ```yaml
 module: inventory_journey
-imports: { inventory: [User, Customer, RetirementReason, OverrideReason] }
+imports: { operations_shared: [User, Customer, RetirementReason, OverrideReason] }
 categories: [inbound, live, closed]
 
 enumerations:
@@ -430,7 +476,7 @@ types:
 
     metrics:
       inbound_dwell:
-        description: The median time units spend in each inbound stage, by model and month.
+        description: The median time units spend in procurement, missing or in intake, by stage, model and month.
         source: intervals
         item: i
         filter: i.state == Robot.PROCUREMENT or i.state == Robot.MISSING or i.state == Robot.INTAKE
@@ -442,7 +488,7 @@ types:
         expression: median(i.duration)
         flag_when: { slow: "value > 14 days" }
       missing_units:
-        description: The longest time a unit of each shipment has been missing.
+        description: The longest total time a unit of each shipment, now missing, has spent missing.
         source: objects
         item: u
         filter: u.state == Robot.MISSING
@@ -624,6 +670,11 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
               limit: 200
               steps:
                 - call: { target: u, transition: ship, inputs: { via_shipment: this } }
+      update_tracking:
+        kind: internal
+        from: IN_TRANSIT
+        description: Records the shipment's tracking number, carrier or expected arrival as they become known.
+        optional_inputs: [tracking_no, carrier, eta]
       add_unit:
         kind: internal
         from: IN_TRANSIT
@@ -821,6 +872,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
           - foreach:
               item: u
               array: units
+              where: u.state == Robot.RESERVED
               limit: 500
               steps:
                 - call: { target: u, transition: release }
@@ -897,6 +949,10 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         description: A sold unit is serviced for the customer who bought it.
         expression: inputs.robot.state == Robot.DEVELOPMENT or inputs.robot.sold_to == inputs.customer
         remedy: self_serviceable
+      still_serviceable:
+        description: The unit is still in the pool, or still sold to the job's customer.
+        expression: robot.state == Robot.DEVELOPMENT or (robot.state == Robot.SOLD and robot.sold_to == customer)
+        remedy: dependent
       ours:
         description: The part is reserved for this job.
         expression: inputs.part.used_in == this
@@ -975,6 +1031,11 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         kind: external
         from: CANCELLED
         to: OPEN
+        description: Reopens a cancelled job for an active engineer, while its unit is still one the job may service.
+        required_inputs: [engineer]
+        guards:
+          active: deny
+          still_serviceable: deny
       delete:
         kind: external
         from: CANCELLED
@@ -1025,6 +1086,10 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         description: The unit to add is fit and on no open engagement.
         expression: inputs.robot.leasable
         remedy: dependent
+      room_for_unit:
+        description: The engagement has fewer than 20 units on it, the most its end reaches.
+        expression: count(l in lines where l.open) < 20
+        remedy: unreachable_from_here
       incoming_leasable:
         description: The unit swapped in is fit and on no open engagement.
         expression: inputs.in_robot.leasable
@@ -1044,7 +1109,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
       return_known:
         description: A lease has an expected return.
         expression: kind != EngagementKind.LEASE or expected_return is not null
-        remedy: self_serviceable
+        remedy: unreachable_from_here
 
     transitions:
       schedule:
@@ -1058,9 +1123,15 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         inputs:
           robot: { reference: Robot }
         guards:
+          room_for_unit: deny
           leasable: deny
         effect:
           - create: { type: EngagementLine, transition: open, inputs: { for_engagement: this, robot: inputs.robot } }
+      set_expected_return:
+        kind: internal
+        from: [SCHEDULED, OUT, RETURNING]
+        description: Sets or moves the date the units are expected back.
+        required_inputs: [expected_return]
       dispatch:
         kind: external
         from: SCHEDULED
@@ -1119,7 +1190,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         flag_when: { any_overdue: "value > 0" }
 
   EngagementLine:
-    description: One unit on one engagement, open while the unit is out on it.
+    description: One unit on one engagement, open from when it is added until the engagement ends, scheduled or out.
     tracking: record
 
     attributes:
@@ -1148,7 +1219,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
 
     metrics:
       time_on_loan:
-        description: The time units have spent out on engagements, by model, kind of engagement and month.
+        description: The time units have spent on engagements, scheduled or out, by model, kind of engagement and month.
         source: intervals
         item: i
         filter: i.state == EngagementLine.OPEN
@@ -1228,7 +1299,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
 | `time_in_pool` | `Robot` | time spent in `DEVELOPMENT`, by model and month |
 | `repairs` | `ServiceJob` | repairs opened, by model and month |
 | `engagements_overdue` | `Engagement` | engagements past their expected return, flagged `any_overdue` |
-| `time_on_loan` | `EngagementLine` | time out on an engagement, by model, kind and month |
+| `time_on_loan` | `EngagementLine` | time on an engagement, scheduled or out, by model, kind and month |
 
 The one metric that crosses types is declared last:
 
@@ -1237,7 +1308,7 @@ The one metric that crosses types is declared last:
 
 metrics:
   pool_utilisation:
-    description: The share of a pooled unit's time spent on loan, by model, over the whole history.
+    description: The share of a pooled unit's time spent on engagements, scheduled or out, by model, over the whole history.
     input_metrics:
       on_loan: EngagementLine.time_on_loan
       pool: Robot.time_in_pool
@@ -1246,7 +1317,7 @@ metrics:
     flag_when: { idle: "value < 0.300" }
 ```
 
-Pool utilisation, the share of a pooled unit's time spent on loan, is the question ADR-0002 asks first ("how much did we use it?"). `pool_utilisation` divides `time_on_loan` by `time_in_pool` per model, over the whole history. Writing this module found that a duration could not be divided by a duration (`design/defects.md` D275), and ADR-0103 made the quotient of two like quantities a decimal. It is not declared per month: a metric buckets a span by the month it began, so a unit that joined the pool in January would put all its pool time in January, and apportioning a span across months is a known limit (`edge-cases.md`, ADR-0103 §5).
+Pool utilisation, the share of a pooled unit's time spent on engagements, scheduled or out, since a scheduled engagement already holds its units (§6), is the question ADR-0002 asks first ("how much did we use it?"). `pool_utilisation` divides `time_on_loan` by `time_in_pool` per model, over the whole history. Writing this module found that a duration could not be divided by a duration (`design/defects.md` D275), and ADR-0103 made the quotient of two like quantities a decimal. It is not declared per month: a metric buckets a span by the month it began, so a unit that joined the pool in January would put all its pool time in January, and apportioning a span across months is a known limit (`edge-cases.md`, ADR-0103 §5).
 
 *(Corrected 2026-09-27, when a review asked whether a builder given only the specification and the module could recover it (D408, ADR-0122): `discard` and `delete` now clear the unit's peg, and `unpeg` is taken from any state, so no unit leaves its delivery unable to be cancelled; `accept_return` clears `used_in`, so a returned part can be voided or bound; `convert_lease` clears the internal delivery's `binding`, and `recall_internal` refuses a unit on loan; the engagement's `nonempty` and `fit` read its open lines, and `swap_unit` requires the unit it swaps out to be on it; `pristine` passes over deleted units; and the model's two flags and a delivery's `internal` are optional inputs that take their defaults when left out.)*
 
