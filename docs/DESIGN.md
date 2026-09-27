@@ -15,9 +15,10 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 - ADR-0111 to ADR-0113, on 2026-09-25, from checking the design against the first consumer's PRD as a case study: a rule may be a flag, a metric may restrict who reads it with splits by person restricted by default, and a norm observed in history is held as data. ADR-0114 superseded ADR-0112 the same day.
 - ADR-0102, on 2026-09-26: the unit's whole journey, from request to service and loan, written from the first consumer's production code.
 - ADR-0115 to ADR-0120, on 2026-09-26: the flow description format, its established terms, its relationships, metrics, assertions and erasures, and migrations.
+- ADR-0121, on 2026-09-27: the design's YAML is checked where it stands, a module across blocks, every excerpt part of a checked module, imports resolved, and every diagram drawn from its module.
 - ADR-0065 to ADR-0073, which the author ruled on.
 
-**Decided at the author's direction, the author's own acceptance pending:** ADR-0121, on 2026-09-26: the design's YAML is checked where it stands, a module across blocks, every excerpt part of a checked module, and imports resolved.
+**Decided at the author's direction, the author's own acceptance pending:** none since 2026-09-27, when the author accepted ADR-0121.
 
 **Proposed and awaiting the author:** none since 2026-09-26, when the author accepted ADR-0102, which writes the unit's whole journey from the first consumer's production code.
 
