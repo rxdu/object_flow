@@ -28,7 +28,7 @@ Five changed the language: a machine's creation guards bind any creation that re
 
 The author's statements of 2026-09-23 extend the objective: the engine is the foundation on which people and agents define flows and collect data — flow-generated, user-recorded and derived by user formulas — so that business logic can be data-driven and flows converge over time. [`docs/PRD.md`](docs/PRD.md) states it as requirements and twenty use cases; revision 2 followed a review of revision 1 for validity and clarity, revision 4 recorded the author's positioning of the engine as the governed core, revision 5 made the document agree with itself, and its §11 lists what changed.
 
-- [ ] **Author reviews the PRD**, especially the rows marked Inferred and the two questions of its §10.
+- [~] **Author reviews the PRD**, especially the rows marked Inferred and the two questions of its §10. *The seven below were accepted as written by the author on 2026-09-28 ("accept all seven"), as PRD revision 12, with D11's index and L2's read set staged as `DESIGN.md` §6 and §7 say. The other Inferred rows and §10's machine-telemetry question remain.*
 
   Start with the seven inferred rows that shape the engine most, ranked 2026-09-27 by whether release 1 needs them (PRD §10.2) and how much of the engine each forces; each is this document's inference, not the author's statement:
   1. **D5**, two times on every datapoint and transition, with bounded backdating: it puts the occurred time into every event and the interval index, and brings the `occurred_within` guard and the rule against negative intervals across calls and cascades (D424, D428). In release 1 or later? Adding it later is cheap, as old events have occurred time equal to recorded time.
