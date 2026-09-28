@@ -1,6 +1,6 @@
 # ADR-0123: A set dimension counts each value once, and a group with no body is reported
 
-- **Status:** Decided at the author's direction, 2026-09-27: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". Awaiting the author's review.
+- **Status:** Accepted by the author, 2026-09-28: "accept both". Decided on 2026-09-27 at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed".
 - **Date:** 2026-09-27
 - **Refines:** ADR-0098 (a set-valued dimension), ADR-0122 decision 18 (an aggregate over no elements)
 - **Relates to:** `declaration-syntax.md` §6.9; `flow-format.md` §4.9; `metric-scenarios.md` §3 and §7
