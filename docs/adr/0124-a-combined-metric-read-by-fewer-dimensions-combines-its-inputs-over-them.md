@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-28: "accept". Decided on 2026-09-27 at the author's direction: "write the scenarios for UC-16 to UC-18", under the standing direction to "continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed".
 - **Date:** 2026-09-27
+- **Refined by:** ADR-0128 — a window selects each input's rows by its own time dimension, as a bound dimension does.
 - **Refines:** ADR-0098 (combined metrics, and a reader reads a metric as a guard does), ADR-0122 decision 6 (a combined metric aggregates its inputs to its own dimensions)
 - **Relates to:** `declaration-syntax.md` §6.9; `flow-format.md` §4.9; `metric-scenarios.md` §30, §33
 

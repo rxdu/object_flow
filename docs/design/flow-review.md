@@ -211,7 +211,7 @@ The appendix is the module of `unit-journey.md` with the proposals marked **decl
 
 The promised date, the service clock, the checklist revision, the fulfilment stages and the procurement order are prose only. The module's delivery carries no dates and no checklist, and the procurement order is outside it.
 
-*(Found 2026-09-28, writing UC-20's scenario, which installs `READY` and `procured_for` as this appendix writes them (`metric-scenarios.md` §36, §37): the two proposals interact. `mark_ready`'s `filled` asks for a unit bound and none still on order, and `procured_for` takes an arrived unit off order without binding it, so a delivery may be marked ready while a unit bought for it waits to be assigned. Adding `none(u in procured)` to `filled` would make it wait. Recorded for the author's decision on questions 3 and 4 of §7, and in `TODO.md`.)*
+*(Found 2026-09-28, writing UC-20's scenario, which installs `READY` and `procured_for` as this appendix writes them (`metric-scenarios.md` §36, §37): the two proposals interact. `mark_ready`'s `filled` asks for a unit bound and none still on order, and `procured_for` takes an arrived unit off order without binding it, so a delivery may be marked ready while a unit bought for it waits to be assigned. Adding `none(u in procured)` to `filled` would make it wait. Recorded for the author's decision on questions 3 and 4 of §7, and in `TODO.md`.)* *(Corrected 2026-09-28, D454: the appendix's `filled` now adds `none(u in procured)`, so the two proposals agree with §2.4's "once every unit is bound and nothing is still on order"; adopting them is still the author's decision.)*
 
 ## Appendix: the module with the declared proposals applied
 
@@ -1007,8 +1007,8 @@ types:
         expression: internal
         remedy: unreachable_from_here
       filled:
-        description: At least one unit is bound, and no unit is still only pegged.
-        expression: count(u in units) >= 1 and none(u in pegged)
+        description: At least one unit is bound, and no unit is still on order or waiting to be assigned to the delivery it was bought for.
+        expression: count(u in units) >= 1 and none(u in pegged) and none(u in procured)
         remedy: dependent
 
     transitions:

@@ -642,6 +642,14 @@ def data_checks(decls, by_name, text, base=0):
 
     # per-transition: 57, 58, 61, and a metric reference's window and dimensions (56)
     metrics = {x.name: x for x in everything if x.kind == "metric"}
+
+    def windowed(md, seen=()):
+        """A metric a guard may window: one that declares 'window on', or a combined one whose every input does,
+        the window selecting each input's rows (ADR-0128)."""
+        if "window on" in md.clauses:
+            return True
+        inputs = [x.split("=", 1)[1].strip().split(".")[-1] for c, _l in md.clauses.get("combine", []) for x in c.split(",") if "=" in x]
+        return bool(inputs) and all(n in metrics and n not in seen and windowed(metrics[n], seen + (md.name,)) for n in inputs)
     for d in decls:
         mach = by_name.get(d.machine) if d.machine else None
         states = d.states or (mach.states if mach else {})
@@ -667,8 +675,8 @@ def data_checks(decls, by_name, text, base=0):
                     md = metrics.get(mn)
                     if md is None:
                         add(19, f"{d.name}.{tn} reads undeclared metric {mn}", ln); continue
-                    if "over last" in margs and "window on" not in md.clauses:
-                        add(56, f"{d.name}.{tn}: 'over last' on metric {mn}, which declares no 'window on'", ln)
+                    if "over last" in margs and not windowed(md):
+                        add(56, f"{d.name}.{tn}: 'over last' on metric {mn}, which declares no 'window on', nor combines inputs that each do", ln)
                     # every metric has the dimensions version and actor_kind unless it declares them (§6.9)
                     dims = {x.split("=")[0].strip() for c, _l in md.clauses.get("by", []) for x in c.split(",")} \
                            | {"version", "actor_kind"}

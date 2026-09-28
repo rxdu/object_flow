@@ -128,3 +128,6 @@
 | [0124](0124-a-combined-metric-read-by-fewer-dimensions-combines-its-inputs-over-them.md) | A combined metric read by fewer dimensions combines its inputs over them | Accepted by the author |
 | [0125](0125-a-request-naming-an-unknown-actor-is-logged-under-the-kind-unknown.md) | A request naming an unknown actor is logged under the kind unknown | Accepted by the author |
 | [0126](0126-a-store-is-created-with-its-operator.md) | A store is created with its operator, the actor its first requests name | Accepted by the author |
+| [0127](0127-a-reads-page-has-an-order-and-querys-order-a-grammar.md) | A read's page has an order, and `query`'s order a grammar | Accepted by the author in advance |
+| [0128](0128-what-the-metric-scenarios-left-open-about-metrics.md) | What the metric scenarios left open about metrics | Accepted by the author in advance |
+| [0129](0129-a-publish-notices-a-metric-whose-filter-it-reroutes.md) | A publish notices a metric whose filter it reroutes | Accepted by the author in advance |

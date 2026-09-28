@@ -744,6 +744,26 @@ def migration_pair_errors(prev, doc, library):
                 if fld not in before and not optional(spec):
                     fatal.append((here + ("observations", o, "attributes", fld), "names",
                                   f"{o}.{fld} is added to an observation kind and is required; an observation is born final, so nothing could fill it"))
+    # a declared metric over transitions whose filter names a state this version reroutes (ADR-0129)
+    def route(tv, tn, field, st):
+        """The transitions a filter comparing `field` to `st` can match: those entering it, or those leaving it."""
+        out = set()
+        for xn, x in ((tv.get(tn) or {}).get("transitions") or {}).items():
+            frm = x.get("from") if isinstance(x.get("from"), list) else [x.get("from")]
+            to = x.get("to")
+            if (field == "to_state" and to == st) or (field == "from_state" and to and to != st and (st in frm or "any" in frm)):
+                out.add(xn)
+        return out
+    declared = [(("types", tn, "metrics", mn), mm) for tn, t in new.items() for mn, mm in (t.get("metrics") or {}).items()] \
+        + [(("metrics", mn), mm) for mn, mm in (doc.get("metrics") or {}).items()]
+    for where, mm in declared:
+        if mm.get("source") != "transitions":
+            continue
+        for field, owner, st in sorted(set(re.findall(r"\.(from_state|to_state)\s*==\s*(\w+)\.(\w+)", str(mm.get("filter") or "")))):
+            if owner in old and owner in new and route(old, owner, field, st) != route(new, owner, field, st):
+                way = "into" if field == "to_state" else "out of"
+                notes.append((where, "metric", f"{where[-1]}'s filter counts transitions {way} {owner}.{st}, and this version changes "
+                                               "which transitions those are, so what the metric counts changes from this version on"))
     old_enums = {n: set(x) for n, x in (prev.get("enumerations") or {}).items()}
     new_enums = {n: set(x) for n, x in (doc.get("enumerations") or {}).items()}
     for en, members in new_enums.items():
@@ -2413,6 +2433,17 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     others = resolve_any({"kind": "external", "from": "any", "to": "B"}, {"A": {}, "B": {}, "C": {"final": True}})["from"]
     ok &= others == ["A"]
     print(f"  from: any leaves every state that is not final but its target: {'yes' if others == ['A'] else 'NO ' + str(others)}")
+    v1 = ("module: m\ncategories: [live, closed]\ntypes:\n  T:\n    description: A job.\n    tracking: record\n"
+          "    states: { A: { category: live }, C: { category: closed, final: true } }\n"
+          "    transitions: { t: { kind: initial, to: A }, go: { kind: external, from: A, to: C } }\n"
+          "    metrics:\n      done:\n        description: Jobs finished from A.\n        source: transitions\n        item: x\n"
+          "        filter: x.from_state == T.A and x.to_state == T.C\n        dimensions:\n          month: month(x.occurred_at)\n"
+          "        expression: count()\n")
+    v2 = v1.replace("C: { category: closed, final: true } }", "B: { category: live }, C: { category: closed, final: true } }") \
+           .replace("go: { kind: external, from: A, to: C } }", "ready: { kind: external, from: A, to: B }, go: { kind: external, from: B, to: C } }")
+    rerouted = [x for x in check([("m.yaml", v2)], {"m.yaml": v1})[1] if x[3] == "metric"]
+    ok &= bool(rerouted)
+    print(f"  planted a version that reroutes what a metric's filter names: {'noticed, ' + rerouted[0][4][:60] if rerouted else 'MISSED'}")
     cut = [x for x in check([("cut.yaml", "module: m\ncategories: [live]\ntypes:\n  T:\n    description: A type with one state.\n    tracking: record\n"
                                           "    states: { S: { category: live, description: One, two. }, E: { category: live, final: true } }\n"
                                           "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n")])[0]]

@@ -249,6 +249,8 @@ INVARIANTS = {
                               or not s.objects[o.attrs["model"]].attrs.get("manufacturer_serial_required", False)
                               or o.attrs.get("manufacturer_serial") is not None),
     ("RobotModel", "reorder_point_nonneg"): ("reorder_point >= 0", lambda s, o: o.attrs.get("reorder_point", 0) >= 0),
+    ("ServiceJob", "engineer_active"): ("not open or engineer.state == User.ACTIVE",
+                                        lambda s, o: not s.open(o) or s.objects[o.attrs["engineer"]].state == "ACTIVE"),
 }
 
 
@@ -536,7 +538,7 @@ class Store:
         for (tn, c), (text, _f) in INVARIANTS.items():
             got = one(self.types[tn]["invariants"][c]["expression"])
             assert got == text, f"{tn}.{c} is now `{got}`; the transcription reads `{text}`"
-        for tn in ("Robot", "RobotModel"):
+        for tn in ("Robot", "RobotModel", "ServiceJob"):
             for c in (self.types[tn].get("invariants") or {}):
                 assert (tn, c) in INVARIANTS, f"{tn}.{c} is not transcribed"
         for (tn, x), alts in EFFECTS.items():
@@ -768,10 +770,12 @@ class Store:
         for m in self.tracked(tn):
             o.hold(m, o.attrs.get(m), occ, self.kind)
         self.check_invariants(o)
-        if tn == "RobotModel":
-            # a unit's invariants read its model's flags, so a change to the model is checked on its units
-            for u in sorted((u for u in self.objects.values() if u.type == "Robot" and u.attrs.get("model") == o.id),
-                            key=lambda u: u.id):
+        # an invariant reading another object is checked when a request writes that object (DESIGN.md §6 step 7):
+        # a unit's reads its model's flags, and a job's its engineer's state
+        readers = {"RobotModel": ("Robot", "model"), "User": ("ServiceJob", "engineer")}
+        if tn in readers:
+            rt, ref = readers[tn]
+            for u in sorted((u for u in self.objects.values() if u.type == rt and u.attrs.get(ref) == o.id), key=lambda u: u.id):
                 self.check_invariants(u)
         self.events.append({"object": o.id, "type": tn, "transition": xn, "from": frm, "to": o.state, "kind": self.kind,
                             "cause": cause, "principal": self.identity(self.principal) if self.principal else None,
@@ -1609,6 +1613,8 @@ PLANTS = [
      "inputs: { manufacturer_serial: KD-20416 } }\n", ""),
     ("a completion that creates no warranty",
      "              - create: { type: Warranty, transition: start, inputs: { unit: u, months: u.model.warranty_months } }\n", ""),
+    ("a user who leaves with open jobs", "actor: U-ANA, object: U-DIYA, transition: leave }",
+     "actor: U-ANA, object: U-BEN, transition: leave }"),
     ("an agent named engineer-of-record", "inputs: { engineer: A-SCOUT }, refused: { verdict: invalid input, remedy: self_serviceable } }",
      "inputs: { engineer: A-SCOUT } }"),
     ("a departed user's request said to be refused", "actor: U-DIYA, object: J3, transition: start }",
