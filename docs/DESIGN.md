@@ -22,7 +22,6 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 - ADR-0125, on 2026-09-28: a request naming an actor the store does not know is logged with the identity it named under the kind `unknown`, found writing the metric scenarios.
 - ADR-0065 to ADR-0073, which the author ruled on.
 
-
 **Proposed and awaiting the author:** none since 2026-09-26, when the author accepted ADR-0102, which writes the unit's whole journey from the first consumer's production code.
 
 **Awaiting review:** ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 and the six implementation documents of 2026-09-09, with ADR-0078 to ADR-0080 first, being the three decided at the author's direction rather than by the author.
