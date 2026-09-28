@@ -1,6 +1,6 @@
 # ADR-0042: There are no free attributes; every write is a transition, and ordinary editing is an action
 
-- **Status:** Accepted — repair of D09, 2026-09-08; pending author review
+- **Status:** Accepted by the author, 2026-09-28 ("accept the three"), superseding the author's ADR-0006. A repair of D09, 2026-09-08. Its example guard, `actor.has(EDIT_X)`, is withdrawn by ADR-0114: who may edit is the upper layer's, and the edit is an internal transition like `RobotModel.edit` in `unit-journey.md`.
 - **Date:** 2026-09-08
 - **Amended by:** ADR-0056 §10 — remedy class names are single tokens.
 - **Supersedes:** ADR-0006

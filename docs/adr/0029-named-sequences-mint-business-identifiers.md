@@ -1,6 +1,6 @@
 # ADR-0029: Named, scoped sequences mint business identifiers at creation
 
-- **Status:** Accepted — taken in autonomous design iteration 2 (2026-09-07); pending author review. **Withdraws** the "no sequence primitive" consequence of ADR-0018.
+- **Status:** Accepted by the author, 2026-09-28 ("accept the three"). Taken in autonomous design iteration 2 (2026-09-07). **Withdraws** the "no sequence primitive" consequence of ADR-0018.
 - **Date:** 2026-09-07
 - **Refined by:** ADR-0076 — the allocation is outside the creating transaction, on a second connection, which on SQLite opens a separate file; the gap of rule 4 is what that buys. ADR-0103 — a `format` may interpolate a string or enum attribute, pad the number, and omit a segment whose placeholder is absent; an import raises a sequence past the legacy system's last value. ADR-0122 — a sequence's numbers start at 1 and rise by 1, and are not gapless.
 
