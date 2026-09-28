@@ -62,6 +62,7 @@ import yaml
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import flowexpr  # noqa: E402  the expression language's grammar, shared with the logic checks (ADR-0137)
 import flowlogic  # noqa: E402  contradictions within one type (ADR-0137)
+import flowrun  # noqa: E402  the reference runner of examples (ADR-0136)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FORMAT = ROOT / "docs/design/flow-format"
@@ -2567,6 +2568,15 @@ def check(files, previous=None, analysed=None):
                     (found if severity == "fatal" else notes).append((f, line_of(idx, path), severity, code, msg))
             if analysed is not None:
                 analysed[doc["module"]] = (whole, total)
+    if not found and example_files and len(loaded) + len(example_files) == len(files):
+        # step 6: each example run against the rules by the reference runner (flow-format.md §11.5, ADR-0136)
+        for f, idx, doc in example_files:
+            for name, outcome, message in flowrun.run_examples(doc, library, modules):
+                where = line_of(idx, ("examples", name))
+                if outcome == "failed":
+                    found.append((f, where, "fatal", "example", f"{name}: {message}"))
+                elif outcome == "not run":
+                    notes.append((f, where, "notice", "notrun", f"{name} is not run: {message}"))
     return found, notes
 
 
@@ -2964,6 +2974,29 @@ def logic_plants(people, service):
     return ok
 
 
+def runner_plants(people, service, examples):
+    """Step 6 shown on the service example: an expectation the rules contradict fails, and a construct the
+    runner does not yet execute is reported as not run, never passed."""
+    ok = True
+    plants = [
+        ("a repeated check that fails again, expected to let the job finish", "example",
+         "outcome: CheckOutcome.PASS }", "outcome: CheckOutcome.FAIL }"),
+        ("a signer the request does not write", "example",
+         "values: { signed_off_by_user: ana }", "values: { signed_off_by_user: ben }"),
+        ("an example the runner cannot yet run", "notrun", "  a_job_opens_for_an_active_engineer:",
+         "  an_erasure:\n    description: The notes are erased.\n    given: job_in_progress\n"
+         "    request: { object: job, transition: forget, inputs: { reason: asked } }\n"
+         "    expect: { verdict: applied, state: WORKING }\n\n  a_job_opens_for_an_active_engineer:"),
+    ]
+    for name, code, old, new in plants:
+        found, notes = check([("people.yaml", people), ("service.yaml", service),
+                              ("service.examples.yaml", examples.replace(old, new, 1))])
+        hit = [x for x in found + notes if x[3] == code]
+        ok &= bool(hit)
+        print(f"  planted {name}: {'caught by ' + code + ', at ' + hit[0][0] + ':' + str(hit[0][1]) + ' ' + hit[0][4][:70] if hit else 'MISSED ' + str((found + notes)[:2])}")
+    return ok
+
+
 def digest_self_test():
     """The digest names the modules and their bytes, and nothing else: not the order the files come in."""
     a, b = ("inventory", b"module: inventory\n"), ("people", b"module: people\n")
@@ -3023,6 +3056,7 @@ def main():
     ok &= flowexpr.main() == 0          # every expression in the design parses, and the grammar's own test
     ok &= flowlogic.self_test()
     ok &= logic_plants(people, (EXAMPLES / "service.yaml").read_text())
+    ok &= runner_plants(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text())
     ok &= examples_self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text())
     sys.exit(0 if clean and ok else 1)
 

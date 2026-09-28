@@ -4,7 +4,7 @@ Status: **draft 2, 2026-09-26, adopted.** This is the one written form of an Obj
 
 ## 1. Scope and conformance
 
-A **flow description** is one YAML file declaring one **module**: its state categories, its enumerations and its types, and for each type its attributes, states, conditions, transitions and metrics. A description is **valid** when all five steps of §7 accept it with no fatal finding. Only a valid description can be proposed for publication. A module MAY also carry an **examples file**, the claims about its behaviour that the engine runs (§11).
+A **flow description** is one YAML file declaring one **module**: its state categories, its enumerations and its types, and for each type its attributes, states, conditions, transitions and metrics. A description is **valid** when all six steps of §7 accept it with no fatal finding. Only a valid description can be proposed for publication. A module MAY also carry an **examples file**, the claims about its behaviour that the engine runs (§11).
 
 The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119 and RFC 8174, when written in capitals.
 
@@ -649,7 +649,7 @@ The generated guards and invariants take the names shown, which §3 reserves. Th
 
 ## 7. Validity
 
-A description is checked in five steps, and each stops the check if it finds anything fatal. Every finding names the file, the line and the construct.
+A description is checked in six steps, and each stops the check if it finds anything fatal. Every finding names the file, the line and the construct.
 
 | Step | Code | Refuses |
 |---|---|---|
@@ -661,8 +661,9 @@ A description is checked in five steps, and each stops the check if it finds any
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 | 5. logic | `contradiction` | within one type, a transition no request can take, since from its states and with its required inputs its blocking guards cannot all hold, or what it writes makes an invariant of the state it enters false whatever the request; and a state no object can be in, since its invariants cannot hold together while a transition enters it (§7.1) |
+| 6. examples | `example` | an example of the module's examples file whose request does not do what its `expect` says, or whose setup does not apply, run by the reference runner, `scripts/flowrun.py` (§11.5) |
 
-Step 3 also reports nine notices, which are not fatal: `audit`, for each guard that audits; `warn`, for each guard that warns; `self_serviceable`, for each guard whose condition is `self_serviceable` on a transition that takes no input; `imports`, for a module imported from that is not among the files checked; `metric`, for a declared metric over transitions whose filter compares a transition's `to_state` to a state the version changes the transitions into, or its `from_state` to one it changes the transitions out of, since what it counts changes from that version on (ADR-0129); `coverage`, for the transitions of a module that no example in its examples file requests (§11); `neverpasses`, for a guard that audits or warns and can never pass when its transition is taken; `undecided`, for conditions that expand to more cases than step 5 decides; and `migration`, for what a publish over live objects of the previous version would need (§4.16).
+Step 3 also reports ten notices, which are not fatal: `audit`, for each guard that audits; `warn`, for each guard that warns; `self_serviceable`, for each guard whose condition is `self_serviceable` on a transition that takes no input; `imports`, for a module imported from that is not among the files checked; `metric`, for a declared metric over transitions whose filter compares a transition's `to_state` to a state the version changes the transitions into, or its `from_state` to one it changes the transitions out of, since what it counts changes from that version on (ADR-0129); `coverage`, for the transitions of a module that no example in its examples file requests (§11); `neverpasses`, for a guard that audits or warns and can never pass when its transition is taken; `undecided`, for conditions that expand to more cases than step 5 decides; `notrun`, for an example that reaches a construct the reference runner does not yet execute, so it is reported rather than passed; and `migration`, for what a publish over live objects of the previous version would need (§4.16).
 
 **A change's source digest.** `scripts/check-flows.py --digest <files>` computes the digest a flow change records beside its source reference: SHA-256 over the files' modules in ascending order of their names, each framed by its name and its length in bytes (ADR-0135). A repository's checks compute it over the files at a commit and compare it with the one a published version records, so the version is traced to the commit and checked against it.
 
@@ -819,7 +820,9 @@ An `unsatisfied` expectation MUST name its clause and remedy, and the remedy MUS
 
 **Shape, whenever a description is checked.** The flow checker checks an examples file after the modules it is given, at step 2 against `examples.schema.json` and at step 3 against those modules: every name of §11.1 to §11.4 resolves, each alias is given before it is named and only once, each input is one the transition takes and has the form its type asks, and each expectation is one the request can give. It then reports the notice `coverage`, naming the examined module's transitions that no example requests (§7). Coverage is reported and never required, so a first draft publishes (ADR-0131 decision 5).
 
-**Running, at every publish.** The engine runs every example of the change's source against an empty in-memory store with the clock and the id source injected, after the checks of `publish-and-import.md` §1 step 1, so it tests the rules and not the live data. An example whose request does not do what `expect` says, or whose setup does not apply, refuses the publish; since the examples are part of the change, the change that breaks one is refused until it updates it (ADR-0131 decision 6). The publish report lists, for each transition, the examples that request it, applied and refused. Until the engine exists, a Python reference runner is to run them at check time too, as the first slice of the differential tests of ADR-0132 decision 2 (`TODO.md`).
+**Running, at every publish.** The engine runs every example of the change's source against an empty in-memory store with the clock and the id source injected, after the checks of `publish-and-import.md` §1 step 1, so it tests the rules and not the live data. An example whose request does not do what `expect` says, or whose setup does not apply, refuses the publish; since the examples are part of the change, the change that breaks one is refused until it updates it (ADR-0131 decision 6). The publish report lists, for each transition, the examples that request it, applied and refused.
+
+**Running, whenever a description is checked.** The flow checker's step 6 runs every example with the reference runner, `scripts/flowrun.py`, an executable model of a request's execution (`DESIGN.md` §6) and of the expression language's meaning, which shares nothing with the engine but the parser, so each is the other's oracle (ADR-0132 decision 2). An example that does not do what it expects is fatal, `example`. The runner is built in slices (`TODO.md`), and an example that reaches a construct it does not yet execute, such as a cascade or an erasure, is reported as the notice `notrun`, naming the construct, never counted as passed.
 
 ## Appendix A. Terminology against established conventions
 
