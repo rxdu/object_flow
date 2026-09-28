@@ -1,8 +1,8 @@
-# Metric scenarios: UC-1 to UC-18
+# Metric scenarios: UC-1 to UC-21
 
-Status: **worked scenarios**, 2026-09-27, written at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". The author then asked for the next three, "write the scenarios for UC-4 to UC-6" (§8 to §12), then "write the scenarios for UC-7 to UC-9" (§13 to §17), then "write the scenarios for UC-10 to UC-12" (§18 to §22), then "write the scenarios for UC-13 to UC-15" (§23 to §28), and then "write the scenarios for UC-16 to UC-18" (§29 to §33). Each of the PRD's first eighteen use cases is written here as a fixed flow, a fixed history and the values its reads return, so a builder has a test and a reader has something to compute and compare (`TODO.md`, "Write the metric use cases as checked scenarios").
+Status: **worked scenarios**, 2026-09-27, written at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". The author then asked for the next three, "write the scenarios for UC-4 to UC-6" (§8 to §12), then "write the scenarios for UC-7 to UC-9" (§13 to §17), then "write the scenarios for UC-10 to UC-12" (§18 to §22), then "write the scenarios for UC-13 to UC-15" (§23 to §28), then "write the scenarios for UC-16 to UC-18" (§29 to §33), and then "write the scenarios for UC-19 to UC-21" (§34 to §39). Each of the PRD's first twenty-one use cases is written here as a fixed flow, a fixed history and the values its reads return, so a builder has a test and a reader has something to compute and compare (`TODO.md`, "Write the metric use cases as checked scenarios").
 
-**Method.** One store and one history, in nine parts, with each use case's questions asked of it. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the agent type that writing these scenarios added to it (§1). Every value below is derived by hand from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
+**Method.** One store and one history, in twelve parts, with each use case's questions asked of it. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the agent type that writing these scenarios added to it (§1). Every value below is derived by hand, a metric's from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11 and every other read's from the read surface of `DESIGN.md` §10 and the rule set of `renderers.md` §2, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
 - a request whose actor the store does not hold;
 - a transition the type does not declare, that is `only_via` others, or that is taken from a state it does not leave;
 - a refusal on a guard the transition does not declare, with a remedy other than the declared one, or on a clause that is not the first to fail;
@@ -10,9 +10,9 @@ Status: **worked scenarios**, 2026-09-27, written at the author's direction: "wr
 - a recording its subject's kinds do not include, or one its generated guards refuse;
 - a published version the flow checker refuses, checked against the version before it.
 
-The script evaluates guards, effects and invariants from a transcription it holds, and checks each against the module's text before it runs. It is not an engine, and it refuses a history that reaches anything it has not transcribed. Its self-test plants nineteen mistakes, from a wrong value to an erasure never requested, and shows each caught.
+The script evaluates guards, effects and invariants from a transcription it holds, and checks each against the module's text before it runs. It is not an engine, and it refuses a history that reaches anything it has not transcribed. Its self-test plants twenty-two mistakes, from a wrong value to a completion that creates no warranty, and shows each caught.
 
-**What is inferred.** The use cases speak of the first consumer's deliveries, and the reviewed flow is thinner in two places: its delivery has no product configuration and no checklist. §6 lists each inference with what it rests on. Two questions the specification left open were decided to write the values (§7, ADR-0123). UC-4 to UC-6 need inspection and availability datapoints the journey lacks, so the history's second part publishes a version that adds them (§8), and §12 lists what they inferred and found. UC-7 to UC-9 add a telemetry summary, three formulas and legacy history, in a third part (§13), and §17 lists theirs. UC-10 to UC-12 add a rule on a metric, an agent's escalation and the business exceptions, in a fourth (§18), and §22 lists theirs. UC-13 to UC-15 install the returns module's versions, put a rule on trial and enforce it by a governed change, in a fifth and a sixth (§23, §27), and §28 lists theirs. UC-16 to UC-18 split by the kind of actor, hand service jobs between engineers and erase a customer, in a seventh part (§29) and an eighth and a ninth (§32), and §33 lists theirs.
+**What is inferred.** The use cases speak of the first consumer's deliveries, and the reviewed flow is thinner in two places: its delivery has no product configuration and no checklist. §6 lists each inference with what it rests on. Two questions the specification left open were decided to write the values (§7, ADR-0123). UC-4 to UC-6 need inspection and availability datapoints the journey lacks, so the history's second part publishes a version that adds them (§8), and §12 lists what they inferred and found. UC-7 to UC-9 add a telemetry summary, three formulas and legacy history, in a third part (§13), and §17 lists theirs. UC-10 to UC-12 add a rule on a metric, an agent's escalation and the business exceptions, in a fourth (§18), and §22 lists theirs. UC-13 to UC-15 install the returns module's versions, put a rule on trial and enforce it by a governed change, in a fifth and a sixth (§23, §27), and §28 lists theirs. UC-16 to UC-18 split by the kind of actor, hand service jobs between engineers and erase a customer, in a seventh part (§29) and an eighth and a ninth (§32), and §33 lists theirs. UC-19 to UC-21 put a second rule on trial, install the operations review's declared proposals and create each unit's warranty in its sale, in a tenth, an eleventh and a twelfth part (§34, §36, §38), and §39 lists theirs.
 
 ## 1. The store
 
@@ -1951,3 +1951,510 @@ Read: `metric(first_pass_yield, keep: [model, month])`
 3. **In the journey, time unassigned exists only in ported history** (UC-18, determined). `ServiceJob.open` requires an engineer, so every job opened in the store is assigned at creation. `time_to_first_assignment` measures the legacy system's habit, not the store's.
 4. **"Reassign before removal" is not in the journey** (UC-18). `User.leave` has no guard, and the journey says why: "a guard reading the journey's service jobs would make the two modules import each other" (`unit-journey.md` §2, "What the journey shares"), which ADR-0117 rejects as "the same cycle one level up". *(Corrected 2026-09-28: the version of this finding committed on 2026-09-27 said the specification does not say whether two modules may import each other, replacing a citation of the journey that a truncated search had failed to find. The citation was right, and is restored.)* UC-18's acceptance does not ask for it, and `TODO.md` holds the question.
 5. **A quotient in a metric has no stated rounding** (UC-16). `refused * 1.000 / (refused + applied)` has the decimal's scale, three places (`declaration-syntax.md` §8.3). The model says a quotient rounds half to even only where it is `set` into an attribute, or where it divides two like quantities. The scenario's rates, 4 in 12 and 7 in 7, come out the same whether the fourth place is rounded or cut; 4 in 11 would not. `TODO.md` holds the question.
+
+## 34. February 2027: a rule on trial, and an agent that skips steps
+
+The history continues from `now` of §32. The reads of §35 are taken at `2027-02-22T00:00Z`, a Monday. The reads of §3 to §32 hold as written, at their own `now`.
+
+**A second rule on trial.** §12 left open whether a failed check should block a delivery, since the gate asks only that every check have a result. On 8 February the lead puts the stricter rule on trial as version 13: every active check of every unit bound has a result that is not a failure, audited on `complete_sale`. A failure that a later result passes, as R02's battery did in §8, satisfies it. With it comes the count of the refusals a rule on trial would have made on a delivery, as §23 declared it for the unit, under a name of its own, since a module's metrics share one namespace (`flow-format.md` §4.9).
+
+```yaml publish
+at: 2027-02-08T01:00Z
+modules:
+  inventory_journey:
+    add:
+      types.Delivery.conditions.all_passed:
+        description: Every active check of every unit bound has a result that is not a failure.
+        expression: >-
+          all(u in units: all(c in PdiCheck where c.model == u.model and c.state == PdiCheck.ACTIVE:
+              any(r in pdi_results where r.unit == u and r.check == c and r.outcome != CheckOutcome.FAIL)))
+        remedy: unreachable_from_here
+      types.Delivery.transitions.complete_sale.guards.all_passed: audit
+      types.Delivery.metrics.delivery_trial_refusals:
+        description: The refusals a rule on trial would have made on a delivery, by the rule and by who would have been refused.
+        source: attempts
+        item: a
+        filter: not a.enforced
+        dimensions:
+          clause: a.clause
+          actor: a.actor_id
+        expression: count()
+```
+
+**What happens.** Scout, the agent that kept asking to complete deliveries before their units had arrived (§4), tries each route UC-19 names:
+- **D17 and the rule on trial.** Ben records L04's drive test as a pass and its lidar check as a failure. The next day Scout asks to complete D17. The gate holds, since every check has a result, and the rule on trial fails.
+- **D10 and its lidar check.** D10 has waited since October for R23's lidar result (§8). Scout asks the floor application to record a pass for it, and then to retire the lidar check. The application refuses both, since at this site an engineer records a result and a person maintains the checklists. Neither request reaches the engine. Scout then records the pass through the procurement tool, a second application it works through, which forwards any recording, and asks to complete D10.
+- **S2 and its receipt.** S2, due on 10 November (§21), arrives on 14 February. The next morning Buyer records its arrival and dates R40's receipt to 10 November, which would make R40's lead time 7d 21h. The engine refuses it, and Buyer records the receipt as it happened.
+
+```yaml scenario
+now: 2027-02-22T00:00Z
+
+requests:
+  - { at: 2027-02-08T09:00Z, actor: U-BEN, record: pdi_results, subject: D17, object: Q13, fields: { unit: L04, check: K3, outcome: PASS } }
+  - { at: 2027-02-08T09:10Z, actor: U-BEN, record: pdi_results, subject: D17, object: Q14, fields: { unit: L04, check: K4, outcome: FAIL } }
+  - { at: 2027-02-09T09:00Z, actor: A-SCOUT, object: D17, transition: complete_sale }
+  - { at: 2027-02-10T09:00Z, actor: A-SCOUT, record: pdi_results, subject: D10, object: Q15, fields: { unit: R23, check: K4, outcome: PASS } }
+  - { at: 2027-02-10T09:05Z, actor: A-SCOUT, object: D10, transition: complete_sale }
+  - { at: 2027-02-15T09:00Z, actor: A-BUYER, object: S2, transition: arrive, occurred_at: 2027-02-14T16:00Z }
+  - { at: 2027-02-15T09:05Z, actor: A-BUYER, object: S2, transition: receive_unit, inputs: { robot: R40 }, occurred_at: 2026-11-10T00:00Z, refused: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable } }
+  - { at: 2027-02-15T09:10Z, actor: A-BUYER, object: S2, transition: receive_unit, inputs: { robot: R40 }, occurred_at: 2027-02-14T16:00Z }
+```
+
+## 35. UC-19: the new paths do not open a way around the rules
+
+> An agent that guesses and skips steps tries the routes this document adds. It records a passing inspection result it is not permitted to record, so that a delivery's gate would open. It backdates a receipt beyond the declared bound, to shorten a supplier's lead time. It completes a transition that a rule on trial would have refused, and then relies on that rule as if it were enforced. It retires a check from a configuration's checklist so that a delivery's gate opens. *Acceptance:* the first and the fourth are refused by the application the agent works through, since who may record a result or retire a check is its decision (N7); where one is let through, the engine records it as the agent's, attributed and counted like any request, and a later gate reads a result the record shows the agent recorded. The second is refused by the engine; the third proceeds, is recorded as a would-be refusal, and the printed rules show the trialled rule as not enforced. Governed state never reaches a condition an enforced rule forbids. (PRD §7)
+
+The routes, in UC-19's order.
+
+**1. A result the agent was not permitted to record.** Who may record a result is the application's decision, not the engine's (PRD D12, N7). The floor application refused Scout, and the engine never saw that request. The procurement tool let the same request through, and the engine treated it as any recording: it checked the values against the kind and recorded who made it (PRD D12). D10's gate read the result, and the record shows that the agent recorded it:
+
+Read: `results(D10)`
+
+| object | unit | check | outcome | remark |
+|---|---|---|---|---|
+| P7 | R23 | K3 | PASS | absent |
+| Q15 | R23 | K4 | PASS | absent |
+
+Read: `history(Q15)`
+
+| transition | occurred_at | actor | actor_kind | cause |
+|---|---|---|---|---|
+| record | 2027-02-10T09:00Z | scout | agent | absent |
+
+Read: `read set of D10.complete_sale: PdiCheck, PdiResult`
+
+| object | kind |
+|---|---|
+| K3 | PdiCheck |
+| K4 | PdiCheck |
+| P7 | PdiResult |
+| Q15 | PdiResult |
+
+The completion is counted like any request, under the kind of actor that made it. Scout's completions of D17 and D10 are the first by an agent; the ten before them were people's, D18's among them (§32):
+
+Read: `metric(Delivery.throughput, keep: [state, actor_kind])`
+
+| state | actor_kind | value | gaps |
+|---|---|---|---|
+| DELIVERED | human | 10 | |
+| DELIVERED | agent | 2 | |
+
+**2. A receipt backdated beyond its bound.** The engine refuses it. `receive_unit` is backdatable within 2 days, and 10 November was more than 97 days before the request (`flow-format.md` §4.8). The refusal is counted as the agent's, beside Ben's two of October (§11):
+
+Read: `metric(Shipment.refusals, keep: [transition, clause, remedy, actor_kind])`
+
+| transition | clause | remedy | actor_kind | value | gaps |
+|---|---|---|---|---|---|
+| receive_unit | occurred_within | self_serviceable | human | 2 | |
+| receive_unit | occurred_within | self_serviceable | agent | 1 | |
+
+The refused receipt left no event. R40's receipt is dated when it happened, within the bound, and its lead time is its real one, 104d 13h from its order on 2 November to its receipt on 14 February:
+
+Read: `events(R40)`
+
+| transition | occurred_at | recorded_at |
+|---|---|---|
+| request | 2026-11-02T03:00Z | 2026-11-02T03:00Z |
+| ship | 2026-11-03T01:00Z | 2026-11-03T01:00Z |
+| receive | 2027-02-14T16:00Z | 2027-02-15T09:10Z |
+
+Read: `metric(supplier_lead_time, keep: [supplier, month], filter: "o.model.manufacturer == Roverline")`
+
+| supplier | month | value | gaps |
+|---|---|---|---|
+| Roverline | 2025-09 | 37d | |
+| Roverline | 2026-04 | 56d | |
+| Roverline | 2026-07 | 35d | |
+| Roverline | 2026-10 | 5d 7h 10m | |
+| Roverline | 2027-02 | 104d 13h | |
+
+**3. A completion a rule on trial would have refused.** D17's completion went through, and the would-be refusal was recorded against Scout, not enforced (`DESIGN.md` §5.5):
+
+Read: `history(D17)`
+
+| transition | occurred_at | actor | actor_kind | cause |
+|---|---|---|---|---|
+| open | 2026-11-12T00:00Z | ben | human | absent |
+| peg_slot | 2026-11-12T01:30Z | ben | human | absent |
+| bind_slot | 2026-11-12T02:00Z | ben | human | absent |
+| complete_sale | 2027-02-09T09:00Z | scout | agent | absent |
+
+Read: `metric(delivery_trial_refusals, keep: [clause, actor])`
+
+| clause | actor | value | gaps |
+|---|---|---|---|
+| all_passed | scout | 1 | |
+
+Scout then relies on the rule as if it were enforced, telling Acme that every unit of D17 passed its checks. A rule on trial guarantees nothing (PRD T1), and the printed rules say so: the rule set prints an audited clause on its rule's line as `OBSERVING — NOT ENFORCED` (`renderers.md` §2), which `enforced` below reads. The engine cannot stop an agent from believing what a rule does not enforce. What it gives is a record that contradicts the belief, Q14's failure beside the would-be refusal, and a rule set that says the rule is on trial.
+
+Read: `rules(Delivery.complete_sale)`
+
+| clause | remedy | enforced |
+|---|---|---|
+| not_internal | unreachable_from_here | yes |
+| filled | dependent | yes |
+| all_checked | unreachable_from_here | yes |
+| yield_or_signed | delegable | yes |
+| all_passed | unreachable_from_here | no |
+
+**4. A check retired so that a gate opens.** The floor application refused Scout's retirement of K4, and the engine never saw it: K4's history holds only its addition. Had an application let it through, the retirement would be a transition like any other, recorded as Scout's, and D10's gate would have read a checklist without K4. The gate's read set names the checks its scan matched, as D10's above names K3 and K4, so a reviewer would see K4 missing from it, and the checklist's history would say who retired it (`adversarial-harness.md` §2).
+
+Read: `history(K4)`
+
+| transition | occurred_at | actor | actor_kind | cause |
+|---|---|---|---|---|
+| add | 2026-10-08T00:00Z | ana | human | absent |
+
+**Governed state never reaches a condition an enforced rule forbids.** Of the four routes, the engine refused the one its rules govern, the backdated receipt. D17's completion went through because the rule it broke was on trial, and D10's because its enforced gate held. What the rules could not know, that no one had made the check Scout's pass records, the record attributes to Scout.
+
+## 36. Late February: an operations application runs the floor
+
+The history continues from `now` of §34. The reads of §37 are taken at `2027-03-08T00:00Z`, a Monday. The reads of §3 to §35 hold as written, at their own `now`.
+
+**The facts it asks about.** UC-20's application asks five questions each hour. Two are about facts the journey already records: leases run over are `Engagement.overdue` (§21), and open work is the standard `open_work`. The other three need facts the journey lacks, and the operations review declared two of them (`flow-review.md` §2.2, §2.4, §8). On 22 February the lead publishes version 14, which adds them as the review's appendix writes them, and a third:
+- **`READY`**, entered by `mark_ready` once a unit is bound and none is still on order, and left by `back_to_preparation`. The completions now leave `READY`, and `filled` moves from them to `mark_ready`.
+- **`procured_for`**, which `inventorize` writes from the earmark it clears and `reserve` clears, so a unit bought for an order keeps the fact when it arrives, and `awaiting_assignment` over it.
+- **`missing_a_week`**, an exception over the unit's own stay in `MISSING`. The journey's `missing_units` metric gives the longest time missing per shipment, not the units, and a per-object ageing condition is a derived attribute over the entry time of the object's current stay (ADR-0084 §5).
+
+```yaml publish
+at: 2027-02-22T01:00Z
+modules:
+  inventory_journey:
+    remove:
+      - types.Delivery.transitions.complete_sale.guards.filled
+      - types.Delivery.transitions.complete_internal.guards.filled
+    add:
+      machines.UnitLifecycle.requires.attributes.procured_for: { reference: Delivery, optional: true }
+      machines.UnitLifecycle.transitions.inventorize.effect:
+        - assign: { location: procured_for, expr: peg }
+        - clear: [peg]
+      machines.UnitLifecycle.transitions.reserve.effect:
+        - assign: { location: binding, expr: inputs.slot }
+        - clear: [procured_for]
+      types.Robot.attributes.procured_for: { reference: Delivery, optional: true, opposite: procured }
+      types.Robot.derived_attributes.awaiting_assignment:
+        description: The unit is on offer and still carries the delivery it was procured for.
+        expression: state == AVAILABLE and procured_for is not null
+      types.Robot.derived_attributes.missing_a_week:
+        description: The unit has been missing from its shipment for a week or more.
+        expression: state == MISSING and entered_at(MISSING) + 7 days <= now
+      types.Delivery.attributes.procured: { reference: "Robot[]", opposite: procured_for }
+      types.Delivery.states:
+        PREPARATION: { category: live }
+        READY:       { category: live }
+        DELIVERED:   { category: closed }
+        CANCELLED:   { category: closed }
+        DELETED:     { category: closed, final: true }
+      types.Delivery.transitions.mark_ready:
+        kind: external
+        from: PREPARATION
+        to: READY
+        guards:
+          filled: deny
+      types.Delivery.transitions.back_to_preparation:
+        kind: external
+        from: READY
+        to: PREPARATION
+      types.Delivery.transitions.complete_sale.from: READY
+      types.Delivery.transitions.complete_internal.from: READY
+      types.Delivery.transitions.cancel.from: [PREPARATION, READY]
+```
+
+**What happens.**
+- **The application.** Ana registers it on 22 February as a service, `operations`. Each hour it asks its five questions. It marks ready whatever may be marked, binds each unit awaiting assignment to the delivery it was procured for, and messages each engineer their open work. Its reads leave no trace in the store, and its messages are its own.
+- **A race.** At its first run, at 03:00, D06 may be marked ready. At 03:02 Ben swaps D06's Kestrel unit, unbinding R21 before binding R20, and the application's request at 03:05 finds D06 with no unit. At its next run it marks D06 ready.
+- **D20** is Boreal's order for two Rover 2s, which Ben orders for it and pegs on 22 February. R50 arrives on S3 on the 24th. R52, ordered for stock on the same shipment, is not among what arrives, and Ben flags it missing. R50 is photographed, labelled and inventorized, keeping D20 as the delivery it was procured for, and at its next run the application binds it. R51 is on S4, due on 3 March.
+- **The application stops** on 3 March, when its host is moved, and is not restarted before `now`. Nothing in the store records that. R51 arrives on 4 March, and on the 5th Ben binds R32 to D11, Scout's Acme delivery that was a Rover 2 short (§10).
+
+```yaml scenario
+now: 2027-03-08T00:00Z
+
+requests:
+  - { at: 2027-02-22T02:00Z, actor: U-ANA, create: Service, object: S-OPS, transition: register, inputs: { name: operations } }
+  - { at: 2027-02-22T03:02Z, actor: U-BEN, object: D06, transition: unbind_slot, inputs: { robot: R21 } }
+  - { at: 2027-02-22T03:05Z, actor: S-OPS, object: D06, transition: mark_ready, refused: { verdict: unsatisfied, clause: filled, remedy: dependent } }
+  - { at: 2027-02-22T03:10Z, actor: U-BEN, object: D06, transition: bind_slot, inputs: { robot: R20 } }
+  - { at: 2027-02-22T04:05Z, actor: S-OPS, object: D06, transition: mark_ready }
+  - { at: 2027-02-22T05:00Z, actor: U-BEN, create: Delivery, object: D20, transition: open, inputs: { customer: C-BOREAL, promised_date: 2027-03-12T00:00Z } }
+  - { at: 2027-02-22T05:10Z, actor: U-BEN, create: Robot, object: R50, transition: request, inputs: { model: M-ROVER } }
+  - { at: 2027-02-22T05:10Z, actor: U-BEN, create: Robot, object: R51, transition: request, inputs: { model: M-ROVER } }
+  - { at: 2027-02-22T05:10Z, actor: U-BEN, create: Robot, object: R52, transition: request, inputs: { model: M-ROVER } }
+  - { at: 2027-02-22T05:20Z, actor: U-BEN, object: D20, transition: peg_slot, inputs: { robot: R50 } }
+  - { at: 2027-02-22T05:21Z, actor: U-BEN, object: D20, transition: peg_slot, inputs: { robot: R51 } }
+  - { at: 2027-02-22T06:00Z, actor: U-BEN, create: Shipment, object: S3, transition: dispatch, inputs: { with_units: [R50, R52], carrier: Northline, eta: 2027-02-24T00:00Z } }
+  - { at: 2027-02-22T06:05Z, actor: U-BEN, create: Shipment, object: S4, transition: dispatch, inputs: { with_units: [R51], carrier: Northline, eta: 2027-03-03T00:00Z } }
+  - { at: 2027-02-24T10:00Z, actor: U-BEN, object: S3, transition: arrive }
+  - { at: 2027-02-24T10:05Z, actor: U-BEN, object: S3, transition: receive_unit, inputs: { robot: R50 } }
+  - { at: 2027-02-24T10:10Z, actor: U-BEN, object: S3, transition: flag_missing, inputs: { robot: R52 } }
+  - { at: 2027-02-24T11:00Z, actor: U-BEN, object: R50, transition: add_photo, inputs: { photo: r50-label.jpg } }
+  - { at: 2027-02-24T11:01Z, actor: U-BEN, object: R50, transition: record_label_print }
+  - { at: 2027-02-24T11:05Z, actor: U-BEN, object: R50, transition: inventorize }
+  - { at: 2027-02-24T12:00Z, actor: S-OPS, object: D20, transition: bind_slot, inputs: { robot: R50 } }
+  - { at: 2027-03-04T09:00Z, actor: U-BEN, object: S4, transition: arrive }
+  - { at: 2027-03-04T09:05Z, actor: U-BEN, object: S4, transition: receive_unit, inputs: { robot: R51 } }
+  - { at: 2027-03-04T10:00Z, actor: U-BEN, object: R51, transition: add_photo, inputs: { photo: r51-label.jpg } }
+  - { at: 2027-03-04T10:01Z, actor: U-BEN, object: R51, transition: record_label_print }
+  - { at: 2027-03-04T10:05Z, actor: U-BEN, object: R51, transition: inventorize }
+  - { at: 2027-03-05T09:00Z, actor: U-BEN, object: D11, transition: bind_slot, inputs: { robot: R32 } }
+```
+
+## 37. UC-20: an operations application runs the floor
+
+> An application built on the engine manages the unit's journey day to day. Each hour it asks which deliveries may be marked ready, which units bought for an order still wait to be allocated to it, which units have been missing for a week, which leases have run over, and how much open work each person holds. It marks what may be marked, allocates where its own policy says to, and tells people what is theirs. The worklist, the schedule and the messages are the application's […]. *Acceptance:* given declarations that record the facts it asks about, each of those questions is answered by one query to the engine, not by a scan the application computes; every action it takes is a request by an actor of kind `service` or `agent`, refused by the same rules and recorded with its reason like anyone's; the engine keeps no schedule, sends nothing and takes no step of its own; and stopping the application stops the chasing and loses nothing from the record. (PRD §7, abridged)
+
+**Each question is one query.** At `now`, the application's next run would get these answers, each from one read of the engine (`DESIGN.md` §10).
+
+Which deliveries may be marked ready. `available` lists the objects for which a transition is available now, and `mark_ready` can be swept: its prefilter is the state, and its residual is `filled` (ADR-0048):
+
+Read: `available(Delivery, mark_ready)`
+
+| object |
+|---|
+| D11 |
+| D20 |
+
+Which units bought for an order still wait to be allocated to it:
+
+Read: `query(Robot, filter: "awaiting_assignment")`
+
+| object |
+|---|
+| R51 |
+
+Which units have been missing for a week. R52 has been missing since 24 February, and the store answers by filtering on the entry time of the unit's current stay (ADR-0084 §5):
+
+Read: `query(Robot, filter: "missing_a_week")`
+
+| object |
+|---|
+| R52 |
+
+Which leases have run over. E01 was due back on 10 November:
+
+Read: `query(Engagement, filter: "overdue")`
+
+| object |
+|---|
+| E01 |
+
+How much open work each person holds:
+
+Read: `metric(ServiceJob.open_work.engineer, keep: [assignee])`
+
+| assignee | value | gaps |
+|---|---|---|
+| U-BEN | 2 | |
+| U-CHEN | 1 | |
+
+The first two answers disagree about D20. It may be marked ready with one of its two units bound, while R51, bought for it, waits to be assigned to it. `filled` asks that a unit be bound and none be on order, and R51 stopped being on order when it arrived: its earmark became `procured_for`, which `filled` does not read. Had the application been running, whether it marked D20 ready before binding R51 would have depended on the order of its own steps (§39).
+
+**Every action is a request by a service, refused by the same rules and recorded with its reason.** The application has no path of its own (PRD N6). Its refused request is in D06's attempt log beside a person's refusal of September, with its rule and remedy:
+
+Read: `attempts(D06)`
+
+| transition | actor_kind | verdict | clause | remedy | call |
+|---|---|---|---|---|---|
+| bind_slot | human | stale | absent | self_serviceable | absent |
+| mark_ready | service | unsatisfied | filled | dependent | absent |
+
+What it did is counted under its kind:
+
+Read: `metric(Delivery.transition_counts, keep: [transition, actor_kind], filter: "t.actor_kind == service")`
+
+| transition | actor_kind | value | gaps |
+|---|---|---|---|
+| mark_ready | service | 1 | |
+| bind_slot | service | 1 | |
+
+**The engine keeps no schedule, sends nothing and takes no step of its own.** D20 has been ready to mark since R51 was put on offer on 4 March, and D11 since the 5th, and nothing has marked either. D20's history holds Ben's requests and the application's binding, and nothing since:
+
+Read: `history(D20)`
+
+| transition | occurred_at | actor | actor_kind | cause |
+|---|---|---|---|---|
+| open | 2027-02-22T05:00Z | ben | human | absent |
+| peg_slot | 2027-02-22T05:20Z | ben | human | absent |
+| peg_slot | 2027-02-22T05:21Z | ben | human | absent |
+| bind_slot | 2027-02-24T12:00Z | operations | service | absent |
+
+**Stopping the application stops the chasing and loses nothing.** Its requests are in the record like anyone's, and every question it asked is answered as before; only the asking stopped. The store cannot say that the application stopped, since a caller that stops calling leaves nothing to record. Noticing it is the application's own concern, as the operations review asked: "an alert for when the loop itself stops" (`flow-review.md` §2.1).
+
+## 38. UC-21: completing a sale sells its units
+
+> When sales ops completes a delivery, every unit bound to it becomes sold and gains its warranty, as one change. […] A reviewer reading only the unit's rules, and an agent about to complete a delivery, can each tell that it will happen. *Acceptance:* completing a delivery sells each bound unit and creates its warranty in one request, or refuses and changes nothing, naming the unit and the rule that refused; the unit's printed rules say that a delivery's completion sells it; the completion can be checked before it is requested, its cascades included; and each unit's sale records the completion as its cause. (PRD §7, abridged)
+
+**What the journey already does, and what version 15 adds.** The journey's `complete_sale` calls `sell` on each unit bound, and `sell` is `only_via` the completion (`unit-journey.md` §2). The warranty is this document's own type (§18), started by hand. On 8 March the lead publishes version 15:
+- **The completion creates each unit's warranty** in the loop that sells it, as the first consumer's completion does (`first-consumer-walkthrough.md` §3.3).
+- **A warranty holds its model's months, and its end is recorded after.** The end is a number of calendar months from the sale, which the engine cannot compute, since a month has no fixed length (`declaration-syntax.md` §8.3). So the end becomes optional, and the sales application records it with `set_end`, as §22 inferred it computes it.
+- **A unit is sold with the manufacturer serial its model requires.** The journey requires the serial of every unit on offer, and refuses to turn a model's requirement on while a unit on offer lacks one (`unit-journey.md` §2). A unit already reserved is not on offer, so nothing stops it being sold without one. The guard on `sell` closes that, and it is the rule a completion's cascade can fail.
+
+```yaml publish
+at: 2027-03-08T01:00Z
+modules:
+  inventory_journey:
+    add:
+      machines.UnitLifecycle.transitions.sell.guards.mfr_serial: deny
+      types.Warranty.attributes.ends_at: { type: timestamp, optional: true, indexed: true }
+      types.Warranty.attributes.months: { type: int, optional: true }
+      types.Warranty.transitions.start.required_inputs: [unit]
+      types.Warranty.transitions.start.optional_inputs: [ends_at, months]
+      types.Warranty.transitions.set_end:
+        kind: internal
+        from: ACTIVE
+        description: Records the warranty's end, which the sales application computes from the sale and the model's months.
+        required_inputs: [ends_at]
+      types.Delivery.transitions.complete_sale.effect:
+        - foreach:
+            item: u
+            array: units
+            limit: 500
+            steps:
+              - call: { target: u, transition: sell, inputs: { buyer: customer } }
+              - create: { type: Warranty, transition: start, inputs: { unit: u, months: u.model.warranty_months } }
+```
+
+**What happens.**
+- **Kestrel serials.** Kestrel starts printing serials. On 8 March Ana records them on R21 and R22, which are on offer, and turns the model's requirement on. R20, reserved for D06, is not on offer, so nothing refuses the change.
+- **D06.** On the 9th Ben checks D06's completion and is told why it would fail, asks anyway and is refused. Ben then records R20's serial, checks again and completes D06.
+- **D20.** The application is still stopped. Ana binds R51 to D20 and marks it ready, and Ben records the four results and completes D20 on the 10th.
+- **The warranties' ends.** The sales application, registered as a service, records each warranty's end.
+
+A creation's id is the engine's to assign. The history names the ids a request creates, in `creates`, in the order its loop runs, which is ascending id (`flow-format.md` §4.8). A `check` changes nothing, and the history records what it answered.
+
+```yaml scenario
+now: 2027-03-22T00:00Z
+
+requests:
+  - { at: 2027-03-08T02:00Z, actor: U-ANA, create: Service, object: S-SALES, transition: register, inputs: { name: sales } }
+  - { at: 2027-03-08T02:10Z, actor: U-ANA, object: R21, transition: record_manufacturer_serial, inputs: { manufacturer_serial: KD-20417 } }
+  - { at: 2027-03-08T02:11Z, actor: U-ANA, object: R22, transition: record_manufacturer_serial, inputs: { manufacturer_serial: KD-20418 } }
+  - { at: 2027-03-08T02:20Z, actor: U-ANA, object: M-KESTREL, transition: edit, inputs: { warranty_months: 12, manufacturer_serial_required: true } }
+  - { at: 2027-03-08T09:00Z, actor: U-ANA, object: D20, transition: bind_slot, inputs: { robot: R51 } }
+  - { at: 2027-03-08T09:05Z, actor: U-ANA, object: D20, transition: mark_ready }
+  - { at: 2027-03-09T09:00Z, actor: U-BEN, check: CK1, object: D06, transition: complete_sale }
+  - { at: 2027-03-09T09:05Z, actor: U-BEN, object: D06, transition: complete_sale, refused: { verdict: unsatisfied, clause: mfr_serial, remedy: dependent, call: R20 } }
+  - { at: 2027-03-09T10:00Z, actor: U-BEN, object: R20, transition: record_manufacturer_serial, inputs: { manufacturer_serial: KD-20416 } }
+  - { at: 2027-03-09T10:05Z, actor: U-BEN, check: CK2, object: D06, transition: complete_sale, creates: [W4] }
+  - { at: 2027-03-09T10:10Z, actor: U-BEN, object: D06, transition: complete_sale, creates: [W4] }
+  - { at: 2027-03-09T11:00Z, actor: U-BEN, record: pdi_results, subject: D20, object: Q16, fields: { unit: R50, check: K3, outcome: PASS } }
+  - { at: 2027-03-09T11:05Z, actor: U-BEN, record: pdi_results, subject: D20, object: Q17, fields: { unit: R50, check: K4, outcome: PASS } }
+  - { at: 2027-03-09T11:10Z, actor: U-BEN, record: pdi_results, subject: D20, object: Q18, fields: { unit: R51, check: K3, outcome: PASS } }
+  - { at: 2027-03-09T11:15Z, actor: U-BEN, record: pdi_results, subject: D20, object: Q19, fields: { unit: R51, check: K4, outcome: PASS } }
+  - { at: 2027-03-10T09:00Z, actor: U-BEN, object: D20, transition: complete_sale, creates: [W5, W6] }
+  - { at: 2027-03-10T10:00Z, actor: S-SALES, object: W4, transition: set_end, inputs: { ends_at: 2028-03-09T10:10Z } }
+  - { at: 2027-03-10T10:00Z, actor: S-SALES, object: W5, transition: set_end, inputs: { ends_at: 2029-03-10T09:00Z } }
+  - { at: 2027-03-10T10:00Z, actor: S-SALES, object: W6, transition: set_end, inputs: { ends_at: 2029-03-10T09:00Z } }
+```
+
+**The unit's printed rules say that a delivery's completion sells it.** Under each transition, the rule set lists every transition whose outcome can cause it, derived from the graph publishing builds to refuse a cycle (`renderers.md` §2, ADR-0108). `sell` is not requestable, so its causes print as `caused by`. A warranty is also started by hand, so the completion prints under `start` as `also caused by`:
+
+Read: `causes(Robot.sell)`
+
+| cause | through | where | limit | printed |
+|---|---|---|---|---|
+| Delivery.complete_sale | units | absent | 500 | caused by |
+
+Read: `rules(Robot.sell)`
+
+| clause | remedy | enforced |
+|---|---|---|
+| mfr_serial | dependent | yes |
+
+Read: `causes(Warranty.start)`
+
+| cause | through | where | limit | printed |
+|---|---|---|---|---|
+| Delivery.complete_sale | units | absent | 500 | also caused by |
+
+**The completion can be checked before it is requested, its cascades included.** `check` simulates the request, and names the unit and the rule its cascade would fail on (`DESIGN.md` §10, `library-api.md` §6):
+
+Read: `check CK1`
+
+| verdict | clause | remedy | call |
+|---|---|---|---|
+| unsatisfied | mfr_serial | dependent | R20 |
+
+**Or it refuses and changes nothing, naming the unit and the rule.** Ben's request was refused as the check said, with the call's verdict, its rule and R20 (`flow-format.md` §4.8). It wrote nothing: R20 stayed reserved and no warranty was started. Its attempt is in D06's log, after the application's refusal of §36:
+
+Read: `attempts(D06)`
+
+| transition | actor_kind | verdict | clause | remedy | call |
+|---|---|---|---|---|---|
+| bind_slot | human | stale | absent | self_serviceable | absent |
+| mark_ready | service | unsatisfied | filled | dependent | absent |
+| complete_sale | human | unsatisfied | mfr_serial | dependent | R20 |
+
+With R20's serial recorded, the check passes:
+
+Read: `check CK2`
+
+| verdict | clause | remedy | call |
+|---|---|---|---|
+| satisfied | absent | absent | absent |
+
+**Each unit's sale records the completion as its cause.** R20's history is its intake, its label, its override of September, its reservation by D06's binding, its serial and its sale. Each cascaded event names the event that caused it, and runs as the actor who requested it:
+
+Read: `history(R20)`
+
+| transition | occurred_at | actor | actor_kind | cause |
+|---|---|---|---|---|
+| add_to_intake | 2026-09-08T00:00Z | ana | human | absent |
+| record_label_print | 2026-09-08T10:00Z | ana | human | absent |
+| correct_state | 2026-09-09T12:00Z | ana | human | absent |
+| reserve | 2027-02-22T03:10Z | ben | human | D06.bind_slot |
+| record_manufacturer_serial | 2027-03-09T10:00Z | ben | human | absent |
+| sell | 2027-03-09T10:10Z | ben | human | D06.complete_sale |
+
+Read: `history(W4)`
+
+| transition | occurred_at | actor | actor_kind | cause |
+|---|---|---|---|---|
+| start | 2027-03-09T10:10Z | ben | human | D06.complete_sale |
+| set_end | 2027-03-10T10:00Z | sales | service | absent |
+
+**Each bound unit is sold and gains its warranty, in one request.** D20's completion sold both its units and started both their warranties, in the order its loop ran:
+
+Read: `caused by(D20.complete_sale)`
+
+| object | transition |
+|---|---|
+| R50 | sell |
+| W5 | start |
+| R51 | sell |
+| W6 | start |
+
+Read: `get(W5)`
+
+| attribute | value |
+|---|---|
+| ends_at | 2029-03-10T09:00Z |
+| months | 24 |
+| unit | R50 |
+
+## 39. What is inferred, and what UC-19 to UC-21 found
+
+**Inferences**, each resting on a requirement, the reviewed flow or the operations review:
+1. **The rule on trial asks that no check has only failed** (UC-19). §12 left that question to the lead, and UC-19's third route needs a rule on trial that a completion can break. Its remedy is `unreachable_from_here`, as `all_checked`'s is, since a passing result is another request (D446).
+2. **The applications' rules are this document's** (UC-19). That the floor application lets only an engineer record a result and only a person retire a check, and that the procurement tool forwards any recording, are the scenario's. PRD N7 makes both the applications' to decide, and the engine sees neither.
+3. **UC-20's facts are the operations review's declared proposals** (UC-20): `READY`, `mark_ready` and `back_to_preparation`, and `procured_for` with `awaiting_assignment`, as `flow-review.md`'s appendix writes them. UC-20 draws its questions from that review (§2.1), and its acceptance asks for "declarations that record the facts it asks about". Whether the journey itself adopts them is still the author's decision (`flow-review.md` §7, questions 3 and 4).
+4. **A unit missing for a week is a derived attribute** (UC-20). The journey's `missing_units` answers per shipment, and a per-object ageing condition is written over the entry time of the object's current stay (ADR-0084 §5).
+5. **The application is a service, and its policy binds each unit awaiting assignment to the delivery it was procured for** (UC-20). The review keeps assignment with the people who assign stock. UC-20 gives it to the application's own policy, and this one's is the simplest the fact allows.
+6. **The completion creates the warranty, holding its model's months, and the sales application records its end** (UC-21). The first consumer's completion creates the warranty (`first-consumer-walkthrough.md` §3.3), and §22 inferred that the sales application computes its end.
+7. **A unit is sold with the serial its model requires** (UC-21). It is the journey's own rule for a unit on offer, extended to the sale of a reserved one. It also gives a completion's cascade a rule that can refuse, which the journey's `sell` did not have.
+
+**Findings.**
+1. **The review's `filled` does not read the units procured for a delivery** (UC-20). `mark_ready` requires a unit bound and none still on order. A unit bought for the delivery is on order until it arrives. From then it carries `procured_for`, and is neither bound nor on order. So D20 may be marked ready with one of its two units while the other waits to be assigned to it (§37). Adding `none(u in procured)` to `filled` would make the delivery wait for it. The two proposals are the author's to decide together, so `flow-review.md` §8 records the interaction, and `TODO.md` holds the question.
+2. **A version that reroutes a transition changes what a metric filtering on its states counts, and nothing reports it** (UC-20, UC-21). The lead's `delivery_cycle_time` counts completions from `PREPARATION` (§29). Since version 14 a completion leaves `READY`, so D06, 165 days in preparation, and D20 are not counted. The people's median below is §30's, over ten completions that include D17's and D10's and not those two. Publishing checked version 14 and reported nothing of it, only the `audit` notice of version 13's rule on trial, as a probe of the flow checker's notices showed. The metric is still well formed, and its filter still means what it says. `TODO.md` holds the question whether a publish should name a declared metric whose filter compares a transition's states to one the version no longer routes that way.
+
+Read: `metric(delivery_cycle_time, keep: [creator])`
+
+| creator | value | gaps |
+|---|---|---|
+| human | 3d 12h | |
+| agent | 11d 2h | |
+| unknown | 15d | |
+
+3. **A warranty counted in months has no end the engine can compute** (UC-21, determined). The language has no month, by design (`declaration-syntax.md` §8.3), so a cascade can start a warranty but cannot date its end. The warranty is created in the completion, as F8 asks, and its end arrives a request later. Until it does, `Warranty.expiring` cannot hold for it.
+4. **`check` names the unit and the rule, not what the request would change** (UC-21, determined). ADR-0108 leaves open whether `check` should also return the objects and transitions a request would reach. UC-21 asks for the verdict, cascades included, and that is what `check` returns.
+5. **The engine cannot tell a pass nobody checked from a real one** (UC-19, determined). What it gives is who recorded each result, and every gate's read set. A reviewer asking why D10 was delivered finds Q15, and that Scout recorded it (PRD D12, ADR-0114).
+6. **A stopped application leaves nothing in the store** (UC-20, determined). The engine records requests, and an application that stops making them makes no event. Its absence shows only as work that waits, which the same queries still list.

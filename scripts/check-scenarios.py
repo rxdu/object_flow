@@ -119,6 +119,18 @@ def all_checked(s, o, i):
     return ok
 
 
+def all_passed(s, o, i):
+    """Every active check of every unit bound has a result that is not a failure."""
+    results = s.current(o.id, "pdi_results")
+    for u in sorted(s.units(o.id)):
+        for c in s.objects.values():
+            if c.type == "PdiCheck" and c.attrs["model"] == s.objects[u].attrs["model"] and c.state == "ACTIVE":
+                if not any(r.fields["unit"] == u and r.fields["check"] == c.id and r.fields["outcome"] != "FAIL"
+                           for r in results):
+                    return False
+    return True
+
+
 def first_pass_rate(s, model, until, over):
     """Delivery.first_pass_rate bound to `model := <model>, over last <over>`, as consulted at `until`."""
     rows = [r for r in first_results(s) if s.objects[r.fields["unit"]].attrs["model"] == model
@@ -176,7 +188,12 @@ DERIVED = {
                                    lambda s, o: o.state == "PREPARATION" and o.attrs.get("promised_date") is not None
                                    and o.attrs["promised_date"] < s.now + timedelta(days=2)),
     ("Warranty", "expiring"): ("state == ACTIVE and ends_at < now + 30 days",
-                               lambda s, o: o.state == "ACTIVE" and o.attrs["ends_at"] < s.now + timedelta(days=30)),
+                               lambda s, o: o.state == "ACTIVE" and o.attrs.get("ends_at") is not None
+                               and o.attrs["ends_at"] < s.now + timedelta(days=30)),
+    ("Robot", "awaiting_assignment"): ("state == AVAILABLE and procured_for is not null",
+                                       lambda s, o: o.state == "AVAILABLE" and o.attrs.get("procured_for") is not None),
+    ("Robot", "missing_a_week"): ("state == MISSING and entered_at(MISSING) + 7 days <= now",
+                                  lambda s, o: o.state == "MISSING" and o.entered_at("MISSING") + timedelta(days=7) <= s.now),
 }
 
 GUARDS = {
@@ -186,6 +203,10 @@ GUARDS = {
                              lambda s, o, i: len(s.units(o.id)) >= 1 and not s.pegged(o.id)),
     ("Delivery", "all_checked"): ("all(u in units: all(c in PdiCheck where c.model == u.model and c.state == PdiCheck.ACTIVE: "
                                   "any(r in pdi_results where r.unit == u and r.check == c)))", all_checked),
+    ("Delivery", "all_passed"): ("all(u in units: all(c in PdiCheck where c.model == u.model and c.state == PdiCheck.ACTIVE: "
+                                 "any(r in pdi_results where r.unit == u and r.check == c and r.outcome != CheckOutcome.FAIL)))",
+                                 all_passed),
+    ("Delivery", "ours"): ("inputs.robot.binding == this", lambda s, o, i: s.objects[i["robot"]].attrs.get("binding") == o.id),
     ("Robot", "open"): ("inputs.slot.state == Delivery.PREPARATION",
                         lambda s, o, i: s.objects[i["slot"]].state == "PREPARATION"),
     ("Robot", "labelled"): ("label_printed_at is not null", lambda s, o, i: o.attrs.get("label_printed_at") is not None),
@@ -282,7 +303,37 @@ EFFECTS = {
     ("Robot", "inventorize"): ([{"clear": ["peg"]}], lambda s, o, i, t: o.clear("peg")),
     ("Robot", "correct_state"): ([{"clear": ["peg", "binding", "used_in"]}], lambda s, o, i, t: o.clear("peg", "binding", "used_in")),
 }
-NO_EFFECT = {("Customer", "forget"), ("ServiceJob", "open"), ("ServiceJob", "reassign"), ("ServiceJob", "start"), ("User", "add"),
+
+
+def sell_and_warrant(s, o, i, t):
+    """complete_sale from version 15: each unit bound is sold and gains its warranty, in ascending id order."""
+    for u in sorted(s.units(o.id)):
+        s.call(u, "Robot", "sell", {"buyer": o.attrs["customer"]}, t)
+        s.create("Warranty", "start", {"unit": u, "months": s.objects[s.objects[u].attrs["model"]].attrs["warranty_months"]}, t)
+
+
+# a later version may change an effect, so each transition holds every version's effect, and the one in force runs
+EFFECTS = {k: [v] for k, v in EFFECTS.items()}
+for _key, _alt in {
+    ("Robot", "inventorize"): ([{"assign": {"location": "procured_for", "expr": "peg"}}, {"clear": ["peg"]}],
+                               lambda s, o, i, t: (o.set("procured_for", o.attrs.get("peg")), o.clear("peg"))),
+    ("Robot", "reserve"): ([{"assign": {"location": "binding", "expr": "inputs.slot"}}, {"clear": ["procured_for"]}],
+                           lambda s, o, i, t: (o.set("binding", i["slot"]), o.clear("procured_for"))),
+    ("Delivery", "complete_sale"): ([{"foreach": {"item": "u", "array": "units", "limit": 500, "steps": [
+        {"call": {"target": "u", "transition": "sell", "inputs": {"buyer": "customer"}}},
+        {"create": {"type": "Warranty", "transition": "start", "inputs": {"unit": "u", "months": "u.model.warranty_months"}}}]}}],
+        sell_and_warrant),
+    ("Delivery", "unbind_slot"): ([{"call": {"target": "inputs.robot", "transition": "release"}}],
+                                  lambda s, o, i, t: s.call(i["robot"], "Robot", "release", {}, t)),
+    ("Robot", "release"): ([{"clear": ["binding", "used_in"]}], lambda s, o, i, t: o.clear("binding", "used_in")),
+    ("Shipment", "flag_missing"): ([{"call": {"target": "inputs.robot", "transition": "flag_missing"}}],
+                                   lambda s, o, i, t: s.call(i["robot"], "Robot", "flag_missing", {}, t)),
+    ("Robot", "flag_missing"): ([{"clear": ["peg"]}], lambda s, o, i, t: o.clear("peg")),
+}.items():
+    EFFECTS.setdefault(_key, []).append(_alt)
+NO_EFFECT = {("Delivery", "mark_ready"), ("Delivery", "back_to_preparation"), ("Robot", "record_manufacturer_serial"),
+             ("RobotModel", "edit"), ("Warranty", "set_end"),
+             ("Customer", "forget"), ("ServiceJob", "open"), ("ServiceJob", "reassign"), ("ServiceJob", "start"), ("User", "add"),
              ("Return", "inspect"), ("Return", "close"), ("Return", "await_parts"), ("Return", "parts_in"),
              ("RobotModel", "set_reorder_point"), ("RobotModel", "set_yield_floor"), ("RobotModel", "set_usual_lead_time"),
              ("Warranty", "start"), ("Service", "register"), ("Delivery", "open"), ("Robot", "add_opening_stock"), ("Robot", "add_to_intake"), ("Robot", "request"),
@@ -331,6 +382,8 @@ DECLARED_METRICS = {
                                  "expression": "median(t.occurred_at - t.object.created_at)"},
     ("Robot", "trial_refusals"): {"source": "attempts", "item": "a", "filter": "not a.enforced",
                                   "dimensions": {"clause": "a.clause", "actor": "a.actor_id"}, "expression": "count()"},
+    ("Delivery", "delivery_trial_refusals"): {"source": "attempts", "item": "a", "filter": "not a.enforced",
+                                     "dimensions": {"clause": "a.clause", "actor": "a.actor_id"}, "expression": "count()"},
     ("Delivery", "delivery_cycle_time"): {"source": "transitions", "item": "t",
         "filter": "t.to_state == Delivery.DELIVERED and t.from_state == Delivery.PREPARATION",
         "dimensions": {"creator": "t.object.created_by_kind"}, "expression": "median(t.occurred_at - t.object.created_at)"},
@@ -384,9 +437,9 @@ class Obj:
 
 
 class Observation:
-    def __init__(self, oid, kind, subject, coll, fields, occurred, recorded, corrects, actor_kind):
+    def __init__(self, oid, kind, subject, coll, fields, occurred, recorded, corrects, actor_kind, actor=None):
         self.id, self.type, self.subject, self.coll, self.fields = oid, kind, subject, coll, dict(fields)
-        self.occurred, self.recorded, self.corrects, self.kind = occurred, recorded, corrects, actor_kind
+        self.occurred, self.recorded, self.corrects, self.kind, self.actor = occurred, recorded, corrects, actor_kind, actor
         self.corrected_by = None
 
 
@@ -440,6 +493,7 @@ class Store:
         self.version, self.findings = 1, []
         self.objects, self.obs, self.events, self.attempts, self.reading = {}, {}, [], [], None
         self.subscriptions, self.consulted, self.floors, self.proposals = {}, {}, {}, {}
+        self.causes, self.creating, self.checks = [], [], {}
         self.now = self.port = self.at = self.kind = None
         self.load()
 
@@ -471,9 +525,10 @@ class Store:
         for tn in ("Robot", "RobotModel"):
             for c in (self.types[tn].get("invariants") or {}):
                 assert (tn, c) in INVARIANTS, f"{tn}.{c} is not transcribed"
-        for (tn, x), (effect, _f) in EFFECTS.items():
+        for (tn, x), alts in EFFECTS.items():
             got = literal((self.types.get(tn, {}).get("transitions") or {}).get(x, {}).get("effect"))
-            assert not got or got == literal(effect), f"{tn}.{x}'s effect is now {got}; the transcription reads {literal(effect)}"
+            assert not got or got in [literal(e) for e, _f in alts], \
+                f"{tn}.{x}'s effect is now {got}; the transcription reads {[literal(e) for e, _f in alts]}"
         for tn, x in NO_EFFECT:
             if x in (self.types.get(tn, {}).get("transitions") or {}):
                 assert not self.types[tn]["transitions"][x].get("effect"), f"{tn}.{x} now has an effect"
@@ -585,16 +640,81 @@ class Store:
             raise
         self.apply(o, tn, xn, x, inputs, occ)
 
+    def create(self, tn, xn, inputs, occ):
+        """A `create` step: the object named next by the request's `creates`, by an initial transition."""
+        if not self.creating:
+            raise Refused(f"a request creates a {tn}, and names no id for it in `creates`")
+        x = self.types[tn]["transitions"][xn]
+        o = Obj(self.creating.pop(0), tn, x["to"], {}, occ, self.kind)
+        self.objects[o.id] = o
+        try:
+            self.guards(tn, xn, x, o, inputs)
+        except Fails as f:
+            f.v["call"] = None
+            raise
+        self.apply(o, tn, xn, {**x, "kind": "created"}, inputs, occ)
+
+    def attr_ref(self, tn, name):
+        spec = ((self.types.get(tn) or {}).get("attributes") or {}).get(name) or {}
+        return spec["reference"].rstrip("[]") if spec.get("reference") else None
+
+    def path_type(self, tn, x, env, path):
+        """The type a step's path reaches: from an input, a loop's item, `this` or the object's own member."""
+        first, *rest = path.split(".")
+        if first == "inputs":
+            name, *rest = rest
+            spec = (x.get("inputs") or {}).get(name) or {}
+            cur = spec["reference"].rstrip("[]") if spec.get("reference") else self.attr_ref(tn, name)
+        else:
+            cur = env[first] if first in env else tn if first == "this" else self.attr_ref(tn, first)
+        for p in rest:
+            cur = self.attr_ref(cur, p) if cur else None
+        return cur
+
+    def causes_of(self, tn, xn):
+        """Every transition whose outcome can cause `tn.xn`, as the rule set prints it (renderers.md §2, ADR-0108)."""
+        rows = []
+
+        def walk(ctn, cxn, x, steps, env, loop):
+            for st in steps or []:
+                if "foreach" in st:
+                    f = st["foreach"]
+                    walk(ctn, cxn, x, f["steps"], {**env, f["item"]: self.path_type(ctn, x, env, f["array"])},
+                         (f["array"], f.get("where"), f["limit"]))
+                elif "call" in st or "create" in st:
+                    c = st.get("call") or st["create"]
+                    hit = (c["transition"] == xn and self.path_type(ctn, x, env, c["target"]) == tn) if "call" in st \
+                        else (c["type"] == tn and c["transition"] == xn)
+                    if hit:
+                        rows.append({"cause": f"{ctn}.{cxn}", "through": loop[0] if loop else c.get("target"),
+                                     "where": loop[1] if loop else None, "limit": loop[2] if loop else None})
+        for ctn, t in self.types.items():
+            for cxn, x in (t.get("transitions") or {}).items():
+                walk(ctn, cxn, x, x.get("effect"), {}, None)
+            for an, a in (t.get("attributes") or {}).items():
+                for cl in a.get("cascade") or []:
+                    if cl["transition"] == xn and self.attr_ref(ctn, an) == tn:
+                        rows += [{"cause": f"{ctn}.{on}", "through": an, "where": None, "limit": cl["limit"]} for on in cl["on"]]
+        printed = "caused by" if self.types[tn]["transitions"][xn].get("only_via") else "also caused by"
+        return [{**r, "printed": printed} for r in rows]
+
     def apply(self, o, tn, xn, x, inputs, occ, to=None):
         frm = o.state
         held = {m: (None if x["kind"] == "created" else o.attrs.get(m)) for m in self.tracked(tn)}
         for a in (x.get("required_inputs") or []) + (x.get("optional_inputs") or []):
             if a in inputs:
                 o.set(a, inputs[a])
+        # a cascaded event records the event that caused it (DESIGN.md §6, ADR-0108)
+        cause = self.causes[-1] if self.causes else None
         if x.get("effect"):
-            if (tn, xn) not in EFFECTS:
+            fn = next((f for e, f in EFFECTS.get((tn, xn), []) if literal(e) == literal(x["effect"])), None)
+            if fn is None:
                 raise Refused(f"{tn}.{xn}'s effect is not transcribed")
-            EFFECTS[(tn, xn)][1](self, o, inputs, occ)
+            self.causes.append(f"{o.id}.{xn}")
+            try:
+                fn(self, o, inputs, occ)
+            finally:
+                self.causes.pop()
         target = to or x.get("to")
         if x["kind"] in ("external", "assertion") and target:
             o.state = target
@@ -603,7 +723,13 @@ class Store:
         for m in self.tracked(tn):
             o.hold(m, o.attrs.get(m), occ, self.kind)
         self.check_invariants(o)
+        if tn == "RobotModel":
+            # a unit's invariants read its model's flags, so a change to the model is checked on its units
+            for u in sorted((u for u in self.objects.values() if u.type == "Robot" and u.attrs.get("model") == o.id),
+                            key=lambda u: u.id):
+                self.check_invariants(u)
         self.events.append({"object": o.id, "type": tn, "transition": xn, "from": frm, "to": o.state, "kind": self.kind,
+                            "cause": cause,
                             "actor": self.identity(self.actor) if self.actor else None, "held": held,
                             "payload": {a: inputs[a] for a in (x.get("required_inputs") or []) + (x.get("optional_inputs") or [])
                                         if a in inputs},
@@ -619,6 +745,17 @@ class Store:
         occ = when(r["occurred_at"]) if r.get("occurred_at") else at
         inputs = {k: value(v) for k, v in (r.get("inputs") or {}).items()}
         self.consulted, self.floors, self.observed, self.actor = {}, {}, [], r["actor"]
+        self.creating = list(r.get("creates") or [])
+        # `check` simulates the request and changes nothing: advice, not a reservation (DESIGN.md §10)
+        if r.get("check"):
+            trial = copy.deepcopy(self)
+            try:
+                trial.attempt({k: v for k, v in r.items() if k != "check"})
+                self.checks[r["check"]] = {"verdict": "satisfied", "clause": None, "remedy": None, "call": None}
+            except Fails as f:
+                self.checks[r["check"]] = dict(f.v)
+            self.creating = []
+            return
         # a flow changes only through a DeclarationChange: drafted, submitted with its impact, approved (publish-and-import.md §1)
         if r.get("draft"):
             self.changes[r["draft"]] = {"drafted_by": self.identity(r["actor"]), "drafted_kind": self.kind, "drafted_at": at,
@@ -719,7 +856,7 @@ class Store:
         for g, remedy in self.observed:
             self.attempts.append({"object": o.id, "type": tn, "transition": r["transition"], "verdict": "unsatisfied",
                                   "clause": g, "remedy": remedy, "kind": self.kind, "actor": self.identity(r["actor"]),
-                                  "at": at, "enforced": False, "consulted": {}, "floors": {}})
+                                  "at": at, "enforced": False, "consulted": {}, "floors": {}, "call": None})
         for e in self.events[n:]:
             if e["object"] == o.id and e["transition"] == r["transition"]:
                 e["reads"], e["consulted"] = reads, dict(self.consulted)
@@ -750,7 +887,8 @@ class Store:
         unknown = set(fields) - set(spec_.get("attributes") or {})
         if unknown:
             raise Refused(f"{r['object']} has no field {sorted(unknown)}")
-        o = Observation(r["object"], spec_["kind"], subj.id, r["record"], fields, occ, at, fixed, self.kind)
+        o = Observation(r["object"], spec_["kind"], subj.id, r["record"], fields, occ, at, fixed, self.kind,
+                        self.identity(r["actor"]))
         self.obs[o.id] = o
         if fixed:
             self.obs[fixed].corrected_by = o.id
@@ -799,6 +937,8 @@ class Store:
             except Fails as f:
                 raise Refused(f"the request at {r['at']} on {r.get('object') or r.get('subject')} fails with {f.v}, "
                               "and the history says it applies")
+            if self.creating:
+                raise Refused(f"the request at {r['at']} names {self.creating} in `creates`, and creates nothing by them")
         while self.publishes and when(self.publishes[0]["at"]) <= self.now:
             self.publish(self.publishes.pop(0))
 
@@ -845,7 +985,7 @@ class Store:
                               "transition": "record" if r.get("record") else r["transition"],
                               "verdict": want["verdict"], "clause": want["clause"], "remedy": want["remedy"],
                               "kind": self.kind_of(r["actor"]), "actor": self.identity(r["actor"]), "at": at, "enforced": True,
-                              "consulted": consulted, "floors": objects})
+                              "consulted": consulted, "floors": objects, "call": want["call"]})
 
 
 # ── the reads, by declaration-syntax.md §6.9 ────────────────────────────────────
@@ -1011,9 +1151,20 @@ def metric(s, name, keep, filt, over=None, bind=None):
                  e["occurred"] - s.objects[e["object"]].created_at, None)
                 for e in s.events if e["type"] == "Return" and e["to"] == "CLOSED" and e["from"] != "CLOSED" and not e["migrated"]]
         return rows_of(group(rows, keep), keep, lambda b: nearest_rank(b, 0.5))
-    if name == "trial_refusals":
+    if name in ("trial_refusals", "delivery_trial_refusals"):
+        tn = "Robot" if name == "trial_refusals" else "Delivery"
         rows = [({"clause": a["clause"], "actor": a["actor"]}, 1, None)
-                for a in s.attempts if a["type"] == "Robot" and not a["enforced"]]
+                for a in s.attempts if a["type"] == tn and not a["enforced"]]
+        return rows_of(group(rows, keep), keep, len)
+    if std == "transition_counts":
+        # a creation is a transition too; its `held` is absent (declaration-syntax.md §6.9)
+        rows = []
+        for e in s.events:
+            if e["type"] == tn and not e["imported"] and not e["migrated"]:
+                dims = {"transition": e["transition"], "actor_kind": e["kind"], "week": week(e["occurred"]),
+                        "version": e["version"]}
+                if keepf(dims):
+                    rows.append((dims, 1, None))
         return rows_of(group(rows, keep), keep, len)
     if name == "first_pass_yield":
         assert keep == ["model", "month"], "first_pass_yield is read by the dimensions it names"
@@ -1097,6 +1248,47 @@ def read(s, spec_):
     if m:
         return [{"value": v, "entered_at": a, "entered_by_kind": k, "legacy": str(leg).lower()}
                 for v, a, _b, k, leg in s.objects[m.group(1)].members[m.group(2)]], ["value", "entered_at", "entered_by_kind", "legacy"]
+    m = re.fullmatch(r"available\((\w+), (\w+)\)", spec_)
+    if m:
+        # the objects in a state the transition leaves whose every enforced guard holds (DESIGN.md §10, ADR-0048)
+        tn, xn = m.groups()
+        x = s.types[tn]["transitions"][xn]
+        assert not x.get("only_via"), f"{tn}.{xn} is not requestable, so `available` does not list it"
+        got = [o for o in s.objects.values() if o.type == tn and s.leaves(tn, x, o.state)
+               and all(GUARDS[(tn, g)][1](s, o, {}) for g, mode in (x.get("guards") or {}).items() if mode == "deny")]
+        return [{"object": o.id} for o in sorted(got, key=lambda o: o.id)], ["object"]
+    m = re.fullmatch(r"check ([\w-]+)", spec_)
+    if m:
+        return [dict(s.checks[m.group(1)])], ["verdict", "clause", "remedy", "call"]
+    m = re.fullmatch(r"rules\((\w+)\.(\w+)\)", spec_)
+    if m:
+        # the rule set's `requires`, in the order the guards are evaluated (renderers.md §2)
+        tn, xn = m.groups()
+        x = s.types[tn]["transitions"][xn]
+        return [{"clause": g, "remedy": s.types[tn]["conditions"][g]["remedy"], "enforced": "yes" if mode == "deny" else "no"}
+                for g, mode in (x.get("guards") or {}).items()], ["clause", "remedy", "enforced"]
+    m = re.fullmatch(r"causes\((\w+)\.(\w+)\)", spec_)
+    if m:
+        return s.causes_of(*m.groups()), ["cause", "through", "where", "limit", "printed"]
+    m = re.fullmatch(r"history\(([\w-]+)\)", spec_)
+    if m:
+        oid = m.group(1)
+        if oid in s.obs:
+            ob = s.obs[oid]
+            return [{"transition": "record", "occurred_at": ob.occurred, "actor": ob.actor, "actor_kind": ob.kind,
+                     "cause": None}], ["transition", "occurred_at", "actor", "actor_kind", "cause"]
+        return [{"transition": e["transition"], "occurred_at": e["occurred"], "actor": e.get("actor"), "actor_kind": e["kind"],
+                 "cause": e.get("cause")} for e in s.events if e["object"] == oid], \
+            ["transition", "occurred_at", "actor", "actor_kind", "cause"]
+    m = re.fullmatch(r"attempts\(([\w-]+)\)", spec_)
+    if m:
+        return [{"transition": a["transition"], "actor_kind": a["kind"], "verdict": a["verdict"], "clause": a["clause"],
+                 "remedy": a["remedy"], "call": a.get("call")} for a in s.attempts if a["object"] == m.group(1)], \
+            ["transition", "actor_kind", "verdict", "clause", "remedy", "call"]
+    m = re.fullmatch(r"caused by\(([\w-]+\.\w+)\)", spec_)
+    if m:
+        return [{"object": e["object"], "transition": e["transition"]} for e in s.events if e.get("cause") == m.group(1)], \
+            ["object", "transition"]
     m = re.fullmatch(r"get\(([\w-]+)\)", spec_)
     if m:
         o = s.objects[m.group(1)]
@@ -1235,7 +1427,8 @@ def expected_tables(text):
     return out
 
 
-ORDERED = ("events(", "recorded(", "pull(", "intervals(", "payloads(", "results(")
+ORDERED = ("events(", "recorded(", "pull(", "intervals(", "payloads(", "results(", "history(", "attempts(", "caused by(",
+           "rules(")
 
 
 def check(text, journey_text, verbose=True):
@@ -1310,6 +1503,14 @@ PLANTS = [
      "contact_email: { type: string, personal: true }"),
     ("an erasure never requested",
      "  - { at: 2027-02-02T09:00Z, actor: U-ANA, object: C-DANA, transition: forget, inputs: { reason: At the customer's request } }\n", ""),
+    ("a rule on trial said to refuse", "actor: A-SCOUT, object: D17, transition: complete_sale }",
+     "actor: A-SCOUT, object: D17, transition: complete_sale, refused: { verdict: unsatisfied, clause: all_passed, "
+     "remedy: unreachable_from_here } }"),
+    ("a sale without the serial its model requires",
+     "  - { at: 2027-03-09T10:00Z, actor: U-BEN, object: R20, transition: record_manufacturer_serial, "
+     "inputs: { manufacturer_serial: KD-20416 } }\n", ""),
+    ("a completion that creates no warranty",
+     "              - create: { type: Warranty, transition: start, inputs: { unit: u, months: u.model.warranty_months } }\n", ""),
 ]
 
 

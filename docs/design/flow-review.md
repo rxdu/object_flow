@@ -211,6 +211,8 @@ The appendix is the module of `unit-journey.md` with the proposals marked **decl
 
 The promised date, the service clock, the checklist revision, the fulfilment stages and the procurement order are prose only. The module's delivery carries no dates and no checklist, and the procurement order is outside it.
 
+*(Found 2026-09-28, writing UC-20's scenario, which installs `READY` and `procured_for` as this appendix writes them (`metric-scenarios.md` §36, §37): the two proposals interact. `mark_ready`'s `filled` asks for a unit bound and none still on order, and `procured_for` takes an arrived unit off order without binding it, so a delivery may be marked ready while a unit bought for it waits to be assigned. Adding `none(u in procured)` to `filled` would make it wait. Recorded for the author's decision on questions 3 and 4 of §7, and in `TODO.md`.)*
+
 ## Appendix: the module with the declared proposals applied
 
 A variant of [`unit-journey.md`](unit-journey.md) §2, to be deleted from here once the author has decided and the module is amended. It is written in the flow description format, in the journey's order, and `scripts/check-flow-docs.py` checks it with all four steps of the flow checker (ADR-0121). It carries the journey's corrections of 2026-09-27 (D408, `unit-journey.md` §2).
