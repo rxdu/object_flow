@@ -3091,7 +3091,7 @@ Six readers, one slice each, read the requirements and the design whole, after t
 ### D468
 **The PRD disagreed with itself.** §4 and F3 said the kind of actor matters "where a rule says so", against T6 and N7 since revision 10; F6 became a Must resting on F7, a Should, against §6's rule; the status paragraph, the definition of Said and the telemetry row's source had not caught up with revisions 12 to 14; and T6's "No rule reads the kind" did not say whose, while `DESIGN.md` §5.1 lets a rule read `created_by_kind`. Found by the requirements and DESIGN readers.
 
-**Resolved by PRD revision 15**, 2026-09-28, with two revisions §12 proposes to the author: F7 a Must, and T6 saying the kind no rule reads is the requester's. The design meets both meanwhile.
+**Resolved by PRD revision 15**, 2026-09-28, with two revisions §12 proposed to the author, F7 a Must and T6 saying the kind no rule reads is the requester's, which the author accepted as revision 16 the same day.
 
 ### D469
 **The traceability map had not followed the decisions since revision 10.** `flow-format.md`, ADR-0116 and ADR-0131 were cited by no row; D8 and UC-17 did not cite ADR-0133, T6 omitted ADR-0125 and ADR-0126, N7 omitted ADR-0132, and the history stopped at revision 10. Found by the requirements reader.
