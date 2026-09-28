@@ -965,7 +965,7 @@ metric inspection_pass_rate version 1 {
 
 **A flag** is a named condition over `value` and the dimensions, declared once so that a scheduler or an agent queries the flag rather than restating the threshold (PRD C2). A business exception across many objects is a flag (DESIGN.md §5.12).
 
-**Who may read a metric is not declared** (ADR-0114, superseding ADR-0112). An upper layer decides who may read which metric, and which may keep a dimension that names a person, and narrows any read with `filter`.
+**Who may read a metric is not declared** (ADR-0114, superseding ADR-0112). An upper layer decides who may read which metric, and which may keep a dimension that names a person, bind one or filter on the value it reads, each of which gives a person's figure (D451), and narrows any read with `filter`.
 
 **A derived attribute in a row counts every object it reads**, as everywhere it is read, so a metric over a derived stock count counts every unit (ADR-0098, ADR-0114).
 

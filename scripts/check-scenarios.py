@@ -207,6 +207,10 @@ GUARDS = {
                                  "any(r in pdi_results where r.unit == u and r.check == c and r.outcome != CheckOutcome.FAIL)))",
                                  all_passed),
     ("Delivery", "ours"): ("inputs.robot.binding == this", lambda s, o, i: s.objects[i["robot"]].attrs.get("binding") == o.id),
+    ("ExpenseClaim", "submitted"): ("submitted_at is not null", lambda s, o, i: o.attrs.get("submitted_at") is not None),
+    ("ExpenseClaim", "within_policy"): ("inputs.amount <= inputs.category.policy_amount",
+                                        lambda s, o, i: Decimal(str(i["amount"]))
+                                        <= Decimal(str(s.objects[i["category"]].attrs["policy_amount"]))),
     ("Robot", "open"): ("inputs.slot.state == Delivery.PREPARATION",
                         lambda s, o, i: s.objects[i["slot"]].state == "PREPARATION"),
     ("Robot", "labelled"): ("label_printed_at is not null", lambda s, o, i: o.attrs.get("label_printed_at") is not None),
@@ -329,6 +333,13 @@ for _key, _alt in {
     ("Shipment", "flag_missing"): ([{"call": {"target": "inputs.robot", "transition": "flag_missing"}}],
                                    lambda s, o, i, t: s.call(i["robot"], "Robot", "flag_missing", {}, t)),
     ("Robot", "flag_missing"): ([{"clear": ["peg"]}], lambda s, o, i, t: o.clear("peg")),
+    ("ExpenseClaim", "submit"): ([{"assign": {"location": "submitted_at", "expr": "now"}}],
+                                 lambda s, o, i, t: o.set("submitted_at", t)),
+    ("ExpenseClaim", "add_line"): ([{"create": {"type": "ClaimLine", "transition": "add", "inputs": {
+        "for_claim": "this", "category": "inputs.category", "amount": "inputs.amount"}}}],
+        lambda s, o, i, t: s.create("ClaimLine", "add", {"for_claim": o.id, "category": i["category"], "amount": i["amount"]}, t)),
+    ("ClaimLine", "add"): ([{"assign": {"location": "claim", "expr": "inputs.for_claim"}}],
+                           lambda s, o, i, t: o.set("claim", i["for_claim"])),
 }.items():
     EFFECTS.setdefault(_key, []).append(_alt)
 NO_EFFECT = {("Delivery", "mark_ready"), ("Delivery", "back_to_preparation"), ("Robot", "record_manufacturer_serial"),
@@ -457,7 +468,9 @@ def insert(mapping, key, value, order):
 
 
 def module_text(ref):
-    """`<document> <n>`: the n-th module a design document writes, as a version of it."""
+    """`<document> <n>`: the n-th module a design document writes, as a version of it; or a module file, whole."""
+    if ref.endswith(".yaml"):
+        return (ROOT / "docs/design" / ref).read_text()
     name, n = ref.split()
     blocks = [b for info, _s, b in fences((ROOT / "docs/design" / name).read_text()) if info == "yaml" and b.startswith("module:")]
     return blocks[int(n) - 1]
@@ -493,7 +506,8 @@ class Store:
         self.version, self.findings = 1, []
         self.objects, self.obs, self.events, self.attempts, self.reading = {}, {}, [], [], None
         self.subscriptions, self.consulted, self.floors, self.proposals = {}, {}, {}, {}
-        self.causes, self.creating, self.checks = [], [], {}
+        self.causes, self.creating, self.checks, self.answers, self.notices = [], [], {}, {}, {}
+        self.principal = None
         self.now = self.port = self.at = self.kind = None
         self.load()
 
@@ -549,10 +563,12 @@ class Store:
         order = [n for n in ("operations_shared", "inventory_journey", "returns") if n in self.text]
         order += [n for n in self.text if n not in order]
         files = [(f"{n}.yaml", self.text[n]) for n in order]
-        errs, _notes = flows.check(files, {f"{n}.yaml": prev[n] for n in mods if n in prev})
+        errs, notes = flows.check(files, {f"{n}.yaml": prev[n] for n in mods if n in prev})
         self.findings += [f"the version published at {at:%Y-%m-%dT%H:%MZ}: {e[0]} {e[3]} {e[4]}"
                           for e in errs if e[0][:-len(".yaml")] in mods]
         self.version += 1
+        self.notices[self.version] = [{"module": n[0][:-len(".yaml")], "code": n[3], "notice": n[4]}
+                                      for n in notes if n[0][:-len(".yaml")] in mods]
         self.load()
         # a publish changes a live object only by a recorded migration (flow-format.md §4.16)
         for name in mods:
@@ -594,6 +610,35 @@ class Store:
         o = self.objects[actor]
         return next(o.attrs[a] for a, s_ in (self.types[o.type].get("attributes") or {}).items() if s_.get("actor_kind"))
 
+    def known(self, actor):
+        """An actor the store holds: an object of a type that marks an actor identity."""
+        o = self.objects.get(actor)
+        return o is not None and any(a.get("actor_kind") for a in (self.types[o.type].get("attributes") or {}).values())
+
+    def named(self, actor):
+        """What an attempt records for its actor: the identity, or what the request named where no actor holds it."""
+        return self.identity(actor) if self.known(actor) else actor
+
+    def is_a(self, tn, want):
+        while tn:
+            if tn == want:
+                return True
+            tn = (self.types.get(tn) or {}).get("extends")
+        return False
+
+    def invalid_input(self, tn, x, inputs):
+        """An input naming no object, or one of another type than the reference it fills (DESIGN.md §6 step 4)."""
+        specs = dict(x.get("inputs") or {})
+        for a in (x.get("required_inputs") or []) + (x.get("optional_inputs") or []):
+            specs.setdefault(a, ((self.types[tn].get("attributes") or {}).get(a)) or {})
+        for name, v in inputs.items():
+            ref = (specs.get(name) or {}).get("reference")
+            if ref and v is not None:
+                for oid in (v if isinstance(v, list) else [v]):
+                    if oid not in self.objects or not self.is_a(self.objects[oid].type, ref.rstrip("[]")):
+                        return True
+        return False
+
     def kind_of(self, actor):
         o = self.objects.get(actor)
         if o is None:
@@ -614,8 +659,8 @@ class Store:
                 raise Refused(f"{tn}.{xn}'s guard {g} is not transcribed, so this history cannot reach it")
             if not GUARDS[(tn, g)][1](self, o, inputs):
                 remedy = self.types[tn]["conditions"][g]["remedy"]
-                if mode == "audit":
-                    self.observed.append((g, remedy))
+                if mode in ("audit", "warn"):
+                    self.observed.append((g, remedy, mode))
                     continue
                 raise Fails("unsatisfied", g, remedy)
 
@@ -729,7 +774,7 @@ class Store:
                             key=lambda u: u.id):
                 self.check_invariants(u)
         self.events.append({"object": o.id, "type": tn, "transition": xn, "from": frm, "to": o.state, "kind": self.kind,
-                            "cause": cause,
+                            "cause": cause, "principal": self.identity(self.principal) if self.principal else None,
                             "actor": self.identity(self.actor) if self.actor else None, "held": held,
                             "payload": {a: inputs[a] for a in (x.get("required_inputs") or []) + (x.get("optional_inputs") or [])
                                         if a in inputs},
@@ -741,7 +786,12 @@ class Store:
     def attempt(self, r):
         """Take the request on this store; raise Fails with its first failure."""
         at = self.at = when(r["at"])
+        for who in (r["actor"], r.get("principal")):
+            if who is not None and not self.known(who):
+                self.kind = "unknown"
+                raise Fails("unsatisfied", "actor_known", "dependent")
         self.kind = self.kind_of(r["actor"])
+        self.principal = r.get("principal")
         occ = when(r["occurred_at"]) if r.get("occurred_at") else at
         inputs = {k: value(v) for k, v in (r.get("inputs") or {}).items()}
         self.consulted, self.floors, self.observed, self.actor = {}, {}, [], r["actor"]
@@ -813,10 +863,13 @@ class Store:
         if r.get("create"):
             if x["kind"] != "initial" or r["object"] in self.objects:
                 raise Refused(f"{r['object']}: {tn}.{r['transition']} is not a creation of a new object")
+            if self.invalid_input(tn, x, inputs):
+                raise Fails("invalid input", None, "self_serviceable")
             o = Obj(r["object"], tn, x["to"], {}, occ, self.kind)
             self.objects[o.id] = o
             self.guards(tn, r["transition"], x, o, inputs)
             self.apply(o, tn, r["transition"], {**x, "kind": "created"}, inputs, occ)
+            self.settle(r, o, tn, at)
             return
         o = self.objects[r["object"]]
         if x["kind"] == "initial":
@@ -843,6 +896,8 @@ class Store:
             return
         if not self.leaves(tn, x, o.state):
             raise Fails("unavailable", None, "unreachable_from_here")
+        if self.invalid_input(tn, x, inputs):
+            raise Fails("invalid input", None, "self_serviceable")
         if r.get("occurred_at"):
             limit = x.get("backdating_limit")
             changes = x["kind"] == "external"
@@ -853,13 +908,23 @@ class Store:
         reads, self.reading = self.reading, None
         n = len(self.events)
         self.apply(o, tn, r["transition"], x, inputs, occ)
-        for g, remedy in self.observed:
-            self.attempts.append({"object": o.id, "type": tn, "transition": r["transition"], "verdict": "unsatisfied",
-                                  "clause": g, "remedy": remedy, "kind": self.kind, "actor": self.identity(r["actor"]),
-                                  "at": at, "enforced": False, "consulted": {}, "floors": {}, "call": None})
+        self.settle(r, o, tn, at)
         for e in self.events[n:]:
             if e["object"] == o.id and e["transition"] == r["transition"]:
                 e["reads"], e["consulted"] = reads, dict(self.consulted)
+
+    def settle(self, r, o, tn, at):
+        """A request that applied: each audited or flagged failure goes to the attempt log, linked to it, and a flag
+        is returned with the verdict (DESIGN.md §6 step 4, ADR-0111)."""
+        for g, remedy, mode in self.observed:
+            self.attempts.append({"object": o.id, "type": tn, "transition": r["transition"], "verdict": "unsatisfied",
+                                  "clause": g, "remedy": remedy, "kind": self.kind, "actor": self.identity(r["actor"]),
+                                  "at": at, "enforced": False, "flagged": mode == "warn", "consulted": {}, "floors": {},
+                                  "call": None})
+        if r.get("answer"):
+            flags = [(g, remedy) for g, remedy, mode in self.observed if mode == "warn"]
+            self.answers[r["answer"]] = [{"verdict": "satisfied", "flag": g, "remedy": remedy} for g, remedy in flags] \
+                or [{"verdict": "satisfied", "flag": None, "remedy": None}]
 
     def record(self, r, at, occ):
         subj = self.objects[r["subject"]]
@@ -984,7 +1049,8 @@ class Store:
         self.attempts.append({"object": None if r.get("record") or r.get("create") else r["object"], "type": tn,
                               "transition": "record" if r.get("record") else r["transition"],
                               "verdict": want["verdict"], "clause": want["clause"], "remedy": want["remedy"],
-                              "kind": self.kind_of(r["actor"]), "actor": self.identity(r["actor"]), "at": at, "enforced": True,
+                              "kind": self.kind_of(r["actor"]) if self.known(r["actor"]) else "unknown",
+                              "actor": self.named(r["actor"]), "at": at, "enforced": True, "flagged": False,
                               "consulted": consulted, "floors": objects, "call": want["call"]})
 
 
@@ -1133,8 +1199,9 @@ def metric(s, name, keep, filt, over=None, bind=None):
                 st = s.types["ServiceJob"]["states"]
                 if e["type"] == "ServiceJob" and e["from"] and st[e["from"]].get("category") != "closed" \
                         and st[e["to"]].get("category") == "closed" and not e["imported"]:
-                    rows.append(({"assignee": e["held"]["engineer"], "state": e["to"]},
-                                 e["occurred"] - s.objects[e["object"]].created_at, None))
+                    dims = {"assignee": e["held"]["engineer"], "state": e["to"], "month": e["occurred"].strftime("%Y-%m")}
+                    if all(dims[k] == v for k, v in (bind or {}).items()):
+                        rows.append((dims, e["occurred"] - s.objects[e["object"]].created_at, None))
             return rows_of(group(rows, keep), keep, lambda b: nearest_rank(b, 0.5))
         if m == "acted_by_non_assignee":
             rows = [({"transition": e["transition"]}, e["actor"] != s.identity(e["held"]["engineer"]), None)
@@ -1155,6 +1222,10 @@ def metric(s, name, keep, filt, over=None, bind=None):
         tn = "Robot" if name == "trial_refusals" else "Delivery"
         rows = [({"clause": a["clause"], "actor": a["actor"]}, 1, None)
                 for a in s.attempts if a["type"] == tn and not a["enforced"]]
+        return rows_of(group(rows, keep), keep, len)
+    if std == "flags_raised":
+        rows = [({"transition": a["transition"], "clause": a["clause"], "remedy": a["remedy"], "actor_kind": a["kind"],
+                  "week": week(a["at"])}, 1, None) for a in s.attempts if a["type"] == tn and a.get("flagged")]
         return rows_of(group(rows, keep), keep, len)
     if std == "transition_counts":
         # a creation is a transition too; its `held` is absent (declaration-syntax.md §6.9)
@@ -1238,7 +1309,7 @@ def read(s, spec_):
         # no read is filtered by who is asking (PRD T5): the reader must be one the store holds, and changes nothing
         s.kind_of(reader.group(1))
         spec_ = spec_[:reader.start() + 1]
-    m = re.fullmatch(r'metric\(([\w.]+)(?:, bind: \{(\w+): (\w+)\})?, keep: \[([\w, ]*)\](?:, filter: "(.+?)")?(?:, over: "(\d+ days)")?\)', spec_)
+    m = re.fullmatch(r'metric\(([\w.]+)(?:, bind: \{(\w+): ([\w-]+)\})?, keep: \[([\w, ]*)\](?:, filter: "(.+?)")?(?:, over: "(\d+ days)")?\)', spec_)
     if m:
         keep = [k.strip() for k in m.group(4).split(",") if k.strip()]
         bind = {m.group(2): m.group(3)} if m.group(2) else None
@@ -1257,6 +1328,32 @@ def read(s, spec_):
         got = [o for o in s.objects.values() if o.type == tn and s.leaves(tn, x, o.state)
                and all(GUARDS[(tn, g)][1](s, o, {}) for g, mode in (x.get("guards") or {}).items() if mode == "deny")]
         return [{"object": o.id} for o in sorted(got, key=lambda o: o.id)], ["object"]
+    m = re.fullmatch(r"answer ([\w-]+)", spec_)
+    if m:
+        return s.answers[m.group(1)], ["verdict", "flag", "remedy"]
+    m = re.fullmatch(r"notices of version (\d+)", spec_)
+    if m:
+        return s.notices[int(m.group(1))], ["module", "code", "notice"]
+    m = re.fullmatch(r"provenance\(([\w-]+)\)", spec_)
+    if m:
+        return [{"transition": e["transition"], "actor": e.get("actor"), "actor_kind": e["kind"], "principal": e.get("principal")}
+                for e in s.events if e["object"] == m.group(1)], ["transition", "actor", "actor_kind", "principal"]
+    if spec_ == "actor kinds":
+        # each type that holds actors, the identity a request names them by, and the kind it declares (renderers.md §2)
+        return [{"type": tn, "identity": a, "kind": spec["actor_kind"]} for tn in sorted(s.types)
+                for a, spec in (s.types[tn].get("attributes") or {}).items() if spec.get("actor_kind")], \
+            ["type", "identity", "kind"]
+    m = re.fullmatch(r"marks\((\w+)\.(\w+)\.(\w+)\)", spec_)
+    if m:
+        # a standard assignment metric's dimensions (declaration-syntax.md §6.11), each marked where its value names
+        # an actor: an object of a type that marks an actor identity, or an actor's id (DESIGN.md §5.12)
+        tn, mn, r = m.groups()
+        assert mn == "cycle_time_by_assignee", f"no marks for {mn} in this checker"
+        target = s.attr_ref(tn, r)
+        names = lambda ty: any(a.get("actor_kind") for a in (s.types[ty].get("attributes") or {}).values())
+        dims = [("assignee", target), ("state", None), ("month", None), ("version", None), ("actor_kind", None)]
+        return [{"dimension": d, "names_an_actor": "yes" if ty and names(ty) else "no"} for d, ty in dims], \
+            ["dimension", "names_an_actor"]
     m = re.fullmatch(r"check ([\w-]+)", spec_)
     if m:
         return [dict(s.checks[m.group(1)])], ["verdict", "clause", "remedy", "call"]
@@ -1265,8 +1362,9 @@ def read(s, spec_):
         # the rule set's `requires`, in the order the guards are evaluated (renderers.md §2)
         tn, xn = m.groups()
         x = s.types[tn]["transitions"][xn]
-        return [{"clause": g, "remedy": s.types[tn]["conditions"][g]["remedy"], "enforced": "yes" if mode == "deny" else "no"}
-                for g, mode in (x.get("guards") or {}).items()], ["clause", "remedy", "enforced"]
+        marked = {"deny": None, "audit": "OBSERVING — NOT ENFORCED", "warn": "FLAG — NOT ENFORCED"}
+        return [{"clause": g, "remedy": s.types[tn]["conditions"][g]["remedy"], "enforced": "yes" if mode == "deny" else "no",
+                 "marked": marked[mode]} for g, mode in (x.get("guards") or {}).items()], ["clause", "remedy", "enforced", "marked"]
     m = re.fullmatch(r"causes\((\w+)\.(\w+)\)", spec_)
     if m:
         return s.causes_of(*m.groups()), ["cause", "through", "where", "limit", "printed"]
@@ -1428,7 +1526,7 @@ def expected_tables(text):
 
 
 ORDERED = ("events(", "recorded(", "pull(", "intervals(", "payloads(", "results(", "history(", "attempts(", "caused by(",
-           "rules(")
+           "rules(", "provenance(", "marks(")
 
 
 def check(text, journey_text, verbose=True):
@@ -1511,6 +1609,13 @@ PLANTS = [
      "inputs: { manufacturer_serial: KD-20416 } }\n", ""),
     ("a completion that creates no warranty",
      "              - create: { type: Warranty, transition: start, inputs: { unit: u, months: u.model.warranty_months } }\n", ""),
+    ("an agent named engineer-of-record", "inputs: { engineer: A-SCOUT }, refused: { verdict: invalid input, remedy: self_serviceable } }",
+     "inputs: { engineer: A-SCOUT } }"),
+    ("a departed user's request said to be refused", "actor: U-DIYA, object: J3, transition: start }",
+     "actor: U-DIYA, object: J3, transition: start, refused: { verdict: unsatisfied, clause: actor_known, remedy: dependent } }"),
+    ("a flag said to refuse", "inputs: { category: CAT-TRAVEL, amount: 420.00 }, creates: [CL1], answer: AN1 }",
+     "inputs: { category: CAT-TRAVEL, amount: 420.00 }, creates: [CL1], refused: { verdict: unsatisfied, "
+     "clause: within_policy, remedy: self_serviceable } }"),
 ]
 
 

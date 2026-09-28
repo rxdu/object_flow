@@ -567,8 +567,8 @@ CREATE INDEX of_interval_by_object ON of_interval (object_id, dimension, left_po
 CREATE TABLE of_attempt (
   id                  INTEGER PRIMARY KEY,
   at                  TEXT    NOT NULL,
-  actor_id            TEXT    NOT NULL,
-  actor_kind          TEXT    NOT NULL,
+  actor_id            TEXT    NOT NULL,     -- as the request named it, where no actor holds it (ADR-0125)
+  actor_kind          TEXT    NOT NULL,     -- 'unknown' where the request named an actor the store does not know
   actor_principal     TEXT,
   context             TEXT,
   txn                 INTEGER NOT NULL,     -- its writing transaction, for the settled cursor

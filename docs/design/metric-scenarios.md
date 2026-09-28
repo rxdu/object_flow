@@ -1,8 +1,8 @@
-# Metric scenarios: UC-1 to UC-21
+# Metric scenarios: UC-1 to UC-24
 
-Status: **worked scenarios**, 2026-09-27, written at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". The author then asked for the next three, "write the scenarios for UC-4 to UC-6" (§8 to §12), then "write the scenarios for UC-7 to UC-9" (§13 to §17), then "write the scenarios for UC-10 to UC-12" (§18 to §22), then "write the scenarios for UC-13 to UC-15" (§23 to §28), then "write the scenarios for UC-16 to UC-18" (§29 to §33), and then "write the scenarios for UC-19 to UC-21" (§34 to §39). Each of the PRD's first twenty-one use cases is written here as a fixed flow, a fixed history and the values its reads return, so a builder has a test and a reader has something to compute and compare (`TODO.md`, "Write the metric use cases as checked scenarios").
+Status: **worked scenarios**, 2026-09-27, written at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed". The author then asked for the next three, "write the scenarios for UC-4 to UC-6" (§8 to §12), then "write the scenarios for UC-7 to UC-9" (§13 to §17), then "write the scenarios for UC-10 to UC-12" (§18 to §22), then "write the scenarios for UC-13 to UC-15" (§23 to §28), then "write the scenarios for UC-16 to UC-18" (§29 to §33), then "write the scenarios for UC-19 to UC-21" (§34 to §39), and then "write the scenarios for UC-22 to UC-24" (§40 to §44). Each of the PRD's twenty-four use cases is written here as a fixed flow, a fixed history and the values its reads return, so a builder has a test and a reader has something to compute and compare (`TODO.md`, "Write the metric use cases as checked scenarios").
 
-**Method.** One store and one history, in twelve parts, with each use case's questions asked of it. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the agent type that writing these scenarios added to it (§1). Every value below is derived by hand, a metric's from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11 and every other read's from the read surface of `DESIGN.md` §10 and the rule set of `renderers.md` §2, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
+**Method.** One store and one history, in fifteen parts, with each use case's questions asked of it. The flow is the robot inventory of [`unit-journey.md`](unit-journey.md) §2, which ten rounds of cold readers found determined in everything a request does ([`flow-recoverability-review.md`](flow-recoverability-review.md)), with the agent type that writing these scenarios added to it (§1). Every value below is derived by hand, a metric's from [`declaration-syntax.md`](declaration-syntax.md) §6.9 and §6.11 and every other read's from the read surface of `DESIGN.md` §10 and the rule set of `renderers.md` §2, and [`scripts/check-scenarios.py`](../../scripts/check-scenarios.py) recomputes each one independently. The script also replays the history against the modules. It refuses:
 - a request whose actor the store does not hold;
 - a transition the type does not declare, that is `only_via` others, or that is taken from a state it does not leave;
 - a refusal on a guard the transition does not declare, with a remedy other than the declared one, or on a clause that is not the first to fail;
@@ -10,9 +10,9 @@ Status: **worked scenarios**, 2026-09-27, written at the author's direction: "wr
 - a recording its subject's kinds do not include, or one its generated guards refuse;
 - a published version the flow checker refuses, checked against the version before it.
 
-The script evaluates guards, effects and invariants from a transcription it holds, and checks each against the module's text before it runs. It is not an engine, and it refuses a history that reaches anything it has not transcribed. Its self-test plants twenty-two mistakes, from a wrong value to a completion that creates no warranty, and shows each caught.
+The script evaluates guards, effects and invariants from a transcription it holds, and checks each against the module's text before it runs. It is not an engine, and it refuses a history that reaches anything it has not transcribed. Its self-test plants twenty-five mistakes, from a wrong value to an agent named engineer-of-record, and shows each caught.
 
-**What is inferred.** The use cases speak of the first consumer's deliveries, and the reviewed flow is thinner in two places: its delivery has no product configuration and no checklist. §6 lists each inference with what it rests on. Two questions the specification left open were decided to write the values (§7, ADR-0123). UC-4 to UC-6 need inspection and availability datapoints the journey lacks, so the history's second part publishes a version that adds them (§8), and §12 lists what they inferred and found. UC-7 to UC-9 add a telemetry summary, three formulas and legacy history, in a third part (§13), and §17 lists theirs. UC-10 to UC-12 add a rule on a metric, an agent's escalation and the business exceptions, in a fourth (§18), and §22 lists theirs. UC-13 to UC-15 install the returns module's versions, put a rule on trial and enforce it by a governed change, in a fifth and a sixth (§23, §27), and §28 lists theirs. UC-16 to UC-18 split by the kind of actor, hand service jobs between engineers and erase a customer, in a seventh part (§29) and an eighth and a ninth (§32), and §33 lists theirs. UC-19 to UC-21 put a second rule on trial, install the operations review's declared proposals and create each unit's warranty in its sale, in a tenth, an eleventh and a twelfth part (§34, §36, §38), and §39 lists theirs.
+**What is inferred.** The use cases speak of the first consumer's deliveries, and the reviewed flow is thinner in two places: its delivery has no product configuration and no checklist. §6 lists each inference with what it rests on. Two questions the specification left open were decided to write the values (§7, ADR-0123). UC-4 to UC-6 need inspection and availability datapoints the journey lacks, so the history's second part publishes a version that adds them (§8), and §12 lists what they inferred and found. UC-7 to UC-9 add a telemetry summary, three formulas and legacy history, in a third part (§13), and §17 lists theirs. UC-10 to UC-12 add a rule on a metric, an agent's escalation and the business exceptions, in a fourth (§18), and §22 lists theirs. UC-13 to UC-15 install the returns module's versions, put a rule on trial and enforce it by a governed change, in a fifth and a sixth (§23, §27), and §28 lists theirs. UC-16 to UC-18 split by the kind of actor, hand service jobs between engineers and erase a customer, in a seventh part (§29) and an eighth and a ninth (§32), and §33 lists theirs. UC-19 to UC-21 put a second rule on trial, install the operations review's declared proposals and create each unit's warranty in its sale, in a tenth, an eleventh and a twelfth part (§34, §36, §38), and §39 lists theirs. UC-22 to UC-24 bring three callers through one door, install the format's `approvals` example for a flag, and read one metric as four people, in a thirteenth, a fourteenth and a fifteenth part (§40, §42, §43), and §44 lists theirs.
 
 ## 1. The store
 
@@ -2085,17 +2085,17 @@ Read: `metric(delivery_trial_refusals, keep: [clause, actor])`
 |---|---|---|---|
 | all_passed | scout | 1 | |
 
-Scout then relies on the rule as if it were enforced, telling Acme that every unit of D17 passed its checks. A rule on trial guarantees nothing (PRD T1), and the printed rules say so: the rule set prints an audited clause on its rule's line as `OBSERVING — NOT ENFORCED` (`renderers.md` §2), which `enforced` below reads. The engine cannot stop an agent from believing what a rule does not enforce. What it gives is a record that contradicts the belief, Q14's failure beside the would-be refusal, and a rule set that says the rule is on trial.
+Scout then relies on the rule as if it were enforced, telling Acme that every unit of D17 passed its checks. A rule on trial guarantees nothing (PRD T1), and the printed rules say so: the rule set prints an audited clause on its rule's line as `OBSERVING — NOT ENFORCED` (`renderers.md` §2), which `marked` below is. The engine cannot stop an agent from believing what a rule does not enforce. What it gives is a record that contradicts the belief, Q14's failure beside the would-be refusal, and a rule set that says the rule is on trial.
 
 Read: `rules(Delivery.complete_sale)`
 
-| clause | remedy | enforced |
-|---|---|---|
-| not_internal | unreachable_from_here | yes |
-| filled | dependent | yes |
-| all_checked | unreachable_from_here | yes |
-| yield_or_signed | delegable | yes |
-| all_passed | unreachable_from_here | no |
+| clause | remedy | enforced | marked |
+|---|---|---|---|
+| not_internal | unreachable_from_here | yes | absent |
+| filled | dependent | yes | absent |
+| all_checked | unreachable_from_here | yes | absent |
+| yield_or_signed | delegable | yes | absent |
+| all_passed | unreachable_from_here | no | OBSERVING — NOT ENFORCED |
 
 **4. A check retired so that a gate opens.** The floor application refused Scout's retirement of K4, and the engine never saw it: K4's history holds only its addition. Had an application let it through, the retirement would be a transition like any other, recorded as Scout's, and D10's gate would have read a checklist without K4. The gate's read set names the checks its scan matched, as D10's above names K3 and K4, so a reviewer would see K4 missing from it, and the checklist's history would say who retired it (`adversarial-harness.md` §2).
 
@@ -2356,9 +2356,9 @@ Read: `causes(Robot.sell)`
 
 Read: `rules(Robot.sell)`
 
-| clause | remedy | enforced |
-|---|---|---|
-| mfr_serial | dependent | yes |
+| clause | remedy | enforced | marked |
+|---|---|---|---|
+| mfr_serial | dependent | yes | absent |
 
 Read: `causes(Warranty.start)`
 
@@ -2458,3 +2458,349 @@ Read: `metric(delivery_cycle_time, keep: [creator])`
 4. **`check` names the unit and the rule, not what the request would change** (UC-21, determined). ADR-0108 leaves open whether `check` should also return the objects and transitions a request would reach. UC-21 asks for the verdict, cascades included, and that is what `check` returns.
 5. **The engine cannot tell a pass nobody checked from a real one** (UC-19, determined). What it gives is who recorded each result, and every gate's read set. A reviewer asking why D10 was delivered finds Q15, and that Scout recorded it (PRD D12, ADR-0114).
 6. **A stopped application leaves nothing in the store** (UC-20, determined). The engine records requests, and an application that stops making them makes no event. Its absence shows only as work that waits, which the same queries still list.
+
+## 40. Late March: three callers, one door
+
+The history continues from `now` of §38. The reads of §41 are taken at `2027-04-05T00:00Z`, a Monday. The reads of §3 to §39 hold as written, at their own `now`.
+
+**Three callers.** The first consumer's backend, the operations application of §36 and an agent gateway all call the engine's service, and none holds the store's database credentials (PRD N7). Each request names its actor, and optionally the principal it acts for, as the caller's own authentication decided. The engine resolves each to an object of a type that marks an actor identity and takes the kind from that type (`DESIGN.md` §5.8). The history names an actor by its object, as it has throughout. The request itself names the identity that object holds (`flow-format.md` §5).
+
+**The gateway's bug.** The gateway lets each agent do whatever the person it works for may do. It names the agent as the actor and the person as the principal, which is what it should do, and it authorizes the agent as if it were the person, which it should not.
+
+**What happens.**
+- **Diya leaves** on 22 March. Ana records it through the backend, as the sync of people from the first consumer's user system would.
+- **J5.** Ana opens a repair for Chen on R20, which Boreal bought with D06.
+- **Scout, through the gateway, working for Ben**, asks to be named J3's engineer, and then starts J4, Ben's maintenance job.
+- **Diya's session.** Nobody revoked the floor application's session Diya was signed in to, and on the 26th Diya starts J3 through it.
+- **An agent the store does not know.** On the 29th the gateway sends a request from `helper`, an agent Ben set up in the gateway and nobody issued in the store, to finish J4.
+
+```yaml scenario
+now: 2027-04-05T00:00Z
+
+requests:
+  - { at: 2027-03-22T09:00Z, actor: U-ANA, object: U-DIYA, transition: leave }
+  - { at: 2027-03-23T09:00Z, actor: U-ANA, create: ServiceJob, object: J5, transition: open, inputs: { kind: REPAIR, robot: R20, customer: C-BOREAL, engineer: U-CHEN } }
+  - { at: 2027-03-24T10:00Z, actor: A-SCOUT, principal: U-BEN, object: J3, transition: reassign, inputs: { engineer: A-SCOUT }, refused: { verdict: invalid input, remedy: self_serviceable } }
+  - { at: 2027-03-24T10:05Z, actor: A-SCOUT, principal: U-BEN, object: J4, transition: start }
+  - { at: 2027-03-26T09:00Z, actor: U-DIYA, object: J3, transition: start }
+  - { at: 2027-03-29T09:00Z, actor: helper, principal: U-BEN, object: J4, transition: finish, refused: { verdict: unsatisfied, clause: actor_known, remedy: dependent } }
+```
+
+## 41. UC-22: one door, and a kind nobody can claim
+
+> The first consumer's backend, the operations application and an agent gateway all call the engine's service, and none holds the store's database credentials. The gateway has a bug: it lets each agent do whatever the person it works for may do. An agent then asks to be named engineer-of-record of a service job, and later a user who has left the company acts through a session nobody revoked. *Acceptance:* every request reaches the store through the service and is recorded with the actor it named; each actor's kind is the one its declared type gives, whatever the gateway sent, so the agent's requests are counted as an agent's; the agent is never engineer-of-record, because that reference names a person's type and an agent is not one; the departed user's request is recorded as theirs, so the record shows the session nobody revoked, whose revocation is the upper layer's; a request naming an actor the engine does not know is refused; and changing the kind of a type's actors is a publish. (PRD §7)
+
+**Each actor's kind is the one its declared type gives.** The kinds are in the declaration, one per type that holds actors, beside the identity a request names them by, as the rule set prints them (`renderers.md` §2). A request carries an actor and a principal and no kind (`library-api.md` §3), so there is nothing for a gateway to send:
+
+Read: `actor kinds`
+
+| type | identity | kind |
+|---|---|---|
+| Agent | key_id | agent |
+| Service | name | service |
+| User | login | human |
+
+**Every request is recorded with the actor it named, and the agent's are counted as an agent's.** Scout's start of J4 is recorded as Scout's, with Ben as its principal, and counted as an agent's, whatever the gateway let it do:
+
+Read: `provenance(J4)`
+
+| transition | actor | actor_kind | principal |
+|---|---|---|---|
+| open | ana | human | absent |
+| reassign | ana | human | absent |
+| start | scout | agent | ben |
+
+Read: `metric(ServiceJob.transition_counts, keep: [transition, actor_kind], filter: "t.transition == start")`
+
+| transition | actor_kind | value | gaps |
+|---|---|---|---|
+| start | human | 3 | |
+| start | agent | 1 | |
+
+**The agent is never engineer-of-record.** `engineer` references a `User`, and Scout is an `Agent`, so the request names an object of another type than the reference it fills and is refused as `invalid input` before any guard runs (`DESIGN.md` §6 step 4). No rule reads the kind: the reference's type is what refuses it, "so an agent cannot be named engineer-of-record at all" (`declaration-syntax.md` §6.10). The refusal is counted as the agent's, and J3's engineer is still Ben:
+
+Read: `attempts(J3)`
+
+| transition | actor_kind | verdict | clause | remedy | call |
+|---|---|---|---|---|---|
+| reassign | agent | invalid input | absent | self_serviceable | absent |
+
+Read: `intervals(J3.engineer)`
+
+| value | entered_at | entered_by_kind | legacy |
+|---|---|---|---|
+| U-BEN | 2027-01-13T10:00Z | human | false |
+
+**The departed user's request is recorded as theirs.** The engine does not ask whether an actor's object is in a closed state (`DESIGN.md` §5.8), so Diya's start of J3 applied and is Diya's. The record shows the session nobody revoked: Diya left on 22 March and acted on the 26th. Revoking the session was the floor application's to do:
+
+Read: `history(U-DIYA)`
+
+| transition | occurred_at | actor | actor_kind | cause |
+|---|---|---|---|---|
+| add | 2027-01-11T02:00Z | ana | human | absent |
+| leave | 2027-03-22T09:00Z | ana | human | absent |
+
+Read: `provenance(J3)`
+
+| transition | actor | actor_kind | principal |
+|---|---|---|---|
+| open | ana | human | absent |
+| start | diya | human | absent |
+
+**A request naming an actor the engine does not know is refused.** No actor holds the identity `helper`, so the request is refused by the generated guard `actor_known`, with the remedy `dependent`, before anything else is checked (`DESIGN.md` §6 step 1). Its attempt records the identity as the request named it, under the kind `unknown`, which ADR-0125 decides (§44):
+
+Read: `attempts(J4)`
+
+| transition | actor_kind | verdict | clause | remedy | call |
+|---|---|---|---|---|---|
+| finish | unknown | unsatisfied | actor_known | dependent | absent |
+
+Read: `metric(ServiceJob.refusals, keep: [transition, clause, remedy, actor_kind])`
+
+| transition | clause | remedy | actor_kind | value | gaps |
+|---|---|---|---|---|---|
+| reassign | absent | self_serviceable | agent | 1 | |
+| finish | actor_known | dependent | unknown | 1 | |
+
+**Changing the kind of a type's actors is a publish.** A kind is a marking on a type's actor identity, and only a published version changes a type (ADR-0110 §3). The `actor kinds` above are read from the version in force. A change to one would appear in the rule-set diff an approver reads, and nothing a caller sends can make it.
+
+## 42. UC-23: a rule people see rather than obey
+
+> In the first consumer's reimbursement workflow, a claim line above the policy amount for its category is allowed, but everyone should see it. The deployment declares that rule as a flag. *Acceptance:* the claim is submitted and the line applied; the answer carries the flag, naming the rule; the flag is recorded and counted per rule and per kind of actor; the printed rules show it as a flag, not as a rule on trial or an enforced one; and no guarantee is claimed for it. (PRD §7)
+
+**The reimbursements.** The journey has no expense claim. The design's worked one is the format's example `approvals.yaml`, whose `ExpenseClaim` is drafted, submitted and approved, and the model's own example of a flag is a claim line's `within_policy` (`declaration-syntax.md` §5.1). On 5 April the lead publishes version 16, which installs the example as it is written and adds what UC-23 needs:
+- **a category catalogue**, `ExpenseCategory`, each with the most its policy allows for one line;
+- **claim lines**, `ClaimLine`, each created by the claim's `add_line`;
+- **the rule**, `within_policy`, on `add_line`, marked `warn`, the format's word for the model's `flag` (`flow-format.md` §4.8, Appendix A.1).
+
+```yaml publish
+at: 2027-04-05T01:00Z
+modules:
+  approvals:
+    text: flow-format/examples/approvals.yaml
+    add:
+      types.ExpenseCategory:
+        description: A category of expense, with the most the policy allows for one line in it.
+        tracking: record
+        attributes:
+          name:          { type: string, unique: true }
+          policy_amount: { type: money(SGD) }
+        states:
+          ACTIVE:  { category: live }
+          RETIRED: { category: closed, final: true }
+        transitions:
+          add:
+            kind: initial
+            to: ACTIVE
+            required_inputs: [name, policy_amount]
+          retire:
+            kind: external
+            from: ACTIVE
+            to: RETIRED
+      types.ClaimLine:
+        description: One line of an expense claim, in one category.
+        tracking: record
+        attributes:
+          claim:    { reference: ExpenseClaim, opposite: lines }
+          category: { reference: ExpenseCategory }
+          amount:   { type: money(SGD) }
+        states:
+          OPEN:      { category: live }
+          WITHDRAWN: { category: closed, final: true }
+        transitions:
+          add:
+            kind: initial
+            to: OPEN
+            only_via: [ExpenseClaim.add_line]
+            required_inputs: [category, amount]
+            inputs:
+              for_claim: { reference: ExpenseClaim }
+            effect:
+              - assign: { location: claim, expr: inputs.for_claim }
+          withdraw:
+            kind: external
+            from: OPEN
+            to: WITHDRAWN
+      types.ExpenseClaim.attributes.lines: { reference: "ClaimLine[]", opposite: claim }
+      types.ExpenseClaim.conditions.within_policy:
+        description: The line's amount is within the policy amount for its category.
+        expression: inputs.amount <= inputs.category.policy_amount
+        remedy: self_serviceable
+      types.ExpenseClaim.transitions.add_line:
+        kind: internal
+        from: DRAFT
+        description: Adds a line to a draft claim; a line above its category's policy amount is allowed, and everyone sees it.
+        inputs:
+          category: { reference: ExpenseCategory }
+          amount:   { type: money(SGD) }
+        guards:
+          within_policy: warn
+        effect:
+          - create: { type: ClaimLine, transition: add, inputs: { for_claim: this, category: inputs.category, amount: inputs.amount } }
+```
+
+**What happens.** Ana adds two categories, meals at up to 50.00 and travel at up to 300.00 a line. Ben files a claim for a trip: a hotel night at 420.00, above the travel policy, and a dinner at 38.50. Chen files one for a customer lunch at 72.00, and Scout, transcribing Chen's receipt, adds the line. Both claims are submitted, and Ana approves them. The history names each answer it quotes, as it names each check (§38).
+
+```yaml scenario
+now: 2027-04-12T00:00Z
+
+requests:
+  - { at: 2027-04-05T02:00Z, actor: U-ANA, create: ExpenseCategory, object: CAT-MEALS, transition: add, inputs: { name: Meals, policy_amount: 50.00 } }
+  - { at: 2027-04-05T02:00Z, actor: U-ANA, create: ExpenseCategory, object: CAT-TRAVEL, transition: add, inputs: { name: Travel, policy_amount: 300.00 } }
+  - { at: 2027-04-06T09:00Z, actor: U-BEN, create: ExpenseClaim, object: X1, transition: file_claim, inputs: { amount: 458.50 } }
+  - { at: 2027-04-06T09:05Z, actor: U-BEN, object: X1, transition: add_line, inputs: { category: CAT-TRAVEL, amount: 420.00 }, creates: [CL1], answer: AN1 }
+  - { at: 2027-04-06T09:06Z, actor: U-BEN, object: X1, transition: add_line, inputs: { category: CAT-MEALS, amount: 38.50 }, creates: [CL2], answer: AN2 }
+  - { at: 2027-04-06T09:10Z, actor: U-BEN, object: X1, transition: submit }
+  - { at: 2027-04-07T09:00Z, actor: U-CHEN, create: ExpenseClaim, object: X2, transition: file_claim, inputs: { amount: 72.00 } }
+  - { at: 2027-04-07T09:05Z, actor: A-SCOUT, principal: U-CHEN, object: X2, transition: add_line, inputs: { category: CAT-MEALS, amount: 72.00 }, creates: [CL3], answer: AN3 }
+  - { at: 2027-04-07T09:10Z, actor: U-CHEN, object: X2, transition: submit }
+  - { at: 2027-04-08T09:00Z, actor: U-ANA, object: X1, transition: approve }
+  - { at: 2027-04-08T09:05Z, actor: U-ANA, object: X2, transition: approve }
+```
+
+**The claim is submitted and the line applied.** The hotel line went through, created by the request that raised the flag, and the claim was submitted and approved:
+
+Read: `history(X1)`
+
+| transition | occurred_at | actor | actor_kind | cause |
+|---|---|---|---|---|
+| file_claim | 2027-04-06T09:00Z | ben | human | absent |
+| add_line | 2027-04-06T09:05Z | ben | human | absent |
+| add_line | 2027-04-06T09:06Z | ben | human | absent |
+| submit | 2027-04-06T09:10Z | ben | human | absent |
+| approve | 2027-04-08T09:00Z | ana | human | absent |
+
+Read: `history(CL1)`
+
+| transition | occurred_at | actor | actor_kind | cause |
+|---|---|---|---|---|
+| add | 2027-04-06T09:05Z | ben | human | X1.add_line |
+
+**The answer carries the flag, naming the rule.** A flagged request is satisfied, and its verdict names each flag it raised with the rule's remedy class (`DESIGN.md` §6 step 4, ADR-0111). The dinner raised none:
+
+Read: `answer AN1`
+
+| verdict | flag | remedy |
+|---|---|---|
+| satisfied | within_policy | self_serviceable |
+
+Read: `answer AN2`
+
+| verdict | flag | remedy |
+|---|---|---|
+| satisfied | absent | absent |
+
+**The flag is recorded and counted per rule and per kind of actor.** Each raised flag is written to the attempt log, marked flagged and linked to the event that applied, and the standard `flags_raised` counts them (`declaration-syntax.md` §6.11). Scout's line counts as an agent's:
+
+Read: `metric(ExpenseClaim.flags_raised, keep: [transition, clause, remedy, actor_kind])`
+
+| transition | clause | remedy | actor_kind | value | gaps |
+|---|---|---|---|---|---|
+| add_line | within_policy | self_serviceable | human | 1 | |
+| add_line | within_policy | self_serviceable | agent | 1 | |
+
+**The printed rules show it as a flag.** The rule set tells apart the three things a clause can be: enforced, on trial, or a flag, printed `FLAG — NOT ENFORCED` (`renderers.md` §2):
+
+Read: `rules(ExpenseClaim.add_line)`
+
+| clause | remedy | enforced | marked |
+|---|---|---|---|
+| within_policy | self_serviceable | no | FLAG — NOT ENFORCED |
+
+**No guarantee is claimed for it.** The publish report lists the flag, so whoever approves the version is told it refuses nothing, and the adversarial harness treats it as absent (`declaration-syntax.md` §5.1). Version 16's report, from the flow checker, names only it:
+
+Read: `notices of version 16`
+
+| module | code | notice |
+|---|---|---|
+| approvals | warn | within_policy warns: a failure is reported with the result and refuses nothing |
+
+## 43. UC-24: per-person numbers behind a door
+
+> The first consumer's team sees work, not people, and its managers see performance per person behind a separate door (its PRD, R9 and R10). An engineer asks for cycle time per engineer, and so does an agent working for them; a service lead asks for cycle time across the team; a manager asks for it per engineer. The door is the application's, since who may read what is the upper layers' decision (T5, T7). *Acceptance:* the engine marks the split by engineer as naming a person, so the application refuses it to the engineer and to the agent and gives it to the manager, whatever route they ask by, every route going through the application (N7); the team-wide figure is answered; and the engine's metric is the same definition for all of them. (PRD §7)
+
+**What happens.** Ben finishes J3 and J4 on 13 April. Chen starts J5 on the 14th and finishes it on the 15th. On the 19th Ben asks for cycle time per engineer, and so does Scout, working for Ben. Chen, who leads the service team, asks for it across the team, and Ana, their manager, asks for it per engineer.
+
+```yaml scenario
+now: 2027-04-19T00:00Z
+
+requests:
+  - { at: 2027-04-13T09:00Z, actor: U-BEN, object: J3, transition: finish }
+  - { at: 2027-04-13T10:00Z, actor: U-BEN, object: J4, transition: finish }
+  - { at: 2027-04-14T09:00Z, actor: U-CHEN, object: J5, transition: start }
+  - { at: 2027-04-15T09:00Z, actor: U-CHEN, object: J5, transition: finish }
+```
+
+**The engine marks the split by engineer as naming a person.** Cycle time per engineer is the standard `cycle_time_by_assignee` over `engineer` (`declaration-syntax.md` §6.11). The declaration marks each of its dimensions whose value names an actor, an object of a type that marks an actor identity or an actor's id (`DESIGN.md` §5.12). The engineer is a `User`, so `assignee` is marked; the state, the month, the version and the kind of actor are not:
+
+Read: `marks(ServiceJob.cycle_time_by_assignee.engineer)`
+
+| dimension | names_an_actor |
+|---|---|
+| assignee | yes |
+| state | no |
+| month | no |
+| version | no |
+| actor_kind | no |
+
+**The team-wide figure is answered.** Five jobs have completed, each counted from its opening to its completion:
+- **Ben's:** J1 in 3d, J4 in 89d and J3 in 89d 23h.
+- **Chen's:** J2 in 8d and J5 in 23d.
+
+Kept by no dimension, the median of the five is the third, 23d. A read that keeps no marked dimension carries no one's figure, so the application gives it to Chen without the door:
+
+Read: `metric(ServiceJob.cycle_time_by_assignee.engineer, keep: []) as U-CHEN`
+
+| value | gaps |
+|---|---|
+| 23d | |
+
+**The application gives the split to the manager.** Ben's median is 89d, and Chen's, the lower of two, is 8d:
+
+Read: `metric(ServiceJob.cycle_time_by_assignee.engineer, keep: [assignee]) as U-ANA`
+
+| assignee | value | gaps |
+|---|---|---|
+| U-BEN | 89d | |
+| U-CHEN | 8d | |
+
+**And refuses it to the engineer and the agent, whatever route they ask by.** The engine filters no read by who is asking (PRD T5), so the door is only as good as the application's hold on every route to the engine. Scout's read, had the gateway passed it on, gets the manager's answer:
+
+Read: `metric(ServiceJob.cycle_time_by_assignee.engineer, keep: [assignee]) as A-SCOUT`
+
+| assignee | value | gaps |
+|---|---|---|
+| U-BEN | 89d | |
+| U-CHEN | 8d | |
+
+A read that keeps no marked dimension can still be one person's. Bound to Ben, the team-wide read gives Ben's figure, and keeps nothing the marking names (§44):
+
+Read: `metric(ServiceJob.cycle_time_by_assignee.engineer, bind: {assignee: U-BEN}, keep: []) as A-SCOUT`
+
+| value | gaps |
+|---|---|
+| 89d | |
+
+The other routes are the application's to hold too:
+- **Records.** `history` and `export` return who acted and each job's engineer, as every record does (`DESIGN.md` §5.8).
+- **Diagnostics.** `diagnostics` reports work done by non-assignees and says when its subject names an actor (`DESIGN.md` §10).
+
+Every one reaches the engine through the service, so an application that holds the door on each of them holds it everywhere (PRD N7).
+
+**The engine's metric is the same definition for all of them.** The four reads above name one metric, and each is computed over the same rows. They differ only in what the reader keeps or binds, which is what the application decides to allow.
+
+## 44. What is inferred, and what UC-22 to UC-24 found
+
+**Inferences**, each resting on a requirement, the reviewed flow or a design example:
+1. **The callers are this document's** (UC-22): the gateway and its bug, Diya's unrevoked session and the agent `helper`. The backend names people as the actors, and records a person's leaving as the sync from the first consumer's user system would (`declaration-syntax.md` §6.10).
+2. **UC-23's claims are the format's `approvals.yaml`**, installed as written, with a category catalogue and claim lines added (UC-23). The rule is the model's own example of a flag, `within_policy` (`declaration-syntax.md` §5.1), and a line is an object of its own, so the flag is raised by the request that creates it. Each new type has a way out of its live state into a terminal one, which the flow checker requires (check 15).
+3. **An agent adds one of the lines** (UC-23): Scout transcribing Chen's receipt, so the count per kind of actor has an agent's group.
+4. **The readers' roles are this document's** (UC-24): Ben the engineer, Scout working for Ben, Chen the service lead and Ana the manager.
+5. **"Cycle time across the team" is cycle time per engineer, kept by no dimension** (UC-24). The standard metrics give cycle time only per assignee (`declaration-syntax.md` §6.11), and the acceptance asks that the engine's metric be the same definition for every reader.
+
+**Findings.**
+1. **What the attempt log records for a request naming an unknown actor was unstated** (D450, ADR-0125). The attempt log holds every request that did not apply, and each row has an actor and a kind of actor, neither optional (`storage-schema.md` §6). PRD T3 counts refusals by kind of actor. A request refused as `actor_known` names an actor the store cannot resolve, so it has no kind to record. ADR-0125 decides that the attempt records the identity as the request named it, under the kind `unknown`, which a legacy row that names no actor already has (`DESIGN.md` §5.12). So UC-22's `helper` is counted, and a caller that keeps naming actors the store does not know shows in the refusal counts.
+2. **A read that binds a dimension naming a person gives that person's figure** (D451, resolved in place). `DESIGN.md` §5.12 and `library-api.md` §6 told an application to put reads that *keep* such a dimension behind its door. A read bound to one engineer keeps nothing the marking names and returns that engineer's figure (§43). So does a filter on the value the dimension reads. Both documents, and `declaration-syntax.md` §6.9, now name keeping, binding and filtering.
+3. **An agent is kept out of an assignee by the reference's type, not by a rule** (UC-22, determined). No rule reads the kind, and none needs to: `engineer` references a `User`, and a request naming an `Agent` for it is refused as `invalid input` before any guard runs. That is what ADR-0110 made each kind of actor its own type for.
+4. **A departed user's request applies** (UC-22, determined). The engine does not check whether an actor's object is closed (`DESIGN.md` §5.8), so the record shows who acted through the session nobody revoked. Refusing it would be a rule reading the requester, which ADR-0114 excludes.
+5. **A principal is recorded and changes nothing** (UC-22, determined). Scout acting for Ben is counted as an agent's, with Ben as its principal. The kind is the actor's type's, whoever the actor acts for.

@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 449 entries and five cosmetics; 449 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 451 entries and five cosmetics; 451 are closed and 0 are open. The PRD is at revision 11, with no revision awaiting the author.
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -19,7 +19,7 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 - ADR-0122, on 2026-09-27: a flow is recoverable from its description, the gaps a review by readers given only the specification found (D395 to D407) closed.
 - ADR-0065 to ADR-0073, which the author ruled on.
 
-**Decided at the author's direction, the author's own acceptance pending:** ADR-0123, on 2026-09-27: a set-valued dimension counts a row once under each distinct value it reaches, and a group whose rows all lack a body is reported; and ADR-0124, the same day: a combined metric read by fewer dimensions than it groups by combines its inputs over them. Both were found writing the metric scenarios (`design/metric-scenarios.md`).
+**Decided at the author's direction, the author's own acceptance pending:** ADR-0123, on 2026-09-27: a set-valued dimension counts a row once under each distinct value it reaches, and a group whose rows all lack a body is reported; ADR-0124, the same day: a combined metric read by fewer dimensions than it groups by combines its inputs over them; and ADR-0125, on 2026-09-28: a request naming an actor the store does not know is logged under the kind `unknown`. All three were found writing the metric scenarios (`design/metric-scenarios.md`).
 
 **Proposed and awaiting the author:** none since 2026-09-26, when the author accepted ADR-0102, which writes the unit's whole journey from the first consumer's production code.
 
@@ -314,7 +314,7 @@ Every request names an **actor**, and optionally the principal it acts for, as t
 
 The engine records who acted:
 - **An actor's kind is declared, not sent.** A type that holds actors marks one `identity` attribute `actor human`, `actor agent` or `actor service`, and a request's actor is the object whose actor identity the request names, with its type's kind (ADR-0110).
-- **An unknown actor is refused.** A request whose actor, or principal, names no such object is refused, naming the generated clause `actor_known`, remedy `dependent`, so every event names someone the record can resolve (§6). Whether the actor's object is in a closed or final state is not checked: revoking a departed user's session is the upper layer's, and the record shows who acted if it was not revoked.
+- **An unknown actor is refused.** A request whose actor, or principal, names no such object is refused, naming the generated clause `actor_known`, remedy `dependent`, so every event names someone the record can resolve (§6). Whether the actor's object is in a closed or final state is not checked: revoking a departed user's session is the upper layer's, and the record shows who acted if it was not revoked. Its attempt is logged with the identity the request named, under the actor's kind where only the principal is unknown and otherwise under `unknown`, so a caller naming actors the store does not know shows in the refusal counts (ADR-0125).
 - **One identity, one actor.** An actor identity names one actor across every such type and is never reused, so history's attribution stays unambiguous.
 - **No roles.** A declaration holds no role, the requester's or anyone else's: who may be assigned which work, like who may act, is the upper layer's, and a type holding actors records only who they are and their kind (ADR-0114 §9).
 - **Recorded, never read by a rule.** Every event and attempt records the actor, its kind, the principal and the caller's `context`. An outcome may write `actor.id`, `actor.kind` or `actor.principal` into an attribute or an argument, such as the approver of an approval, which records who acted and decides nothing (check 64).
@@ -393,7 +393,7 @@ A **metric** is a declared formula across many objects, grouped and windowed as 
   - the declaration version;
   - time buckets over any timestamp, in UTC calendar time with ISO weeks beginning on Monday.
 
-  Every metric, declared or standard, has the `version` and `actor_kind` dimensions from its rows unless it declares them, and a combined metric passes them through. A legacy row whose record names no actor has the kind `unknown` (ADR-0106);
+  Every metric, declared or standard, has the `version` and `actor_kind` dimensions from its rows unless it declares them, and a combined metric passes them through. A legacy row whose record names no actor has the kind `unknown` (ADR-0106), and so does the attempt of a request naming an actor the store does not know (ADR-0125);
 - a **value**, which may combine `count`, `sum`, `min`, `max`, `avg`, `median` and `percentile` arithmetically, over a window relative to `now` if it wants one. A percentile is nearest-rank, the smallest value whose rank reaches `p × n`, and a median is the fiftieth percentile, so both backends give the same value; `avg` keeps its body's type, so an average duration is a duration (ADR-0106);
 - optional **flags**: named conditions on the value.
 
@@ -433,7 +433,7 @@ The standard metrics of every type are:
 
 A type with an assignee also gets the metrics of §5.13. All of them are listed with the type, like any declared metric, so a person reading the rule set and an agent calling `metric()` see the same definitions. **A reader reads a metric as a guard does**: `metric()` binds dimension values, applies a window and a filter, and returns one row per group of the dimensions it keeps — all of them by default — where a guard aggregates over every dimension it leaves unbound to get its one value (ADR-0101), so a screen, an agent and a rule read one value from one definition over the same data (ADR-0098). A derived attribute a metric row reads counts every object it reads, as everywhere (§5.2).
 
-**Who may read a metric is the upper layer's** (PRD T7, ADR-0114, superseding ADR-0112). The declaration marks every dimension whose value names an actor — an object of a type that marks an `actor` identity, or an actor's id — so an application can put reads that keep such a dimension behind its own door, and a diagnostic whose subject names an actor says so too (§10).
+**Who may read a metric is the upper layer's** (PRD T7, ADR-0114, superseding ADR-0112). The declaration marks every dimension whose value names an actor — an object of a type that marks an `actor` identity, or an actor's id — so an application can put reads that keep such a dimension, bind it or filter on the value it reads behind its own door, since each of the three gives a person's figure (D451), and a diagnostic whose subject names an actor says so too (§10).
 
 A **threshold** in a data-driven rule or a condition is either a literal in the declaration, changed only by a flow change (§9), or an attribute on an object, such as a reorder point per model, changed only by that object's governed transitions (PRD L4).
 

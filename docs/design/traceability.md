@@ -137,6 +137,6 @@ Current: 82 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | UC-19 | DESIGN §5.11, §5.4, §5.5, §13; ADR-0096; adversarial-harness.md §2; ADR-0097, ADR-0099, ADR-0100; declaration-syntax.md §6.8; ADR-0105; ADR-0114; metric-scenarios.md §35 | covered |  |
 | UC-20 | DESIGN §2, §5.8, §5.13, §6, §7, §10; ADR-0012, ADR-0022, ADR-0084, ADR-0104, ADR-0105; library-api.md §6; declaration-syntax.md §8.3; flow-review.md §2, §8; metric-scenarios.md §37 | covered | |
 | UC-21 | DESIGN §5.4, §6, §7; ADR-0019, ADR-0038, ADR-0108; declaration-syntax.md §5.2; renderers.md §2; library-api.md §6; unit-journey.md §2; first-consumer-walkthrough.md §3.3; metric-scenarios.md §38 | covered | |
-| UC-22 | DESIGN §2, §5.8, §6, §13; ADR-0110, ADR-0114; declaration-syntax.md §3.1, §6.10; library-api.md §3; storage-schema.md §6 | covered | |
-| UC-23 | DESIGN §5.5, §6, §13; ADR-0111; declaration-syntax.md §5.1, §6.11; library-api.md §4; storage-schema.md §6; renderers.md §2; adversarial-harness.md §1 | covered | |
-| UC-24 | DESIGN §5.12, §10; ADR-0114; declaration-syntax.md §6.9, §6.11; library-api.md §6; renderers.md §2 | covered | |
+| UC-22 | DESIGN §2, §5.8, §6, §13; ADR-0110, ADR-0114; declaration-syntax.md §3.1, §6.10; library-api.md §3; storage-schema.md §6; ADR-0125; metric-scenarios.md §41 | covered | |
+| UC-23 | DESIGN §5.5, §6, §13; ADR-0111; declaration-syntax.md §5.1, §6.11; library-api.md §4; storage-schema.md §6; renderers.md §2; adversarial-harness.md §1; metric-scenarios.md §42 | covered | |
+| UC-24 | DESIGN §5.12, §10; ADR-0114; declaration-syntax.md §6.9, §6.11; library-api.md §6; renderers.md §2; metric-scenarios.md §43 | covered | |

@@ -126,3 +126,4 @@
 | [0122](0122-a-flow-is-recoverable-from-its-description.md) | A flow is recoverable from its description | Accepted by the author |
 | [0123](0123-a-set-dimension-counts-each-value-once-and-an-empty-group-is-reported.md) | A set dimension counts each value once, and a group with no body is reported | Decided at the author's direction; awaiting the author's review |
 | [0124](0124-a-combined-metric-read-by-fewer-dimensions-combines-its-inputs-over-them.md) | A combined metric read by fewer dimensions combines its inputs over them | Decided at the author's direction; awaiting the author's review |
+| [0125](0125-a-request-naming-an-unknown-actor-is-logged-under-the-kind-unknown.md) | A request naming an unknown actor is logged under the kind unknown | Decided at the author's direction; awaiting the author's review |

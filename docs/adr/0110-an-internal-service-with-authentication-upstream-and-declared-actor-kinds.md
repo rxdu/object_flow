@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-25 ("yes to all three, go ahead and write them"), after comparing an embedded library with a service. Against `docs/PRD.md` revision 8: N7, T6 and UC-22, which record the author's words, and N2, N4, T1, T2, T5, F1, F3, F7, D12 and C2. Repairs D381 and D382.
 - **Date:** 2026-09-25
-- **Refined by:** ADR-0114 — the engine evaluates no actor: what a capability permits and who may see what move to the upper layers too, and an unknown actor is refused as `actor_known` in place of one that is not live. Its §3 on a role that a rule reads as data no longer applies: no declaration holds a role (ADR-0114 §9).
+- **Refined by:** ADR-0114 — the engine evaluates no actor: what a capability permits and who may see what move to the upper layers too, and an unknown actor is refused as `actor_known` in place of one that is not live. Its §3 on a role that a rule reads as data no longer applies: no declaration holds a role (ADR-0114 §9). ADR-0125 — the attempt of a request naming an unknown actor is logged under the kind `unknown`.
 - **Refines:** ADR-0025 (the actor descriptor), ADR-0037 (the transport), ADR-0080 (an externally owned type), ADR-0086 (the `actor` identity), ADR-0103 (`requests by <kind>`)
 - **Relates to:** ADR-0001 (the store owns persistence), ADR-0012 and ADR-0104 (the governed core initiates nothing), ADR-0079 (a role is a capability), ADR-0091 (a synchronous core, driven deterministically by the harness)
 
