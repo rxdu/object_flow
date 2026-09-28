@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "examples.schema.json",
+  "title": "ObjectFlow examples file",
+  "description": "The examples a flow description carries: named setups, each a sequence of requests and imports from an empty store, and examples, each a request and what it must do (flow-format.md §11, ADR-0136).",
+  "type": "object",
+  "required": ["examples_for", "examples"],
+  "additionalProperties": false,
+  "properties": {
+    "examples_for": {
+      "description": "The module whose rules these examples exercise.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "setups": {
+      "description": "Named starting states, each built by requests from an empty store, so every state an example starts from is one the flow can reach.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/definitions/exampleName" },
+      "additionalProperties": { "$ref": "#/definitions/setup" }
+    },
+    "examples": {
+      "description": "Each a request made from a setup's state, and the verdict, or the state reached, it must give.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/definitions/exampleName" },
+      "additionalProperties": { "$ref": "#/definitions/example" }
+    }
+  },
+  "definitions": {
+    "exampleName": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "alias": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "duration": { "type": "string", "pattern": "^[0-9]+ (s|min|h|days?|weeks?)$" },
+    "evaluators": {
+      "description": "The answer each named evaluator function gives, stubbed, since an example never calls another system.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$" },
+      "additionalProperties": { "enum": ["satisfied", "unsatisfied"] }
+    },
+    "setup": {
+      "type": "object",
+      "required": ["description", "steps"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string", "minLength": 1 },
+        "given": { "$ref": "#/definitions/exampleName" },
+        "evaluators": { "$ref": "#/definitions/evaluators" },
+        "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/step" } }
+      }
+    },
+    "example": {
+      "type": "object",
+      "required": ["description", "request", "expect"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string", "minLength": 1 },
+        "given": { "$ref": "#/definitions/exampleName" },
+        "evaluators": { "$ref": "#/definitions/evaluators" },
+        "steps": { "type": "array", "items": { "$ref": "#/definitions/step" } },
+        "request": { "$ref": "#/definitions/request" },
+        "expect": { "$ref": "#/definitions/expect" }
+      }
+    },
+    "step": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "request": { "$ref": "#/definitions/request" },
+        "import": { "$ref": "#/definitions/import" }
+      }
+    },
+    "request": {
+      "description": "A creation names its type; any other request names the object, by the alias an earlier step gave it.",
+      "type": "object",
+      "required": ["transition"],
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["type"], "not": { "required": ["object"] } },
+        { "required": ["object"], "not": { "anyOf": [{ "required": ["type"] }, { "required": ["as"] }] } }
+      ],
+      "properties": {
+        "type": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$" },
+        "object": { "$ref": "#/definitions/alias" },
+        "transition": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "as": { "$ref": "#/definitions/alias" },
+        "actor": { "$ref": "#/definitions/alias" },
+        "after": { "$ref": "#/definitions/duration" },
+        "inputs": { "type": "object" }
+      }
+    },
+    "import": {
+      "description": "An object of a mirror type, written by the import, the one route into a mirror.",
+      "type": "object",
+      "required": ["type", "as", "state"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$" },
+        "as": { "$ref": "#/definitions/alias" },
+        "state": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+        "values": { "type": "object" },
+        "after": { "$ref": "#/definitions/duration" }
+      }
+    },
+    "expect": {
+      "type": "object",
+      "required": ["verdict"],
+      "additionalProperties": false,
+      "properties": {
+        "verdict": {
+          "enum": ["applied", "unsatisfied", "unavailable", "invalid_input", "not_requestable",
+                   "over_limit", "invariant_violated", "call_refused"]
+        },
+        "clause": { "type": "string", "pattern": "^([A-Z][A-Za-z0-9]*\\.)?[a-z][a-z0-9_]*$" },
+        "remedy": {
+          "enum": ["self_serviceable", "delegable", "temporal", "dependent", "unreachable_from_here"]
+        },
+        "state": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+        "values": { "type": "object" },
+        "cascaded": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]*\\.[a-z][a-z0-9_]*$" }
+        }
+      }
+    }
+  }
+}

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author in advance, 2026-09-28, under the author's standing instruction "for all similar items that you have confidence in an recommendation, just accept", as the design work ADR-0131 decision 1 left, which the author started the same day ("let's start the design work").
 - **Date:** 2026-09-28
+- **Refined by:** ADR-0136 — a module's examples file is part of the source, named `<module>.examples` in the digest.
 - **Refines:** ADR-0131 (how flows are authored and checked), ADR-0085 and ADR-0097 (a flow change's lifecycle)
 - **Relates to:** PRD F1, F7, F10; `DESIGN.md` §5.9, §9, §10; `storage-schema.md` §6; `publish-and-import.md` §1, §2; `library-api.md` §6; `flow-format.md` §7
 

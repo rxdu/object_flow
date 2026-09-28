@@ -395,8 +395,9 @@ CREATE INDEX of_file_ref_live ON of_file_ref (hash, erased);
 CREATE TABLE of_declaration (
   version       INTEGER PRIMARY KEY,  -- 0 is the row the store is created with (ADR-0105)
   module        TEXT    NOT NULL,
-  source        TEXT    NOT NULL,   -- the source's modules as published, a JSON object from
-                                    -- each module's name to its description (ADR-0135)
+  source        TEXT    NOT NULL,   -- the source's files as published, a JSON object from each
+                                    -- module's name to its description, and from <module>.examples
+                                    -- to its examples file (ADR-0135, ADR-0136)
   source_ref    TEXT,               -- where the source came from, as the change named it, and
   source_digest TEXT,               -- its digest; neither for version 0 (ADR-0135)
   parsed        TEXT    NOT NULL,   -- the checked form the runtime reads

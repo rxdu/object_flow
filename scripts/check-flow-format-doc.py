@@ -11,7 +11,10 @@ scripts/check-flows.py implement it. This checks that they agree:
 4. the declaration order of §3 is the order the checker enforces;
 5. every name the checker reserves (§3, §4.3) is stated in the document;
 6. every complete example in the document (a yaml block beginning `module:`)
-   is a valid description.
+   is a valid description;
+7. the example keys and values of §10 are exactly those examples.schema.json
+   defines, with the alias `operator` and the clock's `now` the checker reads
+   (§11).
 """
 import importlib.util
 import json
@@ -22,6 +25,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs/design/flow-format.md"
 SCHEMA = ROOT / "docs/design/flow-format/flow.schema.json"
+EXAMPLES_SCHEMA = ROOT / "docs/design/flow-format/examples.schema.json"
 CHECKER = ROOT / "scripts/check-flows.py"
 
 
@@ -72,6 +76,18 @@ def main():
             findings.append(f"§10 {label.lower()} omits `{w}`, which the implementation defines")
         for w in sorted(got - want):
             findings.append(f"§10 {label.lower()} lists `{w}`, which the implementation does not define")
+
+    ekeys, evalues = schema_vocabulary(json.loads(EXAMPLES_SCHEMA.read_text()))
+    evalues |= {"operator", "now"}
+    for label, want in (("Example keys", ekeys), ("Example values", evalues)):
+        got = listed(doc, label)
+        if got is None:
+            findings.append(f"§10 has no **{label}:** line")
+            continue
+        for w in sorted(want - got):
+            findings.append(f"§10 {label.lower()} omits `{w}`, which examples.schema.json or the checker defines")
+        for w in sorted(got - want):
+            findings.append(f"§10 {label.lower()} lists `{w}`, which neither examples.schema.json nor the checker defines")
 
     # a finding is (path, code, message): the code is the lower-case literal just before the message
     reported = set(re.findall(r'"([a-z]+)",\s*f"', source)) | {"yaml", "schema"}

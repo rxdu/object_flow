@@ -2179,11 +2179,286 @@ def literals(doc):
     walk(doc, branches(schema))
 
 
+# ── examples (flow-format.md §11, ADR-0136) ─────────────────────────────────
+EXAMPLE_CLOCK = "2026-01-01T00:00:00Z"   # the instant every example's clock starts at
+EXAMPLES_ORDER = ["examples_for", "setups", "examples"]
+# the guards the engine generates, which an example may expect to refuse (DESIGN.md §6)
+GENERATED_GUARDS = {"actor_known", "occurred_within", "whole_open", "not_erased", "subject_open", "corrects_current",
+                    "subject_owned"}
+TIMESTAMP = re.compile(r"^(now( [+-] [0-9]+ (s|min|h|days?|weeks?))?|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z)$")
+
+
+def examples_schema_errors(doc):
+    schema = json.loads((FORMAT / "examples.schema.json").read_text())
+    out = []
+    for e in sorted(jsonschema.Draft7Validator(schema).iter_errors(doc), key=lambda e: list(e.absolute_path)):
+        if e.validator == "oneOf" and isinstance(e.instance, dict) and "transition" in e.instance:
+            out.append((tuple(e.absolute_path), "schema", "a request names the `type` of a creation, with `as` for the alias it "
+                                                          "gives the object, or the `object` it acts on by its alias, not both"))
+        else:
+            out.append((tuple(e.absolute_path), "schema", e.message))
+    return out
+
+
+def is_a(tn, want, kinds):
+    return tn == want or want in bases(tn, kinds)
+
+
+def marks_actor(tn, kinds):
+    """A type whose objects are actors: one of its attributes, its own or inherited, is marked with an actor kind."""
+    return any("actor_kind" in (spec or {}) for spec in ((kinds.get(tn) or {}).get("attributes") or {}).values())
+
+
+def example_errors(doc, kinds, modules):
+    """What an examples file names resolves against its module and the modules it imports: each setup and example
+    starts from a named setup, each step requests a transition the flow declares, of an object an earlier step made,
+    with inputs the transition takes, as an actor the store holds, and each expectation names a verdict the request
+    can give, with the clause and remedy the rules declare (flow-format.md §11, ADR-0136)."""
+    mod = doc["examples_for"]
+    if mod not in modules:
+        return [(("examples_for",), "names", f"examples for {mod}, which is not among the modules checked")], {}
+    # an observation kind is recorded by a request of its generated creation, `record`, taking each field and the
+    # subject, and optionally the observation it corrects (declaration-syntax.md §6.8)
+    kinds = dict(kinds)
+    for m in modules.values():
+        for tn, t in (m.get("types") or {}).items():
+            for ob in (t.get("observations") or {}).values():
+                fields = ob.get("attributes") or {}
+                kinds[ob["kind"]] = {
+                    "attributes": dict(fields, subject={"reference": tn}, corrects={"reference": ob["kind"], "optional": True}),
+                    "states": {"RECORDED": {"final": True}},
+                    "transitions": {"record": {"kind": "initial", "to": "RECORDED",
+                                               "required_inputs": ["subject"] + [a for a, f in fields.items() if not optional(f)],
+                                               "optional_inputs": ["corrects"] + [a for a, f in fields.items() if optional(f)]}}}
+    enums = {n: set(v) for m in modules.values() for n, v in (m.get("enumerations") or {}).items()}
+    functions = {f"{e}.{fn}" for m in modules.values() for e, ev in (m.get("evaluators") or {}).items()
+                 for fn in (ev.get("functions") or {})}
+    machines = {n for m in modules.values() for n in (m.get("machines") or {})}
+    setups = doc.get("setups") or {}
+    out, envs, requested = [], {}, {}
+    keys = [k for k in doc if k in EXAMPLES_ORDER]
+    if keys != [k for k in EXAMPLES_ORDER if k in doc]:
+        out.append(((keys[0],), "order", f"an examples file declares, in this order, {', '.join(EXAMPLES_ORDER)}"))
+    order = list(setups)
+
+    def stubs_errors(stubs, path):
+        return [(path + (k,), "names", f"stubs {k}, which no module checked declares as an evaluator's function")
+                for k in (stubs or {}) if k not in functions]
+
+    def value_errors(v, spec, env, path, name):
+        ref = (spec or {}).get("reference")
+        typ = (spec or {}).get("type")
+        if ref:
+            want, many = ref.rstrip("[]"), ref.endswith("[]")
+            got = v if many and isinstance(v, list) else [v]
+            if many and not isinstance(v, list):
+                return [(path, "names", f"'{name}' is a set of {want}, given as a list of aliases")]
+            return [(path, "names", f"'{name}' is a reference to {want}, and '{a}' is not an alias an earlier step gave one")
+                    for a in got if not (isinstance(a, str) and a in env and is_a(env[a], want, kinds))]
+        if typ in enums:
+            if not (isinstance(v, str) and "." in v and v.split(".", 1)[0] == typ and v.split(".", 1)[1] in enums[typ]):
+                return [(path, "names", f"'{name}' is a {typ}, written qualified as {typ}.<MEMBER> with a member it declares")]
+        elif typ == "bool" and not isinstance(v, bool):
+            return [(path, "names", f"'{name}' is a bool")]
+        elif typ == "int" and (isinstance(v, bool) or not isinstance(v, int)):
+            return [(path, "names", f"'{name}' is an int")]
+        elif typ == "timestamp" and not (isinstance(v, str) and TIMESTAMP.match(v)):
+            return [(path, "names", f"'{name}' is a timestamp, written in UTC as 2026-01-01T09:00Z, or as now, or now + <duration>")]
+        return []
+
+    def request_errors(r, env, path, applies):
+        """A request's names; `applies` for a setup's step, which must apply."""
+        errs = []
+        if "type" in r:
+            tn = r["type"]
+            if tn not in kinds or tn in machines:
+                return [(path + ("type",), "names", f"creates a {tn}, which no module checked declares as a type")], None, None
+            if kinds[tn].get("abstract"):
+                return [(path + ("type",), "names", f"creates a {tn}, which is abstract and has no objects")], None, None
+        else:
+            if r["object"] not in env:
+                return [(path + ("object",), "names", f"acts on '{r['object']}', which no earlier step gave as an alias")], None, None
+            tn = env[r["object"]]
+        x = (kinds[tn].get("transitions") or {}).get(r["transition"])
+        if x is None:
+            return [(path + ("transition",), "names", f"requests {tn}.{r['transition']}, which {tn} does not declare")], None, None
+        if ("type" in r) != (x["kind"] == "initial"):
+            errs.append((path + ("transition",), "names", f"{tn}.{r['transition']} is {'a creation, requested with the type' if x['kind'] == 'initial' else 'requested on an object, named by its alias'}"))
+        if applies and x.get("only_via"):
+            errs.append((path + ("transition",), "names", f"a setup's step must apply, and {tn}.{r['transition']} is only via "
+                                                          f"{', '.join(x['only_via'])}, so a direct request is not requestable"))
+        actor = r.get("actor", "operator")
+        if actor != "operator" and not (actor in env and marks_actor(env[actor], kinds)):
+            errs.append((path + ("actor",), "names", f"names the actor '{actor}', which is neither `operator` nor an alias of an "
+                                                     "object whose type marks an actor identity"))
+        attrs = kinds[tn].get("attributes") or {}
+        own = x.get("inputs") or {}
+        builtin = {"to", "admits"} if x["kind"] == "assertion" else set()
+        given = r.get("inputs") or {}
+        for k, v in given.items():
+            if k not in taken(x) | builtin:
+                errs.append((path + ("inputs", k), "names", f"{tn}.{r['transition']} takes no input '{k}'"))
+            elif k == "to":
+                if v not in targets(x):
+                    errs.append((path + ("inputs", k), "names", f"'{v}' is not a state {tn}.{r['transition']} may put an object in"))
+            elif k != "admits":
+                errs += value_errors(v, own.get(k) if k in own else attrs.get(k), env, path + ("inputs", k), k)
+        missing = sorted(i for i in required_input_names(x) - set(given) if "default" not in (own.get(i) or {}))
+        missing += ["to"] if x["kind"] == "assertion" and "to" not in given else []
+        return errs, (tn, x), missing
+
+    def steps_errors(steps, env, path):
+        errs = []
+        for i, st in enumerate(steps or []):
+            here = path + (i,)
+            if "request" in st:
+                r = st["request"]
+                e, found, missing = request_errors(r, env, here + ("request",), applies=True)
+                errs += e
+                if found and missing:
+                    errs.append((here + ("request",), "names", f"a setup's step must apply, and it leaves out the required "
+                                                               f"input{'s' if len(missing) > 1 else ''} {', '.join(missing)}"))
+                if found and "as" in r:
+                    if r["as"] in env or r["as"] == "operator":
+                        errs.append((here + ("request", "as"), "names", f"'{r['as']}' is already an alias"))
+                    env[r["as"]] = found[0]
+            else:
+                im = st["import"]
+                tn = im["type"]
+                if not (kinds.get(tn) or {}).get("mirror"):
+                    errs.append((here + ("import", "type"), "names", f"imports a {tn}, and only a mirror type is written by the import"))
+                    continue
+                if im["state"] not in (kinds[tn].get("states") or {}):
+                    errs.append((here + ("import", "state"), "names", f"{tn} declares no state {im['state']}"))
+                attrs = kinds[tn].get("attributes") or {}
+                for k, v in (im.get("values") or {}).items():
+                    errs += ([(here + ("import", "values", k), "names", f"{tn} declares no attribute '{k}'")] if k not in attrs
+                             else value_errors(v, attrs[k], env, here + ("import", "values", k), k))
+                if im["as"] in env or im["as"] == "operator":
+                    errs.append((here + ("import", "as"), "names", f"'{im['as']}' is already an alias"))
+                env[im["as"]] = tn
+        return errs
+
+    def env_of(name, seen=()):
+        """The aliases a setup leaves, built through the setup it is given."""
+        if name in envs:
+            return envs[name]
+        if name in seen:
+            out.append((("setups", name, "given"), "names", f"setup {name} is given, through others, itself"))
+            return {}
+        s = setups[name]
+        env = {}
+        if "given" in s:
+            if s["given"] not in setups:
+                out.append((("setups", name, "given"), "names", f"is given the setup {s['given']}, which this file does not declare"))
+            elif order.index(s["given"]) > order.index(name):
+                out.append((("setups", name, "given"), "order", f"is given the setup {s['given']}, declared after it; "
+                                                                 "a setup is given one declared before it"))
+            else:
+                env = dict(env_of(s["given"], seen + (name,)))
+        out.extend(stubs_errors(s.get("evaluators"), ("setups", name, "evaluators")))
+        out.extend(steps_errors(s["steps"], env, ("setups", name, "steps")))
+        envs[name] = env
+        return env
+
+    for name in setups:
+        env_of(name)
+    for name, ex in (doc.get("examples") or {}).items():
+        path = ("examples", name)
+        env = {}
+        if "given" in ex:
+            if ex["given"] not in setups:
+                out.append((path + ("given",), "names", f"is given the setup {ex['given']}, which this file does not declare"))
+            else:
+                env = dict(envs.get(ex["given"], {}))
+        out += stubs_errors(ex.get("evaluators"), path + ("evaluators",))
+        out += steps_errors(ex.get("steps"), env, path + ("steps",))
+        errs, found, missing = request_errors(ex["request"], env, path + ("request",), applies=False)
+        out += errs
+        if not found:
+            continue
+        tn, x = found
+        xn = ex["request"]["transition"]
+        want = ex["expect"]
+        verdict = want["verdict"]
+        requested.setdefault((tn, xn), []).append(name)
+        here = path + ("expect",)
+        if missing and verdict != "invalid_input":
+            out.append((here + ("verdict",), "names", f"the request leaves out {', '.join(missing)}, which is refused as invalid_input, "
+                                                      f"and the example expects {verdict}"))
+        if verdict == "applied":
+            for k in ("clause", "remedy"):
+                if k in want:
+                    out.append((here + (k,), "names", f"an applied request names no {k}"))
+            if "state" not in want:
+                out.append((here, "names", "an applied request's example states the state its object reaches"))
+            else:
+                st = want["state"]
+                allowed = ({x["to"]} if x["kind"] in ("initial", "external") else set(sources(x)) if x["kind"] == "internal"
+                           else set(targets(x)) if x["kind"] == "assertion" else set(kinds[tn].get("states") or {}))
+                if st not in allowed:
+                    out.append((here + ("state",), "names", f"{tn}.{xn} does not leave an object in {st}"))
+            attrs = kinds[tn].get("attributes") or {}
+            for k in (want.get("values") or {}):
+                if k not in attrs and k not in (kinds[tn].get("derived_attributes") or {}):
+                    out.append((here + ("values", k), "names", f"{tn} declares no attribute '{k}'"))
+            for c in want.get("cascaded") or []:
+                ct, cx = c.split(".", 1)
+                if cx not in ((kinds.get(ct) or {}).get("transitions") or {}):
+                    out.append((here + ("cascaded",), "names", f"{c} names no transition a module checked declares"))
+            continue
+        for k in ("state", "values", "cascaded"):
+            if k in want:
+                out.append((here + (k,), "names", f"a request refused as {verdict} leaves no {'state' if k == 'state' else k} to state"))
+        if verdict == "not_requestable" and not x.get("only_via"):
+            out.append((here + ("verdict",), "names", f"{tn}.{xn} is not only via others, so it is never refused as not_requestable"))
+        if verdict == "unsatisfied":
+            clause, remedy = want.get("clause"), want.get("remedy")
+            if clause is None or remedy is None:
+                out.append((here, "names", "an unsatisfied request's example names the clause that refuses it and its remedy"))
+                continue
+            ct, cn = clause.split(".", 1) if "." in clause else (tn, clause)
+            conds = (kinds.get(ct) or {}).get("conditions") or {}
+            provided = {f"{a}_provided" for a in x.get("required_inputs", [])}
+            if ct == tn and cn in (x.get("guards") or {}):
+                declared = conds.get(cn, {}).get("remedy")
+                if declared and declared != remedy:
+                    out.append((here + ("remedy",), "names", f"{tn}.{cn} declares the remedy {declared}, not {remedy}"))
+            elif ct != tn and cn in conds:
+                if conds[cn].get("remedy") != remedy:
+                    out.append((here + ("remedy",), "names", f"{ct}.{cn} declares the remedy {conds[cn].get('remedy')}, not {remedy}"))
+            elif cn not in GENERATED_GUARDS | provided:
+                out.append((here + ("clause",), "names", f"{clause} is not a guard of {tn}.{xn}, a generated guard, "
+                                                         "or a condition of a type its effect reaches"))
+        elif verdict == "invariant_violated":
+            clause = want.get("clause")
+            if clause is None:
+                out.append((here, "names", "an invariant_violated request's example names the invariant"))
+                continue
+            ct, cn = clause.split(".", 1) if "." in clause else (tn, clause)
+            t = kinds.get(ct) or {}
+            generated = {f"{s}_invariant" for s, v in (t.get("states") or {}).items() if v.get("required_attributes")}
+            generated |= {f"{a}_unique" for a, v in (t.get("attributes") or {}).items() if v.get("unique")}
+            if cn not in (t.get("invariants") or {}) and cn not in generated:
+                out.append((here + ("clause",), "names", f"{clause} is not an invariant of {ct}"))
+        elif "clause" in want or "remedy" in want:
+            out.append((here, "names", f"a request refused as {verdict} names no clause or remedy"))
+    return out, requested
+
+
+def uncovered(mdoc, kinds, requested):
+    """The transitions of the examined module's types that no example requests: reported, never required
+    (ADR-0131 decision 5). A bound machine's transitions count for each type that binds it."""
+    return sorted(f"{tn}.{xn}" for tn in (mdoc.get("types") or {}) if not (kinds.get(tn) or {}).get("abstract")
+                  for xn in ((kinds.get(tn) or {}).get("transitions") or {}) if (tn, xn) not in requested)
+
+
 def check(files, previous=None):
     """Findings and notices over modules given in import order, as (file, line,
     severity, code, message); previous maps a file to the text of the version
     before it, against which its migration is checked."""
     found, notes, loaded, library, declared, uses = [], [], [], {}, {}, {}
+    modules, example_files = {}, []
     for f, text in files:
         try:
             idx = line_index(text)
@@ -2195,6 +2470,9 @@ def check(files, previous=None):
                 # an aggregate's body, sum(x in c: body), puts ": " inside a plain scalar
                 problem += "; a value containing a colon and a space, such as an aggregate's body, is quoted or written after >-"
             found.append((f, mark.line + 1 if mark else 1, "fatal", "yaml", problem))
+            continue
+        if isinstance(doc, dict) and "examples_for" in doc:
+            example_files.append((f, idx, doc))     # checked once every module is (§11)
             continue
         loaded.append((f, text, idx, doc))
         errors = schema_errors(doc)
@@ -2224,6 +2502,7 @@ def check(files, previous=None):
                 found.append((f, line_of(idx, (mine[n], n)), "fatal", "names",
                               f"{n} is also declared by {m}, which is in this module's closure; a name is declared once across the closure (the model's check 33)"))
         declared[doc["module"]] = set(mine)
+        modules[doc["module"]] = doc
         uses[doc["module"]] = list(doc.get("imports") or {})
         v, back = view(doc, library)
         seen = set()
@@ -2242,7 +2521,18 @@ def check(files, previous=None):
                 found.append((f, line_of(idx, p), "fatal", c, m))
         library.update(dict(types(v)))
         notes += [(f, line_of(idx, back(p)), "notice", c, m) for p, c, m in notices(v) if back(p) is not None]
-    if not found and len(loaded) == len(files):
+    for f, idx, doc in example_files:
+        errors = examples_schema_errors(doc)
+        if not errors:
+            errors, requested = example_errors(doc, library, modules)
+            if not errors:
+                left = uncovered(modules[doc["examples_for"]], library, requested)
+                if left:
+                    notes.append((f, line_of(idx, ("examples",)), "notice", "coverage",
+                                  f"no example requests {len(left)} transition{'s' if len(left) != 1 else ''} of "
+                                  f"{doc['examples_for']}: {', '.join(left)}"))
+        found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in errors]
+    if not found and len(loaded) + len(example_files) == len(files):
         converted = [to_text(doc) for _f, _t, _i, doc in loaded]
         for i, path, code, msg in language_errors(converted):
             f, _t, idx, _d = loaded[i]
@@ -2573,8 +2863,51 @@ def source_digest(modules):
 
 
 def module_files(paths):
-    """Each file's module name, read from its `module` key, with its bytes as they are on disk."""
-    return [(load(p.read_text())["module"], p.read_bytes()) for p in paths]
+    """Each file's name in the digest, with its bytes as they are on disk: a description by its `module`, and an
+    examples file by the module it is for, followed by `.examples`, which no module's name can be (ADR-0136)."""
+    out = []
+    for p in paths:
+        doc = load(p.read_text())
+        out.append((doc["module"] if "module" in doc else doc["examples_for"] + ".examples", p.read_bytes()))
+    return out
+
+
+def examples_self_test(people, service, examples):
+    """Each rule of §11 that step 2 or 3 holds an examples file to, proven by planting a mistake that breaks it."""
+    ok = True
+    plants = [
+        ("a remedy the condition does not declare", "names", "declares the remedy",
+         "clause: engineer_active, remedy: self_serviceable", "clause: engineer_active, remedy: dependent"),
+        ("an alias no earlier step gave", "names", "no earlier step gave",
+         "request: { object: ben, transition: leave }", "request: { object: bob, transition: leave }"),
+        ("an input the transition does not take", "names", "takes no input",
+         "inputs: { engineer: ben, reason: ReassignmentReason.WORKLOAD }", "inputs: { engineer: ben, why: ReassignmentReason.WORKLOAD }"),
+        ("an enumeration value written unqualified", "names", "written qualified",
+         "inputs: { engineer: ben, reason: ReassignmentReason.WORKLOAD }", "inputs: { engineer: ben, reason: WORKLOAD }"),
+        ("a state the transition does not leave its object in", "names", "does not leave an object in",
+         "expect: { verdict: applied, state: OPEN }", "expect: { verdict: applied, state: WORKING }"),
+        ("a setup that is not declared", "names", "which this file does not declare",
+         "    given: two_engineers\n    request: { type: ServiceJob", "    given: three_engineers\n    request: { type: ServiceJob"),
+        ("an actor whose type marks no actor identity", "names", "neither `operator` nor",
+         "request: { object: job, transition: finish, actor: ana,", "request: { object: job, transition: finish, actor: battery,"),
+        ("a clause that is not a guard of the transition", "names", "is not a guard of",
+         "clause: no_unresolved_failure, remedy: dependent", "clause: photo_missing, remedy: dependent"),
+        ("a request naming both a type and an object", "schema", "not both",
+         "request: { object: ben, transition: leave }", "request: { object: ben, type: User, transition: leave }"),
+        ("a setup step that leaves out a required input", "names", "leaves out the required input",
+         "inputs: { login: ben, name: Ben }", "inputs: { login: ben }"),
+    ]
+    for name, code, words, old, new in plants:
+        if examples.count(old) < 1:
+            print(f"  planted {name}: NOT PLANTED, the examples file no longer has the text it replaces")
+            ok = False
+            continue
+        found, _n = check([("people.yaml", people), ("service.yaml", service),
+                           ("service.examples.yaml", examples.replace(old, new, 1))])
+        hit = [x for x in found if x[3] == code and words in x[4]]
+        ok &= bool(hit)
+        print(f"  planted {name}: {'caught by ' + code + ', at ' + hit[0][0] + ':' + str(hit[0][1]) + ' ' + hit[0][4][:70] if hit else 'MISSED ' + str(found[:1])}")
+    return ok
 
 
 def digest_self_test():
@@ -2615,6 +2948,8 @@ def main():
                     "customers.yaml", "issues.yaml", "servicedesk.yaml"):
         before = [(n, (EXAMPLES / n).read_text()) for n in needs.get(version, [])]
         files = [("people.yaml", people)] + before + ([(version, (EXAMPLES / version).read_text())] if version != "people.yaml" else [])
+        carried = EXAMPLES / version.replace(".yaml", ".examples.yaml")   # a module's examples, checked with it (§11)
+        files += [(carried.name, carried.read_text())] if carried.exists() else []
         found, notes = check(files, {version: (EXAMPLES / versions_of[version]).read_text()} if version in versions_of else None)
         print(f"{version}: {'clean' if not found else str(len(found)) + ' finding(s)'}, "
               f"{len(notes)} notice{'s' if len(notes) != 1 else ''}")
@@ -2626,6 +2961,7 @@ def main():
                    (EXAMPLES / "customers.yaml").read_text(), (EXAMPLES / "servicedesk.yaml").read_text(),
                    (EXAMPLES / "service-v2.yaml").read_text())
     ok &= digest_self_test()
+    ok &= examples_self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text())
     sys.exit(0 if clean and ok else 1)
 
 

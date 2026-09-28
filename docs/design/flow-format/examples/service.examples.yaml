@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=../examples.schema.json
+# What the service flow's rules do, as examples the engine runs at every publish (flow-format.md §11, ADR-0136).
+examples_for: service
+
+setups:
+  two_engineers:
+    description: Two active engineers, Ana and Ben, and one entry of the inspection checklist.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { login: ana, name: Ana } }
+      - request: { type: User, transition: add, as: ben, inputs: { login: ben, name: Ben } }
+      - request: { type: InspectionCheck, transition: add, as: battery, inputs: { title: Battery voltage } }
+  job_in_progress:
+    description: A job Ana opened for herself and started an hour later.
+    given: two_engineers
+    steps:
+      - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
+      - request: { object: job, transition: start, actor: ana, after: 1 h }
+
+examples:
+  a_job_opens_for_an_active_engineer:
+    description: Opening a job for an active engineer applies, and the job is open.
+    given: two_engineers
+    request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
+    expect: { verdict: applied, state: OPEN }
+
+  a_job_is_not_given_to_an_engineer_who_left:
+    description: Once Ben has left, a job cannot be reassigned to him, and the caller can name another engineer.
+    given: job_in_progress
+    steps:
+      - request: { object: ben, transition: leave }
+    request:
+      object: job
+      transition: reassign
+      actor: ana
+      inputs: { engineer: ben, reason: ReassignmentReason.WORKLOAD }
+    expect: { verdict: unsatisfied, clause: engineer_active, remedy: self_serviceable }
+
+  a_failed_check_holds_the_job_open:
+    description: A failed inspection with no later inspection of the same check keeps the job from finishing.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.FAIL }
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana } }
+    expect: { verdict: unsatisfied, clause: no_unresolved_failure, remedy: dependent }
+
+  a_repeated_check_lets_the_job_finish:
+    description: Inspecting the failed check again resolves it, and the job finishes, signed off by Ana.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.FAIL }
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          after: 10 min
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana } }
+    expect: { verdict: applied, state: DONE, values: { signed_off_by_user: ana } }

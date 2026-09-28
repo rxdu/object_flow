@@ -4,7 +4,7 @@ Status: **draft 2, 2026-09-26, adopted.** This is the one written form of an Obj
 
 ## 1. Scope and conformance
 
-A **flow description** is one YAML file declaring one **module**: its state categories, its enumerations and its types, and for each type its attributes, states, conditions, transitions and metrics. A description is **valid** when all four steps of §7 accept it with no fatal finding. Only a valid description can be proposed for publication.
+A **flow description** is one YAML file declaring one **module**: its state categories, its enumerations and its types, and for each type its attributes, states, conditions, transitions and metrics. A description is **valid** when all four steps of §7 accept it with no fatal finding. Only a valid description can be proposed for publication. A module MAY also carry an **examples file**, the claims about its behaviour that the engine runs (§11).
 
 The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119 and RFC 8174, when written in capitals.
 
@@ -655,12 +655,12 @@ A description is checked in four steps, and each stops the check if it finds any
 |---|---|---|
 | 1. strict loading | `yaml` | a file YAML cannot parse, including a `?` unquoted inside an inline collection, or a key repeated in a mapping |
 | 2. structure | `schema` | a missing or unknown key, a value of the wrong form, a name in the wrong case, a transition kind without the `from` and `to` it requires, a metric without the `state` or `transition` its measure requires |
-| 3. names and order | `order` | sections out of order, a derived attribute that reads itself or one of its type declared after it, derived attributes of several types that read each other in a cycle |
-| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, an imported name its module, checked before, does not declare, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a metric over a source its type does not have or reading anything but its item and the members its rows have, a flag reading neither the value nor a dimension, an assertion, erasure or correction without a `reason` input, an assertion's reason that is not an enumeration, an admission of an invariant neither the type's nor a related type's, a correction that does not write exactly what it lists, an erasure that does not reach a part type holding personal data, a personal attribute that is required, a type that extends one that is undeclared or not abstract or comes back to itself, redeclares what it inherits, or has no tracking, a mirror without an external identifier, an external identifier on a reference, a counter that is optional, has a default or belongs to an observation, a default that reads a member or an input, a call to an evaluator's undeclared function or with the wrong number of arguments, a verdict inside a larger expression or outside a condition, a proposable transition that is only via others, an event input given anything but `this_event`, a summary naming what is not a member, a metric name two metrics of the module share, a combined metric over an undeclared metric or one not above it, grouped by a dimension its inputs lack, reading beyond its inputs or aggregating, a supersede outside a transition into a superseding state or such a transition without one, a successor that is `this` or neither an object input nor a created name, a type holding personal data or taking a personal input with no erasure, a cascade or survives on an abstract base's part, an entry in `inherited_parts` on an abstract type or naming no part the type inherits, an inherited part a final transition neither cascades on nor survives, a migration mapping that names what this version still has or lacks the target of, a backfill of no stored attribute or one reading beyond the object, an admission of no invariant or reason, and, against the previous version, a state removed with no mapping, a mapping from what it did not have, or a required field added to an observation kind, a transition that both writes and clears an attribute, an optional input on an attribute neither optional nor defaulted, a set of references with no opposite outside a machine's requirements, an optional input read inside a larger expression of a step, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart |
+| 3. names and order | `order` | sections out of order, an examples file's keys out of order or a setup given one declared after it (§11.1), a derived attribute that reads itself or one of its type declared after it, derived attributes of several types that read each other in a cycle |
+| | `names` | a name that is not declared (a state, condition, attribute, category, transition or value), a reserved name (§3), an unused condition, an input a transition reads and does not take, an optional set input, a `create` or `call` that names no such transition or passes the wrong inputs, an `add` or `remove` on an attribute that is not a set, a relationship whose ends do not name each other, a part whose end back is optional or a set, a cascade to a transition the part does not have, a final transition of a whole its parts neither cascade on nor survive, an `only_via` naming no transition, a reference to a type neither declared nor imported, an imported name its module, checked before, does not declare, a binder that lacks what its machine requires, declares it with another type or optionality, or redeclares one of the machine's transitions or conditions, a machine whose condition or effect names an attribute it does not require, a derived attribute that is written, required by a state, reads what only a transition has, or shares a name with another member, an indexed derived attribute that reads what the store does not hold indexed on the object, an identifier from no declared sequence or on an attribute that is not a string, a scope that is not a single reference or indexed attribute every creation writes, a format without a number or with a placeholder §4.12 does not allow, a uniqueness in scope without a scope or with an attribute the type does not declare, a metric over a source its type does not have or reading anything but its item and the members its rows have, a flag reading neither the value nor a dimension, an assertion, erasure or correction without a `reason` input, an assertion's reason that is not an enumeration, an admission of an invariant neither the type's nor a related type's, a correction that does not write exactly what it lists, an erasure that does not reach a part type holding personal data, a personal attribute that is required, a type that extends one that is undeclared or not abstract or comes back to itself, redeclares what it inherits, or has no tracking, a mirror without an external identifier, an external identifier on a reference, a counter that is optional, has a default or belongs to an observation, a default that reads a member or an input, a call to an evaluator's undeclared function or with the wrong number of arguments, a verdict inside a larger expression or outside a condition, a proposable transition that is only via others, an event input given anything but `this_event`, a summary naming what is not a member, a metric name two metrics of the module share, a combined metric over an undeclared metric or one not above it, grouped by a dimension its inputs lack, reading beyond its inputs or aggregating, a supersede outside a transition into a superseding state or such a transition without one, a successor that is `this` or neither an object input nor a created name, a type holding personal data or taking a personal input with no erasure, a cascade or survives on an abstract base's part, an entry in `inherited_parts` on an abstract type or naming no part the type inherits, an inherited part a final transition neither cascades on nor survives, a migration mapping that names what this version still has or lacks the target of, a backfill of no stored attribute or one reading beyond the object, an admission of no invariant or reason, and, against the previous version, a state removed with no mapping, a mapping from what it did not have, or a required field added to an observation kind, a transition that both writes and clears an attribute, an optional input on an attribute neither optional nor defaulted, a set of references with no opposite outside a machine's requirements, an optional input read inside a larger expression of a step, an attribute key the attribute's kind has no form for (§4.3), a `transition_count` that cannot be told apart, and in an examples file a name of §11 that does not resolve, an alias named before a step gives it, an input of the wrong form, a setup step that cannot apply, or an expectation the request cannot give (§11.5) |
 | | `required` | a transition into a state that does not set, or that clears, an attribute the state requires |
 | 4. publish checks | `check N` | anything the text language's implemented publish checks refuse, reported at the line of the description it came from |
 
-Step 3 also reports six notices, which are not fatal: `audit`, for each guard that audits; `warn`, for each guard that warns; `self_serviceable`, for each guard whose condition is `self_serviceable` on a transition that takes no input; `imports`, for a module imported from that is not among the files checked; `metric`, for a declared metric over transitions whose filter compares a transition's `to_state` to a state the version changes the transitions into, or its `from_state` to one it changes the transitions out of, since what it counts changes from that version on (ADR-0129); and `migration`, for what a publish over live objects of the previous version would need (§4.16).
+Step 3 also reports seven notices, which are not fatal: `audit`, for each guard that audits; `warn`, for each guard that warns; `self_serviceable`, for each guard whose condition is `self_serviceable` on a transition that takes no input; `imports`, for a module imported from that is not among the files checked; `metric`, for a declared metric over transitions whose filter compares a transition's `to_state` to a state the version changes the transitions into, or its `from_state` to one it changes the transitions out of, since what it counts changes from that version on (ADR-0129); `coverage`, for the transitions of a module that no example in its examples file requests (§11); and `migration`, for what a publish over live objects of the previous version would need (§4.16).
 
 **A change's source digest.** `scripts/check-flows.py --digest <files>` computes the digest a flow change records beside its source reference: SHA-256 over the files' modules in ascending order of their names, each framed by its name and its length in bytes (ADR-0135). A repository's checks compute it over the files at a commit and compare it with the one a published version records, so the version is traced to the commit and checked against it.
 
@@ -722,6 +722,94 @@ These words are reserved by the format. `scripts/check-flow-format-doc.py` holds
 **Values:** `true`, `false`, `closed`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `assertion`, `erasure`, `any`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `objects`, `intervals`, `transitions`, `attempts`, `attempt_counts`, `labels`, `composite`, `in_scope`, `month`, `week`, `actor`.
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
+
+**Example keys:** `examples_for`, `setups`, `examples`, `description`, `given`, `evaluators`, `steps`, `request`, `import`, `type`, `object`, `transition`, `as`, `actor`, `after`, `inputs`, `state`, `values`, `expect`, `verdict`, `clause`, `remedy`, `cascaded`.
+
+**Example values:** `operator`, `now`, `satisfied`, `unsatisfied`, `applied`, `unavailable`, `invalid_input`, `not_requestable`, `over_limit`, `invariant_violated`, `call_refused`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`.
+
+## 11. Examples
+
+A claim about what a flow does is an **example** the engine runs, not a sentence (ADR-0131 decision 4, ADR-0136). A module's examples are written in an **examples file** beside its description, named after it with `.examples.yaml` in place of `.yaml`: `service.yaml`'s are `service.examples.yaml`. The file belongs to a flow change's source as the description does, so a change that alters the rules and the examples that describe them is one change, and the source digest covers it, named `<module>.examples` (ADR-0135). An examples file SHOULD name `examples.schema.json` on its first line, as a description names its schema (§2). [`flow-format/examples/service.examples.yaml`](flow-format/examples/service.examples.yaml) is a complete one, and `service-v2.examples.yaml` the same examples as version 2 updates them.
+
+### 11.1 The file
+
+| Key | Required | Value |
+|---|---|---|
+| `examples_for` | yes | the module whose rules the examples exercise, which opens the file, so an examples file is never mistaken for a description |
+| `setups` | no | named starting states, each built by requests (§11.2) |
+| `examples` | yes | named examples, at least one (§11.4) |
+
+The keys are written in that order, a setup is given only a setup declared before it, and names are unique within `setups` and within `examples` (step 3, `order` and `names`). A setup's and an example's `description` is the author's prose: it is printed beside the example as its rationale, unverified, and nothing checks it.
+
+### 11.2 Setups
+
+A **setup** is a starting state, built by requests from an empty store: one that holds declaration version 0, with its operator, and the version under check (ADR-0126). It is never written directly. A state built by requests is one the flow can reach, so an example proves nothing about an object the rules could never produce, and no second write path into governed state exists, even in a test.
+
+| Key | Required | Value |
+|---|---|---|
+| `description` | yes | what the state is |
+| `given` | no | a setup declared before this one, whose steps come first |
+| `evaluators` | no | the stubbed answers of §11.3, for this setup's steps |
+| `steps` | yes | the requests and imports that build it, in order (§11.3) |
+
+Every step of a setup MUST apply. A step the rules refuse makes each example given the setup fail, reported as the setup's failure, not as the example's verdict. Step 3 refuses what it can see without running: a step that leaves out a required input, or requests a transition that is only via others (§4.8).
+
+### 11.3 Steps
+
+A step is a `request` or an `import`, each as one key.
+
+| `request` key | Required | Value |
+|---|---|---|
+| `type` | for a creation | the type created, whose transition MUST be its initial one |
+| `object` | otherwise | the alias an earlier step gave the object acted on |
+| `transition` | yes | a transition the type declares, its own, its machine's or its base's |
+| `as` | no | on a creation, the alias later steps name the new object by |
+| `actor` | no | who makes the request: `operator`, the default, or the alias of an object whose type marks an actor identity (§4.3) |
+| `after` | no | a duration the clock advances before the step, such as `1 h` |
+| `inputs` | no | the request's inputs, each one the transition takes (§4.8) |
+
+An `import` writes one object of a `mirror` type, which only the import writes (§4.15), so an example can start from what a legacy system held: its `type`, the `as` alias, the `state` it arrives in, its attribute `values` and an optional `after`.
+
+**Values.** An input or value is written as the attribute or input it fills declares:
+- a reference, by the alias of an object of that type or a subtype, and a set of references as a list of aliases;
+- an enumeration value, qualified, as `ReassignmentReason.WORKLOAD`;
+- a timestamp, in UTC, as `2026-01-01T09:00Z`, or as `now` or `now + <duration>`, the clock at that step;
+- a file, by a file name, for which the example supplies a file whose content is that name;
+- anything else as its literal.
+
+**Recording.** A datapoint is recorded by requesting its kind's generated creation, `record`, with `subject` and the kind's fields as inputs, as any caller records one (§4.4, `declaration-syntax.md` §6.8).
+
+**The clock and ids.** Every example's clock starts at `2026-01-01T00:00:00Z` and moves only by `after`, and object ids come from an injected source, so an example gives the same result on every run and every machine (ADR-0077).
+
+**Evaluators.** An example never calls another system. `evaluators` maps each evaluator function a step or the request calls, as `<evaluator>.<function>`, to the answer it gives, `satisfied` or `unsatisfied`; an example's map extends its setup's, and overrides it where both name a function. A call with no stubbed answer fails the example.
+
+### 11.4 Examples and their expectations
+
+| Key | Required | Value |
+|---|---|---|
+| `description` | yes | what the example shows, in the author's words |
+| `given` | no | the setup it starts from; none starts from the empty store |
+| `evaluators` | no | stubbed answers, §11.3 |
+| `steps` | no | further steps, after the setup's, that MUST apply |
+| `request` | yes | the request under test, written as a step's |
+| `expect` | yes | what the request MUST do |
+
+| `expect` key | Value |
+|---|---|
+| `verdict` | `applied`, or the refusal: `unsatisfied`, `unavailable`, `invalid_input`, `not_requestable`, `over_limit`, `invariant_violated` or `call_refused` (`DESIGN.md` §5.5) |
+| `clause` | for `unsatisfied`, the clause that refuses first: a guard of the transition, a generated guard, or `<Type>.<condition>` of a type its effect reaches; for `invariant_violated`, the invariant, qualified where it is another type's |
+| `remedy` | for `unsatisfied`, the refusing clause's remedy class |
+| `state` | for `applied`, the state the object is in afterwards |
+| `values` | for `applied`, optional: attributes and the values they hold afterwards, written as §11.3's values |
+| `cascaded` | for `applied`, optional: the transitions the request's cascades took, each as `<Type>.<transition>` |
+
+An `unsatisfied` expectation MUST name its clause and remedy, and the remedy MUST be the one the clause declares; an `applied` one MUST name the state, which MUST be one the transition leaves its object in; a refusal names no state or values, and only `unsatisfied` and `invariant_violated` name a clause (step 3, `names`). A request that leaves out a required input is refused as `invalid_input`, so an example expecting any other verdict for one is refused.
+
+### 11.5 What is checked, and when
+
+**Shape, whenever a description is checked.** The flow checker checks an examples file after the modules it is given, at step 2 against `examples.schema.json` and at step 3 against those modules: every name of §11.1 to §11.4 resolves, each alias is given before it is named and only once, each input is one the transition takes and has the form its type asks, and each expectation is one the request can give. It then reports the notice `coverage`, naming the examined module's transitions that no example requests (§7). Coverage is reported and never required, so a first draft publishes (ADR-0131 decision 5).
+
+**Running, at every publish.** The engine runs every example of the change's source against an empty in-memory store with the clock and the id source injected, after the checks of `publish-and-import.md` §1 step 1, so it tests the rules and not the live data. An example whose request does not do what `expect` says, or whose setup does not apply, refuses the publish; since the examples are part of the change, the change that breaks one is refused until it updates it (ADR-0131 decision 6). The publish report lists, for each transition, the examples that request it, applied and refused. Until the engine exists, a Python reference runner is to run them at check time too, as the first slice of the differential tests of ADR-0132 decision 2 (`TODO.md`).
 
 ## Appendix A. Terminology against established conventions
 
