@@ -22,6 +22,8 @@ Draft, 2026-09-09, amended 2026-09-23. The request and verdict shapes of [`../DE
 
 ## 1. Why Python, and what that does not mean
 
+*(Amended 2026-09-28 for ADR-0132: the core is written in Rust, and the Python below is the interface's executable specification, which `scripts/check-api-doc.py` holds to the read surface. The Rust core implements the same operations with the same meanings, the HTTP service exposes them one to one, and the adversarial harness drives the core in Rust. The reasons the Python was written first stand as history.)*
+
 The core is library-shaped: a call goes in, guards evaluate, a transition and its record come out (§2 of the model). The first consumer is a FastAPI and SQLAlchemy system being rebuilt on this, so a Python interface is the one that will be exercised first and is the one written here.
 
 Since ADR-0110 this interface is what the engine's internal service exposes, one-to-one, and what the adversarial harness drives; callers in other languages reach it through the service, not through bindings. That is a **binding**, not the design. The operations, their arguments and their results are the API; the dataclasses are one rendering of it. A second binding should offer the same nineteen operations with the same meanings, and the checker's comparison against §10 is written against the operation set rather than against Python.

@@ -1,6 +1,6 @@
 # ADR-0131: How flows are authored and checked
 
-- **Status:** Accepted by the author, 2026-09-28: "accept all your recommendations", on the questions of `authoring-flows.md` §7 put to the author the same day. Question 2 had no recommendation and stays open.
+- **Status:** Accepted by the author, 2026-09-28: "accept all your recommendations", on the questions of `authoring-flows.md` §7 put to the author the same day. Question 2 had no recommendation and was answered the same day, below.
 - **Date:** 2026-09-28
 - **Refines:** ADR-0116 (the flow description format), ADR-0077 (declaration and type versions), ADR-0097 (a flow change's lifecycle)
 - **Relates to:** PRD F1, F5, F6, F7; `authoring-flows.md`; `flow-format.md` §7, §9; `declaration-syntax.md` check 22
@@ -32,9 +32,9 @@ On 2026-09-25 the author asked for three things, in their words: that the way fl
 - **Reporting contradictions only.** A flow with a transition no object can take is wrong, and a report is read after the damage.
 - **Z3 now.** A contradiction within one type needs far less, and every dependency is a cost the author asked to keep low.
 
-## Open
+## Answered after
 
-**Question 2, the default drafter.** Whether an agent normally drafts and a person reviews and approves, which would make F1's authorship clause the author's words and could move F6 from Should to Must, is the author's to say.
+**Question 2, the default drafter.** *Answered by the author 2026-09-28* ("accept the rest", of the recommendation put with ADR-0132): an agent normally drafts a flow, and a person reviews and approves it. F1's authorship clause is the author's words, and F6 is a Must, still in the third release (PRD revision 14).
 
 ## Consequences
 

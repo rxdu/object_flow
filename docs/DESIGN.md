@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 454 entries and five cosmetics; 454 are closed and 0 are open. The PRD is at revision 13, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 454 entries and five cosmetics; 454 are closed and 0 are open. The PRD is at revision 14, with no revision awaiting the author.
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -21,7 +21,8 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 - ADR-0124, on 2026-09-28: a combined metric read by fewer dimensions than it groups by, or with some bound, combines its inputs over the rows the read selects, found writing the metric scenarios.
 - ADR-0125, on 2026-09-28: a request naming an actor the store does not know is logged with the identity it named under the kind `unknown`, found writing the metric scenarios.
 - ADR-0126, on 2026-09-28: a store is created with its operator, the built-in actor its first requests name.
-- ADR-0131, on 2026-09-28: how flows are authored and checked — in a repository, with no written version numbers, deterministic checks, behavioural claims as examples run at publish, and contradictions within one type refused, with no new dependency; whether an agent is the default drafter stays open.
+- ADR-0131, on 2026-09-28: how flows are authored and checked — in a repository, with no written version numbers, deterministic checks, behavioural claims as examples run at publish, and contradictions within one type refused, with no new dependency; and, answered the same day, an agent is the default drafter, a person reviewing and approving.
+- ADR-0132, on 2026-09-28: the core is written in Rust, with the Python checkers kept independent as its oracle, behind an HTTP service described by OpenAPI; the operations application lives in the operations platform's project.
 - ADR-0127 to ADR-0130, accepted in advance on 2026-09-28 ("for all similar items that you have confidence in an recommendation, just accept"): a read's page has an order and `query`'s order a grammar; five questions the metric scenarios left open about metrics; a publish notices a metric whose filter it reroutes; and three questions ADR-0108 and ADR-0109 left open.
 - ADR-0065 to ADR-0073, which the author ruled on.
 

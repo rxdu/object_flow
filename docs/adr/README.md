@@ -133,3 +133,4 @@
 | [0129](0129-a-publish-notices-a-metric-whose-filter-it-reroutes.md) | A publish notices a metric whose filter it reroutes | Accepted by the author in advance |
 | [0130](0130-three-questions-left-open-by-adr-0108-and-adr-0109.md) | Three questions ADR-0108 and ADR-0109 left open | Accepted by the author in advance |
 | [0131](0131-how-flows-are-authored-and-checked.md) | How flows are authored and checked | Accepted by the author |
+| [0132](0132-the-core-is-written-in-rust-behind-an-http-service.md) | The core is written in Rust, behind an HTTP service described by OpenAPI | Accepted by the author |
