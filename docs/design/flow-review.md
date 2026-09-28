@@ -186,6 +186,8 @@ A renderer can print the stage map from the categories and a display name per st
 
 *Checked 2026-09-25 against the first consumer's own PRD, as a case study, which settles most of these for the platform's own declarations, several differently from the options below: `first-consumer-prd-check.md` §4.*
 
+*Closed as ObjectFlow questions by the author on 2026-09-28 ("accept"): decisions 2 to 7 are the operations platform's choices about its own flow, and belong to its project, where `first-consumer-prd-check.md` §4 records what its PRD answers. The journey changes only where a change exposes an engine defect, as D453 and D454 did, and the appendix stays here as a record of what was proposed. The one engine requirement among them, decision 5's time split across the months a span covers (§4.2), is held in `TODO.md` as design work.*
+
 In the order the review would take them:
 
 1. **The operating layer (§2.1).** *Answered 2026-09-24: an upper-layer application, not part of the core (ADR-0104).* What remains for the core is whether the delivery, the shipment and the missing unit get owners and target times, which are declarations.
