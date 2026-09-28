@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 477 entries and five cosmetics; 477 are closed and 0 are open. The PRD is at revision 16, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 477 entries and five cosmetics; 477 are closed and 0 are open. The PRD is at revision 17, with no revision awaiting the author.
 
 **Every ADR is accepted or superseded.** In the order the author accepted them:
 - ADR-0001 to ADR-0018, on 2026-09-07, from the design discussion the project began with.
@@ -10,7 +10,7 @@
 - ADR-0110 to ADR-0114, on 2026-09-25: the engine is an internal service, with authentication upstream and an actor's kind declared with its type; a rule may be a flag, and a norm observed in history is held as data; and ObjectFlow records who acted and never evaluates it, superseding ADR-0030 and ADR-0112.
 - ADR-0097 to ADR-0103, ADR-0105, ADR-0106, ADR-0109 and ADR-0115 to ADR-0120, on 2026-09-26: the first decided at the author's direction on 2026-09-23 and 2026-09-24, ADR-0102 the unit's whole journey, and the rest the flow description format, its terms, relationships, metrics, assertions and erasures, and migrations.
 - ADR-0121 and ADR-0122, on 2026-09-27: the design's YAML checked where it stands, and a flow recoverable from its description.
-- On 2026-09-28: ADR-0123 to ADR-0126, from the metric scenarios and the store's first actor; ADR-0131 to ADR-0133, how flows are authored, the core in Rust behind HTTP, and the gaps a triage found; ADR-0019 to ADR-0064 and ADR-0074 to ADR-0080, after that triage against this document, with ADR-0025 superseded except its core; and, accepted in advance under the author's instruction "for all similar items that you have confidence in an recommendation, just accept", ADR-0127 to ADR-0130 and ADR-0134.
+- On 2026-09-28: ADR-0123 to ADR-0126, from the metric scenarios and the store's first actor; ADR-0131 to ADR-0133, how flows are authored, the core in Rust behind HTTP, and the gaps a triage found; ADR-0019 to ADR-0064 and ADR-0074 to ADR-0080, after that triage against this document, with ADR-0025 superseded except its core; and, accepted in advance under the author's instruction "for all similar items that you have confidence in an recommendation, just accept", ADR-0127 to ADR-0130, ADR-0134 and ADR-0135.
 
 **Awaiting review:** this document and the declaration syntax read whole, the flow format specification, and the six implementation documents of 2026-09-09 (`../TODO.md`).
 
@@ -595,7 +595,7 @@ A **Proposal** holds a request filed for approval instead of executed: target, t
 
 A **DeclarationChange** is how a flow changes (ADR-0085, ADR-0097). It is a built-in type with a declared lifecycle, printed in the rule set like any type:
 
-- `draft` creates one, `DRAFTED`, from the source and the evidence it cites — metric and diagnostic references; the drafter may `revise` it;
+- `draft` creates one, `DRAFTED`, from the source, where the source came from and the evidence it cites — metric and diagnostic references; the drafter may `revise` it, the source and its reference together. The reference, `source_ref`, is required and opaque, such as a commit; the engine checks only its form, never reads the repository, and records beside it a digest of the source, which the repository's side recomputes at the reference to check that the text installed is the text committed (PRD F10, ADR-0131, ADR-0135);
 - `submit` moves it to `SUBMITTED` and runs the dry run, attaching the impact report and a snapshot of the evidence it cites — the metric and diagnostic values as they then read, not links to values computed on read; `refresh` reruns the dry run;
 - `publish` is the approval, and installs the version. It names the version of the change the approver read, and `refresh` advances it, so the report compared at commit is the one the approver was shown (ADR-0101). It requires a change drafted against the installed version and a recomputed report naming nothing the attached one did not. It records the drafter and the approver with their kinds; who may draft and approve, that they differ, and that a person approves what an agent drafted, are the upper layer's (PRD F7, ADR-0114);
 - `reject` and `withdraw` end it, and a publish **supersedes** every other open change drafted against an older version, in the same transaction, so a stale change can never reinstall a description that drops a newer guard.
@@ -626,7 +626,7 @@ One API. Every operation names an actor, which a write records; no operation fil
 | **check**(id or type, transition, inputs) | The verdict a request would receive, simulating the same sequence internally. Lock-free and side-effect-free, so it is advice and not a reservation, and its verdict is **partial**: it names the external guards it did not evaluate (ADR-0054). A creation is checked given its type (ADR-0099) |
 | **history**(id, follow?) | Events with provenance, legacy entries, and optionally the combined timeline through supersession |
 | **exceptions**(type, cursor) | The objects whose state an assertion last set, the data import excluded, and those holding an admitted invariant violation; what keeps the escape hatch of §8 reviewable |
-| **declaration**(type, version?) | The inspectable rule set at a declaration version, the number an event records; rendered also as readable text and as agent tool schemas |
+| **declaration**(type, version?) | The inspectable rule set at a declaration version, the number an event records, with the source reference and digest it was published from, neither for version 0 (ADR-0135); rendered also as readable text and as agent tool schemas |
 | **pull**(subscription, cursor) | A page of events per the subscription's filter, in each object's order, and the settled cursor (§7) |
 | **batch**(requests) | N independent requests, **each in its own transaction**, returning N verdicts in order |
 | **metric**(name, bind?, keep?, over?, filter?, cursor) | A declared or standard metric computed over every row its source and filter select, with dimensions bound and a window applied as a guard's reference does, narrowed by the filter before it aggregates, one row per group of the dimensions kept — every declared one unless `keep` names fewer — and aggregated over the rest, a combined metric from its inputs so aggregated (ADR-0124): each group with its dimensions, its value, the flags that hold and its `gaps`, in UTC calendar time, and whether its history is complete (§5.12, ADR-0084, ADR-0098, ADR-0106). The declaration marks each dimension whose value names an actor (§5.12, ADR-0114) |

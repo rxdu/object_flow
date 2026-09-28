@@ -662,6 +662,8 @@ A description is checked in four steps, and each stops the check if it finds any
 
 Step 3 also reports six notices, which are not fatal: `audit`, for each guard that audits; `warn`, for each guard that warns; `self_serviceable`, for each guard whose condition is `self_serviceable` on a transition that takes no input; `imports`, for a module imported from that is not among the files checked; `metric`, for a declared metric over transitions whose filter compares a transition's `to_state` to a state the version changes the transitions into, or its `from_state` to one it changes the transitions out of, since what it counts changes from that version on (ADR-0129); and `migration`, for what a publish over live objects of the previous version would need (§4.16).
 
+**A change's source digest.** `scripts/check-flows.py --digest <files>` computes the digest a flow change records beside its source reference: SHA-256 over the files' modules in ascending order of their names, each framed by its name and its length in bytes (ADR-0135). A repository's checks compute it over the files at a commit and compare it with the one a published version records, so the version is traced to the commit and checked against it.
+
 ## 8. A minimal valid description
 
 ```yaml

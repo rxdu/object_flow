@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-28: "accept all your recommendations", on the questions of `authoring-flows.md` §7 put to the author the same day. Question 2 had no recommendation and was answered the same day, below.
 - **Date:** 2026-09-28
+- **Refined by:** ADR-0135 — the source reference is a required opaque string, and the engine records a digest of the source beside it, which the repository's side checks.
 - **Refines:** ADR-0116 (the flow description format), ADR-0077 (declaration and type versions), ADR-0097 (a flow change's lifecycle)
 - **Relates to:** PRD F1, F5, F6, F7; `authoring-flows.md`; `flow-format.md` §7, §9; `declaration-syntax.md` check 22
 

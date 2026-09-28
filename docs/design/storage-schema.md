@@ -395,15 +395,20 @@ CREATE INDEX of_file_ref_live ON of_file_ref (hash, erased);
 CREATE TABLE of_declaration (
   version       INTEGER PRIMARY KEY,  -- 0 is the row the store is created with (ADR-0105)
   module        TEXT    NOT NULL,
-  source        TEXT    NOT NULL,   -- the flow description as published
+  source        TEXT    NOT NULL,   -- the source's modules as published, a JSON object from
+                                    -- each module's name to its description (ADR-0135)
+  source_ref    TEXT,               -- where the source came from, as the change named it, and
+  source_digest TEXT,               -- its digest; neither for version 0 (ADR-0135)
   parsed        TEXT    NOT NULL,   -- the checked form the runtime reads
   builtins      TEXT    NOT NULL,   -- the built-in module it was published with: the engine
                                     -- release whose built-in types and standard metrics apply
   published_at  TEXT    NOT NULL,
   published_by  TEXT    NOT NULL,   -- for version 0, the engine release that created the store
   change_id     TEXT,               -- the DeclarationChange it installed (ADR-0085); none for 0
-  report        TEXT    NOT NULL    -- what publishing reported, kept for audit; for version 0,
+  report        TEXT    NOT NULL,   -- what publishing reported, kept for audit; for version 0,
                                     -- the built-in module's own check report
+  CONSTRAINT of_declaration_source CHECK
+    ((version = 0) = (source_ref IS NULL) AND (source_ref IS NULL) = (source_digest IS NULL))
 );
 
 -- The engine releases this store has been at: the one that created it, then one
@@ -497,7 +502,11 @@ CREATE TABLE t_declaration_change (
   declaration_version INTEGER NOT NULL,
   last_event     INTEGER NOT NULL REFERENCES of_event(position),
   base_version   INTEGER NOT NULL REFERENCES of_declaration(version),
-  source         TEXT    NOT NULL,          -- the flow description proposed
+  source         TEXT    NOT NULL,          -- the modules proposed, as of_declaration.source
+  source_ref     TEXT    NOT NULL,          -- where they came from, such as a commit, opaque to the
+                                            -- engine, which checks only its form (ADR-0135)
+  source_digest  TEXT    NOT NULL,          -- sha256 over the modules, which the repository's side
+                                            -- recomputes at the reference (ADR-0135)
   report         TEXT,                      -- the dry run: the impact report, with its ids
   evidence       TEXT,                      -- the evidence as it read at submission (ADR-0097)
   drafted_by     TEXT    NOT NULL,
@@ -506,7 +515,8 @@ CREATE TABLE t_declaration_change (
   approved_by    TEXT,                      -- recorded; who may approve is the upper layer's
   approved_by_kind TEXT,                    -- (ADR-0114)
   CONSTRAINT t_declaration_change_state CHECK (state IN
-    ('DRAFTED','SUBMITTED','PUBLISHED','REJECTED','WITHDRAWN','SUPERSEDED'))
+    ('DRAFTED','SUBMITTED','PUBLISHED','REJECTED','WITHDRAWN','SUPERSEDED')),
+  CONSTRAINT t_declaration_change_source_ref CHECK (length(source_ref) BETWEEN 1 AND 512)
 );
 
 -- Operator is a built-in object type: the people answerable for a store

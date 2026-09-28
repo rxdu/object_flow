@@ -48,6 +48,7 @@ guards are reported as notices, as the publish report lists them.
     check-flows.py                  the example modules, then a self-test
     check-flows.py A.yaml B.yaml    these modules, in import order
 """
+import hashlib
 import json
 import pathlib
 import re
@@ -2557,7 +2558,47 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     return ok
 
 
+def source_digest(modules):
+    """The digest a flow change records beside its source reference (ADR-0135): over the modules of the
+    change's source, in ascending order of their names' UTF-8 bytes, each as its name, a line feed, its
+    length in bytes in decimal, a line feed and its bytes as submitted. A repository's side computes the
+    same over the files at the reference, so a published version can be traced to it and checked."""
+    names = [n for n, _b in modules]
+    if len(set(names)) != len(names):
+        raise ValueError("two files declare the same module; a change's source has one file per module")
+    h = hashlib.sha256()
+    for name, body in sorted(modules, key=lambda m: m[0].encode("utf-8")):
+        h.update(name.encode("utf-8") + b"\n" + str(len(body)).encode("ascii") + b"\n" + body)
+    return "sha256:" + h.hexdigest()
+
+
+def module_files(paths):
+    """Each file's module name, read from its `module` key, with its bytes as they are on disk."""
+    return [(load(p.read_text())["module"], p.read_bytes()) for p in paths]
+
+
+def digest_self_test():
+    """The digest names the modules and their bytes, and nothing else: not the order the files come in."""
+    a, b = ("inventory", b"module: inventory\n"), ("people", b"module: people\n")
+    same = source_digest([a, b]) == source_digest([b, a])
+    byte = source_digest([a, b]) != source_digest([a, ("people", b"module: people \n")])
+    moved = source_digest([("ab", b"c")]) != source_digest([("a", b"bc")])
+    try:
+        source_digest([a, a])
+        twice = False
+    except ValueError:
+        twice = True
+    ok = same and byte and moved and twice
+    print(f"  the source digest ignores file order, sees one changed byte and a moved boundary, and refuses a module twice: "
+          f"{'yes' if ok else 'NO'}")
+    return ok
+
+
 def main():
+    if "--digest" in sys.argv[1:]:
+        paths = [pathlib.Path(a) for a in sys.argv[1:] if not a.startswith("-")]
+        print(source_digest(module_files(paths)))
+        sys.exit(0)
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     before = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--previous=")), None)
     if args:
@@ -2584,6 +2625,7 @@ def main():
                    (EXAMPLES / "delivery.yaml").read_text(), (EXAMPLES / "approvals.yaml").read_text(),
                    (EXAMPLES / "customers.yaml").read_text(), (EXAMPLES / "servicedesk.yaml").read_text(),
                    (EXAMPLES / "service-v2.yaml").read_text())
+    ok &= digest_self_test()
     sys.exit(0 if clean and ok else 1)
 
 
