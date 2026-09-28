@@ -59,6 +59,10 @@ import tempfile
 import jsonschema
 import yaml
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import flowexpr  # noqa: E402  the expression language's grammar, shared with the logic checks (ADR-0137)
+import flowlogic  # noqa: E402  contradictions within one type (ADR-0137)
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FORMAT = ROOT / "docs/design/flow-format"
 EXAMPLES = FORMAT / "examples"
@@ -2453,10 +2457,12 @@ def uncovered(mdoc, kinds, requested):
                   for xn in ((kinds.get(tn) or {}).get("transitions") or {}) if (tn, xn) not in requested)
 
 
-def check(files, previous=None):
+def check(files, previous=None, analysed=None):
     """Findings and notices over modules given in import order, as (file, line,
     severity, code, message); previous maps a file to the text of the version
-    before it, against which its migration is checked."""
+    before it, against which its migration is checked. `analysed`, if given, is
+    filled with each module's count of guard conditions step 5 decided in full,
+    against all it read, which the publish report carries (ADR-0137)."""
     found, notes, loaded, library, declared, uses = [], [], [], {}, {}, {}
     modules, example_files = {}, []
     for f, text in files:
@@ -2480,6 +2486,15 @@ def check(files, previous=None):
             found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in errors]
             continue
         literals(doc)
+        bad = []
+        for p, text in flowexpr.expressions(doc):
+            try:
+                flowexpr.parse(text)
+            except flowexpr.ParseError as e:
+                bad.append((f, line_of(idx, p), "fatal", "syntax", f"{e}: not an expression of declaration-syntax.md §8"))
+        if bad:
+            found += bad
+            continue
         for mod, names in (doc.get("imports") or {}).items():
             if mod not in declared:
                 notes.append((f, line_of(idx, ("imports", mod)), "notice", "imports",
@@ -2537,6 +2552,21 @@ def check(files, previous=None):
         for i, path, code, msg in language_errors(converted):
             f, _t, idx, _d = loaded[i]
             found.append((f, line_of(idx, path), "fatal", code, msg))
+    if not found and len(loaded) + len(example_files) == len(files):
+        # step 5: conditions within one type that can never hold together (ADR-0131 decisions 7 to 9, ADR-0137)
+        enums = {n: list(v) for m in modules.values() for n, v in (m.get("enumerations") or {}).items()}
+        for f, _t, idx, doc in loaded:
+            whole = total = 0
+            for tn in doc.get("types") or {}:
+                t = library.get(tn) or {}
+                if t.get("abstract"):
+                    continue
+                results, w, n = flowlogic.analyse_type(tn, t, enums)
+                whole, total = whole + w, total + n
+                for path, severity, code, msg in results:
+                    (found if severity == "fatal" else notes).append((f, line_of(idx, path), severity, code, msg))
+            if analysed is not None:
+                analysed[doc["module"]] = (whole, total)
     return found, notes
 
 
@@ -2910,6 +2940,30 @@ def examples_self_test(people, service, examples):
     return ok
 
 
+def logic_plants(people, service):
+    """Step 2's grammar and step 5's analysis, each shown on the service example by planting what it refuses."""
+    ok = True
+    plants = [
+        ("an expression the grammar refuses", "syntax",
+         "        expression: inputs.photo is not null\n", "        expression: inputs.photo is not null is null\n"),
+        ("guards of one transition that cannot hold together", "contradiction",
+         "          photo_attached: audit\n", "          photo_attached: deny\n          no_photo: deny\n"),
+        ("a warning that fails whenever the transition is taken", "neverpasses",
+         "          photo_attached: audit\n", "          photo_attached: deny\n          no_photo: warn\n"),
+    ]
+    extra = ("      no_photo:\n        description: No photo is attached.\n        expression: inputs.photo is null\n"
+             "        remedy: self_serviceable\n")
+    for name, code, old, new in plants:
+        text = service.replace(old, new, 1)
+        if code != "syntax":
+            text = text.replace("      photo_attached:\n", extra + "      photo_attached:\n", 1)
+        found, notes = check([("people.yaml", people), ("service.yaml", text)])
+        hit = [x for x in found + notes if x[3] == code]
+        ok &= bool(hit)
+        print(f"  planted {name}: {'caught by ' + code + ', at ' + hit[0][0] + ':' + str(hit[0][1]) + ' ' + hit[0][4][:70] if hit else 'MISSED ' + str((found + notes)[:2])}")
+    return ok
+
+
 def digest_self_test():
     """The digest names the modules and their bytes, and nothing else: not the order the files come in."""
     a, b = ("inventory", b"module: inventory\n"), ("people", b"module: people\n")
@@ -2937,8 +2991,13 @@ def main():
     if args:
         files = [(pathlib.Path(a).name, pathlib.Path(a).read_text()) for a in args]
         previous = {files[-1][0]: pathlib.Path(before).read_text()} if before else None
-        found, notes = check(files, previous)
+        counts = {}
+        found, notes = check(files, previous, counts)
         report(found, notes)
+        for module, (whole, total) in counts.items():
+            if total:
+                print(f"{module}: step 5 decided {whole} of {total} guard conditions in full; the rest read something outside "
+                      "the type, such as another object, a metric or an evaluator, which it leaves open")
         sys.exit(1 if found else 0)
     people = (EXAMPLES / "people.yaml").read_text()
     clean = True
@@ -2961,6 +3020,9 @@ def main():
                    (EXAMPLES / "customers.yaml").read_text(), (EXAMPLES / "servicedesk.yaml").read_text(),
                    (EXAMPLES / "service-v2.yaml").read_text())
     ok &= digest_self_test()
+    ok &= flowexpr.main() == 0          # every expression in the design parses, and the grammar's own test
+    ok &= flowlogic.self_test()
+    ok &= logic_plants(people, (EXAMPLES / "service.yaml").read_text())
     ok &= examples_self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text())
     sys.exit(0 if clean and ok else 1)
 

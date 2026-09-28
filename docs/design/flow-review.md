@@ -217,7 +217,7 @@ The promised date, the service clock, the checklist revision, the fulfilment sta
 
 ## Appendix: the module with the declared proposals applied
 
-A variant of [`unit-journey.md`](unit-journey.md) §2, kept as the record of what the review proposed, since the author closed §7 on 2026-09-28. It is written in the flow description format, in the journey's order, and `scripts/check-flow-docs.py` checks it with all four steps of the flow checker (ADR-0121). It carries the journey's corrections of 2026-09-27 (D408, `unit-journey.md` §2).
+A variant of [`unit-journey.md`](unit-journey.md) §2, kept as the record of what the review proposed, since the author closed §7 on 2026-09-28. It is written in the flow description format, in the journey's order, and `scripts/check-flow-docs.py` checks it with every step of the flow checker (ADR-0121). It carries the journey's corrections of 2026-09-27 (D408, `unit-journey.md` §2).
 
 ```yaml
 module: inventory_journey

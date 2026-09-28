@@ -189,7 +189,7 @@ Read: `query(Delivery, filter: "state.category != closed", order: "entered_at(st
 
 ### 3.5 The lead's split, declared on 24 September
 
-On 24 September the lead publishes one metric on `Delivery`. A metric is declared under the type whose rows it reads (`flow-format.md` §4.9), so this is a new version of the journey's `Delivery`. A published version is written as the time it takes effect and what it adds, each at its path in the module. The script applies it at that time, and runs all four steps of the flow checker over the new version against the one before.
+On 24 September the lead publishes one metric on `Delivery`. A metric is declared under the type whose rows it reads (`flow-format.md` §4.9), so this is a new version of the journey's `Delivery`. A published version is written as the time it takes effect and what it adds, each at its path in the module. The script applies it at that time, and runs every step of the flow checker over the new version against the one before.
 
 ```yaml publish
 at: 2026-09-24T00:00Z

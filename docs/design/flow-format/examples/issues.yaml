@@ -191,7 +191,7 @@ types:
         remedy: dependent
       resolution_allowed:
         description: The resolution is one this workflow allows, as jira.field.resolution.include restricts it.
-        expression: inputs.resolution in [Resolution.DONE, Resolution.WONT_DO]
+        expression: inputs.resolution in {Resolution.DONE, Resolution.WONT_DO}
         remedy: self_serviceable
       points_changed:
         description: The estimate is changed, as Jira's field-has-been-modified validator requires.

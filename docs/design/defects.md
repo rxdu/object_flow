@@ -489,6 +489,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D475](#d475) | The case studies, the walkthrough and `TODO.md` misstated the record | Resolved in place |
 | [D476](#d476) | DESIGN.md read whole was out of step in places | Resolved in place |
 | [D477](#d477) | The decision records from ADR-0081 on still stated what ADR-0114 withdrew | Resolved in place |
+| [D478](#d478) | An example wrote a membership in brackets, which the grammar does not have, and both checkers passed it | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3137,4 +3138,11 @@ Six readers, one slice each, read the requirements and the design whole, after t
 **The decision records from ADR-0081 on still stated what ADR-0114 withdrew.** Fifteen of them, among them ADR-0084, ADR-0085, ADR-0088, ADR-0098, ADR-0105 and ADR-0106, still filtered reads by their reader, gated routes on capabilities or read the actor in a guard, unmarked, and eleven did not name ADR-0114 in their headers; ADR-0091 still had the first consumer wrap the core. The triage of 2026-09-28 had covered ADR-0019 to ADR-0080, and the six slices of this review left the records from ADR-0081 on to no reader, which a sweep after the fixes showed. Found by a seventh reader given those records alone.
 
 **Resolved in place**, 2026-09-28: thirty-six passages marked where they stand, ADR-0114 named in eleven headers, and the index's refined-by notes regenerated from the headers.
+
+## Found building the authoring checks, 2026-09-28
+
+### D478
+**An example wrote a membership in brackets, which the grammar does not have, and both checkers passed it.** `flow-format/examples/issues.yaml`'s condition `resolution_allowed` read `inputs.resolution in [Resolution.DONE, Resolution.WONT_DO]`, where the collection literal of `declaration-syntax.md` §8.1 is `{A, B}` and brackets belong only to `changed_since`. The flow checker and the syntax checker both matched expressions with regular expressions, so neither noticed. Found by the expression parser of ADR-0137 on its first run over the design's descriptions.
+
+**Resolved in place**, 2026-09-28: the set is written in braces, and step 2 of the flow checker now parses every expression and refuses one the grammar does not accept, as `syntax`, which the self-test proves by planting a malformed expression.
 

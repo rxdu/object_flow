@@ -59,7 +59,7 @@ def main():
     spec = importlib.util.spec_from_file_location("trial", CHECKER)
     trial = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(trial)
-    source = CHECKER.read_text()
+    source = CHECKER.read_text() + (ROOT / "scripts/flowlogic.py").read_text()   # step 5's codes live beside it
     findings = []
 
     keys, values = schema_vocabulary(schema)

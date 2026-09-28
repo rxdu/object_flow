@@ -262,3 +262,10 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** On 2026-09-28 a loop ran every check as `python3 $s > out; echo "$(basename $s) exit=$?"`. The command substitution runs `basename` before `$?` expands, so every script reported `exit=0`, and a corpus check with two findings read as passing. It was caught only because a reader ran the check on its own.
 - **Correction:** Capture the status on the next statement, `python3 $s > out; rc=$?`, and read each output's last lines as well as its status.
 - **Context:** Shell loops over the check scripts, and any loop that reports a status.
+
+### A check that claims to read a language parses it
+
+- **Pattern:** Until 2026-09-28 both checkers read expressions with regular expressions: enough to find the names an expression uses, and nothing more. `issues.yaml` wrote a set in brackets, which the grammar does not have, and passed both; the parser written for the contradiction checker refused it on its first run (D478).
+- **Correction:** Where a check's claim depends on what an expression means, or on its being well formed, parse it with the grammar the specification states, and prove the parser both ways: on every expression the record holds, and on malformed ones it must refuse.
+- **Context:** The flow and syntax checkers, and any tool that reads the expression language.
+
