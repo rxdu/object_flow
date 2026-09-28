@@ -460,6 +460,11 @@ machines:
         description: Puts the unit into the state it is really in when the record is wrong, releasing it from any delivery or job that pegged, bound or claimed it, so neither finds it afterwards.
         effect:
           - clear: [peg, binding, used_in]
+      forget:
+        kind: erasure
+        description: Erases the explanations given with corrections of the unit's state, which may name someone.
+        inputs:
+          reason: { type: string }
 
 types:
   Robot:

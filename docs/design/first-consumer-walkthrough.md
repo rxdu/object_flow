@@ -2,11 +2,13 @@
 
 Status: **worked example**, written 2026-09-07 as a draft and adopted in design iteration 1. It works the first consumer's real lifecycles through the model as it stood, finds where that model could not express them, and proposes the additions that became ADR-0019 to ADR-0025. It is kept as the rationale behind those ADRs; the current model is [`DESIGN.md`](../DESIGN.md).
 
+> **Superseded, and kept as a record.** The unit's journey superseded this walkthrough on 2026-09-24 ([`unit-journey.md`](unit-journey.md); ADR-0121 decision 7), and the first consumer's lifecycles as the design now writes them are there. Its declarations are in the text notation, which since ADR-0116 no one writes and which survives as the internal form the checks read, and they are not kept current with later decisions: ADR-0114 removed who may act, as the note below says, and ADR-0133 withdrew the `eager` and `deferred` markings of an external guard. *(Added 2026-09-28, D475.)*
+
 *Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
 
 > **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
 
-> **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here are current with the grammar; the surrounding prose records how the study reached them. *(A review on 2026-09-23 found three places where they differ from the production system's behaviour — `complete_sale` gates on the checklist and inspections where production does not, a unit's `CANCELLED` is terminal where production has transitions out of it, and `reserve` binds a unit only to a delivery where production also reserves for a service. They are listed in `TODO.md` for the table-to-type mapping, which re-derives the declarations from production and is what the harness fixture will be built from.)*
+> **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here were current with the grammar on that day; the surrounding prose records how the study reached them. *(A review on 2026-09-23 found three places where they differ from the production system's behaviour — `complete_sale` gates on the checklist and inspections where production does not, a unit's `CANCELLED` is terminal where production has transitions out of it, and `reserve` binds a unit only to a delivery where production also reserves for a service. They are listed in `TODO.md` for the table-to-type mapping, which re-derives the declarations from production and is what the harness fixture will be built from.)*
 Source material: `wr:app/core/state_registry.py`, `wr:docs/proposals/operations-system-design.md` §4–§5, `wr:docs/adr/0002-unit-engagement-and-leasing-model.md`, `wr:docs/adr/0003-xero-as-source-of-truth-for-customer-identity.md`. The `wr:` prefix is defined in [`TODO.md`](../../TODO.md).
 
 ## 1. Method
@@ -127,7 +129,7 @@ do complete_sale PREPARATION -> DELIVERED {
                                                               because dependent
   require inspected: all(r in check_records where r.required: r.result == Result.PASS)
                                                               because dependent
-  require invoiced: xero.invoice_valid(order_id) deferred     because dependent
+  require invoiced: xero.invoice_valid(order_id)              because dependent
 
   for s in slots where s.unit is not null limit 200 {
     call s.unit.sell()
@@ -146,7 +148,7 @@ Slot fill afterwards is a **derived view**, never stored: `derive fill = if unit
 
 ## 4. Proposed mechanisms
 
-Eight additions, each the smallest that closes a gap in §2.5 and §3 or a challenge in TODO.md. **Adopted in design iteration 1 as ADR-0019 (A and B), ADR-0020 (C), ADR-0021 (D), ADR-0022 (E), ADR-0023 (F), ADR-0024 (G) and ADR-0025 (H), pending author review.** The text below is retained as the worked rationale.
+Eight additions, each the smallest that closes a gap in §2.5 and §3 or a challenge in TODO.md. **Adopted in design iteration 1 as ADR-0019 (A and B), ADR-0020 (C), ADR-0021 (D), ADR-0022 (E), ADR-0023 (F), ADR-0024 (G) and ADR-0025 (H), accepted by the author on 2026-09-28, ADR-0025 superseded except its core.** The text below is retained as the worked rationale.
 
 ### A. Cascaded outcomes
 
@@ -208,7 +210,7 @@ A request carries an actor: an identity and the principal it acts for, whose kin
 | Engagement out and return | `Engagement` object with its own lifecycle; invariant one-open-per-unit (ADR-0009); `unit.leasable` derived (D) |
 | Lease-to-own | `Lease.convert` cascading `unit.convert_lease`, which is only-via (A, C) |
 | Retire an engaged unit | `unit.retire` cascading `engagement_line.close(reason)` (A) |
-| Xero-owned customer | Customer is an externally owned type with an external id, whose sync transitions Xero's sync requests (ADR-0080); `complete_sale` carries a deferred external guard (ADR-0008) |
+| Xero-owned customer | Customer is an externally owned type with an external id, whose sync transitions Xero's sync requests (ADR-0080); `complete_sale` carries an external guard (ADR-0008), consulted when the transition is requested |
 | Jira reflection, alerts | upper-layer applications pulling the event log (ADR-0105); overdue is a derived attribute queried by filtering its stored operand against the supplied time (ADR-0048). *(Corrected 2026-09-24, D348: this row said low stock was found by filtering the counter, but a unit is serial-tracked and a counter on a serial type is refused (check 31). Low stock is a per-model derivation counting the model's units in the first release and a metric flag per model after it, `data-driven-engine.md` §3.10.)* |
 | Split delivery | `create d2 = Delivery.open(…)` then `for s in inputs.slots limit 200 { call s.reparent(delivery := d2) }` (ADR-0046, ADR-0052). Exclusive membership holds at every instant |
 

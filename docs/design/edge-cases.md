@@ -13,7 +13,7 @@ Status: maintained by the design iterations; started 2026-09-07. Each entry says
 
 - **One unit becomes two, or two become one.** *Now covered by ADR-0046:* an outcome may create the new object, bind it to a name and re-parent parts to it. History stays on the originals, which is what a split means.
 - **Correcting the past.** Covered with caveat. History is immutable; a wrong delivery date is corrected by a recorded action that writes the corrected value with provenance `corrected` and a reason. The read surface shows the current value and the correction; nothing rewrites the earlier event.
-- **The physical world diverges from the record** (a unit is stolen, or found in a state the machine cannot reach). Covered: a declared asserting transition sets the state with provenance `asserted`, an actor and a reason (ADR-0040). It is a transition, recorded and gated on a capability, not a database edit.
+- **The physical world diverges from the record** (a unit is stolen, or found in a state the machine cannot reach). Covered: a declared asserting transition sets the state with provenance `asserted`, an actor and a reason (ADR-0040). It is a transition, recorded and requiring a reason, not a database edit; who may take it is the upper layer's (ADR-0114).
 - **Quantity-tracked consumables** (spare parts counted, not serialised). *Now covered by ADR-0050:* a type declares its tracking mode, and a slot declares which fill form it takes, so one delivery may carry a serialised robot and a counted quantity of cable ties.
 
 ## From issue tracking (iteration 2)
@@ -21,7 +21,7 @@ Status: maintained by the design iterations; started 2026-09-07. Each entry says
 - **Changing an object's type in place.** Not covered. A type has one machine; a history read under two machines is unreadable. Supersession (ADR-0028) creates the successor and links it.
 - **Splitting an issue into two with shared history.** *Now covered by ADR-0046* for the objects; history is still not shared, and each successor references the source.
 - **Gapless sequences.** Not covered. ADR-0029 sequences are monotonic and never reuse a value, but a rolled-back creation leaves a gap. A jurisdiction that requires gapless invoice numbers must assign the number in a later action, after the object exists, and accept that the assignment is serialised.
-- **Re-deriving what was allowed under an older declaration version.** Covered. Each event records the declaration version in force (ADR-0027), the rule set for that version remains printable, and each decision re-evaluates from its read set — the versions it read, its capability answers and its `now` — under the rules in force, as does each refusal from its read set and recorded request values (ADR-0088, ADR-0105). What no tool does is replay a historical request against a *different* version's rules. *(Corrected 2026-09-24, D324: this entry said no tool replays a historical request, which ADR-0088's read set made possible.)*
+- **Re-deriving what was allowed under an older declaration version.** Covered. Each event records the declaration version in force (ADR-0027), the rule set for that version remains printable, and each decision re-evaluates from its read set — the versions it read and its `now` — under the rules in force, as does each refusal from its read set and recorded request values (ADR-0088, ADR-0105). What no tool does is replay a historical request against a *different* version's rules. *(Corrected 2026-09-24, D324: this entry said no tool replays a historical request, which ADR-0088's read set made possible.)*
 - **Per-object read visibility** (issue-level security). *Covered by ADR-0030, then moved out of the engine by ADR-0114:* who may see which objects is the upper layer's, which narrows a read by passing a filter.
 
 ## From the expression language
@@ -44,7 +44,7 @@ Status: maintained by the design iterations; started 2026-09-07. Each entry says
 - **Very large cascades.** Covered with caveat. A placement that creates thousands of lines and reserves thousands of products is one transaction and one lock set; it will succeed, slowly, and hold locks meanwhile. Every loop and every cascade clause must state a bound (ADR-0071); a request exceeding one is refused with the `over-limit` verdict naming that loop (ADR-0041).
 - **Gapless order numbers.** Not covered; see iteration 2. A rolled-back placement leaves a gap in the sequence.
 - **Analytics over the whole log.** *Reversed by ADR-0081, 2026-09-23.* Declared metrics are in scope and computed on read (ADR-0084), with standard ones for every type. What stays out is open-ended exploration, which the engine feeds by export rather than performing. This entry used to say that questions about millions of events belong in a warehouse fed by a subscriber.
-- **Erasure across archived events.** Covered with caveat. ADR-0033's archival tiering must keep archived events reachable by ADR-0031 erasure, or archive only events that carry no personal attributes.
+- **Erasure across archived events.** Covered. ADR-0033's archival tiering keeps archived events reachable by ADR-0031 erasure; archiving only events that carry no personal attribute was the alternative, rejected because a later publish may mark an attribute personal (`storage-schema.md` §9).
 
 ## From approvals and bookings (iteration 5)
 

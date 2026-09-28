@@ -35,7 +35,7 @@ Each is a question two careful builders could answer differently, so their engin
 
 These are fully determined by the specification and wrong: each leaves an object stuck or does what its description says it does not.
 
-**D408, the robot inventory** (`unit-journey.md` §2, and the flow review's appendix, which carries the same module):
+**D408, the robot inventory** (`unit-journey.md` §2, and the flow review's appendix, which then carried the same module):
 1. `discard` keeps the unit's `peg`, and `peg_to` may be taken at `MISSING`: a unit pegged while missing and then discarded is `CANCELLED` and still pegged, so its delivery's `filled` never holds, and `Delivery.cancel` fails on `unpeg`, which a cancelled unit cannot take. The delivery can neither complete nor be cancelled.
 2. `accept_return` keeps `used_in`: a part consumed by a service job and returned is `AVAILABLE` and still the job's part, so `ServiceJob.void` fails on `unconsume` and binding it to a delivery breaks `one_claim`.
 3. `convert_lease` keeps the `binding` an internal delivery wrote, so revoking that delivery calls `unsell` on a unit sold by a lease; and `recall_internal` has no `home` guard, so it takes a unit on loan back to stock with its line still open.
@@ -59,7 +59,7 @@ These are fully determined by the specification and wrong: each leaves an object
 - A loop truncated at its limit: the prose refuses, and governs the schema's wording (D395 corrects the wording).
 - The order of guards and required inputs, and a traversal invariant re-checked when an object it reaches is written: settled by `flow-format.md` §4.8 and §6 and `declaration-syntax.md` §3.4.
 - Category lists that differ across an import: `flow-format.md` §4.1 has each module list the categories its states use, and the model's vocabulary is one across the closure, so they need not match.
-- Archiving an untouched work item counts as completing work (`declaration-syntax.md` §1): determined, and a question for the metrics rather than an ambiguity; `TODO.md` holds it.
+- Archiving an untouched work item counts as completing work (`declaration-syntax.md` §1): determined, and a question for the metrics rather than an ambiguity; settled 2026-09-28 by ADR-0128: work completes whatever the outcome.
 
 ## 5. The second review
 
@@ -71,7 +71,7 @@ Fresh readers checked the second round's findings against the text alone: all re
 
 ## 7. The fourth review
 
-Fresh readers found every third-round finding resolved. The Jira reader found all twenty flows fully determined, with no finding on a verdict; the inventory reader found 84 of 85 transitions determined in outcome, the exception two edge requests to the assertion. What remained was the assertion's guards and admissions and the order of a refusal's causes (D421), and wording that misled (D422), each now resolved. One finding is the author's to decide: a store with no legacy system has no way to create its first actor, since every request must name one (`TODO.md`). A fifth review checks the result (§8).
+Fresh readers found every third-round finding resolved. The Jira reader found all twenty flows fully determined, with no finding on a verdict; the inventory reader found 84 of 85 transitions determined in outcome, the exception two edge requests to the assertion. What remained was the assertion's guards and admissions and the order of a refusal's causes (D421), and wording that misled (D422), each now resolved. One finding is the author's to decide: a store with no legacy system has no way to create its first actor, since every request must name one (`TODO.md`). *(Decided by the author 2026-09-28 as ADR-0126: a store is created with its operator, the actor its first requests name.)* A fifth review checks the result (§8).
 
 ## 8. The fifth review
 
@@ -99,5 +99,5 @@ For the first time, neither reader found a finding on an outcome: every request'
 
 The Jira reader found nothing: all twenty flows and the shared people module fully determined, with no finding of any kind. The inventory reader found no finding on an outcome for the second round running, so both examples are recoverable in everything a request does: validity, whether it applies, and what it writes, creates, calls and cascades, with no object stuck. What remained was which objects some refusals name. Decision 39 kept a sentence of decision 38's that contradicts it, and it did not say whether a reference only compared is read (D441). One description misled (D442). ADR-0122, amended with decision 40, and corrections in place resolve each.
 
-**Where the reviews stand.** Over ten rounds, the findings moved from what a request does (rounds one to eight), to its remedy (five to eight), to the objects a refusal lists (eight to ten). The last are advice to a caller: no metric reads them, the attempt log keeps no column for them, only everything the request read, and its rollup's key does not hold them (`storage-schema.md` §6). Several of the late findings were this record's own rules, each written to close the round before; the rounds have converged on behaviour, and whether an eleventh checks decision 40 is the author's to decide.
+**Where the reviews stand.** Over ten rounds, the findings moved from what a request does (rounds one to eight), to its remedy (five to eight), to the objects a refusal lists (eight to ten). The last are advice to a caller: no metric reads them, the attempt log keeps no column for them, only everything the request read, and its rollup's key does not hold them (`storage-schema.md` §6). Several of the late findings were this record's own rules, each written to close the round before; the rounds have converged on behaviour, and whether an eleventh checks decision 40 is the author's to decide. *(Recorded in `TODO.md` on 2026-09-28, beside the other cold readings still to run.)*
 

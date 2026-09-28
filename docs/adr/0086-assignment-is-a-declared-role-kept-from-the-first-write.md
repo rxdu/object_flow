@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0096 — `.held(<member>)` attributes time to whoever held the work then, and cycle time by assignee is a standard metric. ADR-0098 — the assignment metrics are declared in declaration-syntax.md §6.11, with `.actor_id` for acting by someone other than the assignee. ADR-0106 — `.held` on a transition is the value before its writes. ADR-0110 — the `actor` identity names the kind of every actor of its type.
+- **Refined by:** ADR-0096 — `.held(<member>)` attributes time to whoever held the work then, and cycle time by assignee is a standard metric. ADR-0098 — the assignment metrics are declared in declaration-syntax.md §6.11, with `.actor_id` for acting by someone other than the assignee. ADR-0106 — `.held` on a transition is the value before its writes. ADR-0110 — the `actor` identity names the kind of every actor of its type. ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
 - **Refines:** ADR-0083
 
 ## Context
@@ -29,7 +29,7 @@ This is ADR-0083's index, widened from state to value. Absence is a value, so ti
 
 ### 4. The marking adds no write path
 
-Assignment is whatever declared transitions write the reference: a creation that `accepts engineer`, a `reassign` action. Each carries its own guards on who may assign and who may be assigned. "An agent may not be engineer-of-record" is such a guard.
+Assignment is whatever declared transitions write the reference: a creation that `accepts engineer`, a `reassign` action. Each carries its own guards on who may assign and who may be assigned. "An agent may not be engineer-of-record" is such a guard. *(Withdrawn by ADR-0114: no rule says who may assign or be assigned; an agent is not engineer-of-record because the reference names a person's type, PRD UC-22.)*
 
 ### 5. Every assignee dimension gets metrics without declaring any
 

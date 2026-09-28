@@ -1,6 +1,6 @@
 # The data-driven engine: design evaluation
 
-Draft, 2026-09-23, written at the author's direction and aligned with **revision 3** of [`../PRD.md`](../PRD.md) — whose requirements and nineteen use cases it evaluates designs against. *(Amended 2026-09-24, D317, D318: revision 4 added the engine's position as a governed core, N6, L6 and UC-20, and revision 5 made the PRD agree with itself, which changed its release order, its definition of a metric, M1, M4, M6 and UC-19. This document first said those revisions changed none of its evaluations. They changed some: §9's release map is rewritten against revision 5, and every other evaluation a later revision or decision changed is marked where it stands.)* This document owns the **evaluation**: for each design question, the options considered, how each fared against the use cases, and why the chosen one was chosen. The **decisions** are ADR-0081 to ADR-0086, which own them; where this document and an ADR disagree, the ADR wins. §11 says what changed when the PRD was revised.
+Draft, 2026-09-23, written at the author's direction and aligned with **revision 3** of [`../PRD.md`](../PRD.md) — whose requirements and nineteen use cases it evaluates designs against. *(Amended 2026-09-24, D317, D318: revision 4 added the engine's position as a governed core, N6 and UC-20, and revision 5 made the PRD agree with itself, adding L6, which changed its release order, its definition of a metric, M1, M4, M6 and UC-19. This document first said those revisions changed none of its evaluations. They changed some: §9's release map is rewritten against revision 5, and every other evaluation a later revision or decision changed is marked where it stands.)* This document owns the **evaluation**: for each design question, the options considered, how each fared against the use cases, and why the chosen one was chosen. The **decisions** are ADR-0081 to ADR-0086, which own them; where this document and an ADR disagree, the ADR wins. §11 says what changed when the PRD was revised.
 
 *(Amended 2026-09-25 for ADR-0114: this evaluation assumed the engine applied visibility to every read and checked capabilities, including who may label, draft and approve a change. ADR-0114 moved both to the upper layers. The rows below that rest on them record the design as it was evaluated; `DESIGN.md` states the model as it now stands.)*
 
@@ -28,7 +28,7 @@ Draft, 2026-09-23, written at the author's direction and aligned with **revision
 │                                │    would-be refusals, prunable   │
 ├────────────────────────────────┴─────────────────────────────────┤
 │ metrics: declared formulas, computed on read over both halves,   │
-│ under the reader's visibility                                     │
+│ under the reader's visibility (withdrawn by ADR-0114)             │
 └──────────────────────────────────────────────────────────────────┘
                    PostgreSQL / SQLite, one store
 ```
@@ -43,7 +43,7 @@ Ten questions. For each, the options are the obvious designs plus any the existi
 
 Where the PRD marks a requirement as resting on a hypothetical use case (L5, UC-10) or as not yet verifiable (C5), the evaluation says so where it relies on it, and does not score options against it as though it had evidence.
 
-Five of the PRD's fifty-two requirements *(fifty-four since revision 4 added N6 and L6, which ADR-0104 and ADR-0105 meet)* are touched by no question here. F1, F4 and F5 are met by the existing design and no decision below changes them, T2 is an assumption rather than a behaviour, and N4, the adversarial harness, is how every decision below is eventually tested rather than something a decision could meet.
+Five of the PRD's fifty-two requirements *(fifty-four since revisions 4 and 5 added N6 and L6, which ADR-0104 and ADR-0105 meet; corrected 2026-09-28, D470: this said revision 4 added both)* are touched by no question here. F1, F4 and F5 are met by the existing design and no decision below changes them, T2 is an assumption rather than a behaviour, and N4, the adversarial harness, is how every decision below is eventually tested rather than something a decision could meet.
 
 Two claims below were probed rather than reasoned, in keeping with the lesson about unprobed database claims: the smallest flow the checker accepts (§3.6), and a percentile computed without a percentile function on SQLite 3.37.2 (§3.4).
 
@@ -136,7 +136,7 @@ C cannot show UC-2's pattern of one agent repeating the same refused request.
 
 **Decided: B** (ADR-0083). One row per request that returned anything but *satisfied*, written in its own short transaction after the request's rolls back. It holds the time; the actor's id, kind and principal; the context; the type, and the object if there is one; the transition; the verdict kind; the failing clause, its remedy class, and whether it was unknown; and the declaration version. The two faults a caller causes, `UnknownTransition` and `KeyReused`, are recorded too.
 
-- **Inputs are never recorded**, so the attempt log holds no personal value and erasure has nothing to do there.
+- **Inputs are never recorded**, so the attempt log holds no personal value and erasure has nothing to do there. *(Superseded by ADR-0105, which keeps a refusal's non-personal inputs and names the personal ones as withheld, and qualified by ADR-0125, which keeps the identity an unknown actor's request named (`DESIGN.md` §8, known limits).)*
 - **It is not history.** `history` does not return it, and subscriptions do not deliver it.
 - **It is pruned.** A deployment keeps it for a retention period, with monthly rollups kept permanently, which is T3's clause for refusal records. *(ADR-0096 and ADR-0100: the rollups are daily, per object and per version, written by `maintain`'s prune in the same transaction, and read by the `<Type>.attempt_counts` source.)*
 - **It is written outside the request's transaction**, the second thing that is after the sequence mint (`storage-schema.md` §6). A crash between the rollback and the write loses one row of evidence and no history.
@@ -340,7 +340,7 @@ Touches D10, D11, M6, L3 and N5; UC-18.
 **Decided: C** (ADR-0086, with ADR-0083's intervals widened).
 
 - **Value intervals.** The interval index covers state, every enum attribute and every singular stored reference: who, where, and which bucket. Absence is a value, so time unassigned is an interval like any other. Numbers and free text are not tracked: their changes are in the events, but time-in-value over a price is not a question anyone asks, and a text field changes too freely to have meaningful intervals. Set-valued references, such as a team, are left open, as D11 now says (§10).
-- **The `assignee` marking.** `ref engineer : User assignee` goes on a singular reference to a type that marks one `identity` attribute as the actor's id, for example `attr login : identity actor`. A type may mark more than one reference, and each is its own dimension, named by the reference. The marking adds no write path. Assignment is whatever transitions write the reference — a creation that `accepts engineer`, a `reassign` action — each with its own guards on who may assign and who may be assigned. The first consumer's rule that an agent may not be engineer-of-record is one such guard.
+- **The `assignee` marking.** `ref engineer : User assignee` goes on a singular reference to a type that marks one `identity` attribute as the actor's id, for example `attr login : identity actor`. A type may mark more than one reference, and each is its own dimension, named by the reference. The marking adds no write path. Assignment is whatever transitions write the reference — a creation that `accepts engineer`, a `reassign` action — each with its own guards on who may assign and who may be assigned. The first consumer's rule that an agent may not be engineer-of-record is one such guard. *(Superseded by ADR-0114: who may assign and who may be assigned is the upper layer's (`DESIGN.md` §5.8), and an agent cannot be engineer-of-record because the reference names a person's type, not by a guard (PRD UC-22).)*
 - **Generated metrics (M6).** For each assignee dimension:
   - open work per assignee;
   - time unassigned;
@@ -471,7 +471,7 @@ Accepted 2026-09-23, and every change below was made the same day. The syntax to
 
 ## 9. Release order, mapped
 
-The PRD's three releases (§10), with what each needs from the decisions above.
+The PRD's three releases (§10), with what each needs from the decisions above. *(Superseded 2026-09-28, D470: this map was cut against PRD revision 5, and PRD §10.2, since revision 9, is the release order — F9 and external evaluators in the first release, N5 out of it and the import scheduled apart. The map is kept for what each release needed from these decisions; where it and PRD §10.2 disagree on scope, §10.2 holds.)*
 
 | Release | PRD scope | Decisions it needs | Why this order |
 |---|---|---|---|

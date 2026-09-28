@@ -2,7 +2,7 @@
 
 Draft, 2026-09-09, amended 2026-09-23. The request and verdict shapes of [`../DESIGN.md`](../DESIGN.md) §6 and the read surface of §10, as one interface a program calls. Transport bindings come after and are not here.
 
-**Amended 2026-09-25** for ADR-0110: the engine is deployed as an internal service, which exposes these operations one-to-one; the actor descriptor carries no kind, which the store takes from the declared type holding the actor, and an actor who is not live is refused as `actor_live`; `EngineMismatch` joins the faults.
+**Amended 2026-09-25** for ADR-0110: the engine is deployed as an internal service, which exposes these operations one-to-one; the actor descriptor carries no kind, which the store takes from the declared type holding the actor, and an actor who is not live is refused as `actor_live` *(withdrawn the same day by ADR-0114: liveness is not checked, and a departed actor's request is recorded as theirs)*; `EngineMismatch` joins the faults.
 
 **Amended 2026-09-25** for ADR-0111 and ADR-0112: a `Flag`, which `Satisfied`, a `TransitionOffer` and an `Event` carry and an `Attempt` marks `flagged`; and `MetricPage.refused` for a reader outside a metric's audience.
 
@@ -26,7 +26,7 @@ Draft, 2026-09-09, amended 2026-09-23. The request and verdict shapes of [`../DE
 
 The core is library-shaped: a call goes in, guards evaluate, a transition and its record come out (§2 of the model). The first consumer is a FastAPI and SQLAlchemy system being rebuilt on this, so a Python interface is the one that will be exercised first and is the one written here.
 
-Since ADR-0110 this interface is what the engine's internal service exposes, one-to-one, and what the adversarial harness drives; callers in other languages reach it through the service, not through bindings. That is a **binding**, not the design. The operations, their arguments and their results are the API; the dataclasses are one rendering of it. A second binding should offer the same nineteen operations with the same meanings, and the checker's comparison against §10 is written against the operation set rather than against Python.
+Since ADR-0110 this interface is what the engine's internal service exposes, one-to-one, and what the adversarial harness drives, in Rust against the core in process (ADR-0132); callers in other languages reach it through the service, not through bindings. That is a **binding**, not the design. The operations, their arguments and their results are the API; the dataclasses are one rendering of it. A second binding should offer the same nineteen operations with the same meanings, and the checker's comparison against §10 is written against the operation set rather than against Python.
 
 ## 2. Three rules the shapes follow
 
@@ -52,8 +52,9 @@ class ActorKind(Enum):
     HUMAN = "human"
     AGENT = "agent"
     SERVICE = "service"
-    UNKNOWN = "unknown"   # a legacy row whose record names no actor; never a
-                          # request's actor, and refused as one (ADR-0106)
+    UNKNOWN = "unknown"   # a legacy row whose record names no actor, or the attempt of a
+                          # request naming an actor the store does not hold, which is
+                          # refused; never an applied request's actor (ADR-0106, ADR-0125)
 
 
 @dataclass(frozen=True)
@@ -118,11 +119,11 @@ class EvaluatorSource(Protocol):
 
 A creation names a `type` and no `object_id`; every other transition names an `object_id`. `expected_version` is the optimistic check of ADR-0023, `idempotency_key` makes a retry safe by replaying the first result rather than refusing it (ADR-0041), for as long as the store's idempotency retention keeps the record (ADR-0103), and `context` is the caller's statement of why the request was sent and by which route — for an upper-layer application, the rule or job that caused it, such as `ops-app/sweep:leases-overdue` — recorded in the event's provenance and on an attempt row, and what PRD UC-20's "recorded with its reason" reads (ADR-0105). A request carrying both a key and an `expected_version` is matched on its key first: a replay returns the recorded verdict whatever version the retry supplies, and `Stale` is possible only for a request that has not been applied (ADR-0076). `occurred_at` is accepted by a transition marked backdatable and by an observation kind's `record`, and is checked by the generated guard `occurred_within`, so a time outside the bound is refused naming that clause (ADR-0083, ADR-0099). An upper layer that requires some kinds of actor to send a version and a key enforces it at its own edge (ADR-0114, withdrawing ADR-0103's `requests by`); `publish` keeps its own required `expected_version`.
 
-A store is built from a backend, an `IdSource`, a `Clock`, a `ConnectionSource` and an `EvaluatorSource`, all injected, and the deployment's attempt retention and idempotency retention, the durations `maintain` will not prune inside (ADR-0101, ADR-0103); so a test controls everything nondeterministic about a request (ADR-0077, ADR-0091). The core is **synchronous**: an operation runs to completion on its caller's thread, and an asynchronous service such as the first consumer's wraps it on a thread pool.
+A store is built from a backend, an `IdSource`, a `Clock`, a `ConnectionSource` and an `EvaluatorSource`, all injected, and the deployment's attempt retention and idempotency retention, the durations `maintain` will not prune inside (ADR-0101, ADR-0103); so a test controls everything nondeterministic about a request (ADR-0077, ADR-0091). The core is **synchronous**: an operation runs to completion on its caller's thread, and the engine's HTTP service, the one asynchronous layer, wraps it (ADR-0132).
 
 ## 4. The verdict
 
-One of seven, and the caller must handle all seven. A `match` over them is exhaustive by construction, which is the reason for a union of frozen shapes rather than one class with an optional field per outcome.
+One of eleven, and the caller must handle all eleven. A `match` over them is exhaustive by construction, which is the reason for a union of frozen shapes rather than one class with an optional field per outcome.
 
 ```python
 
@@ -331,7 +332,7 @@ class Event:
     cause: int | None
     declaration_version: int
     taint_version: int
-    txn: str                              # the writing transaction (ADR-0089)
+    txn: int                              # the writing transaction, a number (ADR-0089, ADR-0106)
     recorded_at: datetime
     occurred_at: datetime | None          # when a backdated change happened (ADR-0083)
     retries: int                          # serialisation retries its request took
@@ -398,6 +399,8 @@ class Diagnostic:
     kind: str                             # e.g. "unused_transition", "top_refusal", "reassignment_loop"
     subject: str                          # the transition, state, clause, label or assignee it concerns
     measure: Any                          # the count, duration or rate that put it on the list
+    names_actor: bool = False             # the subject names an actor, as a marked dimension
+                                          # does, so an upper layer can keep it behind its door (D451)
 
 
 @dataclass(frozen=True)
@@ -580,7 +583,7 @@ class Store(Protocol):
     def get(self, actor: Actor, id: str, follow: bool = False) -> Object | None: ...
 
     def query(self, actor: Actor, type: str, filter: str | None = None,
-              order: str | None = None, cursor: str | None = None,
+              order: str | Sequence[str] | None = None, cursor: str | None = None,
               fields: Sequence[str] | None = None) -> Page: ...
 
     def lookup(self, actor: Actor, source: str, value: str) -> Object | None: ...
@@ -643,7 +646,7 @@ Nineteen operations: the sixteen of §10, the write path of §6, and the operati
 - `pull` and `acknowledge` take a subscription's id; who may use one is the upper layer's (ADR-0114). The core posts nothing: a relay that posts to an endpoint is an upper-layer application pulling as its own actor (ADR-0105).
 - `get` and `query` evaluate a derived attribute that reads other objects over every object it reads (ADR-0114). `query` accepts a time-dependent derived attribute the publish report lists as queryable, and filters on the stored operand it compares against `now` (ADR-0048).
 - `history`, `pull` and `export` return the `reads` and `consulted` of an event or an attempt whole, and a refusal's `Unsatisfied.consulted` gives its requester the value it was decided on (ADR-0114).
-- A `Page` of objects ascends by object id unless `query` names an `order`, a key or a list of keys, each an indexed attribute, `created_at` or `entered_at(<tracked member>)`, ascending unless marked `desc`, with the id breaking ties; a `MetricPage` ascends by the dimensions kept, in the order `keep` names them (ADR-0127).
+- A `Page` of objects ascends by object id unless `query` names an `order`, a key or a list of keys, each an indexed attribute, `created_at` or `entered_at(<tracked member>)`, ascending unless marked `desc`, with the id breaking ties and an absent value last; a `MetricPage` ascends by the dimensions kept, in the order `keep` names them, or by the declared dimensions in their declared order when `keep` is none, a time bucket in time order and an absent value last (ADR-0127).
 - `metric` aggregates every row its source selects, after narrowing them by `filter`, which is how an upper layer scopes a read to what its user may see (PRD C2, M2, T5, ADR-0114).
 - `declaration(type)` marks every metric dimension whose value names an actor, so an upper layer can put reads that keep one, bind it or filter on the value it reads behind its own door, since each gives a person's figure (PRD T7, ADR-0114, D451).
 - Creating a store is not an operation of this protocol. It installs version 0 and the store's operator, named by the identity the creation is given, and the first `publish` or `import_batch` names that operator as its actor (ADR-0126).
@@ -659,25 +662,24 @@ Three of them are worth reading twice.
 
 ## 7. What is an exception
 
-Everything in §4 is a value. These are the six things that raise, and the list is closed so that a second binding cannot differ on it.
+Everything in §4 is a value. These are the five things that raise, and the list is closed so that a second binding cannot differ on it.
 
 | Raised | When |
 |---|---|
 | `DeclarationError` | the installed declaration will not load. A store is created at declaration version 0, holding the built-ins, so there is always one installed (ADR-0105) |
-| `UnknownTransition` | the named transition does not exist on that type in the current version. Not a verdict, because a verdict answers "may I", and this is "there is no such thing" |
 | `StorageUnavailable` | the database is unreachable, or a transaction failed for a reason that is neither a serialisation conflict nor, on SQLite, a busy timeout. Both of those are retried and then become `stale`, which is a verdict (ADR-0090) |
 | `SchemaMismatch` | the installed declaration and the tables disagree, which means a publish did not complete |
 | `EngineMismatch` | the store records a different engine release from this core's: an upgrade has run, or is due, and this copy of the service must be replaced. Every request reads the release in its transaction, so no two releases serve one store at once (ADR-0110) |
 | `KeyReused` | this actor applied the idempotency key before, to a different request. A retry is the same request, so a different body under a used key is a defect in the caller's key generation, and neither replaying the other request's result nor applying this one under its key would be honest (ADR-0077) |
 
-Note what is not there. An unknown object id is `NotFound`, and a malformed input is `Unsatisfied` on the guard that reads it. Those are answers about the domain and the caller must handle them, so they are values. `UnknownTransition` and `KeyReused` are faults, and each is also recorded in the attempt log, since both are mistakes a caller makes (ADR-0083).
+Note what is not there. An unknown object id is `NotFound`, a transition the type does not declare is `UnknownTransition`, and a malformed input is `InvalidInput` (ADR-0122). Those are answers about the request that the caller must handle, so they are values. `KeyReused` is a fault, and it is also recorded in the attempt log, with the remedy `self_serviceable` (ADR-0105), since it is a mistake a caller makes (ADR-0083). *(Corrected 2026-09-28, D466: this section listed `UnknownTransition` among the exceptions, as the first draft had it, after ADR-0122 made it a verdict, and gave a malformed input as `Unsatisfied`.)*
 
 ## 8. Decided since the first draft
 
 Each followed from a decision the record already carried, or from what the design made unavoidable.
 
 - **Streaming stays as it is:** an iterator for `history`, a page for everything else. History is the only unbounded result, and a cursor is what a caller can hold across a request boundary while an iterator is not.
-- **The declaration is loaded from the store**, not from a file. `publish` writes it to `of_declaration` and a starting process reads the installed version, which keeps a recorded event's declaration version resolvable and makes a process that disagrees with the store impossible rather than unlikely. The `.of` files stay in version control as the input to a publish.
+- **The declaration is loaded from the store**, not from a file. `publish` writes it to `of_declaration` and a starting process reads the installed version, which keeps a recorded event's declaration version resolvable and makes a process that disagrees with the store impossible rather than unlikely. The flow descriptions stay in version control as the input to a publish (ADR-0131), and a change is to record the source reference it was drafted from, which is still to be designed (`TODO.md`).
 - **The exception list is closed** at the five of §7.
-- **The core is synchronous** (ADR-0091). The asynchronous question this section once left open is settled: a synchronous core with an asynchronous wrapper for the first consumer's FastAPI service, and the connection source injected, which is what the harness needs to interleave requests at statement boundaries.
+- **The core is synchronous** (ADR-0091). The asynchronous question this section once left open is settled: a synchronous core with the engine's HTTP service as its asynchronous layer (ADR-0132), and the connection source injected, which is what the harness needs to interleave requests at statement boundaries.
 - **Cursors are opaque strings.** A settled cursor encodes a (transaction, position) pair on PostgreSQL and a position on SQLite, and a caller never parses it (ADR-0089).

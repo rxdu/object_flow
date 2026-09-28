@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-25 ("yes to all four, go ahead and write them"), against `docs/PRD.md` revision 9: M7, L4 and UC-12.
 - **Date:** 2026-09-25
+- **Refined by:** ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
 - **Refines:** ADR-0084 (metrics and the rules that read them)
 - **Relates to:** ADR-0104 (managing the flow is an upper layer's), `design/first-consumer-prd-check.md` §3.2
 
@@ -19,7 +20,7 @@ A condition then compares against the attribute, exactly as it compares against 
 
 ## Alternatives rejected
 
-- **A condition, derivation or flag that reads the metric directly.** Check 56 forbids it for the reasons above. It would also recompute a metric over every row for every object read, and make a derived value depend on rows its reader may not see (T5).
+- **A condition, derivation or flag that reads the metric directly.** Check 56 forbids it for the reasons above. It would also recompute a metric over every row for every object read, and make a derived value depend on rows its reader may not see (T5). *(ADR-0114 later removed visibility, so the reason about rows its reader may not see no longer applies; the others stand.)*
 - **A metric's `flag` comparing against another metric.** That works for a flag over the metric's own rows, not for a condition on one object. It may be added later for that narrower use.
 - **Fixed values only.** M7 now names the observed norm, and the case study depends on it.
 

@@ -51,7 +51,7 @@ Through the subject's part, which guards read, and as a metric's source alike, a
 
 ### 6. An observation kind's shape is fixed by checks
 
-- `recorded by` is mandatory, since a kind anyone could record would let a gate that reads it be opened by anyone (UC-19).
+- `recorded by` is mandatory, since a kind anyone could record would let a gate that reads it be opened by anyone (UC-19). *(Withdrawn by ADR-0114: `recorded by` is gone; who may record a kind is the upper layer's, and the record says who did, PRD UC-19.)*
 - The subject declares exactly one set-valued part of the kind, with `inverse subject`, since that part is what erasure and `changed_since` reach.
 - `occurred within` is optional. Omitted, the occurred time is the recorded time.
 

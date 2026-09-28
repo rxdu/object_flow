@@ -239,7 +239,7 @@ def check_declarations():
     # the metric scenarios: their history replays against the modules, and every value they quote holds
     r = subprocess.run([sys.executable, str(ROOT / "scripts/check-scenarios.py")], capture_output=True, text=True)
     if r.returncode != 0:
-        findings += [line.strip() for line in r.stdout.splitlines() if line.startswith("  docs/") or "MISSED" in line]
+        findings.extend([line.strip() for line in r.stdout.splitlines() if line.startswith("  docs/") or "MISSED" in line])
         findings.append("run scripts/check-scenarios.py: " + (r.stdout.strip().splitlines() or ["no output"])[-1])
 
 

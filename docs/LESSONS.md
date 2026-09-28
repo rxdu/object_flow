@@ -243,3 +243,22 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** On 2026-09-27 ADR-0124's draft said "every standard combined metric groups by five dimensions", and `refusal_rate` is the only standard combined metric; a search caught it before the commit. The same hour, `metric-scenarios.md` §33 said `User.leave` has no guard "as the journey's own prose says", and `grep … | cut -c1-300` over `unit-journey.md` showed no such prose, so the claim was judged invented and rewritten, committed, and reported to the author as a caught mistake. The prose was there: the sentence sits past character 300 of a paragraph written on one line, as every paragraph here is. The retraction was the error, and was undone on 2026-09-28.
 - **Correction:** For every "as X says", "X declares" or "every Y", search X or the list of Y before writing the sentence, and narrow a generalisation to the cases it was checked against. Before concluding that a document does *not* say something, search with a command that cannot hide a match: `grep -o '<phrase>'` or `grep -c`, never output cut to a width, since one-line paragraphs put most text past any cut.
 - **Context:** Findings sections, ADRs and register entries, which readers take as sourced, and any search in this repository's Markdown.
+- **Recurred** 2026-09-28: ADR-0134's draft decided a reused key's remedy as though none existed, and ADR-0105 §6 had decided it; a reader of the decision records caught it before the commit. A claim that something is undecided is a claim about every decision record, and is searched for across `docs/adr/` first.
+
+### A changed rule is searched for by its old wording across the record, not only edited where the decision names it
+
+- **Pattern:** On 2026-09-28 ADR-0133 widened check 60 from "a type taking part in supersession" to "every type with a personal attribute". Its consequences named the check tables, and those were edited, but `declaration-syntax.md` §6.4 still called an erasure optional, and `flow-format.md` §4.19 and `DESIGN.md` §8 still scoped the rule to supersession. The coherence review found it the same day (D462), two readers independently.
+- **Correction:** When a decision changes a rule, search the whole record for the old rule's distinctive words (here "supersession" beside "erase") before committing, and fix or mark every hit. A decision's list of consequences is where the author of the decision thought the rule lived, not where it lives.
+- **Context:** Any ADR that changes a rule stated in more than one document, especially `DESIGN.md`, the syntax, the format and their check tables.
+
+### A whole-record review is split so that every document has a reader, and the split is checked against the file list
+
+- **Pattern:** On 2026-09-28 the coherence review was planned with a slice for the decision records from ADR-0078 on, and the briefs as sent gave that slice's reader the case studies instead. No reader had the records, and a sweep after the fixes found twelve of ADR-0081 to ADR-0113 mentioning capabilities or visibility without ADR-0114.
+- **Correction:** Before launching the readers, list every file the review covers and tick each off against the briefs; a document no brief names is a gap in the review, not a document found clean.
+- **Context:** Reviews delegated in slices, in this repository and elsewhere.
+
+### An exit status is captured before anything else runs
+
+- **Pattern:** On 2026-09-28 a loop ran every check as `python3 $s > out; echo "$(basename $s) exit=$?"`. The command substitution runs `basename` before `$?` expands, so every script reported `exit=0`, and a corpus check with two findings read as passing. It was caught only because a reader ran the check on its own.
+- **Correction:** Capture the status on the next statement, `python3 $s > out; rc=$?`, and read each output's last lines as well as its status.
+- **Context:** Shell loops over the check scripts, and any loop that reports a status.

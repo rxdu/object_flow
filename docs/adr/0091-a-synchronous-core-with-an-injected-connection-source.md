@@ -15,7 +15,7 @@ D209 found that it could not. `Store.request` is synchronous and runs to complet
 
 ### 1. The core is synchronous
 
-`request` and every read run to completion on the calling thread. The first consumer's FastAPI service uses a thin asynchronous wrapper that runs requests on a thread pool. Both backends have mature synchronous drivers, and SQLite has only synchronous ones.
+`request` and every read run to completion on the calling thread. The first consumer's FastAPI service uses a thin asynchronous wrapper that runs requests on a thread pool. Both backends have mature synchronous drivers, and SQLite has only synchronous ones. *(Superseded by ADR-0110 and ADR-0132: no caller embeds the core, and the engine's own HTTP service is its one asynchronous layer.)*
 
 ### 2. The store takes its connection source as an injected dependency
 

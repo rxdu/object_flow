@@ -17,7 +17,7 @@ Draft, 2026-09-09, amended 2026-09-23. The stage order for `~/RduWs/wr_inventory
 | In that schema | Here |
 |---|---|
 | seven photo tables | set-valued `file[]` attributes on their parents, not types |
-| six association tables | a derived relationship end, or an association type where the link carries payload |
+| seven association tables | a derived relationship end, or an association type where the link carries payload |
 | `audit_logs` | the event log. Not a type at all |
 | `token_blacklist`, `idempotency_keys`, `system_settings` | infrastructure the store either owns or does not hold |
 | `notes` | one of three, depending on whether a note outlives its subject and whether it must be pinned: a `part` owned by an abstract base the eleven noted types extend; a type of its own with a reference to what it notes; or a label, which cannot be pinned and whose note is personal. Ported as labels, the notes count as unmodelled information for PRD V2; as a part or a type, they do not. This row is where the options are stated (D324) |
@@ -42,7 +42,7 @@ Seven stages, 42 components. Referrers first, most-referenced last.
 
 | Stage | Tables |
 |---|---|
-| 1 | the seven photo tables, the six association tables, `audit_logs`, `notes`, `service_part`, `packing_lists`, `api_keys`, `token_blacklist`, `idempotency_keys` — 21 in all, nothing references them |
+| 1 | the seven photo tables, the seven association tables, `audit_logs`, `notes`, `service_part`, `packing_lists`, `api_keys`, `token_blacklist`, `idempotency_keys` — 21 in all, nothing references them. *(Corrected 2026-09-28, D472: this said six association tables, which made twenty. The source declares seven tables that link two others — `accessory_compatible_robots`, `configuration_items`, `configuration_non_inventoried_items`, `non_inventoried_item_compatible_robots`, `robotaccessory`, `spare_part_compatible_robots` and `warranty_product_robot_models` — and the 45 tables and 42 components count all seven, found by listing `__tablename__` and `Table(` in `wr:app`.)* |
 | 2 | `intake_items`, `non_inventoried_items`, `service_warranty_usage`, `stock_sizes`, `system_settings` |
 | 3 | `intake_batches`, `service`, `warranty_contracts` |
 | 4 | `label_templates`, `users`, and the cycle of §2 |

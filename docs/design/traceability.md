@@ -28,7 +28,7 @@ Covered is a claim about the design, not about software: nothing here is impleme
 
 - The same day, revision 5 made the PRD agree with itself; it added L6, the events upper-layer applications observe, which the design already met (DESIGN §7).
 
-- The same day, five readers checked the whole record against revision 5, one slice each, and every row was re-traced. They found sixty-four defects, D290 to D353. ADR-0105 and ADR-0106 decided the ones that needed a decision, and the rest were corrected in place. Three requirements cannot hold as written against what the design can build, and PRD §12 now proposes their revision: D11, which asks for multi-choice attributes to be tracked as a team is not; L1, which asks rules to read labels; and N5, which asks for values the store has no object for to be preserved. Rows UC-7, UC-13, UC-19 and UC-20 gained the citations the re-trace found missing. UC-20's acceptance is given declarations that record the facts it asks about: two of its five questions — which units bought for an order still wait for it, and which deliveries may be marked ready — need `procured_for` and `mark_ready`, which the flow review declares (`flow-review.md` §8) and the author has yet to decide on (§7).
+- The same day, five readers checked the whole record against revision 5, one slice each, and every row was re-traced. They found sixty-four defects, D290 to D353. ADR-0105 and ADR-0106 decided the ones that needed a decision, and the rest were corrected in place. Three requirements cannot hold as written against what the design can build, and PRD §12 now proposes their revision: D11, which asks for multi-choice attributes to be tracked as a team is not; L1, which asks rules to read labels; and N5, which asks for values the store has no object for to be preserved. Rows UC-7, UC-13, UC-19 and UC-20 gained the citations the re-trace found missing. UC-20's acceptance is given declarations that record the facts it asks about: two of its five questions — which units bought for an order still wait for it, and which deliveries may be marked ready — need `procured_for` and `mark_ready`, which the flow review declares (`flow-review.md` §8) and the author has yet to decide on (§7). *(Closed 2026-09-28: the author made the review's decisions 2 to 7 the operations platform's own (`flow-review.md` §7), and UC-20's checked scenario installs the two as its own version 14 (`metric-scenarios.md` §36).)*
 
 An independent verification of the two decisions then found that D5 is met neither for labels nor for overrides, which the first pass had marked covered (D362); PRD §12 proposes D5's revision too.
 
@@ -46,29 +46,33 @@ The same day the first-consumer check (`first-consumer-prd-check.md`), treated a
 
 The same day the author decided that ObjectFlow records who acted and never evaluates it, which became PRD revision 10 and ADR-0114. F1, F7, D6, D12, C2, M2, T1, T5, T6, T7 and N7 were rewritten and UC-10, UC-11, UC-15, UC-19, UC-22 and UC-24 changed their acceptance. Every one of them is met by the engine doing less: the rows now cite ADR-0114 and the sections that state the new boundary, and those that cited ADR-0030 or ADR-0112, both superseded, no longer do.
 
+The same day the author said the core's language, Rust (ADR-0132), and accepted what PRD revisions 11 to 14 record: the calendar non-goal kept, seven Inferred rows accepted, machine telemetry out of scope and N5's archive withdrawn, and an agent the default drafter. ADR-0115 to ADR-0133, among them the flow description format (ADR-0116), how flows are authored (ADR-0131) and the metric rules of ADR-0123 to ADR-0129, changed no row's status; F1, F5, F6, D3, D8, T3, T6, N7 and UC-17 now cite them.
+
+On 2026-09-28 a review read the requirements and design whole, in six slices and then the decision records from ADR-0081 on, for whether they still agree, and found D462 to D477. ADR-0134 decided the two that needed a choice: the operator's creation attributed to the operator, and an erasure required of a type taking a personal input. PRD revision 15 made the PRD agree with itself, and §12 now proposes two revisions, F7 a Must and T6's wording, which the design meets; every row stays covered.
+
 Current: 82 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goals are not rows here; G4 is met through C2's.
 
 ## Requirements
 
 | ID | Covered by | Status | What remains |
 |---|---|---|---|
-| F1 | DESIGN §5.8, §5.9, §10; ADR-0010; renderers.md §2, §3; declaration-syntax.md §1, §6.8, §6.9, §8.1; ADR-0105; storage-schema.md §6; ADR-0109; publish-and-import.md §2; ADR-0114 | covered | |
+| F1 | DESIGN §5.8, §5.9, §10; ADR-0010; renderers.md §2, §3; declaration-syntax.md §1, §6.8, §6.9, §8.1; ADR-0105; storage-schema.md §6; ADR-0109; publish-and-import.md §2; ADR-0114; ADR-0116, ADR-0131; flow-format.md §1, §4, §7 | covered | |
 | F2 | DESIGN §1, §3, §5.9, §6, §8; ADR-0040, ADR-0042, ADR-0054; library-api.md §6; ADR-0105; publish-and-import.md §3 | covered | |
 | F3 | DESIGN §5.8, §10; ADR-0025, ADR-0037; library-api.md §6; ADR-0099; declaration-syntax.md §1; ADR-0103 | covered |  |
 | F4 | DESIGN §5.5; ADR-0090, ADR-0092; library-api.md §4; ADR-0105 | covered | |
-| F5 | DESIGN §5.9; ADR-0027; publish-and-import.md §3; ADR-0099; declaration-syntax.md §6.6; ADR-0101; ADR-0105 | covered |  |
-| F6 | DESIGN §9; ADR-0085; publish-and-import.md §1; ADR-0097 | covered |  |
+| F5 | DESIGN §5.9; ADR-0027; publish-and-import.md §3; ADR-0099; declaration-syntax.md §6.6; ADR-0101; ADR-0105; ADR-0131; flow-format.md §4.16 | covered |  |
+| F6 | DESIGN §9; ADR-0085; publish-and-import.md §1; ADR-0097; ADR-0131 | covered |  |
 | F7 | DESIGN §5.9, §9; ADR-0085, ADR-0096; publish-and-import.md §1, §2; storage-schema.md §6; ADR-0097; ADR-0101; ADR-0114 | covered |  |
 | F8 | DESIGN §5.4, §6, §12; ADR-0012, ADR-0019, ADR-0020, ADR-0038, ADR-0108; declaration-syntax.md §5.2; renderers.md §2; library-api.md §6 | covered | |
 | F9 | DESIGN §5.5, §6, §13; ADR-0085, ADR-0111; declaration-syntax.md §5.1, §6.11; library-api.md §4, §5; storage-schema.md §4, §6; renderers.md §2, §4; adversarial-harness.md §1 | covered | |
 | D1 | DESIGN §7; ADR-0013, ADR-0033; storage-schema.md §2 | covered | |
 | D2 | DESIGN §6, §7; ADR-0083, ADR-0088; storage-schema.md §6 | covered | |
-| D3 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; storage-schema.md §3; renderers.md §3; ADR-0099 | covered |  |
+| D3 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; storage-schema.md §3; renderers.md §3; ADR-0099; flow-format.md §4.4 | covered |  |
 | D4 | DESIGN §5.11; ADR-0082, ADR-0095, ADR-0096; declaration-syntax.md §6.8; storage-schema.md §3; ADR-0101 | covered |  |
 | D5 | DESIGN §5.4, §5.11; ADR-0083, ADR-0095, ADR-0096; declaration-syntax.md §4.2, §6.8; storage-schema.md §2, §6; ADR-0099; ADR-0103; ADR-0106 | covered | |
 | D6 | DESIGN §5.11; ADR-0082, ADR-0095; declaration-syntax.md §6.8; storage-schema.md §6; ADR-0114 | covered | |
 | D7 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; adversarial-harness.md §2; ADR-0105 | covered | |
-| D8 | DESIGN §8, §5.11; ADR-0031, ADR-0078, ADR-0082, ADR-0087, ADR-0096; storage-schema.md §9; ADR-0100; ADR-0101; ADR-0105, ADR-0106 | covered | |
+| D8 | DESIGN §8, §5.11; ADR-0031, ADR-0078, ADR-0082, ADR-0087, ADR-0096; storage-schema.md §9; ADR-0100; ADR-0101; ADR-0105, ADR-0106; ADR-0133, ADR-0134; declaration-syntax.md §6.4, §10; flow-format.md §4.13 | covered | |
 | D9 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8 | covered | |
 | D10 | DESIGN §5.13; ADR-0086; declaration-syntax.md §6.10; storage-schema.md §6; ADR-0099; declaration-syntax.md §5.2 | covered |  |
 | D11 | DESIGN §5.2; ADR-0083, ADR-0086; storage-schema.md §6; ADR-0099, ADR-0100; ADR-0106 | covered | |
@@ -99,10 +103,10 @@ Current: 82 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | V5 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; publish-and-import.md §1; returns-module.md §2 | covered | |
 | T1 | DESIGN §3, §8, §13; adversarial-harness.md §1, §2; ADR-0097, ADR-0100; ADR-0101; ADR-0105; ADR-0109; declaration-syntax.md §3.4; ADR-0111; ADR-0114 | covered |  |
 | T2 | DESIGN §1, §13; ADR-0110; adversarial-harness.md | covered | |
-| T3 | DESIGN §7, §8; ADR-0033, ADR-0083, ADR-0089; storage-schema.md §2; ADR-0099, ADR-0100; ADR-0101; ADR-0103; ADR-0105 | covered |  |
+| T3 | DESIGN §7, §8, §9; ADR-0033, ADR-0083, ADR-0089; storage-schema.md §2, §6; ADR-0099, ADR-0100; ADR-0101; ADR-0103; ADR-0105; ADR-0126, ADR-0134 | covered |  |
 | T4 | DESIGN §8, §10; ADR-0083; storage-schema.md §3.2; publish-and-import.md §4; ADR-0100; ADR-0101 | covered |  |
 | T5 | DESIGN §5.8, §5.12, §10; ADR-0114; declaration-syntax.md §6.7, §6.9; library-api.md §5, §6; storage-schema.md §4 | covered |  |
-| T6 | DESIGN §5.8, §6; ADR-0110, ADR-0114; declaration-syntax.md §3.1, §6.10, §8.1; library-api.md §3; storage-schema.md §6 | covered | |
+| T6 | DESIGN §5.8, §6; ADR-0110, ADR-0114; declaration-syntax.md §3.1, §6.10, §8.1; library-api.md §3; storage-schema.md §6; ADR-0125, ADR-0126 | covered | |
 | T7 | DESIGN §5.12, §10; ADR-0114; declaration-syntax.md §6.9; library-api.md §6; publish-and-import.md §2; renderers.md §2 | covered | |
 | N1 | DESIGN §2, §5.12; ADR-0090; storage-schema.md §2, §7; ADR-0106; declaration-syntax.md §6.9; data-driven-engine.md §7 | covered | |
 | N2 | DESIGN §2, §7, §8; ADR-0012, ADR-0091, ADR-0096; library-api.md §1; storage-schema.md §6, §9; ADR-0100; ADR-0103; ADR-0105; data-driven-engine.md §9 | covered |  |
@@ -110,7 +114,7 @@ Current: 82 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | N4 | DESIGN §13; ADR-0091; adversarial-harness.md §1, §2, §3, §4; ADR-0100; ADR-0105, ADR-0106 | covered |  |
 | N5 | DESIGN §11; ADR-0075, ADR-0077, ADR-0093, ADR-0096; publish-and-import.md §4, §7; first-consumer-cutover.md §4a; ADR-0100; ADR-0101; declaration-syntax.md §3.1; ADR-0103; ADR-0106 | covered | |
 | N6 | DESIGN §2, §6, §7, §10, §13; ADR-0012, ADR-0022, ADR-0104, ADR-0105; library-api.md §6 | covered |  |
-| N7 | DESIGN §2, §5.8, §13; ADR-0037, ADR-0110, ADR-0114; library-api.md §3, §7; storage-schema.md §6; declaration-syntax.md §8.1; first-consumer-cutover.md | covered | |
+| N7 | DESIGN §2, §5.8, §13; ADR-0037, ADR-0110, ADR-0114; library-api.md §3, §7; storage-schema.md §6; declaration-syntax.md §8.1; first-consumer-cutover.md; ADR-0132 | covered | |
 
 ## Use cases
 
@@ -132,7 +136,7 @@ Current: 82 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | UC-14 | DESIGN §5.5; declaration-syntax.md §5.1; ADR-0097; storage-schema.md §6; ADR-0106; metric-scenarios.md §25 | covered |  |
 | UC-15 | DESIGN §9; publish-and-import.md §1; ADR-0097; ADR-0114; metric-scenarios.md §26 | covered |  |
 | UC-16 | DESIGN §5.1, §5.12; ADR-0096; declaration-syntax.md §6.9, §8.1; ADR-0098; ADR-0101; ADR-0106; ADR-0124; metric-scenarios.md §30 | covered |  |
-| UC-17 | DESIGN §8, §5.12; ADR-0087, ADR-0096; storage-schema.md §9; ADR-0100; ADR-0101; ADR-0105, ADR-0106; metric-scenarios.md §32 | covered |  |
+| UC-17 | DESIGN §8, §5.12; ADR-0087, ADR-0096; storage-schema.md §9; ADR-0100; ADR-0101; ADR-0105, ADR-0106; ADR-0133, ADR-0134; metric-scenarios.md §32 | covered |  |
 | UC-18 | DESIGN §5.13, §11; ADR-0096; declaration-syntax.md §6.9, §6.10; ADR-0098; declaration-syntax.md §6.11; ADR-0101; ADR-0106; unit-journey.md §2; metric-scenarios.md §31 | covered |  |
 | UC-19 | DESIGN §5.11, §5.4, §5.5, §13; ADR-0096; adversarial-harness.md §2; ADR-0097, ADR-0099, ADR-0100; declaration-syntax.md §6.8; ADR-0105; ADR-0114; metric-scenarios.md §35 | covered |  |
 | UC-20 | DESIGN §2, §5.8, §5.13, §6, §7, §10; ADR-0012, ADR-0022, ADR-0084, ADR-0104, ADR-0105; library-api.md §6; declaration-syntax.md §8.3; flow-review.md §2, §8; metric-scenarios.md §37 | covered | |

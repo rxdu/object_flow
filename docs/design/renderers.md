@@ -16,6 +16,8 @@ Draft, 2026-09-09, amended 2026-09-23. Three projections of one declaration: tex
 
 **Amended 2026-09-25** for ADR-0114: the rule set prints no authority, since a declaration no longer states who may do anything; each metric marks the dimensions that name a person; the metrics tool names every metric, and a live offer's verdict carries no capability.
 
+**Amended 2026-09-28** for ADR-0115, ADR-0116 and ADR-0131, after the whole-record coherence review (D474). A flow is written in the flow description format, and the rule set prints for a person who knows the business, not in the format's keys: a `final` state prints as terminal, `only_via` as only via, a guard in mode `audit` as `OBSERVING — NOT ENFORCED` and one in mode `warn` as `FLAG — NOT ENFORCED` (the model's `observe` and `flag`), and a tool's inputs are the transition's `required_inputs`, `optional_inputs` and `inputs` (`flow-format.md` §4.8). Where the format requires a written `description`, of a condition or an invariant, the rule set prints it beside the sentence rendered from the expression, marked as the author's and unchecked: the rendered sentence is the rule, and a reader who finds the two disagreeing has found a defect in one of them (ADR-0131 decision 3).
+
 **What is verified.** `scripts/check-renderers-doc.py` parses every JSON example, checks that the tool schema is a schema a validator accepts, and confirms it rejects a call missing a required field and a call carrying an unknown one. The rule set of §2 is prose and is not checked; nothing generates it yet.
 
 ## 1. What a renderer may not do
@@ -184,7 +186,7 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
 ```json
 {
   "name": "record_inspection_result",
-  "description": "Record one inspection result on a service job. Who may record it, and how late, are rules the store checks; availability(subject) offers recording beside the service job's own transitions, and says whether it is available now.",
+  "description": "Record one inspection result on a service job. How late it may be recorded is a rule the store checks, and who may record it is the application's; availability(subject) offers recording beside the service job's own transitions, and says whether it is available now.",
   "input_schema": {
     "type": "object",
     "properties": {

@@ -148,6 +148,6 @@ types:
 
 ## 4. What the checker says, and what it cannot
 
-The checker verifies shape: that each name resolves, a state literal names a state of its type (check 19), no condition reads the actor (check 64), the metric reference binds a dimension the metric declares and has a window to apply `over last` to (check 56), and the rest of the implemented checks. It does not verify behaviour: that `second_eye` refuses a replacement with no recorded approval once the metric reaches five, and records the value it read, are properties of the runtime the adversarial harness is for (`adversarial-harness.md`).
+The checker verifies shape: that each name resolves, a state literal names a state of its type (check 19), no condition reads the actor (check 64), the metric reference binds a dimension the metric declares and has a window to apply `over last` to (check 56), and the rest of the implemented checks. It does not verify behaviour: that `second_eye` refuses a replacement with no recorded approval once the metric reaches five, and records the value it read, are properties of the runtime the adversarial harness is for (`adversarial-harness.md`), and, once designed, of an example the engine runs at publish (ADR-0131 decision 4, `TODO.md`).
 
 The two publishes are one document so that both are checked, and the checker reads them as successive versions of one module: it checks the second against the first, which needs no mapping, since it removes nothing, and its impact report would list the returns that would gain `await_parts` (`publish-and-import.md` §1).

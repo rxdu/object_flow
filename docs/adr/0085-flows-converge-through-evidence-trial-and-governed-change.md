@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0096 — a publish recomputes its impact report at approval, and is refused if it changed. ADR-0097 — the DeclarationChange has a declared lifecycle, named built-in capabilities, a principal rule, a report of guard impact, and an evidence snapshot in place of links. ADR-0111 — a clause may instead be marked `flag`, a permanent rule that is seen and never enforced, which is not a trial.
+- **Refined by:** ADR-0096 — a publish recomputes its impact report at approval, and is refused if it changed. ADR-0097 — the DeclarationChange has a declared lifecycle, named built-in capabilities, a principal rule, a report of guard impact, and an evidence snapshot in place of links. ADR-0111 — a clause may instead be marked `flag`, a permanent rule that is seen and never enforced, which is not a trial. ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
 - **Refines:** ADR-0027
 
 ## Context
@@ -31,17 +31,17 @@ It infers nothing about intent. Agents build proposals on it.
 
 ### 2. A guard clause may be marked `observe`
 
-The clause is evaluated. A false or unknown result records a would-be refusal as an attempt (ADR-0083), marked not enforced and linked to the event that applied, and the request proceeds. The printed rule set shows the clause as not enforced, the harness treats it as absent, and the publish report lists every observing clause, so no guarantee is ever claimed for one. An observing capability guard is allowed and reported prominently. Enforcing a clause is a publish that removes the marking.
+The clause is evaluated. A false or unknown result records a would-be refusal as an attempt (ADR-0083), marked not enforced and linked to the event that applied, and the request proceeds. The printed rule set shows the clause as not enforced, the harness treats it as absent, and the publish report lists every observing clause, so no guarantee is ever claimed for one. An observing capability guard is allowed and reported prominently. Enforcing a clause is a publish that removes the marking. *(Withdrawn by ADR-0114 as to capabilities: no guard reads the actor.)*
 
 ### 3. A flow changes through a built-in `DeclarationChange` object
 
-Any actor holding the drafting capability creates one, carrying:
+Any actor holding the drafting capability creates one, carrying: *(Withdrawn by ADR-0114: who may draft is the upper layer's, and the change records its drafter and the drafter's kind.)*
 
 - the source;
 - the dry-run publish report;
 - links to its evidence. *(ADR-0097 §5: a snapshot of the evidence as it read at submission, not links to values computed on read.)*
 
-A **different** actor holding the publish capability approves it, and approval publishes it. It is superseded when the installed version moves under it. **A change an agent drafted is approved by a person** (PRD F7); a deployment may require a person for every change. Being a built-in object like `Proposal` and `Subscription`, every step has an actor and an event, the loop from evidence to change is measurable, and the publish event has its object, which resolves D212.
+A **different** actor holding the publish capability approves it, and approval publishes it. It is superseded when the installed version moves under it. **A change an agent drafted is approved by a person** (PRD F7); a deployment may require a person for every change. Being a built-in object like `Proposal` and `Subscription`, every step has an actor and an event, the loop from evidence to change is measurable, and the publish event has its object, which resolves D212. *(Withdrawn by ADR-0114: who approves, that the approver is not the drafter and that a person approves an agent's draft are the upper layer's rules; the change records both.)*
 
 ### 4. The engine never drafts a change
 

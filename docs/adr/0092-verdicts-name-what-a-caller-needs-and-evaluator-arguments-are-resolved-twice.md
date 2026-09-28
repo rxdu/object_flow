@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` F4, F3, L5 and T1; repairs D214 and D215
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0096 — `Unsatisfied` also carries `consulted`, the metric values and evaluator verdicts the failing clause was decided on, under the reader's visibility.
+- **Refined by:** ADR-0096 — `Unsatisfied` also carries `consulted`, the metric values and evaluator verdicts the failing clause was decided on, under the reader's visibility. ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
 - **Refines:** ADR-0049, ADR-0077
 
 ## Context
@@ -22,7 +22,7 @@ PRD F4: "A refusal says which rule refused, and whether the caller should supply
 
 It gains:
 - `objects`: the objects a `dependent` remedy says to work on first, or the object the failing clause read;
-- `capability`: for a clause over `actor.has(C)`, the capability that would satisfy it;
+- `capability`: for a clause over `actor.has(C)`, the capability that would satisfy it; *(Withdrawn by ADR-0114: `Unsatisfied` carries no capability.)*
 - `proposable`: whether the transition accepts a proposal.
 
 Each is filled where the clause gives it, and otherwise empty.

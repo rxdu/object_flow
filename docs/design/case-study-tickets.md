@@ -1,6 +1,6 @@
 # Case study: issue tracking (Jira-shaped)
 
-Status: design iteration 2, 2026-09-07. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md). Decisions taken here are ADR-0026 to ADR-0029 and an amendment to ADR-0021, all pending author review.
+Status: design iteration 2, 2026-09-07. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md). Decisions taken here are ADR-0026 to ADR-0029 and an amendment to ADR-0021, accepted by the author on 2026-09-28.
 
 > **Revisited 2026-09-26 against Jira's documentation and the flow format** (§6 for Jira's software and business spaces, §7 for Jira Service Management), at the author's request. §1 to §5 were written from general knowledge of Jira and against the text language; §6 and §7 check every workflow feature Atlassian documents against the format, and are the current answer.
 
@@ -144,7 +144,7 @@ The author asked whether the current design "can cover all the workflows support
 | Jira | Verdict | In the format |
 |---|---|---|
 | Statuses, each in one of three categories: To do, In progress, Done ([statuses](https://support.atlassian.com/jira-cloud-administration/docs/what-is-a-workflow-status/)) | Written | states and `categories`; Jira's Done is the built-in `closed`, which the standard metrics read as finished (`declaration-syntax.md` §1) |
-| A status shared by several workflows, renamed everywhere at once | Differs | a state belongs to one machine or type; a rename is a published version with a mapping (F5), migrations being not yet |
+| A status shared by several workflows, renamed everywhere at once | Differs | a state belongs to one machine or type; a rename is a published version with a mapping (F5) |
 | A work item is "open or closed, based on the value of its Resolution field (not its status)" ([transitions](https://support.atlassian.com/jira-cloud-administration/docs/create-workflow-transitions/)) | Differs | the engine's open and closed follow the state's category; Jira's reading is a derived attribute, `resolved: resolution is not null` |
 | Resolution set on the transition to Done, by prompt or automatically; resolved date set; cleared on reopening | Written | `done` takes `required_inputs: [resolution]` and assigns `resolved_at := now`; `to_do` and `start` clear both; `auto_resolve` assigns a fixed `Resolution.DONE` |
 | Resolutions allowed only at some statuses, `jira.field.resolution.include`/`exclude` | Written | a guard over the input, `resolution_allowed`: `inputs.resolution in [Resolution.DONE, Resolution.WONT_DO]` |

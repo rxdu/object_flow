@@ -12,7 +12,9 @@ Draft, 2026-09-09, amended 2026-09-23. The acceptance test, which PRD N4 names a
 
 **Amended 2026-09-25** for ADR-0114: the claim is over routes and records, since who may take a route is the upper layer's; the rows on metric audiences and capability-gated escapes go; and the permission routes of UC-19 become checks that the record attributes what was let through.
 
-**Amended 2026-09-25** for ADR-0111 and ADR-0112: a flag is excluded from the guarantee, as an observing clause is, and checked to be returned and recorded; a metric read outside its audience is a failure.
+**Amended 2026-09-25** for ADR-0111 and ADR-0112: a flag is excluded from the guarantee, as an observing clause is, and checked to be returned and recorded; a metric read outside its audience is a failure *(withdrawn the same day by ADR-0114, with the audience; see the amendment above)*.
+
+**Amended 2026-09-28** for ADR-0132: the harness is written in Rust against the core in process, keeping ADR-0091's deterministic driving; the Python checkers stay independent of the core, and the same flows run through both are each the other's oracle.
 
 **Amended 2026-09-24** for ADR-0105 and ADR-0106, from a review of the whole record against PRD revision 5:
 - the claim is stated in PRD F2's four routes;

@@ -1898,7 +1898,7 @@ types:
           resolved_three_days: deny
 ```
 
-The approval step is the two transitions out of Waiting for approval. The approvers are named as an input, recorded with the event and notified by the application; who may approve is the upper layer's, and `approve` records who did, `actor.id` being the one value a flow may read of the actor (`flow-format.md` §5).
+The approval step is the two transitions out of Waiting for approval. The approvers are named as an input, recorded with the event and notified by the application; who may approve is the upper layer's, and `approve` records who did, an outcome writing `actor.id`, the actor's kind or its principal into an attribute being the one use a flow makes of the actor, which records who acted and decides nothing (`flow-format.md` §5, `DESIGN.md` §5.8).
 
 ### 3.3 Incidents
 

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` L2, G5, T3 and UC-4
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0095 — a read filters the read set to what the reader can see and says that something was withheld. ADR-0105 — a refusal re-evaluates from its read set and its recorded request values, and a value erased since reads as absent.
+- **Refined by:** ADR-0095 — a read filters the read set to what the reader can see and says that something was withheld. ADR-0105 — a refusal re-evaluates from its read set and its recorded request values, and a value erased since reads as absent. ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
 - **Refines:** ADR-0033, ADR-0082, ADR-0083
 
 ## Context
@@ -20,17 +20,17 @@ The obvious shortcut — refold the log up to the decision's position — is wro
 The read set is:
 
 - **every object a guard or invariant read, with the version it read.** That includes the object itself, related objects, the elements of an aggregate, and every object a type-scan matched. A type-scan that matched nothing records an empty set;
-- **for each `actor.has(C)`,** the capability asked and the answer;
+- **for each `actor.has(C)`,** the capability asked and the answer; *(Withdrawn by ADR-0114: no rule reads the actor, so a read set holds no capability answers.)*
 - **the value of `now`,** which is fixed once per request;
 - **as already recorded,** the inputs, and each evaluator's verdict and each metric's value, with their as-of times.
 
 ### 2. Re-evaluation uses per-object order, which is strict
 
-An object's versions are ordered by `object_seq`, which the schema makes unique per object (`storage-schema.md` §2). Folding each read object up to its recorded version, and evaluating the rule over those states with the recorded `now`, answers, and capability results, gives the same verdict. No global order is needed.
+An object's versions are ordered by `object_seq`, which the schema makes unique per object (`storage-schema.md` §2). Folding each read object up to its recorded version, and evaluating the rule over those states with the recorded `now`, answers, and capability results, gives the same verdict. No global order is needed. *(ADR-0114 withdrew the capability results.)*
 
 ### 3. Observing clauses and refusals are included
 
-An observing clause's would-be refusal carries its read set. An attempt-log row carries the read set of its failing clause: ids, versions and capability answers, never inputs. So "which rule is in the way" can be explained as well as counted.
+An observing clause's would-be refusal carries its read set. An attempt-log row carries the read set of its failing clause: ids, versions and capability answers, never inputs. So "which rule is in the way" can be explained as well as counted. *(Withdrawn by ADR-0114: the read set holds ids and versions only, and is never filtered for a reader.)*
 
 ### 4. The read set holds identities, not values
 

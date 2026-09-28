@@ -1,8 +1,8 @@
 # An operations review of the unit's journey: where the flow waits, and how to smooth it
 
-Status: **review, proposals awaiting the author**, 2026-09-24. Nothing here is decided: each proposal changes the first consumer's process, and that is the author's call. The author has since placed the operating layer of §2.1 in an upper-layer application built on the store, not in the store (ADR-0104, PRD N6), which answers the first question of §7.
+Status: **review, closed**, 2026-09-24. Each proposal changes the first consumer's process. The author placed the operating layer of §2.1 in an upper-layer application built on the store, not in the store (ADR-0104, PRD N6), which answered the first question of §7, and on 2026-09-28 closed the other six as the operations platform's own (§7). The proposals and the appendix are kept as the record of what was proposed.
 
-This review reads the worked example — the page built from [`unit-journey.md`](unit-journey.md) and its replay — as a general operations manager would. It asks:
+This review reads the worked example — the page built from [`unit-journey.md`](unit-journey.md) and its replay, a page rendered for the review and not kept in this repository — as a general operations manager would. It asks:
 - where work waits, is handed off, is batched, is redone, or depends on someone remembering;
 - what a well-run operation would expect that is missing.
 
@@ -64,7 +64,7 @@ Either way, when a unit goes missing, the operations application should notify t
 **2.3 Receiving is batched, recorded late and confirmed by software** *(both)*. `Shipment.commit` puts every received unit on offer or none, so one missing label holds eleven sellable units (hard case "One unlabelled unit in a commit of twelve"). In the replay the receipt is recorded two days late, by an agent, with no person named. After a long weekend the two-day backdating bound forces a false arrival date, and recording it as "now" charges our own backlog to the supplier's lead time.
 - *Proposals:*
   - `commit_ready` puts each ready unit on offer and leaves the rest in `INTAKE` *(context; declared)*;
-  - `receive_unit_late`, backdatable within 14 days, for a supervisor, with a reason *(cold read; declared)*;
+  - `receive_unit_late`, backdatable within 14 days, with a reason *(cold read; declared)*, which only a supervisor is let request, a rule of the upper layer's since ADR-0114;
   - `recording_lag`, the median of recorded time less occurred time, flagged above a day *(context; declared)*;
   - receipt scanned at the dock, the label printed, applied and scan-checked as one step, and a named person accountable for each receipt *(cold read)*.
 - *Risk:* releasing units one by one loses the whole-shipment check. It moves to the batch's closing step, and the batch revert keeps production's test: every unit the batch put on offer is still untouched (`wr:app/services/intake_batch_service.py:1072-1085`).
@@ -178,7 +178,7 @@ A renderer can print the stage map from the categories and a display name per st
 - **Four contradictions on the page:**
   - a case relied on an `invoiced` guard that the page's `complete_sale` does not declare;
   - a case called `DONE` terminal;
-  - a case said `accept_return` needs `RETIRE`, where it needs `ADMIN`;
+  - a case said `accept_return` needs `RETIRE`, where it needed `ADMIN`, a capability ADR-0114 later withdrew with every other;
   - the header counted the unbuilt lease-to-own among the "transitions production performs today".
 - **The legend's wording for `unreachable_from_here`**, which dropped "another transition comes first" from DESIGN's definition, so its example fix — print the label first — looked contradictory.
 
@@ -186,11 +186,11 @@ A renderer can print the stage map from the categories and a display name per st
 
 *Checked 2026-09-25 against the first consumer's own PRD, as a case study, which settles most of these for the platform's own declarations, several differently from the options below: `first-consumer-prd-check.md` §4.*
 
-*Closed as ObjectFlow questions by the author on 2026-09-28 ("accept"): decisions 2 to 7 are the operations platform's choices about its own flow, and belong to its project, where `first-consumer-prd-check.md` §4 records what its PRD answers. The journey changes only where a change exposes an engine defect, as D453 and D454 did, and the appendix stays here as a record of what was proposed. The one engine requirement among them, decision 5's time split across the months a span covers (§4.2), is held in `TODO.md` as design work.*
+*Closed as ObjectFlow questions by the author on 2026-09-28 ("accept"): decisions 2 to 7 are the operations platform's choices about its own flow, and belong to its project, where `first-consumer-prd-check.md` §4 records what its PRD answers. The journey changes only where a change exposes an engine defect, as D453 did, and the appendix stays here as a record of what was proposed, corrected where a proposal was itself wrong, as D454 corrected its `filled`. The one engine requirement among them, decision 5's time split across the months a span covers (§4.2), is held in `TODO.md` as design work.*
 
 In the order the review would take them:
 
-1. **The operating layer (§2.1).** *Answered 2026-09-24: an upper-layer application, not part of the core (ADR-0104).* What remains for the core is whether the delivery, the shipment and the missing unit get owners and target times, which are declarations.
+1. **The operating layer (§2.1).** *Answered 2026-09-24: an upper-layer application, not part of the core (ADR-0104).* What remained for the core, whether the delivery, the shipment and the missing unit get owners and target times, are declarations of the operations platform's, closed with the rest on 2026-09-28.
 2. **Condition (§3.1).** Should everything that comes back pass a quarantine and an inspection before it goes on offer, with a repeat-failure hold on lending?
 3. **Assignment (§2.2).** Should production's explicit assignment be kept, with a worklist and `procured_for`, or should the earmark become a reservation at commit? *Both can be declared (2026-09-24, PRD F8, ADR-0108): a reservation at commit is a declared cascade of `Shipment.commit` following the earmark a person set, and prints on the unit's rules. What cannot be declared is choosing the most urgent order when the unit arrives, which stays with the operations application. So this is a business choice: speed, against production's reason for retiring the fill.*
 4. **The end of a sale (§2.4, §3.2).** Should there be `READY` and physical fulfilment stages, and where should `SOLD` happen?
@@ -200,7 +200,7 @@ In the order the review would take them:
 
 ## 8. The proposals, as declarations
 
-The appendix is the module of `unit-journey.md` with the proposals marked **declared** applied, and the checker reports it clean. The changes:
+The appendix is the module of `unit-journey.md` as it stood on 2026-09-27, with the proposals marked **declared** applied, D454's correction and the erasure ADR-0134 requires of the machine, and the checker reports it clean; the journey's later changes, such as D453's `engineer_active`, are not carried into it. The changes:
 
 - `RETURNED`, `inbound`. `accept_return` and `release_to_stock` enter it, and `restock` leaves it on a passing `ReturnCheck`. `restock` is `Robot`'s own transition and not the machine's, since a machine requires attributes, parts and invariants of its binders and never an observation kind, and its guard reads the unit's return checks (D389). `Engagement.close` requires a return check per unit.
 - `retire` from `AVAILABLE`, `RETURNED` and `DEVELOPMENT`. `transfer_to_pool`. `DEVELOPMENT` is `closed`. `correct_state` may target `INTAKE`.
@@ -213,11 +213,11 @@ The appendix is the module of `unit-journey.md` with the proposals marked **decl
 
 The promised date, the service clock, the checklist revision, the fulfilment stages and the procurement order are prose only. The module's delivery carries no dates and no checklist, and the procurement order is outside it.
 
-*(Found 2026-09-28, writing UC-20's scenario, which installs `READY` and `procured_for` as this appendix writes them (`metric-scenarios.md` §36, §37): the two proposals interact. `mark_ready`'s `filled` asks for a unit bound and none still on order, and `procured_for` takes an arrived unit off order without binding it, so a delivery may be marked ready while a unit bought for it waits to be assigned. Adding `none(u in procured)` to `filled` would make it wait. Recorded for the author's decision on questions 3 and 4 of §7, and in `TODO.md`.)* *(Corrected 2026-09-28, D454: the appendix's `filled` now adds `none(u in procured)`, so the two proposals agree with §2.4's "once every unit is bound and nothing is still on order"; adopting them is still the author's decision.)*
+*(Found 2026-09-28, writing UC-20's scenario, which installs `READY` and `procured_for` as this appendix wrote them before D454 (`metric-scenarios.md` §36, §37): the two proposals interact. `mark_ready`'s `filled` asks for a unit bound and none still on order, and `procured_for` takes an arrived unit off order without binding it, so a delivery may be marked ready while a unit bought for it waits to be assigned. Adding `none(u in procured)` to `filled` would make it wait. Recorded for the author's decision on questions 3 and 4 of §7, and in `TODO.md`.)* *(Corrected 2026-09-28, D454: the appendix's `filled` now adds `none(u in procured)`, so the two proposals agree with §2.4's "once every unit is bound and nothing is still on order"; adopting them is the operations platform's, since the author closed §7 the same day.)*
 
 ## Appendix: the module with the declared proposals applied
 
-A variant of [`unit-journey.md`](unit-journey.md) §2, to be deleted from here once the author has decided and the module is amended. It is written in the flow description format, in the journey's order, and `scripts/check-flow-docs.py` checks it with all four steps of the flow checker (ADR-0121). It carries the journey's corrections of 2026-09-27 (D408, `unit-journey.md` §2).
+A variant of [`unit-journey.md`](unit-journey.md) §2, kept as the record of what the review proposed, since the author closed §7 on 2026-09-28. It is written in the flow description format, in the journey's order, and `scripts/check-flow-docs.py` checks it with all four steps of the flow checker (ADR-0121). It carries the journey's corrections of 2026-09-27 (D408, `unit-journey.md` §2).
 
 ```yaml
 module: inventory_journey
@@ -554,6 +554,11 @@ machines:
         description: Puts the unit into the state it is really in when the record is wrong, releasing it from any delivery or job that pegged, bound or claimed it, so neither finds it afterwards.
         effect:
           - clear: [peg, binding, used_in]
+      forget:
+        kind: erasure
+        description: Erases the explanations given with corrections of the unit's state, which may name someone.
+        inputs:
+          reason: { type: string }
 
 types:
   Robot:

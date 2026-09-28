@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-24 at the author's direction ("go with your D345 reasoning: invariants and a publish report"), against `docs/PRD.md` revision 7: T1, T4, F1, F2, V1, V3, N5 and §2; closes the question D345 left open, and repairs D379 and D380. The recommendation put to the author named the photo rule among the invariants; production shows it is checked only at intake, so it stays a guard (§1). Accepted by the author on 2026-09-26: "accept the older pending ADRs too".
 - **Date:** 2026-09-24
-- **Refined by:** ADR-0130 — diagnostics report each state's entries by transition, by override and by creation.
+- **Refined by:** ADR-0130 — diagnostics report each state's entries by transition, by override and by creation. ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
 - **Refines:** ADR-0009 (invariants declared at type level), ADR-0065 (a machine's creation guards bind a creation that replaces it)
 - **Amends:** ADR-0102, whose module is still proposed
 - **Relates to:** ADR-0045 (invariants enforced after the writes), ADR-0054 (an admission is discharged when the invariant holds), ADR-0085 (observing clauses)
@@ -57,7 +57,7 @@ It also reports every invariant of the type, since a creation writes the whole o
 **It is a notice, not a refusal.** Opening stock, a walk-in intake and a ported unit start partway through a lifecycle on purpose, and a minimal flow stays publishable (PRD V1). The report is part of the dry-run report a `DeclarationChange` carries, so under F7 the approver reads it.
 
 `scripts/check-syntax-doc.py` computes it and verifies any report a document quotes; `unit-journey.md` quotes the journey's:
-- `add_opening_stock` carries `may`;
+- `add_opening_stock` carries `may`; *(Withdrawn by ADR-0114: `may` read a capability and is gone.)*
 - the invariants `labelled` and `mfr_serial` hold two of intake's clauses;
 - `photo` is not carried;
 - a walk-in `add_to_intake` skips a shipment's receipt, which is what it is for.

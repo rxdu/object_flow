@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-28: "option 1", chosen from the four options put to the author the same day.
 - **Date:** 2026-09-28
+- **Refined by:** ADR-0134 — the operator's creation is recorded as the operator's own act, since an event's actor is required and a release is not one.
 - **Refines:** ADR-0105 (a store begins at declaration version 0), ADR-0110 (declared actor kinds), ADR-0114 (an unknown actor is refused)
 - **Relates to:** PRD F7, T3, T6; `DESIGN.md` §5.8, §5.9, §9, §10; `storage-schema.md` §6; `publish-and-import.md` §1
 
@@ -16,7 +17,7 @@ The fourth recoverability review found the second level, and `TODO.md` recorded 
 ## Decision
 
 1. **Version 0 holds a built-in type, `Operator`,** for the people answerable for a store. Its identity attribute is marked `actor human` and is unique. Its states are `ACTIVE`, `live`, and `RETIRED`, `closed` and final. Its creation, `install`, is taken only by creating the store. `retire`, from `ACTIVE` to `RETIRED`, is requested like any transition.
-2. **Creating a store takes the identity of its operator.** In its one step it writes version 0 and the operator's object, both attributed to the engine release that created the store, as version 0 already is (`storage-schema.md` §6).
+2. **Creating a store takes the identity of its operator.** In its one step it writes version 0 and the operator's object, both attributed to the engine release that created the store, as version 0 already is (`storage-schema.md` §6). *(Refined the same day by ADR-0134: an event's actor is required and a release is not one, so the operator's object is recorded as the operator's own act, the context naming the release; version 0 stays the release's.)*
 3. **The operator has no privilege.** The engine evaluates no actor (ADR-0114), and what the operator may do is the upper layer's to decide. The operator is the actor the store's first requests can name: drafting and approving the first `DeclarationChange`, creating the first objects of the deployment's actor types, or running the port. So version 1 passes the governed path like every later version (PRD F7), and it and every actor after it are attributed to someone (PRD T3).
 4. **An identity names one actor across every type** (`DESIGN.md` §5.8), so the operator's identity is not reused by a later `User`. A deployment gives the operator an identity of its own, such as `ops:ana`, or lets the person act as the operator throughout.
 

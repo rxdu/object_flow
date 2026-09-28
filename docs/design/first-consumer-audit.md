@@ -77,7 +77,7 @@ Recorded for the table-to-type mapping in `TODO.md`, which re-derives the declar
 1. The unit: the lifecycle is rewritten against production in `unit-journey.md`, which also records the three changes since the walkthrough.
 2. `Delivery` in the specification is terminal at `DELIVERED`; production revokes and reopens deliveries, so `DELIVERED` and `CANCELLED` are `closed` and not terminal (`unit-journey.md` §2).
 3. The specification's `complete_sale` requires an approval, and the walkthrough's an invoice check; production requires neither, only filled slots and, advisorily, the packing checklist.
-4. The specification's `ServiceJob` is terminal at `DONE`, and requires the engineer to act; production cancels and reopens services, and anyone holding `SERVICE_COMPLETE` completes one.
+4. The specification's `ServiceJob` is terminal at `DONE`, and requires the engineer to act *(a rule on who acts, which ADR-0114 later removed from the engine: who may complete a service is the upper layer's)*; production cancels and reopens services, and anyone holding `SERVICE_COMPLETE` completes one.
 5. A delivery's checklist lives on each configuration in production, not on the delivery.
 6. Production issues warranties on internal deliveries, from the delivery's product rather than the slot's, and skips units that already hold a contract.
 
@@ -91,7 +91,7 @@ Every item is a publish over the current design: new states, transitions, types 
 | 2. A structured retirement reason; a `QUARANTINE` state; per-unit intake revert | `wr:TODO.md:243`; `wr:docs/proposals/operations-implementation-plan.md:12,31,55` | an enum and an `accepts`; a state and two transitions; a transition `only via` the batch |
 | 3. Pre-delivery inspection per configured robot, a second reviewer, a failed inspection opening rework, a `READY_FOR_DELIVERY` state | `wr:docs/proposals/operations-system-design.md` §8.8 | an observation kind, an approval guard, a `create` step, a state |
 | 4. Split delivery; splitting and combining orders and shipments | same, §5.3; `wr:docs/design/procurement-receiving-reconciliation.md:73-77` | a creation and a loop re-parenting slots or units, `only via` |
-| 5. Alerts: low stock, procurement overdue, backorder ageing, delivery at risk, lease overdue, warranty expiring; order ready | same, §6 | metric flags and indexed ageing queries (PRD UC-12); order ready is a subscription. Scheduling and sending are the consumer's |
+| 5. Alerts: low stock, procurement overdue, backorder ageing, delivery at risk, lease overdue, warranty expiring; order ready | same, §6 | metric flags and indexed ageing queries (PRD UC-12); order ready is a subscription *(two subscriptions and a read of `filled`, as `metric-scenarios.md` §21 found; `TODO.md` records it)*. Scheduling and sending are the consumer's |
 | 6. Demand from reorder points and service parts; Jira sync at the seams; Xero as the owner of customer identity | same, §7, §8.12; `wr:docs/adr/0003-xero-as-source-of-truth-for-customer-identity.md` | a metric the consumer reads to request a creation; external identifiers and an externally owned type (ADR-0080) |
 | 7. A movement ledger; a can-revert preflight | same, §9.0; `wr:docs/design/procurement-error-recovery.md:82` | nothing: the events and intervals are the ledger, and `check` is the preflight |
 

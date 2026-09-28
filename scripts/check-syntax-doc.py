@@ -757,9 +757,12 @@ def data_checks(decls, by_name, text, base=0):
             for k, v in anc.attrs.items(): attrs.setdefault(k, v)
             anc = by_name.get(anc.base)
         personal = [a for a, (sp, _l) in attrs.items() if "personal" in sp.split()]
+        # a personal input is erased from the events that carried it only by its object's erasure (ADR-0134)
+        personal += [f"{t[1]}.{i}" for t in d.trans + (mach.trans if mach else [])
+                     for i in re.findall(r"^\s*input\s+(\w+)\s*:[^\n]*\bpersonal\b", t[3], flags=re.M)]
         chained = d.name in superseded or any("superseding" in v[0] for v in states.values())
         erases = any(t[0] == "erase" for t in d.trans + (mach.trans if mach else []))
-        # a type holding a personal value declares its erasure, so PRD D8 holds everywhere (ADR-0133)
+        # a type holding a personal value declares its erasure, so PRD D8 holds everywhere (ADR-0133, ADR-0134)
         if personal and not erases and not d.abstract:
             add(60, f"{d.name} holds personal {personal[0]!r} and declares no erase"
                     + (", and takes part in supersession" if chained else ""), d.start)
@@ -999,6 +1002,8 @@ MUTATIONS = [
        "  do finish WORKING -> DONE accepts photo {\n    require mine: engineer.login == actor.id because delegable\n"),
   (62, "actor identity with no kind", "attr     login identity actor human unique", "attr     login identity actor unique"),
   (59, "set-valued assignee", "ref      engineer : User assignee", "ref      engineer : User[] assignee"),
+  (60, "a personal input on a type with no erase",
+       "\n  erase forget {                        # the personal detail of a correction (check 60)\n    input reason : string\n  }\n", "\n"),
 ]
 
 

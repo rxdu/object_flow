@@ -1,6 +1,6 @@
 # Case study: orders at volume (e-commerce-shaped)
 
-Status: design iteration 4, 2026-09-08. Companion to the earlier case studies. Decisions taken here are ADR-0032 to ADR-0034 plus two clarifications, all pending author review. No sibling repository holds an order system, so this study uses the standard order-to-cash shape rather than observed code; it is the second structurally different case TODO.md asked for — many, short-lived objects — and the one that forced the arithmetic decision.
+Status: design iteration 4, 2026-09-08. Companion to the earlier case studies. Decisions taken here are ADR-0032 to ADR-0034 plus two clarifications, accepted by the author on 2026-09-28. No sibling repository holds an order system, so this study uses the standard order-to-cash shape rather than observed code; it is the second structurally different case TODO.md asked for — many, short-lived objects — and the one that forced the arithmetic decision.
 
 > **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
 
@@ -31,7 +31,7 @@ Every earlier case has few, long-lived, richly related objects. An order system 
 | Fulfilment, partial shipment | `Shipment` objects with line quantities as link objects; the invariant is declared on the line as a relationship aggregate, `sum(a in allocations: a.qty) <= qty`, since ADR-0047 refuses grouped aggregation |
 | Return, refund | transitions on order lines and `Payment.refund(amount)` with `sum(r in refunds: r.amount) <= captured` |
 | Fraud hold, manual review | states; who may review is the upper layer's (ADR-0114) |
-| Guest checkout | an actor of kind `human` with an ephemeral id the consumer mints; nothing in the store cares |
+| Guest checkout | the consumer's own actor makes the request, since every request names an actor the store holds (`DESIGN.md` §5.8, `actor_known`); the guest is only the order's `customer`, an identity the consumer mints. *(Corrected 2026-09-28, D475: this row gave the guest an ephemeral actor id, which the store would refuse.)* |
 | Retrying client placing the same order twice | idempotency key on the placement request (ADR-0014); the cascade is one request, so one key |
 | Fulfilment system, email, analytics | upper-layer applications pulling the log (ADR-0013, ADR-0105); open-ended analytics exports from the log. *(Amended 2026-09-24, D350: declared metrics are computed in the store since ADR-0081 and ADR-0084, so only open-ended analysis is outside it.)* |
 | Stock ledger / movement history | the event log is the ledger — each reserve, release, receive is a recorded event; no second stream (ADR-0033) |

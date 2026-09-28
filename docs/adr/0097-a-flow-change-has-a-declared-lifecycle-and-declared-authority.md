@@ -79,7 +79,7 @@ The rule set prints them with the built-in types that use them. The consumer's a
 
 ### 7. A proposal's execution re-evaluates every guard, actor guards included
 
-This records what `DESIGN.md` §9 has said since its rewrite of 2026-09-08, and corrects ADR-0036 decision 3: approving a proposal executes the recorded request as the approver, and every guard of the transition is evaluated. An approval therefore succeeds only if the approver holds whatever authority the transition's guards demand.
+This records what `DESIGN.md` §9 has said since its rewrite of 2026-09-08, and corrects ADR-0036 decision 3: approving a proposal executes the recorded request as the approver, and every guard of the transition is evaluated. An approval therefore succeeds only if the approver holds whatever authority the transition's guards demand. *(Refined by ADR-0114: there are no actor guards, so approval re-evaluates the flow's rules only, and who may approve is the upper layer's.)*
 
 ## Alternatives rejected
 

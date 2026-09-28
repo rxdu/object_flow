@@ -1,6 +1,6 @@
 # Case study: approvals, delegation, proposals, and bookings
 
-Status: design iteration 5, 2026-09-08. Companion to the earlier case studies. Decisions taken here are ADR-0035 and ADR-0036, all pending author review. The shapes are the common ones — purchase-request approval, document review, leave requests, room and equipment booking — and the first consumer's own engagement axis (`wr:docs/adr/0002`) is a booking system it has not yet built.
+Status: design iteration 5, 2026-09-08. Companion to the earlier case studies. Decisions taken here are ADR-0035 and ADR-0036, accepted by the author on 2026-09-28. The shapes are the common ones — purchase-request approval, document review, leave requests, room and equipment booking — and the first consumer's own engagement axis (`wr:docs/adr/0002`) is a booking system it has not yet built.
 
 *Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
 

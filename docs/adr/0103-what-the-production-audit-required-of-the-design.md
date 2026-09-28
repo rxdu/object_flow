@@ -84,7 +84,7 @@ The rule is stricter than production. Production requires a key only on an agent
 - the store's `export` of events and attempts, read into the consumer's own audit pages;
 - a subscription's `pull`.
 
-The consumer calls both from routes it authorises, as production's `/audit-logs` routes are authorised today. T5 holds as written: object visibility applies to every read.
+The consumer calls both from routes it authorises, as production's `/audit-logs` routes are authorised today. T5 holds as written: object visibility applies to every read. *(Withdrawn by ADR-0114: no read is filtered by who asks, so `history` shows an event's actor to every reader; who may read it is the upper layer's.)*
 
 ### 3. `length` bounds a string, and a string holds no NUL
 
@@ -139,11 +139,11 @@ An element whose filter evaluates to `unknown` is not selected, as a SQL `WHERE`
 - a metric's `count(where …)`;
 - the `where` of a `for` in an outcome.
 
-In a guard, an invariant, a visibility predicate or a derivation, an aggregate keeps §8.2's rules:
+In a guard, an invariant, a visibility predicate or a derivation, an aggregate keeps §8.2's rules: *(ADR-0114 withdrew the visibility predicate.)*
 - an element whose filter is `unknown` makes `all`, `any` or `none` unknown, unless another element decides it;
 - it makes `count`, `sum`, `min` and `max` unknown.
 
-So a guard still fails closed, and the separation-of-duties rule of ADR-0047 and D20 holds: `none(a in approvals where a.approver == actor.id)` over an erased approver is unknown, and refuses. Production's rule that a slot with no role never blocks completion (`wr:app/core/state_registry.py:544-545`) is written with a presence test, which Kleene `and` makes definite:
+So a guard still fails closed, and the separation-of-duties rule of ADR-0047 and D20 holds: `none(a in approvals where a.approver == actor.id)` over an erased approver is unknown, and refuses. Production's rule that a slot with no role never blocks completion (`wr:app/core/state_registry.py:544-545`) is written with a presence test, which Kleene `and` makes definite: *(Since ADR-0114 no guard reads `actor`, check 64, so this example no longer publishes; separation of duties is the upper layer's.)*
 
 ```text
 require filled: none(s in slots where s.role is not null and s.role == Role.PRIMARY and not s.filled)

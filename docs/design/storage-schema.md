@@ -1,6 +1,6 @@
 # Storage schema
 
-Draft, 2026-09-09, amended 2026-09-23. How a published declaration becomes tables, and how the guarantees of [`../DESIGN.md`](../DESIGN.md) rest on them. The model owns what a rule means and [`declaration-syntax.md`](declaration-syntax.md) owns how it is written; this document owns only where the bytes go.
+Draft, 2026-09-09, amended 2026-09-23. How a published declaration becomes tables, and how the guarantees of [`../DESIGN.md`](../DESIGN.md) rest on them. The model owns what a rule means, [`flow-format.md`](flow-format.md) owns how a flow is written and [`declaration-syntax.md`](declaration-syntax.md) the internal form it is converted to (ADR-0116); this document owns only where the bytes go.
 
 **Amended 2026-09-23** for ADR-0082 to ADR-0094:
 - the event gains its writing transaction, read set, occurred time and retry count, and is inserted once, complete, with its position allocated first;
@@ -129,7 +129,7 @@ Nothing is inserted early and completed later, so the append-only statement belo
 
 `object_seq` is the per-object order. The unique constraint on `(object_id, object_seq)` is what makes "strictly ordered per object" a property of the schema rather than of the writer. It is also what makes a read set re-evaluable: `reads` records each object a rule read with its version, and a version is a point in that strict order, so no global order is needed (ADR-0088). `cause_position` is the parent event of a cascade, so causal order across objects is reconstructable without a separate table.
 
-**The log is append-only with exactly one exception**, and the exception is why `payload` is a column rather than an immutable blob: erasure rewrites the personal values inside past events, in place, keeping the event, its shape and its position (§9). `reads` holds ids, versions and capability answers, never a value, so erasure has nothing to do there.
+**The log is append-only with exactly one exception**, and the exception is why `payload` is a column rather than an immutable blob: erasure rewrites the personal values inside past events, in place, keeping the event, its shape and its position (§9). `reads` holds ids and versions, never a value (ADR-0114 withdrew the capability answers it once held), so erasure has nothing to do there.
 
 ## 3. A type becomes a table
 
@@ -395,7 +395,7 @@ CREATE INDEX of_file_ref_live ON of_file_ref (hash, erased);
 CREATE TABLE of_declaration (
   version       INTEGER PRIMARY KEY,  -- 0 is the row the store is created with (ADR-0105)
   module        TEXT    NOT NULL,
-  source        TEXT    NOT NULL,   -- the .of text as published
+  source        TEXT    NOT NULL,   -- the flow description as published
   parsed        TEXT    NOT NULL,   -- the checked form the runtime reads
   builtins      TEXT    NOT NULL,   -- the built-in module it was published with: the engine
                                     -- release whose built-in types and standard metrics apply
@@ -497,7 +497,7 @@ CREATE TABLE t_declaration_change (
   declaration_version INTEGER NOT NULL,
   last_event     INTEGER NOT NULL REFERENCES of_event(position),
   base_version   INTEGER NOT NULL REFERENCES of_declaration(version),
-  source         TEXT    NOT NULL,          -- the .of text proposed
+  source         TEXT    NOT NULL,          -- the flow description proposed
   report         TEXT,                      -- the dry run: the impact report, with its ids
   evidence       TEXT,                      -- the evidence as it read at submission (ADR-0097)
   drafted_by     TEXT    NOT NULL,
@@ -507,6 +507,20 @@ CREATE TABLE t_declaration_change (
   approved_by_kind TEXT,                    -- (ADR-0114)
   CONSTRAINT t_declaration_change_state CHECK (state IN
     ('DRAFTED','SUBMITTED','PUBLISHED','REJECTED','WITHDRAWN','SUPERSEDED'))
+);
+
+-- Operator is a built-in object type: the people answerable for a store
+-- (ADR-0126). Creating the store writes its first object, whose install event
+-- names the operator's own identity as its actor (ADR-0134).
+CREATE TABLE t_operator (
+  id             TEXT    PRIMARY KEY REFERENCES of_object(id),
+  state          TEXT    NOT NULL,
+  version        INTEGER NOT NULL,
+  declaration_version INTEGER NOT NULL,
+  last_event     INTEGER NOT NULL REFERENCES of_event(position),
+  identity       TEXT    NOT NULL UNIQUE,   -- marked actor human; an identity names
+                                            -- one actor across every type (DESIGN.md §5.8)
+  CONSTRAINT t_operator_state CHECK (state IN ('ACTIVE','RETIRED'))
 );
 
 -- Imported history that predates the store (ADR-0015): read-only, not events.
@@ -577,7 +591,8 @@ CREATE TABLE of_attempt (
   transition          TEXT,                 -- none for a request naming no transition
   verdict             TEXT    NOT NULL,     -- the verdict kind, or the fault's name
   clause              TEXT,
-  remedy              TEXT    NOT NULL,     -- every refusal names one (ADR-0105)
+  remedy              TEXT    NOT NULL,     -- every refusal names one, a reused key
+                                            -- self_serviceable (ADR-0105)
   unknown             INTEGER NOT NULL DEFAULT 0,
   enforced            INTEGER NOT NULL DEFAULT 1,   -- 0 for an observing clause or a flag
   flagged             INTEGER NOT NULL DEFAULT 0,   -- 1 for a raised flag (ADR-0111)
@@ -611,7 +626,7 @@ CREATE TABLE of_attempt_rollup (
 
 `of_subscription_position` is the one place the model deliberately keeps runtime state outside an object: no version, no events, no history. An acknowledged cursor moving thousands of times a minute is not something anyone wants a permanent record of, and its lag and death are derived rather than states (ADR-0043). `t_subscription` next to it is an ordinary object, because its filter is configuration someone changes and should answer for; who may pull it is the upper layer's (ADR-0114). It holds no endpoint and its position no delivery error: the core posts nothing, and a relay that posts records its own failures (ADR-0105).
 
-**Version 0 is written when the store is created** (ADR-0105), the one write that precedes every operation, attributed to the engine release rather than to an actor, since no one wrote its rules. The same step writes the store's operator, an `Operator` object with its `of_actor` row, so the first request has an actor to name (ADR-0126). Its `of_declaration` row holds the built-in types, the `label` kind, the `closed` category and the standard metric definitions of the engine release, with `builtins` naming that release. The first `DeclarationChange`'s `base_version` references it, so the first flow is drafted and published by the same path as every later one.
+**Version 0 is written when the store is created** (ADR-0105), the one write that precedes every operation, attributed to the engine release rather than to an actor, since no one wrote its rules. The same step writes the store's operator, an `Operator` object with its `of_actor` row, so the first request has an actor to name (ADR-0126). Its creation event, `install`, names the operator's own identity as its actor, of kind `human`, with provenance `observed` and the context `store-creation:<release>`, since an event's actor is required and a release is not one (ADR-0134). Its `of_declaration` row holds the built-in types, the `label` kind, the `closed` category and the standard metric definitions of the engine release, with `builtins` naming that release. The first `DeclarationChange`'s `base_version` references it, so the first flow is drafted and published by the same path as every later one.
 
 `of_declaration` is never deleted. Every event names the version whose rules applied, so deleting one makes that stretch of history unreadable.
 
@@ -657,10 +672,10 @@ Enforcement is dynamic and correctness comes from serialisable isolation; a cons
 | non-negativity of a counter | `CHECK` | `CHECK` |
 | overlap of two ranges, per key | `EXCLUDE USING gist` | **none** — dynamic only |
 | a traversal or type-scan invariant | none | none |
-| any invariant that an assertion may `admit`, or a publish's `admit` has an admission of standing | **none, on either** | see below |
+| any invariant that an assertion may `admit`, or of which an admission stands, whatever recorded it: a publish's `admit` or an import's `ADMIT` | **none, on either** | see below |
 | any invariant that reads a personal attribute, which an erasure admits (`DESIGN.md` §5.6, ADR-0060) | **none, on either** | none |
 
-The last row is **ADR-0074**, derived here because this is the first document that had to hold ADR-0041 and ADR-0054 at once. An admission suppresses **one** invariant for **one** object (ADR-0054), and a database constraint cannot yield for one row. So an invariant a type's assertion names in `may admit` must not be compiled, or an admitted violation would be refused by the database after the runtime allowed it. Publishing knows both facts and can decide it; this is the schema's constraint on that decision. *(Added 2026-09-28, D457: an erasure admits every invariant reading an attribute it erased, for the object it erases, so an invariant that reads a personal attribute is not compiled either, or the database would refuse an erasure the engine allows.)*
+The row on admissions is **ADR-0074**, derived here because this is the first document that had to hold ADR-0041 and ADR-0054 at once. An admission suppresses **one** invariant for **one** object (ADR-0054), and a database constraint cannot yield for one row. So an invariant a type's assertion names in `may admit` must not be compiled, or an admitted violation would be refused by the database after the runtime allowed it. Publishing knows both facts and can decide it; this is the schema's constraint on that decision. *(Added 2026-09-28, D457: an erasure admits every invariant reading an attribute it erased, for the object it erases, so an invariant that reads a personal attribute is not compiled either, or the database would refuse an erasure the engine allows.)*
 
 The overlap row is the one that matters and the one not executed here. A booking-overlap invariant compiles to an exclusion constraint on PostgreSQL and has no equivalent in SQLite, so the same declaration is enforced by the database on one backend and by the runtime on the other. That is legitimate under ADR-0041, and it should be measured before it is believed, because a type-scan under serialisable isolation is where contention will actually appear.
 
@@ -685,7 +700,7 @@ Erasure (§8 of the model, ADR-0087) does these things to storage:
 It does **not** touch `of_attribute_write`, `of_attempt`, or `of_interval` beyond step 9:
 - redacting a value inside an event does not change which event last wrote the attribute, so `changed_since` answers the same after an erasure as before;
 - a tracked reference holds an id, and a personal enum's values are redacted by step 9;
-- an attempt never held an input.
+- an attempt holds no personal input, naming each as withheld (ADR-0105); the identity a refused request named for an actor the store does not hold is kept as it was sent, until the attempt retention prunes it (ADR-0125), a limit `DESIGN.md` §8 names.
 
 The log is never pruned. **Archival tiering** is therefore not deletion but a second table with the same shape on cheaper storage, plus a view over both: events older than a threshold move, by `maintain(archive_events)` (ADR-0100), and `pull`, `export` and `history` read the view.
 

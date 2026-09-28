@@ -1,6 +1,6 @@
 # Publish and import
 
-Draft, 2026-09-09, amended 2026-09-23. What `publish` does with a declaration, what it reports, and how the first consumer's production data arrives. Import is not a separate mechanism: it is declaration migration from version zero (ADR-0027), and this document is written so that the two share one report and one disposition format.
+Draft, 2026-09-09, amended 2026-09-23. What `publish` does with a declaration, what it reports, and how the first consumer's production data arrives. Import is not a separate mechanism: it is declaration migration (ADR-0027), writing into the mirrors a published version declares, and this document is written so that the two share one report and one disposition format. *(ADR-0027 called it migration from version zero. Since ADR-0105 and ADR-0126, version 0 is the store's creation, holding only the built-ins and the operator, and an import writes into a later version's mirrors, §4.)*
 
 **Amended 2026-09-23** for ADR-0083, ADR-0085, ADR-0086 and ADR-0093: a publish is the approval of a `DeclarationChange`, whose dry run is the impact report; the report lists observing clauses; the import's state changes are recorded as `imported`; the mapping may supply entry times and legacy intervals, assignment included; and the cutover order counts the legacy system's writes.
 
@@ -20,17 +20,17 @@ Draft, 2026-09-09, amended 2026-09-23. What `publish` does with a declaration, w
 
 **Amended 2026-09-25** for ADR-0114: who may draft, approve or import is the upper layer's, and the change records who did; the report names the metric dimensions that name an actor, in place of audiences, and hides nothing from its reader.
 
-**Amended 2026-09-25** for ADR-0111 and ADR-0112: the report lists every flag beside the observing clauses, and each metric's audience; the checks number sixty-three.
+**Amended 2026-09-25** for ADR-0111 and ADR-0112: the report lists every flag beside the observing clauses, and each metric's audience; the checks number sixty-three. *(The audience was withdrawn the same day by ADR-0114, which also withdrew check 63; ADR-0133 withdrew check 45.)*
 
 **What is verified.** The report shapes below execute and are held against the rest of the record by `scripts/check-api-doc.py`, which reads this file as well. The mapping syntax is checked by the declaration checker like any other declaration text.
 
 ## 1. Publishing is a transaction, and the approval of a change
 
-A flow changes only through a **`DeclarationChange`**, a built-in type with a declared lifecycle (ADR-0085, ADR-0097). A store is created at declaration version 0, holding the built-in types and standard metrics, and with its operator, the actor who can draft the first change (ADR-0126), so the first change is drafted against version 0 and published by the same path as every later one; each version records the built-in module it was published with, and an engine release changes the built-ins in a store only through a publish (ADR-0105). An actor drafts one with the proposed source — a module and the closure of its `use` imports — and `submit` runs steps 1 to 4 below as its **dry run**, attaching the report as the impact report PRD F7 requires, together with a snapshot of the evidence it cites as that evidence then reads. `refresh` reruns the dry run. The `publish` transition is the approval and runs step 5. It requires a change drafted against the installed version; the approver names the version of the change they read, and a `refresh` since is refused as `stale` (ADR-0101). The change records who drafted it and who approved it, with their kinds. Who may draft and approve, that the approver is not the drafter, and that a person approves what an agent drafted, are the upper layer's (PRD F7, ADR-0114). `reject` and `withdraw` end a change, and a publish supersedes every other open change drafted against an older version, since its dry run no longer describes what it would do.
+A flow changes only through a **`DeclarationChange`**, a built-in type with a declared lifecycle (ADR-0085, ADR-0097). A store is created at declaration version 0, holding the built-in types and standard metrics, and with its operator, the actor who can draft the first change (ADR-0126), so the first change is drafted against version 0 and published by the same path as every later one; each version records the built-in module it was published with, and an engine release changes the built-ins in a store only through a publish (ADR-0105). An actor drafts one with the proposed source — a module and the closure of its `imports` — and `submit` runs steps 1 to 4 below as its **dry run**, attaching the report as the impact report PRD F7 requires, together with a snapshot of the evidence it cites as that evidence then reads. `refresh` reruns the dry run. The `publish` transition is the approval and runs step 5. It requires a change drafted against the installed version; the approver names the version of the change they read, and a `refresh` since is refused as `stale` (ADR-0101). The change records who drafted it and who approved it, with their kinds. Who may draft and approve, that the approver is not the drafter, and that a person approves what an agent drafted, are the upper layer's (PRD F7, ADR-0114). `reject` and `withdraw` end a change, and a publish supersedes every other open change drafted against an older version, since its dry run no longer describes what it would do.
 
 A publish either installs a version or installs nothing.
 
-1. **Parse and check.** The sixty-four checks of the syntax document §10. Any failure and the publish is refused with all of them, not the first.
+1. **Parse and check.** The sixty-four checks of the syntax document §10, checks 45 and 63 withdrawn, over the internal form the description is converted to (ADR-0116); ADR-0131 adds running the examples a description carries and refusing a contradiction within one type, whose design is still to be done (`TODO.md`). Any failure and the publish is refused with all of them, not the first.
 2. **Compare with the installed version.** What changed, and whether each change needs a mapping.
 3. **Read the live objects.** Which violate a new invariant, which are in a removed state, which each mapping will rewrite, which pending proposals the change would invalidate, which would gain or lose an available transition under the new guards, which a clause the change stops observing would now refuse, which lack a new required attribute with no `backfill`, and which hold a removed enum member with no mapping (ADR-0097, ADR-0099). **Apply every mapping in simulation** and evaluate every invariant over the objects it writes, as a request's step 7 does, reporting each violation with its objects as a decision, and whether an `admit` in the change covers it (ADR-0105). Name every other open change the publish would supersede. The report keeps the ids of each.
 4. **Report.** Everything above, whether or not it is fatal.
@@ -119,7 +119,7 @@ class PublishReport:
                                                # ids per impact, compared again at approval (ADR-0096)
 ```
 
-Three severities rather than two, because the middle one is the interesting case. A new invariant that eleven live objects violate is not a defect in the declaration and not something to wave through: it is a decision, and §4 is where it gets made. Anything a person must decide blocks the publish until the decision is recorded, and the decision is recorded in a file rather than in an argument to the command.
+Three severities rather than two, because the middle one is the interesting case. A new invariant that eleven live objects violate is not a defect in the declaration and not something to wave through: it is a decision, and a publish's `admit` (§3), or for an import the disposition file (§6), is where it gets made. Anything a person must decide blocks the publish until the decision is recorded, and the decision is recorded in a file rather than in an argument to the command.
 
 `creations_past_first_state` lists each creation into a state other than its lifecycle's first, with the path it skips and, for each transition on it, which clauses the creation carries, which the type holds as invariants of the same name, and which nothing carries (ADR-0109). It never refuses a publish: opening stock and a walk-in intake start partway through the lifecycle on purpose. `scripts/check-syntax-doc.py` computes it, and `scripts/check-flow-docs.py` verifies that the journey's, which `unit-journey.md` quotes, is the one the journey's module produces.
 
@@ -157,7 +157,7 @@ An `admit`'s reason is a member of a declared enum, as an assertion's is, so ove
 
 An attribute that is **removed** needs no mapping and gets no DDL. It hides from the declaration and its recorded values stay in history, which is what keeps a fold of the log readable.
 
-## 4. Import is version zero
+## 4. Import uses the migration mechanism
 
 Every object arrives mid-lifecycle at once, which is the situation a migration is, so it uses the same mechanism (ADR-0027 decision 5). What is specific to import is where the objects come from and that nobody has seen them yet.
 
@@ -264,7 +264,7 @@ The author chose staged over big-bang (ADR-0075), and the shape of a stage follo
 
 **A cycle in the combined graph — references and writes — is one stage.** Its members have no valid order between them, so they move together or not at all. The unit of a stage is a strongly connected component of that graph, and finding those is the first thing a cutover plan needs. For the first consumer it puts at least seven tables of the operational core in one stage (`first-consumer-cutover.md`).
 
-**A stage is three publishes, not one.** The type arrives as a `mirror` in one, is kept current by repeated import while it is one, and is cut over by a version advance that removes the marking and declares its transitions. No object changes id, because the mirror held real objects from the start.
+**A stage is two publishes and the imports between them, not one publish.** The type arrives as a `mirror` in one, is kept current by repeated import while it is one, and is cut over by a second, a version advance that removes the marking and declares its transitions. No object changes id, because the mirror held real objects from the start.
 
 What this does **not** solve is a legacy *read* of a migrated type. Only writes are forbidden. Where the retiring system must still show data that has moved, that is a read-only projection out of the read surface, and whether each such screen earns its cost is a per-stage judgement about that codebase rather than something this design decides.
 

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-24 at the author's direction ("go ahead with the five reviewers once the PRD is fixed"), against `docs/PRD.md` revision 5: C1, C2, D5, D8, D11, M1, M3, M4, M5, M6, N1, N5, T5, V3 and UC-1, UC-9, UC-14, UC-16, UC-17, UC-18; repairs D299 to D314, and, as corrected by an independent verification, D356, D360, D362 and D366. Accepted by the author on 2026-09-26: "accept the older pending ADRs too".
 - **Date:** 2026-09-24
-- **Refined by:** ADR-0125 — the kind `unknown` also marks the attempt of a request naming an actor the store does not know. ADR-0128 — work completes whatever the outcome, separated by the state entered.
+- **Refined by:** ADR-0125 — the kind `unknown` also marks the attempt of a request naming an actor the store does not know. ADR-0128 — work completes whatever the outcome, separated by the state entered. ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
 - **Refines:** ADR-0026, ADR-0048, ADR-0083, ADR-0084, ADR-0086, ADR-0096, ADR-0098, ADR-0100, ADR-0101
 - **PRD:** the four revisions it proposes (D5, D11, L1, N5) were accepted by the author on 2026-09-24, as PRD revision 7.
 
@@ -76,7 +76,7 @@ The import cuts each legacy interval at a silent span, so no row lies inside one
 
 `MetricPage.history_complete` is false when any row has gaps.
 
-**Two separate questions.** `complete` still says whether the reader sees every object. The two flags answer different questions:
+**Two separate questions.** `complete` still says whether the reader sees every object. The two flags answer different questions: *(Withdrawn by ADR-0114: no read is filtered by its reader, so `complete` is gone and `gaps` is the one flag.)*
 - a partial reader over whole history;
 - a whole reader over a silent span.
 
@@ -111,7 +111,7 @@ Time before the publish is not tracked, and `gaps` says so for any row that read
 
 ### 5. A derived attribute that reads other objects is read under the reader's visibility, and says when it is partial
 
-Wherever a reader reads a derivation — by `get`, by `query`, or in a metric row — its aggregates range over the objects that reader can see.
+Wherever a reader reads a derivation — by `get`, by `query`, or in a metric row — its aggregates range over the objects that reader can see. *(Withdrawn by ADR-0114: a derivation is read over every object for every reader, and `Object.partial` is gone.)*
 
 `Object.partial` names each derived attribute that reads a type the reader cannot see in full: the same rule that makes a metric's `complete` false. A derivation over the object's own members is never partial.
 
@@ -199,7 +199,7 @@ Such a derivation:
 - **Record a gap as an interval with an unknown value.** Every aggregate over intervals would have to handle a row that is not a fact. The row would also look like history, which is what the harness exists to stop the import inventing.
 - **Make `.created_at` absent where the legacy creation is unknown.** An aggregate leaves out an absent body silently. Keeping the port time, and saying the record starts there, keeps the object counted and says why its figure is short.
 - **Keep the port's split, and count handoffs by change of value.** That repairs two metrics and leaves `entered_at`, `oldest_open` and every ageing condition restarting at cutover.
-- **Evaluate a derivation over every object for every reader.** A count of units by model would tell a reader how many exist that they may not see (T5).
+- **Evaluate a derivation over every object for every reader.** A count of units by model would tell a reader how many exist that they may not see (T5). *(Since ADR-0114 this is the rule: no read is filtered by who asks, and an upper layer that must hide a count keeps it behind its own door.)*
 - **Withhold a derivation from a partial reader.** PRD M2 gives a reader who sees part of the data the figures over that part.
 - **Count overrides per free-text reason.** It groups nothing, and it may hold a person's name.
 - **Let a metric count a personal value's presence.** The count would fall when the person is erased, and UC-17 says it must not.

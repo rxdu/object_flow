@@ -15,12 +15,12 @@ Most findings sat in constructs spelled the same day, which is where the record'
 
 ### 1. An observation kind is erasable through a generated `forget`
 
-Each kind expands with `erase forget`, taking a `reason`, which erases the observation's personal fields. For a label, that is its note. The subject's `erase` runs it on every observation in its parts without a declared step, and check 39 counts an observation part as reached. It may also be requested on one observation, by an actor holding the deployment's erasure capability. That is how a note about someone other than the subject is removed, and how a label's note is erasable on a type that declares no `erase`. (D218)
+Each kind expands with `erase forget`, taking a `reason`, which erases the observation's personal fields. For a label, that is its note. The subject's `erase` runs it on every observation in its parts without a declared step, and check 39 counts an observation part as reached. It may also be requested on one observation, by an actor holding the deployment's erasure capability. That is how a note about someone other than the subject is removed, and how a label's note is erasable on a type that declares no `erase`. (D218) *(Since ADR-0114 no capability is held for erasure; who may erase is the upper layer's.)*
 
 ### 2. A correction names an uncorrected observation of its own kind and subject, and may follow a finished subject
 
 The generated creation gains a third guard, `corrects_current`: a `corrects` must name an observation of this kind, on the same subject, that nothing has corrected yet. Three things follow:
-- a correction is a recording, so `recorded_by` applies to it, and no one can hide another subject's results by naming them;
+- a correction is a recording, so `recorded_by` applies to it, and no one can hide another subject's results by naming them; *(Withdrawn by ADR-0114 with `recorded by`: who may record a correction is the upper layer's.)*
 - `subject_open` applies to a new observation and not to a correction, since a correction adds no fact to a settled whole but replaces one already recorded, and PRD D4 allows no exception;
 - the observation tool gains a `corrects` input, so an agent can correct as a person can.
 

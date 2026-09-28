@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-28: "accept all, fix the defects, all four themes as recommended", after the triage of the decisions awaiting review; this records the third theme.
 - **Date:** 2026-09-28
+- **Refined by:** ADR-0134 — check 60 counts a personal input as it counts a personal attribute, and holds a machine's binders rather than the machine.
 - **Refines:** ADR-0031 (erasure), ADR-0049 (external evaluators), ADR-0060 §7 (a part declared on an abstract base), ADR-0087 (erasure along a supersession chain), ADR-0116 (the flow description format)
 - **Relates to:** PRD D8; `DESIGN.md` §5.5, §8, §10; `flow-format.md` §4.13, §4.14, §4.18; `declaration-syntax.md` §3.2, §5.1, §10 checks 37, 45 and 60
 

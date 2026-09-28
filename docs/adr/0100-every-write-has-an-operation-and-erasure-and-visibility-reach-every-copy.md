@@ -41,7 +41,7 @@
 
 ### 1. The import is an operation, and it cannot write an owned type
 
-`import_batch(actor, batch, dry_run)` writes objects through the built-in assertion. It requires `OF_IMPORT`.
+`import_batch(actor, batch, dry_run)` writes objects through the built-in assertion. It requires `OF_IMPORT`. *(Withdrawn by ADR-0114: it requires no capability; who may import is the upper layer's.)*
 
 A batch carries, per object:
 - its legacy key, state, attributes and references by legacy key;
@@ -55,7 +55,7 @@ Every event it writes carries `imported`, in a column of `of_event`. That column
 
 ### 2. Maintenance is an operation, and nothing depends on it
 
-`maintain(actor, task)` runs one of two tasks, and requires `OF_MAINTAIN`:
+`maintain(actor, task)` runs one of two tasks, and requires `OF_MAINTAIN`: *(Withdrawn by ADR-0114: it requires no capability.)*
 - `prune_attempts(before)`, which deletes attempt rows and adds their counts to the rollup in the same transaction;
 - `archive_events(before)`, which moves events to the archive table the view reads.
 

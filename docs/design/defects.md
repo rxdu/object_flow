@@ -473,6 +473,22 @@ Findings from every review of this design. It began as the implementation-readin
 | [D459](#d459) | Leaving deleted and superseded objects out of default reads was dropped without a record | Resolved in place |
 | [D460](#d460) | DESIGN.md still inferred an omitted remedy class and had types carry written versions | Resolved in place |
 | [D461](#d461) | A type with a personal attribute could declare no erasure, against PRD D8 | Resolved by ADR-0133 |
+| [D462](#d462) | ADR-0133's erasure rule reached the check tables and not the prose | Resolved in place |
+| [D463](#d463) | A personal input could be declared where nothing erases it | Resolved by ADR-0134 |
+| [D464](#d464) | The operator's creation could not be stored as ADR-0126 wrote it | Resolved by ADR-0134 |
+| [D465](#d465) | The documents did not give a reused key the remedy ADR-0105 decided | Resolved in place |
+| [D466](#d466) | `library-api.md` §4 and §7 disagreed with the verdicts `DESIGN.md` states | Resolved in place |
+| [D467](#d467) | Two checker gaps and a latent crash | Resolved in place |
+| [D468](#d468) | The PRD disagreed with itself | Resolved by PRD revision 15, with two revisions proposed in PRD §12 |
+| [D469](#d469) | The traceability map had not followed the decisions since revision 10 | Resolved in place |
+| [D470](#d470) | The evaluation and the first-consumer check stated what later decisions changed | Resolved in place |
+| [D471](#d471) | Capabilities, the text language and the pre-Rust plan survived in the implementation documents | Resolved in place |
+| [D472](#d472) | Counts and rules the implementation documents had wrong | Resolved in place |
+| [D473](#d473) | The worked examples still waited on decisions the author had closed | Resolved in place |
+| [D474](#d474) | The authoring documents lagged ADR-0116 and ADR-0131 | Resolved in place |
+| [D475](#d475) | The case studies, the walkthrough and `TODO.md` misstated the record | Resolved in place |
+| [D476](#d476) | DESIGN.md read whole was out of step in places | Resolved in place |
+| [D477](#d477) | The decision records from ADR-0081 on still stated what ADR-0114 withdrew | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3037,3 +3053,88 @@ The author asked whether a flow builder, given the specification and the YAML, c
 **A type with a personal attribute could declare no erasure, against PRD D8.** Check 60 required an erasure only of a type taking part in supersession, so a type with a personal attribute and no `erase`, such as the CRM case study's `Activity`, held values nothing could erase. Found by the triage of the decisions awaiting review, 2026-09-28, which checked ADR-0019 to ADR-0064 and ADR-0074 to ADR-0077 against `DESIGN.md` and the later decisions.
 
 **Resolved by ADR-0133**, 2026-09-28: check 60 requires an erasure of every concrete type holding a personal attribute, in both checkers, and `Activity` gains `forget`.
+
+## Found reviewing the whole record for coherence, 2026-09-28
+
+Six readers, one slice each, read the requirements and the design whole, after the day's decisions, for whether they still agree; every finding was verified against the file before it was recorded (`TODO.md`, the coherence review).
+
+### D462
+**ADR-0133's erasure rule reached the check tables and not the prose.** ADR-0133 made check 60 require an erasure of every type holding a personal attribute, and the check tables said so, but `declaration-syntax.md` §6.4 still called an erasure optional and scoped check 60 to supersession, and so did `flow-format.md` §4.19 and `DESIGN.md` §8. Found by two of the six readers independently.
+
+**Resolved in place**, 2026-09-28: the three passages state the rule of ADR-0133, as ADR-0134 widens it.
+
+### D463
+**A personal input could be declared where nothing erases it.** Erasure reaches a personal input only through the erasure of the event's object, and check 60 counted only attributes, so the format's `ServiceJob`, the journey's `UnitLifecycle` and the syntax document's `Robot` held values no request could erase, against PRD D8. The flow format makes an assertion's explanation personal, so every type with such an assertion was exposed. Found by the authoring-surface reader, with a probe of `service.yaml`.
+
+**Resolved by ADR-0134**, 2026-09-28: check 60 counts personal inputs in both checkers, a machine's binders are held rather than the machine, the three types gain `forget`, and each checker plants the mistake.
+
+### D464
+**The operator's creation could not be stored as ADR-0126 wrote it.** ADR-0126 attributed the operator's object to the engine release, and an event's actor, its kind and its object's `created_by_kind` are required and name an actor; `storage-schema.md` §6 gave `Operator` no table. Found by the implementation-documents reader.
+
+**Resolved by ADR-0134**, 2026-09-28: the creation is recorded as the operator's own act, and `t_operator` is written out.
+
+### D465
+**The documents did not give a reused key the remedy ADR-0105 decided.** `KeyReused` is written to the attempt log, whose `remedy` is required, and neither `DESIGN.md`, `library-api.md` nor `storage-schema.md` said which class it takes, though ADR-0105 §6 says "a reused key, `self_serviceable`". Found by the implementation-documents reader; the decision was found by the decision-records reader.
+
+**Resolved in place**, 2026-09-28: `DESIGN.md` §6, `library-api.md` §7 and `storage-schema.md` §6 cite ADR-0105. *(Corrected the same day: this entry first said no class was given and resolved it by a new decision in ADR-0134, which was asserted without searching the decision records; ADR-0134 records the retraction.)*
+
+### D466
+**`library-api.md` §4 and §7 disagreed with the verdicts `DESIGN.md` states.** §7 listed `UnknownTransition` as an exception after ADR-0122 made it a verdict, gave a malformed input as `Unsatisfied` where it is `InvalidInput`, and counted six exceptions and then five; §4 said one of seven verdicts where the union has eleven; `Event.txn` was text where the schema makes it a number; `Diagnostic` could not say its subject names an actor; `query`'s order was typed as one string and its absent values and default metric order were unstated. Found by the implementation-documents reader; `scripts/check-api-doc.py` passed all of it, since it compares operation names only.
+
+**Resolved in place**, 2026-09-28.
+
+### D467
+**Two checker gaps and a latent crash.** The flow checker reserved neither `recorded_from` nor `declaration_version`, which every object has, and accepted `survives` on an abstract base's part, then ignored it; the corpus checker's `check_declarations` assigned `findings +=` and so raised `UnboundLocalError` on the first finding it had to report. Found by the authoring-surface reader's probes and by running the checks after D463.
+
+**Resolved in place**, 2026-09-28: both names reserved and the base's `survives` refused, each proven by a plant, and the assignment made an `extend`.
+
+### D468
+**The PRD disagreed with itself.** §4 and F3 said the kind of actor matters "where a rule says so", against T6 and N7 since revision 10; F6 became a Must resting on F7, a Should, against §6's rule; the status paragraph, the definition of Said and the telemetry row's source had not caught up with revisions 12 to 14; and T6's "No rule reads the kind" did not say whose, while `DESIGN.md` §5.1 lets a rule read `created_by_kind`. Found by the requirements and DESIGN readers.
+
+**Resolved by PRD revision 15**, 2026-09-28, with two revisions §12 proposes to the author: F7 a Must, and T6 saying the kind no rule reads is the requester's. The design meets both meanwhile.
+
+### D469
+**The traceability map had not followed the decisions since revision 10.** `flow-format.md`, ADR-0116 and ADR-0131 were cited by no row; D8 and UC-17 did not cite ADR-0133, T6 omitted ADR-0125 and ADR-0126, N7 omitted ADR-0132, and the history stopped at revision 10. Found by the requirements reader.
+
+**Resolved in place**, 2026-09-28.
+
+### D470
+**The evaluation and the first-consumer check stated what later decisions changed.** `data-driven-engine.md` §9's release map predated PRD revision 9, its diagram filtered metrics by reader, it said inputs are never recorded and that a guard keeps an agent from being engineer-of-record, and it gave L6 to revision 4; `first-consumer-prd-check.md` mapped R8 to a rule on the kind of actor, called L2 a candidate to relax and relied on N5's archive. Found by the requirements reader.
+
+**Resolved in place**, 2026-09-28, each passage marked where it stands.
+
+### D471
+**Capabilities, the text language and the pre-Rust plan survived in the implementation documents.** The schema said a read set holds capability answers and the published source is `.of` text; the edge-case catalogue gated an assertion on a capability and offered an archive option the schema rejects; the API had the first consumer's service wrap the core and an actor refused as `actor_live`; publish-and-import cited `use` imports, counted checks and read the import as version zero; the harness still failed a read outside a metric's audience. Found by the implementation-documents reader.
+
+**Resolved in place**, 2026-09-28.
+
+### D472
+**Counts and rules the implementation documents had wrong.** The schema's admissions row covered a publish's `admit` and not an import's `ADMIT`, and called the personal-attribute row "the last"; a cutover stage was "three publishes"; `DESIGN.md` wrote an `admit`'s reason as free text; and the cutover plan's first stage listed six association tables and counted 21, where the source declares seven, as a listing of `__tablename__` and `Table(` in the first consumer's repository shows. Found by the implementation-documents reader.
+
+**Resolved in place**, 2026-09-28.
+
+### D473
+**The worked examples still waited on decisions the author had closed.** `flow-review.md` said its proposals await the author after its own §7 recorded the closure; `metric-scenarios.md` §39 held the proposals and `check`'s result open; the recoverability review held the first actor and archiving open; and "a condition cannot read a metric" read, in the format's terms, as denying what a guard's condition does. Found by the worked-examples reader.
+
+**Resolved in place**, 2026-09-28, with the question of an eleventh recoverability round recorded in `TODO.md`.
+
+### D474
+**The authoring documents lagged ADR-0116 and ADR-0131.** `declaration-syntax.md` still called itself the written form, its version rule and check 22 ignored computed versions, and check 26's cycle was stated as checked; `flow-format.md` kept the author's pending decision on the text language, an `evaluation` finding and the old erasure finding, and no conversion for `inherited_parts`; `renderers.md` had the store check who may record, and did not say which text it prints for a condition that carries a written description; `authoring-flows.md` §1 and §3 described the design as it stood before the answers. Found by the authoring-surface reader.
+
+**Resolved in place**, 2026-09-28; the rule set prints the author's description beside the rendered sentence, marked as unchecked.
+
+### D475
+**The case studies, the walkthrough and `TODO.md` misstated the record.** Four case studies said their decisions await review; the orders study gave a guest checkout an actor id the store would refuse; the Jira catalogue said `actor.id` is the one value a flow reads of the actor; the walkthrough kept `deferred` and claimed to be current; and `TODO.md` held the authoring questions open, called the declaration syntax the written form, counted fourteen operations, called the core library-shaped without the service, and kept the seven PRD rows as questions. Found by the case-studies reader.
+
+**Resolved in place**, 2026-09-28.
+
+### D476
+**DESIGN.md read whole was out of step in places.** Its status block listed acceptances out of order under a stale heading; observations were described in the internal form's words; a combined metric's reading omitted ADR-0124; §6 checked `not found` twice and left `actor_known`'s place in the refusal order unstated; the attempt log was said to hold no personal value, which ADR-0125's kept identity qualifies; ADR-0129, ADR-0131 and ADR-0132 appeared only in the status block; and the ADR index's refined-by notes lagged the headers in 48 rows. Found by the DESIGN reader.
+
+**Resolved in place**, 2026-09-28, the index regenerated from the headers.
+
+### D477
+**The decision records from ADR-0081 on still stated what ADR-0114 withdrew.** Fifteen of them, among them ADR-0084, ADR-0085, ADR-0088, ADR-0098, ADR-0105 and ADR-0106, still filtered reads by their reader, gated routes on capabilities or read the actor in a guard, unmarked, and eleven did not name ADR-0114 in their headers; ADR-0091 still had the first consumer wrap the core. The triage of 2026-09-28 had covered ADR-0019 to ADR-0080, and the six slices of this review left the records from ADR-0081 on to no reader, which a sweep after the fixes showed. Found by a seventh reader given those records alone.
+
+**Resolved in place**, 2026-09-28: thirty-six passages marked where they stand, ADR-0114 named in eleven headers, and the index's refined-by notes regenerated from the headers.
+

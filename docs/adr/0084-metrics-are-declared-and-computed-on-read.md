@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23 — evaluated at the author's direction against `docs/PRD.md`, the baseline for every design choice
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0095 — a metric in a guard reads every row, and its value is recorded on the event and shown only as far as a reader's visibility reaches. ADR-0096 — a path through a hidden object yields absence, and every result says whether it is complete for its reader; a refusal carries the metric value it was decided on; an unbound dimension is aggregated over. ADR-0098 — the standard metrics are declared definitions; combined metrics, per-object flow collections and distinct counts; `metric()` binds, windows and filters as a guard does. ADR-0106 — percentiles are nearest-rank, weeks ISO and buckets UTC; `avg` keeps its type; a metric reads no personal value and reports its `gaps`. ADR-0112 — a metric may declare who reads it, and a split by person needs `OF_PERSON_METRICS` by default. ADR-0113 — a norm a condition compares against is held as data and refreshed from the metric, by §7's pattern. ADR-0127 — `query` may order by the entry time of a tracked value's current interval, as it may filter on it.
+- **Refined by:** ADR-0095 — a metric in a guard reads every row, and its value is recorded on the event and shown only as far as a reader's visibility reaches. ADR-0096 — a path through a hidden object yields absence, and every result says whether it is complete for its reader; a refusal carries the metric value it was decided on; an unbound dimension is aggregated over. ADR-0098 — the standard metrics are declared definitions; combined metrics, per-object flow collections and distinct counts; `metric()` binds, windows and filters as a guard does. ADR-0106 — percentiles are nearest-rank, weeks ISO and buckets UTC; `avg` keeps its type; a metric reads no personal value and reports its `gaps`. ADR-0112 — a metric may declare who reads it, and a split by person needs `OF_PERSON_METRICS` by default. ADR-0113 — a norm a condition compares against is held as data and refreshed from the metric, by §7's pattern. ADR-0127 — `query` may order by the entry time of a tracked value's current interval, as it may filter on it. ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
 - **Refines:** ADR-0047, ADR-0049
 
 ## Context
@@ -39,7 +39,7 @@ No invariant may read a metric.
 
 ### 2. Metrics are computed on read, under the reader's visibility
 
-A metric compiles to SQL over the store's tables. Source rows are filtered by the source type's visibility predicate, which check 7 already requires to be expressible as a query filter; the three datasets and observations inherit their subject's. A metric is therefore retroactive by construction, and stores nothing. A cache keyed by visibility may be added if measurement asks for one.
+A metric compiles to SQL over the store's tables. Source rows are filtered by the source type's visibility predicate, which check 7 already requires to be expressible as a query filter; the three datasets and observations inherit their subject's. A metric is therefore retroactive by construction, and stores nothing. A cache keyed by visibility may be added if measurement asks for one. *(Withdrawn by ADR-0114: a metric is computed over every row its filter selects, for every reader, and nothing is keyed by who reads.)*
 
 ### 3. Personal data is never a dimension or an output
 
@@ -80,12 +80,12 @@ When a transition must be sweepable, or a person must set the value, a declared 
 
 ### 8. The read surface gains `metric(actor, name, filter?)`
 
-It returns the rows the reader may see, with any flags that hold.
+It returns the rows the reader may see, with any flags that hold. *(Withdrawn by ADR-0114: it returns every row its filter selects.)*
 
 ## Alternatives rejected
 
 - **Per-object derived attributes only.** They cannot express a cross-object aggregate per model per month (UC-8).
-- **User-written SQL views.** They cannot be held to visibility or to the personal-data taint at publish, they couple consumers to a physical schema, and their dialect differs across the backends.
+- **User-written SQL views.** They cannot be held to visibility or to the personal-data taint at publish, they couple consumers to a physical schema, and their dialect differs across the backends. *(Since ADR-0114 no read is held to visibility; the taint and the coupling still stand.)*
 - **An external BI tool, as today.** Definitions drift, rules cannot read the results, and agents read a different definition from people.
 - **Metrics maintained incrementally at write time.** They are not retroactive without a backfill, and their stored aggregates need repair after an erasure. Every recorded datapoint also updates one aggregate row, a hot row by construction, with the cost D203 measured.
 - **A guard that evaluates a metric inside the transaction.** Under serialisable isolation its read set is every row the metric aggregates, so recording any one of them conflicts with every request reading the metric (`design/data-driven-engine.md` §3.5).

@@ -44,7 +44,7 @@ The questions this decision settles, each found by at least one reviewer:
 
 ### 1. The core delivers events by `pull` alone, and posting them is an upper-layer relay
 
-A subscription is read by `pull` and advanced by `acknowledge`: at-least-once, in each object's order, under the reader's own visibility (PRD L6).
+A subscription is read by `pull` and advanced by `acknowledge`: at-least-once, in each object's order, under the reader's own visibility (PRD L6). *(Withdrawn by ADR-0114: no read is filtered by who asks; who may pull a subscription is the upper layer's.)*
 
 The core has no delivery worker, no endpoint and no delivery errors. A deployment that wants events posted to a URL runs a **relay**, an upper-layer application. The relay pulls as its own actor, posts, and acknowledges once the post succeeded, with no privileged path (ADR-0104 §3). Its failures are its own to record and alert on.
 
@@ -60,16 +60,16 @@ A deployment becomes a service by exposing the API over a transport (ADR-0037), 
   - A subscription names its **reader**, the creator by default. Only that actor may `pull` and `acknowledge` it, so no one can move another reader's cursor past events it has not handled.
   - The reader, the creator, or a holder of `OF_SUBSCRIBE` may revoke it.
   - `pull` applies the caller's visibility, as every read does.
-- **A proposal is visible** to its proposer and to whoever can see its target.
+- **A proposal is visible** to its proposer and to whoever can see its target. *(Withdrawn by ADR-0114, with the two points below: no read is filtered by who asks, and who may file or read a proposal is the upper layer's.)*
   - A proposed creation has no target. It is visible to its proposer and to actors who pass the creation's actor guards, the clauses over `actor` — the people who could approve it.
   - Within a visible proposal, inputs naming objects the reader cannot see are withheld, as a verdict's are (ADR-0100).
-- **Ending a proposal.** Its proposer may `withdraw` it. An actor who passes the proposed transition's actor guards may `reject` it: whoever could carry it out may decline it, and no capability is invented for the purpose. Approval stays as ADR-0036 decided: executing the recorded request as the approver, with every guard re-evaluated.
+- **Ending a proposal.** Its proposer may `withdraw` it. An actor who passes the proposed transition's actor guards may `reject` it: whoever could carry it out may decline it, and no capability is invented for the purpose. Approval stays as ADR-0036 decided: executing the recorded request as the approver, with every guard re-evaluated. *(Withdrawn by ADR-0114: there are no actor guards; who may withdraw or reject a proposal is the upper layer's, and the proposal records who did.)*
 
 ### 3. A store begins at declaration version 0, and the built-ins are versioned like any declaration
 
 **Version 0.** Creating a store installs declaration version 0. It holds:
 - the built-in types `Subscription`, `Proposal` and `DeclarationChange`;
-- the seven built-in capabilities;
+- the seven built-in capabilities; *(Withdrawn by ADR-0114: version 0 holds no capabilities.)*
 - the `label` kind and the `closed` category;
 - the standard metric definitions of the engine release that created the store.
 
@@ -101,7 +101,7 @@ An `admit`:
 - is stored in `of_migration`;
 - records an admission, with its reason, on each violating object's migration event. An object that no other mapping changes receives a `migrated` event carrying only the admission.
 
-Such an admission is an override in the PRD's sense: its Override concept names "the data import and migration path under a deployment capability", and here the capability is `OF_APPROVE_CHANGE`. So it is listed by `exceptions(type)` and counted. An `admit` naming an invariant compiled to a database constraint drops that constraint before the migration writes, since a constraint cannot yield for one row (ADR-0074), and the invariant stays uncompiled while any admission of it stands; the report says so. *(Added by the verification, D357.)*
+Such an admission is an override in the PRD's sense: its Override concept names "the data import and migration path under a deployment capability", and here the capability is `OF_APPROVE_CHANGE`. So it is listed by `exceptions(type)` and counted. An `admit` naming an invariant compiled to a database constraint drops that constraint before the migration writes, since a constraint cannot yield for one row (ADR-0074), and the invariant stays uncompiled while any admission of it stands; the report says so. *(Added by the verification, D357.)* *(Withdrawn by ADR-0114: no capability approves a change; who may approve one is the upper layer's, and the change records who did.)*
 
 **What counts as an override.** The row member `.overrides` is true on two kinds of event:
 - an assertion's event;

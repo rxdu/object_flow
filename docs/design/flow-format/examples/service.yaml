@@ -123,6 +123,11 @@ types:
           photo_attached: audit
         effect:
           - assign: { location: signed_off_by_user, expr: inputs.signed_off_by }
+      forget:
+        kind: erasure
+        description: Erases the notes given when the job was reassigned, which are personal.
+        inputs:
+          reason: { type: string }
 
     metrics:
       time_working:

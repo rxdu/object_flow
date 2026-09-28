@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` M1, M3, M4, M6, C2, C3, C1, T5, UC-1, UC-2, UC-10, UC-11, UC-13, UC-16, UC-18; repairs D240 to D244 Accepted by the author on 2026-09-26: "accept the older pending ADRs too".
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0101 — the standard metrics exclude the import's events, clip finished spans, carry version and actor kind, and include two per-object metrics; they are checked as an instantiated block. ADR-0105 — `override_counts` counts every override, admissions included. ADR-0106 — every metric, declared or standard, has the version and actor-kind dimensions. ADR-0111 — a standard `flags_raised` counts flags per rule. ADR-0112 — a module may set the audience of a standard metric, and its splits by person need `OF_PERSON_METRICS` by default. ADR-0122 — a combined metric aggregates its inputs to the dimensions it names, and an absent dimension value is a group of its own. ADR-0123 — a set-valued dimension counts a row once under each distinct value it reaches, and a group with no body is reported. ADR-0124 — a combined metric read by fewer dimensions combines its inputs over them. ADR-0127 — a metric's rows ascend by the dimensions kept. ADR-0128 — a metric may range over its row's object's collections, a combined metric is windowed through its inputs, a value rounds half to even, and a path reads each object as it is now.
+- **Refined by:** ADR-0101 — the standard metrics exclude the import's events, clip finished spans, carry version and actor kind, and include two per-object metrics; they are checked as an instantiated block. ADR-0105 — `override_counts` counts every override, admissions included. ADR-0106 — every metric, declared or standard, has the version and actor-kind dimensions. ADR-0111 — a standard `flags_raised` counts flags per rule. ADR-0112 — a module may set the audience of a standard metric, and its splits by person need `OF_PERSON_METRICS` by default. ADR-0122 — a combined metric aggregates its inputs to the dimensions it names, and an absent dimension value is a group of its own. ADR-0123 — a set-valued dimension counts a row once under each distinct value it reaches, and a group with no body is reported. ADR-0124 — a combined metric read by fewer dimensions combines its inputs over them. ADR-0127 — a metric's rows ascend by the dimensions kept. ADR-0128 — a metric may range over its row's object's collections, a combined metric is windowed through its inputs, a value rounds half to even, and a path reads each object as it is now. ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
 - **Refines:** ADR-0084, ADR-0086, ADR-0096
 - **PRD:** the revision §6 proposes was accepted by the author on 2026-09-24, as PRD revision 7.
 
@@ -50,7 +50,7 @@ They are checked like any declaration, printed with the type in the rule set, an
 
 ### 4. A derived attribute in a metric row is read under the reader's visibility
 
-Its aggregates range over objects the reader can see, and the types it reads count toward the result's `complete` flag (ADR-0096 §3). A metric over a derived stock count therefore neither counts hidden units nor claims to be complete when it does not see them.
+Its aggregates range over objects the reader can see, and the types it reads count toward the result's `complete` flag (ADR-0096 §3). A metric over a derived stock count therefore neither counts hidden units nor claims to be complete when it does not see them. *(Withdrawn by ADR-0114: a derived attribute in a metric row reads every object, and `complete` is gone.)*
 
 ### 5. The rollup and the attempt rows carry what the splits need
 
@@ -61,7 +61,7 @@ Its aggregates range over objects the reader can see, and the types it reads cou
 C2 as written — "every consumer … gets the same value" — cannot hold beside T5 for a consumer who may see only part of the data. UC-10's "the refusal names the value" cannot hold for a requester who may not see what the value aggregates.
 
 `docs/PRD.md` §12 therefore proposes revision 4 *(now PRD §12's proposed revision, unnumbered since 2026-09-24, after the author's positioning decision and a coherence review took revisions 4 and 5)*, for the author to accept or refuse:
-- C2 gets the same value from the same data, with a partial reader's value marked partial.
+- C2 gets the same value from the same data, with a partial reader's value marked partial. *(Since PRD revision 10 and ADR-0114, C2 has no partial reader: every reader of one definition over the same filter gets the same value.)*
 - UC-10's refusal names the value where the requester may see what it is computed from.
 - UC-8, which tests C2, gets the same wording as C2.
 

@@ -77,7 +77,7 @@ NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "thi
 # and what a mirror has besides; a member of one of the reserved names would shadow it (the model's check 33)
 OBJECT_MEMBERS = {"id", "open", "created_at", "created_by_kind", "recorded_from", "declaration_version"}
 MIRROR_MEMBERS = {"imported_at"}
-SHADOWING = {"id", "open", "created_at", "created_by_kind", "imported_at"}
+SHADOWING = OBJECT_MEMBERS | MIRROR_MEMBERS
 # keys the text language has a form for on one kind of attribute only; elsewhere they would be dropped
 ONLY_ON_OBSERVATIONS = {"unit"}
 ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "external", "default", "opposite", "stored", "aggregation", "cascade",
@@ -534,6 +534,11 @@ def relationship_errors(doc, library):
                 # a machine's required end names no opposite: its binder's end does (§4.10)
                 out.append((here, "names", f"{tn}.{an} is a set of references with no opposite, which has nowhere to be stored; "
                                            "an end with no opposite is single (§4.3; the model's check 41)"))
+            if spec.get("aggregation") == "composite" and t.get("abstract") and ("cascade" in spec or "survives" in spec):
+                # an abstract base has no transitions: each concrete subtype gives the part in inherited_parts (ADR-0133)
+                out.append((here, "names", f"{tn}.{an} is declared on the abstract {tn}, which has no transitions to cascade on or survive; "
+                                           "each concrete subtype gives its cascade and survives in inherited_parts (§4.14)"))
+                continue
             if spec.get("aggregation") == "composite":
                 if "opposite" not in spec:
                     out.append((here, "names", f"{tn}.{an} is composite and names no opposite: a part names its whole"))
@@ -1596,11 +1601,16 @@ def supersession_errors(doc, tn, t, library):
                             and s2["create"].get("result") == " ".join(str(st["supersede"]).split())]
                     takes_part |= ref == tn or tn in made
     personal = any(sp.get("personal") for sp in (t.get("attributes") or {}).values())
+    # a personal input is erased from the events that carried it only by its object's erasure (DESIGN.md §8, ADR-0134)
+    taken = sorted(f"{xn}.{i}" for xn, x in (t.get("transitions") or {}).items()
+                   for i, sp in (x.get("inputs") or {}).items() if (sp or {}).get("personal"))
     erasable = any(x["kind"] == "erasure" for x in (t.get("transitions") or {}).values())
-    # every type holding a personal value declares its erasure, so PRD D8 holds everywhere (ADR-0133)
-    if personal and not erasable and not t.get("abstract"):
+    # every type holding a personal value declares its erasure, so PRD D8 holds everywhere (ADR-0133, ADR-0134)
+    # a machine has no objects of its own: each type that binds it is held to the rule (§4.10)
+    if (personal or taken) and not erasable and not t.get("abstract") and tn not in (doc.get("machines") or {}):
         why = ", and takes part in supersession, through which a superseded chain is erased" if takes_part else ""
-        out.append((("types", tn), "names", f"{tn} holds personal data and declares no erasure{why} (check 60)"))
+        what = "personal data" if personal else f"the personal input {taken[0]}"
+        out.append((("types", tn), "names", f"{tn} holds {what} and declares no erasure{why} (check 60)"))
     return out
 
 
@@ -2453,6 +2463,11 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(inventory, "required_inputs: [serial, model, list_price, condition]", "required_inputs: [serial, list_price, condition]\n        optional_inputs: [model]")),
         ("an attribute named like a member every object has", "names", "inventory.yaml",
          plant(inventory, "      model:             { type: string }\n", "      model:             { type: string }\n      created_at:        { type: timestamp }\n")),
+        ("an attribute named like the version every object records", "names", "inventory.yaml",
+         plant(inventory, "      model:             { type: string }\n", "      model:             { type: string }\n      declaration_version: { type: int }\n")),
+        ("a personal input on a type with no erasure", "names", "service.yaml",
+         plant(service, "      forget:\n        kind: erasure\n        description: Erases the notes given when the job was reassigned, which are personal.\n"
+                        "        inputs:\n          reason: { type: string }\n", "")),
         ("a `?` inside an inline mapping", "yaml", "service.yaml",
          plant(service, "      photo:    { type: file, optional: true }", "      photo:    { type: file? }")),
     ]
@@ -2490,6 +2505,10 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     ok &= bool(missed) and clean
     print(f"  planted a subtype that leaves an inherited part uncovered: {'caught, ' + missed[0][4][:60] if missed else 'MISSED'};"
           f" the specification's own example is {'clean' if clean else 'NOT clean'}")
+    on_base = notes_module.replace("        opposite: subject\n", "        opposite: subject\n        survives: true\n", 1)
+    refused = [x for x in check([("notes.yaml", on_base)])[0] if "inherited_parts" in x[4] and "abstract" in x[4]]
+    ok &= bool(refused)
+    print(f"  planted a survives on an abstract base's part: {'caught, ' + refused[0][4][:60] if refused else 'MISSED'}")
     rerouted = [x for x in check([("m.yaml", v2)], {"m.yaml": v1})[1] if x[3] == "metric"]
     ok &= bool(rerouted)
     print(f"  planted a version that reroutes what a metric's filter names: {'noticed, ' + rerouted[0][4][:60] if rerouted else 'MISSED'}")

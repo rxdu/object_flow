@@ -1,6 +1,6 @@
 # Case study: customer records (HubSpot-shaped)
 
-Status: design iteration 3, 2026-09-08. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md) and [`case-study-tickets.md`](case-study-tickets.md). Decisions taken here are ADR-0030 and ADR-0031 plus three clarifications, all pending author review.
+Status: design iteration 3, 2026-09-08. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md) and [`case-study-tickets.md`](case-study-tickets.md). Decisions taken here are ADR-0030 and ADR-0031 plus three clarifications, accepted by the author on 2026-09-28, ADR-0030 as superseded by ADR-0114.
 
 > **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
 
@@ -20,7 +20,7 @@ A CRM stresses what the previous two did not. Its objects are **joined many-to-m
 | Contact, Company, Deal, Ticket, custom object | object types |
 | Property; property group; property type and options | attribute; grouping is presentation; type and option set are attribute declaration metadata |
 | Property history with source (user, form, import, API, workflow) | the object's recorded events; actor (ADR-0025) plus a request `context` string recorded on the event (clarification C2) |
-| Lifecycle stage (subscriber → lead → MQL → SQL → opportunity → customer), forward-only | the Contact's state machine; backward moves are admin transitions; lead status is a plain attribute (ADR-0003, "plain fields") |
+| Lifecycle stage (subscriber → lead → MQL → SQL → opportunity → customer), forward-only | the Contact's state machine; backward moves are transitions only an administrator is let request, by the upper layer (ADR-0114); lead status is a plain attribute (ADR-0003, "plain fields") |
 | Deal pipeline; stages; a deal in one pipeline | a named state machine per pipeline; a type per pipeline extending `Deal` (ADR-0026) |
 | Required properties when entering a stage | requiredness on the transition (ADR-0002) |
 | Closed won / closed lost, reopenable | states whose terminality the type author chooses |
@@ -84,7 +84,7 @@ The merge is an excerpt of `Contact` in the module of the appendix, which holds 
 
 ## 4. What the model could not say, and what was decided
 
-**Who may see a record.** Guards say who may change an object; nothing said who may read one, and a CRM's team scoping, like a tracker's issue-level security, is exactly that. **ADR-0030**: a type may declare a visibility predicate over the actor and the object; every read, query and availability result applies it; an object the actor cannot see is *not found*, not *blocked*, so the verdict does not leak existence.
+**Who may see a record.** Guards say who may change an object; nothing said who may read one, and a CRM's team scoping, like a tracker's issue-level security, is exactly that. **ADR-0030**: a type may declare a visibility predicate over the actor and the object; every read, query and availability result applies it; an object the actor cannot see is *not found*, not *blocked*, so the verdict does not leak existence. *(Superseded by ADR-0114: no read is filtered by who asks, and who may see a record is the upper layer's.)*
 
 **Erasing a person.** A right-to-erasure request must remove personal values from the current record *and from history*. Deletion (ADR-0024) keeps history by design. **ADR-0031**: attributes may be declared `personal`; an erasure transition, authorised and recorded, replaces those values with a redaction marker on the object and in every event that carried them, keeps the event skeleton (who, when, which transition, which states), deletes referenced content-addressed files (ADR-0017), and is irreversible. It is not deletion: the object may continue to exist, erased.
 
@@ -108,7 +108,7 @@ Pipelines are named machines bound by per-pipeline types. Stage requirements are
 
 ## Appendix: the module the merge belongs to
 
-What §3's merge needs and no more: a contact, the company it may belong to, and the two kinds of record the merge re-points. A contact's email is unique among live contacts only, since a merged contact keeps its email, which its survivor may take; unique across every contact, the survivor could never take it. A contact holds personal data and may be superseded, so it declares an erasure, which the format requires of such a type.
+What §3's merge needs and no more: a contact, the company it may belong to, and the two kinds of record the merge re-points. A contact's email is unique among live contacts only, since a merged contact keeps its email, which its survivor may take; unique across every contact, the survivor could never take it. A contact holds personal data, so it declares an erasure, which the format requires of such a type (ADR-0133).
 
 ```yaml
 module: crm

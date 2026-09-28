@@ -2,7 +2,7 @@
 
 Written 2026-09-08, after the model. The declaration below is written in the flow description format since 2026-09-26 (ADR-0116), and `scripts/check-corpus.py` checks it on every run with all four steps of the flow checker (`scripts/check-flow-docs.py`, ADR-0121).
 
-> **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
+> **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides. The narrative records the model as the study found it, before ADR-0114.
 
 *Vocabulary, noted 2026-09-24:* written before PRD revision 5, this document says "consumer" for an application built on the store, which PRD §5 now calls an upper-layer application, and sometimes for the deployment or a reader; "the first consumer" keeps its meaning (D368).
 

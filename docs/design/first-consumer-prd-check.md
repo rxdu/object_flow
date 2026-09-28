@@ -29,9 +29,9 @@ The ops PRD describes "an operations platform that tells Weston Robot whether it
 | R13–R15, lifecycles declared, configurable and checked | F1, F5, F7 and the checked declaration language |
 | Principle "Record what happened"; R18, "record structure — states, who each is waiting on, handoffs, links, decisions"; journey 3, "time adds up by waiting party" | D1, and **D11**: who each status waits on is a tracked value whose time adds up. The case study gives D11 a use case it lacked |
 | "A status someone clicks later carries the time of the click … evidence and clicks are compared, so recording lag is itself measured" | **D5**, occurred time kept apart from recorded time, and recording lag as a measure |
-| R8, agents have "the same API and permissions as people, except that they can never commit a financial write" | **T6**: a rule that depends on the kind of actor, which the declared kind makes trustworthy |
+| R8, agents have "the same API and permissions as people, except that they can never commit a financial write" | **T6**: a rule that depends on the kind of actor, which the declared kind makes trustworthy. *(Superseded the same day by ADR-0114: no rule reads the kind of the actor making a request, and that an agent never commits a financial write is the upper layer's rule, which ADR-0114 names among its rejected alternatives; T6 keeps the kind declared, so the record and the metrics by kind are honest.)* |
 | "Agents … the same API and MCP interface as people"; one developer plus agents | N7, one interface for every caller; F3 |
-| R5, "preserve every row of the inventory system"; "row counts reconcile per table in every migration rehearsal" | N5, and it answers N5's open question: what the engine holds no object for must still survive, in an archive the platform keeps, so the counts reconcile |
+| R5, "preserve every row of the inventory system"; "row counts reconcile per table in every migration rehearsal" | N5, and it answers N5's open question: what the engine holds no object for must still survive, in an archive the platform keeps, so the counts reconcile. *(Superseded 2026-09-28 by PRD revision 13: N5 no longer promises an archive, and whether a deployment keeps what the port leaves, outside the engine, is the deployment's decision.)* |
 | "Purchases link back to the work that caused them" (journey 5) | `procured_for`, the link from a unit to the order it was bought for (flow review §2.2) |
 | "Goods only move one way … internal moves are faked with a customer record named after ourselves" | the flow review's transfer to the pool, in place of an internal delivery |
 | R2, "refuse double-booking in the database itself, not in application code" | invariants, enforced at serialisable isolation and compiled to an exclusion constraint on PostgreSQL (ADR-0041); with N7 no application code writes around them |
@@ -112,10 +112,10 @@ These are the questions put to the author on 2026-09-25, before this check was m
 | 2, who writes flows | In part: "one developer plus agents", and new kinds as configuration (R11, R14) |
 | 3, what the first release must do | Evidence for the order: the platform needs reimbursement first and the inventory port last (§3.4) |
 | 4, how much agents run | In part: same API and permissions; the first job is classifying expense claims; never committing a financial write |
-| 5, L2, decisions re-evaluable from the record | No support found. The case study requires one event record and verified external writes (R7), not re-evaluating a rule's decision. A candidate to relax |
+| 5, L2, decisions re-evaluable from the record | No support found. The case study requires one event record and verified external writes (R7), not re-evaluating a rule's decision. A candidate to relax. *(Decided 2026-09-28, PRD revision 12: L2 is kept as a Must.)* |
 | 6, D11, value history | Yes, needed: time by who it waits on |
 | 7, D5, occurred against recorded time | Yes, needed: recording lag is measured |
 | 8, L5, rules that read metrics | ~~As conditions against norms taken from history, yes (§3.2)~~; as refusals, not in this case study. *(Retracted 2026-09-25: a condition may not read a metric, so a norm is held as data (ADR-0113), which is L4. The case study gives L5 no use.)* |
 | 9, C5, a latency target | No |
-| 10, the archive of what the port leaves | Yes: every row survives (R5) |
+| 10, the archive of what the port leaves | Yes: every row survives (R5). *(N5's archive was withdrawn by PRD revision 13, 2026-09-28.)* |
 | 11, telemetry | Not mentioned; stays out of scope |

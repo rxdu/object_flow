@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` M5, T5, D8 and N2
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0100 — attempt rows carry their writing transaction, and an interval is re-emitted when it closes.
+- **Refined by:** ADR-0100 — attempt rows carry their writing transaction, and an interval is re-emitted when it closes. ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
 - **Refines:** ADR-0081
 
 ## Context
@@ -27,11 +27,11 @@ One row per line, the format the import's extract already uses (`publish-and-imp
 
 ### 3. The export omits every personal value
 
-Personal attributes and fields, personal inputs, and label notes are left out of every row. The export is therefore never a copy that erasure would have to chase. An analysis that needs a personal value is not exploration, and belongs inside the store, under its visibility and its erasure.
+Personal attributes and fields, personal inputs, and label notes are left out of every row. The export is therefore never a copy that erasure would have to chase. An analysis that needs a personal value is not exploration, and belongs inside the store, under its visibility and its erasure. *(Since ADR-0114 no read is filtered by its reader: see §4.)*
 
 ### 4. The reader's visibility applies
 
-As it does to every read (ADR-0037). An export is an actor's read, not a privileged dump.
+As it does to every read (ADR-0037). An export is an actor's read, not a privileged dump. *(Withdrawn by ADR-0114: `export` applies no filter for its reader; who may export is the upper layer's.)*
 
 ### 5. The store does nothing more with it
 

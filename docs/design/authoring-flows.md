@@ -19,7 +19,7 @@ An agent as the *default* drafter is stronger than F1 or F6 says. So these state
 
 ## 1. What the design has today
 
-Each item was checked against the document cited.
+Each item was checked against the document cited. *(As of 2026-09-25. Since then ADR-0116 made the flow description format the written form, with the text language only the internal form, and ADR-0131 computes version numbers and puts flows in a repository, so the first, the version and the draft items below describe the design as it was then.)*
 
 - **One text language.** A flow is written in `.of` files, one module per file, with `use` naming what it imports; a publish takes a module and the closure of its imports (`declaration-syntax.md` §1). The language is specified in `declaration-syntax.md`, 1,640 lines that carry the rules together with the history of twenty-five iterations.
 - **No decision chose that form.** ADR-0010 decided that the declaration is data, inspectable at runtime. No ADR weighed a text language against a structured format such as YAML or JSON; the written form grew through the syntax iterations. The one mention of YAML in the record is ADR-0107's note that another project named `flowengine` is YAML-driven.
@@ -80,19 +80,19 @@ Whether an agent drafts this language well is empirical. No measurement exists, 
 - **`transitions`**, each with a `kind` (UML's `initial`, `external` or `internal`), `from` and `to` as the kind requires, a `description`, the `required_inputs` and `optional_inputs` it writes to the attributes of the same names, its `guards` in evaluation order, each `deny`, `audit` or `warn` (Kubernetes' validation actions), and its `effect`, an ordered list of `assign` and `clear` steps;
 - **`metrics`**, each a `median_time_in_state` of a state or a `transition_count` of a transition, with `group_by` and `flag_when`.
 
-Nothing has a default, and an enumeration value is written qualified, as `Condition.DAMAGED`, as the text language requires (§9.2 of the syntax). The converter expands each form into the text language, as listed in the header of `scripts/check-yaml-trial.py`: a required input on an optional attribute generates a guard `<attribute>_provided`, a state's `required_attributes` generate its invariant `<state>_invariant`, and a `transition_count` becomes the transitions along that transition's states. The trial still assumes, as questions 4 and 6 note, that version numbers are computed.
+Nothing has a default, and an enumeration value is written qualified, as `Condition.DAMAGED`, as the text language requires (§9.2 of the syntax). The converter expands each form into the text language, as listed in the header of `scripts/check-yaml-trial.py`, since renamed `scripts/check-flows.py`: a required input on an optional attribute generates a guard `<attribute>_provided`, a state's `required_attributes` generate its invariant `<state>_invariant`, and a `transition_count` becomes the transitions along that transition's states. The trial still assumes, as questions 4 and 6 note, that version numbers are computed.
 
 **Two earlier shapes, rejected by the author the same day.**
 - *The first* wrote each transition as one line of inline YAML with `from`, `to`, `accepts`, `requires`, `on_trial` and `then`, and every condition as a named rule, five of the eight only saying that an input was given ("the spec description still doesn't look as clear"). The arrow was buried among what the transition needed, outcomes were strings in a second syntax, invariants were written as logic where they meant "this state requires these attributes", and a metric written as a state test had to be corrected when a second transition left the same state.
 - *The second* fixed the structure with one block per transition whose first line was an arrow (`A, B -> C`, `stays in A, B`), but its words were informal or ambiguous: `says`, `moves`, `takes` and `may take`, `trial`, `copies` whose direction a reader had to infer, `holds`, `one of` with values written bare, keys containing spaces, and defaults for the remedy and the tracking mode. Its sections followed the diagram, so transitions named attributes declared below them.
 
-**The specification**, [`flow-format.md`](flow-format.md) (draft 1, 2026-09-26), states the format normatively, marks which words are reserved and which the author names, and cites for each rule the step that enforces it; `scripts/check-flow-format-doc.py` holds it to the schema and the checker. `scripts/check-flow-docs.py` checks the YAML in the design documents where it stands: each module with the modules it imports, each excerpt against the module it is part of, and each state diagram against the one `scripts/flow-diagram.py` draws from its module (ADR-0121). `scripts/check-flows.py` (formerly `check-yaml-trial.py`) checks a module in four steps, and reports every finding at its YAML line:
+**The specification**, [`flow-format.md`](flow-format.md) (draft 1, 2026-09-26; draft 2 the same day), states the format normatively, marks which words are reserved and which the author names, and cites for each rule the step that enforces it; `scripts/check-flow-format-doc.py` holds it to the schema and the checker. `scripts/check-flow-docs.py` checks the YAML in the design documents where it stands: each module with the modules it imports, each excerpt against the module it is part of, and each state diagram against the one `scripts/flow-diagram.py` draws from its module (ADR-0121). `scripts/check-flows.py` (formerly `check-yaml-trial.py`) checks a module in four steps, and reports every finding at its YAML line:
 1. a strict loader, under which only `true` and `false` are booleans, since YAML 1.1 reads `NO` as false, and a key written twice in one mapping is an error, since a YAML loader otherwise keeps the last silently; a file YAML cannot parse is a finding at its line, not a crash;
 2. the JSON Schema `flow.schema.json`, which an editor or an agent can validate against, and which holds each transition's kind to the `from` and `to` it requires;
 3. what the schema cannot see: sections are in order, every state's category is declared, and a type another type references is declared before it or imported; every state, condition and attribute a transition names exists; every condition is used; every value an expression names is a state or an enumeration value; and every transition into a state sets each attribute the state requires, by requiring it as an input, copying it from an attribute every source state requires, or finding it required in every source state;
 4. conversion to the text language, run through every implemented publish check.
 
-All five modules pass. The self-test plants eleven mistakes and each is caught by its own step: a misspelt key, a guard on no declared condition, a guard listed twice, an enforcement that is not one of the three, a creation that names a source state, a condition that reads who is asking, attributes declared after the states that use them, a misspelt enumeration value, a transition into a state that does not set what the state requires, a `?` inside an inline mapping, and an enumeration value `NO`.
+At the trial all five modules passed, and the self-test planted eleven mistakes, each caught by its own step (the checker now runs ten modules and plants many more): a misspelt key, a guard on no declared condition, a guard listed twice, an enforcement that is not one of the three, a creation that names a source state, a condition that reads who is asking, attributes declared after the states that use them, a misspelt enumeration value, a transition into a state that does not set what the state requires, a `?` inside an inline mapping, and an enumeration value `NO`.
 
 **What YAML itself constrains.** Inside an inline list or mapping, `?` marks a key and a comma separates items, so a type such as `decimal(10,3)` is quoted there, and optionality is the key `optional` rather than a `?` suffix.
 
@@ -101,7 +101,7 @@ All five modules pass. The self-test plants eleven mistakes and each is caught b
 **Still open after the trial:**
 - ~~whether YAML becomes the written form of every flow~~: *decided 2026-09-26*, it does, and the text language survives only as the internal form the checks read (ADR-0116);
 - whether every condition must carry a `description` (question 6 below); the generated guards and invariants carry none, and the rule set renders theirs from the expression;
-- that version numbers are computed (question 4), which the trial assumes;
+- ~~that version numbers are computed (question 4), which the trial assumes~~: *decided 2026-09-28*, they are (ADR-0131 decision 2);
 - whether step 3's conservative half should refuse: a transition whose source state does not require an attribute the target requires is refused even when the attribute happens to be kept, so the author declares it or the transition copies it;
 - ~~how a pair of types that reference each other is ordered~~: *decided 2026-09-26*, the types of a module may reference each other in any order (ADR-0117).
 
@@ -179,7 +179,7 @@ Answer any subset. The recommendations above are the defaults these would confir
 
 ## 8. What an answer would change
 
-For orientation only; nothing here is amended yet.
+For orientation only, as written before the answers; ADR-0131's consequences say what was amended, and `TODO.md` holds what remains to design.
 - **PRD:** F1's authorship clause, F6's priority, and new requirements for the written form, validated descriptions and logical checks.
 - **ADRs:** the written form and the drafting home, with the options of §2 and §3 as their rejected alternatives; descriptions and examples; the logical analysis.
 - **`declaration-syntax.md`:** descriptions, examples, computed versions if accepted, and the checks that validate them.

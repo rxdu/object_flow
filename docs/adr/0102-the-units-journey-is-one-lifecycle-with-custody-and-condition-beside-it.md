@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-26: "accept ADR-0102 too". Written 2026-09-24 at the author's request to extend the unit's transitions from requested to serviced and loaned, from the first consumer's production code, and amended in place by ADR-0103 and ADR-0109 while it was proposed
 - **Date:** 2026-09-24
+- **Refined by:** ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
 - **Amended by:** ADR-0103 — written before the review against the PRD; amended in place, being still proposed: a closed `RETIRED`, a backdatable receipt, production's serial format, the module's request rule and a declared utilisation. Three of those needed the language to grow, in ADR-0103. ADR-0109 — the label and the manufacturer serial are invariants of every unit on offer, the opening-stock creation copies none of intake's guards, and two acts record a unit's serial and photos (D379).
 - **Relates to:** ADR-0079 (a role is a capability), ADR-0085 (a trial clause), and the first consumer's own ADR-0002 (`wr:docs/adr/0002-unit-engagement-and-leasing-model.md`)
 
@@ -54,7 +55,7 @@ A service job reserves its parts with `reserve_for_service`. `finish` consumes t
 
 ### 6. Production's admin role is the capability `ADMIN`
 
-`ADMIN` stands where production writes `required_role="ADMIN"` beside a permission, and both clauses are written (ADR-0079).
+`ADMIN` stands where production writes `required_role="ADMIN"` beside a permission, and both clauses are written (ADR-0079). *(Withdrawn by ADR-0114: the module holds no capability or role; who may act is the upper layer's.)*
 
 ## Alternatives rejected
 
