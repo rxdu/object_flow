@@ -18,9 +18,10 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 - ADR-0121, on 2026-09-27: the design's YAML is checked where it stands, a module across blocks, every excerpt part of a checked module, imports resolved, and every diagram drawn from its module.
 - ADR-0122, on 2026-09-27: a flow is recoverable from its description, the gaps a review by readers given only the specification found (D395 to D407) closed.
 - ADR-0123, on 2026-09-28: a set-valued dimension counts a row once under each distinct value it reaches, and a group whose rows all lack a body is reported, both found writing the metric scenarios (`design/metric-scenarios.md`).
+- ADR-0124, on 2026-09-28: a combined metric read by fewer dimensions than it groups by, or with some bound, combines its inputs over the rows the read selects, found writing the metric scenarios.
 - ADR-0065 to ADR-0073, which the author ruled on.
 
-**Decided at the author's direction, the author's own acceptance pending:** ADR-0124, on 2026-09-27: a combined metric read by fewer dimensions than it groups by combines its inputs over them; and ADR-0125, on 2026-09-28: a request naming an actor the store does not know is logged under the kind `unknown`. Both were found writing the metric scenarios (`design/metric-scenarios.md`).
+**Decided at the author's direction, the author's own acceptance pending:** ADR-0125, on 2026-09-28: a request naming an actor the store does not know is logged under the kind `unknown`, found writing the metric scenarios (`design/metric-scenarios.md`).
 
 **Proposed and awaiting the author:** none since 2026-09-26, when the author accepted ADR-0102, which writes the unit's whole journey from the first consumer's production code.
 
