@@ -1,6 +1,6 @@
 # ADR-0057: `changed_since` may name a part relationship, so an approval is invalidated by an edit to a part
 
-- **Status:** Accepted — repair of D60, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D60, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0058 — every terminal transition of a whole must dispose of its parts, and re-parenting is checked against both wholes. ADR-0082 — the part position is recorded per relationship, so `changed_since` names one part relationship precisely.
 - **Refines:** ADR-0035

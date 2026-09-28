@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction ("iterate the design until all requirements can be covered"), against `docs/PRD.md` D8, T3, N5 and UC-17; repairs D207 and D208
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0096 — a failed file deletion is retried by the next erasure request, not by a sweep. ADR-0100 — erasure also reaches external identifiers, a proposal's own event, values passed down to other objects, corrected observations and legacy creation fields. ADR-0105 — erasure records an event on every object it reaches, and an erased value cannot be written back.
+- **Refined by:** ADR-0096 — a failed file deletion is retried by the next erasure request, not by a sweep. ADR-0100 — erasure also reaches external identifiers, a proposal's own event, values passed down to other objects, corrected observations and legacy creation fields. ADR-0105 — erasure records an event on every object it reaches, and an erased value cannot be written back. ADR-0133 — check 60 holds every type with a personal attribute, not only one taking part in supersession.
 - **Refines:** ADR-0017, ADR-0031, ADR-0078
 
 ## Context

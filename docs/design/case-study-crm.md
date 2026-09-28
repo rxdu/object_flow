@@ -267,4 +267,11 @@ types:
         kind: external
         from: RECORDED
         to: INVALIDATED
+      forget:
+        kind: erasure
+        description: Erases the activity's summary, which may name a person, at a person's request.
+        inputs:
+          reason: { type: string }
 ```
+
+*(Added 2026-09-28: `forget` on `Activity`, since every type holding a personal value declares its erasure (ADR-0133, PRD D8); the summary is personal, and before this nothing could erase it.)*

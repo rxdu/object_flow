@@ -1,6 +1,6 @@
 # ADR-0021: Derived attributes are named expressions, never stored; the expression language is small and grows only by decision
 
-- **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
+- **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand. It keeps derived values unstored, so a list filtered on a status derived from other objects is a scan, a known gap of the core (`DESIGN.md` §13), accepted with theme 1 of the triage.
 - **Date:** 2026-09-07
 - **Refined by:** ADR-0061 — ten decisions from the payments-ledger review. ADR-0032 — version 2 adds arithmetic, durations and `sum`/`min`/`max`. ADR-0047 — expression semantics: three-valued logic, explicit binding, aggregates over types, acyclic derivation. ADR-0053 — `is null` and `is not null` are definite predicates. ADR-0081 — any declared formula over the store's own data is in scope. ADR-0084 — a declared metric is a second call a guard may make.
 
@@ -21,7 +21,7 @@ The first consumer computes slot state (`UNFILLED` / `FILLED` / `FULFILLED`) fro
 | boolean logic and implication | `a and b`, `not a`, `a implies b` *(written `→` here; ADR-0056 §8 made it `implies`)* |
 | `count`, `all`, `any`, `none` over a relationship, with a predicate | `none(s in slots where s.role in (PRIMARY, INCLUDED) and s.unit is null)` |
 | the same over a type, with a predicate (a type scan) | `none(s in Service where s.unit == this and s.state != CANCELLED)` |
-| `now`, `actor.*`, `inputs.*`, `this` | `actor.has(DELIVERY_COMPLETE)` |
+| `now`, `actor.*`, `inputs.*`, `this` | `actor.has(DELIVERY_COMPLETE)` | *(Withdrawn by ADR-0114: `actor` is readable only in an outcome value, check 64.)*
 | conditional expression | `if unit is null then UNFILLED else …` *(written `? :` here; ADR-0056 §8 made it `if … then … else`, and ADR-0061 §6 later allowed it in an outcome value)* *(corrected 2026-09-23: this note cited ADR-0072, which decides nothing about the conditional)* |
 | a named external evaluator (ADR-0008) | `xero.invoice_valid(order_id)` |
 
@@ -49,6 +49,6 @@ Rejected by ADR-0007's own reasoning: a language that can express tax calculatio
 - Available-to-promise, sums and totals remain consumer computations supplied as inputs where a guard must check them. *(No longer: ADR-0032 added arithmetic and `sum`, so an available quantity and an order total are declared expressions the store evaluates, and ADR-0081 §2 put any declared formula over the store's own data in scope, metrics (ADR-0084) and scores built from them included; `DESIGN.md` §5.7.)*
 - TODO.md challenge 3 is closed.
 
-## Amendment (design iteration 2, 2026-09-07; pending author review)
+## Amendment (design iteration 2, 2026-09-07; accepted by the author 2026-09-28 with the ADR)
 
 Outcome writes take the form `attribute := expression`, in the version-1 language above: an input, a literal, `now`, `actor.id`, or an attribute path over `this` and its relationships. Examples from the ticket case study: `resolved_at := now`, `resolution := null` on reopen, `assignee := project.lead`. This adds no construct to the language; it states where expressions may appear.

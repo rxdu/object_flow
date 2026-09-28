@@ -1,6 +1,6 @@
 # ADR-0041: Resolutions of six contradictions found in review
 
-- **Status:** Accepted — repair of D05, D06, D27, D28, D31, D36, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D05, D06, D27, D28, D31, D36, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand. Its consequence, that a deployment gives the engine a blob-store credential that can delete, is accepted with theme 4 of the triage.
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0071 — mandatory bounds and guard names stay; the reported worst-case product goes. ADR-0074 — an invariant an assertion may admit is not compiled, since a database constraint has no per-row exemption. ADR-0076 — the replay is checked before `expected_version`, so a retry carrying its original version replays rather than refusing. ADR-0103 — the replay holds for as long as the store's idempotency retention keeps the key; `maintain` prunes past it.
 
@@ -44,7 +44,7 @@ Since ADR-0039 makes serialisable isolation the default, compilation is now an *
 
 `self_serviceable` was wrong: it means satisfiable by a transition argument, and no argument makes a cascade smaller. A request exceeding a declared fan-out cap is refused with the verdict **`over-limit`**, naming the relationship and the cap.
 
-It is not a guard failure. Nothing about the object is wrong; the request is too large for the declaration's stated bound. The verdict taxonomy becomes: satisfied; unsatisfied with a remedy class; `stale`; `not found`; `not requestable`; `over-limit`. *(`DESIGN.md` §5.5 lists seven: these six and invariant violated, which names the invariant and the conflicting objects.)*
+It is not a guard failure. Nothing about the object is wrong; the request is too large for the declaration's stated bound. The verdict taxonomy becomes: satisfied; unsatisfied with a remedy class; `stale`; `not found`; `not requestable`; `over-limit`. *(`DESIGN.md` §5.5 lists seven: these six and invariant violated, which names the invariant and the conflicting objects.)* *(Ten since ADR-0122 added `unavailable`, `unknown transition` and `invalid input`.)*
 
 ## Consequences
 

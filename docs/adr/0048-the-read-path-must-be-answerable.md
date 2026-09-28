@@ -1,8 +1,8 @@
 # ADR-0048: The read path must be answerable — sweepable guards, a per-attribute write index, and time-dependent predicates rewritten to their operands
 
-- **Status:** Accepted — repair of D25, D26 and D30, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D25, D26 and D30, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand. Its limit, that a transition that is not sweepable cannot be listed, is accepted with theme 1 of the triage.
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0057 — the write index also carries the last event on a whole's parts, so `changed_since` may name a part relationship. ADR-0082 §7 — that position is kept per part relationship, not one per whole. ADR-0084 §5 — decision 2's rule extends from the type's own row to the interval index, so `query` may filter on the entry time of a tracked value's current interval. ADR-0106 — `query` accepts a queryable derivation by name, and a derivation that reads other objects is read under the reader's visibility and marked partial. ADR-0127 — decision 6's order is written into the read surface, and `query`'s `order` gets a grammar.
+- **Refined by:** ADR-0057 — the write index also carries the last event on a whole's parts, so `changed_since` may name a part relationship. ADR-0082 §7 — that position is kept per part relationship, not one per whole. ADR-0084 §5 — decision 2's rule extends from the type's own row to the interval index, so `query` may filter on the entry time of a tracked value's current interval. ADR-0106 — `query` accepts a queryable derivation by name, and a derivation that reads other objects is read under the reader's visibility and marked partial. ADR-0127 — decision 6's order is written into the read surface, and `query`'s `order` gets a grammar. *(Withdrawn by ADR-0114: no read is filtered by who asks; an upper layer narrows a read by the filters it passes.)*
 - **Refines:** ADR-0037, ADR-0022
 
 ## Context

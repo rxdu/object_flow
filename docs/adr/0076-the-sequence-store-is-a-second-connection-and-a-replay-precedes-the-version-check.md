@@ -1,6 +1,6 @@
 # ADR-0076: The sequence store is a second connection, its own file on SQLite; and a replay precedes the version check
 
-- **Status:** Accepted — repair of D187 and D188, 2026-09-09; pending author review
+- **Status:** Accepted — repair of D187 and D188, 2026-09-09; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-09
 - **Refined by:** ADR-0090 — SQLite transactions begin `IMMEDIATE`; the mint has a pool of its own.
 - **Refines:** ADR-0023, ADR-0029, ADR-0041
@@ -26,7 +26,7 @@ A crash between the mint and the request's commit leaves a gap, which is the beh
 
 ### 2. The idempotency replay is checked before `expected_version`
 
-The order of `DESIGN.md` §6 becomes: visibility, then replay, then version, then guards. A request whose key has been applied returns the recorded verdict marked as a replay, **whatever `expected_version` it carries**. `stale` is possible only for a request that has not been applied. ADR-0023's rule that `stale` precedes every guard still holds; it now also follows the one check that can say the request already happened.
+The order of `DESIGN.md` §6 becomes: visibility, then replay, then version, then guards. A request whose key has been applied returns the recorded verdict marked as a replay, **whatever `expected_version` it carries**. `stale` is possible only for a request that has not been applied. ADR-0023's rule that `stale` precedes every guard still holds; it now also follows the one check that can say the request already happened. *(Withdrawn by ADR-0114: no read is filtered by who asks; an upper layer narrows a read by the filters it passes.)*
 
 ## Alternatives rejected
 
@@ -40,12 +40,12 @@ The order of `DESIGN.md` §6 becomes: visibility, then replay, then version, the
 ### For the order
 
 - **Keep the order and tell callers to drop `expected_version` on a retry.** Rejected: a caller cannot know at retry time whether the original committed, which is the whole reason the key exists, and a retry that differs from the original is a different request.
-- **Replay before visibility.** Rejected: an object the actor can no longer see must stay `not found`, since existence is information (ADR-0030). The recorded verdict is returned only to an actor who can see the object now.
+- **Replay before visibility.** Rejected: an object the actor can no longer see must stay `not found`, since existence is information (ADR-0030). The recorded verdict is returned only to an actor who can see the object now. *(Withdrawn by ADR-0114: no read is filtered by who asks; an upper layer narrows a read by the filters it passes.)*
 - **Compare the retry's `expected_version` against the version the original was checked against, and replay only on a match.** Correct and unnecessary: the key already identifies the request, and a key reused with a different body is the digest's job (`of_idempotency.request_digest`; the key's scope is D189), not the version's.
 
 ## Consequences
 
-- `DESIGN.md` §6 is reordered, and a creation request skips steps 1 and 3 rather than 1 and 2.
+- `DESIGN.md` §6 is reordered, and a creation request skips steps 1 and 3 rather than 1 and 2. *(`DESIGN.md` §6 now resolves a creation's actor in step 1, as it does every request's.)*
 - `library-api.md` §3 says which of the two fields wins.
 - `storage-schema.md` §6 and §11 say where the sequence lives on each backend, and its verified paragraph names the probe. ADR-0029 rule 1, which still read "inside the creating transaction", is annotated in place; it had been superseded by D181 without saying so.
 - `scripts/check-schema-doc.py` gains the two-connection probe, so the claim this ADR rests on fails the build if SQLite ever behaves otherwise.

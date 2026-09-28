@@ -1,6 +1,6 @@
 # ADR-0040: The override is an assertion: a declared, capability-gated, recorded transition that may bypass guards but not silently
 
-- **Status:** Accepted — repair of D03, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D03, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0075 — a mirror is written only by the built-in assertion the import path uses. ADR-0054 — import and migration use a built-in assertion, not a declared one, and an admission is tolerated until the invariant holds again. ADR-0105 — the built-in assertion is the import's alone; a flow change's migration is F2's own route, and its only override is a publish's `admit`.
 
@@ -18,13 +18,13 @@ An **assertion** is a transition declared on a type and marked `asserting`. It i
 
 1. **Declared, and narrow by declaration.** An asserting transition names the states it may assert, as a declared set rather than "any" unless the author writes "any". A type with no asserting transition cannot be overridden at all.
 2. **Addressed by name; the state is an input.** The request names the assertion, and the target state is an input constrained to the declared set. ADR-0016's rule survives intact: no request is addressed by target state.
-3. **Its own guards apply.** An assertion carries guards like any transition, and at minimum a required capability and a mandatory free-text `reason` input. What it bypasses is the *other* transitions' guards, not its own.
+3. **Its own guards apply.** An assertion carries guards like any transition, and at minimum a required capability and a mandatory free-text `reason` input. What it bypasses is the *other* transitions' guards, not its own. *(Since ADR-0114 no capability guards an assertion, and its `reason` is an enumeration, with free text optional and personal, `flow-format.md` §4.13.)*
 4. **Invariants are not bypassed by default.** An assertion that would violate an invariant is refused. An assertion declared `may_admit` accepts an explicit list of the invariants the caller is knowingly violating; anything not listed still refuses. Each admitted violation is recorded on the object and remains queryable until it no longer holds.
 5. **Recorded with what it skipped.** The event carries source `asserted`, the actor, the principal, the reason, the guards that would have failed, and any admitted invariant violations. History says not only that state was set but what was stepped over.
 6. **Auditable in aggregate.** The read surface answers, per type, which objects hold asserted state and which carry admitted violations. An escape hatch nobody can count is an escape hatch nobody controls.
-7. **Import and migration use a built-in assertion**, not a declared one, so rule 1 cannot make a type unimportable by omission (ADR-0054). It is gated on a deployment-level capability, and records source `asserted` for import (ADR-0015) or `migrated` for a declaration migration (ADR-0027), per object.
+7. **Import and migration use a built-in assertion**, not a declared one, so rule 1 cannot make a type unimportable by omission (ADR-0054). It is gated on a deployment-level capability, and records source `asserted` for import (ADR-0015) or `migrated` for a declaration migration (ADR-0027), per object. *(The capability is withdrawn by ADR-0114: who may request it is the upper layer's.)*
 
-**The guarantee is restated.** No state change bypasses the guards except through a declared, capability-gated, recorded assertion; every assertion names its reason and what it stepped over, and the set of objects holding asserted state is queryable at any time. That is weaker than the original sentence and it is true, which the original was not.
+**The guarantee is restated.** No state change bypasses the guards except through a declared, capability-gated, recorded assertion; every assertion names its reason and what it stepped over, and the set of objects holding asserted state is queryable at any time. That is weaker than the original sentence and it is true, which the original was not. *(The capability is withdrawn by ADR-0114: who may request it is the upper layer's.)*
 
 ## Alternatives rejected
 
@@ -49,5 +49,5 @@ Rejected: guards are per-transition preconditions and can be wrong about a parti
 - The model block gains `asserting` as a transition marking, and DESIGN.md §13's guarantee is rewritten.
 - ADR-0024's "the recorded override of ADR-0001, which is itself a transition with guards" is corrected: it is a transition with *its own* guards, which are not the type's.
 - Admitted invariant violations are a new queryable state, and a type carrying many is a signal that its declaration disagrees with its data.
-- An asserting transition is the highest-value target in any deployment. Its capability should be held by few actors, and the aggregate query of rule 6 is the control that makes that reviewable.
+- An asserting transition is the highest-value target in any deployment. Its capability should be held by few actors, and the aggregate query of rule 6 is the control that makes that reviewable. *(The capability is withdrawn by ADR-0114: who may request it is the upper layer's.)*
 - D03 is resolved.

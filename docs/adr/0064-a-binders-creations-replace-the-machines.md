@@ -1,6 +1,6 @@
 # ADR-0064: A binder's own creations replace the machine's
 
-- **Status:** Accepted — repair of D159–D164, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D159–D164, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Refines:** ADR-0003, ADR-0026, ADR-0060, ADR-0062
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0065 — a machine's creation guards bind any creation that replaces it.

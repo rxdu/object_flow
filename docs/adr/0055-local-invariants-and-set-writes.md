@@ -1,6 +1,6 @@
 # ADR-0055: A third invariant form for single-object properties, and outcome steps that add to and remove from a set
 
-- **Status:** Accepted — repair of D48 and D49, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D48 and D49, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0062 — a normative statement must cite the check that enforces it.
 - **Refines:** ADR-0045, ADR-0052, ADR-0046

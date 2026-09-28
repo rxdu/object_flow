@@ -1,6 +1,6 @@
 # ADR-0059: Both ends of a relationship are declared, and cardinality decides which one stores the value
 
-- **Status:** Accepted — repair of the iteration-9 syntax review, 2026-09-08; pending author review
+- **Status:** Accepted — repair of the iteration-9 syntax review, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review.
 - **Refines:** ADR-0045, ADR-0058

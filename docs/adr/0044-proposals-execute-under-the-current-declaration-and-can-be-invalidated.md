@@ -1,8 +1,8 @@
 # ADR-0044: A proposal executes under the current declaration and is invalidated when that becomes impossible
 
-- **Status:** Accepted — repair of D08, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D08, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0078 — an erasure invalidates a pending proposal whose inputs carried a value it removed, a fourth cause. ADR-0097 — execution re-evaluates actor guards too, correcting this ADR's summary of ADR-0036.
+- **Refined by:** ADR-0078 — an erasure invalidates a pending proposal whose inputs carried a value it removed, a fourth cause. ADR-0097 — execution re-evaluates actor guards too, correcting this ADR's summary of ADR-0036. *(Since ADR-0114 there are no actor guards: execution re-evaluates the flow's guards.)*
 - **Refines:** ADR-0036
 
 ## Context

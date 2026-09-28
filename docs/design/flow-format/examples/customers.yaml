@@ -73,7 +73,6 @@ types:
       contact_in_xero:
         description: The Xero contact being linked exists in Xero.
         expression: xero.contact_exists(inputs.xero_contact_id)
-        evaluation: deferred
         remedy: dependent
       no_open_orders:
         description: No object that refers to the customer, an order, is still open.

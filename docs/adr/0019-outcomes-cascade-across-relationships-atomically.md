@@ -1,6 +1,6 @@
 # ADR-0019: A transition's outcome may cascade transitions and creations across relationships, atomically
 
-- **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07). **Its principle was confirmed by the author on 2026-09-24:** "I think transition cascading should be supported, as long as the rule is defined by the user clearly enough that the transition should not appear as a surprise" (ADR-0108, PRD F8). The rest is pending author review
+- **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07). **Its principle was confirmed by the author on 2026-09-24:** "I think transition cascading should be supported, as long as the rule is defined by the user clearly enough that the transition should not appear as a surprise" (ADR-0108, PRD F8). The rest was accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand. No cascade cycle, so a transition cannot cascade to the same transition of another object of its type, accepted with theme 2 of the triage.
 - **Date:** 2026-09-07
 - **Refined by:** ADR-0066 — a cascade clause carries arguments. ADR-0038 — cascades apply sequentially, each seeing the writes of those before it, superseding the "All guards first" rule. ADR-0046 — the outcome grammar replaces the outcome description; atomicity, causality and acyclicity stand. ADR-0108 — a cascade is declared clearly enough not to surprise: the rule set prints it on every type it reaches, as well as where it starts.
 
@@ -22,7 +22,7 @@ Execution:
 - **Recorded with cause.** Each cascaded transition is recorded as its own event, carrying the parent transition's event as its cause — the causal-lineage mechanism of ADR-0014, now used inside a single transaction. The log receives N+1 events from one request.
 - **Straight-line.** *(The grammar is given by ADR-0046.)* An outcome may iterate a relationship, optionally filtered by a predicate (`for s in slots where s.unit is not null`), but may not choose between alternative outcomes. Where behaviour differs by a value, declare one transition per case, each guarded on that value; the availability list then shows the applicable one, and a value that matches no transition is visibly stuck rather than silently mishandled.
 - **Finite.** The graph of transitions that reference each other in outcomes must be acyclic; a cycle is a declaration error. Depth is visible from the declaration.
-- **Same actor.** A cascaded transition runs as the requesting actor. Its actor guards apply unless it is *only-via* (ADR-0020), in which case the parent's guards are its authority.
+- **Same actor.** A cascaded transition runs as the requesting actor. Its actor guards apply unless it is *only-via* (ADR-0020), in which case the parent's guards are its authority. *(Withdrawn by ADR-0114: a transition has no actor guards; an only-via transition's parents say which transitions may cause it, not who.)*
 - **Nothing initiates.** The caller requested the parent; the cascade is its declared consequence. ADR-0012 is untouched.
 
 ## Alternatives rejected

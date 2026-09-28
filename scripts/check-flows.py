@@ -84,7 +84,7 @@ ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "e
                  "survives"}
 METRIC_ORDER = ["description", "measure", "state", "transition", "source", "item", "filter", "dimensions",
                 "group_by", "time_dimension", "expression", "flag_when"]
-TYPE_ORDER = ["description", "abstract", "extends", "mirror", "tracking", "state_machine", "attributes", "observations", "states",
+TYPE_ORDER = ["description", "abstract", "extends", "mirror", "tracking", "state_machine", "attributes", "inherited_parts", "observations", "states",
               "derived_attributes", "summary", "invariants", "conditions", "transitions", "metrics"]
 
 
@@ -542,30 +542,55 @@ def relationship_errors(doc, library):
                 owner = (part.get("attributes") or {}).get(spec["opposite"], {})
                 if owner.get("reference", "").endswith("[]") or owner.get("optional"):
                     out.append((here, "names", f"{target}.{spec['opposite']} MUST be single and required: a part of {tn}.{an} belongs to exactly one whole"))
-                covered, clauses = set(), spec.get("cascade") or []
-                for i, c in enumerate(clauses):
-                    where = here + ("cascade", i)
-                    for w in c["on"]:
-                        if w not in (t.get("transitions") or {}):
-                            out.append((where, "names", f"{tn}.{an} cascades on '{w}', which is not a transition of {tn}"))
-                    covered |= set(c["on"])
-                    called = (part.get("transitions") or {}).get(c["transition"])
-                    if called is None or called["kind"] == "initial":
-                        out.append((where, "names", f"{tn}.{an} cascades to {target}.{c['transition']}, which is not a transition of {target} that acts on a part"))
-                        continue
-                    given = set(c.get("inputs") or {})
-                    out += [(where, "names", f"{tn}.{an} passes '{i}' to {target}.{c['transition']}, which takes no input '{i}'") for i in sorted(given - taken(called))]
-                    out += [(where, "names", f"{tn}.{an} cascades to {target}.{c['transition']} without the input '{i}', which it requires")
-                            for i in sorted(required_input_names(called) - given) if "default" not in ((called.get("inputs") or {}).get(i) or {})]
-                survives = spec.get("survives")
-                kept = set(t.get("transitions") or {}) if survives is True else set(survives or [])
-                for w in sorted(covered & kept):
-                    out.append((here, "names", f"{tn}.{an} both cascades on and survives '{w}'"))
-                for xn, x in (t.get("transitions") or {}).items():
-                    if x["kind"] == "external" and x.get("to") in finals and xn not in covered | kept:
-                        out.append((here, "names", f"{tn}.{xn} enters the final state {x['to']}, and {tn}.{an} neither cascades on it nor survives it"))
+                out += part_coverage(tn, t, an, target, part, spec.get("cascade") or [], spec.get("survives"), here, finals)
             elif "cascade" in spec or "survives" in spec:
                 out.append((here, "names", f"{tn}.{an} has a cascade or survives, which only a composite end has"))
+        # a part declared on an abstract base: each concrete subtype says how it goes with each final
+        # transition, in `inherited_parts`, and is held to the coverage rule (declaration-syntax.md §3.2, ADR-0133)
+        kinds = dict(library or {})
+        kinds.update(module)
+        inherited = {an: spec for b in reversed(bases(tn, kinds)) for an, spec in (kinds[b].get("attributes") or {}).items()
+                     if spec.get("aggregation") == "composite"}
+        given = t.get("inherited_parts") or {}
+        for an in given:
+            if an not in inherited:
+                out.append((("types", tn, "inherited_parts", an), "names", f"{tn} gives '{an}' in inherited_parts, which is not a part it inherits"))
+        if t.get("abstract"):
+            if given:
+                out.append((("types", tn, "inherited_parts"), "names", f"{tn} is abstract and has no transitions to cascade on; its concrete subtypes give its parts"))
+            continue
+        for an, spec in inherited.items():
+            target = spec.get("reference", "").rstrip("[]")
+            ip = given.get(an) or {}
+            out += part_coverage(tn, t, an, target, kinds.get(target, {}), ip.get("cascade") or [], ip.get("survives"),
+                                 ("types", tn, "inherited_parts", an), finals)
+    return out
+
+
+def part_coverage(tn, t, an, target, part, clauses, survives, here, finals):
+    """A composite end's cascade clauses name transitions of the whole and of the part, with the part's
+    inputs, and every final transition of the whole is covered by a clause or survived, never both (check 37)."""
+    out, covered = [], set()
+    for i, c in enumerate(clauses):
+        where = here + ("cascade", i)
+        for w in c["on"]:
+            if w not in (t.get("transitions") or {}):
+                out.append((where, "names", f"{tn}.{an} cascades on '{w}', which is not a transition of {tn}"))
+        covered |= set(c["on"])
+        called = (part.get("transitions") or {}).get(c["transition"])
+        if called is None or called["kind"] == "initial":
+            out.append((where, "names", f"{tn}.{an} cascades to {target}.{c['transition']}, which is not a transition of {target} that acts on a part"))
+            continue
+        given = set(c.get("inputs") or {})
+        out += [(where, "names", f"{tn}.{an} passes '{i}' to {target}.{c['transition']}, which takes no input '{i}'") for i in sorted(given - taken(called))]
+        out += [(where, "names", f"{tn}.{an} cascades to {target}.{c['transition']} without the input '{i}', which it requires")
+                for i in sorted(required_input_names(called) - given) if "default" not in ((called.get("inputs") or {}).get(i) or {})]
+    kept = set(t.get("transitions") or {}) if survives is True else set(survives or [])
+    for w in sorted(covered & kept):
+        out.append((here, "names", f"{tn}.{an} both cascades on and survives '{w}'"))
+    for xn, x in (t.get("transitions") or {}).items():
+        if x["kind"] == "external" and x.get("to") in finals and xn not in covered | kept:
+            out.append((here, "names", f"{tn}.{xn} enters the final state {x['to']}, and {tn}.{an} neither cascades on it nor survives it"))
     return out
 
 
@@ -1572,8 +1597,10 @@ def supersession_errors(doc, tn, t, library):
                     takes_part |= ref == tn or tn in made
     personal = any(sp.get("personal") for sp in (t.get("attributes") or {}).values())
     erasable = any(x["kind"] == "erasure" for x in (t.get("transitions") or {}).values())
-    if takes_part and personal and not erasable:
-        out.append((("types", tn), "names", f"{tn} takes part in supersession and holds personal data, and declares no erasure, through which a superseded chain is erased (check 60)"))
+    # every type holding a personal value declares its erasure, so PRD D8 holds everywhere (ADR-0133)
+    if personal and not erasable and not t.get("abstract"):
+        why = ", and takes part in supersession, through which a superseded chain is erased" if takes_part else ""
+        out.append((("types", tn), "names", f"{tn} holds personal data and declares no erasure{why} (check 60)"))
     return out
 
 
@@ -1601,9 +1628,10 @@ def evaluator_calls(text, names):
 
 def evaluator_errors(doc, tn, t):
     """A guard, and only a guard, asks an evaluator: the call names a declared
-    function with its arguments, is the whole condition or its negation, and a
-    condition marked eager or deferred makes one (declaration-syntax.md §6.2,
-    §5.1; the model's checks 19, 24 and 45)."""
+    function with its arguments, and is the whole condition or its negation
+    (declaration-syntax.md §6.2, §5.1; the model's checks 19 and 24). A guard
+    that asks an evaluator is consulted when its transition is requested, and
+    by no read, so it carries no marking of when (ADR-0133)."""
     evaluators = doc.get("evaluators") or {}
     names = evaluator_names(doc)
     out = []
@@ -1620,8 +1648,6 @@ def evaluator_errors(doc, tn, t):
                     out.append((where + ("expression",), "names", f"condition {cn} passes {n} argument(s) to {ev}.{fn}, which takes {len(f.get('arguments') or {})}"))
         if calls and not re.fullmatch(r"(not\s+)?[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\(.*\)", text):
             out.append((where + ("expression",), "names", f"condition {cn} calls an evaluator inside a larger expression; a verdict is the whole condition or its negation (check 24)"))
-        if "evaluation" in c and not calls:
-            out.append((where + ("evaluation",), "names", f"condition {cn} is marked {c['evaluation']}, and calls no evaluator (check 45)"))
     others = [(("types", tn, sec, n, "expression"), n, x["expression"]) for sec in ("invariants", "derived_attributes") for n, x in (t.get(sec) or {}).items()]
     others += [(("types", tn, "transitions", xn, "effect") + path, xn, e) for xn, x in (t.get("transitions") or {}).items()
                for st, kind, path, _d in walk(x.get("effect")) for e in step_expressions(st, kind)]
@@ -1836,8 +1862,7 @@ def transition_lines(xn, x, t, X, T):
         if g in conds:
             c = conds[g]
             mark = {"deny": "", "audit": " observe", "warn": " flag"}[mode]
-            when = f" {c['evaluation']}" if c.get("evaluation") else ""
-            body.append((f"require {g}: {' '.join(c['expression'].split())}{when}{mark} because {c['remedy']}", X + ("guards", g)))
+            body.append((f"require {g}: {' '.join(c['expression'].split())}{mark} because {c['remedy']}", X + ("guards", g)))
     if x.get("may_admit"):
         body.append(("may admit " + ", ".join(x["may_admit"]), X + ("may_admit",)))
     if x.get("corrects"):
@@ -1908,6 +1933,23 @@ def to_text(doc):
         for an, spec in (t.get("attributes") or {}).items():
             for line in attribute_line(an, spec, module=dict(types(doc))).split("\n"):
                 emit(("  " + line) if not line.startswith("  ") else line, T + ("attributes", an))
+        family = dict(types(doc))
+        for an, ip in (t.get("inherited_parts") or {}).items():
+            spec = next(((family[b].get("attributes") or {}).get(an) for b in bases(tn, family)
+                         if an in (family[b].get("attributes") or {})), None)
+            if spec is None:
+                continue
+            one = lambda e: " ".join(str(e).split())
+            for i, c in enumerate(ip.get("cascade") or []):
+                on = c["on"][0] if len(c["on"]) == 1 else "{ " + ", ".join(c["on"]) + " }"
+                args = ", ".join(f"{k} := {one(v)}" for k, v in (c.get("inputs") or {}).items())
+                emit(f"  cascade {an} on {on} to {spec['reference'].rstrip('[]')}.{c['transition']}" + (f"({args})" if args else "")
+                     + f" limit {c['limit']}", T + ("inherited_parts", an, "cascade", i))
+            sv = ip.get("survives")
+            if sv is True:
+                emit(f"  survives {an}", T + ("inherited_parts", an, "survives"))
+            elif sv:
+                emit(f"  survives {an} on {{ {', '.join(sv)} }}", T + ("inherited_parts", an, "survives"))
         for dn, d in (t.get("derived_attributes") or {}).items():
             emit(f"  derive {dn} = {' '.join(d['expression'].split())}" + (" indexed" if d.get("indexed") else ""),
                  T + ("derived_attributes", dn))
@@ -2342,9 +2384,6 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(customers, "        expression: xero.contact_exists(inputs.xero_contact_id)\n", "        expression: xero.contact_known(inputs.xero_contact_id)\n")),
         ("an evaluator's verdict inside a larger expression", "names", "customers.yaml",
          plant(customers, "        expression: xero.contact_exists(inputs.xero_contact_id)\n", "        expression: xero.contact_exists(inputs.xero_contact_id) and email is not null\n")),
-        ("an evaluation marked on a condition that calls no evaluator", "names", "customers.yaml",
-         plant(customers, "        expression: invoice_number is not null\n",
-               "        expression: invoice_number is not null\n        evaluation: eager\n")),
         ("an evaluator called by a derived attribute", "names", "customers.yaml",
          plant(customers, "    conditions:\n      contact_in_xero:",
                "    derived_attributes:\n      in_xero:\n        description: Xero knows the contact.\n        expression: xero.contact_exists(xero_contact_id)\n\n    conditions:\n      contact_in_xero:")),
@@ -2441,6 +2480,16 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
           "        expression: count()\n")
     v2 = v1.replace("C: { category: closed, final: true } }", "B: { category: live }, C: { category: closed, final: true } }") \
            .replace("go: { kind: external, from: A, to: C } }", "ready: { kind: external, from: A, to: B }, go: { kind: external, from: B, to: C } }")
+    # the specification's example of a part on an abstract base, and the same with the subtype's clause taken out
+    spec_text = (ROOT / "docs/design/flow-format.md").read_text()
+    notes_module = spec_text[spec_text.index("```yaml\nmodule: notes") + len("```yaml\n"):]
+    notes_module = notes_module[:notes_module.index("\n```\n") + 1]
+    uncovered = notes_module.replace("    inherited_parts:\n      notes:\n        cascade:\n          - { on: [close], transition: file, limit: 100 }\n", "")
+    missed = [x for x in check([("notes.yaml", uncovered)])[0] if "neither cascades on it nor survives it" in x[4]]
+    clean = not check([("notes.yaml", notes_module)])[0]
+    ok &= bool(missed) and clean
+    print(f"  planted a subtype that leaves an inherited part uncovered: {'caught, ' + missed[0][4][:60] if missed else 'MISSED'};"
+          f" the specification's own example is {'clean' if clean else 'NOT clean'}")
     rerouted = [x for x in check([("m.yaml", v2)], {"m.yaml": v1})[1] if x[3] == "metric"]
     ok &= bool(rerouted)
     print(f"  planted a version that reroutes what a metric's filter names: {'noticed, ' + rerouted[0][4][:60] if rerouted else 'MISSED'}")

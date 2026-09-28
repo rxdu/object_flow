@@ -1,6 +1,6 @@
 # ADR-0047: Expression semantics — three-valued logic, explicit binding, aggregates over types, declared inputs, declared remedy classes, acyclic derivation
 
-- **Status:** Accepted — repair of D16, D17, D19 to D24, 2026-09-08; pending author review, except §6, inputs declared and not derived from the guards, which the author accepted on 2026-09-28 ("accept the three"), withdrawing ADR-0005's stronger claim.
+- **Status:** Accepted — repair of D16, D17, D19 to D24, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand, §6 having been accepted the same day ("accept the three"). Its three-valued logic, under which a guard fails and an invariant holds on an unknown value, is accepted with theme 2 of the triage.
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0053 — `is null` and `is not null` are definite predicates; comparison with null stays unknown; ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0061 — ten decisions from the payments-ledger review; ADR-0071 — mandatory bounds and guard names stay; the reported worst-case product goes. ADR-0084 — grouped aggregation and time windows exist in declared metrics, not in guards or invariants. ADR-0103 — `length` on a string; a quotient of two like quantities is a decimal; an element whose filter is unknown is not selected in a metric's filter or an outcome's loop, while inside a guard it leaves the aggregate unknown, so this decision's fail-closed rule stands.
 - **Amended by:** ADR-0052 — expression semantics amended where re-expressing the case studies found them underspecified. ADR-0060 §11 replaces the remedy-class inference with a priority order that never contradicts a declared class. *(Corrected 2026-09-23: this line cited ADR-0063, which decides the swap test and says nothing of remedy classes.)*
@@ -16,7 +16,7 @@ The expression language had a construct list and no semantics. Review found eigh
 
 Comparison with an absent value yields **unknown**, not true or false. Unknown propagates through the operators. **A guard that evaluates to unknown fails**, and reports the clause that was unknown.
 
-This closes a real hole. The redaction marker reads as absent (ADR-0031), so after erasing a requester, `actor.id != requested_by.id` is unknown and the separation-of-duties guard fails rather than passing. The claim in the edge-case catalogue that "erasure never silently satisfies a guard" becomes true instead of aspirational.
+This closes a real hole. The redaction marker reads as absent (ADR-0031), so after erasing a requester, `actor.id != requested_by.id` is unknown and the separation-of-duties guard fails rather than passing. The claim in the edge-case catalogue that "erasure never silently satisfies a guard" becomes true instead of aspirational. *(Withdrawn by ADR-0114: no rule reads the actor, and who may do what is the upper layer's.)*
 
 ### 2. Division by zero yields unknown
 
@@ -32,7 +32,7 @@ Not a verdict. An expression always evaluates to a value or to unknown, so expre
 
 ### 5. Binding is explicit
 
-Every aggregate and predicate binds its element: `none(a in approvals where a.approver == actor.id)`. `this` always means the object the expression is declared on and never rebinds. Free names are a publish error. This removes the ambiguity that made `changed_since(relevant, event)` readable two ways.
+Every aggregate and predicate binds its element: `none(a in approvals where a.approver == actor.id)`. `this` always means the object the expression is declared on and never rebinds. Free names are a publish error. This removes the ambiguity that made `changed_since(relevant, event)` readable two ways. *(A guard reading `actor` is refused at publish since ADR-0114, check 64.)*
 
 ### 6. Inputs are declared, not derived
 
@@ -42,7 +42,7 @@ The anti-drift property that ADR-0005 and ADR-0010 rest on is preserved by a che
 
 ### 7. Remedy classes are declared per clause
 
-A guard clause declares its remedy class. Where the shape is unambiguous the class may be omitted and is inferred: a comparison against `now` is `temporal`, a comparison against an input is `self_serviceable`, an aggregate over another type is `dependent`, an `actor.*` test is `delegable`. Publishing warns where a class is omitted and the shape is ambiguous. A failing conjunction reports the first failing clause and its class.
+A guard clause declares its remedy class. Where the shape is unambiguous the class may be omitted and is inferred: a comparison against `now` is `temporal`, a comparison against an input is `self_serviceable`, an aggregate over another type is `dependent`, an `actor.*` test is `delegable`. Publishing warns where a class is omitted and the shape is ambiguous. A failing conjunction reports the first failing clause and its class. *(Withdrawn by ADR-0114: no clause reads who is asking, so `delegable` is never inferred, `declaration-syntax.md` §5.1.)*
 
 ### 8. Derived attributes must be acyclic
 

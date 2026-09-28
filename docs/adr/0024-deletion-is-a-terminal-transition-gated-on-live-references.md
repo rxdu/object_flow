@@ -1,6 +1,6 @@
 # ADR-0024: Deletion is a terminal transition gated on live references; parts cascade, references block
 
-- **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
+- **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-07
 - **Amended by:** ADR-0056 §3 — a composition declares its delete cascade. ADR-0058 then requires every terminal transition of the whole to be covered, and ADR-0066 lets the cascade carry arguments.
 
@@ -11,10 +11,10 @@ DESIGN.md never said what deletion is. The first consumer has a soft-delete flag
 ## Decision
 
 1. A type that can be deleted declares a **terminal state** for it — `DELETED`, or a domain word such as `RETIRED` or `CANCELLED` — and an ordinary transition into it, with guards like any other.
-2. That transition is guarded on **no live references**: `none(r in <referencing type> where r.<reference> == this and r.state.category != closed)`, using a state category (ADR-0026) rather than terminality, which has no expression form, for every declared inverse relationship. A Customer with live deliveries is blocked with remedy class `dependent`, naming them.
-3. **Parts are cascaded** (ADR-0019): the whole's delete transition cascades the part's, because a part cannot outlive its whole (ADR-0003). **References are never cascaded** by deletion.
-4. A deleted object stays readable in history and by id, is excluded from default reads and from availability queries, and admits no further transitions. *(ADR-0056 §7 carves erasure out of this: an `erase` transition runs from any state, terminal included, since erasure requests arrive for closed accounts, and it is the one transition a deleted object admits; `DESIGN.md` §8.)*
-5. There is no `force_transition`. Administrative repair is a declared asserting transition (ADR-0040), which carries its own capability and reason guards rather than the type's.
+2. That transition is guarded on **no live references**: `none(r in <referencing type> where r.<reference> == this and r.state.category != closed)`, using a state category (ADR-0026) rather than terminality, which has no expression form, for every declared inverse relationship. A Customer with live deliveries is blocked with remedy class `dependent`, naming them. *(ADR-0056 §6 replaced this test with `referrers`.)*
+3. **Parts are cascaded** (ADR-0019): the whole's delete transition cascades the part's, because a part cannot outlive its whole (ADR-0003). **References are never cascaded** by deletion. *(ADR-0058 added `survives`, for a part that outlives some of its whole's final transitions.)*
+4. A deleted object stays readable in history and by id, is excluded from default reads and from availability queries, and admits no further transitions. *(ADR-0056 §7 carves erasure out of this: an `erase` transition runs from any state, terminal included, since erasure requests arrive for closed accounts, and it is the one transition a deleted object admits; `DESIGN.md` §8.)* *(Superseded by ADR-0114 §4: a read applies no filter of its own, so a caller leaves out deleted objects by their state, D459.)*
+5. There is no `force_transition`. Administrative repair is a declared asserting transition (ADR-0040), which carries its own capability and reason guards rather than the type's. *(The capability is withdrawn by ADR-0114: who may request it is the upper layer's.)*
 6. Legacy rows with `is_deleted = true` import into the type's deleted state with provenance `asserted` (ADR-0015).
 
 Physical erasure — removing attribute values from history for a legal reason — is a separate concern, not deletion, and is left to the CRM case study (iteration 3).

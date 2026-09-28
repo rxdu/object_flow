@@ -30,8 +30,8 @@ It also has time with legal force, a chargeback window measured from settlement,
 | Debit versus credit | one `signed` derivation, not two transitions. See §3 |
 | A balance | an ordinary attribute maintained by an action the entry calls, **not** a counter. See §3 |
 | Idempotency per caller | `idempotency_key: { type: string, indexed: true, unique: { with: [merchant_id] } }` (ADR-0072 recorded the compound form; ADR-0061 decided it) |
-| The network approved | the condition `authorised`, `card_network.authorisation_stands(this.id)`, with `evaluation: deferred` |
-| The network refused | the condition `refused`, `not card_network.authorisation_stands(this.id)`, with `evaluation: deferred` |
+| The network approved | the condition `authorised`, `card_network.authorisation_stands(this.id)` |
+| The network refused | the condition `refused`, `not card_network.authorisation_stands(this.id)` |
 | Money movement is all-or-nothing | a posting's entries are created in one outcome, and a failing guard on any of them aborts the request (ADR-0038) |
 | An entry outlives its posting | `POSTED` is reached only by a creation, so the posting has no terminal transition and the coverage rule asks nothing (ADR-0061 decision 5) |
 | The chargeback window | the condition `in_window`, `settled_at is not null and now <= settled_at + 120 days`, with the remedy `unreachable_from_here` |
@@ -221,12 +221,10 @@ types:
       refused:
         description: The network has not authorised the payment.
         expression: not card_network.authorisation_stands(this.id)
-        evaluation: deferred
         remedy: dependent
       authorised:
         description: The network's authorisation of the payment stands.
         expression: card_network.authorisation_stands(this.id)
-        evaluation: deferred
         remedy: dependent
       in_window:
         description: The payment settled no more than 120 days ago, the chargeback window.

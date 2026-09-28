@@ -1,6 +1,6 @@
 # ADR-0025: The actor is a value supplied by the consumer; ObjectFlow does not authenticate
 
-- **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
+- **Status:** Superseded, except its core, by ADR-0079, ADR-0110 and ADR-0114, which the author accepted: a request names an actor and optionally a principal, and ObjectFlow authenticates nothing (`DESIGN.md` §5.8). The descriptor's kind and capabilities, the `actor.*` guards and its sense of "permissions" are withdrawn, and its rejected alternative, the actor as an object in the store, is now the design. Marked so on 2026-09-28, when the author accepted the triage of the pending decisions ("accept all"). Taken in autonomous design iteration 1 (2026-09-07).
 - **Date:** 2026-09-07
 - **Refined by:** ADR-0079 — the descriptor has no free-form attributes; a fact about an actor is a capability or an object. ADR-0110 — the upper layer produces the descriptor, with capabilities mapped from its roles; it carries no kind, which is declared with the type holding the actor, and an actor who is not live is refused. ADR-0114 — the descriptor carries no capabilities: the engine records who acted and never evaluates it.
 

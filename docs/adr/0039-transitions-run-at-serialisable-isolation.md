@@ -1,6 +1,6 @@
 # ADR-0039: The transition transaction runs at serialisable isolation
 
-- **Status:** Accepted — repair of D02 and D04, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D02 and D04, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand. Serialisable isolation stays mandatory, contention costing a wait and a retry, accepted with theme 2 of the triage.
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0090 — a contended row waits and then retries on PostgreSQL; row locks end the loser sooner, they do not queue it.
 - **Refines:** ADR-0023
@@ -41,5 +41,5 @@ Have each transition declare what it reads so the runtime can lock or check it. 
 - Throughput is bounded by the serialisation-failure rate, not by lock contention alone. The orders case study's hot-row analysis needs revisiting: a popular product now queues on the row lock rather than aborting and retrying, per decision 3, so the failure mode is latency rather than a retry storm, and the row lock of rule 3 is what keeps that bearable. *(Corrected by ADR-0090 §2: on PostgreSQL a popular product does not queue. The second request waits for the lock and then fails with a serialisation error, which the retry of decision 2 absorbs, so a contended request pays the wait and the retry; the lock only makes the loser fail at its first touch of the row. Each event records its retries (ADR-0083), so the cost is measured rather than argued; `DESIGN.md` §6.)*
 - SQLite serialises writers already, so this costs nothing there. *(Corrected by ADR-0090 §1: under SQLite's default deferred `BEGIN`, a request that reads and then writes fails with `database is locked` when another commits in between, observed on SQLite 3.37.2 (D204). Every transition transaction therefore begins `IMMEDIATE`, a contended request waits out the busy timeout, and a timeout exceeded counts as a serialisation failure, retried and then refused as `stale`; `DESIGN.md` §6.)* PostgreSQL pays for predicate tracking, which is the honest price of the guarantee.
 - The retry count is a deployment setting with a declared default, and exhaustion must be observable, since a rising rate is the signal that a declaration has a contention problem.
-- ADR-0023 rules 2 and 6 are superseded. Its rules 4 and 5 on versions and the `stale` verdict stand.
+- ADR-0023 rules 2 and 6 are superseded. Its rules 4 and 5 on versions and the `stale` verdict stand. *(ADR-0023 itself marks rules 2, 3 and 6.)*
 - D02 and D04 are resolved.

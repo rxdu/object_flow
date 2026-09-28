@@ -1,9 +1,9 @@
 # ADR-0060: Twelve decisions from the iteration-11 syntax review
 
-- **Status:** Accepted — repair of D63–D96, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D63–D96, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand. Its §7 subtype form is written in the flow format by ADR-0133, as `inherited_parts`, with the subtype held to the coverage rule.
 - **Refines:** ADR-0045, ADR-0047, ADR-0051, ADR-0052, ADR-0053, ADR-0055, ADR-0056, ADR-0058, ADR-0059
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0061 — ten decisions from the payments-ledger review; ADR-0062 — a normative statement must cite the check that enforces it; ADR-0064 — a binder's own creations replace the machine's. ADR-0072 — §5 reverses decision 8's non-negative counter: non-negativity is an invariant the type declares. ADR-0105 — an erasure records an event on every object it redacts, and its admissions are overrides.
+- **Refined by:** ADR-0061 — ten decisions from the payments-ledger review; ADR-0062 — a normative statement must cite the check that enforces it; ADR-0064 — a binder's own creations replace the machine's. ADR-0072 — §5 reverses decision 8's non-negative counter: non-negativity is an invariant the type declares. ADR-0105 — an erasure records an event on every object it redacts, and its admissions are overrides. ADR-0133 — the flow format writes §7's subtype form as `inherited_parts`.
 
 ## Context
 
@@ -53,7 +53,7 @@ Every object has `.state`; the store indexes it and the stored end of every rela
 
 ### 10. Enum members, states and categories have literal syntax
 
-`<Enum>.<MEMBER>` and `<Type>.<STATE>` are qualified; a category is bare, being one global vocabulary; a bare state of the type's own machine resolves by a stated order. Reading an enum-typed attribute is the second-commonest guard shape after a capability test and could not be written at all.
+`<Enum>.<MEMBER>` and `<Type>.<STATE>` are qualified; a category is bare, being one global vocabulary; a bare state of the type's own machine resolves by a stated order. Reading an enum-typed attribute is the second-commonest guard shape after a capability test and could not be written at all. *(Capability tests are withdrawn by ADR-0114.)*
 
 ### 11. Remedy-class inference is report-only and never contradicts a declared class
 
@@ -61,7 +61,7 @@ The inference now has a stated priority order, which is what makes it determinis
 
 ### 12. Publishing takes a module and its `use` closure
 
-Capabilities and categories are one vocabulary across that closure, since a capability meaning different things in two modules would make every shared machine unsafe. The rename half of check 23 becomes a report rather than a failure, because a rename with no mapping is textually identical to a drop plus an add and no information in either declaration distinguishes them.
+Capabilities and categories are one vocabulary across that closure, since a capability meaning different things in two modules would make every shared machine unsafe. The rename half of check 23 becomes a report rather than a failure, because a rename with no mapping is textually identical to a drop plus an add and no information in either declaration distinguishes them. *(Withdrawn with capabilities by ADR-0114.)*
 
 ## Alternatives rejected
 

@@ -36,7 +36,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 (step 2, `schema`)
 
 1. A name MUST be unique among the names of its section, and a type, machine, enumeration, sequence or evaluator MUST NOT share its name with one a module in its closure declares, the modules it imports and theirs (step 3, `names`; the model's check 33). A repeated key is refused by step 1.
-2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations`, `sequences`, `evaluators`, `machines`, `types`, `metrics` and `migration`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a metric declares, in this order, `description`, `measure`, `state`, `transition`, `source`, `item`, `filter`, `dimensions`, `group_by`, `time_dimension`, `expression` and `flag_when`, and a combined metric `description`, `input_metrics`, `group_by`, `expression` and `flag_when`; a type declares, in this order, `description`, `abstract`, `extends`, `mirror`, `tracking`, `state_machine`, `attributes`, `observations`, `states`, `derived_attributes`, `summary`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used, except that a cascade's `on` and an attribute's `survives` name transitions of the type, which follow its attributes (step 3, `order`).
+2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `categories`, `enumerations`, `sequences`, `evaluators`, `machines`, `types`, `metrics` and `migration`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a metric declares, in this order, `description`, `measure`, `state`, `transition`, `source`, `item`, `filter`, `dimensions`, `group_by`, `time_dimension`, `expression` and `flag_when`, and a combined metric `description`, `input_metrics`, `group_by`, `expression` and `flag_when`; a type declares, in this order, `description`, `abstract`, `extends`, `mirror`, `tracking`, `state_machine`, `attributes`, `inherited_parts`, `observations`, `states`, `derived_attributes`, `summary`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used, except that a cascade's `on` and an attribute's `survives` name transitions of the type, which follow its attributes (step 3, `order`).
 3. Reserved words of the text language MAY be used as names, as `declaration-syntax.md` §9.2 allows, with these exceptions (step 3, `names`):
    - a category MUST NOT be named `any`, `terminal` or `superseding`, and a transition MUST NOT be named `any` (the text language's check 33);
    - an attribute, including an observation's, MUST NOT be named `state`, `inputs`, `actor`, `this`, `now`, `referrers` or `this_event`, since an expression resolves those words before any attribute;
@@ -71,6 +71,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 | `tracking` | unless inherited, or the type is abstract | `record`, `serial` or `quantity` (`declaration-syntax.md` §2) |
 | `state_machine` | no | the shared state machine the type binds (§4.10), in place of its own `states` |
 | `attributes` | no | §4.3 |
+| `inherited_parts` | no | on a subtype, how each part it inherits from an abstract base goes with its final transitions (§4.14) |
 | `observations` | no | §4.4 |
 | `states` | unless the type binds a `state_machine` or is abstract | §4.5 |
 | `derived_attributes` | no | §4.11 |
@@ -141,7 +142,6 @@ A condition is a named test that transitions use as guards.
 |---|---|---|
 | `description` | yes | the condition, stated as what holds when it is satisfied |
 | `expression` | yes | §5 |
-| `evaluation` | no | for a condition that asks an evaluator: `eager` or `deferred` (§4.18) |
 | `remedy` | yes | what a caller can do when it fails: `self_serviceable` (supply or correct an input of the transition requested), `delegable` (another actor must act), `temporal` (only time will satisfy it), `dependent` (another object must change first) or `unreachable_from_here` (nothing the caller supplies, waits for, or asks of another actor or object will satisfy it from here: another transition must come first, such as one that writes the value the condition reads, or none can); `DESIGN.md` §5.5; a condition whose transition takes no input is never `self_serviceable` (step 3 notice `self_serviceable`, ADR-0122). The declared class is carried as written by every refusal the condition makes, whatever state it fails from; an engine neither infers nor corrects it (`declaration-syntax.md` §5.1), and a condition whose remedy differs by the state it fails from is written as two conditions where the verdict must say which |
 
 Every condition MUST be used by at least one transition. (step 3, `names`)
@@ -365,7 +365,7 @@ correct_state:
 
 **A correction** is an internal or external transition marked `corrects: [<attribute>, …]`, whose events carry the `corrected` provenance. It MUST write exactly the attributes it lists, by its attribute inputs and its effect, and MUST declare an input `reason` (step 3, `names`; the model's check 28).
 
-**An erasure** (`kind: erasure`) erases every `personal` attribute of its object, at any state, a final one included, since requests to erase arrive for closed records (`declaration-syntax.md` §6.4). It declares neither `from` nor `to` (step 2, `schema`) and MUST declare an input `reason` (step 3, `names`; the model's check 29). It admits every invariant that reads what it erases, and once an object's own erasure is recorded, a request that writes one of its personal attributes is refused by the generated guard `not_erased`. A type need not declare an erasure; one that does MUST reach every part type holding a personal attribute, by calling that type's erasure in its effect, on the part's attribute or on a `foreach` item over it, or the person's data would stay in the parts (step 3, `names`; the model's check 39). An observation kind's fields are erased with their subject and need no call. Because an erasure writes absence, a `personal` attribute or field MUST be optional (step 3, `names`; the model's check 9).
+**An erasure** (`kind: erasure`) erases every `personal` attribute of its object, at any state, a final one included, since requests to erase arrive for closed records (`declaration-syntax.md` §6.4). It declares neither `from` nor `to` (step 2, `schema`) and MUST declare an input `reason` (step 3, `names`; the model's check 29). It admits every invariant that reads what it erases, and once an object's own erasure is recorded, a request that writes one of its personal attributes is refused by the generated guard `not_erased`. A type holding a personal attribute, its own or inherited, MUST declare an erasure, so every personal value in the store can be erased (step 3, `names`; the model's check 60; PRD D8, ADR-0133); an abstract base need not, and a type with no personal attribute need not. An erasure MUST reach every part type holding a personal attribute, by calling that type's erasure in its effect, on the part's attribute or on a `foreach` item over it, or the person's data would stay in the parts (step 3, `names`; the model's check 39). An observation kind's fields are erased with their subject and need no call. Because an erasure writes absence, a `personal` attribute or field MUST be optional (step 3, `names`; the model's check 9).
 
 An assertion's and an erasure's guards MUST be `deny`, and neither has a `backdating_limit`: an assertion's time is when the store was told, and an erasure is not a step of the flow (step 4, `check 57`, `check 58`).
 
@@ -392,6 +392,66 @@ Laptop:
 ```
 
 A base MUST be declared in the module or imported and MUST be abstract, and following a type's bases MUST NOT come back to it (step 3, `names`; the model's check 43). A type MUST NOT declare a member it inherits (step 3, `names`; the model's check 33). A type with objects MUST have a tracking mode, its own or inherited (step 2, `schema`; step 3, `names`; the model's check 42). A base's own rules are checked once, at the base, over its own members, so a base's invariant reads no member only a subtype has, and names states by their category, since a base has no states; what depends on each type's creations, such as an inherited identifier's scope, is checked for each type that extends it.
+
+**A part declared on a base.** A composite end declared on an abstract base carries no `cascade` or `survives`, since the base has no transitions to trigger them. Each concrete subtype gives them in `inherited_parts`, one entry for each part it inherits, with the same `cascade` and `survives` an end of its own takes, and it is held to the coverage rule of §4.3 for them: every transition of the subtype into a final state is cascaded on or survived, never both (step 3, `names`; the model's check 37). An entry MUST name a composite end the type inherits, and an abstract type gives none, having no transitions (step 3, `names`). This is the internal form's top-level `cascade <part>` and `survives <part>` (`declaration-syntax.md` §3.2, ADR-0060 §7); until 2026-09-28 the format could not write it, and a subtype's final transition went unchecked against the base's parts (ADR-0133).
+
+```yaml
+module: notes
+categories: [live, closed]
+
+types:
+  Carrier:
+    description: The base of anything that carries notes; it has no objects of its own.
+    abstract: true
+    tracking: record
+    attributes:
+      notes:
+        reference: "Note[]"
+        aggregation: composite
+        opposite: subject
+
+  Ticket:
+    description: A ticket, whose notes are filed when it is closed.
+    extends: Carrier
+    inherited_parts:
+      notes:
+        cascade:
+          - { on: [close], transition: file, limit: 100 }
+    states:
+      OPEN:   { category: live }
+      CLOSED: { category: closed, final: true }
+    transitions:
+      raise: { kind: initial, to: OPEN }
+      annotate:
+        kind: internal
+        from: OPEN
+        inputs:
+          text: { type: string }
+        effect:
+          - create: { type: Note, transition: add, inputs: { for_subject: this, body: inputs.text } }
+      close: { kind: external, from: OPEN, to: CLOSED }
+
+  Note:
+    description: A note on a ticket, or on anything else that carries notes.
+    tracking: record
+    attributes:
+      subject: { reference: Carrier, opposite: notes }
+      body:    { type: string }
+    states:
+      ACTIVE: { category: live }
+      FILED:  { category: closed, final: true }
+    transitions:
+      add:
+        kind: initial
+        to: ACTIVE
+        only_via: [Ticket.annotate]
+        required_inputs: [body]
+        inputs:
+          for_subject: { reference: Carrier }
+        effect:
+          - assign: { location: subject, expr: inputs.for_subject }
+      file: { kind: external, from: ACTIVE, to: FILED }
+```
 
 ### 4.15 Mirror types and external identifiers
 
@@ -493,7 +553,7 @@ evaluators:
 
 A condition asks one as `<evaluator>.<function>(<argument>, …)`. An evaluator returns a **verdict and never a value**, so the call is the whole condition or its negation, `not xero.invoice_valid(invoice_number)`, never part of a larger expression, where a verdict would hide which part failed (step 3, `names`; the model's check 24). The call names a declared function and passes as many arguments as it takes (step 3, `names`; the model's check 19). Only a guard asks an evaluator: an invariant, a derived attribute or an effect that calls one is refused (step 3, `names`). A verdict too old for its `fresh` bound is refused as `temporal`, and an argument that reads a value the outcome reaching the guard writes, which could never agree before the transaction, is refused at publish (step 4, `check 61`).
 
-A condition that asks an evaluator may be marked `evaluation: eager`, consulted whenever the transition's availability is computed, or `deferred`, only when the transition is requested; unmarked, it is eager (`declaration-syntax.md` §5.1). The marking belongs to the condition and not the function, so two conditions over one function may differ, and it is refused on a condition that calls no evaluator (step 3, `names`; the model's check 45). Neither is consulted inside the write transaction.
+A condition that asks an evaluator is consulted when its transition is requested, before the transaction, and by no read: `availability`, `available` and `check` each name the guards they did not evaluate (`DESIGN.md` §10). It carries no marking of when. *(Changed 2026-09-28, ADR-0133: the marking `evaluation: eager` or `deferred` is withdrawn. `eager` promised a consultation whenever availability was computed, which no read performs, so it behaved as `deferred`.)*
 
 ### 4.19 Supersession
 
@@ -562,7 +622,7 @@ Each form converts to the text language as follows, and means what that declarat
 | `type: counter`; `default: e` | `counter c`; `default e` |
 | `metrics: { m: { input_metrics: { a: T.x }, group_by: [d], expression: e } }` | `metric m version 1 { combine a = x; by d; value e }` |
 | `superseding: true`; `supersede: s` | `state S category … terminal superseding`; `supersede s` |
-| `evaluators: { x: { functions: { f: { arguments: { a: { type: t } }, fresh: d } } } }`; `evaluation: deferred` | `evaluator x version 1 { fn f(a : t) fresh d }`; `require c: … deferred because …` |
+| `evaluators: { x: { functions: { f: { arguments: { a: { type: t } }, fresh: d } } } }` | `evaluator x version 1 { fn f(a : t) fresh d }` |
 | `mirror: true`; `external: s` | `type T version 1 mirror { … }`; `external "s"` |
 | `derived_attributes: { d: { expression: e, indexed: true } }` | `derive d = e indexed` |
 | `sequences: { s: … }` | `sequence s version 1` |
@@ -654,9 +714,9 @@ These are open in `authoring-flows.md` §3 and §7, and an answer would change t
 
 These words are reserved by the format. `scripts/check-flow-format-doc.py` holds this list equal to the keys and values `flow.schema.json` and the checker define.
 
-**Keys:** `module`, `imports`, `categories`, `enumerations`, `sequences`, `evaluators`, `functions`, `arguments`, `fresh`, `machines`, `requires`, `state_machine`, `types`, `description`, `abstract`, `extends`, `mirror`, `tracking`, `attributes`, `observations`, `states`, `derived_attributes`, `summary`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `superseding`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `proposable`, `corrects`, `may_admit`, `optional`, `identifier`, `external`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `evaluation`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `supersede`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `migration`, `removed_states`, `removed_members`, `renamed_attributes`, `backfill`, `admit`, `invariant`, `reason`, `measure`, `source`, `filter`, `dimensions`, `time_dimension`, `input_metrics`, `state`, `transition`, `group_by`, `flag_when`.
+**Keys:** `module`, `imports`, `categories`, `enumerations`, `sequences`, `evaluators`, `functions`, `arguments`, `fresh`, `machines`, `requires`, `state_machine`, `types`, `description`, `abstract`, `extends`, `mirror`, `tracking`, `attributes`, `inherited_parts`, `observations`, `states`, `derived_attributes`, `summary`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `superseding`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `proposable`, `corrects`, `may_admit`, `optional`, `identifier`, `external`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `supersede`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `migration`, `removed_states`, `removed_members`, `renamed_attributes`, `backfill`, `admit`, `invariant`, `reason`, `measure`, `source`, `filter`, `dimensions`, `time_dimension`, `input_metrics`, `state`, `transition`, `group_by`, `flag_when`.
 
-**Values:** `true`, `false`, `closed`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `assertion`, `erasure`, `any`, `deny`, `audit`, `warn`, `eager`, `deferred`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `objects`, `intervals`, `transitions`, `attempts`, `attempt_counts`, `labels`, `composite`, `in_scope`, `month`, `week`, `actor`.
+**Values:** `true`, `false`, `closed`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `assertion`, `erasure`, `any`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `objects`, `intervals`, `transitions`, `attempts`, `attempt_counts`, `labels`, `composite`, `in_scope`, `month`, `week`, `actor`.
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
 
@@ -755,7 +815,7 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | inputs that write an attribute of the same name | §5.1 | written (§4.8) |
 | inputs that write nothing, or another name | §5.1 | written (§4.8) |
 | guards, and their enforcement | §5.1 | written (§4.8) |
-| eager and deferred evaluation of guards | §5.1 | written (§4.18) |
+| eager and deferred evaluation of guards | §5.1 | withdrawn (ADR-0133): a guard that asks an evaluator is consulted when its transition is requested |
 | effect steps: assign, clear | §5.2 | written (§4.8) |
 | effect steps: create, call, for, add, remove | §5.2 | written (§4.8) |
 | effect step: supersede | §5.2, §6.1 | written (§4.19) |

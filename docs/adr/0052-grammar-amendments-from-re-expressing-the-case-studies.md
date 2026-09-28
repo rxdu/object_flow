@@ -1,6 +1,6 @@
 # ADR-0052: Grammar amendments found by re-expressing the case studies
 
-- **Status:** Accepted — repair of D37 to D41, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D37 to D41, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0055 — a third invariant form for single-object properties, and outcome steps that add to and remove from a set; ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0061 — ten decisions from the payments-ledger review; ADR-0062 — a normative statement must cite the check that enforces it; ADR-0063 — the swap test names its normalisations, and check 52's claim is retracted; ADR-0073 — `clear` writes absence, and is the only way to. ADR-0072 — six smaller answers to the open questions.
 - **Amends:** ADR-0046, ADR-0047, ADR-0045

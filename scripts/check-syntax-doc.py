@@ -759,8 +759,10 @@ def data_checks(decls, by_name, text, base=0):
         personal = [a for a, (sp, _l) in attrs.items() if "personal" in sp.split()]
         chained = d.name in superseded or any("superseding" in v[0] for v in states.values())
         erases = any(t[0] == "erase" for t in d.trans + (mach.trans if mach else []))
-        if personal and chained and not erases:
-            add(60, f"{d.name} holds personal {personal[0]!r}, takes part in supersession and declares no erase", d.start)
+        # a type holding a personal value declares its erasure, so PRD D8 holds everywhere (ADR-0133)
+        if personal and not erases and not d.abstract:
+            add(60, f"{d.name} holds personal {personal[0]!r} and declares no erase"
+                    + (", and takes part in supersession" if chained else ""), d.start)
     return out
 
 

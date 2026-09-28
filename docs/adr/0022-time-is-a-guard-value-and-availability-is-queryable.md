@@ -1,6 +1,6 @@
 # ADR-0022: Time is a value in guards, and the read surface answers "for which objects is this transition available"
 
-- **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
+- **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-07
 - **Refined by:** ADR-0048 — `available` requires a sweepable transition and evaluates no external guard, and a time-dependent derived attribute is queried through its stored operand. ADR-0103 — a scheduler's periodic key is replayed only within the store's idempotency retention, which must cover the sweep period. ADR-0105 — a time-driven transition may be backdatable, so its scheduler dates it when it fell due.
 
@@ -12,7 +12,7 @@ ADR-0012 places all initiation above ObjectFlow, including time-driven rules, an
 
 1. **`now` is a value in the expression language** (ADR-0021). A time-driven transition is an ordinary transition whose guard reads it: `WarrantyContract.expire: ACTIVE → EXPIRED, guard end_date <= now`. A guard that fails on such a clause reports remedy class `temporal`.
 2. **ObjectFlow never initiates it.** ADR-0012 stands unchanged.
-3. **The read surface provides an availability query:** given a type and a transition name, the objects for which that transition is currently available, or available-with-input, for a given actor. **No external guard, eager or deferred, is evaluated by this query, and the result says so (ADR-0048, ADR-0049).** The query also requires the transition to be *sweepable* (ADR-0048); a transition that is not is refused rather than scanned.
+3. **The read surface provides an availability query:** given a type and a transition name, the objects for which that transition is currently available, or available-with-input, for a given actor. **No external guard, eager or deferred, is evaluated by this query, and the result says so (ADR-0048, ADR-0049).** The query also requires the transition to be *sweepable* (ADR-0048); a transition that is not is refused rather than scanned. *(Since ADR-0114, availability answers by the flow's rules alone, for any caller.)*
 4. A scheduler above ObjectFlow asks that query on its own cadence and requests the transition for each answer, with an idempotency key derived from the object and the period, so a repeated sweep is harmless (ADR-0014).
 
 The guard *is* the timing metadata: one declared rule, inspectable, and no scheduler in the store.

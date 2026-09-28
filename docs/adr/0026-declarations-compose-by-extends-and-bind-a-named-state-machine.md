@@ -1,6 +1,6 @@
 # ADR-0026: Declarations compose by `extends` and bind a named state machine; states carry a category
 
-- **Status:** Accepted — taken in autonomous design iteration 2 (2026-09-07); pending author review
+- **Status:** Accepted — taken in autonomous design iteration 2 (2026-09-07); accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-07
 - **Refined by:** ADR-0096 — `closed` is built into every category vocabulary, and says when work is open and when it completes. ADR-0106 — work is open while its current state is neither closed nor terminal, and completes on every entry into one from an open state.
 - **Amended by:** ADR-0056 §5 — a machine declares what it requires of its binders. ADR-0064 makes a binder's own creations replace the machine's rather than add to them, and ADR-0065 keeps the machine's creation guards binding on the replacement.
@@ -11,7 +11,7 @@ A ticket system gives the same issue type different workflows in different proje
 
 ## Decision
 
-1. **`extends`.** A type declaration may extend a base declaration, inheriting its attributes, relationships, invariants and derived attributes, and adding its own. A base may be abstract (no objects of it exist) or concrete.
+1. **`extends`.** A type declaration may extend a base declaration, inheriting its attributes, relationships, invariants and derived attributes, and adding its own. A base may be abstract (no objects of it exist) or concrete. *(Narrowed since: a base MUST be abstract, check 43 and `flow-format.md` §4.14. No ADR recorded the change until the triage found it, D458.)*
 2. **State machines are named declarations.** A type binds exactly one, whole. Machines are not inherited or partially overridden; two types that need the same lifecycle bind the same named machine. ADR-0003 stands.
 3. **Type family.** The read surface accepts a base declaration as a query target and returns objects of every type extending it, each carrying its concrete type.
 4. **State category.** Every state in a machine declares a category from a small set the consumer defines (for example `open`, `in_progress`, `done`), in addition to being terminal or not. *(Refined by ADR-0096 §6: every vocabulary also has `closed`, whether or not a module declares it. Work is open until it enters a `closed` or a terminal state and completes when it first does, which is what the standard metrics read; `DESIGN.md` §5.12.)* Guards, invariants and queries that span a family use categories, so they need not know each machine's state names: `none(b in blocked_by where b.state.category != done)`.

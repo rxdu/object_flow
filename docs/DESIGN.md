@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 454 entries and five cosmetics; 454 are closed and 0 are open. The PRD is at revision 14, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 461 entries and five cosmetics; 461 are closed and 0 are open. The PRD is at revision 14, with no revision awaiting the author.
 
 Two kinds of acceptance appear below. The author accepts a decision themselves; or a decision is taken at the author's direction and marked Accepted in its own file, with the author's own acceptance still to come.
 
@@ -22,13 +22,14 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 - ADR-0125, on 2026-09-28: a request naming an actor the store does not know is logged with the identity it named under the kind `unknown`, found writing the metric scenarios.
 - ADR-0126, on 2026-09-28: a store is created with its operator, the built-in actor its first requests name.
 - ADR-0131, on 2026-09-28: how flows are authored and checked — in a repository, with no written version numbers, deterministic checks, behavioural claims as examples run at publish, and contradictions within one type refused, with no new dependency; and, answered the same day, an agent is the default drafter, a person reviewing and approving.
+- ADR-0133, on 2026-09-28: every type holding a personal attribute declares an erasure, the `eager` and `deferred` markings are withdrawn, and the format writes a part on an abstract base with `inherited_parts`.
 - ADR-0132, on 2026-09-28: the core is written in Rust, with the Python checkers kept independent as its oracle, behind an HTTP service described by OpenAPI; the operations application lives in the operations platform's project.
 - ADR-0127 to ADR-0130, accepted in advance on 2026-09-28 ("for all similar items that you have confidence in an recommendation, just accept"): a read's page has an order and `query`'s order a grammar; five questions the metric scenarios left open about metrics; a publish notices a metric whose filter it reroutes; and three questions ADR-0108 and ADR-0109 left open.
 - ADR-0065 to ADR-0073, which the author ruled on.
 
 **Proposed and awaiting the author:** none since 2026-09-26, when the author accepted ADR-0102, which writes the unit's whole journey from the first consumer's production code.
 
-**Awaiting review:** ADR-0019 to ADR-0064, ADR-0074 to ADR-0080 and the six implementation documents of 2026-09-09, with ADR-0078 to ADR-0080 first, being the three decided at the author's direction rather than by the author.
+**Awaiting review:** the six implementation documents of 2026-09-09, and DESIGN.md and the declaration syntax read whole. Every ADR is accepted or superseded since 2026-09-28, when the author accepted ADR-0078 to ADR-0080, then ADR-0029, ADR-0042 and ADR-0047 §6, and then the rest of ADR-0019 to ADR-0064 and ADR-0074 to ADR-0077 after a triage against this document and the later decisions, which found D455 to D461 and marked ADR-0025 superseded except its core.
 
 **[`PRD.md`](PRD.md) is the baseline.** It states what the product must do; this document states the model that does it. A design choice here is justified by the PRD requirement or use case it serves and is checked against the PRD, never the reverse: where the two disagree, the design changes, or the author revises the PRD first (the author, 2026-09-23). [`design/data-driven-engine.md`](design/data-driven-engine.md) records how each choice of ADR-0081 to ADR-0086 was tested against the PRD's use cases, and this document incorporates them. [`design/traceability.md`](design/traceability.md) maps every PRD requirement and use case to the sections and decisions that meet it, and `scripts/check-traceability.py` holds the map against the PRD.
 
@@ -231,7 +232,7 @@ Creation is a transition from nothing into an initial state, carrying its own gu
 
 ### 5.5 Guards, verdicts and remedy classes
 
-A guard is an expression that must hold for a transition to proceed. Each guard clause may **declare its remedy class**; omitted, one is always inferred, by a stated priority order because most guards match several rules, and the inference never contradicts a declared class (ADR-0060 §11). A transition **declares its inputs**; publishing rejects a guard naming an undeclared input and warns on an input nothing uses, so the tool schema and the validation rules cannot drift, because they are one declaration.
+A guard is an expression that must hold for a transition to proceed. Each guard clause may **declare its remedy class**; omitted, one is always inferred, by a stated priority order because most guards match several rules, and the inference never contradicts a declared class (ADR-0060 §11). The flow format requires every condition to declare it (`flow-format.md` §4.7), so the inference serves the internal form alone. A transition **declares its inputs**; publishing rejects a guard naming an undeclared input and warns on an input nothing uses, so the tool schema and the validation rules cannot drift, because they are one declaration.
 
 Evaluating a request yields one **verdict**, and every refusal names a remedy class, so a caller always knows its next move (PRD F4, ADR-0105):
 
@@ -334,7 +335,7 @@ An upper layer that requires some kinds of actor to send a version and an idempo
 
 A type may **extend** a base declaration for attributes, relationships, invariants and derived attributes; state machines are bound by name and never inherited piecemeal, though a binder adds its own transitions and replaces the machine's creations (ADR-0064). A **family** is a base and everything extending it, and is a query target (ADR-0026).
 
-Every type, machine, enum, sequence, evaluator, observation kind and metric carries its own **version** in the text, and each publish installs the whole closure under one **declaration version**, per store and monotonic. Every object and event records the declaration version in force, which fixes the version of every type at that instant; a type version alone would not, since a machine or enum it depends on may have moved (ADR-0077). Because a type's behaviour depends on the machine, enums, sequences, evaluators and base types it uses, advancing any of those requires advancing every dependent type, which publishing enforces (ADR-0027, ADR-0056). A machine declares what it requires of its binders, and publishing verifies each one. Publishing is a designed operation with a report:
+Every type, machine, enum, sequence, evaluator, observation kind and metric carries its own **version**, which publishing computes, since a description carries none (ADR-0131), and the internal form the checks read writes out, and each publish installs the whole closure under one **declaration version**, per store and monotonic. Every object and event records the declaration version in force, which fixes the version of every type at that instant; a type version alone would not, since a machine or enum it depends on may have moved (ADR-0077). Because a type's behaviour depends on the machine, enums, sequences, evaluators and base types it uses, advancing any of those requires advancing every dependent type, which publishing enforces (ADR-0027, ADR-0056). A machine declares what it requires of its binders, and publishing verifies each one. Publishing is a designed operation with a report:
 
 - **additions apply forward**; a new guard bites at the next transition. A publish changes a live object only by a recorded migration transition, never by DDL: a new required attribute needs a `backfill` mapping, a removed enum member that live objects hold needs a mapping, a field added to an observation kind must be optional, and a removed type is retired, its objects and history staying readable (ADR-0099);
 - **a migration is F2's third route**, not an assertion: one event per object with source `migrated`, caused by the publish event (ADR-0105);
@@ -756,7 +757,7 @@ PRD §5 defines the product's terms and this table uses them: **engine**, the go
 | **Externally owned type** | An ordinary type another system owns for good, with an external identifier, whose sync-driven transitions a sync service requests (ADR-0080). |
 | **Type family** | A base declaration and everything extending it. |
 | **Declaration version** | The number of a publish: one per installed closure, per store, monotonic from version 0, which holds the built-ins a store is created with; recorded on every object and event, and what `declaration(type, version)` takes. |
-| **Type version** | The number a type, machine, enum, sequence or evaluator carries in its text; advancing one advances every type that depends on it (check 22). |
+| **Type version** | The number a type, machine, enum, sequence or evaluator carries, which publishing computes and the internal form writes out (ADR-0131); advancing one advances every type that depends on it (check 22). |
 | **Settled cursor** | A (transaction, position) pair up to which every writing transaction had finished when the reader's snapshot was taken; the furthest a pull or export reader may acknowledge, and never ahead of a late commit (ADR-0089). |
 | **Read set** | What an event records of the rules evaluated for it: every object read with its version and the fixed `now`, so the decision re-evaluates from the record (ADR-0088). |
 | **Publish** | Installing a declaration version, as the approval of a `DeclarationChange`, with a report of migrations, admissions, compiled invariants, sweepability and observing clauses. |

@@ -1,6 +1,6 @@
 # ADR-0062: A normative statement must cite the check that enforces it
 
-- **Status:** Accepted — repair of D134–D148, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D134–D148, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Refines:** ADR-0052, ADR-0055, ADR-0060, ADR-0061
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0063 — the swap test names its normalisations, and check 52's claim is retracted; ADR-0064 — a binder's own creations replace the machine's.

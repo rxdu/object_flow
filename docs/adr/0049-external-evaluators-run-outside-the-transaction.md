@@ -1,8 +1,8 @@
 # ADR-0049: External evaluators are consulted outside the write transaction, and their verdict carries an as-of time
 
-- **Status:** Accepted — repair of D32, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D32, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand. Its `eager` and `deferred` markings are withdrawn by ADR-0133: every evaluator guard is consulted when its transition is requested, and no read consults one.
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0054 — four semantics the repair left open — parent ordering, partial `check`, built-in assertion, and discharged admissions; ADR-0069 — an evaluator returns a verdict; an external system that assigns is a mirror. *(ADR-0080 renamed that an externally owned type; `mirror` now means only the cutover marking.)* ADR-0084 — a metric guard is consulted before the transaction like an evaluator, with its arguments resolved again inside it. ADR-0092 — an evaluator's arguments are resolved before the transaction and again inside it.
+- **Refined by:** ADR-0054 — four semantics the repair left open — parent ordering, partial `check`, built-in assertion, and discharged admissions; ADR-0069 — an evaluator returns a verdict; an external system that assigns is a mirror. *(ADR-0080 renamed that an externally owned type; `mirror` now means only the cutover marking.)* ADR-0084 — a metric guard is consulted before the transaction like an evaluator, with its arguments resolved again inside it. ADR-0092 — an evaluator's arguments are resolved before the transaction and again inside it. ADR-0133 — the `eager` and `deferred` markings are withdrawn.
 - **Refines:** ADR-0008
 
 ## Context

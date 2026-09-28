@@ -1,6 +1,6 @@
 # ADR-0054: Four semantics the repair left open — parent ordering, partial `check`, built-in assertion, and discharged admissions
 
-- **Status:** Accepted — repair of D43 to D46, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D43 to D46, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0074 — an admissible invariant is not compiled to a database constraint; ADR-0077 — the partial verdict of `check` has a shape, `Checked`. ADR-0100 — execution step 7 performs decision 4's discharge and records the discharging position. ADR-0105 — the built-in assertion is the import's alone; a migration is not an assertion.
 - **Refines:** ADR-0038, ADR-0040, ADR-0027, ADR-0049
@@ -31,7 +31,7 @@ ADR-0037's claim that `check` is cheap is also withdrawn: simulating a cascade w
 
 ADR-0040 rule 1 says a type with no declared asserting transition cannot be overridden at all. Rule 7 says import and migration are bulk assertion. Together they make a type unimportable and unmigratable unless its author happened to declare an asserting transition, which no document requires and which would be discovered at cutover.
 
-**Two distinct paths.** A **declared** asserting transition is for ordinary administrative repair, is narrow by declaration, and is what rule 1 governs. **Import and declaration migration use a built-in assertion** available only to those paths, gated on a deployment-level capability rather than a per-type declaration, and recorded identically with source `asserted` or `migrated`. A type author cannot make their type unimportable by omission, and cannot widen the repair path by accident either.
+**Two distinct paths.** A **declared** asserting transition is for ordinary administrative repair, is narrow by declaration, and is what rule 1 governs. **Import and declaration migration use a built-in assertion** available only to those paths, gated on a deployment-level capability rather than a per-type declaration, and recorded identically with source `asserted` or `migrated`. A type author cannot make their type unimportable by omission, and cannot widen the repair path by accident either. *(The capability is withdrawn by ADR-0114: who may request it is the upper layer's.)*
 
 ### 4. An admitted invariant violation is tolerated until discharged (D46)
 

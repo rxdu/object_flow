@@ -1,6 +1,6 @@
 # ADR-0020: A transition may be reachable only via named parent transitions
 
-- **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); pending author review
+- **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-07
 - **Refined by:** ADR-0065 — a machine's creation guards bind any creation that replaces it; ADR-0070 — an authority list is not mandatory at a closed state, and the boundary worth naming is the undo. ADR-0108 — the rule set prints an only-via transition's parents on its own type, and the causes of a requestable transition that other transitions also cascade to.
 
@@ -14,7 +14,7 @@ A transition may declare `only via` a list of parent transitions on other types.
 
 - is **not requestable by callers** and does not appear in any caller's availability list;
 - may occur **only as a cascaded outcome** (ADR-0019) of one of the named parents;
-- carries **no actor guards of its own** — the parent's guards are its authority;
+- carries **no actor guards of its own** — the parent's guards are its authority; *(Since ADR-0114 no transition has actor guards; the parents say which transitions may cause it.)*
 - keeps its other guards, which are evaluated in the cascade like any other.
 
 A direct request for it is refused with the **`not requestable`** verdict, naming the parent transitions that lead to it (ADR-0041 fixed this; the ADR originally said remedy class `unreachable_from_here`).

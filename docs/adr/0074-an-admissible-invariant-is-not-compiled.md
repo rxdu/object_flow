@@ -1,6 +1,6 @@
 # ADR-0074: An invariant an assertion may admit is not compiled to a database constraint
 
-- **Status:** Accepted — derived while writing the storage schema, 2026-09-09; pending author review
+- **Status:** Accepted — derived while writing the storage schema, 2026-09-09; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-09
 - **Refines:** ADR-0041, ADR-0054
 

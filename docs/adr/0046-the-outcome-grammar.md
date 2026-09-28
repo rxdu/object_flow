@@ -1,6 +1,6 @@
 # ADR-0046: The outcome grammar — cascade inputs, named creations, bound iteration, repeat, `this_event`, and part re-parenting
 
-- **Status:** Accepted — repair of D11 to D15, D18 and D29, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D11 to D15, D18 and D29, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0055 — a third invariant form for single-object properties, and outcome steps that add to and remove from a set; ADR-0058 — every terminal transition of a whole must dispose of its parts, and re-parenting is checked against both wholes. ADR-0089 — an event row is inserted once, complete; its position is allocated first.
 - **Amended by:** ADR-0052 — the outcome grammar gains the forms re-expressing the case studies needed; ADR-0056 §2 makes `supersede` an outcome step, §6 adds `referrers`, §9 writes an input as `inputs.<name>`. ADR-0066 lets a cascade clause carry arguments; ADR-0073 adds `clear`.

@@ -1,8 +1,8 @@
 # ADR-0036: Proposals are a built-in, opt-in type; delegation and attenuation arrive in the actor descriptor
 
-- **Status:** Accepted — taken in autonomous design iteration 5 (2026-09-08); pending author review
+- **Status:** Accepted — taken in autonomous design iteration 5 (2026-09-08); accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0044 — execution under the current declaration and invalidation; ADR-0079 — attenuation is a capability or an object, never a descriptor attribute. ADR-0097 — a proposal's execution re-evaluates every guard, actor guards included. ADR-0105 — a proposal is visible as its target is; its proposer withdraws it, and whoever passes its transition's actor guards rejects it. ADR-0114 — any caller may file a proposal, and who may approve, reject or withdraw one is the upper layer's.
+- **Refined by:** ADR-0044 — execution under the current declaration and invalidation; ADR-0079 — attenuation is a capability or an object, never a descriptor attribute. ADR-0097 — a proposal's execution re-evaluates every guard, actor guards included. ADR-0105 — a proposal is visible as its target is; its proposer withdraws it, and whoever passes its transition's actor guards rejects it. ADR-0114 — any caller may file a proposal, and who may approve, reject or withdraw one is the upper layer's. *(Since ADR-0114 there are no capabilities and no actor guards; a proposal is executed as the approver under the flow's rules alone.)*
 
 ## Context
 
@@ -14,13 +14,13 @@ TODO.md asked whether a denied transition should produce a pending proposal rath
 
 1. `Proposal` is a **built-in object type**: target object, transition, inputs, proposer, and a lifecycle `pending → executed | rejected | withdrawn | expired | invalidated` (ADR-0044 added the last, and made `expired` derived rather than driven).
 2. A transition **opts in** with `proposable`. A `delegable` verdict on a proposable transition says the request may be proposed; on any other transition it does not.
-3. An authorised actor's `approve` on a proposal **executes the recorded request as that actor**, with the approval event as cause (ADR-0019 lineage). Every non-actor guard is re-evaluated at execution; if one fails, the proposal stays `pending` and carries the verdict. *(Corrected by ADR-0097 §7: every guard is re-evaluated, actor guards included, as `DESIGN.md` §9 has said since 2026-09-08; an approver without the transition's authority cannot execute it.)* The proposer is recorded on the proposal, not as the execution's principal: the approver authorises, they do not act on the proposer's behalf.
+3. An authorised actor's `approve` on a proposal **executes the recorded request as that actor**, with the approval event as cause (ADR-0019 lineage). Every non-actor guard is re-evaluated at execution; if one fails, the proposal stays `pending` and carries the verdict. *(Corrected by ADR-0097 §7: every guard is re-evaluated, actor guards included, as `DESIGN.md` §9 has said since 2026-09-08; an approver without the transition's authority cannot execute it.)* The proposer is recorded on the proposal, not as the execution's principal: the approver authorises, they do not act on the proposer's behalf. *(Withdrawn by ADR-0114: no rule reads the actor, and who may do what is the upper layer's.)*
 4. ~~`expired` is time-driven through the availability query (ADR-0022).~~ **Superseded by ADR-0044 rule 5:** `expired` is *derived*, reported by the read surface, so nothing has to move a proposal into it.
 
 **Delegation.**
 
-5. The store has **no delegation mechanism**. Delegated authority is a capability in the delegate's descriptor with `principal` set to the delegator; attenuation is a descriptor attribute a guard reads (`amount <= actor.attributes.approval_limit`). *(ADR-0079 withdrew the attribute: the descriptor has none. Attenuation is a capability where the limit is one of a few fixed values, and otherwise the `Delegation` object of rule 6, which is now the only pattern.)*
-6. A consumer that must govern and record delegations models them as an object type — `Delegation { delegator, delegate, capability, limit, from, until }`, `active → revoked | expired` — and its authentication reads live delegations when computing descriptors. That is a pattern, and the case study shows it.
+5. The store has **no delegation mechanism**. Delegated authority is a capability in the delegate's descriptor with `principal` set to the delegator; attenuation is a descriptor attribute a guard reads (`amount <= actor.attributes.approval_limit`). *(ADR-0079 withdrew the attribute: the descriptor has none. Attenuation is a capability where the limit is one of a few fixed values, and otherwise the `Delegation` object of rule 6, which is now the only pattern.)* *(Withdrawn by ADR-0114: the descriptor carries an actor and a principal, and what a delegate may do is the upper layer's.)*
+6. A consumer that must govern and record delegations models them as an object type — `Delegation { delegator, delegate, capability, limit, from, until }`, `active → revoked | expired` — and its authentication reads live delegations when computing descriptors. That is a pattern, and the case study shows it. *(Withdrawn with capabilities by ADR-0114.)*
 
 ## Alternatives rejected
 

@@ -1,6 +1,6 @@
 # ADR-0051: Erasure integrity — personal values may not be copied into non-personal attributes, and the redaction marker is absence
 
-- **Status:** Accepted — repair of D35, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D35, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
 - **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0078 — an input may be marked `personal`, and a personal input is redacted from every payload that recorded it.
 - **Refines:** ADR-0031

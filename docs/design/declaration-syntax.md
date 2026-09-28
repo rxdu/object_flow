@@ -606,7 +606,7 @@ It says nothing about being *owned*. A whole with a terminal transition whose pa
 <kind> <name> <states> [only via …] [accepts <attribute>, …] [proposable] [backdatable within <duration>] {   # the head
   input     <name> : <type>[?|[]] [personal]
   input     <name> : <type> default <expr>
-  require   <name>: <expression> [eager|deferred] [observe|flag] [because <remedy class>]
+  require   <name>: <expression> [observe|flag] [because <remedy class>]
   corrects  <attribute>, …                                     # §6.4
   may admit <invariant>, …                                     # assert only, §6.3
   …                                                            # outcome steps, §5.2
@@ -635,7 +635,7 @@ A clause marked both `observe` and `flag`, and either marking on a clause of an 
 
 **Guard names are always required.** A verdict carries the failing clause's name, and that name should not appear or change shape when someone adds a second guard.
 
-**`eager` or `deferred`** marks a guard that calls an external evaluator, not the evaluator itself, so two guards over one function may differ. It says *when in a caller's workflow* the evaluator is consulted: an eager guard is consulted whenever the transition's availability is computed, a deferred one only when the transition is actually requested. Neither runs inside the write transaction. Omitted, a guard is eager.
+**A guard that calls an external evaluator is consulted when its transition is requested**, before the write transaction, and by no read: `availability`, `available` and `check` each name the guards they did not evaluate (`DESIGN.md` §10). *(Changed 2026-09-28, ADR-0133: the `eager` and `deferred` markings are withdrawn. `eager` promised a consultation whenever availability was computed, which no read performs since ADR-0054 and ADR-0077, so the two behaved alike.)*
 
 **The five remedy classes** say what the caller can do about a failure, and every verdict carries one — a guard's is declared or inferred, and the other verdicts' are fixed by DESIGN.md §5.5 (ADR-0105): `self_serviceable` (correct something in the request, an input of the transition requested), `delegable` (another actor must act, such as giving an approval), `temporal` (**wait, and it will pass**), `dependent` (another object must change first), `unreachable_from_here` (nothing the caller supplies, waits for, or asks of another actor or object will satisfy it from here: another transition must come first, such as one that writes the value the clause reads, or none can, as for a window that has closed).
 
@@ -698,7 +698,7 @@ evaluator xero version 1 {
 A guard calls one as `<evaluator>.<fn>(<arg>, …)`, the one call to something outside the store; the other calls an expression may make — `metric(…)`, the time functions of §8.3 and the time buckets of §6.9 — read the store's own data:
 
 ```text
-require invoiced: xero.invoice_valid(order_id) deferred because dependent
+require invoiced: xero.invoice_valid(order_id) because dependent
 ```
 
 A function declares its argument types and how stale a verdict may be. Every evaluator returns a **verdict and never a value**, so no return type is written, and a guard may be a `verdict` as well as a `bool`. The consequence is worth stating where it is met rather than leaving it to be discovered: where an external system *decides* something — a randomisation service choosing a treatment arm, a pricing service quoting — the caller supplies the value as an input and the evaluator can only be asked whether it is consistent. The store records such a value as governed data it did not verify. Open question 8 is whether that boundary should move. A verdict too stale to use is refused as `temporal` whatever the guard declares.
@@ -1432,7 +1432,7 @@ Where a grammar line and an example disagree, the example is authoritative and t
 
 ### 9.5 The reserved words
 
-`module use capability category enum sequence evaluator machine type version inputs survives tracking serial quantity record states state abstract requires provides attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because eager deferred set clear add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh stored with string bool int decimal money timestamp duration event file identity verdict on observation field unit recorded occurred within labels metric window value flag over last backdatable observe assignee entered_at time_in held combine distinct backfill member mirror as avg median percentile day week month quarter year requests key length`
+`module use capability category enum sequence evaluator machine type version inputs survives tracking serial quantity record states state abstract requires provides attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because set clear add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh stored with string bool int decimal money timestamp duration event file identity verdict on observation field unit recorded occurred within labels metric window value flag over last backdatable observe assignee entered_at time_in held combine distinct backfill member mirror as avg median percentile day week month quarter year requests key length`
 
 `s`, `min`, `h`, `days` and `weeks` are duration units only directly after a numeric literal, which is the one position the aggregate `min` cannot occupy.
 
@@ -1492,7 +1492,7 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 42 | A non-abstract type with no `tracking`, inherited or declared, or one that is none of `serial`, `quantity` and `record`; an `enum`, `sequence`, `evaluator`, `machine`, `type`, `observation` or `metric` with no `version` |
 | 43 | An `extends` naming a base that is undeclared, not `abstract`, or part of a cycle |
 | 44 | An `identifier` naming an undeclared sequence; a `scoped by` naming a reference or attribute that any one of the type's creations does not write — the same set check 8 uses, the machine's having been replaced where the binder declares its own — or an attribute that is not `indexed`; a `format` with no `{n}` or `{n:<width>}`; a `format` placeholder naming an attribute that is not a `string` or an enum, reaching more than one hop, through a reference or attribute any creation does not write, or naming an optional attribute outside `[ … ]` (ADR-0103); `unique in scope` with no `scoped by` |
-| 45 | An `eager` or `deferred` on a guard that calls no evaluator |
+| 45 | *(Withdrawn 2026-09-28 with the `eager` and `deferred` markings, ADR-0133.)* An `eager` or `deferred` on a guard that calls no evaluator |
 | 46 | An `indexed` derivation reading a clock, an unindexed attribute, another object, or its own object's flow data (§7, §8.3) |
 | 47 | A `sum`, `min` or `max` with no body; a cascade clause with no `limit` |
 | 48 | An unsupplied optional input appearing as a sub-expression rather than as the whole step or argument; a path through an absent optional anywhere but the two places §5.2 permits absence to skip a step |
@@ -1507,7 +1507,7 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 57 | `observe` or `flag` on a clause of an `assert` or an `erase`; a clause marked both `observe` and `flag` (§5.1, ADR-0111) |
 | 58 | A `backdatable` or an `occurred within` without a duration in the closed set of §8.3; `backdatable` on an `assert`, an `erase` or an `only via` transition (§4.2); `entered_at`, `time_in`, `held` or `intervals(…)`, in a metric or over `this` in a derivation, naming what is not tracked — the state, an enum attribute or a singular stored reference — `time_in` taking a state only (§8.3, §6.9) |
 | 59 | `assignee` on a set-valued `ref`, a `part`, an `owner` or an end that does not store its value; an `assignee` whose target type does not mark exactly one `identity` attribute `actor`; `actor` on an attribute that is not `identity` (§6.10) |
-| 60 | A type with a personal attribute, inherited ones included, that takes part in supersession — it has a `superseding` state, or a `supersede` operand is of its type — and declares no `erase` (§6.4, ADR-0087) |
+| 60 | A concrete type with a personal attribute, inherited ones included, that declares no `erase`, so every personal value can be erased (PRD D8, ADR-0133); until ADR-0133 only a type taking part in supersession was held to it (§6.4, ADR-0087) |
 | 61 | An evaluator call or a metric reference in the guard of a transition reached by a `call` or `create`, whose argument reads an input the caller binds from a member its own outcome sets, since no consultation before the transaction can see that value (§6.2, §6.9, ADR-0092) |
 | 62 | An `actor` identity with no kind of `human`, `agent` or `service`; a type marking more than one `identity` attribute `actor`, since a type holds one kind of actor, named by one identity (§3.1, ADR-0110) |
 | 63 | **Withdrawn** (ADR-0114). It held a metric's audience to the actor, and metrics no longer declare an audience |

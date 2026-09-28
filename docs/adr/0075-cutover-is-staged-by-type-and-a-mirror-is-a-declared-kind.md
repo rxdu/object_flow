@@ -1,6 +1,6 @@
 # ADR-0075: Cutover is staged by object type, and a type another system still owns is declared as a `mirror`
 
-- **Status:** **Accepted** — the author chose staged cutover 2026-09-09; the `mirror` marking is the consequence, derived here and pending review
+- **Status:** **Accepted** — the author chose staged cutover 2026-09-09; the `mirror` marking is the consequence, derived here and accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-09
 - **Refined by:** ADR-0077 — import writes each row complete in one pass; the two-pass sentence below is annotated; ADR-0080 — the marking is for the duration of a cutover, and a type another system owns for good is an ordinary type the sync writes. ADR-0093 — the stage order counts the legacy system's writes as well as its references. ADR-0100 — the import writes a type only while it is a `mirror` or no ordinary request has created an object of it, and a guard over a mirror reads it as of its last import, `.imported_at`. ADR-0101 — every type is ported as a mirror, so the import writes only mirrors, and a mirror may declare `erase`.
 - **Refines:** ADR-0015, ADR-0027, ADR-0040
@@ -39,7 +39,7 @@ Nothing writes a type it does not own. There is no window in which both systems 
 ### 2. A type this store holds and does not own is declared `mirror`
 
 ```text
-type Customer version 1 mirror {
+type Customer version 1 mirror { *(The text notation: the flow format writes a mirror as `mirror: true`, with no written version, ADR-0116 and ADR-0131.)*
   tracking record
   states ACTIVE category live, ARCHIVED category closed
   attr legacy_key string external "legacy" indexed
@@ -47,11 +47,11 @@ type Customer version 1 mirror {
 }
 ```
 
-For the duration of a cutover (ADR-0080), a mirror declares its attributes, its states and its external identifier, and **no transitions at all**. It is written only by the import path — the built-in assertion, capability-gated and recorded (ADR-0040, ADR-0054) — so every change to it is attributable to the import that made it, and none of it looks like an ordinary transition.
+For the duration of a cutover (ADR-0080), a mirror declares its attributes, its states and its external identifier, and **no transitions at all**. It is written only by the import path — the built-in assertion, capability-gated and recorded (ADR-0040, ADR-0054) — so every change to it is attributable to the import that made it, and none of it looks like an ordinary transition. *(Since ADR-0114 no capability gates the import, and since ADR-0101 a mirror declares one transition, `erase`.)*
 
-Checks 15, 34 and the terminal-state rule do not apply to a mirror: they are about a lifecycle, and a mirror's lifecycle belongs to another system. **Check 53 is new** and is what makes the marking mean something. Nothing here may write a mirror: no outcome may `call` or `create` into one, and no `part` or `owner` may compose with one, because a composition binds the part's lifetime to the whole and a mirror's lifetime is not this store's to bind.
+Checks 15, 34 and the terminal-state rule do not apply to a mirror: they are about a lifecycle, and a mirror's lifecycle belongs to another system. **Check 53 is new** and is what makes the marking mean something. Nothing here may write a mirror: no outcome may `call` or `create` into one, and no `part` or `owner` may compose with one, because a composition binds the part's lifetime to the whole and a mirror's lifetime is not this store's to bind. *(ADR-0101 allows a mirror to compose with, and extend, another mirror.)*
 
-Four further routes to a writable mirror were found by probing rather than by reasoning, and each is refused: a mirror binding a machine, which would hand it that machine's transitions; a mirror declaring transitions of its own; a mirror extending a type; and an ordinary type extending a mirror, which would let a type this store owns inherit the shape of one it does not. The first was the important one — a mirror with a bound machine is writable through every transition the machine supplies, which defeats the marking completely.
+Four further routes to a writable mirror were found by probing rather than by reasoning, and each is refused: a mirror binding a machine, which would hand it that machine's transitions; a mirror declaring transitions of its own; a mirror extending a type; and an ordinary type extending a mirror, which would let a type this store owns inherit the shape of one it does not. The first was the important one — a mirror with a bound machine is writable through every transition the machine supplies, which defeats the marking completely. *(ADR-0101 allows a mirror to extend a mirror.)*
 
 An ordinary type may **reference** a mirror, read its attributes and its state in a guard, and require it in an invariant. That is the whole point: a migrated delivery can be guarded on its not-yet-migrated customer.
 
@@ -61,7 +61,7 @@ The marking is removed and the real transitions are declared, which is an ordina
 
 ## Alternatives rejected
 
-- **Declare the legacy lifecycle as import-gated transitions.** Expressible today, and it was the first thing tried. Rejected because it restates the lifecycle being retired, in a second place, where it will drift — and because every guard on it would be `actor.has(LEGACY_IMPORT)`, which says nothing about the domain. A marking says the true thing instead: this type is not ours.
+- **Declare the legacy lifecycle as import-gated transitions.** Expressible today, and it was the first thing tried. Rejected because it restates the lifecycle being retired, in a second place, where it will drift — and because every guard on it would be `actor.has(LEGACY_IMPORT)`, which says nothing about the domain. A marking says the true thing instead: this type is not ours. *(Capabilities are withdrawn by ADR-0114.)*
 - **Hold the not-yet-migrated types outside ObjectFlow and reach them with an external evaluator.** An evaluator returns a verdict and never a value (ADR-0069), so a guard could ask "is this customer active" but a delivery could not reference a customer, and `referrers`, deletion guards and invariants would all stop at the boundary.
 - **Big-bang.** Not rejected on its merits; the author chose otherwise. It remains the simpler path and this ADR is the cost of not taking it.
 - **Allow dual-write for the duration.** Rejected by ADR-0015 and not reopened. It is the one thing that would dissolve the problem and it dissolves the mediated property with it.

@@ -1,6 +1,6 @@
 # ADR-0063: The swap test names its normalisations, and check 52's claim is retracted
 
-- **Status:** Accepted — repair of D149–D158, 2026-09-08; pending author review
+- **Status:** Accepted — repair of D149–D158, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Refines:** ADR-0052, ADR-0061, ADR-0062
 - **Date:** 2026-09-08
 
