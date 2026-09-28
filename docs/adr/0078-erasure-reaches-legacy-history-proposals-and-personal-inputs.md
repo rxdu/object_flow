@@ -1,6 +1,6 @@
 # ADR-0078: Erasure reaches legacy history, proposal inputs and personal inputs
 
-- **Status:** Accepted — decided 2026-09-09 at the author's direction ("rule on D190"), with the recommendation and its evidence below; pending author review
+- **Status:** Accepted by the author, 2026-09-28 ("accept all three as annotated"), as refined by ADR-0087. Decided 2026-09-09 at the author's direction ("rule on D190"), with the recommendation and its evidence below.
 - **Date:** 2026-09-09
 - **Refined by:** ADR-0087 — "wherever it was recorded" is made true by the cause chain and the taint analysis; the proposal clause names whose values.
 - **Refines:** ADR-0015, ADR-0031, ADR-0044, ADR-0051

@@ -1,6 +1,6 @@
 # ADR-0079: The actor descriptor has no free-form attributes; attenuation is a capability or an object
 
-- **Status:** Accepted — decided 2026-09-09 at the author's direction ("rule on D193"), with the recommendation and its evidence below; pending author review
+- **Status:** Accepted by the author, 2026-09-28 ("accept all three as annotated"), in the part that survives ADR-0114: the descriptor carries no free-form attributes, only an id and an optional principal. Decided 2026-09-09 at the author's direction ("rule on D193"), with the recommendation and its evidence below.
 - **Date:** 2026-09-09
 - **Refined by:** ADR-0110 — the descriptor carries no kind, which is declared with the type holding the actor. ADR-0114 — the descriptor carries no capabilities at all, and no rule reads the actor.
 - **Refines:** ADR-0025, ADR-0030, ADR-0036
@@ -15,12 +15,12 @@ Evidence from the first consumer. Its authority model is a role plus a per-key p
 
 The descriptor is `id`, `kind`, optional `principal`, and `capabilities`. *(Since ADR-0110, 2026-09-25, it carries no `kind`: the kind is declared with the type holding the actor, and the engine takes it from there.)* **It has no attributes.** The field is removed rather than kept unreadable: it was unvalidated, unrecorded (the log stores id, kind and principal), and an invitation to exactly the reading ADR-0036 made.
 
-A fact about an actor is expressed one of two ways:
+A fact about an actor is expressed one of two ways: *(Withdrawn by ADR-0114, 2026-09-25, and marked so on 2026-09-28: there are no capabilities, and no rule reads the actor, so neither way below may be written. A guard comparing an object with `actor.id`, as the second does, is refused at publish (check 64). What stands of this decision is its first paragraph: the descriptor carries no free-form attributes. Who may act on whose behalf, and within what limit, is the upper layer's.)*
 
 - **A small finite fact is a capability.** Team, tier, role: the consumer's authentication emits `TEAM_SALES` as it emits `DELIVERY_EDIT`, and a guard or visibility predicate reads `actor.has(TEAM_SALES)`. Capabilities are opaque strings the consumer defines (ADR-0025); nothing new is needed.
 - **A fact with a value is an object the guard reads.** An approval limit, a delegation window, a quota: a `Delegation { delegate, capability, limit, from, until }` with a lifecycle, and a guard `any(d in Delegation where d.delegate == actor.id and d.state == Delegation.ACTIVE and d.limit >= amount)`. This is the pattern ADR-0036 §6 already gave for governed delegation, and it is now the only one. It is recorded, revocable by a transition, and visible in history, which a number in a descriptor never was.
 
-Delegation still arrives in the descriptor as capabilities with `principal` set to the delegator (ADR-0036 §5's first half stands). Only attenuation-by-attribute is withdrawn.
+Delegation still arrives in the descriptor as capabilities with `principal` set to the delegator (ADR-0036 §5's first half stands). Only attenuation-by-attribute is withdrawn. *(Withdrawn by ADR-0114: the descriptor carries no capabilities; a delegation arrives as the actor with its principal, and what the delegate may do is the upper layer's.)*
 
 ## Alternatives rejected
 

@@ -1,6 +1,6 @@
 # ADR-0080: `mirror` is the cutover marking; a type another system owns for good is an ordinary type the sync writes
 
-- **Status:** Accepted — decided 2026-09-09 at the author's direction ("rule on D194"), with the recommendation and its evidence below; pending author review
+- **Status:** Accepted by the author, 2026-09-28 ("accept all three as annotated"), with three later changes marked in its body. Decided 2026-09-09 at the author's direction ("rule on D194"), with the recommendation and its evidence below.
 - **Date:** 2026-09-09
 - **Refines:** ADR-0069, ADR-0075
 - **Refined by:** ADR-0110 — where a deployment's user system owns its roles, `User` is externally owned this way and kept in step by a sync.
@@ -15,13 +15,15 @@ The first consumer's own Xero design answers (`wr:docs/adr/0003-xero-as-source-o
 
 ### 1. `mirror` names one thing: the cutover marking
 
-A type the legacy system still owns, held here with attributes, states and an external identifier, no transitions, written only by the import path, and removed by a version advance that declares the real transitions and changes no object's id (ADR-0075). It is temporary by construction.
+A type the legacy system still owns, held here with attributes, states and an external identifier, no transitions, written only by the import path, and removed by a version advance that declares the real transitions and changes no object's id (ADR-0075). It is temporary by construction. *(Refined by ADR-0101: a mirror declares no transitions but `erase`, so a personal value it holds can be erased, as `metric-scenarios.md` §32 does.)*
 
 ### 2. A type another system owns for good is an externally owned type, which is an ordinary type
 
-It declares an `external` identifier for the owning system, sync-driven transitions guarded on the sync's capability — `act sync_from_xero at any { require may: actor.has(XERO_SYNC) … }` — and whatever local transitions the domain needs. The sync consumer requests those transitions like any actor, with the external system's own change identifier as idempotency key (ADR-0014). Every change has a transition name, a recorded actor and an event a subscription can filter on, and a merge upstream is a `merged_into` supersession here. This is what ADR-0069 meant; the word `mirror` is withdrawn from that use.
+It declares an `external` identifier for the owning system, sync-driven transitions guarded on the sync's capability — `act sync_from_xero at any { require may: actor.has(XERO_SYNC) … }` — and whatever local transitions the domain needs. The sync consumer requests those transitions like any actor, with the external system's own change identifier as idempotency key (ADR-0014). Every change has a transition name, a recorded actor and an event a subscription can filter on, and a merge upstream is a `merged_into` supersession here. This is what ADR-0069 meant; the word `mirror` is withdrawn from that use. *(The guard in the example is withdrawn by ADR-0114: no rule reads the actor, so who may run the sync is the upper layer's. The sync-driven transitions stay, requested by the sync like any actor.)*
 
 ### 3. The first consumer's customer is a mirror while legacy owns it, and cuts over to the Xero-synced type
+
+*(The first consumer is a case study, not a specification (the author, 2026-09-25), so this decision is the operations platform's to carry out; it stands here as the worked cutover it was decided as.)*
 
 Its stage in `first-consumer-cutover.md` stands. What the version advance at that stage installs is not an owned type but the externally owned type of decision 2, whose sync is Xero's; "mirrored longest" there refers to the marking. The mechanism of ADR-0075 §3 is the same: remove the marking, declare the transitions, keep every id.
 
