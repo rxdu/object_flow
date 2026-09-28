@@ -21,6 +21,7 @@ Two kinds of acceptance appear below. The author accepts a decision themselves; 
 - ADR-0124, on 2026-09-28: a combined metric read by fewer dimensions than it groups by, or with some bound, combines its inputs over the rows the read selects, found writing the metric scenarios.
 - ADR-0125, on 2026-09-28: a request naming an actor the store does not know is logged with the identity it named under the kind `unknown`, found writing the metric scenarios.
 - ADR-0126, on 2026-09-28: a store is created with its operator, the built-in actor its first requests name.
+- ADR-0131, on 2026-09-28: how flows are authored and checked — in a repository, with no written version numbers, deterministic checks, behavioural claims as examples run at publish, and contradictions within one type refused, with no new dependency; whether an agent is the default drafter stays open.
 - ADR-0127 to ADR-0130, accepted in advance on 2026-09-28 ("for all similar items that you have confidence in an recommendation, just accept"): a read's page has an order and `query`'s order a grammar; five questions the metric scenarios left open about metrics; a publish notices a metric whose filter it reroutes; and three questions ADR-0108 and ADR-0109 left open.
 - ADR-0065 to ADR-0073, which the author ruled on.
 

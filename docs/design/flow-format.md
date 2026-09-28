@@ -644,7 +644,7 @@ A full description is [`flow-format/examples/inventory.yaml`](flow-format/exampl
 ## 9. Open questions
 
 These are open in `authoring-flows.md` §3 and §7, and an answer would change this document:
-1. Whether version numbers are computed at publication, which this format assumes by having none.
+1. ~~Whether version numbers are computed at publication~~: *decided 2026-09-28*, they are, and a description carries none (ADR-0131).
 2. Whether the generated guards and invariants should carry written descriptions.
 3. Whether a transition whose source state does not require an attribute its target requires should be refused, as now, even when the attribute happens to be kept.
 4. ~~How two types that reference each other are ordered~~: *decided 2026-09-26*, the types of a module may reference each other in any order (ADR-0117).
