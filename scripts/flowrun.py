@@ -423,8 +423,16 @@ class Runner:
         # the generated guards: for a recording, the subject is open and its corrected datapoint current
         if xn == "record" and "subject" in inputs:
             subject = work.objects[inputs["subject"]]
+            if "corrects" in inputs:
+                raise NotRunnable("a correction of a recorded datapoint, whose guard corrects_current this slice does not evaluate")
+            if (self.kinds.get(subject.type) or {}).get("mirror"):
+                raise NotRunnable("a recording on a mirror's object, whose guard subject_owned this slice does not evaluate")
             if work.final(subject):
                 raise Refused("unsatisfied", "subject_open", "unreachable_from_here")
+        for k in inputs:
+            spec = attrs.get(k) or {}
+            if k in taken - set(declared) and "reference" in spec and self.owner_end(spec):
+                raise NotRunnable(f"writing {tn}.{k}, a part's owner, whose whole this slice does not re-check")
         for k in x.get("required_inputs", []):
             spec = attrs.get(k) or {}
             if k not in inputs and (spec.get("optional") or "default" in spec):
@@ -440,6 +448,8 @@ class Runner:
                 flags.append((g, mode))
         # 5. the outcome: the new state and the writes
         if o is None:
+            if any("identifier" in (spec or {}) for spec in attrs.values()):
+                raise NotRunnable(f"creating a {tn}, whose identifier a sequence mints")
             o = Obj(work.new_id(tn), tn, x["to"], work.now)
             o.id_order = work.counter
             work.objects[o.id] = o
@@ -474,7 +484,7 @@ class Runner:
         # 7. the invariants of the written object
         failing = self.failing_invariants(work, o)
         if failing:
-            raise Refused("invariant_violated", failing[0], detail=", ".join(failing))
+            raise Refused("invariant_violated", failing[0], detail=", ".join(failing[1:]) and "and " + ", ".join(failing[1:]))
         store.__dict__.update(work.__dict__)
         return ("applied", o.id, flags)
 
@@ -486,9 +496,29 @@ class Runner:
                 if parts and parts is not ABSENT:
                     raise NotRunnable("a cascade")
 
+    def owner_end(self, spec):
+        """Whether a reference is a part's end back to its whole: its opposite is a composite end."""
+        target = self.kinds.get(spec["reference"].rstrip("[]")) or {}
+        back = ((target.get("attributes") or {}).get(spec.get("opposite") or "") or {})
+        return back.get("aggregation") == "composite"
+
     def failing_invariants(self, store, o):
         t = self.kinds.get(o.type) or {}
         out = []
+        for a, spec in (t.get("attributes") or {}).items():
+            spec = spec or {}
+            unique = spec.get("unique")
+            if unique is None and "reference" in spec and "opposite" in spec and not spec["reference"].endswith("[]"):
+                back = ((self.kinds.get(spec["reference"]) or {}).get("attributes") or {}).get(spec["opposite"]) or {}
+                unique = True if back.get("reference") and not back["reference"].endswith("[]") else None
+            if unique is None:
+                continue
+            if unique is not True:
+                raise NotRunnable(f"the uniqueness of {o.type}.{a} in a scope or under a condition")
+            value = o.attrs.get(a, ABSENT)
+            if value is not ABSENT and any(x.id != o.id and x.attrs.get(a) == value and (store.is_a(x.type, o.type) or store.is_a(o.type, x.type))
+                                           for x in store.objects.values()):
+                out.append(f"{a}_unique")
         for n, inv in (t.get("invariants") or {}).items():
             if truth(Evaluator(store, o.type, o.id).value(flowexpr.parse(inv["expression"]), {})) is False:
                 out.append(n)

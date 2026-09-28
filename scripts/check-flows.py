@@ -2983,6 +2983,8 @@ def runner_plants(people, service, examples):
          "outcome: CheckOutcome.PASS }", "outcome: CheckOutcome.FAIL }"),
         ("a signer the request does not write", "example",
          "values: { signed_off_by_user: ana }", "values: { signed_off_by_user: ben }"),
+        ("a setup whose second engineer reuses a unique login", "example",
+         "inputs: { login: ben, name: Ben }", "inputs: { login: ana, name: Ben }"),
         ("an example the runner cannot yet run", "notrun", "  a_job_opens_for_an_active_engineer:",
          "  an_erasure:\n    description: The notes are erased.\n    given: job_in_progress\n"
          "    request: { object: job, transition: forget, inputs: { reason: asked } }\n"
