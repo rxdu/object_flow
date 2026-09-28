@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-24 at the author's direction ("go with your D345 reasoning: invariants and a publish report"), against `docs/PRD.md` revision 7: T1, T4, F1, F2, V1, V3, N5 and §2; closes the question D345 left open, and repairs D379 and D380. The recommendation put to the author named the photo rule among the invariants; production shows it is checked only at intake, so it stays a guard (§1). Accepted by the author on 2026-09-26: "accept the older pending ADRs too".
 - **Date:** 2026-09-24
+- **Refined by:** ADR-0130 — diagnostics report each state's entries by transition, by override and by creation.
 - **Refines:** ADR-0009 (invariants declared at type level), ADR-0065 (a machine's creation guards bind a creation that replaces it)
 - **Amends:** ADR-0102, whose module is still proposed
 - **Relates to:** ADR-0045 (invariants enforced after the writes), ADR-0054 (an admission is discharged when the invariant holds), ADR-0085 (observing clauses)
@@ -83,4 +84,4 @@ It also reports every invariant of the type, since a creation writes the whole o
 - `unit-journey.md` and the flow review's appendix declare the invariants, `Robot.model`'s inverse `RobotModel.units`, the `indexed` markings a traversal invariant needs (check 7), and the two new acts. The journey quotes its report, which the checker verifies.
 - **Behaviour.** A unit put back on offer by a return, a release from the pool, an undo or an override must carry a label print and any serial its model requires. A ported unit on offer without them is reported by the import and admitted or cleaned upstream (DESIGN §11). Its admission is discharged when the unit leaves `AVAILABLE` (ADR-0054), so it is labelled before it goes back on offer. Turning on a model's `manufacturer_serial_required` is refused while a unit of that model is on offer without one, naming the units, until `record_manufacturer_serial` records it.
 - D345's question is closed, and its entry says so.
-- **Left open:** whether diagnostics count creations by the state they land in, beside overrides (PRD V2).
+- **Left open:** whether diagnostics count creations by the state they land in, beside overrides (PRD V2). *(Settled 2026-09-28 by ADR-0130: diagnostics report each state's entries by transition, by override and by creation.)*

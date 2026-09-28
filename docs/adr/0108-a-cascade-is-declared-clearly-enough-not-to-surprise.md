@@ -2,6 +2,7 @@
 
 - **Status:** Accepted. The principle is the author's, 2026-09-24: "I think transition cascading should be supported, as long as the rule is defined by the user clearly enough that the transition should not appear as a surprise". The mechanism below is the recommendation put to the author with it, written at the author's direction ("ADR-0012, go ahead and write them"); the alternative of the affected type's consent was put to the author and not answered separately. Against `docs/PRD.md` revision 6: F8, F1 and UC-21; repairs D378.
 - **Date:** 2026-09-24
+- **Refined by:** ADR-0130 — `check` returns its verdict and nothing more for now, and a cascade through a single reference takes no condition.
 - **Refines:** ADR-0012, ADR-0019, ADR-0020
 - **Relates to:** ADR-0010 (the declaration is inspectable at runtime), ADR-0038 (cascades apply sequentially), ADR-0046 (the outcome grammar), ADR-0104 (the governed core)
 

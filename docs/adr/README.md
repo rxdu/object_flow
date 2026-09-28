@@ -131,3 +131,4 @@
 | [0127](0127-a-reads-page-has-an-order-and-querys-order-a-grammar.md) | A read's page has an order, and `query`'s order a grammar | Accepted by the author in advance |
 | [0128](0128-what-the-metric-scenarios-left-open-about-metrics.md) | What the metric scenarios left open about metrics | Accepted by the author in advance |
 | [0129](0129-a-publish-notices-a-metric-whose-filter-it-reroutes.md) | A publish notices a metric whose filter it reroutes | Accepted by the author in advance |
+| [0130](0130-three-questions-left-open-by-adr-0108-and-adr-0109.md) | Three questions ADR-0108 and ADR-0109 left open | Accepted by the author in advance |
