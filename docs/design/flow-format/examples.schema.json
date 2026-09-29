@@ -84,6 +84,12 @@
         "object": { "$ref": "#/definitions/alias" },
         "transition": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
         "as": { "$ref": "#/definitions/alias" },
+        "creates": {
+          "description": "Aliases for the objects the request's effect creates, other than its own, in the order it creates them; they are of one type.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/alias" }
+        },
         "actor": { "$ref": "#/definitions/alias" },
         "after": { "$ref": "#/definitions/duration" },
         "inputs": { "type": "object" }

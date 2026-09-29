@@ -20,7 +20,16 @@ setups:
           type: Delivery
           transition: open
           as: delivery
+          creates: [battery, manual]
           inputs: { unit: robot, price: SGD 11500.00, checklist: [Battery charged, Manual included] }
+  a_delivery_ready_to_sign_off:
+    description: The delivery with both checklist items ticked and a courier assigned.
+    given: a_delivery_being_prepared
+    steps:
+      - request: { object: battery, transition: check }
+      - request: { object: manual, transition: check }
+      - request: { type: Courier, transition: register, as: courier, inputs: { name: Swift Couriers } }
+      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier } }
 
   an_approved_delivery_with_a_courier:
     description: A delivery with an empty checklist, a courier assigned, and signed off as it stands.
@@ -76,3 +85,46 @@ examples:
     request: { object: delivery, transition: complete }
     expect: { verdict: unsatisfied, clause: signed_off, remedy: delegable }
 
+  a_ticked_and_signed_off_delivery_is_handed_over:
+    description: With its checklist ticked, a courier assigned and a sign-off given last, the delivery completes.
+    given: a_delivery_ready_to_sign_off
+    steps:
+      - request: { object: delivery, transition: approve }
+    request: { object: delivery, transition: complete }
+    expect: { verdict: applied, state: DELIVERED, cascaded: [InventoryItem.deliver_externally] }
+
+  an_open_checklist_item_holds_the_delivery:
+    description: A delivery whose manual is not yet checked is not completed until someone checks it.
+    given: a_delivery_being_prepared
+    steps:
+      - request: { object: battery, transition: check }
+      - request: { type: Courier, transition: register, as: courier, inputs: { name: Swift Couriers } }
+      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier } }
+      - request: { object: delivery, transition: approve }
+    request: { object: delivery, transition: complete }
+    expect: { verdict: unsatisfied, clause: checklist_complete, remedy: dependent }
+
+  ticking_after_the_sign_off_makes_it_stale:
+    description: A sign-off is of the delivery as it stands, so ticking the checklist after it leaves the sign-off stale, and someone signs off again.
+    given: a_delivery_being_prepared
+    steps:
+      - request: { type: Courier, transition: register, as: courier, inputs: { name: Swift Couriers } }
+      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier } }
+      - request: { object: delivery, transition: approve }
+      - request: { object: battery, transition: check }
+      - request: { object: manual, transition: check }
+    request: { object: delivery, transition: complete }
+    expect: { verdict: unsatisfied, clause: signed_off, remedy: delegable }
+
+  a_sign_off_after_the_ticks_is_current:
+    description: Signed off again once the checklist is ticked, the delivery completes.
+    given: a_delivery_being_prepared
+    steps:
+      - request: { type: Courier, transition: register, as: courier, inputs: { name: Swift Couriers } }
+      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier } }
+      - request: { object: delivery, transition: approve }
+      - request: { object: battery, transition: check }
+      - request: { object: manual, transition: check }
+      - request: { object: delivery, transition: approve }
+    request: { object: delivery, transition: complete }
+    expect: { verdict: applied, state: DELIVERED, cascaded: [InventoryItem.deliver_externally] }

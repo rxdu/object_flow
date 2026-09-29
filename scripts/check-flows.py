@@ -2317,6 +2317,24 @@ def example_errors(doc, kinds, modules):
         missing += ["to"] if x["kind"] == "assertion" and "to" not in given else []
         return errs, (tn, x), missing, unprovided
 
+    def created_types(x, seen):
+        """The types a transition's effect creates, through its loops and the creations it makes."""
+        out = set()
+
+        def walk(steps):
+            for st in steps or []:
+                kind = next(iter(st))
+                if kind == "create":
+                    ct, cx = st["create"]["type"], st["create"]["transition"]
+                    out.add(ct)
+                    if (ct, cx) not in seen:
+                        seen.add((ct, cx))
+                        out.update(created_types(((kinds.get(ct) or {}).get("transitions") or {}).get(cx) or {}, seen))
+                elif kind == "foreach":
+                    walk(st["foreach"].get("steps"))
+        walk(x.get("effect"))
+        return out
+
     def steps_errors(steps, env, path):
         errs = []
         for i, st in enumerate(steps or []):
@@ -2333,6 +2351,18 @@ def example_errors(doc, kinds, modules):
                     if r["as"] in env or r["as"] == "operator":
                         errs.append((here + ("request", "as"), "names", f"'{r['as']}' is already an alias"))
                     env[r["as"]] = found[0]
+                if found and r.get("creates"):
+                    # the objects its effect creates, named in the order it creates them, all of one type (§11.3, ADR-0141)
+                    made = created_types(found[1], set())
+                    if len(made) != 1:
+                        errs.append((here + ("request", "creates"), "names",
+                                     f"names objects {found[0]}.{r['transition']} creates, and its effect creates "
+                                     + (f"objects of more than one type, {', '.join(sorted(made))}" if made else "none")))
+                    for alias in r["creates"]:
+                        if alias in env or alias == "operator" or r.get("as") == alias:
+                            errs.append((here + ("request", "creates"), "names", f"'{alias}' is already an alias"))
+                        if len(made) == 1:
+                            env[alias] = next(iter(made))
             else:
                 im = st["import"]
                 tn = im["type"]
@@ -2386,6 +2416,8 @@ def example_errors(doc, kinds, modules):
         out += steps_errors(ex.get("steps"), env, path + ("steps",))
         errs, found, missing, unprovided = request_errors(ex["request"], env, path + ("request",), applies=False)
         out += errs
+        if ex["request"].get("creates"):
+            out.append((path + ("request", "creates"), "names", "the request under test names no objects it creates, since no step follows it"))
         if not found:
             continue
         tn, x = found
@@ -3043,9 +3075,10 @@ def runner_plants(people, service, examples):
 
 
 def inventory_plants(people):
-    """Slice 5 shown on the inventory examples: an expected warning the request does not raise, or one it raises and the
-    example leaves out, a guard that does not warn named as warning, an invariant's remedy the rule does not give, and a
-    left-out input of an optional attribute, refused by its generated guard, expected to apply."""
+    """Slice 5 shown on the inventory and delivery examples: an expected warning the request does not raise, or one it
+    raises and the example leaves out, a guard that does not warn named as warning, an invariant's remedy the rule does
+    not give, a left-out input of an optional attribute, refused by its generated guard, expected to apply, a sign-off
+    expected to hold after what it signed changed, and objects a step names that its request does not create."""
     ok = True
     v1, v2 = (EXAMPLES / "inventory.yaml").read_text(), (EXAMPLES / "inventory-v2.yaml").read_text()
     ex1, ex2 = (EXAMPLES / "inventory.examples.yaml").read_text(), (EXAMPLES / "inventory-v2.examples.yaml").read_text()
@@ -3060,9 +3093,22 @@ def inventory_plants(people):
          "expect: { verdict: unsatisfied, clause: recipient_provided, remedy: self_serviceable }",
          "expect: { verdict: applied, state: RESERVED }"),
     ]
+    delivery, dex = (EXAMPLES / "delivery.yaml").read_text(), (EXAMPLES / "delivery.examples.yaml").read_text()
+    stale = "      - request: { object: manual, transition: check }\n    request: { object: delivery, transition: complete }\n"
+    plants += [
+        ("a sign-off expected to hold after the checklist it signed changed", "example", delivery, dex,
+         stale + "    expect: { verdict: unsatisfied, clause: signed_off, remedy: delegable }",
+         stale + "    expect: { verdict: applied, state: DELIVERED }"),
+        ("a step naming more objects than its request creates", "example", delivery, dex,
+         "creates: [battery, manual]", "creates: [battery, manual, spare]"),
+        ("a step naming objects a transition that creates none creates", "names", delivery, dex,
+         "      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier } }\n\n  an_approved",
+         "      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier }, creates: [slip] }\n\n  an_approved"),
+    ]
     for name, code, module, examples, old, new in plants:
         assert examples.count(old) == 1, old
-        found, _notes = check([("people.yaml", people), ("inventory.yaml", module), ("inventory.examples.yaml", examples.replace(old, new))])
+        found, _notes = check([("people.yaml", people)] + ([("inventory.yaml", v1)] if module is delivery else [])
+                              + [("module.yaml", module), ("module.examples.yaml", examples.replace(old, new))])
         hit = [x for x in found if x[3] == code]
         ok &= bool(hit)
         print(f"  planted {name}: {'caught by ' + code + ', at ' + hit[0][0] + ':' + str(hit[0][1]) + ' ' + hit[0][4][:70] if hit else 'MISSED ' + str(found[:2])}")

@@ -122,7 +122,7 @@
 | [0118](0118-metrics-are-written-under-their-type-in-semantic-layer-terms.md) | Metrics are written under their type, in the terms of semantic layers | Accepted by the author — later refined by ADR-0139 |
 | [0119](0119-assertions-and-erasures-are-transition-kinds-of-their-own.md) | Assertions and erasures are transition kinds of their own | Accepted by the author |
 | [0120](0120-a-migration-is-written-with-the-version-it-publishes.md) | A migration is written with the version it publishes | Accepted by the author |
-| [0121](0121-the-designs-yaml-is-checked-where-it-stands.md) | The design's YAML is checked where it stands | Accepted by the author |
+| [0121](0121-the-designs-yaml-is-checked-where-it-stands.md) | The design's YAML is checked where it stands | Accepted by the author — later refined by ADR-0141 |
 | [0122](0122-a-flow-is-recoverable-from-its-description.md) | A flow is recoverable from its description | Accepted by the author — later refined by ADR-0123, ADR-0124, ADR-0138 |
 | [0123](0123-a-set-dimension-counts-each-value-once-and-an-empty-group-is-reported.md) | A set dimension counts each value once, and a group with no body is reported | Accepted by the author |
 | [0124](0124-a-combined-metric-read-by-fewer-dimensions-combines-its-inputs-over-them.md) | A combined metric read by fewer dimensions combines its inputs over them | Accepted by the author — later refined by ADR-0128 |
@@ -137,8 +137,9 @@
 | [0133](0133-three-gaps-the-adr-triage-found.md) | Three gaps the triage of the pending decisions found | Accepted by the author — later refined by ADR-0134 |
 | [0134](0134-two-gaps-the-coherence-review-found.md) | Two gaps the coherence review of 2026-09-28 found | Accepted by the author in advance |
 | [0135](0135-a-flow-change-records-where-its-source-came-from.md) | A flow change records where its source came from, and a digest that lets the repository check it | Accepted by the author in advance — later refined by ADR-0136 |
-| [0136](0136-examples-are-a-file-beside-the-description-built-by-requests.md) | Examples are a file beside the description, built by requests, and run by the engine at publish | Accepted by the author — later refined by ADR-0138, ADR-0140 |
+| [0136](0136-examples-are-a-file-beside-the-description-built-by-requests.md) | Examples are a file beside the description, built by requests, and run by the engine at publish | Accepted by the author — later refined by ADR-0138, ADR-0140, ADR-0141 |
 | [0137](0137-contradictions-within-one-type-are-refused-by-a-sound-analysis.md) | Contradictions within one type are refused by an analysis that refuses only what it proves | Accepted by the author |
 | [0138](0138-three-gaps-the-reference-runner-found.md) | Three gaps the reference runner found: generated guards' remedies, the order of calls and cascades, and a silent evaluator | Accepted by the author |
 | [0139](0139-four-metric-rules-the-reference-runner-found.md) | Four metric rules the reference runner found: a fixed measure's dimensions, an average of integers, a dimension bound to an unknown value, and a window's ends | Accepted by the author in advance |
-| [0140](0140-an-example-asserts-the-warnings-and-an-invariants-remedy.md) | An example asserts the warnings its verdict lists and an invariant's remedy, and the design's own examples all run | Accepted by the author in advance |
+| [0140](0140-an-example-asserts-the-warnings-and-an-invariants-remedy.md) | An example asserts the warnings its verdict lists and an invariant's remedy, and the design's own examples all run | Accepted by the author in advance — later refined by ADR-0141 |
+| [0141](0141-a-step-names-what-it-creates-and-a-document-carries-its-examples.md) | A step names the objects its request creates, and a design document carries its modules' examples | Accepted by the author in advance |

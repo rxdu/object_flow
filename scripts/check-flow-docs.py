@@ -12,12 +12,17 @@
    YAML is checked before the one importing it. A module still written in the
    text notation must declare each name imported from it, and the text checker
    resolves the rest at step 4.
-3. Every other yaml block is an excerpt, and MUST be part of a checked module
+3. A ```yaml block beginning `examples_for: <module>` holds the examples of
+   the last version of that module begun earlier in the same document, which
+   are checked with it and run by the reference runner (flow-format.md §11,
+   ADR-0136). They are the design's own examples, so one the runner does not
+   run is reported, as the flow checker's corpus run fails on one (ADR-0140).
+4. Every other yaml block is an excerpt, and MUST be part of a checked module
    or example: each key it shows is there, at one place, with the same value,
    and the keys beside it may be left out.
-4. A creation report quoted in a document with YAML modules is the report
+5. A creation report quoted in a document with YAML modules is the report
    those modules produce (ADR-0109).
-5. A mermaid block whose first line is `%% <module>.<Type>` is the state
+6. A mermaid block whose first line is `%% <module>.<Type>` is the state
    diagram scripts/flow-diagram.py draws for that type, so a diagram cannot
    drift from the module it shows.
 
@@ -70,6 +75,7 @@ class Module:
     def __init__(self, name, doc, previous=None):
         self.name, self.doc, self.body, self.lines = name, doc, [], []
         self.previous = previous                    # the version this document wrote before it
+        self.examples = None                        # the line its examples block begins on, and the block
 
 
     def add(self, start, body):
@@ -151,6 +157,13 @@ def check_docs(texts):
                 begun[m.group(1)] = Module(m.group(1), p, begun.get(m.group(1)))
                 modules.append(begun[m.group(1)])
                 begun[m.group(1)].add(start, body)
+            elif m := re.match(r"^examples_for:\s*(\w+)", body[0]):
+                if m.group(1) not in begun:
+                    findings.append((p, start, f"examples for {m.group(1)}, which this document has not begun"))
+                elif begun[m.group(1)].examples is not None:
+                    findings.append((p, start, f"a second examples block for this version of {m.group(1)}"))
+                else:
+                    begun[m.group(1)].examples = (start, body)
             elif m := CONTINUED.match(body[0]):
                 if m.group(1) not in begun:
                     findings.append((p, start, f"continues {m.group(1)}, which this document has not begun"))
@@ -217,10 +230,13 @@ def check_docs(texts):
                     findings.append((m.doc, line, f"imports {dep}, which no design document declares"))
         visit(m)
         previous = {m.label: m.previous.text} if m.previous else None
-        found, _notes = flows.check([(d.label, d.text) for d in order] + [(m.label, m.text)], previous)
-        for f, line, _sev, code, msg in found:
+        carried = [(m.label + ".examples", "\n".join(m.examples[1]) + "\n")] if m.examples else []
+        found, notes = flows.check([(d.label, d.text) for d in order] + [(m.label, m.text)] + carried, previous)
+        for f, line, _sev, code, msg in found + [n for n in notes if n[3] == "notrun"]:
             if f == m.label:
                 findings.append((m.doc, m.doc_line(line), f"{code}: {msg}"))
+            elif carried and f == carried[0][0]:
+                findings.append((m.doc, m.examples[0] + line - 1, f"{code}: {msg}"))
 
     corpus = [(m.label, parsed[m.label]) for m in modules if parsed.get(m.label) is not None]
     corpus += [(p.name, flows.load(p.read_text())) for p in sorted(EXAMPLES.glob("*.yaml"))]
@@ -284,6 +300,11 @@ def self_test(texts):
     report = "\n```\n" + syntax.REPORT_HEAD + "\nDocument.start -> PUBLISHED\n```\n"
     drawn = drawing.diagram(flows.load(module[len("```yaml\n"):-len("```\n")]), "Document")
     picture = "\n```mermaid\n" + drawn + "```\n"
+    examples = ("\n```yaml\nexamples_for: documents\n\nexamples:\n  publishing_dates_the_document:\n"
+                "    description: Publishing a draft records when it was published.\n"
+                "    steps:\n      - request: { type: Document, transition: start, as: doc, inputs: { title: Notes } }\n"
+                "    request: { object: doc, transition: publish, after: 1 h }\n"
+                "    expect: { verdict: applied, state: PUBLISHED, values: { published_at: now } }\n```\n")
     split = module.replace("\ntypes:\n", "\n```\n\nProse between the blocks.\n\n```yaml\n# documents, continued\ntypes:\n", 1)
 
     def planted(old, new, doc=spec):
@@ -313,6 +334,15 @@ def self_test(texts):
          {**base, trial: plain + picture.replace("%% documents.Document", "%% documents.Folder")}),
         ("a quoted creation report the modules do not produce", "quoted creation report",
          {**base, trial: plain + report}),
+        ("examples for a module the document has not begun", "examples for nothing",
+         {**base, trial: plain + examples.replace("examples_for: documents", "examples_for: nothing")}),
+        ("an example whose expectation the runner contradicts", "example: publishing_dates_the_document",
+         {**base, trial: plain + examples.replace("state: PUBLISHED, values: { published_at: now }",
+                                                  "state: PUBLISHED, values: { published_at: now - 1 h }")}),
+        ("an example the runner does not run", "notrun:",
+         {**base, trial: plain.replace("    transitions:\n", "    conditions:\n      calm:\n        description: Few refusals.\n"
+                                       "        expression: metric(Document.refusals) < 3\n        remedy: dependent\n\n    transitions:\n", 1)
+                              .replace("        to: PUBLISHED\n", "        to: PUBLISHED\n        guards:\n          calm: deny\n", 1) + examples}),
     ]
     ok = True
     for name, expect, docs in plants:
@@ -323,10 +353,11 @@ def self_test(texts):
         ok &= bool(hit)
         where = f"{rel(hit[0][0])}:{hit[0][1]} {hit[0][2][:90]}" if hit else f"MISSED {[f[2][:60] for f in found][:2]}"
         print(f"  planted {name}: {'caught' if hit else 'missed'}, at {where}")
-    found, _checked = check_docs(list({**base, trial: "# A planted document\n\n" + split + picture}.items()))
+    found, _checked = check_docs(list({**base, trial: "# A planted document\n\n" + split + picture + examples}.items()))
     clean = not [f for f in found if f[0] == trial]
     ok &= clean
-    print(f"  a module split across two blocks, and the diagram it draws, are checked clean: {'yes' if clean else [f[2] for f in found if f[0] == trial]}")
+    print(f"  a module split across two blocks, the diagram it draws and its examples are checked clean: "
+          f"{'yes' if clean else [f[2] for f in found if f[0] == trial]}")
     return ok
 
 

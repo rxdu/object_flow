@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author in advance, 2026-09-29: "for all similar items that you have confidence in an recommendation, just accept", the standing direction under which ADR-0128 and ADR-0139 were accepted.
 - **Date:** 2026-09-29
+- **Refined by:** ADR-0141 — the design documents' examples all run too, as the corpus's do.
 - **Refines:** ADR-0136 (examples), ADR-0131 decision 5 (what a check reports rather than refuses)
 - **Relates to:** ADR-0111 (a rule may be a flag), ADR-0122 (an invariant's remedy); `DESIGN.md` §5.5; `flow-format.md` §4.8, §11.4, §11.5
 

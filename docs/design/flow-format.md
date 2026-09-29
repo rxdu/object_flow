@@ -736,7 +736,7 @@ These words are reserved by the format. `scripts/check-flow-format-doc.py` holds
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
 
-**Example keys:** `examples_for`, `setups`, `examples`, `description`, `given`, `evaluators`, `steps`, `request`, `import`, `type`, `object`, `transition`, `as`, `actor`, `after`, `inputs`, `state`, `values`, `expect`, `verdict`, `clause`, `remedy`, `cascaded`, `warned`.
+**Example keys:** `examples_for`, `setups`, `examples`, `description`, `given`, `evaluators`, `steps`, `request`, `import`, `type`, `object`, `transition`, `as`, `creates`, `actor`, `after`, `inputs`, `state`, `values`, `expect`, `verdict`, `clause`, `remedy`, `cascaded`, `warned`.
 
 **Example values:** `operator`, `now`, `satisfied`, `unsatisfied`, `unanswered`, `applied`, `unavailable`, `invalid_input`, `not_requestable`, `over_limit`, `invariant_violated`, `call_refused`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`.
 
@@ -777,6 +777,7 @@ A step is a `request` or an `import`, each as one key.
 | `object` | otherwise | the alias an earlier step gave the object acted on |
 | `transition` | yes | a transition the type declares, its own, its machine's or its base's |
 | `as` | no | on a creation, the alias later steps name the new object by |
+| `creates` | no | aliases for the objects the request's effect creates, other than its own, in the order it creates them, depth-first as the effect runs: a part created only through its whole, such as a checklist item or a subtask, is named so. They MUST be of one type, and the transition's effect MUST create that type (step 3, `names`); naming more than the request creates fails the example, and the request an example tests names none (ADR-0141) |
 | `actor` | no | who makes the request: `operator`, the default, or the alias of an object whose type marks an actor identity (§4.3) |
 | `after` | no | a duration the clock advances before the step, such as `1 h` |
 | `inputs` | no | the request's inputs, each one the transition takes (§4.8) |

@@ -1,6 +1,6 @@
 # Jira's typical flows, in the flow description format
 
-Status: **catalogue**, 2026-09-27. Beside the robot inventory example, the typical flows Jira's templates ship, each written as a module in the flow description format ([`flow-format.md`](flow-format.md)), with the state diagram drawn from it. Every module passes every step of the flow checker, and every diagram is the one `scripts/flow-diagram.py` draws from its module: `scripts/check-flow-docs.py` checks both on every corpus run (ADR-0121). The Jira coverage studies ([`case-study-tickets.md`](case-study-tickets.md) §6 and §7) map each workflow feature Jira documents to the format; this catalogue writes the flows themselves.
+Status: **catalogue**, 2026-09-27. Beside the robot inventory example, the typical flows Jira's templates ship, each written as a module in the flow description format ([`flow-format.md`](flow-format.md)), with the state diagram drawn from it. Every module passes every step of the flow checker, every diagram is the one `scripts/flow-diagram.py` draws from its module, and each flow with a rule carries examples of what its rules do, which the reference runner runs: `scripts/check-flow-docs.py` checks all three on every corpus run (ADR-0121, ADR-0141). The Jira coverage studies ([`case-study-tickets.md`](case-study-tickets.md) §6 and §7) map each workflow feature Jira documents to the format; this catalogue writes the flows themselves.
 
 **What Atlassian states, and what the catalogue chooses.** Atlassian's documentation says what each template is for, and for most templates shows the workflow only in the product: "Select a template to view more information, including the template’s default work types and workflow." ([Create a business space](https://support.atlassian.com/jira-software-cloud/docs/create-a-business-project/)) Of the 61 templates its documentation named on 2026-09-27, 11 have their statuses stated in text and 4 their transitions. So each flow says, under **Source**, which of its statuses, transitions and rules Atlassian states, quoted from the page's raw text and checked against it by script, and which the catalogue chose to complete the flow; nothing chosen is presented as Jira's. A template whose workflow the text does not state at all is listed in §5, not drawn.
 
@@ -527,6 +527,51 @@ types:
 
 The hand-off dates are `assign` steps of `now`. The role restrictions are the upper layer's (ADR-0114), so the flow names them only in the transitions' descriptions. The rule into Done is a guard on a transition from any status, as Jira has it; since a guard is evaluated before the transition's writes, `state` is the most recent status.
 
+**Examples.** A work item is done only once it is tested in production, and each handover is timed. They run whenever the catalogue is checked (`flow-format.md` §11, ADR-0136).
+
+```yaml
+examples_for: jira_web_development
+
+setups:
+  a_work_item_in_staging:
+    description: A work item started, reviewed and staged.
+    steps:
+      - request: { type: WorkItem, transition: create, as: item, inputs: { summary: Checkout page } }
+      - request: { object: item, transition: start, after: 1 h }
+      - request: { object: item, transition: request_review, after: 2 days }
+      - request: { object: item, transition: stage, after: 1 day }
+
+examples:
+  starting_times_the_handover:
+    description: Starting a work item records when it was handed to development.
+    steps:
+      - request: { type: WorkItem, transition: create, as: item, inputs: { summary: Checkout page } }
+    request: { object: item, transition: start, after: 1 h }
+    expect: { verdict: applied, state: IN_PROGRESS, values: { handed_to_development: now } }
+
+  staged_work_is_not_done:
+    description: Work in staging is not done until it has been tested in production, another transition.
+    given: a_work_item_in_staging
+    request: { object: item, transition: done }
+    expect: { verdict: unsatisfied, clause: tested_in_production, remedy: unreachable_from_here }
+
+  work_tested_in_production_is_done:
+    description: Once tested in production, the work item is done.
+    given: a_work_item_in_staging
+    steps:
+      - request: { object: item, transition: test_in_production }
+    request: { object: item, transition: done }
+    expect: { verdict: applied, state: DONE, values: { handed_to_qa_champion: now } }
+
+  archived_work_is_not_done:
+    description: An archived work item takes no transition from any status.
+    given: a_work_item_in_staging
+    steps:
+      - request: { object: item, transition: archive }
+    request: { object: item, transition: done }
+    expect: { verdict: unavailable }
+```
+
 ### 1.6 Sprints
 
 A Scrum board's sprints have a lifecycle of their own, which the Jira Software REST API states whole.
@@ -692,6 +737,99 @@ types:
 ```
 
 Completing moves each unfinished work item that is not a subtask to the backlog, and completing into a future sprint moves them there: two transitions, since the behaviour differs by whether a next sprint is given and no step is conditional (`DESIGN.md` §5.4). The module declares the work items the sprint moves; only the sprint is drawn. *(Corrected 2026-09-27: this section first wrote completing as one transition whose two loops chose by whether the input was given, and cited `case-study-payments.md` §5 for the idiom, which says the opposite: a conditional step is what the model forbids. The recoverability review found it (D409), and step 3 now refuses it (ADR-0122).)*
+
+**Examples.** What the rules do, run by the reference runner whenever the catalogue is checked (`flow-format.md` §11, ADR-0136): a sprint starts only once dated, completes only once its subtasks are done, and moves its unfinished work to the backlog or a future sprint.
+
+```yaml
+examples_for: jira_sprint
+
+setups:
+  a_sprint_with_work:
+    description: A sprint not yet dated, with a story and the story's subtask planned into it.
+    steps:
+      - request: { type: Sprint, transition: create, as: sprint, inputs: { name: Sprint 1 } }
+      - request: { type: WorkItem, transition: create, as: story, inputs: { summary: Login page } }
+      - request: { type: WorkItem, transition: create, as: subtask, inputs: { summary: Write the tests, parent: story } }
+      - request: { object: story, transition: plan, inputs: { sprint: sprint } }
+      - request: { object: subtask, transition: plan, inputs: { sprint: sprint } }
+  an_active_sprint:
+    description: The sprint, dated for two weeks and started.
+    given: a_sprint_with_work
+    steps:
+      - request: { object: sprint, transition: plan, inputs: { start_date: now, end_date: now + 14 days } }
+      - request: { object: sprint, transition: start }
+  an_active_sprint_with_its_subtask_done:
+    description: The started sprint, its subtask done and its story not.
+    given: an_active_sprint
+    steps:
+      - request: { object: subtask, transition: done, after: 3 days }
+
+examples:
+  an_undated_sprint_does_not_start:
+    description: A sprint with no dates is not started, and only planning it, another transition, dates it.
+    given: a_sprint_with_work
+    request: { object: sprint, transition: start }
+    expect: { verdict: unsatisfied, clause: dated, remedy: unreachable_from_here }
+
+  a_dated_sprint_starts:
+    description: Once planned with dates, the sprint starts.
+    given: a_sprint_with_work
+    steps:
+      - request: { object: sprint, transition: plan, inputs: { start_date: now, end_date: now + 14 days } }
+    request: { object: sprint, transition: start }
+    expect: { verdict: applied, state: ACTIVE }
+
+  an_open_subtask_holds_the_sprint:
+    description: A sprint whose subtask is not done is not completed until someone finishes it.
+    given: an_active_sprint
+    request: { object: sprint, transition: complete }
+    expect: { verdict: unsatisfied, clause: subtasks_done, remedy: dependent }
+
+  completing_moves_unfinished_work_to_the_backlog:
+    description: Completing the sprint returns its unfinished story to the backlog, and leaves the done subtask where it is.
+    given: an_active_sprint_with_its_subtask_done
+    request: { object: sprint, transition: complete }
+    expect: { verdict: applied, state: CLOSED, values: { complete_date: now }, cascaded: [WorkItem.unplan] }
+
+  finished_work_stays_in_the_sprint:
+    description: With the story done too, completing the sprint moves nothing.
+    given: an_active_sprint_with_its_subtask_done
+    steps:
+      - request: { object: story, transition: done }
+    request: { object: sprint, transition: complete }
+    expect: { verdict: applied, state: CLOSED, cascaded: [] }
+
+  completing_into_the_next_sprint:
+    description: Completing into a sprint not yet started plans the unfinished story into it.
+    given: an_active_sprint_with_its_subtask_done
+    steps:
+      - request: { type: Sprint, transition: create, as: next, inputs: { name: Sprint 2 } }
+    request: { object: sprint, transition: complete_into, inputs: { next_sprint: next } }
+    expect: { verdict: applied, state: CLOSED, cascaded: [WorkItem.plan] }
+
+  a_sprint_is_not_completed_into_itself:
+    description: The sprint that unfinished work moves to is another one, which the caller names instead.
+    given: an_active_sprint_with_its_subtask_done
+    request: { object: sprint, transition: complete_into, inputs: { next_sprint: sprint } }
+    expect: { verdict: unsatisfied, clause: next_is_future, remedy: self_serviceable }
+
+  work_is_not_planned_into_a_completed_sprint:
+    description: Once the sprint is completed, new work is planned into another one.
+    given: an_active_sprint_with_its_subtask_done
+    steps:
+      - request: { object: sprint, transition: complete }
+      - request: { type: WorkItem, transition: create, as: late, inputs: { summary: Password reset } }
+    request: { object: late, transition: plan, inputs: { sprint: sprint } }
+    expect: { verdict: unsatisfied, clause: sprint_open, remedy: self_serviceable }
+
+  an_archived_item_is_not_planned:
+    description: An archived work item can no longer be edited, so no transition from any status is open to it.
+    given: a_sprint_with_work
+    steps:
+      - request: { object: story, transition: archive }
+    request: { object: story, transition: unplan }
+    expect: { verdict: unavailable }
+```
 
 ### 1.7 Versions
 
@@ -908,6 +1046,126 @@ types:
 
 A version's return from Archived to where it was is UML's history pseudostate, which the model does not have; two guarded transitions say it. The optional Bamboo gate, "The version will only be released if the build is successful." ([View and manage versions](https://support.atlassian.com/jira-software-cloud/docs/view-and-manage-versions-in-business-projects/)), would be an evaluator (`flow-format.md` §4.18).
 
+
+**Examples.** A version releases with or without its unresolved work, returns from Archived to where it was, and on deletion clears, or moves, the version of each work item not archived.
+
+```yaml
+examples_for: jira_version
+
+setups:
+  a_version_with_work:
+    description: Version 2.0, with one work item done and one not started fixed in it.
+    steps:
+      - request: { type: Version, transition: create, as: version, inputs: { name: "2.0" } }
+      - request: { type: WorkItem, transition: create, as: fixed, inputs: { summary: Fix the login, fix_version: version } }
+      - request: { type: WorkItem, transition: create, as: open, inputs: { summary: Add an export, fix_version: version } }
+      - request: { object: fixed, transition: start }
+      - request: { object: fixed, transition: done, inputs: { resolution: Resolution.DONE } }
+  a_next_version:
+    description: Version 2.0 with its work, and version 2.1, not yet released.
+    given: a_version_with_work
+    steps:
+      - request: { type: Version, transition: create, as: next, inputs: { name: "2.1" } }
+
+examples:
+  releasing_keeps_the_unresolved_work:
+    description: A plain release leaves the unresolved work item in the version.
+    given: a_version_with_work
+    request: { object: version, transition: release, inputs: { release_date: now } }
+    expect: { verdict: applied, state: RELEASED, cascaded: [] }
+
+  releasing_moves_the_unresolved_work:
+    description: Releasing into the next version moves the work item with no resolution there, and leaves the resolved one.
+    given: a_next_version
+    request: { object: version, transition: release_moving, inputs: { release_date: now, move_unresolved_to: next } }
+    expect: { verdict: applied, state: RELEASED, cascaded: [WorkItem.set_fix_version] }
+
+  unresolved_work_moves_to_another_version:
+    description: A version is not released into itself, and the caller names another.
+    given: a_version_with_work
+    request: { object: version, transition: release_moving, inputs: { release_date: now, move_unresolved_to: version } }
+    expect: { verdict: unsatisfied, clause: unreleased_target, remedy: self_serviceable }
+
+  an_archived_unreleased_version_returns_unreleased:
+    description: A version archived before its release returns to Unreleased.
+    given: a_version_with_work
+    steps:
+      - request: { object: version, transition: archive }
+    request: { object: version, transition: unarchive_unreleased }
+    expect: { verdict: applied, state: UNRELEASED }
+
+  an_archived_unreleased_version_does_not_return_released:
+    description: The same version does not return to Released, since it holds no release date.
+    given: a_version_with_work
+    steps:
+      - request: { object: version, transition: archive }
+    request: { object: version, transition: unarchive_released }
+    expect: { verdict: unsatisfied, clause: archived_released, remedy: unreachable_from_here }
+
+  an_archived_released_version_returns_released:
+    description: A version archived after its release keeps its release date, and returns to Released.
+    given: a_version_with_work
+    steps:
+      - request: { object: version, transition: release, inputs: { release_date: now } }
+      - request: { object: version, transition: archive, after: 30 days }
+    request: { object: version, transition: unarchive_released }
+    expect: { verdict: applied, state: RELEASED }
+
+  an_unreleased_version_archived_returns_unreleased:
+    description: Unreleasing a version clears its release date, so once archived it returns to Unreleased, not Released.
+    given: a_version_with_work
+    steps:
+      - request: { object: version, transition: release, inputs: { release_date: now } }
+      - request: { object: version, transition: unrelease }
+      - request: { object: version, transition: archive }
+    request: { object: version, transition: unarchive_released }
+    expect: { verdict: unsatisfied, clause: archived_released, remedy: unreachable_from_here }
+
+  deleting_clears_the_work_items_version:
+    description: Deleting the version clears it from both its work items, the done one included.
+    given: a_version_with_work
+    request: { object: version, transition: delete }
+    expect: { verdict: applied, state: DELETED, cascaded: [WorkItem.clear_fix_version, WorkItem.clear_fix_version] }
+
+  an_archived_work_item_keeps_its_version:
+    description: An archived work item can no longer be edited, so deleting its version leaves it named there.
+    given: a_version_with_work
+    steps:
+      - request: { object: fixed, transition: archive }
+    request: { object: version, transition: delete }
+    expect: { verdict: applied, state: DELETED, cascaded: [WorkItem.clear_fix_version] }
+
+  deleting_moves_the_work_to_a_live_version:
+    description: Deleting into the next version moves both work items there.
+    given: a_next_version
+    request: { object: version, transition: delete_moving, inputs: { move_to: next } }
+    expect: { verdict: applied, state: DELETED, cascaded: [WorkItem.set_fix_version, WorkItem.set_fix_version] }
+
+  work_is_not_moved_to_an_archived_version:
+    description: The version work moves to is neither archived nor deleted.
+    given: a_next_version
+    steps:
+      - request: { object: next, transition: archive }
+    request: { object: version, transition: delete_moving, inputs: { move_to: next } }
+    expect: { verdict: unsatisfied, clause: live_target, remedy: self_serviceable }
+
+  work_is_not_fixed_in_an_archived_version:
+    description: A new work item is not fixed in an archived version.
+    given: a_version_with_work
+    steps:
+      - request: { object: version, transition: archive }
+    request: { type: WorkItem, transition: create, inputs: { summary: Late fix, fix_version: version } }
+    expect: { verdict: unsatisfied, clause: version_live, remedy: self_serviceable }
+
+  work_is_done_with_a_resolution:
+    description: The resolution is optional on a work item and required to finish it, so leaving it out is refused by its generated guard.
+    given: a_version_with_work
+    steps:
+      - request: { object: open, transition: start }
+    request: { object: open, transition: done }
+    expect: { verdict: unsatisfied, clause: resolution_provided, remedy: self_serviceable }
+```
+
 ## 2. Jira business templates
 
 The templates of business spaces, formerly Jira Work Management, whose statuses Atlassian states at least in part. Their transitions are the catalogue's throughout, except where noted; the product shows the templates' own.
@@ -1034,6 +1292,75 @@ types:
 ```
 
 Cloning is an internal transition that creates a new task from this one; there is no way from Done back to To Do. A task holds at most 100 subtasks, chosen here, since its archive reaches that many and a request that would reach more is refused.
+
+**Examples.** A task is done once its subtasks are, and archiving it archives them, which are added and archived only through it. They run whenever the catalogue is checked (`flow-format.md` §11, ADR-0136).
+
+```yaml
+examples_for: jira_task_management
+
+setups:
+  a_task_with_two_subtasks:
+    description: A task and the two subtasks added to it.
+    steps:
+      - request: { type: Task, transition: create, as: task, inputs: { summary: Onboard Dana } }
+      - request: { object: task, transition: add_subtask, creates: [laptop], inputs: { summary: Order a laptop } }
+      - request: { object: task, transition: add_subtask, creates: [badge], inputs: { summary: Print a badge } }
+
+examples:
+  adding_a_subtask_creates_it:
+    description: Adding a subtask creates it under the task.
+    steps:
+      - request: { type: Task, transition: create, as: task, inputs: { summary: Onboard Dana } }
+    request: { object: task, transition: add_subtask, inputs: { summary: Order a laptop } }
+    expect: { verdict: applied, state: TO_DO, cascaded: [Subtask.add] }
+
+  a_subtask_is_added_only_through_its_task:
+    description: A subtask is not created on its own.
+    given: a_task_with_two_subtasks
+    request: { type: Subtask, transition: add, inputs: { task: task, summary: Book a desk } }
+    expect: { verdict: not_requestable }
+
+  open_subtasks_hold_the_task:
+    description: A task with a subtask not done is not done until someone finishes it.
+    given: a_task_with_two_subtasks
+    steps:
+      - request: { object: laptop, transition: done }
+    request: { object: task, transition: done }
+    expect: { verdict: unsatisfied, clause: subtasks_done, remedy: dependent }
+
+  a_task_is_done_with_its_subtasks:
+    description: With both subtasks done, the task is done.
+    given: a_task_with_two_subtasks
+    steps:
+      - request: { object: laptop, transition: done }
+      - request: { object: badge, transition: done }
+    request: { object: task, transition: done }
+    expect: { verdict: applied, state: DONE }
+
+  a_done_task_is_cloned:
+    description: Cloning a done task creates a new task with its summary.
+    given: a_task_with_two_subtasks
+    steps:
+      - request: { object: laptop, transition: done }
+      - request: { object: badge, transition: done }
+      - request: { object: task, transition: done }
+    request: { object: task, transition: clone }
+    expect: { verdict: applied, state: DONE, cascaded: [Task.create] }
+
+  archiving_a_task_archives_its_subtasks:
+    description: Archiving the task archives each subtask, the done one too.
+    given: a_task_with_two_subtasks
+    steps:
+      - request: { object: laptop, transition: done }
+    request: { object: task, transition: archive }
+    expect: { verdict: applied, state: ARCHIVED, cascaded: [Subtask.archive, Subtask.archive] }
+
+  a_subtask_is_not_archived_alone:
+    description: A subtask is archived only with its task.
+    given: a_task_with_two_subtasks
+    request: { object: laptop, transition: archive }
+    expect: { verdict: not_requestable }
+```
 
 ### 2.2 Project management
 
@@ -1251,6 +1578,66 @@ types:
 ```
 
 The reassignment is written in the transition into review, which assigns the case to the approver it names. A case holds at most 100 subtasks, as a task does (§2.1).
+
+**Examples.** A case goes to review with its approver, who is assigned it, and is approved only once its subtasks are done. They run whenever the catalogue is checked (`flow-format.md` §11, ADR-0136).
+
+```yaml
+examples_for: jira_process_management
+
+setups:
+  a_case_in_progress:
+    description: A case assigned to Ana, with one subtask, started.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { account_id: acct-ana } }
+      - request: { type: User, transition: add, as: ben, inputs: { account_id: acct-ben } }
+      - request: { type: Case, transition: create, as: case, inputs: { summary: Vendor onboarding, assignee: ana } }
+      - request: { object: case, transition: add_subtask, creates: [tax_form], inputs: { summary: Collect the tax form } }
+      - request: { object: case, transition: start }
+
+examples:
+  review_goes_to_the_approver:
+    description: Submitting the case for review names Ben its approver and assigns it to him.
+    given: a_case_in_progress
+    request: { object: case, transition: submit_for_review, inputs: { approver: ben } }
+    expect: { verdict: applied, state: REVIEW, values: { approver: ben, assignee: ben } }
+
+  a_review_names_its_approver:
+    description: The approver is optional on a case and required for review, so leaving it out is refused by its generated guard.
+    given: a_case_in_progress
+    request: { object: case, transition: submit_for_review }
+    expect: { verdict: unsatisfied, clause: approver_provided, remedy: self_serviceable }
+
+  an_open_subtask_holds_the_approval:
+    description: A case whose subtask is not done is not approved until someone finishes it.
+    given: a_case_in_progress
+    steps:
+      - request: { object: case, transition: submit_for_review, inputs: { approver: ben } }
+    request: { object: case, transition: approve, inputs: { resolution: Resolution.DONE } }
+    expect: { verdict: unsatisfied, clause: subtasks_done, remedy: dependent }
+
+  a_case_is_approved_with_its_subtasks_done:
+    description: With its subtask done, the case is approved and resolved.
+    given: a_case_in_progress
+    steps:
+      - request: { object: tax_form, transition: done }
+      - request: { object: case, transition: submit_for_review, inputs: { approver: ben } }
+    request: { object: case, transition: approve, inputs: { resolution: Resolution.DONE } }
+    expect: { verdict: applied, state: DONE, values: { resolution: Resolution.DONE } }
+
+  a_case_sent_back_keeps_its_approver:
+    description: A case sent back from review is in progress again, still with its approver and assigned to him.
+    given: a_case_in_progress
+    steps:
+      - request: { object: case, transition: submit_for_review, inputs: { approver: ben } }
+    request: { object: case, transition: send_back }
+    expect: { verdict: applied, state: IN_PROGRESS, values: { approver: ben, assignee: ben } }
+
+  archiving_a_case_archives_its_subtasks:
+    description: Archiving the case archives its subtask with it.
+    given: a_case_in_progress
+    request: { object: case, transition: archive }
+    expect: { verdict: applied, state: ARCHIVED, cascaded: [Subtask.archive] }
+```
 
 ### 2.4 Content management
 
@@ -1765,6 +2152,64 @@ types:
 
 Two transitions close a resolved request: `close`, the service desk's, and `auto_close`, which the automation requests and a `temporal` guard holds until three days have passed. Reopening clears the resolution, which stops the clock, as the SLA's stop condition says.
 
+**Examples.** A request closes by hand once resolved, or by itself three days after its last resolution. They run whenever the catalogue is checked (`flow-format.md` §11, ADR-0136).
+
+```yaml
+examples_for: jsm_it_support
+
+setups:
+  a_resolved_request:
+    description: Cara's request, triaged and resolved two hours later.
+    steps:
+      - request: { type: User, transition: add, as: cara, inputs: { account_id: acct-cara } }
+      - request: { type: Request, transition: raise, as: request, inputs: { summary: VPN is down, reporter: cara } }
+      - request: { object: request, transition: triage }
+      - request: { object: request, transition: resolve, after: 2 h, inputs: { resolution: Resolution.DONE } }
+
+examples:
+  resolving_records_when:
+    description: Resolving a request records its resolution and when it was resolved.
+    steps:
+      - request: { type: User, transition: add, as: cara, inputs: { account_id: acct-cara } }
+      - request: { type: Request, transition: raise, as: request, inputs: { summary: VPN is down, reporter: cara } }
+      - request: { object: request, transition: triage }
+    request: { object: request, transition: resolve, after: 2 h, inputs: { resolution: Resolution.DONE } }
+    expect: { verdict: applied, state: RESOLVED, values: { resolution: Resolution.DONE, resolved_at: now } }
+
+  a_request_does_not_close_itself_early:
+    description: Two days after its resolution, the request does not yet close itself, and the application asks again later.
+    given: a_resolved_request
+    request: { object: request, transition: auto_close, after: 2 days }
+    expect: { verdict: unsatisfied, clause: resolved_three_days, remedy: temporal }
+
+  a_request_closes_itself_after_three_days:
+    description: Three days after its resolution to the second, the request closes itself.
+    given: a_resolved_request
+    request: { object: request, transition: auto_close, after: 3 days }
+    expect: { verdict: applied, state: CLOSED }
+
+  reopening_clears_the_resolution:
+    description: Reopening a request clears its resolution and when it was resolved.
+    given: a_resolved_request
+    request: { object: request, transition: reopen }
+    expect: { verdict: applied, state: WAITING_FOR_SUPPORT, values: { resolution: null, resolved_at: null } }
+
+  the_three_days_count_from_the_last_resolution:
+    description: A request reopened and resolved again waits three days from the second resolution, not the first.
+    given: a_resolved_request
+    steps:
+      - request: { object: request, transition: reopen, after: 2 days }
+      - request: { object: request, transition: resolve, after: 1 h, inputs: { resolution: Resolution.DONE } }
+    request: { object: request, transition: auto_close, after: 2 days }
+    expect: { verdict: unsatisfied, clause: resolved_three_days, remedy: temporal }
+
+  a_request_is_closed_by_hand:
+    description: A resolved request may be closed at once, by hand.
+    given: a_resolved_request
+    request: { object: request, transition: close }
+    expect: { verdict: applied, state: CLOSED }
+```
+
 ### 3.2 A service request with an approval
 
 The IT service management template's fulfilment workflow with approvals holds a request for its approvers before it is worked on.
@@ -1900,6 +2345,44 @@ types:
 
 The approval step is the two transitions out of Waiting for approval. The approvers are named as an input, recorded with the event and notified by the application; who may approve is the upper layer's, and `approve` records who did, an outcome writing `actor.id`, the actor's kind or its principal into an attribute being the one use a flow makes of the actor, which records who acted and decides nothing (`flow-format.md` §5, `DESIGN.md` §5.8).
 
+**Examples.** A request asks at least one approver, records who approved it, and ends if declined. They run whenever the catalogue is checked (`flow-format.md` §11, ADR-0136).
+
+```yaml
+examples_for: jsm_service_request_approvals
+
+setups:
+  a_request_awaiting_approval:
+    description: Cara's request for a laptop, awaiting Dev's approval.
+    steps:
+      - request: { type: User, transition: add, as: cara, inputs: { account_id: acct-cara } }
+      - request: { type: User, transition: add, as: dev, inputs: { account_id: acct-dev } }
+      - request: { type: Request, transition: raise, as: request, inputs: { summary: A laptop, reporter: cara } }
+      - request: { object: request, transition: request_approval, inputs: { approvers: [dev] } }
+
+examples:
+  approval_asks_someone:
+    description: An approval that names no approver is refused, and the caller names one.
+    steps:
+      - request: { type: User, transition: add, as: cara, inputs: { account_id: acct-cara } }
+      - request: { type: Request, transition: raise, as: request, inputs: { summary: A laptop, reporter: cara } }
+    request: { object: request, transition: request_approval, inputs: { approvers: [] } }
+    expect: { verdict: unsatisfied, clause: has_approvers, remedy: self_serviceable }
+
+  approving_records_who_approved:
+    description: Dev approves the request, which goes to support, and the record says Dev approved it.
+    given: a_request_awaiting_approval
+    request: { object: request, transition: approve, actor: dev }
+    expect: { verdict: applied, state: WAITING_FOR_SUPPORT, values: { approved_by: acct-dev } }
+
+  a_declined_request_ends:
+    description: A declined request ends, and support takes nothing further on it.
+    given: a_request_awaiting_approval
+    steps:
+      - request: { object: request, transition: decline, actor: dev }
+    request: { object: request, transition: respond }
+    expect: { verdict: unavailable }
+```
+
 ### 3.3 Incidents
 
 The IT service management template's incident workflow escalates an incident when needed and closes it automatically once it is resolved.
@@ -2020,6 +2503,50 @@ types:
 ```
 
 The resolutions are the ones every Jira product has and the three Jira Service Management adds, among them Known error.
+
+**Examples.** An escalated incident is still resolved and cancelled, and a resolved one closes itself three days later. They run whenever the catalogue is checked (`flow-format.md` §11, ADR-0136).
+
+```yaml
+examples_for: jsm_incident
+
+setups:
+  an_incident_being_worked:
+    description: An incident reported and being worked on.
+    steps:
+      - request: { type: Incident, transition: report, as: incident, inputs: { summary: Checkout errors } }
+      - request: { object: incident, transition: start }
+
+examples:
+  an_incident_is_escalated:
+    description: An incident being worked on is escalated.
+    given: an_incident_being_worked
+    request: { object: incident, transition: escalate }
+    expect: { verdict: applied, state: ESCALATED }
+
+  an_escalated_incident_is_resolved:
+    description: An escalated incident is resolved with its cause.
+    given: an_incident_being_worked
+    steps:
+      - request: { object: incident, transition: escalate }
+    request: { object: incident, transition: resolve, after: 4 h, inputs: { resolution: Resolution.SOFTWARE_FAILURE } }
+    expect: { verdict: applied, state: RESOLVED, values: { resolution: Resolution.SOFTWARE_FAILURE, resolved_at: now } }
+
+  a_resolved_incident_closes_itself:
+    description: Three days after its resolution, the incident closes itself.
+    given: an_incident_being_worked
+    steps:
+      - request: { object: incident, transition: resolve, inputs: { resolution: Resolution.KNOWN_ERROR } }
+    request: { object: incident, transition: auto_close, after: 3 days }
+    expect: { verdict: applied, state: CLOSED }
+
+  a_cancelled_incident_is_not_reopened:
+    description: A cancelled incident is final, so it is not reopened.
+    given: an_incident_being_worked
+    steps:
+      - request: { object: incident, transition: cancel }
+    request: { object: incident, transition: reopen }
+    expect: { verdict: unavailable }
+```
 
 ### 3.4 Problems
 

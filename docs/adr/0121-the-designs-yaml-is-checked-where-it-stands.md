@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-27: "accept ADR-0121". Decided on 2026-09-26 at the author's direction ("rewrite the design's examples in yaml"); decisions 6 and 7 were added the same day ("go with your recommendations"), and decision 8 on 2026-09-27, for the catalogue of Jira's flows.
 - **Date:** 2026-09-26
+- **Refined by:** ADR-0141 — a design document carries its modules' examples, in a block beside the module, checked and run with it.
 - **Refines:** ADR-0116 (the format replaces the text language; its decision 5 rewrites the design's examples in YAML)
 - **Relates to:** ADR-0109 (the publish report of creations that skip), `flow-format.md` §4.1 and §7, `scripts/check-flow-docs.py`
 

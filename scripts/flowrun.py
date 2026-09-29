@@ -1036,6 +1036,7 @@ class Ctx:
         self.erased = {}            # object id -> the personal attributes this request erased on it
         self.position_of = {}       # object id -> the position of the event its current transition records
         self.before = None          # the store as the request found it
+        self.created = []           # the objects it creates other than its own, in the order it creates them
         self.attr_writes = {}       # object id -> the attributes its current transition's effect wrote
 
     def wrote(self, oid):
@@ -1151,7 +1152,7 @@ class Runner:
             store.sequences = work.sequences    # a number minted by a refused request stays used: the gap
             raise
         store.__dict__.update(work.__dict__)
-        return ("applied", root, ctx.flags, ctx.taken[1:])
+        return ("applied", root, ctx.flags, ctx.taken[1:], ctx.created)
 
     def mint(self, ctx, o, attrs):
         """Each identifier of a new object, numbered from 1 per sequence and scope, as its format writes it
@@ -1187,6 +1188,11 @@ class Runner:
             return
         froms = x.get("from")
         froms = [froms] if isinstance(froms, str) else list(froms or [])
+        if froms == ["any"]:
+            # every state that is not final, and for an external transition every one but its target, so no transition
+            # leaves a state for itself (flow-format.md §4.8, ADR-0122)
+            states = (self.kinds.get(work.objects[oid].type) or {}).get("states") or {}
+            froms = [st for st, v in states.items() if not (v or {}).get("final") and st != x.get("to")]
         if work.objects[oid].state not in froms:
             raise Refused("unavailable", remedy="unreachable_from_here", detail=f"it is in {work.objects[oid].state}")
 
@@ -1277,6 +1283,8 @@ class Runner:
             o = Obj(work.new_id(tn), tn, x["to"], work.now)
             o.id_order = work.counter
             o.created_by_kind = ctx.who["kind"]
+            if depth:
+                ctx.created.append(o.id)
             work.objects[o.id] = o
             for a, spec in attrs.items():
                 if (spec or {}).get("type") == "counter":
@@ -1766,6 +1774,14 @@ def step(runner, store, st, aliases, stubs, under_test=False):
         raise
     if "as" in r:
         aliases[r["as"]] = result[1]
+    # the objects its effect and cascades create, named in the order it creates them (flow-format.md §11.3, ADR-0141)
+    named, made = r.get("creates") or [], result[4]
+    if len(named) > len(made):
+        raise ExampleError(f"a step names {len(named)} objects its request creates, and it creates {len(made)}")
+    if len({store.type_of(m) for m in made[:len(named)]}) > 1:
+        raise ExampleError("a step names objects its request creates, and they are of more than one type")
+    for alias, oid in zip(named, made):
+        aliases[alias] = oid
     return result
 
 
