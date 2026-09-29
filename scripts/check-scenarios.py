@@ -84,10 +84,11 @@ def fences(text):
 
 
 def modules_of(text):
-    """The modules a document writes, a `# <module>, continued` block appended to its module."""
+    """The modules a document writes, a `# <module>, continued` block appended to its module; a block of a
+    module's examples is not one (ADR-0141)."""
     mods = {}
     for info, _start, body in fences(text):
-        if info != "yaml":
+        if info != "yaml" or body.startswith("examples_for:"):
             continue
         c = re.match(r"# (\w+), continued\n", body)
         if c:

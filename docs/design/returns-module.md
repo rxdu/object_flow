@@ -1,6 +1,6 @@
 # Returns: a flow that starts with no rules, as a checked module
 
-Status: **worked example**, 2026-09-24. The declarations behind the worked example's cases that the unit's journey ([`unit-journey.md`](unit-journey.md)) does not hold. Both publishes below are written in the flow description format (ADR-0116), and `scripts/check-flow-docs.py` checks them with every step of the flow checker, resolving their imports against the journey's module and the specification's, checks the second against the first as its next version, and reports them clean (ADR-0121).
+Status: **worked example**, 2026-09-24. The declarations behind the worked example's cases that the unit's journey ([`unit-journey.md`](unit-journey.md)) does not hold. Both publishes below are written in the flow description format (ADR-0116), and `scripts/check-flow-docs.py` checks them with every step of the flow checker, resolving their imports against the journey's module and the specification's, checks the second against the first as its next version, runs the second's examples, and reports them clean (ADR-0121, ADR-0141).
 
 **What it is for.** Like the journey, this module exists to test the design, not to specify a process. The first consumer handles customer returns by hand, around the unit's `accept_return`, and no production code models them as a flow. That is why returns make the case the PRD's convergence requirements describe: a flow published with no rules at all, measured from its first request, and tightened only where its own data says it waits (PRD V1, V2, V5, UC-13). The second publish then carries three mechanisms no other checked module exercises: a derived value that reads other objects (C1, C2), a rule that reads a metric across many objects (L5, UC-10), and the promotion of a label into a state (D6, V5). *(Corrected 2026-09-25: the first of these was a visibility rule the derived value was read under, until ADR-0114 withdrew visibility from the engine.)*
 
@@ -134,6 +134,107 @@ types:
           model: r.unit.model
         time_dimension: r.created_at
         expression: count()
+```
+
+**Examples.** What the second publish's rules do, run by the reference runner whenever the design is checked (`flow-format.md` §11, ADR-0136, ADR-0141). `second_eye` reads the metric over the example's own returns, windowed on when each was received, so the fifth return of a model in thirty days, the one being resolved included, needs a recorded approval before it is replaced.
+
+```yaml
+examples_for: returns
+
+setups:
+  a_scout_being_inspected:
+    description: Acme sent back its Scout, which is being inspected.
+    steps:
+      - import: { type: Customer, as: acme, state: ACTIVE, values: { legacy_key: C-100, name: Acme } }
+      - request: { type: User, transition: add, as: lead, inputs: { login: lead-kim } }
+      - request: { type: RobotModel, transition: add, as: scout, inputs: { name: Scout, warranty_months: 12 } }
+      - request: { type: Robot, transition: add_opening_stock, as: robot, inputs: { model: scout, label_printed_at: now } }
+      - request: { type: Return, transition: receive, as: ret, inputs: { unit: robot, customer: acme } }
+      - request: { object: ret, transition: inspect }
+  the_fifth_scout_return_in_a_month:
+    description: The Scout came back four times in a week, and a fifth return is being inspected.
+    given: a_scout_being_inspected
+    steps:
+      - request: { type: Return, transition: receive, after: 1 day, inputs: { unit: robot, customer: acme } }
+      - request: { type: Return, transition: receive, after: 1 day, inputs: { unit: robot, customer: acme } }
+      - request: { type: Return, transition: receive, after: 1 day, inputs: { unit: robot, customer: acme } }
+      - request: { type: Return, transition: receive, as: fifth, after: 1 day, inputs: { unit: robot, customer: acme } }
+      - request: { object: fifth, transition: inspect }
+
+examples:
+  a_robot_is_serialled_without_a_maker_code:
+    description: A robot whose model has no maker code is serialled without that segment.
+    steps:
+      - request: { type: RobotModel, transition: add, as: scout, inputs: { name: Scout, warranty_months: 12 } }
+    request: { type: Robot, transition: add_opening_stock, inputs: { model: scout, label_printed_at: now } }
+    expect: { verdict: applied, state: AVAILABLE, values: { serial: RBT-000001 } }
+
+  receiving_records_who_handled_it:
+    description: Receiving a return records who received it.
+    given: a_scout_being_inspected
+    request: { type: Return, transition: receive, actor: lead, inputs: { unit: robot, customer: acme } }
+    expect: { verdict: applied, state: RECEIVED, values: { handled_by: lead-kim } }
+
+  a_repair_needs_no_second_eye:
+    description: A return resolved by a repair is resolved without an approval.
+    given: a_scout_being_inspected
+    request: { object: ret, transition: resolve, inputs: { outcome: ReturnOutcome.REPAIRED } }
+    expect: { verdict: applied, state: RESOLVED, values: { outcome: ReturnOutcome.REPAIRED } }
+
+  a_replacement_among_few_returns:
+    description: The first return of a model in a month is replaced without an approval.
+    given: a_scout_being_inspected
+    request: { object: ret, transition: resolve, inputs: { outcome: ReturnOutcome.REPLACED } }
+    expect: { verdict: applied, state: RESOLVED, values: { outcome: ReturnOutcome.REPLACED } }
+
+  the_fifth_return_needs_a_second_eye:
+    description: Replacing the model's fifth return in thirty days waits for a lead's recorded approval.
+    given: the_fifth_scout_return_in_a_month
+    request: { object: fifth, transition: resolve, inputs: { outcome: ReturnOutcome.REPLACED } }
+    expect: { verdict: unsatisfied, clause: second_eye, remedy: delegable }
+
+  an_approved_replacement:
+    description: Once a lead records an approval, the fifth return is replaced.
+    given: the_fifth_scout_return_in_a_month
+    steps:
+      - request: { object: fifth, transition: approve_replacement, actor: lead }
+    request: { object: fifth, transition: resolve, inputs: { outcome: ReturnOutcome.REPLACED } }
+    expect: { verdict: applied, state: RESOLVED, values: { approved_by: lead-kim } }
+
+  the_fifth_return_is_repaired_freely:
+    description: The same return, repaired rather than replaced, needs no approval.
+    given: the_fifth_scout_return_in_a_month
+    request: { object: fifth, transition: resolve, inputs: { outcome: ReturnOutcome.REPAIRED } }
+    expect: { verdict: applied, state: RESOLVED }
+
+  returns_older_than_a_month_leave_the_count:
+    description: Four returns more than thirty days old leave the window, so the next is replaced freely.
+    given: a_scout_being_inspected
+    steps:
+      - request: { type: Return, transition: receive, after: 1 day, inputs: { unit: robot, customer: acme } }
+      - request: { type: Return, transition: receive, after: 1 day, inputs: { unit: robot, customer: acme } }
+      - request: { type: Return, transition: receive, after: 1 day, inputs: { unit: robot, customer: acme } }
+      - request: { type: Return, transition: receive, as: later, after: 31 days, inputs: { unit: robot, customer: acme } }
+      - request: { object: later, transition: inspect }
+    request: { object: later, transition: resolve, inputs: { outcome: ReturnOutcome.REPLACED } }
+    expect: { verdict: applied, state: RESOLVED }
+
+  another_models_returns_do_not_count:
+    description: A Rover's first return is replaced freely, whatever the Scout's record.
+    given: the_fifth_scout_return_in_a_month
+    steps:
+      - request: { type: RobotModel, transition: add, as: rover, inputs: { name: Rover, warranty_months: 24 } }
+      - request: { type: Robot, transition: add_opening_stock, as: other, inputs: { model: rover, label_printed_at: now } }
+      - request: { type: Return, transition: receive, as: rover_return, inputs: { unit: other, customer: acme } }
+      - request: { object: rover_return, transition: inspect }
+    request: { object: rover_return, transition: resolve, inputs: { outcome: ReturnOutcome.REPLACED } }
+    expect: { verdict: applied, state: RESOLVED }
+
+  a_return_counts_those_before_it:
+    description: The fifth return of the unit knows of the four before it.
+    given: the_fifth_scout_return_in_a_month
+    request: { object: fifth, transition: await_parts }
+    expect: { verdict: applied, state: AWAITING_PARTS, values: { prior_returns: 4 } }
 ```
 
 ## 3. What each case on the page tests here

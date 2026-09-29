@@ -1178,15 +1178,25 @@ class Runner:
             n = work.sequences.get(key, 0) + 1
             work.sequences[key] = n
 
+            def value(name):
+                return Evaluator(work, o.type, o.id).value(flowexpr.parse(name), {})
+
             def field(m):
                 name, _, width = m.group(1).partition(":")
                 if name == "n":
                     return str(n).zfill(int(width or 0))
-                v = Evaluator(work, o.type, o.id).value(flowexpr.parse(name), {})
+                v = value(name)
                 if v is ABSENT:
-                    raise NotRunnable(f"a format field {name} that is absent")
+                    raise NotRunnable(f"a format field {name} that is absent outside `[ … ]`")
                 return str(v)
-            o.attrs[a] = re.sub(r"\{([^}]+)\}", field, ident.get("format", "{n}"))
+
+            def segment(m):
+                # `[ … ]`, a segment left out whole when a value inside it is absent (flow-format.md §4.12)
+                names = [f.partition(":")[0] for f in re.findall(r"\{([^}]+)\}", m.group(1))]
+                if any(nm != "n" and value(nm) is ABSENT for nm in names):
+                    return ""
+                return re.sub(r"\{([^}]+)\}", field, m.group(1))
+            o.attrs[a] = re.sub(r"\{([^}]+)\}", field, re.sub(r"\[([^\]]*)\]", segment, ident.get("format", "{n}")))
 
     def check_state(self, work, x, oid):
         if oid is None or x["kind"] == "erasure":       # an erasure runs at any state, a final one included
@@ -1828,11 +1838,13 @@ def compare(runner, store, want, outcome, aliases):
     if "state" in want and o.state != want["state"]:
         return f"expected the object in {want['state']}, and it is in {o.state}"
     attrs = (runner.kinds.get(o.type) or {}).get("attributes") or {}
+    derived = (runner.kinds.get(o.type) or {}).get("derived_attributes") or {}
     for k, v in (want.get("values") or {}).items():
         expected = runner.value_of(store, attrs.get(k), v, aliases)
-        if o.attrs.get(k, ABSENT) != expected:
+        # a derived attribute is computed as a reader reads it, the others read as stored
+        got = Evaluator(store, o.type, o.id).member(o.id, k) if k in derived else o.attrs.get(k, ABSENT)
+        if got != expected:
             named = {oid: alias for alias, oid in aliases.items()}
-            got = o.attrs.get(k, ABSENT)
             return f"expected {k} to hold {v}, and it holds {named.get(got, got) if isinstance(got, str) else got}"
     if "cascaded" in want and list(want["cascaded"]) != list(outcome[3]):
         return f"expected the request to cause {want['cascaded'] or 'nothing'}, and it causes {outcome[3] or 'nothing'}"

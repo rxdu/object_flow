@@ -1,6 +1,6 @@
 # The unit's journey: one lifecycle, with custody and condition beside it
 
-Status: **worked example**, 2026-09-24, read against the first consumer's production code at `wr` HEAD `4109939`. It writes every transition production registers for an inventory unit, and the engagement and leasing model production's ADR-0002 accepted but has not built, as one module. Since 2026-09-26 it is written in the flow description format (ADR-0116), and `scripts/check-flow-docs.py` checks it with every step of the flow checker, the model's implemented publish checks among them at step 4, and reports it clean (ADR-0121). The specification's own `UnitLifecycle` (`declaration-syntax.md` §4) stays the smaller fixture its mutations are written against; this module is what the first consumer's unit becomes. It supersedes the lifecycle sketch of [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md) §2.1, which predates three production changes listed in §5. The decisions it takes are recorded in [ADR-0102](../adr/0102-the-units-journey-is-one-lifecycle-with-custody-and-condition-beside-it.md), and what reading it against the PRD changed in [ADR-0103](../adr/0103-what-the-production-audit-required-of-the-design.md).
+Status: **worked example**, 2026-09-24, read against the first consumer's production code at `wr` HEAD `4109939`. It writes every transition production registers for an inventory unit, and the engagement and leasing model production's ADR-0002 accepted but has not built, as one module. Since 2026-09-26 it is written in the flow description format (ADR-0116), and `scripts/check-flow-docs.py` checks it with every step of the flow checker, the model's implemented publish checks among them at step 4, runs its examples (§2), and reports it clean (ADR-0121, ADR-0141). The specification's own `UnitLifecycle` (`declaration-syntax.md` §4) stays the smaller fixture its mutations are written against; this module is what the first consumer's unit becomes. It supersedes the lifecycle sketch of [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md) §2.1, which predates three production changes listed in §5. The decisions it takes are recorded in [ADR-0102](../adr/0102-the-units-journey-is-one-lifecycle-with-custody-and-condition-beside-it.md), and what reading it against the PRD changed in [ADR-0103](../adr/0103-what-the-production-audit-required-of-the-design.md).
 
 **What it is for.** The module exists to test the design, not to specify the first consumer's unit (the author, 2026-09-24). A real lifecycle, written in full from production, is how the engine is made to meet cases nobody invented for it; each part earns its place by the mechanism or requirement it exercises and by whether it finds a defect or shows a strength. Where a transition's own logic differs from production, that matters only if the difference exposes something the engine cannot express or record.
 
@@ -1375,6 +1375,375 @@ metrics:
 Pool utilisation, the share of a pooled unit's time spent on engagements, scheduled or out, since a scheduled engagement already holds its units (§6), is the question ADR-0002 asks first ("how much did we use it?"). `pool_utilisation` divides `time_on_loan` by `time_in_pool` per model, over the whole history. Writing this module found that a duration could not be divided by a duration (`design/defects.md` D275), and ADR-0103 made the quotient of two like quantities a decimal. It is not declared per month: a metric buckets a span by the month it began, so a unit that joined the pool in January would put all its pool time in January, and apportioning a span across months is a known limit (`edge-cases.md`, ADR-0103 §5).
 
 *(Corrected 2026-09-27, when a review asked whether a builder given only the specification and the module could recover it (D408, ADR-0122): `discard` and `delete` now clear the unit's peg, and `unpeg` is taken from any state, so no unit leaves its delivery unable to be cancelled; `accept_return` clears `used_in`, so a returned part can be voided or bound; `convert_lease` clears the internal delivery's `binding`, and `recall_internal` refuses a unit on loan; the engagement's `nonempty` and `fit` read its open lines, and `swap_unit` requires the unit it swaps out to be on it; `pristine` passes over deleted units; and the model's two flags and a delivery's `internal` are optional inputs that take their defaults when left out. A second and a third review added that the journey imports from a module of its own (D410), that an engagement holds at most the 20 units its end reaches, that `expected_return` and a shipment's tracking can be set later, that `reopen` re-checks its engineer and unit, and that `correct_state` releases a unit's peg, binding and part claim, which the states it puts a unit in never hold (D415, D420).)*
+
+**Examples.** What the journey's rules do, run by the reference runner whenever the design is checked (`flow-format.md` §11, ADR-0136, ADR-0141): a unit from its order through a shipment into stock, sold by a delivery, serviced with parts, and lent from the development pool.
+
+```yaml
+examples_for: inventory_journey
+
+setups:
+  models_and_people:
+    description: Two engineers, the customer Acme, the Scout, and the Rover, whose units need a manufacturer's serial and a label photo.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { login: eng-ana } }
+      - request: { type: User, transition: add, as: ben, inputs: { login: eng-ben } }
+      - import: { type: Customer, as: acme, state: ACTIVE, values: { legacy_key: C-100, name: Acme } }
+      - request: { type: RobotModel, transition: add, as: scout, inputs: { name: Scout, warranty_months: 12, maker_code: SC } }
+      - request:
+          type: RobotModel
+          transition: add
+          as: rover
+          inputs: { name: Rover, warranty_months: 24, manufacturer_serial_required: true, label_photo_required: true }
+  two_scouts_in_transit:
+    description: Two Scouts ordered and dispatched in one shipment.
+    given: models_and_people
+    steps:
+      - request: { type: Robot, transition: request, as: first, inputs: { model: scout } }
+      - request: { type: Robot, transition: request, as: second, inputs: { model: scout } }
+      - request: { type: Shipment, transition: dispatch, as: shipment, inputs: { with_units: [first, second], tracking_no: TRK-1 } }
+  two_scouts_arrived:
+    description: The shipment arrived, its units not yet received.
+    given: two_scouts_in_transit
+    steps:
+      - request: { object: shipment, transition: arrive, after: 5 days }
+  a_scout_in_stock:
+    description: A Scout from opening stock, labelled and available.
+    given: models_and_people
+    steps:
+      - request: { type: Robot, transition: add_opening_stock, as: stock, inputs: { model: scout, label_printed_at: now } }
+  a_delivery_being_prepared:
+    description: A delivery to Acme with the Scout bound to it.
+    given: a_scout_in_stock
+    steps:
+      - request: { type: Delivery, transition: open, as: order, inputs: { customer: acme } }
+      - request: { object: order, transition: bind_slot, inputs: { robot: stock } }
+  a_scout_sold_to_acme:
+    description: The delivery completed, the Scout sold to Acme.
+    given: a_delivery_being_prepared
+    steps:
+      - request: { object: order, transition: complete_sale }
+  a_scout_in_the_pool:
+    description: The Scout delivered internally, into the development pool.
+    given: a_scout_in_stock
+    steps:
+      - request: { type: Delivery, transition: open, as: handover, inputs: { customer: acme, internal: true } }
+      - request: { object: handover, transition: bind_slot, inputs: { robot: stock } }
+      - request: { object: handover, transition: complete_internal }
+  a_lease_being_scheduled:
+    description: A lease of the pool Scout, due back in thirty days.
+    given: a_scout_in_the_pool
+    steps:
+      - request: { type: Engagement, transition: schedule, as: loan, inputs: { kind: EngagementKind.LEASE, expected_return: now + 30 days } }
+      - request: { object: loan, transition: add_unit, inputs: { robot: stock } }
+
+examples:
+  a_robot_is_serialled_with_its_maker_code:
+    description: A robot ordered is serialled with its model's maker code.
+    given: models_and_people
+    request: { type: Robot, transition: request, inputs: { model: scout } }
+    expect: { verdict: applied, state: REQUESTED, values: { serial: RBT-SC-000001 } }
+
+  dispatching_ships_each_unit:
+    description: Dispatching a shipment ships each unit it names.
+    given: models_and_people
+    steps:
+      - request: { type: Robot, transition: request, as: first, inputs: { model: scout } }
+      - request: { type: Robot, transition: request, as: second, inputs: { model: scout } }
+    request: { type: Shipment, transition: dispatch, inputs: { with_units: [first, second] } }
+    expect: { verdict: applied, state: IN_TRANSIT, cascaded: [Robot.ship, Robot.ship] }
+
+  only_ordered_units_ship:
+    description: A unit already in stock is not dispatched, and the caller names ordered ones.
+    given: a_scout_in_stock
+    request: { type: Shipment, transition: dispatch, inputs: { with_units: [stock] } }
+    expect: { verdict: unsatisfied, clause: ordered, remedy: self_serviceable }
+
+  the_last_unit_in_procurement_stays:
+    description: One unit is taken off the shipment, and the last one is not, since a shipment carries something.
+    given: two_scouts_in_transit
+    steps:
+      - request: { object: shipment, transition: remove_unit, inputs: { robot: first } }
+    request: { object: shipment, transition: remove_unit, inputs: { robot: second } }
+    expect: { verdict: unsatisfied, clause: last, remedy: unreachable_from_here }
+
+  a_unit_is_removed_only_from_its_own_shipment:
+    description: A unit on no shipment is not removed from this one.
+    given: two_scouts_in_transit
+    steps:
+      - request: { type: Robot, transition: request, as: third, inputs: { model: scout } }
+    request: { object: shipment, transition: remove_unit, inputs: { robot: third } }
+    expect: { verdict: unsatisfied, clause: ours, remedy: self_serviceable }
+
+  a_loaded_shipment_is_not_voided:
+    description: A shipment still carrying units in procurement is not voided.
+    given: two_scouts_in_transit
+    request: { object: shipment, transition: void }
+    expect: { verdict: unsatisfied, clause: empty, remedy: dependent }
+
+  receiving_a_unit_takes_it_to_intake:
+    description: Receiving a unit from the arrived shipment takes it to intake.
+    given: two_scouts_arrived
+    request: { object: shipment, transition: receive_unit, inputs: { robot: first } }
+    expect: { verdict: applied, state: ARRIVED, cascaded: [Robot.receive] }
+
+  an_unreconciled_shipment_is_not_committed:
+    description: A shipment with a unit neither received nor flagged missing is not committed.
+    given: two_scouts_arrived
+    steps:
+      - request: { object: shipment, transition: receive_unit, inputs: { robot: first } }
+    request: { object: shipment, transition: commit }
+    expect: { verdict: unsatisfied, clause: reconciled, remedy: dependent }
+
+  committing_takes_labelled_units_into_stock:
+    description: With both units received and labelled, committing the shipment puts both in stock.
+    given: two_scouts_arrived
+    steps:
+      - request: { object: shipment, transition: receive_unit, inputs: { robot: first } }
+      - request: { object: shipment, transition: receive_unit, inputs: { robot: second } }
+      - request: { object: first, transition: record_label_print }
+      - request: { object: second, transition: record_label_print }
+    request: { object: shipment, transition: commit }
+    expect: { verdict: applied, state: COMMITTED, cascaded: [Robot.inventorize, Robot.inventorize] }
+
+  an_unlabelled_unit_holds_the_commit:
+    description: A received unit not yet labelled refuses the commit, which names the unit's own refusal.
+    given: two_scouts_arrived
+    steps:
+      - request: { object: shipment, transition: receive_unit, inputs: { robot: first } }
+      - request: { object: shipment, transition: receive_unit, inputs: { robot: second } }
+      - request: { object: first, transition: record_label_print }
+    request: { object: shipment, transition: commit }
+    expect: { verdict: call_refused, clause: Robot.labelled, remedy: unreachable_from_here }
+
+  a_missing_unit_reconciles_the_shipment:
+    description: A unit flagged missing no longer holds the shipment open, so it commits with the one received.
+    given: two_scouts_arrived
+    steps:
+      - request: { object: shipment, transition: receive_unit, inputs: { robot: first } }
+      - request: { object: first, transition: record_label_print }
+      - request: { object: shipment, transition: flag_missing, inputs: { robot: second } }
+    request: { object: shipment, transition: commit }
+    expect: { verdict: applied, state: COMMITTED, cascaded: [Robot.inventorize] }
+
+  a_rover_needs_its_manufacturers_serial:
+    description: A Rover in intake, labelled and photographed, is not put in stock without its manufacturer's serial.
+    given: models_and_people
+    steps:
+      - request: { type: Robot, transition: add_to_intake, as: rover_unit, inputs: { model: rover } }
+      - request: { object: rover_unit, transition: record_label_print }
+      - request: { object: rover_unit, transition: add_photo, inputs: { photo: label.jpg } }
+    request: { object: rover_unit, transition: inventorize }
+    expect: { verdict: unsatisfied, clause: mfr_serial, remedy: dependent }
+
+  a_rover_needs_its_label_photo:
+    description: With its manufacturer's serial and label and no photo, a Rover is still not put in stock.
+    given: models_and_people
+    steps:
+      - request: { type: Robot, transition: add_to_intake, as: rover_unit, inputs: { model: rover, manufacturer_serial: MS-778 } }
+      - request: { object: rover_unit, transition: record_label_print }
+    request: { object: rover_unit, transition: inventorize }
+    expect: { verdict: unsatisfied, clause: photo, remedy: dependent }
+
+  a_complete_rover_goes_into_stock:
+    description: With its serial, label and photo, the Rover is put in stock.
+    given: models_and_people
+    steps:
+      - request: { type: Robot, transition: add_to_intake, as: rover_unit, inputs: { model: rover, manufacturer_serial: MS-778 } }
+      - request: { object: rover_unit, transition: record_label_print }
+      - request: { object: rover_unit, transition: add_photo, inputs: { photo: label.jpg } }
+    request: { object: rover_unit, transition: inventorize }
+    expect: { verdict: applied, state: AVAILABLE, values: { photos: [label.jpg] } }
+
+  binding_reserves_the_unit:
+    description: Binding a unit in stock to a delivery reserves it for the delivery.
+    given: a_scout_in_stock
+    steps:
+      - request: { type: Delivery, transition: open, as: order, inputs: { customer: acme } }
+    request: { object: order, transition: bind_slot, inputs: { robot: stock } }
+    expect: { verdict: applied, state: PREPARATION, cascaded: [Robot.reserve] }
+
+  a_unit_bound_elsewhere_is_not_reserved_again:
+    description: A unit another delivery holds is not bound to a second, since it is no longer in stock.
+    given: a_delivery_being_prepared
+    steps:
+      - request: { type: Delivery, transition: open, as: other, inputs: { customer: acme } }
+    request: { object: other, transition: bind_slot, inputs: { robot: stock } }
+    expect: { verdict: call_refused }
+
+  an_empty_delivery_is_not_sold:
+    description: A delivery with no unit bound is not completed.
+    given: a_scout_in_stock
+    steps:
+      - request: { type: Delivery, transition: open, as: order, inputs: { customer: acme } }
+    request: { object: order, transition: complete_sale }
+    expect: { verdict: unsatisfied, clause: filled, remedy: dependent }
+
+  a_pegged_slot_holds_the_sale:
+    description: A slot still pegged to a unit on order keeps the delivery from completing.
+    given: a_delivery_being_prepared
+    steps:
+      - request: { type: Robot, transition: request, as: ordered, inputs: { model: scout } }
+      - request: { object: order, transition: peg_slot, inputs: { robot: ordered } }
+    request: { object: order, transition: complete_sale }
+    expect: { verdict: unsatisfied, clause: filled, remedy: dependent }
+
+  completing_sells_the_units:
+    description: Completing the delivery sells its unit to Acme.
+    given: a_delivery_being_prepared
+    request: { object: order, transition: complete_sale }
+    expect: { verdict: applied, state: DELIVERED, cascaded: [Robot.sell] }
+
+  an_internal_delivery_is_not_a_sale:
+    description: A delivery to the development pool is not completed as a sale.
+    given: a_scout_in_stock
+    steps:
+      - request: { type: Delivery, transition: open, as: handover, inputs: { customer: acme, internal: true } }
+      - request: { object: handover, transition: bind_slot, inputs: { robot: stock } }
+    request: { object: handover, transition: complete_sale }
+    expect: { verdict: unsatisfied, clause: not_internal, remedy: unreachable_from_here }
+
+  revoking_a_sale_returns_the_unit:
+    description: Revoking a completed sale takes the unit back.
+    given: a_scout_sold_to_acme
+    request: { object: order, transition: revoke }
+    expect: { verdict: applied, state: CANCELLED, cascaded: [Robot.unsell] }
+
+  cancelling_releases_and_unpegs:
+    description: Cancelling a delivery releases the unit it holds and unpegs the one on order.
+    given: a_delivery_being_prepared
+    steps:
+      - request: { type: Robot, transition: request, as: ordered, inputs: { model: scout } }
+      - request: { object: order, transition: peg_slot, inputs: { robot: ordered } }
+    request: { object: order, transition: cancel }
+    expect: { verdict: applied, state: CANCELLED, cascaded: [Robot.release, Robot.unpeg] }
+
+  a_job_on_acmes_robot:
+    description: A repair of the Scout Acme bought opens for Ana.
+    given: a_scout_sold_to_acme
+    request: { type: ServiceJob, transition: open, inputs: { kind: ServiceKind.REPAIR, robot: stock, customer: acme, engineer: ana } }
+    expect: { verdict: applied, state: OPEN }
+
+  a_job_on_a_robot_sold_to_someone_else:
+    description: A job for another customer on the robot Acme bought is refused, and the caller names Acme.
+    given: a_scout_sold_to_acme
+    steps:
+      - import: { type: Customer, as: globex, state: ACTIVE, values: { legacy_key: C-200, name: Globex } }
+    request: { type: ServiceJob, transition: open, inputs: { kind: ServiceKind.REPAIR, robot: stock, customer: globex, engineer: ana } }
+    expect: { verdict: unsatisfied, clause: theirs, remedy: self_serviceable }
+
+  a_job_on_a_robot_in_stock:
+    description: A robot still in stock is not serviced as a customer's.
+    given: a_scout_in_stock
+    request: { type: ServiceJob, transition: open, inputs: { kind: ServiceKind.MAINTENANCE, robot: stock, customer: acme, engineer: ana } }
+    expect: { verdict: unsatisfied, clause: delivered, remedy: self_serviceable }
+
+  finishing_a_job_consumes_its_parts:
+    description: A spare Scout reserved as a part is consumed when the job finishes.
+    given: a_scout_sold_to_acme
+    steps:
+      - request: { type: Robot, transition: add_opening_stock, as: spare, inputs: { model: scout, label_printed_at: now } }
+      - request: { type: ServiceJob, transition: open, as: job, inputs: { kind: ServiceKind.REPAIR, robot: stock, customer: acme, engineer: ana } }
+      - request: { object: job, transition: add_part, inputs: { part: spare } }
+      - request: { object: job, transition: start }
+    request: { object: job, transition: finish, after: 3 h }
+    expect: { verdict: applied, state: DONE, cascaded: [Robot.consume] }
+
+  an_engineer_with_an_open_job_does_not_leave:
+    description: Ana does not leave while a job she holds is open, since every open job's engineer is active.
+    given: a_scout_sold_to_acme
+    steps:
+      - request: { type: ServiceJob, transition: open, inputs: { kind: ServiceKind.REPAIR, robot: stock, customer: acme, engineer: ana } }
+    request: { object: ana, transition: leave }
+    expect: { verdict: invariant_violated, clause: ServiceJob.engineer_active }
+
+  a_job_is_reassigned_to_an_active_engineer:
+    description: Ana hands the job to Ben, and leaves.
+    given: a_scout_sold_to_acme
+    steps:
+      - request: { type: ServiceJob, transition: open, as: job, inputs: { kind: ServiceKind.REPAIR, robot: stock, customer: acme, engineer: ana } }
+      - request: { object: job, transition: reassign, inputs: { engineer: ben } }
+    request: { object: ana, transition: leave }
+    expect: { verdict: applied, state: LEFT }
+
+  a_pool_unit_is_added_to_a_lease:
+    description: A unit in the pool is added to a lease, which opens a line for it.
+    given: a_scout_in_the_pool
+    steps:
+      - request: { type: Engagement, transition: schedule, as: loan, inputs: { kind: EngagementKind.LEASE, expected_return: now + 30 days } }
+    request: { object: loan, transition: add_unit, inputs: { robot: stock } }
+    expect: { verdict: applied, state: SCHEDULED, cascaded: [EngagementLine.open] }
+
+  a_unit_on_loan_is_not_lent_twice:
+    description: A unit already on an open engagement is not added to another.
+    given: a_lease_being_scheduled
+    steps:
+      - request: { type: Engagement, transition: schedule, as: event, inputs: { kind: EngagementKind.EVENT } }
+    request: { object: event, transition: add_unit, inputs: { robot: stock } }
+    expect: { verdict: unsatisfied, clause: leasable, remedy: dependent }
+
+  an_empty_engagement_is_not_dispatched:
+    description: An engagement with no unit is not dispatched.
+    given: a_scout_in_the_pool
+    steps:
+      - request: { type: Engagement, transition: schedule, as: event, inputs: { kind: EngagementKind.EVENT } }
+    request: { object: event, transition: dispatch }
+    expect: { verdict: unsatisfied, clause: nonempty, remedy: unreachable_from_here }
+
+  a_lease_without_a_return_date_is_not_dispatched:
+    description: A lease with no expected return is not dispatched until one is set, another transition.
+    given: a_scout_in_the_pool
+    steps:
+      - request: { type: Engagement, transition: schedule, as: loan, inputs: { kind: EngagementKind.LEASE } }
+      - request: { object: loan, transition: add_unit, inputs: { robot: stock } }
+    request: { object: loan, transition: dispatch }
+    expect: { verdict: unsatisfied, clause: return_known, remedy: unreachable_from_here }
+
+  a_unit_under_repair_is_not_dispatched:
+    description: An open repair takes the unit out of the pool, so its lease is not dispatched.
+    given: a_lease_being_scheduled
+    steps:
+      - request: { type: ServiceJob, transition: open, inputs: { kind: ServiceKind.REPAIR, robot: stock, customer: acme, engineer: ana } }
+    request: { object: loan, transition: dispatch }
+    expect: { verdict: unsatisfied, clause: fit, remedy: dependent }
+
+  a_lease_is_signed_for_a_lease:
+    description: A lease is signed for an engagement of the lease kind.
+    given: a_lease_being_scheduled
+    request: { type: Lease, transition: sign, inputs: { customer: acme, engagement: loan } }
+    expect: { verdict: applied, state: ACTIVE }
+
+  a_lease_is_not_signed_for_an_event:
+    description: A lease is not signed for an event, and the caller names a lease engagement.
+    given: a_scout_in_the_pool
+    steps:
+      - request: { type: Engagement, transition: schedule, as: event, inputs: { kind: EngagementKind.EVENT } }
+    request: { type: Lease, transition: sign, inputs: { customer: acme, engagement: event } }
+    expect: { verdict: unsatisfied, clause: is_lease, remedy: self_serviceable }
+
+  converting_a_lease_sells_its_units:
+    description: Converting a dispatched lease sells its unit to the lessee and settles the engagement, which ends its line.
+    given: a_lease_being_scheduled
+    steps:
+      - request: { object: loan, transition: dispatch }
+      - request: { type: Lease, transition: sign, as: lease, inputs: { customer: acme, engagement: loan } }
+    request: { object: lease, transition: convert, after: 10 days }
+    expect: { verdict: applied, state: CONVERTED, cascaded: [Robot.convert_lease, Engagement.settle, EngagementLine.end] }
+
+  a_lease_ends_once_its_units_are_back:
+    description: A lease whose engagement is still out does not end.
+    given: a_lease_being_scheduled
+    steps:
+      - request: { object: loan, transition: dispatch }
+      - request: { type: Lease, transition: sign, as: lease, inputs: { customer: acme, engagement: loan } }
+    request: { object: lease, transition: end }
+    expect: { verdict: unsatisfied, clause: returned, remedy: dependent }
+
+  retiring_a_pool_unit_ends_its_line:
+    description: Retiring a pool unit on a scheduled engagement ends its line there.
+    given: a_lease_being_scheduled
+    request: { object: stock, transition: retire, inputs: { reason: RetirementReason.OBSOLETE } }
+    expect: { verdict: applied, state: RETIRED, cascaded: [EngagementLine.end] }
+```
 
 ## 3. Every transition, against production
 
