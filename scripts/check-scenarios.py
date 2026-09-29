@@ -177,7 +177,7 @@ DERIVED = {
         < o.attrs.get("reorder_point", 0)),
     ("Shipment", "overdue"): ("state == IN_TRANSIT and eta < now",
                               lambda s, o: o.state == "IN_TRANSIT" and o.attrs.get("eta") is not None and o.attrs["eta"] < s.now),
-    ("Engagement", "overdue"): ("state == OUT and expected_return < now",
+    ("Engagement", "overdue"): ("state == OUT and expected_return is not null and expected_return < now",
                                 lambda s, o: o.state == "OUT" and o.attrs.get("expected_return") is not None
                                 and o.attrs["expected_return"] < s.now),
     ("Robot", "backorder_ageing"): ("peg is not null and (state == REQUESTED or state == PROCUREMENT) and "
@@ -207,7 +207,7 @@ GUARDS = {
     ("Delivery", "all_passed"): ("all(u in units: all(c in PdiCheck where c.model == u.model and c.state == PdiCheck.ACTIVE: "
                                  "any(r in pdi_results where r.unit == u and r.check == c and r.outcome != CheckOutcome.FAIL)))",
                                  all_passed),
-    ("Delivery", "ours"): ("inputs.robot.binding == this", lambda s, o, i: s.objects[i["robot"]].attrs.get("binding") == o.id),
+    ("Delivery", "ours"): ("inputs.robot.binding is not null and inputs.robot.binding == this", lambda s, o, i: s.objects[i["robot"]].attrs.get("binding") == o.id),
     ("ExpenseClaim", "submitted"): ("submitted_at is not null", lambda s, o, i: o.attrs.get("submitted_at") is not None),
     ("ExpenseClaim", "within_policy"): ("inputs.amount <= inputs.category.policy_amount",
                                         lambda s, o, i: Decimal(str(i["amount"]))
@@ -232,12 +232,13 @@ GUARDS = {
     ("ServiceJob", "active"): ("inputs.engineer.state == User.ACTIVE", lambda s, o, i: s.objects[i["engineer"]].state == "ACTIVE"),
     ("ServiceJob", "delivered"): ("inputs.robot.state == Robot.SOLD or inputs.robot.state == Robot.DEVELOPMENT",
                                   lambda s, o, i: s.objects[i["robot"]].state in ("SOLD", "DEVELOPMENT")),
-    ("ServiceJob", "theirs"): ("inputs.robot.state == Robot.DEVELOPMENT or inputs.robot.sold_to == inputs.customer",
+    ("ServiceJob", "theirs"): ("inputs.robot.state == Robot.DEVELOPMENT "
+                               "or (inputs.robot.sold_to is not null and inputs.robot.sold_to == inputs.customer)",
                                lambda s, o, i: s.objects[i["robot"]].state == "DEVELOPMENT"
                                or s.objects[i["robot"]].attrs.get("sold_to") == i["customer"]),
     ("Shipment", "ordered"): ("all(u in inputs.with_units: u.state == Robot.REQUESTED)",
                               lambda s, o, i: all(s.objects[u].state == "REQUESTED" for u in i["with_units"])),
-    ("Shipment", "ours"): ("inputs.robot.shipment == this", lambda s, o, i: s.objects[i["robot"]].attrs.get("shipment") == o.id),
+    ("Shipment", "ours"): ("inputs.robot.shipment is not null and inputs.robot.shipment == this", lambda s, o, i: s.objects[i["robot"]].attrs.get("shipment") == o.id),
 }
 INVARIANTS = {
     ("Robot", "one_open_engagement"): ("count(l in engagement_lines where l.open) <= 1", lambda s, o: True),

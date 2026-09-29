@@ -524,7 +524,7 @@ types:
     states:
       PEER_REVIEW:             { category: pending }
       PLANNING:                { category: active }
-      AWAITING_CAB_APPROVAL:   { category: pending }
+      AWAITING_CAB_APPROVAL:   { category: pending, required_attributes: [planned_start, planned_end] }
       AWAITING_IMPLEMENTATION: { category: waiting }
       IMPLEMENTING:            { category: active }
       COMPLETED:               { category: closed }

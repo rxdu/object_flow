@@ -2460,18 +2460,6 @@ Read: `notices of version 14`
 |---|---|---|
 | inventory_journey | audit | all_passed is audited: its failures are recorded and it refuses nothing |
 | inventory_journey | metric | delivery_cycle_time's filter counts transitions out of Delivery.PREPARATION, and this version changes which transitions those are, so what the metric counts changes from this version on |
-| inventory_journey | unknown | engagements_overdue's filter can be unknown through e.overdue (Engagement.overdue can be unknown through expected_return), which it never tests; a row it cannot decide is left out |
-| inventory_journey | unknown | ours can be unknown when flag_missing is requested, through inputs.robot.shipment (Robot.shipment is optional), which it never tests with `is null`; a guard that is unknown refuses |
-| inventory_journey | unknown | ours can be unknown when receive_unit is requested, through inputs.robot.shipment (Robot.shipment is optional), which it never tests with `is null`; a guard that is unknown refuses |
-| inventory_journey | unknown | ours can be unknown when remove_part is requested, through inputs.part.used_in (Robot.used_in is optional), which it never tests with `is null`; a guard that is unknown refuses |
-| inventory_journey | unknown | ours can be unknown when remove_unit is requested, through inputs.robot.shipment (Robot.shipment is optional), which it never tests with `is null`; a guard that is unknown refuses |
-| inventory_journey | unknown | ours can be unknown when restore_missing is requested, through inputs.robot.shipment (Robot.shipment is optional), which it never tests with `is null`; a guard that is unknown refuses |
-| inventory_journey | unknown | ours can be unknown when unbind_slot is requested, through inputs.robot.binding (Robot.binding is optional), which it never tests with `is null`; a guard that is unknown refuses |
-| inventory_journey | unknown | ours can be unknown when unreceive_unit is requested, through inputs.robot.shipment (Robot.shipment is optional), which it never tests with `is null`; a guard that is unknown refuses |
-| inventory_journey | unknown | still_serviceable can be unknown when reopen is requested, through robot.sold_to (Robot.sold_to is optional), which it never tests with `is null`; a guard that is unknown refuses |
-| inventory_journey | unknown | theirs can be unknown when open is requested, through inputs.robot.sold_to (Robot.sold_to is optional), which it never tests with `is null`; a guard that is unknown refuses |
-
-*(Updated 2026-09-29: a publish also reports the notice `unknown`, for a guard or filter that can be unknown through an optional it never tests (D483); these ten are the journey's, each an equality with an optional reference that answers "unknown" where the answer is "no".)*
 
 3. **A warranty counted in months has no end the engine can compute** (UC-21, determined). The language has no month, by design (`declaration-syntax.md` §8.3), so a cascade can start a warranty but cannot date its end. The warranty is created in the completion, as F8 asks, and its end arrives a request later. Until it does, `Warranty.expiring` cannot hold for it.
 4. **`check` names the unit and the rule, not what the request would change** (UC-21, determined). ADR-0108 left open whether `check` should also return the objects and transitions a request would reach. UC-21 asks for the verdict, cascades included, and that is what `check` returns. *(Settled 2026-09-28 by ADR-0130: `check` returns its verdict and nothing more.)*

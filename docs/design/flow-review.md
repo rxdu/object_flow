@@ -818,7 +818,7 @@ types:
         remedy: self_serviceable
       ours:
         description: The unit is on this shipment.
-        expression: inputs.robot.shipment == this
+        expression: inputs.robot.shipment is not null and inputs.robot.shipment == this
         remedy: self_serviceable
       last:
         description: At least two of the shipment's units are still in procurement, so removing a unit cannot leave it with none.
@@ -1003,7 +1003,7 @@ types:
     conditions:
       ours:
         description: The unit is bound to this delivery.
-        expression: inputs.robot.binding == this
+        expression: inputs.robot.binding is not null and inputs.robot.binding == this
         remedy: self_serviceable
       not_internal:
         description: The delivery is to a customer, not to the company's own pool.
@@ -1164,15 +1164,19 @@ types:
         remedy: self_serviceable
       theirs:
         description: A sold unit is serviced for the customer who bought it.
-        expression: inputs.robot.state == Robot.DEVELOPMENT or inputs.robot.sold_to == inputs.customer
+        expression: >-
+          inputs.robot.state == Robot.DEVELOPMENT
+          or (inputs.robot.sold_to is not null and inputs.robot.sold_to == inputs.customer)
         remedy: self_serviceable
       still_serviceable:
         description: The unit is still in the pool, or still sold to the job's customer.
-        expression: robot.state == Robot.DEVELOPMENT or (robot.state == Robot.SOLD and robot.sold_to == customer)
+        expression: >-
+          robot.state == Robot.DEVELOPMENT
+          or (robot.state == Robot.SOLD and robot.sold_to is not null and robot.sold_to == customer)
         remedy: dependent
       ours:
         description: The part is reserved for this job.
-        expression: inputs.part.used_in == this
+        expression: inputs.part.used_in is not null and inputs.part.used_in == this
         remedy: self_serviceable
 
     transitions:
@@ -1294,7 +1298,7 @@ types:
     derived_attributes:
       overdue:
         description: The units are out after their expected return.
-        expression: state == OUT and expected_return < now
+        expression: state == OUT and expected_return is not null and expected_return < now
 
     summary: [kind, expected_return, state]
 
