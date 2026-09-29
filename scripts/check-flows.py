@@ -2171,8 +2171,9 @@ def transition_lines(xn, x, t, X, T):
     return [(f"  {head} {{", X)] + [("    " + b, p) for b, p in body] + [("  }", X)]
 
 
-def to_text(doc):
-    """The module in the text language, and for each line the YAML path it came from."""
+def to_text(doc, library=None):
+    """The module in the text language, and for each line the YAML path it came from; `library` holds the types
+    of the modules checked before it, whose ends decide which of this module's references are tracked."""
     lines, paths = [], []
 
     def emit(line, path=()):
@@ -2276,7 +2277,7 @@ def to_text(doc):
                      for n, i in (ob.get("invariants") or {}).items()]
             tail.append(("}", O))
         for mn, m in (t.get("metrics") or {}).items():
-            tail += metric_text(tn, merged, mn, m)
+            tail += metric_text(tn, merged, mn, m, dict(library or {}, **dict(types(doc))))
     for line, path in tail:
         emit(line, path)
     one = lambda e: " ".join(str(e).split())
@@ -2342,7 +2343,24 @@ def effect_lines(steps, P, indent):
     return out
 
 
-def metric_text(tn, t, mn, m):
+def tracked_attributes(t, library):
+    """The attributes whose every value is timed (ADR-0083, declaration-syntax.md §6.9): an enumeration attribute,
+    and a singular reference that stores its value, one with no opposite, one marked stored, or one whose opposite
+    end is a set, a part's end back to its whole among them."""
+    out = set()
+    for a, spec in (t.get("attributes") or {}).items():
+        spec = spec or {}
+        typ, ref = str(spec.get("type", "")), str(spec.get("reference", ""))
+        if typ[:1].isupper() and not typ.endswith("[]"):
+            out.add(a)
+        elif ref and not ref.endswith("[]"):
+            far = ((library.get(ref) or {}).get("attributes") or {}).get(spec.get("opposite") or "") or {}
+            if "opposite" not in spec or spec.get("stored") or str(far.get("reference", "")).endswith("[]"):
+                out.add(a)
+    return out
+
+
+def metric_text(tn, t, mn, m, library=None):
     M = ("types", tn, "metrics", mn)
     out = [(f"# {m['description']}", M), (f"metric {mn} version 1 {{", M)]
     if "source" in m:
@@ -2360,7 +2378,7 @@ def metric_text(tn, t, mn, m):
         out += [(f"  flag      {f} when {one(c)}", M + ("flag_when", f)) for f, c in (m.get("flag_when") or {}).items()]
         out.append(("}", M))
         return out
-    tracked = {a for a, s in (t.get("attributes") or {}).items() if s.get("assignee")}
+    tracked = tracked_attributes(t, library or {})       # read as held when the span began (ADR-0139 decision 1)
     if m["measure"] == "median_time_in_state":
         v, time, value = "i", "i.entered_at", "median(i.duration)"
         out.append((f"  from      i in {tn}.intervals where i.state == {tn}.{m['state']}", M + ("state",)))
@@ -2889,7 +2907,7 @@ def check(files, previous=None, analysed=None):
                                   f"{doc['examples_for']}: {', '.join(left)}"))
         found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in errors]
     if not found and len(loaded) + len(example_files) == len(files):
-        converted = [to_text(doc) for _f, _t, _i, doc in loaded]
+        converted = [to_text(doc, library) for _f, _t, _i, doc in loaded]
         for i, path, code, msg in language_errors(converted):
             f, _t, idx, _d = loaded[i]
             found.append((f, line_of(idx, path), "fatal", code, msg))
@@ -3504,6 +3522,17 @@ def split_plants(people):
     return ok
 
 
+def conversion_self_test():
+    """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
+    it was held when the span began, and any other as it is now."""
+    inventory = load((EXAMPLES / "inventory.yaml").read_text())
+    inventory["types"]["InventoryItem"]["metrics"]["time_available"]["group_by"] = ["condition", "model", "month"]
+    text = to_text(inventory)[0]
+    ok = "condition = i.held(condition)" in text and "model = i.object.model" in text
+    print(f"  a fixed measure's enumeration dimension converts as held, and a plain attribute as it is now: {'yes' if ok else 'NO'}")
+    return ok
+
+
 def digest_self_test():
     """The digest names the modules and their bytes, and nothing else: not the order the files come in."""
     a, b = ("inventory", b"module: inventory\n"), ("people", b"module: people\n")
@@ -3575,6 +3604,7 @@ def main():
     ok &= unknown_plants(people)
     ok &= reference_plants(people)
     ok &= split_plants(people)
+    ok &= conversion_self_test()
     sys.exit(0 if clean and ok else 1)
 
 
