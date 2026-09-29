@@ -227,6 +227,8 @@ A metric is a figure computed from the record of many objects (`declaration-synt
 
 A `transition_count` counts the transitions along its transition's source and target states, so it MUST NOT name a transition that shares a source and target with another. (step 3, `names`)
 
+A fixed measure groups and windows as service's `time_working` does in the model (`declaration-syntax.md` §6.9, ADR-0139). A `median_time_in_state` is grouped by the `month` or `week` in which a span began, and by an attribute as it was held when the span began if the attribute is tracked, or as it is now if not; it is windowed on the span's entry. A `transition_count` is grouped by the `month` or `week` in which the transition occurred, by `actor`, the id of the actor who requested it, and by an attribute as it was held before the transition's writes if tracked, or as it is now if not; it is windowed on when the transition occurred.
+
 **A formula** aggregates an expression over the rows of a source, grouped by its dimensions:
 
 | Key | Required | Value |
@@ -634,8 +636,8 @@ Each form converts to the text language as follows, and means what that declarat
 | the part's end back, `reference: W, opposite: <composite end>` | `owner <name> : W inverse <composite end>` |
 | `cascade: [{ on: [a], transition: t, limit: n }]`, `survives: [b]` | `cascade on a to T.t limit n`, `survives on { b }` |
 | `inherited_parts: { p: { cascade: [{ on: [a], transition: t, limit: n }], survives: [b] } }` | `cascade p on a to T.t limit n`, `survives p on { b }`, at the top level of the type (`declaration-syntax.md` §3.2) |
-| `measure: median_time_in_state` | a metric over the type's intervals in the state, valued `median(i.duration)` |
-| `measure: transition_count` | a metric over the type's transitions along the transition's states, valued `count()` |
+| `measure: median_time_in_state` | a metric over the type's intervals in the state, valued `median(i.duration)`, by `month(i.entered_at)`, `week(i.entered_at)`, `i.held(<a>)` for a tracked attribute and `i.object.<a>` for another, windowed on `i.entered_at` (ADR-0139) |
+| `measure: transition_count` | a metric over the type's transitions along the transition's states, valued `count()`, by `month(t.occurred_at)`, `week(t.occurred_at)`, `t.actor_id` for `actor`, `t.held(<a>)` for a tracked attribute and `t.object.<a>` for another, windowed on `t.occurred_at` (ADR-0139) |
 | `kind: assertion`, `to: [A, B]`, `may_admit: [i]` | `assert x -> { A, B } { input to : state; input admits : invariant[]?; may admit i }` |
 | `from: any` | `do x any -> S`; `act x at any` |
 | `proposable: true` | `proposable` in the transition's head |

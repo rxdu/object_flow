@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author in advance, 2026-09-28: "for all similar items that you have confidence in an recommendation, just accept", said while the author was taken through the items that need their attention.
 - **Date:** 2026-09-28
+- **Refined by:** ADR-0139 — the scale of an average of integers, which decision 3 needs.
 - **Refines:** ADR-0098 and ADR-0101 (a metric and its reader), ADR-0106 (what the record measures), ADR-0124 (a combined metric's inputs over the rows a read selects)
 - **Relates to:** PRD C2, D11, M1; `declaration-syntax.md` §1, §6.9, §8.3, §10 check 56; `flow-format.md` §4.9; `metric-scenarios.md` §7, §13, §17, §19, §22, §33; `edge-cases.md`
 

@@ -2983,28 +2983,46 @@ def logic_plants(people, service):
 
 
 def runner_plants(people, service, examples):
-    """Step 6 shown on the service example: an expectation the rules contradict fails, and a construct the
-    runner does not yet execute is reported as not run, never passed."""
+    """Step 6 shown on the service example: an expectation the rules contradict fails, a guard reading a metric is
+    decided over the example's own history, and a construct the runner does not yet execute is reported as not run,
+    never passed."""
     ok = True
+
+    def guarded(line, guard, expression, remedy):
+        """The service module with one more guard on a transition: after the line of a guard it has, or opening its
+        guards after the line of another of its keys."""
+        added = f"          {guard}: deny\n" if line.startswith(" " * 10) else f"        guards:\n          {guard}: deny\n"
+        text = service.replace(line, line + added, 1)
+        return text.replace("      photo_attached:\n", f"      {guard}:\n        description: A planted guard.\n"
+                                                     f"        expression: {expression}\n        remedy: {remedy}\n      photo_attached:\n", 1)
     plants = [
-        ("a repeated check that fails again, expected to let the job finish", "example",
-         "outcome: CheckOutcome.PASS }", "outcome: CheckOutcome.FAIL }"),
-        ("a signer the request does not write", "example",
-         "values: { signed_off_by_user: ana }", "values: { signed_off_by_user: ben }"),
-        ("a setup whose second engineer reuses a unique login", "example",
-         "inputs: { login: ben, name: Ben }", "inputs: { login: ana, name: Ben }"),
-        ("an example the runner cannot yet run", "notrun", None, None),
+        ("a repeated check that fails again, expected to let the job finish", "example", None,
+         ("outcome: CheckOutcome.PASS }", "outcome: CheckOutcome.FAIL }")),
+        ("a signer the request does not write", "example", None,
+         ("values: { signed_off_by_user: ana }", "values: { signed_off_by_user: ben }")),
+        ("a setup whose second engineer reuses a unique login", "example", None,
+         ("inputs: { login: ben, name: Ben }", "inputs: { login: ana, name: Ben }")),
+        # the design's own pass-rate guard (declaration-syntax.md §6.9) on finish: a failure inspected again still counts,
+        # so only the job that repeated its check falls below the threshold; a corrected failure no longer counts
+        ("the pass-rate guard on finish, which a failure inspected again keeps below its threshold", "example",
+         guarded("          photo_attached: audit\n", "pass_rate",
+                 "metric(inspection_pass_rate, engineer := engineer, over last 30 days) >= 0.900", "dependent"), None),
+        ("a guard reading a metric that has no rows yet, and so is unknown", "example",
+         guarded("        backdating_limit: 2 days\n", "quick", "metric(time_working) < 30 days", "dependent"), None),
+        ("an example the runner cannot yet run", "notrun",
+         guarded("        backdating_limit: 2 days\n", "calm", "metric(ServiceJob.refusals) < 3", "dependent"), None),
     ]
-    # a guard reading a metric, which the runner computes only from its slice 4b on
-    timed = service.replace("        backdating_limit: 2 days\n", "        backdating_limit: 2 days\n        guards:\n          quick: deny\n", 1) \
-                   .replace("      photo_attached:\n", "      quick:\n        description: Jobs are worked through quickly.\n"
-                                                  "        expression: metric(time_working) < 30 days\n        remedy: dependent\n      photo_attached:\n", 1)
-    for name, code, old, new in plants:
-        found, notes = check([("people.yaml", people), ("service.yaml", service if old else timed),
-                              ("service.examples.yaml", examples.replace(old, new, 1) if old else examples)])
+    for name, code, module, edit in plants:
+        found, notes = check([("people.yaml", people), ("service.yaml", module or service),
+                              ("service.examples.yaml", examples.replace(*edit, 1) if edit else examples)])
         hit = [x for x in found + notes if x[3] == code]
         ok &= bool(hit)
         print(f"  planted {name}: {'caught by ' + code + ', at ' + hit[0][0] + ':' + str(hit[0][1]) + ' ' + hit[0][4][:70] if hit else 'MISSED ' + str((found + notes)[:2])}")
+        if name.startswith("the pass-rate guard"):
+            # only the repeated check fails, and the correction, which leaves one result, passes
+            alone = [x[4].split(":")[0] for x in found] == ["a_repeated_check_lets_the_job_finish"]
+            ok &= alone
+            print(f"  the pass-rate guard fails that example alone, and passes the one whose failure was corrected: {'yes' if alone else 'NO ' + str([x[4][:60] for x in found])}")
     return ok
 
 

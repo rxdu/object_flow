@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-26: "verify the terms first, then go with your recommendations", in answer to four questions on writing the metric language (construct 7 of ADR-0116's plan).
 - **Date:** 2026-09-26
+- **Refined by:** ADR-0139 — a fixed measure groups and windows as `time_working`'s text form shows.
 - **Refines:** ADR-0115 (established terms), ADR-0116 (the format replaces the text language)
 - **Relates to:** ADR-0084 (metrics), ADR-0098 (a reader reads a metric as a guard does), `declaration-syntax.md` §6.9, `flow-format.md` §4.9
 
