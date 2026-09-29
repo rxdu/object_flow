@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D01, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0054 — the parent's outcome applies in full before any cascade, and `check`'s verdict is partial.
+- **Refined by:** ADR-0054 — the parent's outcome applies in full before any cascade, and `check`'s verdict is partial. ADR-0138 — a transition's effect runs first, each call or creation as it is reached, then the cascades of its composite ends in declared order.
 - **Supersedes:** the "All guards first" rule of ADR-0019
 
 ## Context

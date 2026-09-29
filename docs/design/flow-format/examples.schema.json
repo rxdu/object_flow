@@ -34,7 +34,7 @@
       "description": "The answer each named evaluator function gives, stubbed, since an example never calls another system.",
       "type": "object",
       "propertyNames": { "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$" },
-      "additionalProperties": { "enum": ["satisfied", "unsatisfied"] }
+      "additionalProperties": { "enum": ["satisfied", "unsatisfied", "unanswered"] }
     },
     "setup": {
       "type": "object",

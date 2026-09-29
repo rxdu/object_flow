@@ -3,7 +3,7 @@
 - **Status:** Accepted by the author, 2026-09-27: "go ahead with your recommendations, ensure there is no ambiguity after the revision". Each decision below is the recommendation `flow-recoverability-review.md` made for a finding, and D397's is the one that review left to the author.
 - **Date:** 2026-09-27
 - **Amended:** 2026-09-27, the same day: decisions 14 to 19 from a second review, 20 to 24 from a third, 25 and 26 from a fourth, 27 to 30 from a fifth, 31 to 35 from a sixth, 36 from a seventh, 37 and 38 from an eighth, 39 from a ninth, and 40 from a tenth, by fresh readers of the corrected specification and examples (`flow-recoverability-review.md` §5), at the author's direction ("check again with fresh agents and see if all issues have been fixed").
-- **Refined by:** ADR-0123 — a group whose rows all lack a body is reported, with decision 18's value over no rows; and a set-valued dimension counts each value once. ADR-0124 — decision 6's aggregation applies to a reader's `keep` and `bind` as to the metric's own `group_by`.
+- **Refined by:** ADR-0123 — a group whose rows all lack a body is reported, with decision 18's value over no rows; and a set-valued dimension counts each value once. ADR-0124 — decision 6's aggregation applies to a reader's `keep` and `bind` as to the metric's own `group_by`. ADR-0138 — the generated guards' remedy classes are stated.
 - **Refines:** ADR-0116 (the format replaces the text language), ADR-0071 (bounded loops), ADR-0098 (metrics and `combine`), ADR-0029 (sequences)
 - **Relates to:** `flow-format.md` §4.1, §4.3, §4.7, §4.8, §4.9, §4.11, §4.12, §4.17, §5, §7, §10; `declaration-syntax.md` §3.1, §3.3, §4.2, §5.1, §5.2, §6.9; `DESIGN.md` §3, §5.4, §5.5, §6; `library-api.md`; `flow-recoverability-review.md`
 

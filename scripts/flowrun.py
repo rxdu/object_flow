@@ -110,6 +110,7 @@ class Evaluator:
         self.s, self.tn, self.this = store, tn, this
         self.inputs, self.actor, self.stubs = inputs or {}, actor, stubs or {}
         self.filter_mode = filter_mode          # a filter leaves out an element it cannot decide (§8.2)
+        self.unanswered = False                 # an evaluator it asked did not answer (ADR-0138)
         self.t = store.kinds.get(tn) or {}
 
     # ── names ────────────────────────────────────────────────────────────────
@@ -326,7 +327,11 @@ class Evaluator:
     def call(self, e, env):
         fn, args = e[1], e[2]
         if fn[0] == "path" and fn[1][0] == "name" and f"{fn[1][1]}.{fn[2]}" in self.stubs:
-            return self.stubs[f"{fn[1][1]}.{fn[2]}"] == "satisfied"
+            answer = self.stubs[f"{fn[1][1]}.{fn[2]}"]
+            if answer == "unanswered":
+                self.unanswered = True
+                return ABSENT
+            return answer == "satisfied"
         if fn[0] == "path" and fn[1][0] == "name" and fn[1][1] not in env and fn[1][1] != "this" \
                 and fn[1][1] not in (self.t.get("attributes") or {}):
             raise ExampleError(f"the evaluator function {fn[1][1]}.{fn[2]} is called, and the example stubs no answer for it")
@@ -340,7 +345,10 @@ class Evaluator:
         raise NotRunnable(f"the function `{fn[1] if fn[0] == 'name' else fn[2]}`")
 
 
-UNSTATED_REMEDY = None   # a generated guard's remedy class, which the design does not yet state (TODO.md)
+# the generated guards' remedy classes, as DESIGN.md §5.5 states them (ADR-0138)
+GENERATED_REMEDY = {"actor_known": "dependent", "occurred_within": "self_serviceable", "whole_open": "self_serviceable",
+                    "not_erased": "unreachable_from_here", "subject_open": "unreachable_from_here",
+                    "corrects_current": "self_serviceable", "subject_owned": "unreachable_from_here"}
 
 
 class Ctx:
@@ -527,13 +535,13 @@ class Runner:
             if (self.kinds.get(subject.type) or {}).get("mirror"):
                 raise NotRunnable("a recording on a mirror's object, whose guard subject_owned this runner does not yet evaluate")
             if work.final(subject):
-                raise Refused("unsatisfied", "subject_open", UNSTATED_REMEDY)
+                raise Refused("unsatisfied", "subject_open", GENERATED_REMEDY["subject_open"])
         wholes = []
         for k in set(x.get("required_inputs", []) + x.get("optional_inputs", [])) & set(inputs):
             if self.owner_end(attrs.get(k)):
                 if oid is not None and work.objects[oid].attrs.get(k) != inputs[k]:
                     if work.final(work.objects[inputs[k]]):
-                        raise Refused("unsatisfied", "whole_open", UNSTATED_REMEDY)
+                        raise Refused("unsatisfied", "whole_open", GENERATED_REMEDY["whole_open"])
                     wholes.append(work.objects[oid].attrs.get(k))
                 wholes.append(inputs[k])
         for k in x.get("required_inputs", []):
@@ -542,10 +550,12 @@ class Runner:
                 raise Refused("unsatisfied", f"{k}_provided", "self_serviceable")
         conditions = t.get("conditions") or {}
         for g, mode in (x.get("guards") or {}).items():
-            ok = truth(Evaluator(work, tn, oid, inputs, ctx.who, ctx.stubs).value(flowexpr.parse(conditions[g]["expression"]), {}))
+            asking = Evaluator(work, tn, oid, inputs, ctx.who, ctx.stubs)
+            ok = truth(asking.value(flowexpr.parse(conditions[g]["expression"]), {}))
             if ok is not True:
                 if mode == "deny":
-                    raise Refused("unsatisfied", g, conditions[g].get("remedy"))
+                    # an evaluator that did not answer leaves the guard unknown, and the caller may try again (ADR-0138)
+                    raise Refused("unsatisfied", g, "temporal" if asking.unanswered else conditions[g].get("remedy"))
                 ctx.flags.append((f"{tn}.{g}", mode))
         # 5. the outcome: the new state and the attribute writes
         if oid is None:
@@ -575,9 +585,9 @@ class Runner:
             if w is not None:
                 ctx.wrote(w)
         ctx.taken.append(f"{tn}.{xn}")
-        # 6. the effect, then the cascades to parts, depth-first
-        reached = self.effects(ctx, tn, o, x.get("effect") or [], inputs, {}, depth)
-        self.cascades(ctx, t, tn, xn, o, inputs, depth, reached)
+        # 6. the effect, then the cascades to parts, depth-first (ADR-0038, ADR-0138)
+        self.effects(ctx, tn, o, x.get("effect") or [], inputs, {}, depth)
+        self.cascades(ctx, t, tn, xn, o, inputs, depth)
         o.version += 1
         return o.id
 
@@ -691,7 +701,7 @@ class Runner:
         inner_clause = r.clause if r.verdict == "call_refused" else qualified(r.clause, target_type)
         return Refused("call_refused", inner_clause, r.remedy, detail=f"{step} on {target or 'a new object'}: {r.verdict}")
 
-    def cascades(self, ctx, t, tn, xn, o, inputs, depth, reached):
+    def cascades(self, ctx, t, tn, xn, o, inputs, depth):
         """The parts each composite end drives on this transition, in ascending id order, those already in a
         final state skipped (DESIGN.md §6 step 6)."""
         work = ctx.work
@@ -707,9 +717,6 @@ class Runner:
                 driven = sorted((p for p in parts if not work.final(work.objects[p])), key=lambda p: work.objects[p].id_order)
                 if not driven:
                     continue
-                if reached:
-                    raise NotRunnable("an effect's call or creation and a cascade to parts in one transition, whose "
-                                      "order the design does not state (TODO.md)")
                 if len(driven) > clause.get("limit", len(driven)):
                     raise Refused("over_limit", remedy="unreachable_from_here",
                                   detail=f"the cascade on {an} drives {len(driven)}, over its limit of {clause['limit']}")
@@ -866,8 +873,6 @@ def compare(runner, store, want, outcome, aliases):
             return f"expected the request to apply, and it is refused as {got}"
         if got.verdict != want["verdict"]:
             return f"expected {want['verdict']}, and it is refused as {got}"
-        if "remedy" in want and got.remedy is UNSTATED_REMEDY:
-            raise NotRunnable(f"the remedy of {got.clause}, a generated guard whose remedy class the design does not yet state")
         for k in ("clause", "remedy"):
             if k in want and getattr(got, k) != want[k]:
                 return f"expected the {k} {want[k]}, and it is refused as {got}"
@@ -982,10 +987,19 @@ def self_test():
     except Refused as e:
         check("a whole re-checked when a part is added", (e.verdict, e.clause), ("invariant_violated", "few_lines"))
     r, s, order, _ = fresh(1, cascade_too=True)
-    try:
-        r.attempt(s, "Order", "tangle", order, OPERATOR, {}, {}, {})
-        check("a call and a cascade in one transition", "applied", "not run")
-    except NotRunnable:
-        pass
-    print(f"runner: a small order and its lines, each thing slice 2 executes and each refusal it gives: {'yes' if ok else 'NO'}")
+    check("an effect's creation before the cascade to parts", r.attempt(s, "Order", "tangle", order, OPERATOR, {}, {}, {})[3],
+          ["Line.add", "Line.void", "Line.void"])
+    k = copy.deepcopy(kinds)
+    k["Order"]["conditions"] = {"paid": {"expression": "xero.invoice_paid(note)", "remedy": "dependent"}}
+    k["Order"]["transitions"]["settle"] = {"kind": "internal", "from": ["OPEN"], "guards": {"paid": "deny"}}
+    for answer, want in (("satisfied", "applied"), ("unsatisfied", ("unsatisfied", "dependent")),
+                         ("unanswered", ("unsatisfied", "temporal"))):
+        r, s = Runner(k, {}), Store(k, {})
+        order = r.attempt(s, "Order", "open", None, OPERATOR, {}, {}, {})[1]
+        try:
+            got = r.attempt(s, "Order", "settle", order, OPERATOR, {}, {}, {"xero.invoice_paid": answer})[0]
+        except Refused as e:
+            got = (e.verdict, e.remedy)
+        check(f"an evaluator that answers {answer}", got, want)
+    print(f"runner: a small order and its lines, each thing slices 1 and 2 execute and each refusal they give: {'yes' if ok else 'NO'}")
     return ok
