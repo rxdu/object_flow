@@ -263,6 +263,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** On 2026-09-28 a loop ran every check as `python3 $s > out; echo "$(basename $s) exit=$?"`. The command substitution runs `basename` before `$?` expands, so every script reported `exit=0`, and a corpus check with two findings read as passing. It was caught only because a reader ran the check on its own.
 - **Correction:** Capture the status on the next statement, `python3 $s > out; rc=$?`, and read each output's last lines as well as its status.
 - **Context:** Shell loops over the check scripts, and any loop that reports a status.
+- **Recurrence, 2026-09-29:** the scenarios and corpus checks ran in the background, and the command that printed their statuses also ran `git commit`, so the commit (`c98dfd4`) was made before `scenarios rc=1` and `corpus rc=1` were read. The new notice had changed the notices a quoted publish report lists. A status is read, and a failure handled, before the step that depends on it runs, never chained after it in one command.
 
 ### A check that claims to read a language parses it
 
