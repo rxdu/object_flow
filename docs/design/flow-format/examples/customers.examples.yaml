@@ -1,0 +1,79 @@
+# yaml-language-server: $schema=../examples.schema.json
+# What the customers flow's overrides, corrections and erasures do, as examples the engine runs at every
+# publish (flow-format.md §11, ADR-0136).
+examples_for: customers
+
+setups:
+  a_prospect:
+    description: Dana Lee, registered as a prospect with no email yet.
+    steps:
+      - request: { type: Customer, transition: register, as: dana, inputs: { name: Dana Lee } }
+  an_active_customer:
+    description: Dana, activated with her email, and one contact at her firm.
+    given: a_prospect
+    steps:
+      - request: { object: dana, transition: activate, inputs: { email: dana@example.com } }
+      - request: { object: dana, transition: add_contact, inputs: { role: Purchasing, phone: "+65 6123 4567" } }
+
+examples:
+  an_override_admits_what_it_breaks:
+    description: Dana is really active, though her email was never recorded; the override admits the missing email.
+    given: a_prospect
+    request:
+      object: dana
+      transition: correct_state
+      inputs: { to: ACTIVE, reason: OverrideReason.MIS_KEYED, admits: [active_invariant] }
+    expect: { verdict: applied, state: ACTIVE }
+
+  an_override_that_does_not_admit_is_refused:
+    description: The same override without the admission is refused, since an active customer has an email.
+    given: a_prospect
+    request: { object: dana, transition: correct_state, inputs: { to: ACTIVE, reason: OverrideReason.MIS_KEYED } }
+    expect: { verdict: invariant_violated, clause: active_invariant }
+
+  an_override_to_the_state_it_is_in_is_refused:
+    description: No transition leaves a state for itself, so an override to the current state is refused.
+    given: a_prospect
+    request: { object: dana, transition: correct_state, inputs: { to: PROSPECT, reason: OverrideReason.MIS_KEYED } }
+    expect: { verdict: invalid_input }
+
+  erasing_reaches_the_contacts:
+    description: Erasing Dana removes her name and email and her contact's phone, and keeps her record's state.
+    given: an_active_customer
+    request: { object: dana, transition: forget, inputs: { reason: asked } }
+    expect:
+      verdict: applied
+      state: ACTIVE
+      values: { name: null, email: null }
+      cascaded: [Contact.forget]
+
+  what_was_erased_stays_erased:
+    description: Once Dana is erased, a correction that would write her email again is refused.
+    given: an_active_customer
+    steps:
+      - request: { object: dana, transition: forget, inputs: { reason: asked } }
+    request: { object: dana, transition: correct_email, inputs: { email: dana@example.org, reason: typo } }
+    expect: { verdict: unsatisfied, clause: not_erased, remedy: unreachable_from_here }
+
+  an_open_order_keeps_the_customer_open:
+    description: A customer is not closed while an order of theirs is open.
+    given: a_prospect
+    steps:
+      - request: { type: Order, transition: place, inputs: { customer: dana, total: SGD 100.00 } }
+    request: { object: dana, transition: close }
+    expect: { verdict: unsatisfied, clause: no_open_orders, remedy: dependent }
+
+  erasing_follows_a_merge:
+    description: Erasing the customer a duplicate was merged into erases the duplicate too, through its own erasure.
+    given: a_prospect
+    steps:
+      - request: { type: Customer, transition: register, as: duplicate, inputs: { name: D. Lee } }
+      - request: { object: dana, transition: merge_in, inputs: { duplicate: duplicate } }
+    request: { object: dana, transition: forget, inputs: { reason: asked } }
+    expect: { verdict: applied, state: PROSPECT, values: { name: null }, cascaded: [Customer.forget] }
+
+  a_correction_replaces_a_mis_keyed_email:
+    description: A wrongly recorded email is corrected, with the reason recorded.
+    given: an_active_customer
+    request: { object: dana, transition: correct_email, inputs: { email: dana@example.org, reason: typo } }
+    expect: { verdict: applied, state: ACTIVE, values: { email: dana@example.org } }

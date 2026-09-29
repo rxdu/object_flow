@@ -48,6 +48,21 @@ def timestamp(text):
     return Fraction(int((t - EPOCH).total_seconds()))
 
 
+def names_read(n):
+    """The bare names an expression reads at the start of a path, a loop's own binder excepted."""
+    if not isinstance(n, tuple) or not n:
+        return set()
+    if n[0] == "name":
+        return {n[1]}
+    if n[0] == "path":
+        return names_read(n[1])
+    if n[0] == "agg":
+        inner = (names_read(n[5]) if n[5] else set()) | (names_read(n[6]) if n[6] else set())
+        return (names_read(n[4]) if n[4] else set()) | (inner - {n[3]})
+    parts = [p for p in n[1:] if isinstance(p, tuple)] + [q for p in n[1:] if isinstance(p, list) for q in p if isinstance(q, tuple)]
+    return set().union(*(names_read(p) for p in parts)) if parts else set()
+
+
 def truth(v):
     """A value as the three-valued logic reads it: True, False or ABSENT (unknown)."""
     return v if v is True or v is False else ABSENT
@@ -60,6 +75,8 @@ class Obj:
         self.entered = {state: created_at}      # when it most recently entered each state it has been in
         self.version = 1
         self.id_order = 0                       # creation order, which ascending id order is (§5.1)
+        self.admissions = set()                 # invariants whose violation an admission lets stand (ADR-0054)
+        self.erased = False                     # its own erasure is recorded (DESIGN.md §8)
 
 
 class Store:
@@ -123,8 +140,10 @@ class Evaluator:
             return self.this if self.this is not None else ABSENT
         if n in ("inputs", "actor"):
             return ("marker", n)
-        if n in ("referrers", "this_event"):
-            raise NotRunnable(f"`{n}`")
+        if n == "referrers":
+            return self.referrers()
+        if n == "this_event":
+            raise NotRunnable("`this_event`")
         if n == "state" or n in (self.t.get("attributes") or {}) or n in (self.t.get("derived_attributes") or {}) \
                 or n in (self.t.get("observations") or {}) or n in ("id", "open", "created_at", "created_by_kind"):
             return self.member(self.this, n) if self.this is not None else ABSENT
@@ -157,6 +176,8 @@ class Evaluator:
         t = self.s.kinds.get(o.type) or {}
         if m == "id":
             return o.id
+        if m == "type":
+            return ("typeref", o.type)
         if m == "state":
             return ("state", o.type, o.state)
         if m == "created_at":
@@ -183,6 +204,26 @@ class Evaluator:
         if m in ("recorded_at", "occurred_at", "subject", "corrects") and m in o.attrs:
             return o.attrs[m]
         raise NotRunnable(f"the member `{o.type}.{m}`")
+
+    def referrers(self):
+        """Every object holding a reference to this one, its parts excepted, since they cascade (§4.13)."""
+        if self.this is None:
+            return ()
+        out = []
+        for x in sorted(self.s.objects.values(), key=lambda x: x.id_order):
+            if x.id == self.this:
+                continue
+            for a, spec in ((self.s.kinds.get(x.type) or {}).get("attributes") or {}).items():
+                spec = spec or {}
+                if "reference" not in spec or a not in x.attrs:
+                    continue
+                target = self.s.kinds.get(spec["reference"].rstrip("[]")) or {}
+                owner = ((target.get("attributes") or {}).get(spec.get("opposite") or "") or {}).get("aggregation") == "composite"
+                value = x.attrs[a]
+                if not owner and (value == self.this or (isinstance(value, tuple) and self.this in value)):
+                    out.append(x.id)
+                    break
+        return tuple(out)
 
     def opposite_end(self, o, spec):
         """An end the other side stores: the objects of the target type whose opposite end names this one."""
@@ -359,6 +400,8 @@ class Ctx:
         self.written = []           # object ids, in the order first written
         self.taken = []             # "Type.transition" of every transition taken, the requested one first
         self.flags = []             # the audit and warn guards that failed, at any depth
+        self.asserted, self.admits = None, set()    # the object an assertion set, and what it admits
+        self.erased = {}            # object id -> the personal attributes this request erased on it
 
     def wrote(self, oid):
         if oid not in self.written:
@@ -432,14 +475,15 @@ class Runner:
             raise Refused("unknown_transition", remedy="self_serviceable")
         if x.get("only_via"):
             raise Refused("not_requestable", remedy="unreachable_from_here")
-        if x["kind"] in ("assertion", "erasure") or x.get("corrects"):
-            raise NotRunnable("an assertion" if x["kind"] == "assertion" else "an erasure" if x["kind"] == "erasure" else "a correction")
         self.check_state(work, x, oid)
         inputs = {}
         attrs = t.get("attributes") or {}
         declared = x.get("inputs") or {}
         taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared)
         for k, v in (raw_inputs or {}).items():
+            if x["kind"] == "assertion" and k in ("to", "admits"):
+                inputs[k] = tuple(v) if k == "admits" else v      # a state, and invariants, by name (§4.13)
+                continue
             if k not in taken:
                 raise Refused("invalid_input", remedy="self_serviceable", detail=f"no input {k}")
             value = self.value_of(work, declared.get(k) if k in declared else attrs.get(k), v, aliases)
@@ -447,13 +491,23 @@ class Runner:
                 inputs[k] = value
         try:
             root = self.take(ctx, tn, xn, oid, inputs, depth=0)
-            # 7. the invariants of every object written, in ascending id order
-            for w in sorted(ctx.written, key=lambda i: work.objects[i].id_order):
-                failing = self.failing_invariants(work, work.objects[w])
-                if failing:
-                    ot = work.objects[w].type
-                    names = [n if ot == tn else f"{ot}.{n}" for n in failing]
-                    raise Refused("invariant_violated", names[0], detail=", ".join(names[1:]) and "and " + ", ".join(names[1:]))
+            # 7. every invariant the writes could violate, in ascending id order of the object it fails on, except
+            # a violation an admission lets stand, which is discharged once the invariant holds again (ADR-0054)
+            for obj in sorted(work.objects.values(), key=lambda o: o.id_order):
+                failing = self.failing_invariants(work, obj)
+                obj.admissions &= set(failing)
+                refused = []
+                for n in failing:
+                    if n in obj.admissions:
+                        continue
+                    if (obj.id == ctx.asserted and n in ctx.admits) or f"{obj.type}.{n}" in ctx.admits:
+                        obj.admissions.add(n)           # an assertion's admission (§4.13)
+                    elif obj.id in ctx.erased and self.reads(obj.type, n) & ctx.erased[obj.id]:
+                        obj.admissions.add(n)           # an erasure admits what reads what it erased (§4.13)
+                    else:
+                        refused.append(n if obj.type == tn else f"{obj.type}.{n}")
+                if refused:
+                    raise Refused("invariant_violated", refused[0], detail=", ".join(refused[1:]) and "and " + ", ".join(refused[1:]))
         except Refused:
             store.sequences = work.sequences    # a number minted by a refused request stays used: the gap
             raise
@@ -486,7 +540,11 @@ class Runner:
             o.attrs[a] = re.sub(r"\{([^}]+)\}", field, ident.get("format", "{n}"))
 
     def check_state(self, work, x, oid):
-        if oid is None:
+        if oid is None or x["kind"] == "erasure":       # an erasure runs at any state, a final one included
+            return
+        if x["kind"] == "assertion":                    # an assertion runs from any state but a final one
+            if work.final(work.objects[oid]):
+                raise Refused("unavailable", remedy="unreachable_from_here", detail=f"it is in {work.objects[oid].state}")
             return
         froms = x.get("from")
         froms = [froms] if isinstance(froms, str) else list(froms or [])
@@ -501,8 +559,6 @@ class Runner:
         x = (t.get("transitions") or {}).get(xn)
         if x is None or (x["kind"] == "initial") != (oid is None):
             raise Refused("unknown_transition", remedy="self_serviceable")
-        if x["kind"] in ("assertion", "erasure") or x.get("corrects"):
-            raise NotRunnable("an assertion" if x["kind"] == "assertion" else "an erasure" if x["kind"] == "erasure" else "a correction")
         attrs = t.get("attributes") or {}
         declared = x.get("inputs") or {}
         taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared)
@@ -527,14 +583,31 @@ class Runner:
                 inputs[k] = Evaluator(work, tn, oid, inputs, ctx.who, ctx.stubs).value(flowexpr.parse(spec["default"]), {})
             elif k not in inputs and not (spec or {}).get("optional"):
                 raise Refused("invalid_input", remedy="self_serviceable", detail=f"{k} left out")
+        if x["kind"] == "assertion":
+            o = work.objects[oid]
+            if inputs.get("to") not in (x.get("to") if isinstance(x.get("to"), list) else [x.get("to")]) or inputs.get("to") == o.state:
+                raise Refused("invalid_input", remedy="self_serviceable", detail=f"{inputs.get('to')} is not a state it may put the object in")
+            if not set(inputs.get("admits", ())) <= set(x.get("may_admit") or []):
+                raise Refused("invalid_input", remedy="self_serviceable", detail="an admission it does not list in may_admit")
+            ctx.asserted, ctx.admits = oid, set(inputs.get("admits", ()))
         # the generated guards, then the <attribute>_provided ones, then the transition's own (flow-format.md §4.8)
+        personal = {a for a, sp in attrs.items() if (sp or {}).get("personal")}
+        if oid is not None and x["kind"] != "erasure" and work.objects[oid].erased:
+            writes = set(inputs) & set(x.get("required_inputs", []) + x.get("optional_inputs", []))
+            writes |= {st["assign"]["location"] for st in x.get("effect") or [] if "assign" in st}
+            if writes & personal:
+                raise Refused("unsatisfied", "not_erased", GENERATED_REMEDY["not_erased"])
         if xn == "record" and "subject" in inputs:
             subject = work.objects[inputs["subject"]]
-            if "corrects" in inputs:
-                raise NotRunnable("a correction of a recorded datapoint, whose guard corrects_current this runner does not yet evaluate")
             if (self.kinds.get(subject.type) or {}).get("mirror"):
-                raise NotRunnable("a recording on a mirror's object, whose guard subject_owned this runner does not yet evaluate")
-            if work.final(subject):
+                raise Refused("unsatisfied", "subject_owned", GENERATED_REMEDY["subject_owned"])
+            if "corrects" in inputs:
+                corrected = work.objects[inputs["corrects"]]
+                if corrected.attrs.get("subject") != subject.id:
+                    raise NotRunnable("a correction naming a datapoint of another subject, whose refusal the design does not state")
+                if any(other.attrs.get("corrects") == corrected.id for other in work.objects.values()):
+                    raise Refused("unsatisfied", "corrects_current", GENERATED_REMEDY["corrects_current"])
+            elif work.final(subject):       # a correction may be recorded after the subject is finished (DESIGN.md §5.11)
                 raise Refused("unsatisfied", "subject_open", GENERATED_REMEDY["subject_open"])
         wholes = []
         for k in set(x.get("required_inputs", []) + x.get("optional_inputs", [])) & set(inputs):
@@ -575,6 +648,11 @@ class Runner:
             if x["kind"] == "external":
                 o.state = x["to"]
                 o.entered[o.state] = work.now
+            elif x["kind"] == "assertion":
+                o.state = inputs["to"]
+                o.entered[o.state] = work.now
+            elif x["kind"] == "erasure":
+                self.erase(ctx, o)
         for k in x.get("required_inputs", []) + x.get("optional_inputs", []):
             if k in inputs:
                 o.attrs[k] = inputs[k]
@@ -588,6 +666,8 @@ class Runner:
         # 6. the effect, then the cascades to parts, depth-first (ADR-0038, ADR-0138)
         self.effects(ctx, tn, o, x.get("effect") or [], inputs, {}, depth)
         self.cascades(ctx, t, tn, xn, o, inputs, depth)
+        if x["kind"] == "erasure":
+            self.erase_chain(ctx, o, inputs, depth)
         o.version += 1
         return o.id
 
@@ -733,6 +813,61 @@ class Runner:
                         raise Refused(r.verdict, qualified(r.clause, ptype) if r.verdict != "call_refused" else r.clause,
                                       r.remedy, detail=f"cascading to {p}: {r.detail}")
 
+    def erase(self, ctx, o):
+        """Its personal attributes made absent, and its observations' personal fields, which the subject's erasure
+        reaches through each one's generated `forget` without a declared step (DESIGN.md §8)."""
+        work = ctx.work
+        t = self.kinds.get(o.type) or {}
+        erased = {a for a, sp in (t.get("attributes") or {}).items() if (sp or {}).get("personal") and a in o.attrs}
+        for a in erased:
+            del o.attrs[a]
+        o.erased = True
+        ctx.erased.setdefault(o.id, set()).update(erased)
+        for ob in (t.get("observations") or {}).values():
+            fields = {a for a, sp in (ob.get("attributes") or {}).items() if (sp or {}).get("personal")}
+            for other in work.objects.values():
+                if other.type == ob["kind"] and other.attrs.get("subject") == o.id:
+                    gone = fields & set(other.attrs)
+                    for a in gone:
+                        del other.attrs[a]
+                    if gone:
+                        ctx.erased.setdefault(other.id, set()).update(gone)
+                        ctx.wrote(other.id)
+
+    def erase_chain(self, ctx, o, inputs, depth):
+        """Every member of its supersession chain, predecessors and successors, each through its own type's erasure,
+        in one request (ADR-0087)."""
+        work = ctx.work
+        chain, todo = set(), [o.id]
+        while todo:
+            cur = todo.pop()
+            if cur in chain:
+                continue
+            chain.add(cur)
+            succ = work.objects[cur].attrs.get("_successor")
+            if succ:
+                todo.append(succ)
+            todo += [p.id for p in work.objects.values() if p.attrs.get("_successor") == cur]
+        for member in sorted(chain - {o.id}, key=lambda i: work.objects[i].id_order):
+            m = work.objects[member]
+            if m.erased and member in ctx.erased:
+                continue
+            erasures = [n for n, xx in ((self.kinds.get(m.type) or {}).get("transitions") or {}).items() if xx["kind"] == "erasure"]
+            if not erasures:
+                raise NotRunnable(f"erasing {m.type}, a member of the chain, which declares no erasure")
+            self.take(ctx, m.type, erasures[0], member, {k: v for k, v in inputs.items() if k == "reason"}, depth + 1)
+
+    def reads(self, tn, n):
+        """The attributes an invariant reads, generated ones included: an attribute's uniqueness, a state's requirement."""
+        t = self.kinds.get(tn) or {}
+        if n.endswith("_unique"):
+            return {n[:-len("_unique")]}
+        if n.endswith("_invariant"):
+            state = {s.lower(): v for s, v in (t.get("states") or {}).items()}.get(n[:-len("_invariant")]) or {}
+            return set(state.get("required_attributes") or [])
+        inv = (t.get("invariants") or {}).get(n)
+        return names_read(flowexpr.parse(inv["expression"])) if inv else set()
+
     def failing_invariants(self, store, o):
         """An object's failing invariants in the order its type declares them: an attribute's uniqueness, a
         state's required attributes, then the invariants (flow-format.md §3's order)."""
@@ -766,7 +901,7 @@ class Runner:
                 out.append(f"{a}_unique")
         st = (t.get("states") or {}).get(o.state) or {}
         if any(a not in o.attrs for a in st.get("required_attributes") or []):
-            out.append(f"{o.state}_invariant")
+            out.append(f"{o.state.lower()}_invariant")
         for n, inv in (t.get("invariants") or {}).items():
             if truth(Evaluator(store, o.type, o.id).value(flowexpr.parse(inv["expression"]), {})) is False:
                 out.append(n)
@@ -843,6 +978,8 @@ def step(runner, store, st, aliases, stubs, under_test=False):
             o.attrs[k] = runner.value_of(store, attrs.get(k), v, aliases)
         store.objects[o.id] = o
         aliases[im["as"]] = o.id
+        # the import writes through the built-in assertion, so what it brings in violating stands admitted (DESIGN.md §8)
+        o.admissions = set(runner.failing_invariants(store, o))
         return None
     r = st["request"]
     if r.get("after"):

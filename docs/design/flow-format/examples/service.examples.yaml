@@ -64,3 +64,43 @@ examples:
           inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
     request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana } }
     expect: { verdict: applied, state: DONE, values: { signed_off_by_user: ana } }
+
+  a_corrected_result_replaces_the_mistake:
+    description: A failure recorded by mistake is corrected to a pass at the same moment, so no later inspection resolves it, and the job finishes only because a read sees what was not corrected.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          as: mistake
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.FAIL }
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS, corrects: mistake }
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana } }
+    expect: { verdict: applied, state: DONE }
+
+  a_result_is_corrected_once:
+    description: A result already corrected is not corrected again; the newest one is what a caller corrects.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          as: mistake
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.FAIL }
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS, corrects: mistake }
+    request:
+      type: InspectionResult
+      transition: record
+      actor: ana
+      inputs: { subject: job, check: battery, outcome: CheckOutcome.NOT_APPLICABLE, corrects: mistake }
+    expect: { verdict: unsatisfied, clause: corrects_current, remedy: self_serviceable }

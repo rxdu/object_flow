@@ -2442,7 +2442,7 @@ def example_errors(doc, kinds, modules):
                 continue
             ct, cn = clause.split(".", 1) if "." in clause else (tn, clause)
             t = kinds.get(ct) or {}
-            generated = {f"{s}_invariant" for s, v in (t.get("states") or {}).items() if v.get("required_attributes")}
+            generated = {f"{s.lower()}_invariant" for s, v in (t.get("states") or {}).items() if v.get("required_attributes")}
             generated |= {f"{a}_unique" for a, v in (t.get("attributes") or {}).items() if v.get("unique")}
             if cn not in (t.get("invariants") or {}) and cn not in generated:
                 out.append((here + ("clause",), "names", f"{clause} is not an invariant of {ct}"))
@@ -2993,14 +2993,15 @@ def runner_plants(people, service, examples):
          "values: { signed_off_by_user: ana }", "values: { signed_off_by_user: ben }"),
         ("a setup whose second engineer reuses a unique login", "example",
          "inputs: { login: ben, name: Ben }", "inputs: { login: ana, name: Ben }"),
-        ("an example the runner cannot yet run", "notrun", "  a_job_opens_for_an_active_engineer:",
-         "  an_erasure:\n    description: The notes are erased.\n    given: job_in_progress\n"
-         "    request: { object: job, transition: forget, inputs: { reason: asked } }\n"
-         "    expect: { verdict: applied, state: WORKING }\n\n  a_job_opens_for_an_active_engineer:"),
+        ("an example the runner cannot yet run", "notrun", None, None),
     ]
+    # a guard reading how long the job has been open, which the runner's fourth slice will compute
+    timed = service.replace("        backdating_limit: 2 days\n", "        backdating_limit: 2 days\n        guards:\n          waited: deny\n", 1) \
+                   .replace("      photo_attached:\n", "      waited:\n        description: The job has been open for a minute.\n"
+                                                  "        expression: time_in(OPEN) >= 1 min\n        remedy: temporal\n      photo_attached:\n", 1)
     for name, code, old, new in plants:
-        found, notes = check([("people.yaml", people), ("service.yaml", service),
-                              ("service.examples.yaml", examples.replace(old, new, 1))])
+        found, notes = check([("people.yaml", people), ("service.yaml", service if old else timed),
+                              ("service.examples.yaml", examples.replace(old, new, 1) if old else examples)])
         hit = [x for x in found + notes if x[3] == code]
         ok &= bool(hit)
         print(f"  planted {name}: {'caught by ' + code + ', at ' + hit[0][0] + ':' + str(hit[0][1]) + ' ' + hit[0][4][:70] if hit else 'MISSED ' + str((found + notes)[:2])}")

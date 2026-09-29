@@ -485,7 +485,7 @@ def state_invariants(t):
     out = {n: flowexpr.parse(i["expression"]) for n, i in (t.get("invariants") or {}).items()}
     for s, v in (t.get("states") or {}).items():
         if v.get("required_attributes"):
-            out[f"{s}_invariant"] = flowexpr.parse(
+            out[f"{s.lower()}_invariant"] = flowexpr.parse(
                 f"state != {s} or (" + " and ".join(f"{a} is not null" for a in v["required_attributes"]) + ")")
     return out
 
