@@ -88,7 +88,7 @@ Current: 85 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | D12 | DESIGN §5.11; ADR-0082, ADR-0096; declaration-syntax.md §6.8, §8.3; ADR-0103; ADR-0114 | covered |  |
 | C1 | DESIGN §5.2, §5.12; ADR-0084; declaration-syntax.md §6.9; ADR-0098; declaration-syntax.md §8.3; ADR-0103; ADR-0106 | covered |  |
 | C2 | DESIGN §5.2, §5.12; ADR-0084, ADR-0098; declaration-syntax.md §6.9; renderers.md §2, §3; library-api.md §5, §6; ADR-0106; ADR-0114 | covered | |
-| C3 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9; ADR-0098 | covered |  |
+| C3 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9; ADR-0098; ADR-0142, over periods | covered |  |
 | C4 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9 | covered | |
 | C5 | DESIGN §5.12; ADR-0084; data-driven-engine.md §7 | unverifiable | the PRD leaves the target to be set by measurement; data-driven-engine.md §7 records an indicative SQLite probe, and the author sets the target |
 | C6 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9 | covered | |

@@ -3,7 +3,7 @@
 - **Status:** Accepted — decided 2026-09-24 at the author's direction ("review the design against the PRD again with the updated example walkthrough … ensure the design can fully satisfy what we want to achieve"), against `docs/PRD.md` §2, §8, F1, F3, D5, D12, C1, C3, T2, T3, T5, N1, N2, N5 and UC-6, UC-12; repairs D275 to D279 and D282 to D288 Accepted by the author on 2026-09-26: "accept the older pending ADRs too".
 - **Date:** 2026-09-24
 - **Refines:** ADR-0014, ADR-0022, ADR-0029, ADR-0041, ADR-0047, ADR-0072, ADR-0100, ADR-0101
-- **Refined by:** ADR-0110 — `requests by <kind>` reads the kind the actor's type declares, never one a request claims. ADR-0114 — `requests by <kind> require …` is withdrawn; an upper layer that requires a version and a key of some actors enforces it at its own edge.
+- **Refined by:** ADR-0110 — `requests by <kind>` reads the kind the actor's type declares, never one a request claims. ADR-0114 — `requests by <kind> require …` is withdrawn; an upper layer that requires a version and a key of some actors enforces it at its own edge. ADR-0142 — §5's limit, a span bucketed by the month it began, is lifted where a metric splits its spans across the periods they cover.
 - **Amends:** ADR-0102, in place, since it is still proposed
 
 ## Context
@@ -130,7 +130,7 @@ The code itself is not computed from the maker's name, because the language has 
 
 `<duration> / <duration>` and `<money(C)> / <money(C)>` yield a `decimal(19,6)`, rounded half to even. A zero divisor yields `unknown`, as for every division. A utilisation, a share of time or a share of revenue can therefore be declared (C1), including as a combined metric over two metrics that each yield a duration. Dividing quantities of different kinds, or money of different currencies, stays an error (check 24).
 
-**A metric buckets a span by when it began.** `month(i.entered_at)` puts a whole span in the month it started, as it always has. A share of time is therefore right over a unit's whole history, but not per month. `unit-journey.md`'s `pool_utilisation` is declared per model, over the whole history. Apportioning a span across buckets would need intervals split at bucket boundaries, which the metric form does not do. `edge-cases.md` records that as a known limit.
+**A metric buckets a span by when it began.** `month(i.entered_at)` puts a whole span in the month it started, as it always has. A share of time is therefore right over a unit's whole history, but not per month. `unit-journey.md`'s `pool_utilisation` is declared per model, over the whole history. Apportioning a span across buckets would need intervals split at bucket boundaries, which the metric form does not do. `edge-cases.md` records that as a known limit. *(Refined 2026-09-29 by ADR-0142: a metric may now split its spans across the periods they cover, and `pool_utilisation` is declared by model and month.)*
 
 ### 6. Where an unknown filter selects nothing, and where it keeps a guard closed
 

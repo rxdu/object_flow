@@ -557,14 +557,14 @@ types:
         time_dimension: u.entered_at(RETIRED)
         expression: count()
       time_in_pool:
-        description: The time units have spent in the company-owned pool, by model and month.
+        description: The time units have spent in the company-owned pool, by model and month, each span's time counted in the months it covers.
         source: intervals
         item: i
+        split_by: month
         filter: i.state == Robot.DEVELOPMENT
         dimensions:
           model: i.object.model
-          month: month(i.entered_at)
-        time_dimension: i.entered_at
+          month: i.period
         expression: sum(i.duration)
 ```
 
@@ -1278,15 +1278,15 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
 
     metrics:
       time_on_loan:
-        description: The time units have spent on engagements, from being added to leaving, by model, kind of engagement and the month the time began.
+        description: The time units have spent on engagements, from being added to leaving, by model, kind of engagement and month, each span's time counted in the months it covers.
         source: intervals
         item: i
+        split_by: month
         filter: i.state == EngagementLine.OPEN
         dimensions:
           model: i.object.robot.model
           kind: i.object.engagement.kind
-          month: month(i.entered_at)
-        time_dimension: i.entered_at
+          month: i.period
         expression: sum(i.duration)
 
   Lease:
@@ -1367,16 +1367,16 @@ The one metric that crosses types is declared last:
 
 metrics:
   pool_utilisation:
-    description: "Time on engagements over time in the pool, by model, over the whole history: the share of a pooled unit's time on an engagement, scheduled, out or returning, which can exceed 1 where an assertion moves a unit out of the pool with its line still open."
+    description: "Time on engagements over time in the pool, by model and month: the share of a pooled unit's time on an engagement, scheduled, out or returning, which can exceed 1 where an assertion moves a unit out of the pool with its line still open."
     input_metrics:
       on_loan: EngagementLine.time_on_loan
       pool: Robot.time_in_pool
-    group_by: [model]
+    group_by: [model, month]
     expression: on_loan / pool
     flag_when: { idle: "value < 0.300" }
 ```
 
-Pool utilisation, the share of a pooled unit's time spent on engagements, scheduled or out, since a scheduled engagement already holds its units (§6), is the question ADR-0002 asks first ("how much did we use it?"). `pool_utilisation` divides `time_on_loan` by `time_in_pool` per model, over the whole history. Writing this module found that a duration could not be divided by a duration (`design/defects.md` D275), and ADR-0103 made the quotient of two like quantities a decimal. It is not declared per month: a metric buckets a span by the month it began, so a unit that joined the pool in January would put all its pool time in January, and apportioning a span across months is a known limit (`edge-cases.md`, ADR-0103 §5).
+Pool utilisation, the share of a pooled unit's time spent on engagements, scheduled or out, since a scheduled engagement already holds its units (§6), is the question ADR-0002 asks first ("how much did we use it?"). `pool_utilisation` divides `time_on_loan` by `time_in_pool` per model and month, the monthly fleet utilisation the operations review asked for (`flow-review.md` §4.2). Writing this module found that a duration could not be divided by a duration (`design/defects.md` D275), and ADR-0103 made the quotient of two like quantities a decimal. Its two inputs split each span across the months it covers, so a unit that joined the pool in January counts its pool time in each month it spent there (ADR-0142). *(Corrected 2026-09-29: until ADR-0142 it was declared per model over the whole history, since a metric then bucketed a span by the month it began.)*
 
 *(Corrected 2026-09-27, when a review asked whether a builder given only the specification and the module could recover it (D408, ADR-0122): `discard` and `delete` now clear the unit's peg, and `unpeg` is taken from any state, so no unit leaves its delivery unable to be cancelled; `accept_return` clears `used_in`, so a returned part can be voided or bound; `convert_lease` clears the internal delivery's `binding`, and `recall_internal` refuses a unit on loan; the engagement's `nonempty` and `fit` read its open lines, and `swap_unit` requires the unit it swaps out to be on it; `pristine` passes over deleted units; and the model's two flags and a delivery's `internal` are optional inputs that take their defaults when left out. A second and a third review added that the journey imports from a module of its own (D410), that an engagement holds at most the 20 units its end reaches, that `expected_return` and a shipment's tracking can be set later, that `reopen` re-checks its engineer and unit, and that `correct_state` releases a unit's peg, binding and part claim, which the states it puts a unit in never hold (D415, D420).)*
 

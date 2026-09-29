@@ -1399,6 +1399,10 @@
           "$ref": "#/definitions/memberName",
           "description": "The name each row is read by."
         },
+        "split_by": {
+          "description": "For a source of spans, the calendar bucket each span is cut at: each row is then one piece of a span, with its period, its bounds and its own duration (ADR-0142).",
+          "enum": ["day", "week", "month", "quarter", "year"]
+        },
         "filter": {
           "$ref": "#/definitions/expression",
           "description": "The rows counted: those the expression holds for (dbt's filter, a WHERE clause)."

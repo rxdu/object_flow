@@ -618,6 +618,12 @@ def data_checks(decls, by_name, text, base=0):
                 add(56, f"metric {d.name} reads {base_}, which is neither a type nor an observation kind", fln)
             if member and src_decl is not None and not tracked(src_decl, member, by_name):
                 add(58, f"metric {d.name} reads intervals of {base_}.{member}, which is not tracked", fln)
+            # a span split across the calendar buckets it covers, whose time is its pieces' (ADR-0142)
+            if re.search(r"\bsplit\s+by\b", fr):
+                if suffix != "intervals":
+                    add(56, f"metric {d.name} splits {base_}{'.' + suffix if suffix else ''}, and only a type's spans are split", fln)
+                if "window on" in d.clauses:
+                    add(56, f"metric {d.name} splits its spans and declares 'window on'; a window clips its pieces", fln)
             if suffix is not None:
                 src_decl = None                  # a dataset's rows are not the type's members
                 dataset = True
@@ -646,7 +652,7 @@ def data_checks(decls, by_name, text, base=0):
     def windowed(md, seen=()):
         """A metric a guard may window: one that declares 'window on', or a combined one whose every input does,
         the window selecting each input's rows (ADR-0128)."""
-        if "window on" in md.clauses:
+        if "window on" in md.clauses or any(re.search(r"\bsplit\s+by\b", f) for f, _l in md.clauses.get("from", [])):
             return True
         inputs = [x.split("=", 1)[1].strip().split(".")[-1] for c, _l in md.clauses.get("combine", []) for x in c.split(",") if "=" in x]
         return bool(inputs) and all(n in metrics and n not in seen and windowed(metrics[n], seen + (md.name,)) for n in inputs)

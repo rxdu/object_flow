@@ -191,6 +191,47 @@ def bucket(unit, ts):
             "year": str(t.year)}[unit]
 
 
+def next_boundary(unit, ts):
+    """The start of the UTC calendar bucket after the one a timestamp is in, a week beginning on Monday (ADR-0106)."""
+    t = EPOCH + datetime.timedelta(seconds=math.floor(ts))
+    day = datetime.datetime(t.year, t.month, t.day, tzinfo=datetime.timezone.utc)
+    if unit == "day":
+        n = day + datetime.timedelta(days=1)
+    elif unit == "week":
+        n = day - datetime.timedelta(days=t.weekday()) + datetime.timedelta(days=7)
+    elif unit == "month":
+        n = datetime.datetime(t.year + (t.month == 12), t.month % 12 + 1, 1, tzinfo=datetime.timezone.utc)
+    elif unit == "quarter":
+        m = (t.month - 1) // 3 * 3 + 4
+        n = datetime.datetime(t.year + (m > 12), (m - 1) % 12 + 1, 1, tzinfo=datetime.timezone.utc)
+    else:
+        n = datetime.datetime(t.year + 1, 1, 1, tzinfo=datetime.timezone.utc)
+    return Fraction(int((n - EPOCH).total_seconds()))
+
+
+def pieces(span, unit):
+    """A span cut at every bucket boundary it crosses, each piece with its bucket, its bounds and its duration; a span
+    with no duration is one piece, in the bucket it began, with none (ADR-0142)."""
+    start, d = span["entered_at"], span["duration"]
+    if d is ABSENT:
+        return [Row(span, period=bucket(unit, start), piece_start=start, piece_end=ABSENT, duration=ABSENT)]
+    end, out, at = start + d, [], start
+    while True:
+        cut = min(next_boundary(unit, at), end)
+        out.append(Row(span, period=bucket(unit, at), piece_start=at, piece_end=cut, duration=cut - at))
+        if cut >= end:
+            return out
+        at = cut
+
+
+def clipped(piece, low, high):
+    """The part of a piece between two times, both included, or None where it has none there (ADR-0142 decision 4)."""
+    if piece["duration"] is ABSENT or piece["duration"] == 0:
+        return piece if low <= piece["piece_start"] <= high else None
+    a, b = max(piece["piece_start"], low), min(piece["piece_end"], high)
+    return Row(piece, piece_start=a, piece_end=b, duration=b - a) if b > a else None
+
+
 def tracked_members(kinds, enums, tn):
     """The members whose every value is timed: the state, each enumeration attribute and each singular stored
     reference (PRD D11, DESIGN.md §7)."""
@@ -824,6 +865,14 @@ class Evaluator:
             return rounded(self.value(tree, values), kind), kind
         f = formula(s.kinds, s.enums, owner, spec)
         rows, rowkind, by_kind = self.metric_rows(owner, f["source"])
+        split = f.get("split_by")
+        if split:
+            if rowkind[0] != "interval":
+                raise NotRunnable(f"a metric over {f['source']} split by {split}, which splits spans alone")
+            # each span cut at the boundaries of the buckets it covers, and a window clips the pieces (ADR-0142)
+            rows = [p for r in rows for p in pieces(r, split)]
+            if window is not None:
+                rows = [p for p in (clipped(r, s.now - window, s.now) for r in rows) if p is not None]
         item = f["item"]
         row = Evaluator(s, owner, stubs=self.stubs, filter_mode=True)
         dims = {"version": f"{item}.declaration_version", "actor_kind": f"{item}.{by_kind}"}
@@ -831,10 +880,10 @@ class Evaluator:
         for d in bound:
             if d not in dims:
                 raise NotRunnable(f"a read binding {d}, which the metric does not have")
-        if window is not None and not f.get("time_dimension"):
+        if window is not None and not f.get("time_dimension") and not split:
             raise NotRunnable("a window on a metric with no time dimension")
         where = parsed(f["filter"]) if f.get("filter") else None
-        stamp = parsed(f["time_dimension"]) if window is not None else None
+        stamp = parsed(f["time_dimension"]) if window is not None and not split else None
         picked = []
         for r in rows:
             env = {item: r}
@@ -1009,7 +1058,7 @@ class Evaluator:
     def member_kind(self, base, m):
         if base[0] == "interval":
             return {"entered_at": ("timestamp",), "left_at": ("timestamp",), "duration": ("duration",),
-                    "object": ("object", base[1])}.get(m, ("other",))
+                    "piece_start": ("timestamp",), "piece_end": ("timestamp",), "object": ("object", base[1])}.get(m, ("other",))
         if base[0] == "transition":
             return {"occurred_at": ("timestamp",), "recorded_at": ("timestamp",), "object": ("object", base[1])}.get(m, ("other",))
         if base[0] != "object":
@@ -2059,7 +2108,11 @@ def metrics_self_test(operator):
             "slow_working": {"source": "intervals", "item": "i", "filter": "i.state == WORKING", "expression": "percentile(0.8, i.duration)"},
             "starts": {"measure": "transition_count", "transition": "start", "group_by": ["actor", "month"]},
             "tagged": {"source": "objects", "item": "o", "dimensions": {"tag": "o.tags"}, "expression": "count()"},
-            "tags_per_job": {"source": "objects", "item": "o", "expression": "avg(count(t in o.tags))"}}}
+            "tags_per_job": {"source": "objects", "item": "o", "expression": "avg(count(t in o.tags))"},
+            "working_by_month": {"source": "intervals", "item": "i", "split_by": "month", "filter": "i.state == WORKING",
+                                 "dimensions": {"month": "i.period"}, "expression": "sum(i.duration)"},
+            "jobs_working_by_month": {"source": "intervals", "item": "i", "split_by": "month", "filter": "i.state == WORKING",
+                                      "dimensions": {"month": "i.period"}, "expression": "count()"}}}
     module = {"enumerations": {"Outcome": ["PASS", "FAIL", "NA"]},
               "types": {"User": {"attributes": {"login": {"type": "identity", "actor_kind": "human"}},
                                  "states": {"ACTIVE": {"category": "live"}},
@@ -2139,6 +2192,23 @@ def metrics_self_test(operator):
     check("the same guard for an assignee with none", req(r, s, "Job", "assign", jc, engineer=ben), jc)
     check("a set dimension, a job under each of its tags", (read(s, ja, 'metric(tagged, tag := "urgent")'), read(s, ja, 'metric(tagged, tag := "vip")')), (2, 2))
     check("an average of integers, to six places", read(s, ja, "metric(tags_per_job)"), Fraction(1333333, 1000000))
+    # a span split across the months it covers, a current one cut at now, and a window clipping the pieces (ADR-0142)
+    r, s = world()
+    one, two = req(r, s, "Job", "open"), req(r, s, "Job", "open")
+    s.now = timestamp("2026-01-31T12:00Z")
+    req(r, s, "Job", "start", one)
+    s.now = timestamp("2026-02-02T00:00Z")
+    req(r, s, "Job", "back", one)
+    s.now = timestamp("2026-02-28T18:00Z")
+    req(r, s, "Job", "start", two)
+    s.now = timestamp("2026-03-01T06:00Z")
+    hours = lambda text: read(s, one, text) / 3600
+    check("a span's piece in the month it began", hours('metric(working_by_month, month := "2026-01")'), 12)
+    check("its piece in the next month, with a current span's piece up to the month's end",
+          hours('metric(working_by_month, month := "2026-02")'), 30)
+    check("a current span's piece up to now", hours('metric(working_by_month, month := "2026-03")'), 6)
+    check("a window clipping the pieces to its last ten hours", hours("metric(working_by_month, over last 10 h)"), 10)
+    check("a split metric counting the spans active in a month", read(s, one, 'metric(jobs_working_by_month, month := "2026-02")'), 2)
     print(f"  metrics: a rate windowed and bound, a combined one, rounding half to even, medians and percentiles, time held "
           f"by who held the job, counts, set dimensions, and the standard ones, as guards read them: {'yes' if ok else 'NO'}")
     return ok

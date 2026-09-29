@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-28: "accept both". Decided on 2026-09-27 at the author's direction: "write the UC-1 to UC-3 checked scenarios, continue with your inference, as long as the inference is based clear requirements we've already discussed and the use case we've reviewed".
 - **Date:** 2026-09-27
+- **Refined by:** ADR-0142 — a span with no duration is one piece with no body, reported as a group here is.
 - **Refines:** ADR-0098 (a set-valued dimension), ADR-0122 decision 18 (an aggregate over no elements)
 - **Relates to:** `declaration-syntax.md` §6.9; `flow-format.md` §4.9; `metric-scenarios.md` §3 and §7
 

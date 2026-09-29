@@ -450,6 +450,7 @@ Seven new constructs:
 To measure rather than assume:
 
 - metric latency at the first consumer's scale, on both backends, which is what sets C5's target. An indicative first measurement, `scripts/probe-metric-latency.py` on 2026-09-23: SQLite 3.37.2 in memory, synthetic data, 97,142 state intervals over 20,000 objects (roughly thirty times the first consumer's live objects), no visibility filter. Median of seven runs: 284 ms for an 80th-percentile time in state by state and month, 36 ms for work in progress with the oldest open, 16 ms for weekly throughput by actor kind. Disk, PostgreSQL and visibility are unmeasured, so this bounds nothing; it says the percentile is the metric to watch;
+- a split metric's pieces computed on read (ADR-0142): `generate_series` over the buckets a span crosses on PostgreSQL and a recursive common table expression on SQLite, at the first consumer's scale, since a span over a year of days is 365 pieces;
 - the first consumer's event and datapoint rates before cutover (N3);
 - how far back its audit trail records reassignments;
 - percentile in a checker, rather than one probe, and the same rows through both backends' percentiles, weeks and UTC buckets, which ADR-0106 requires to agree;

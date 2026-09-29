@@ -88,7 +88,7 @@ SHADOWING = OBJECT_MEMBERS | MIRROR_MEMBERS
 ONLY_ON_OBSERVATIONS = {"unit"}
 ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "external", "default", "opposite", "stored", "aggregation", "cascade",
                  "survives"}
-METRIC_ORDER = ["description", "measure", "state", "transition", "source", "item", "filter", "dimensions",
+METRIC_ORDER = ["description", "measure", "state", "transition", "source", "item", "split_by", "filter", "dimensions",
                 "group_by", "time_dimension", "expression", "flag_when"]
 TYPE_ORDER = ["description", "abstract", "extends", "mirror", "tracking", "state_machine", "attributes", "inherited_parts", "observations", "states",
               "derived_attributes", "summary", "invariants", "conditions", "transitions", "metrics"]
@@ -1446,6 +1446,9 @@ def row_members(t, source):
     return None if ob is None else set(ob.get("attributes") or {}) | KIND_ROW
 
 
+PIECE_MEMBERS = {"period", "piece_start", "piece_end"}
+
+
 def formula_errors(tn, t, mn, m):
     """A metric in the metric language reads its rows through its item, and its
     flags read its value and its dimensions."""
@@ -1453,6 +1456,16 @@ def formula_errors(tn, t, mn, m):
     source, item = m["source"], m["item"]
     members = row_members(t, source)
     out = []
+    # a span split across the buckets it covers: each row a piece, with its period and bounds (ADR-0142)
+    if m.get("split_by"):
+        if not re.fullmatch(r"intervals(\([a-z][a-z0-9_]*\))?", source):
+            out.append((base + ("split_by",), "names", f"metric {mn} splits {source} by {m['split_by']}, and only a type's spans, "
+                                                       "intervals or intervals(<member>), are split"))
+        elif members is not None:
+            members = members | PIECE_MEMBERS
+        if m.get("time_dimension"):
+            out.append((base + ("time_dimension",), "names", f"metric {mn} splits its spans, so its time is its pieces', and it "
+                                                             "declares no time_dimension; a window clips the pieces"))
     if members is None:
         out.append((base + ("source",), "names", f"metric {mn} reads '{source}', which is not objects, intervals, intervals(<member>), "
                                                  f"transitions, attempts, attempt_counts, labels or an observation kind of {tn}"))
@@ -2337,7 +2350,8 @@ def metric_text(tn, t, mn, m):
         src = m["source"]
         ob = (t.get("observations") or {}).get(src)
         rows = tn if src == "objects" else ob["kind"] if ob else f"{tn}.{src}"
-        out.append((f"  from      {m['item']} in {rows}" + (f" where {one(m['filter'])}" if m.get("filter") else ""), M + ("source",)))
+        out.append((f"  from      {m['item']} in {rows}" + (f" split by {m['split_by']}" if m.get("split_by") else "")
+                    + (f" where {one(m['filter'])}" if m.get("filter") else ""), M + ("source",)))
         if m.get("dimensions"):
             out.append(("  by        " + ", ".join(f"{d} = {one(e)}" for d, e in m["dimensions"].items()), M + ("dimensions",)))
         if m.get("time_dimension"):
@@ -3462,6 +3476,34 @@ def reference_plants(people):
     return ok
 
 
+def split_plants(people):
+    """A metric that splits its spans across months (ADR-0142), planted in the service example: clean as written, and
+    refused with a time dimension beside the split, reading a piece's period without one, or splitting objects."""
+    ok = True
+    service = (EXAMPLES / "service.yaml").read_text()
+    anchor = "      inspection_pass_rate:\n"
+    split = ("      working_by_month:\n        description: Planted.\n        source: intervals\n        item: i\n        split_by: month\n"
+             "        filter: i.state == WORKING\n        dimensions:\n          month: i.period\n        expression: sum(i.duration)\n")
+    assert service.count(anchor) == 1
+    planted = service.replace(anchor, split + anchor, 1)
+    found, _notes = check([("people.yaml", people), ("service.yaml", planted)])
+    clean = not found
+    ok &= clean
+    print(f"  a metric splitting its spans by month is checked clean: {'yes' if clean else [x[4][:80] for x in found]}")
+    cases = [
+        ("a split metric that declares a time dimension", planted.replace("        expression: sum(i.duration)\n",
+                                                                          "        time_dimension: i.entered_at\n        expression: sum(i.duration)\n", 1)),
+        ("a piece's period read without a split", planted.replace("        split_by: month\n", "", 1)),
+        ("a split of objects", service.replace("        source: objects\n        item: o\n", "        source: objects\n        item: o\n        split_by: month\n", 1)),
+    ]
+    for name, text in cases:
+        found, _notes = check([("people.yaml", people), ("service.yaml", text)])
+        hit = [x for x in found if x[3] == "names"]
+        ok &= bool(hit)
+        print(f"  planted {name}: {'caught by names, at ' + str(hit[0][1]) + ' ' + hit[0][4][:70] if hit else 'MISSED ' + str(found[:1])}")
+    return ok
+
+
 def digest_self_test():
     """The digest names the modules and their bytes, and nothing else: not the order the files come in."""
     a, b = ("inventory", b"module: inventory\n"), ("people", b"module: people\n")
@@ -3532,6 +3574,7 @@ def main():
     ok &= inventory_plants(people)
     ok &= unknown_plants(people)
     ok &= reference_plants(people)
+    ok &= split_plants(people)
     sys.exit(0 if clean and ok else 1)
 
 
