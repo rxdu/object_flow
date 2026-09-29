@@ -490,6 +490,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D476](#d476) | DESIGN.md read whole was out of step in places | Resolved in place |
 | [D477](#d477) | The decision records from ADR-0081 on still stated what ADR-0114 withdrew | Resolved in place |
 | [D478](#d478) | An example wrote a membership in brackets, which the grammar does not have, and both checkers passed it | Resolved in place |
+| [D479](#d479) | `DESIGN.md` §5.5 listed no verdict for a refused call | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3145,4 +3146,9 @@ Six readers, one slice each, read the requirements and the design whole, after t
 **An example wrote a membership in brackets, which the grammar does not have, and both checkers passed it.** `flow-format/examples/issues.yaml`'s condition `resolution_allowed` read `inputs.resolution in [Resolution.DONE, Resolution.WONT_DO]`, where the collection literal of `declaration-syntax.md` §8.1 is `{A, B}` and brackets belong only to `changed_since`. The flow checker and the syntax checker both matched expressions with regular expressions, so neither noticed. Found by the expression parser of ADR-0137 on its first run over the design's descriptions.
 
 **Resolved in place**, 2026-09-28: the set is written in braces, and step 2 of the flow checker now parses every expression and refuses one the grammar does not accept, as `syntax`, which the self-test proves by planting a malformed expression.
+
+### D479
+**`DESIGN.md` §5.5 listed no verdict for a refused call.** ADR-0122 decision 35 has a refused `call` or `create` name the step that made it and its own verdict, and `library-api.md` carries it as `CallRefused`, but the verdict table and the glossary of `DESIGN.md` named no such verdict, and `flow-format.md` §11.4 cited §5.5 for `call_refused`. Found writing the reference runner's second slice, which must say what a request gets when an effect's call is refused.
+
+**Resolved in place**, 2026-09-29: §5.5 has the row `call refused`, a part a cascade drives refusing with its own verdict instead, as ADR-0038 has it; the glossary lists it; and an example's `call_refused` may name the refused call's clause, qualified, and its remedy (`flow-format.md` §11.4), which step 3 checks.
 

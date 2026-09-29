@@ -69,6 +69,7 @@ class Store:
         self.kinds, self.enums = kinds, enums
         self.now = timestamp(CLOCK_START)
         self.objects, self.counter = {}, 0
+        self.sequences = {}                     # (sequence, scope value) -> the last number minted
         op = Obj(OPERATOR, "Operator", "ACTIVE", self.now)
         op.attrs["identity"] = OPERATOR
         self.objects[OPERATOR] = op
@@ -339,8 +340,29 @@ class Evaluator:
         raise NotRunnable(f"the function `{fn[1] if fn[0] == 'name' else fn[2]}`")
 
 
+UNSTATED_REMEDY = None   # a generated guard's remedy class, which the design does not yet state (TODO.md)
+
+
+class Ctx:
+    """One request's working store, and what it has taken and written so far."""
+
+    def __init__(self, work, who, stubs, root_type):
+        self.work, self.who, self.stubs, self.root_type = work, who, stubs, root_type
+        self.written = []           # object ids, in the order first written
+        self.taken = []             # "Type.transition" of every transition taken, the requested one first
+        self.flags = []             # the audit and warn guards that failed, at any depth
+
+    def wrote(self, oid):
+        if oid not in self.written:
+            self.written.append(oid)
+
+
+def qualified(clause, tn):
+    return clause if clause is None or "." in clause else f"{tn}.{clause}"
+
+
 class Runner:
-    """Requests against a store, as DESIGN.md §6 executes them, within this slice."""
+    """Requests against a store, as DESIGN.md §6 executes them, within the slices built so far."""
 
     def __init__(self, kinds, enums):
         self.kinds, self.enums = kinds, enums
@@ -351,14 +373,17 @@ class Runner:
         if v is None:
             return ABSENT
         if "reference" in spec:
-            many = spec["reference"].endswith("[]")
-            if many:
+            if spec["reference"].endswith("[]"):
                 return tuple(aliases[a] for a in v)
             return aliases[v]
         typ = spec.get("type", "")
+        if typ.endswith("[]"):
+            return tuple(self.value_of(store, dict(spec, type=typ[:-2]), x, aliases) for x in v)
         if typ in self.enums:
             e, m = v.split(".", 1)
             return ("enum", e, m)
+        if typ.startswith("money") and isinstance(v, str):
+            return Fraction(v.split()[-1])      # written as a money literal, SGD 12000.00 (§5)
         if typ == "timestamp":
             m = re.fullmatch(r"now(?: ([+-]) ([0-9]+) (\w+))?", v)
             if m:
@@ -372,84 +397,158 @@ class Runner:
             return Fraction(str(v))
         return v
 
+    def owner_end(self, spec):
+        """Whether a reference is a part's end back to its whole: its opposite is a composite end."""
+        if not spec or "reference" not in spec:
+            return False
+        target = self.kinds.get(spec["reference"].rstrip("[]")) or {}
+        back = ((target.get("attributes") or {}).get(spec.get("opposite") or "") or {})
+        return back.get("aggregation") == "composite"
+
+    # ── a request ─────────────────────────────────────────────────────────────
     def attempt(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs):
-        """The request's result, ("applied", object id, flags), or a Refused. The store changes only if it applies."""
+        """The request's result, ("applied", object id, flags, the transitions it caused), or a Refused.
+        The store changes only if the request applies."""
         work = copy.deepcopy(store)
         # 1. the actor: an object of a type that marks an actor identity (DESIGN.md §6 step 1)
         if actor not in work.objects or work.actor_attr(work.type_of(actor)) is None:
             raise Refused("unsatisfied", "actor_known", "dependent")
         attr, akind = work.actor_attr(work.type_of(actor))
-        who = {"id": work.objects[actor].attrs.get(attr, ABSENT), "kind": akind}
+        ctx = Ctx(work, {"id": work.objects[actor].attrs.get(attr, ABSENT), "kind": akind}, stubs, tn)
+        t = self.kinds.get(tn) or {}
+        x = (t.get("transitions") or {}).get(xn)
+        # 3. not found, and unknown transition; 4. not requestable, unavailable, invalid input, in that order
+        if oid is not None and oid not in work.objects:
+            raise Refused("not_found", remedy="unreachable_from_here")
+        if x is None or (x["kind"] == "initial") != (oid is None) or (oid is not None and work.type_of(oid) != tn):
+            raise Refused("unknown_transition", remedy="self_serviceable")
+        if x.get("only_via"):
+            raise Refused("not_requestable", remedy="unreachable_from_here")
+        if x["kind"] in ("assertion", "erasure") or x.get("corrects"):
+            raise NotRunnable("an assertion" if x["kind"] == "assertion" else "an erasure" if x["kind"] == "erasure" else "a correction")
+        self.check_state(work, x, oid)
+        inputs = {}
+        attrs = t.get("attributes") or {}
+        declared = x.get("inputs") or {}
+        taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared)
+        for k, v in (raw_inputs or {}).items():
+            if k not in taken:
+                raise Refused("invalid_input", remedy="self_serviceable", detail=f"no input {k}")
+            value = self.value_of(work, declared.get(k) if k in declared else attrs.get(k), v, aliases)
+            if value is not ABSENT:
+                inputs[k] = value
+        try:
+            root = self.take(ctx, tn, xn, oid, inputs, depth=0)
+            # 7. the invariants of every object written, in ascending id order
+            for w in sorted(ctx.written, key=lambda i: work.objects[i].id_order):
+                failing = self.failing_invariants(work, work.objects[w])
+                if failing:
+                    ot = work.objects[w].type
+                    names = [n if ot == tn else f"{ot}.{n}" for n in failing]
+                    raise Refused("invariant_violated", names[0], detail=", ".join(names[1:]) and "and " + ", ".join(names[1:]))
+        except Refused:
+            store.sequences = work.sequences    # a number minted by a refused request stays used: the gap
+            raise
+        store.__dict__.update(work.__dict__)
+        return ("applied", root, ctx.flags, ctx.taken[1:])
+
+    def mint(self, ctx, o, attrs):
+        """Each identifier of a new object, numbered from 1 per sequence and scope, as its format writes it
+        (flow-format.md §4.12)."""
+        work = ctx.work
+        for a, spec in attrs.items():
+            ident = (spec or {}).get("identifier")
+            if not ident:
+                continue
+            scope = o.attrs.get(ident["scope"], ABSENT) if ident.get("scope") else None
+            if scope is ABSENT:
+                raise NotRunnable(f"minting {o.type}.{a} with its scope absent")
+            key = (ident["sequence"], scope)
+            n = work.sequences.get(key, 0) + 1
+            work.sequences[key] = n
+
+            def field(m):
+                name, _, width = m.group(1).partition(":")
+                if name == "n":
+                    return str(n).zfill(int(width or 0))
+                v = Evaluator(work, o.type, o.id).value(flowexpr.parse(name), {})
+                if v is ABSENT:
+                    raise NotRunnable(f"a format field {name} that is absent")
+                return str(v)
+            o.attrs[a] = re.sub(r"\{([^}]+)\}", field, ident.get("format", "{n}"))
+
+    def check_state(self, work, x, oid):
+        if oid is None:
+            return
+        froms = x.get("from")
+        froms = [froms] if isinstance(froms, str) else list(froms or [])
+        if work.objects[oid].state not in froms:
+            raise Refused("unavailable", remedy="unreachable_from_here", detail=f"it is in {work.objects[oid].state}")
+
+    def take(self, ctx, tn, xn, oid, inputs, depth):  # noqa: C901  one transition, as DESIGN.md §6 orders it
+        """One transition, the requested one or one it causes: its checks, guards, outcome, effect and cascades.
+        Returns the object's id."""
+        work = ctx.work
         t = self.kinds.get(tn) or {}
         x = (t.get("transitions") or {}).get(xn)
         if x is None or (x["kind"] == "initial") != (oid is None):
             raise Refused("unknown_transition", remedy="self_serviceable")
         if x["kind"] in ("assertion", "erasure") or x.get("corrects"):
-            raise NotRunnable(f"a{'n' if x['kind'][0] in 'ae' else ''} {x['kind'] if not x.get('corrects') else 'correction'}")
-        # 4. not requestable, unavailable, invalid input, in that order
-        if x.get("only_via"):
-            raise Refused("not_requestable", remedy="unreachable_from_here")
-        o = work.objects.get(oid) if oid else None
-        if o is not None:
-            froms = x.get("from")
-            froms = [froms] if isinstance(froms, str) else list(froms or [])
-            if o.state not in froms:
-                raise Refused("unavailable", remedy="unreachable_from_here", detail=f"it is in {o.state}")
+            raise NotRunnable("an assertion" if x["kind"] == "assertion" else "an erasure" if x["kind"] == "erasure" else "a correction")
         attrs = t.get("attributes") or {}
         declared = x.get("inputs") or {}
         taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared)
-        inputs = {}
-        for k, v in (raw_inputs or {}).items():
-            if k not in taken:
-                raise Refused("invalid_input", remedy="self_serviceable", detail=f"no input {k}")
+        if depth:
+            self.check_state(work, x, oid)
+            for k in inputs:
+                if k not in taken:
+                    raise Refused("invalid_input", remedy="self_serviceable", detail=f"no input {k}")
+        for k, v in inputs.items():
             spec = declared.get(k) if k in declared else attrs.get(k)
-            value = self.value_of(work, spec, v, aliases)
-            if value is not ABSENT and "reference" in (spec or {}):
+            if "reference" in (spec or {}):
                 want = spec["reference"].rstrip("[]")
-                for ref in (value if isinstance(value, tuple) else (value,)):
+                for ref in (v if isinstance(v, tuple) else (v,)):
                     if ref not in work.objects or not work.is_a(work.type_of(ref), want):
                         raise Refused("invalid_input", remedy="self_serviceable", detail=f"{k} names no {want}")
-            if value is not ABSENT:
-                inputs[k] = value
         for k in x.get("required_inputs", []):
             spec = attrs.get(k) or {}
             if k not in inputs and not spec.get("optional") and "default" not in spec:
                 raise Refused("invalid_input", remedy="self_serviceable", detail=f"{k} left out")
         for k, spec in declared.items():
             if k not in inputs and "default" in (spec or {}):
-                inputs[k] = Evaluator(work, tn, oid, inputs, who, stubs).value(flowexpr.parse(spec["default"]), {})
+                inputs[k] = Evaluator(work, tn, oid, inputs, ctx.who, ctx.stubs).value(flowexpr.parse(spec["default"]), {})
             elif k not in inputs and not (spec or {}).get("optional"):
                 raise Refused("invalid_input", remedy="self_serviceable", detail=f"{k} left out")
-        # the generated guards: for a recording, the subject is open and its corrected datapoint current
+        # the generated guards, then the <attribute>_provided ones, then the transition's own (flow-format.md §4.8)
         if xn == "record" and "subject" in inputs:
             subject = work.objects[inputs["subject"]]
             if "corrects" in inputs:
-                raise NotRunnable("a correction of a recorded datapoint, whose guard corrects_current this slice does not evaluate")
+                raise NotRunnable("a correction of a recorded datapoint, whose guard corrects_current this runner does not yet evaluate")
             if (self.kinds.get(subject.type) or {}).get("mirror"):
-                raise NotRunnable("a recording on a mirror's object, whose guard subject_owned this slice does not evaluate")
+                raise NotRunnable("a recording on a mirror's object, whose guard subject_owned this runner does not yet evaluate")
             if work.final(subject):
-                raise Refused("unsatisfied", "subject_open", "unreachable_from_here")
-        for k in inputs:
-            spec = attrs.get(k) or {}
-            if k in taken - set(declared) and "reference" in spec and self.owner_end(spec):
-                raise NotRunnable(f"writing {tn}.{k}, a part's owner, whose whole this slice does not re-check")
+                raise Refused("unsatisfied", "subject_open", UNSTATED_REMEDY)
+        wholes = []
+        for k in set(x.get("required_inputs", []) + x.get("optional_inputs", [])) & set(inputs):
+            if self.owner_end(attrs.get(k)):
+                if oid is not None and work.objects[oid].attrs.get(k) != inputs[k]:
+                    if work.final(work.objects[inputs[k]]):
+                        raise Refused("unsatisfied", "whole_open", UNSTATED_REMEDY)
+                    wholes.append(work.objects[oid].attrs.get(k))
+                wholes.append(inputs[k])
         for k in x.get("required_inputs", []):
             spec = attrs.get(k) or {}
             if k not in inputs and (spec.get("optional") or "default" in spec):
                 raise Refused("unsatisfied", f"{k}_provided", "self_serviceable")
-        # the transition's own guards, in their order
-        flags = []
         conditions = t.get("conditions") or {}
         for g, mode in (x.get("guards") or {}).items():
-            ok = truth(Evaluator(work, tn, oid, inputs, who, stubs).value(flowexpr.parse(conditions[g]["expression"]), {}))
+            ok = truth(Evaluator(work, tn, oid, inputs, ctx.who, ctx.stubs).value(flowexpr.parse(conditions[g]["expression"]), {}))
             if ok is not True:
                 if mode == "deny":
                     raise Refused("unsatisfied", g, conditions[g].get("remedy"))
-                flags.append((g, mode))
-        # 5. the outcome: the new state and the writes
-        if o is None:
-            if any("identifier" in (spec or {}) for spec in attrs.values()):
-                raise NotRunnable(f"creating a {tn}, whose identifier a sequence mints")
+                ctx.flags.append((f"{tn}.{g}", mode))
+        # 5. the outcome: the new state and the attribute writes
+        if oid is None:
             o = Obj(work.new_id(tn), tn, x["to"], work.now)
             o.id_order = work.counter
             work.objects[o.id] = o
@@ -457,52 +556,179 @@ class Runner:
                 if (spec or {}).get("type") == "counter":
                     o.attrs[a] = 0
                 elif "default" in (spec or {}):
-                    o.attrs[a] = Evaluator(work, tn, o.id, inputs, who, stubs).value(flowexpr.parse(str(spec["default"])), {})
+                    o.attrs[a] = Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs).value(flowexpr.parse(str(spec["default"])), {})
             if xn == "record" and "subject" in inputs:
                 o.attrs["recorded_at"] = work.now
                 o.attrs["occurred_at"] = work.now
-        elif x["kind"] == "external":
-            o.state = x["to"]
-            o.entered[o.state] = work.now
+        else:
+            o = work.objects[oid]
+            if x["kind"] == "external":
+                o.state = x["to"]
+                o.entered[o.state] = work.now
         for k in x.get("required_inputs", []) + x.get("optional_inputs", []):
             if k in inputs:
                 o.attrs[k] = inputs[k]
-        for st in x.get("effect") or []:
-            if "assign" in st:
-                v = Evaluator(work, tn, o.id, inputs, who, stubs).value(flowexpr.parse(st["assign"]["expr"]), {})
-                if v is ABSENT:
-                    o.attrs.pop(st["assign"]["location"], None)
-                else:
-                    o.attrs[st["assign"]["location"]] = v
-            elif "clear" in st:
-                for a in st["clear"]:
-                    o.attrs.pop(a, None)
-            else:
-                raise NotRunnable(f"the effect step `{next(iter(st))}`")
-        self.cascades(work, t, xn, o)
+        if oid is None:
+            self.mint(ctx, o, attrs)
+        ctx.wrote(o.id)
+        for w in wholes:
+            if w is not None:
+                ctx.wrote(w)
+        ctx.taken.append(f"{tn}.{xn}")
+        # 6. the effect, then the cascades to parts, depth-first
+        reached = self.effects(ctx, tn, o, x.get("effect") or [], inputs, {}, depth)
+        self.cascades(ctx, t, tn, xn, o, inputs, depth, reached)
         o.version += 1
-        # 7. the invariants of the written object
-        failing = self.failing_invariants(work, o)
-        if failing:
-            raise Refused("invariant_violated", failing[0], detail=", ".join(failing[1:]) and "and " + ", ".join(failing[1:]))
-        store.__dict__.update(work.__dict__)
-        return ("applied", o.id, flags)
+        return o.id
 
-    def cascades(self, store, t, xn, o):
-        for an, spec in list((t.get("attributes") or {}).items()) + list((t.get("inherited_parts") or {}).items()):
-            clauses = (spec or {}).get("cascade") or []
-            if any(xn in c.get("on", []) for c in clauses):
-                parts = Evaluator(store, o.type, o.id).member(o.id, an) if an in (t.get("attributes") or {}) else ()
-                if parts and parts is not ABSENT:
-                    raise NotRunnable("a cascade")
+    def effects(self, ctx, tn, o, steps, inputs, env, depth):
+        """An effect's steps in order; returns whether one reached another object by a call or a creation."""
+        work, reached = ctx.work, False
+        attrs = (self.kinds.get(tn) or {}).get("attributes") or {}
 
-    def owner_end(self, spec):
-        """Whether a reference is a part's end back to its whole: its opposite is a composite end."""
-        target = self.kinds.get(spec["reference"].rstrip("[]")) or {}
-        back = ((target.get("attributes") or {}).get(spec.get("opposite") or "") or {})
-        return back.get("aggregation") == "composite"
+        def ev(tree, filtering=False):
+            return Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs, filter_mode=filtering).value(tree, env)
+
+        def unsupplied(tree):
+            # a write whose right-hand side is an unsupplied optional input is skipped (DESIGN.md §5.4)
+            return tree[0] == "path" and tree[1] == ("name", "inputs") and tree[2] not in inputs
+
+        def arguments(spec):
+            out = {}
+            for k, e in (spec.get("inputs") or {}).items():
+                tree = flowexpr.parse(e)
+                if unsupplied(tree):
+                    continue
+                v = ev(tree)
+                if v is not ABSENT:
+                    out[k] = v
+            return out
+
+        for st in steps:
+            kind = next(iter(st))
+            spec = st[kind]
+            if kind == "assign":
+                tree = flowexpr.parse(spec["expr"])
+                if unsupplied(tree):
+                    continue
+                v = ev(tree)
+                if v is ABSENT:
+                    raise NotRunnable("an assignment of an absent value, which only an unsupplied optional input may be")
+                if self.owner_end(attrs.get(spec["location"])) and o.attrs.get(spec["location"]) not in (None, v):
+                    raise NotRunnable("re-parenting a part by an effect, whose whole_open guard this runner does not yet evaluate")
+                o.attrs[spec["location"]] = v
+                if self.owner_end(attrs.get(spec["location"])):
+                    ctx.wrote(v)
+            elif kind == "clear":
+                for a in spec:
+                    o.attrs.pop(a, None)
+            elif kind in ("add", "remove"):
+                tree = flowexpr.parse(spec["expr"])
+                if unsupplied(tree):
+                    continue
+                v = ev(tree)
+                if v is ABSENT:
+                    raise NotRunnable(f"an `{kind}` of an absent value")
+                current = tuple(o.attrs.get(spec["location"], ()))
+                if kind == "add" and v not in current:
+                    o.attrs[spec["location"]] = current + (v,)
+                elif kind == "remove" and v in current:
+                    o.attrs[spec["location"]] = tuple(c for c in current if c != v)
+            elif kind == "create":
+                values = arguments(spec)
+                try:
+                    new = self.take(ctx, spec["type"], spec["transition"], None, values, depth + 1)
+                except Refused as r:
+                    raise self.call_refused(r, f"create {spec['type']}.{spec['transition']}", spec["type"], None)
+                if spec.get("result"):
+                    env[spec["result"]] = new
+                reached = True
+            elif kind == "call":
+                target = ev(flowexpr.parse(spec["target"]))
+                if target is ABSENT:
+                    continue            # a call through an absent optional end reaches nothing (DESIGN.md §5.4)
+                if not isinstance(target, str) or target not in work.objects:
+                    raise NotRunnable("a call whose target is not one object")
+                values = arguments(spec)
+                try:
+                    self.take(ctx, work.type_of(target), spec["transition"], target, values, depth + 1)
+                except Refused as r:
+                    raise self.call_refused(r, f"call {spec['target']}.{spec['transition']}", work.type_of(target), target)
+                reached = True
+            elif kind == "foreach":
+                if "range" in spec:
+                    n = ev(flowexpr.parse(spec["range"]))
+                    if n is ABSENT:
+                        raise NotRunnable("a loop over an absent range")
+                    items = list(range(1, n + 1))
+                else:
+                    coll = ev(flowexpr.parse(spec["array"]))
+                    if coll is ABSENT or not isinstance(coll, tuple):
+                        raise NotRunnable("a loop over what is not a collection")
+                    items = sorted(coll, key=lambda i: work.objects[i].id_order if isinstance(i, str) and i in work.objects else 0)
+                if spec.get("where"):
+                    where = flowexpr.parse(spec["where"])
+                    items = [i for i in items if truth(Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs, filter_mode=True)
+                                                       .value(where, dict(env, **{spec["item"]: i}))) is True]
+                if len(items) > spec["limit"]:
+                    raise Refused("over_limit", remedy="unreachable_from_here",
+                                  detail=f"the loop over {spec.get('array', spec.get('range'))} selects {len(items)}, over its limit of {spec['limit']}")
+                for item in items:
+                    reached |= self.effects(ctx, tn, o, spec["steps"], inputs, dict(env, **{spec["item"]: item}), depth)
+            elif kind == "supersede":
+                successor = ev(flowexpr.parse(spec))
+                if successor is ABSENT:
+                    raise NotRunnable("a supersession naming no successor")
+                o.attrs["_successor"] = successor
+            else:
+                raise NotRunnable(f"the effect step `{kind}`")
+        return reached
+
+    @staticmethod
+    def call_refused(r, step, target_type, target):
+        """A refused call or creation refuses the request, naming the step, the object it targeted and its own
+        refusal (ADR-0122 decision 35); an expectation reads that refusal's clause and remedy."""
+        inner_clause = r.clause if r.verdict == "call_refused" else qualified(r.clause, target_type)
+        return Refused("call_refused", inner_clause, r.remedy, detail=f"{step} on {target or 'a new object'}: {r.verdict}")
+
+    def cascades(self, ctx, t, tn, xn, o, inputs, depth, reached):
+        """The parts each composite end drives on this transition, in ascending id order, those already in a
+        final state skipped (DESIGN.md §6 step 6)."""
+        work = ctx.work
+        ends = [(an, (spec or {}).get("cascade") or []) for an, spec in (t.get("attributes") or {}).items()
+                if (spec or {}).get("aggregation") == "composite"]
+        ends += [(an, (ip or {}).get("cascade") or []) for an, ip in (t.get("inherited_parts") or {}).items()]
+        for an, clauses in ends:
+            for clause in clauses:
+                if xn not in clause.get("on", []):
+                    continue
+                parts = Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs).member(o.id, an)
+                parts = () if parts is ABSENT else (parts if isinstance(parts, tuple) else (parts,))
+                driven = sorted((p for p in parts if not work.final(work.objects[p])), key=lambda p: work.objects[p].id_order)
+                if not driven:
+                    continue
+                if reached:
+                    raise NotRunnable("an effect's call or creation and a cascade to parts in one transition, whose "
+                                      "order the design does not state (TODO.md)")
+                if len(driven) > clause.get("limit", len(driven)):
+                    raise Refused("over_limit", remedy="unreachable_from_here",
+                                  detail=f"the cascade on {an} drives {len(driven)}, over its limit of {clause['limit']}")
+                for p in driven:
+                    values = {}
+                    for k, e in (clause.get("inputs") or {}).items():
+                        v = Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs).value(flowexpr.parse(e), {})
+                        if v is not ABSENT:
+                            values[k] = v
+                    ptype = work.type_of(p)
+                    try:
+                        self.take(ctx, ptype, clause["transition"], p, values, depth + 1)
+                    except Refused as r:
+                        raise Refused(r.verdict, qualified(r.clause, ptype) if r.verdict != "call_refused" else r.clause,
+                                      r.remedy, detail=f"cascading to {p}: {r.detail}")
 
     def failing_invariants(self, store, o):
+        """An object's failing invariants in the order its type declares them: an attribute's uniqueness, a
+        state's required attributes, then the invariants (flow-format.md §3's order)."""
         t = self.kinds.get(o.type) or {}
         out = []
         for a, spec in (t.get("attributes") or {}).items():
@@ -513,18 +739,30 @@ class Runner:
                 unique = True if back.get("reference") and not back["reference"].endswith("[]") else None
             if unique is None:
                 continue
-            if unique is not True:
-                raise NotRunnable(f"the uniqueness of {o.type}.{a} in a scope or under a condition")
-            value = o.attrs.get(a, ABSENT)
-            if value is not ABSENT and any(x.id != o.id and x.attrs.get(a) == value and (store.is_a(x.type, o.type) or store.is_a(o.type, x.type))
-                                           for x in store.objects.values()):
+            # together with: the attribute and those listed; in scope: and the identifier's scope; where: among
+            # the objects the condition holds for (flow-format.md §4.12). An absent part never collides.
+            with_ = [a] + (unique.get("with", []) if isinstance(unique, dict) else [])
+            if unique == "in_scope":
+                with_.append(spec["identifier"]["scope"])
+            where = flowexpr.parse(unique["where"]) if isinstance(unique, dict) and "where" in unique else None
+
+            def key(obj):
+                values = tuple(obj.attrs.get(w, ABSENT) for w in with_)
+                if ABSENT in values:
+                    return None
+                if where is not None and truth(Evaluator(store, obj.type, obj.id, filter_mode=True).value(where, {})) is not True:
+                    return None
+                return values
+            mine = key(o)
+            if mine is not None and any(x.id != o.id and (store.is_a(x.type, o.type) or store.is_a(o.type, x.type)) and key(x) == mine
+                                        for x in store.objects.values()):
                 out.append(f"{a}_unique")
-        for n, inv in (t.get("invariants") or {}).items():
-            if truth(Evaluator(store, o.type, o.id).value(flowexpr.parse(inv["expression"]), {})) is False:
-                out.append(n)
         st = (t.get("states") or {}).get(o.state) or {}
         if any(a not in o.attrs for a in st.get("required_attributes") or []):
             out.append(f"{o.state}_invariant")
+        for n, inv in (t.get("invariants") or {}).items():
+            if truth(Evaluator(store, o.type, o.id).value(flowexpr.parse(inv["expression"]), {})) is False:
+                out.append(n)
         return out
 
 
@@ -628,6 +866,8 @@ def compare(runner, store, want, outcome, aliases):
             return f"expected the request to apply, and it is refused as {got}"
         if got.verdict != want["verdict"]:
             return f"expected {want['verdict']}, and it is refused as {got}"
+        if "remedy" in want and got.remedy is UNSTATED_REMEDY:
+            raise NotRunnable(f"the remedy of {got.clause}, a generated guard whose remedy class the design does not yet state")
         for k in ("clause", "remedy"):
             if k in want and getattr(got, k) != want[k]:
                 return f"expected the {k} {want[k]}, and it is refused as {got}"
@@ -644,6 +884,108 @@ def compare(runner, store, want, outcome, aliases):
             named = {oid: alias for alias, oid in aliases.items()}
             got = o.attrs.get(k, ABSENT)
             return f"expected {k} to hold {v}, and it holds {named.get(got, got) if isinstance(got, str) else got}"
-    if want.get("cascaded"):
-        return "expected cascades, and this slice of the runner takes none"
+    if "cascaded" in want and list(want["cascaded"]) != list(outcome[3]):
+        return f"expected the request to cause {want['cascaded'] or 'nothing'}, and it causes {outcome[3] or 'nothing'}"
     return None
+
+
+# ── the runner proven on a small order and its lines ───────────────────────────
+def _order_kinds():
+    line_ref = {"reference": "Line[]", "aggregation": "composite", "opposite": "order",
+                "cascade": [{"on": ["cancel"], "transition": "void", "limit": 2}]}
+    return {
+        "Operator": {"attributes": {"identity": {"type": "identity", "actor_kind": "human"}}, "states": {"ACTIVE": {}}},
+        "Order": {
+            "attributes": {"lines": line_ref, "note": {"type": "string", "optional": True},
+                           "tags": {"type": "string[]"}},
+            "states": {"OPEN": {"category": "live"}, "DONE": {"category": "closed", "final": True},
+                       "CANCELLED": {"category": "closed", "final": True}},
+            "invariants": {"few_lines": {"expression": "count(l in lines) <= 3"}},
+            "transitions": {
+                "open": {"kind": "initial", "to": "OPEN"},
+                "add_line": {"kind": "internal", "from": ["OPEN"], "inputs": {"qty": {"type": "int"}},
+                             "effect": [{"create": {"type": "Line", "transition": "add", "inputs": {"order": "this", "qty": "inputs.qty"},
+                                                    "result": "made"}},
+                                        {"add": {"location": "tags", "expr": '"lined"'}}]},
+                "ship": {"kind": "external", "from": ["OPEN"], "to": "DONE",
+                         "effect": [{"foreach": {"item": "l", "array": "lines", "where": "l.qty > 0", "limit": 5,
+                                                 "steps": [{"call": {"target": "l", "transition": "pack"}}]}}]},
+                "cancel": {"kind": "external", "from": ["OPEN"], "to": "CANCELLED"},
+                "tangle": {"kind": "internal", "from": ["OPEN"],
+                           "effect": [{"create": {"type": "Line", "transition": "add", "inputs": {"order": "this", "qty": "1"}}}]},
+            }},
+        "Line": {
+            "attributes": {"order": {"reference": "Order", "opposite": "lines"}, "qty": {"type": "int"}},
+            "states": {"OPEN": {"category": "live"}, "PACKED": {"category": "closed"}, "VOID": {"category": "closed", "final": True}},
+            "conditions": {"small": {"expression": "qty < 10", "remedy": "self_serviceable"}},
+            "transitions": {
+                "add": {"kind": "initial", "to": "OPEN", "only_via": ["Order.add_line", "Order.tangle"],
+                        "required_inputs": ["order", "qty"]},
+                "pack": {"kind": "external", "from": ["OPEN"], "to": "PACKED", "guards": {"small": "deny"}},
+                "void": {"kind": "external", "from": ["OPEN", "PACKED"], "to": "VOID"},
+            }},
+    }
+
+
+def self_test():
+    """Each thing slice 2 executes, and each refusal it gives, shown on the order and its lines."""
+    kinds = _order_kinds()
+    ok = True
+
+    def fresh(*qtys, cascade_too=False):
+        k = copy.deepcopy(kinds)
+        if cascade_too:
+            k["Order"]["attributes"]["lines"]["cascade"].append({"on": ["tangle"], "transition": "void", "limit": 5})
+        r, s = Runner(k, {}), Store(k, {})
+        _a, order, *_ = r.attempt(s, "Order", "open", None, OPERATOR, {}, {}, {})
+        lines = [r.attempt(s, "Order", "add_line", order, OPERATOR, {"qty": q}, {}, {}) for q in qtys]
+        return r, s, order, lines
+
+    def check(name, got, want):
+        nonlocal ok
+        if got != want:
+            ok = False
+            print(f"  {name}: {got!r}, not {want!r}")
+
+    r, s, order, lines = fresh(1)
+    check("a creation by an effect", lines[0][3], ["Line.add"])
+    check("an add to a set", s.objects[order].attrs.get("tags"), ("lined",))
+    r, s, order, _ = fresh(1, 0, 2)
+    check("a loop's filter and its calls, in id order", r.attempt(s, "Order", "ship", order, OPERATOR, {}, {}, {})[3],
+          ["Line.pack", "Line.pack"])
+    r, s, order, _ = fresh(1, 20)
+    try:
+        r.attempt(s, "Order", "ship", order, OPERATOR, {}, {}, {})
+        check("a call refused", "applied", "call_refused")
+    except Refused as e:
+        check("a call refused", (e.verdict, e.clause, e.remedy), ("call_refused", "Line.small", "self_serviceable"))
+    check("a refused request changes nothing", s.objects[order].state, "OPEN")
+    r, s, order, _ = fresh(1, 1, 1)
+    try:
+        r.attempt(s, "Order", "cancel", order, OPERATOR, {}, {}, {})
+        check("a cascade over its limit", "applied", "over_limit")
+    except Refused as e:
+        check("a cascade over its limit", e.verdict, "over_limit")
+    r, s, order, _ = fresh(1, 1)
+    first = min((o for o in s.objects.values() if o.type == "Line"), key=lambda o: o.id_order).id
+    r.attempt(s, "Line", "void", first, OPERATOR, {}, {}, {})
+    try:
+        r.attempt(s, "Line", "void", order, OPERATOR, {}, {}, {})
+        check("a transition of another type", "applied", "unknown_transition")
+    except Refused as e:
+        check("a transition of another type", e.verdict, "unknown_transition")
+    check("a cascade skips a part already final", r.attempt(s, "Order", "cancel", order, OPERATOR, {}, {}, {})[3], ["Line.void"])
+    r, s, order, _ = fresh(1, 1, 1)
+    try:
+        r.attempt(s, "Order", "add_line", order, OPERATOR, {"qty": 1}, {}, {})
+        check("a whole re-checked when a part is added", "applied", "invariant_violated")
+    except Refused as e:
+        check("a whole re-checked when a part is added", (e.verdict, e.clause), ("invariant_violated", "few_lines"))
+    r, s, order, _ = fresh(1, cascade_too=True)
+    try:
+        r.attempt(s, "Order", "tangle", order, OPERATOR, {}, {}, {})
+        check("a call and a cascade in one transition", "applied", "not run")
+    except NotRunnable:
+        pass
+    print(f"runner: a small order and its lines, each thing slice 2 executes and each refusal it gives: {'yes' if ok else 'NO'}")
+    return ok

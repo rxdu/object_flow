@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=../examples.schema.json
+# What the delivery flow's rules do, as examples the engine runs at every publish (flow-format.md §11, ADR-0136).
+examples_for: delivery
+
+setups:
+  a_reserved_item:
+    description: A robot in stock, reserved for Acme for a week.
+    steps:
+      - request:
+          type: InventoryItem
+          transition: add
+          as: robot
+          inputs: { serial: WR-0001, model: Scout, list_price: SGD 12000.00, condition: Condition.NEW }
+      - request: { object: robot, transition: reserve, inputs: { recipient: Acme, reserved_until: now + 7 days } }
+  a_delivery_being_prepared:
+    description: A delivery of the reserved robot, opened with a two-item checklist.
+    given: a_reserved_item
+    steps:
+      - request:
+          type: Delivery
+          transition: open
+          as: delivery
+          inputs: { unit: robot, price: SGD 11500.00, checklist: [Battery charged, Manual included] }
+
+examples:
+  opening_creates_the_checklist:
+    description: Opening a delivery creates one checklist item for each label given, and mints the delivery's number.
+    given: a_reserved_item
+    request:
+      type: Delivery
+      transition: open
+      as: delivery
+      inputs: { unit: robot, price: SGD 11500.00, checklist: [Battery charged, Manual included] }
+    expect:
+      verdict: applied
+      state: PREPARING
+      values: { number: DLV-000001 }
+      cascaded: [ChecklistItem.add, ChecklistItem.add]
+
+  an_item_not_reserved_is_not_delivered:
+    description: Once the reservation is released, a delivery of the item is refused until it is reserved again.
+    given: a_reserved_item
+    steps:
+      - request: { object: robot, transition: release }
+    request: { type: Delivery, transition: open, inputs: { unit: robot, price: SGD 11500.00, checklist: [] } }
+    expect: { verdict: unsatisfied, clause: unit_reserved, remedy: dependent }
+
+  cancelling_discards_the_open_checklist:
+    description: Cancelling a delivery discards each checklist item still open, in the order they were added.
+    given: a_delivery_being_prepared
+    request: { object: delivery, transition: cancel }
+    expect: { verdict: applied, state: CANCELLED, cascaded: [ChecklistItem.discard, ChecklistItem.discard] }

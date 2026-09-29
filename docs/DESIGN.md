@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 478 entries and five cosmetics; 478 are closed and 0 are open. The PRD is at revision 19, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 479 entries and five cosmetics; 479 are closed and 0 are open. The PRD is at revision 19, with no revision awaiting the author.
 
 **Every ADR is accepted or superseded.** In the order the author accepted them:
 - ADR-0001 to ADR-0018, on 2026-09-07, from the design discussion the project began with.
@@ -232,6 +232,7 @@ Evaluating a request yields one **verdict**, and every refusal names a remedy cl
 | `unavailable` | The object is not in a state the transition may be taken in; names the state it is in (ADR-0122) | `unreachable_from_here` |
 | `unknown transition` | The type declares no transition of that name the request can take: an initial one for a creation, any other for an object (ADR-0122) | `self_serviceable` |
 | `invalid input` | An input the transition does not take, one not of its declared type, a reference naming no object or one of another type, a set repeating an element, or a required input left out or null, except a required input of an optional or defaulted attribute, which its generated guard refuses; names every input at fault, by name (ADR-0122) | `self_serviceable` |
+| `call refused` | A `call` or `create` of the effect was refused: names the step that made it, the object it targeted, a loop's element among them, and that call's own verdict and remedy class, which the caller acts on; a part a cascade drives refuses with its own verdict instead, naming the part (ADR-0038, ADR-0122 decision 35) | the refused call's |
 | invariant violated | Names each object on which an invariant fails, in ascending id order, every invariant that fails on it, in the order its type declares them, and the conflicting objects, chosen as an unsatisfied clause's are, the object the invariant fails on excluded (ADR-0122) | each failing invariant's, a property of the transition requested and fixed when the flow is published, not of what one request supplied: `self_serviceable` where the transition takes an input, supplied or not, that it writes to a value the invariant reads, on the object the invariant fails on or on one it reads through, an attribute input writing its attribute and an assertion's `to` the state; else `dependent` where the invariant reads another object, through a relationship or a type scan; else `unreachable_from_here`. The refusal's is the first named invariant's (ADR-0122) |
 
 The **remedy class** tells a caller what to do next:
@@ -725,7 +726,7 @@ PRD §5 defines the product's terms and this table uses them: **engine**, the go
 | **Observing clause** | A guard clause marked `observe`: evaluated, never enforced, its would-be refusals recorded in the attempt log. |
 | **Flag** | A guard clause marked `flag`: evaluated on every request and never enforced; where it fails the request proceeds, the caller is told, and it is recorded and counted (ADR-0111). |
 | **Approval** | A recorded part of the approved object; "needs approval" is a guard counting approvals still valid under `changed_since` (ADR-0035). |
-| **Verdict** | The result of evaluating a request: satisfied, unsatisfied, `unavailable`, `unknown transition`, `invalid input`, `stale`, `not found`, `not requestable`, `over-limit`, or invariant violated; every refusal carries a remedy class, and a request whose call or creation is refused carries that refusal's (ADR-0122). |
+| **Verdict** | The result of evaluating a request: satisfied, unsatisfied, `unavailable`, `unknown transition`, `invalid input`, `stale`, `not found`, `not requestable`, `over-limit`, `call refused`, or invariant violated; every refusal carries a remedy class, and a request whose call or creation is refused carries that refusal's (ADR-0122). |
 | **Remedy class** | What a refusal tells the caller to do: supply, ask, wait, work elsewhere, or take another path. |
 | **Invariant** | A type-level property, checked after every request against the objects it wrote. |
 | **Admission** | A recorded decision to tolerate one invariant violation on one object, discharged when the invariant holds again; made by an assertion, an erasure or a publish's `admit`, and always an override. |

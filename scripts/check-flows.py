@@ -2446,7 +2446,15 @@ def example_errors(doc, kinds, modules):
             generated |= {f"{a}_unique" for a, v in (t.get("attributes") or {}).items() if v.get("unique")}
             if cn not in (t.get("invariants") or {}) and cn not in generated:
                 out.append((here + ("clause",), "names", f"{clause} is not an invariant of {ct}"))
-        elif "clause" in want or "remedy" in want:
+        elif verdict == "call_refused" and "clause" in want:
+            # the refused call's clause, qualified by the type the call or creation reached (DESIGN.md §5.5)
+            ct, _, cn = want["clause"].partition(".")
+            t = kinds.get(ct) or {}
+            known = set(t.get("conditions") or {}) | set(t.get("invariants") or {}) | GENERATED_GUARDS
+            if not cn or (cn not in known and not cn.endswith(("_provided", "_invariant", "_unique"))):
+                out.append((here + ("clause",), "names", f"{want['clause']} is not a condition, invariant or generated guard "
+                                                         "of a type, written <Type>.<clause>"))
+        elif "clause" in want or ("remedy" in want and verdict != "call_refused"):
             out.append((here, "names", f"a request refused as {verdict} names no clause or remedy"))
     return out, requested
 
@@ -3057,6 +3065,7 @@ def main():
     ok &= digest_self_test()
     ok &= flowexpr.main() == 0          # every expression in the design parses, and the grammar's own test
     ok &= flowlogic.self_test()
+    ok &= flowrun.self_test()
     ok &= logic_plants(people, (EXAMPLES / "service.yaml").read_text())
     ok &= runner_plants(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text())
     ok &= examples_self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text())

@@ -808,13 +808,13 @@ An `import` writes one object of a `mirror` type, which only the import writes (
 | `expect` key | Value |
 |---|---|
 | `verdict` | `applied`, or the refusal: `unsatisfied`, `unavailable`, `invalid_input`, `not_requestable`, `over_limit`, `invariant_violated` or `call_refused` (`DESIGN.md` §5.5) |
-| `clause` | for `unsatisfied`, the clause that refuses first: a guard of the transition, a generated guard, or `<Type>.<condition>` of a type its effect reaches; for `invariant_violated`, the invariant, qualified where it is another type's |
-| `remedy` | for `unsatisfied`, the refusing clause's remedy class |
+| `clause` | for `unsatisfied`, the clause that refuses first: a guard of the transition, a generated guard, or `<Type>.<condition>` of a part a cascade drives; for `invariant_violated`, the invariant, qualified where it is another type's; for `call_refused`, optional, the refused call's or creation's clause, always qualified |
+| `remedy` | for `unsatisfied`, the refusing clause's remedy class; for `call_refused`, optional, the refused call's |
 | `state` | for `applied`, the state the object is in afterwards |
 | `values` | for `applied`, optional: attributes and the values they hold afterwards, written as §11.3's values |
 | `cascaded` | for `applied`, optional: the transitions the request's cascades took, each as `<Type>.<transition>` |
 
-An `unsatisfied` expectation MUST name its clause and remedy, and the remedy MUST be the one the clause declares; an `applied` one MUST name the state, which MUST be one the transition leaves its object in; a refusal names no state or values, and only `unsatisfied` and `invariant_violated` name a clause (step 3, `names`). A request that leaves out a required input is refused as `invalid_input`, so an example expecting any other verdict for one is refused.
+An `unsatisfied` expectation MUST name its clause and remedy, and the remedy MUST be the one the clause declares; an `applied` one MUST name the state, which MUST be one the transition leaves its object in; a refusal names no state or values, and only `unsatisfied`, `invariant_violated` and `call_refused` name a clause (step 3, `names`). A `call` or `create` of the effect that is refused gives `call_refused`, and a part a cascade drives that refuses gives its own verdict, its clause qualified by its type (`DESIGN.md` §5.5). A request that leaves out a required input is refused as `invalid_input`, so an example expecting any other verdict for one is refused.
 
 ### 11.5 What is checked, and when
 
