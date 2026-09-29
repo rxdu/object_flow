@@ -968,7 +968,7 @@ def name_errors(doc, library=None, ordered=True):
                 if kind == "create":
                     out += create_errors(doc, library, where, tn, xn, st["create"])
                 if kind == "call":
-                    out += call_errors(library, where, t, tn, xn, x, st["call"])
+                    out += call_errors(library, where, t, tn, xn, x, st["call"], binders(library, tn, x, path))
             if x.get("proposable") and x.get("only_via"):
                 out.append((base + ("proposable",), "names", f"{tn}.{xn} is proposable and only via other transitions; "
                                                            "no one may request it, so no proposal of it could be approved (check 14)"))
@@ -1052,10 +1052,24 @@ def create_errors(doc, library, where, tn, xn, c):
     return out
 
 
-def call_errors(library, where, t, tn, xn, x, c):
-    """A call whose target is an attribute or an input of a known type names a
-    transition of that type that acts on an existing object, and passes its inputs.
-    A target reached any other way is left to the publish checks."""
+def binders(library, tn, x, path):
+    """The type each loop enclosing an effect step binds its item to, where the loop ranges over objects of a known
+    type: a set end, a set input, a type scan or a collection reached through a path."""
+    env, steps = {}, x.get("effect") or []
+    for depth in range(0, len(path) - 1, 3):
+        spec = steps[path[depth]]["foreach"]
+        at = OptionalReads(library, tn, x).walk(flowexpr.parse(spec["array"]), dict(env)) if "array" in spec else None
+        if at is None and "array" in spec and spec["array"] in library:
+            at = spec["array"] + "[]"           # a type scan
+        env[spec["item"]] = at[:-2] if at and at.endswith("[]") else None
+        steps = spec.get("steps") or []
+    return env
+
+
+def call_errors(library, where, t, tn, xn, x, c, env=None):
+    """A call names a transition of its target's type that acts on an existing object, and passes its inputs. The
+    target's type is read from an attribute, an input, or a path from either or from a loop's item, the loops'
+    items typed by what they range over; a target whose type cannot be known is left to the publish checks."""
     target = " ".join(c["target"].split())
     spec = None
     m = re.fullmatch(r"(?:this\.)?([a-z][a-z0-9_]*)", target)
@@ -1065,6 +1079,11 @@ def call_errors(library, where, t, tn, xn, x, c):
     if m:
         spec = (x.get("inputs") or {}).get(m.group(1)) or (t.get("attributes") or {}).get(m.group(1))
     kind = (spec or {}).get("reference")
+    if not kind:
+        try:
+            kind = OptionalReads(library, tn, x).walk(flowexpr.parse(target), dict(env or {}))
+        except flowexpr.ParseError:
+            kind = None                         # step 2 refuses what does not parse
     if not kind or kind.endswith("[]") or kind not in library:
         return []
     other = library[kind]
@@ -1127,6 +1146,7 @@ def value_errors(doc, tn, t):
     states = set(t.get("states") or {})
     enums = {n: set(m) for n, m in (doc.get("enumerations") or {}).items()}
     own = {k: set(v.get("states") or {}) for k, v in types(doc)}
+    imported = {n for names in (doc.get("imports") or {}).values() for n in names}
     exprs = [(("types", tn, sec, n, "expression"), n, c["expression"])
              for sec in ("conditions", "invariants", "derived_attributes") for n, c in (t.get(sec) or {}).items()]
     exprs += [(("types", tn, "attributes", a, "default"), f"{tn}.{a}'s default", spec["default"])
@@ -1148,6 +1168,9 @@ def value_errors(doc, tn, t):
         for m in re.finditer(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b", text):
             owner, value = m.groups()
             known = enums.get(owner, own.get(owner))
+            if known is None and owner not in imported:
+                out.append((path, "names", f"{name} names {owner}.{value}, and no enumeration or type {owner} is "
+                                           "declared in this module or imported"))
             if known is not None and value not in known:
                 what = "enumeration" if owner in enums else "type"
                 out.append((path, "names", f"{name} names {owner}.{value}, and the {what} {owner} has no {value}"))
@@ -1914,6 +1937,61 @@ class OptionalReads:
                     if isinstance(q, tuple):
                         self.walk(q, env)
         return None
+
+
+def supplied_reads(tree):
+    """The attributes an expression reads of its own object, bare or through `this`, and the inputs it reads."""
+    attrs, inputs = set(), set()
+
+    def walk(e, bound):
+        k = e[0]
+        if k == "name":
+            if e[1] not in bound:
+                attrs.add(e[1])
+        elif k == "path" and e[1] == ("name", "inputs"):
+            inputs.add(e[2])
+        elif k == "path" and e[1] == ("name", "this"):
+            attrs.add(e[2])
+        elif k == "agg":
+            _, _kind, _distinct, var, coll, where, body = e
+            if coll is not None:
+                walk(coll, bound)
+            for part in (where, body):
+                if part is not None:
+                    walk(part, bound | ({var} if var else set()))
+        else:
+            for part in e[1:]:
+                if isinstance(part, tuple) and part and isinstance(part[0], str):
+                    walk(part, bound)
+                elif isinstance(part, list):
+                    for q in part:
+                        if isinstance(q, tuple):
+                            walk(q, bound)
+    walk(tree, set())
+    return attrs, inputs
+
+
+def befores(v):
+    """Each guard that reads an attribute its own transition takes as an input, bare or through `this`, without also
+    reading that input: a guard runs before the transition's writes (DESIGN.md §6), so it sees the value the attribute
+    had before the request. One that reads both compares them, as `points_changed` does, and is not reported."""
+    out = []
+    for tn, t in types(v):
+        conds = t.get("conditions") or {}
+        for xn, x in (t.get("transitions") or {}).items():
+            supplied = set(x.get("required_inputs") or []) | set(x.get("optional_inputs") or [])
+            for g in (x.get("guards") or {}):
+                expr = (conds.get(g) or {}).get("expression")
+                if expr is None:
+                    continue
+                attrs, inputs = supplied_reads(flowexpr.parse(expr))
+                for a in sorted((attrs & supplied) - inputs):
+                    had = ("the object it creates has none yet" if x["kind"] == "initial"
+                           else f"it reads the value {a} had before the request")
+                    out.append((("types", tn, "transitions", xn, "guards", g), "before",
+                                f"{g} reads {a}, which {xn} takes as an input: a guard runs before the transition writes it, "
+                                f"so {had}; inputs.{a} is the value supplied"))
+    return out
 
 
 def unknowns(v, library):
@@ -2784,7 +2862,7 @@ def check(files, previous=None, analysed=None):
                 seen.add((p, m))
                 found.append((f, line_of(idx, p), "fatal", c, m))
         library.update(dict(types(v)))
-        notes += [(f, line_of(idx, back(p)), "notice", c, m) for p, c, m in notices(v) + unknowns(v, library) if back(p) is not None]
+        notes += [(f, line_of(idx, back(p)), "notice", c, m) for p, c, m in notices(v) + unknowns(v, library) + befores(v) if back(p) is not None]
     for f, idx, doc in example_files:
         errors = examples_schema_errors(doc)
         if not errors:
@@ -3354,6 +3432,36 @@ def unknown_plants(people):
     return ok
 
 
+def reference_plants(people):
+    """A qualified name whose type nothing declares, a guard reading what its own transition writes, and a call whose
+    target is a loop's item or a path from it, shown on the service and issues examples."""
+    ok = True
+    service, issues = (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "issues.yaml").read_text()
+    active = "expression: inputs.engineer.state == User.ACTIVE"
+    loop_call = "                - call: { target: w, transition: plan, inputs: { sprint: inputs.next } }\n"
+    cases = [
+        ("a state of a type nothing declares or imports", "names", service, active, "expression: inputs.engineer.state == Usr.ACTIVE"),
+        ("a guard reading the engineer its transition assigns", "before", service, active, "expression: engineer.state == User.ACTIVE"),
+        ("a call on a loop's item without the input its transition requires", "names", issues, loop_call,
+         "                - call: { target: w, transition: plan }\n"),
+        ("a call on a path from a loop's item to a transition its type lacks", "names", issues, loop_call,
+         "                - call: { target: w.epic, transition: plan, inputs: { sprint: inputs.next } }\n"),
+    ]
+    for name, code, text, old, new in cases:
+        assert text.count(old) == 1, old
+        found, notes = check([("people.yaml", people), ("module.yaml", text.replace(old, new, 1))])
+        hit = [x for x in found + notes if x[3] == code and x[0] == "module.yaml"]
+        ok &= bool(hit)
+        print(f"  planted {name}: {'caught by ' + code + ', at ' + str(hit[0][1]) + ' ' + hit[0][4][:70] if hit else 'MISSED'}")
+    # comparing the attribute with the input it is given reads the old value on purpose, as points_changed does
+    found, notes = check([("people.yaml", people), ("module.yaml", service.replace(
+        active, "expression: engineer != inputs.engineer and inputs.engineer.state == User.ACTIVE", 1))])
+    quiet = not [x for x in notes if x[3] == "before"] and not found
+    ok &= quiet
+    print(f"  a guard comparing an attribute with the input it is given is not noticed: {'yes' if quiet else 'NO'}")
+    return ok
+
+
 def digest_self_test():
     """The digest names the modules and their bytes, and nothing else: not the order the files come in."""
     a, b = ("inventory", b"module: inventory\n"), ("people", b"module: people\n")
@@ -3423,6 +3531,7 @@ def main():
     ok &= examples_self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text())
     ok &= inventory_plants(people)
     ok &= unknown_plants(people)
+    ok &= reference_plants(people)
     sys.exit(0 if clean and ok else 1)
 
 
