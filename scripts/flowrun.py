@@ -1129,6 +1129,7 @@ class Runner:
             root = self.take(ctx, tn, xn, oid, inputs, depth=0)
             # 7. every invariant the writes could violate, in ascending id order of the object it fails on, except
             # a violation an admission lets stand, which is discharged once the invariant holds again (ADR-0054)
+            requested = oid if oid is not None else root
             for obj in sorted(work.objects.values(), key=lambda o: o.id_order):
                 failing = self.failing_invariants(work, obj)
                 obj.admissions &= set(failing)
@@ -1143,7 +1144,9 @@ class Runner:
                     else:
                         refused.append(n if obj.type == tn else f"{obj.type}.{n}")
                 if refused:
-                    raise Refused("invariant_violated", refused[0], detail=", ".join(refused[1:]) and "and " + ", ".join(refused[1:]))
+                    first = refused[0].rpartition(".")[2]
+                    raise Refused("invariant_violated", refused[0], self.invariant_remedy(work, x, obj, first, requested),
+                                  detail=", ".join(refused[1:]) and "and " + ", ".join(refused[1:]))
         except Refused:
             store.sequences = work.sequences    # a number minted by a refused request stays used: the gap
             raise
@@ -1553,6 +1556,47 @@ class Runner:
                 raise NotRunnable(f"erasing {m.type}, a member of the chain, which declares no erasure")
             self.take(ctx, m.type, erasures[0], member, {k: v for k, v in inputs.items() if k == "reason"}, depth + 1)
 
+    def invariant_remedy(self, work, x, obj, n, requested):
+        """The remedy DESIGN.md §5.5 infers for an invariant that fails, a property of the transition requested:
+        `self_serviceable` where it takes an input it writes to a value the invariant reads, an attribute input writing
+        its attribute and an assertion's `to` the state; else `dependent` where the invariant reads another object,
+        through a relationship or a type scan; else `unreachable_from_here`. A uniqueness failing on another object of the
+        family reads the requested one through its scan. None where the runner cannot tell: any other invariant on
+        another object, which may read the requested one through a relationship, or one reading `this`."""
+        mine = work.objects[requested].type
+        if obj.id != requested and not (n.endswith("_unique") and (work.is_a(mine, obj.type) or work.is_a(obj.type, mine))):
+            return None
+        t = self.kinds.get(obj.type) or {}
+        attrs = t.get("attributes") or {}
+        if n.endswith("_unique"):
+            unique = (attrs.get(n[:-len("_unique")]) or {}).get("unique")
+            reads, other = {n[:-len("_unique")]} | set(unique.get("with", []) if isinstance(unique, dict) else []), True
+        elif n.endswith("_invariant"):
+            state = {st.lower(): v for st, v in (t.get("states") or {}).items()}.get(n[:-len("_invariant")]) or {}
+            reads, other = set(state.get("required_attributes") or []) | {"state"}, False
+        else:
+            names, reads, other, seen = set(names_read(parsed((t.get("invariants") or {})[n]["expression"]))), set(), False, set()
+            while names:
+                m = names.pop()
+                if m in seen:
+                    continue
+                seen.add(m)
+                if m == "this":
+                    return None
+                if m in (t.get("derived_attributes") or {}):
+                    names |= names_read(parsed(t["derived_attributes"][m]["expression"]))
+                    continue
+                if m == "state" or m in attrs or m in (t.get("observations") or {}):
+                    reads.add(m)
+                other |= m in (t.get("observations") or {}) or "reference" in (attrs.get(m) or {}) \
+                    or m == "referrers" or (m in self.kinds and m not in (t.get("states") or {}))
+        writes = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", []))
+        if x["kind"] == "assertion":
+            writes.add("state")
+        if writes & reads:
+            return "self_serviceable"
+        return "dependent" if other else "unreachable_from_here"
+
     def reads(self, tn, n):
         """The attributes an invariant reads, generated ones included: an attribute's uniqueness, a state's requirement."""
         t = self.kinds.get(tn) or {}
@@ -1733,6 +1777,8 @@ def compare(runner, store, want, outcome, aliases):
             return f"expected the request to apply, and it is refused as {got}"
         if got.verdict != want["verdict"]:
             return f"expected {want['verdict']}, and it is refused as {got}"
+        if "remedy" in want and got.verdict == "invariant_violated" and got.remedy is None:
+            raise NotRunnable("the remedy of an invariant that fails on an object other than the one requested, or reads `this`")
         for k in ("clause", "remedy"):
             if k in want and getattr(got, k) != want[k]:
                 return f"expected the {k} {want[k]}, and it is refused as {got}"
@@ -1751,6 +1797,12 @@ def compare(runner, store, want, outcome, aliases):
             return f"expected {k} to hold {v}, and it holds {named.get(got, got) if isinstance(got, str) else got}"
     if "cascaded" in want and list(want["cascaded"]) != list(outcome[3]):
         return f"expected the request to cause {want['cascaded'] or 'nothing'}, and it causes {outcome[3] or 'nothing'}"
+    if "warned" in want:
+        # the flags an applied verdict lists (DESIGN.md §5.5): its own clauses by name, another type's qualified
+        mine = f"{o.type}."
+        warned = [c[len(mine):] if c.startswith(mine) else c for c, mode in outcome[2] if mode == "warn"]
+        if list(want["warned"]) != warned:
+            return f"expected the request to warn of {want['warned'] or 'nothing'}, and it warns of {warned or 'nothing'}"
     return None
 
 
@@ -1845,7 +1897,8 @@ def self_test():
         r.attempt(s, "Order", "add_line", order, OPERATOR, {"qty": 1}, {}, {})
         check("a whole re-checked when a part is added", "applied", "invariant_violated")
     except Refused as e:
-        check("a whole re-checked when a part is added", (e.verdict, e.clause), ("invariant_violated", "few_lines"))
+        check("a whole re-checked when a part is added, the remedy dependent since it reads the parts",
+              (e.verdict, e.clause, e.remedy), ("invariant_violated", "few_lines", "dependent"))
     r, s, order, _ = fresh(1, cascade_too=True)
     check("an effect's creation before the cascade to parts", r.attempt(s, "Order", "tangle", order, OPERATOR, {}, {}, {})[3],
           ["Line.add", "Line.void", "Line.void"])

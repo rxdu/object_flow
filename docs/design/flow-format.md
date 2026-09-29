@@ -736,7 +736,7 @@ These words are reserved by the format. `scripts/check-flow-format-doc.py` holds
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
 
-**Example keys:** `examples_for`, `setups`, `examples`, `description`, `given`, `evaluators`, `steps`, `request`, `import`, `type`, `object`, `transition`, `as`, `actor`, `after`, `inputs`, `state`, `values`, `expect`, `verdict`, `clause`, `remedy`, `cascaded`.
+**Example keys:** `examples_for`, `setups`, `examples`, `description`, `given`, `evaluators`, `steps`, `request`, `import`, `type`, `object`, `transition`, `as`, `actor`, `after`, `inputs`, `state`, `values`, `expect`, `verdict`, `clause`, `remedy`, `cascaded`, `warned`.
 
 **Example values:** `operator`, `now`, `satisfied`, `unsatisfied`, `unanswered`, `applied`, `unavailable`, `invalid_input`, `not_requestable`, `over_limit`, `invariant_violated`, `call_refused`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`.
 
@@ -811,12 +811,13 @@ An `import` writes one object of a `mirror` type, which only the import writes (
 |---|---|
 | `verdict` | `applied`, or the refusal: `unsatisfied`, `unavailable`, `invalid_input`, `not_requestable`, `over_limit`, `invariant_violated` or `call_refused` (`DESIGN.md` §5.5) |
 | `clause` | for `unsatisfied`, the clause that refuses first: a guard of the transition, a generated guard, or `<Type>.<condition>` of a part a cascade drives; for `invariant_violated`, the invariant, qualified where it is another type's; for `call_refused`, optional, the refused call's or creation's clause, always qualified |
-| `remedy` | for `unsatisfied`, the refusing clause's remedy class; for `call_refused`, optional, the refused call's |
+| `remedy` | for `unsatisfied`, the refusing clause's remedy class; for `invariant_violated`, optional, the remedy `DESIGN.md` §5.5 infers for the first invariant named; for `call_refused`, optional, the refused call's |
 | `state` | for `applied`, the state the object is in afterwards |
 | `values` | for `applied`, optional: attributes and the values they hold afterwards, written as §11.3's values |
 | `cascaded` | for `applied`, optional: the transitions the request's cascades took, each as `<Type>.<transition>` |
+| `warned` | for `applied`, optional: the `warn` guards that failed, which the verdict lists, in the order they were decided, the transition's own by name and a caused transition's as `<Type>.<condition>`; an empty list says none did (ADR-0140) |
 
-An `unsatisfied` expectation MUST name its clause and remedy, and the remedy MUST be the one the clause declares; an `applied` one MUST name the state, which MUST be one the transition leaves its object in; a refusal names no state or values, and only `unsatisfied`, `invariant_violated` and `call_refused` name a clause (step 3, `names`). A `call` or `create` of the effect that is refused gives `call_refused`, and a part a cascade drives that refuses gives its own verdict, its clause qualified by its type (`DESIGN.md` §5.5). A request that leaves out a required input is refused as `invalid_input`, so an example expecting any other verdict for one is refused.
+An `unsatisfied` expectation MUST name its clause and remedy, and the remedy MUST be the one the clause declares; an `applied` one MUST name the state, which MUST be one the transition leaves its object in; a refusal names no state, values or warnings, and only `unsatisfied`, `invariant_violated` and `call_refused` name a clause (step 3, `names`); a warning named is a `warn` guard of the transition, or a condition of the type named (step 3, `names`). A `call` or `create` of the effect that is refused gives `call_refused`, and a part a cascade drives that refuses gives its own verdict, its clause qualified by its type (`DESIGN.md` §5.5). A request that leaves out a required input is refused as `invalid_input`, unless the input's attribute is optional or defaulted, when its generated guard `<attribute>_provided` refuses it after the generated guards before it (§4.8, §6); so an example expecting another verdict for the first kind is refused, and one expecting the second kind to apply (step 3, `names`).
 
 ### 11.5 What is checked, and when
 

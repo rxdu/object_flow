@@ -276,3 +276,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** A sentinel compared by identity defines `__copy__` and `__deepcopy__` to return itself (and `__reduce__` for pickling), and a test asserts `copy.deepcopy([S])[0] is S`.
 - **Context:** Python tools here that copy state holding a sentinel: `scripts/flowrun.py`, and any runner or harness after it.
 
+
+### A new check's output is read whole, since a notice may say a check did not run
+
+- **Pattern:** Writing the inventory's examples, the flow checker's output was filtered to its fatal findings. The example of a duplicate serial, which named its invariant's remedy, had become `notrun`, a notice, since the runner could not yet infer the remedy of a uniqueness failing on another object. The filter hid it, so the remedy looked verified, and a planted wrong remedy was refused by nothing.
+- **Correction:** When a check is new, read its notices as well as its findings: a notice saying something was not run means that nothing was verified. Where a notice would mean a check stopped proving what it proves, make it fatal in that run. The flow checker's corpus run now fails on an example it does not run (ADR-0140).
+- **Context:** Any checker that reports "not run", "skipped" or "not checked" as a notice; the flow checker's `notrun` and `coverage` notices.

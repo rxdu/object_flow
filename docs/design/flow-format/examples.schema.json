@@ -120,6 +120,11 @@
         "cascaded": {
           "type": "array",
           "items": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]*\\.[a-z][a-z0-9_]*$" }
+        },
+        "warned": {
+          "description": "The warn guards an applied request raised, in the order they were decided: the transition's own by name, a caused transition's qualified by its type.",
+          "type": "array",
+          "items": { "type": "string", "pattern": "^([A-Z][A-Za-z0-9]*\\.)?[a-z][a-z0-9_]*$" }
         }
       }
     }

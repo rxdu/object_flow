@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-28: "accept all your recommendations", on the five questions put the same day about the examples ADR-0131 decisions 4 to 6 left to design.
 - **Date:** 2026-09-28
-- **Refined by:** ADR-0138 — an example may stub an evaluator as `unanswered`.
+- **Refined by:** ADR-0138 — an example may stub an evaluator as `unanswered`. ADR-0140 — an example may assert the warnings its verdict lists and an invariant violation's remedy.
 - **Refines:** ADR-0131 (how flows are authored and checked), ADR-0135 (the source a change records)
 - **Relates to:** PRD F10, F11, UC-15; `flow-format.md` §7, §10, §11; `publish-and-import.md` §1, §2; `DESIGN.md` §5.9; ADR-0132 decision 2
 

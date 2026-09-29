@@ -2277,16 +2277,16 @@ def example_errors(doc, kinds, modules):
         if "type" in r:
             tn = r["type"]
             if tn not in kinds or tn in machines:
-                return [(path + ("type",), "names", f"creates a {tn}, which no module checked declares as a type")], None, None
+                return [(path + ("type",), "names", f"creates a {tn}, which no module checked declares as a type")], None, None, None
             if kinds[tn].get("abstract"):
-                return [(path + ("type",), "names", f"creates a {tn}, which is abstract and has no objects")], None, None
+                return [(path + ("type",), "names", f"creates a {tn}, which is abstract and has no objects")], None, None, None
         else:
             if r["object"] not in env:
-                return [(path + ("object",), "names", f"acts on '{r['object']}', which no earlier step gave as an alias")], None, None
+                return [(path + ("object",), "names", f"acts on '{r['object']}', which no earlier step gave as an alias")], None, None, None
             tn = env[r["object"]]
         x = (kinds[tn].get("transitions") or {}).get(r["transition"])
         if x is None:
-            return [(path + ("transition",), "names", f"requests {tn}.{r['transition']}, which {tn} does not declare")], None, None
+            return [(path + ("transition",), "names", f"requests {tn}.{r['transition']}, which {tn} does not declare")], None, None, None
         if ("type" in r) != (x["kind"] == "initial"):
             errs.append((path + ("transition",), "names", f"{tn}.{r['transition']} is {'a creation, requested with the type' if x['kind'] == 'initial' else 'requested on an object, named by its alias'}"))
         if applies and x.get("only_via"):
@@ -2308,9 +2308,14 @@ def example_errors(doc, kinds, modules):
                     errs.append((path + ("inputs", k), "names", f"'{v}' is not a state {tn}.{r['transition']} may put an object in"))
             elif k != "admits":
                 errs += value_errors(v, own.get(k) if k in own else attrs.get(k), env, path + ("inputs", k), k)
-        missing = sorted(i for i in required_input_names(x) - set(given) if "default" not in (own.get(i) or {}))
+        left = required_input_names(x) - set(given)
+        # a required input of an optional or defaulted attribute left out is refused by its generated guard, after the
+        # generated guards before it; any other is invalid input (flow-format.md §4.8, §6)
+        unprovided = [i for i in x.get("required_inputs", []) if i in left and i not in own
+                      and ((attrs.get(i) or {}).get("optional") or "default" in (attrs.get(i) or {}))]
+        missing = sorted(i for i in left - set(unprovided) if "default" not in (own.get(i) or {}))
         missing += ["to"] if x["kind"] == "assertion" and "to" not in given else []
-        return errs, (tn, x), missing
+        return errs, (tn, x), missing, unprovided
 
     def steps_errors(steps, env, path):
         errs = []
@@ -2318,11 +2323,12 @@ def example_errors(doc, kinds, modules):
             here = path + (i,)
             if "request" in st:
                 r = st["request"]
-                e, found, missing = request_errors(r, env, here + ("request",), applies=True)
+                e, found, missing, unprovided = request_errors(r, env, here + ("request",), applies=True)
                 errs += e
-                if found and missing:
+                left = (missing or []) + (unprovided or [])
+                if found and left:
                     errs.append((here + ("request",), "names", f"a setup's step must apply, and it leaves out the required "
-                                                               f"input{'s' if len(missing) > 1 else ''} {', '.join(missing)}"))
+                                                               f"input{'s' if len(left) > 1 else ''} {', '.join(left)}"))
                 if found and "as" in r:
                     if r["as"] in env or r["as"] == "operator":
                         errs.append((here + ("request", "as"), "names", f"'{r['as']}' is already an alias"))
@@ -2378,7 +2384,7 @@ def example_errors(doc, kinds, modules):
                 env = dict(envs.get(ex["given"], {}))
         out += stubs_errors(ex.get("evaluators"), path + ("evaluators",))
         out += steps_errors(ex.get("steps"), env, path + ("steps",))
-        errs, found, missing = request_errors(ex["request"], env, path + ("request",), applies=False)
+        errs, found, missing, unprovided = request_errors(ex["request"], env, path + ("request",), applies=False)
         out += errs
         if not found:
             continue
@@ -2391,6 +2397,9 @@ def example_errors(doc, kinds, modules):
         if missing and verdict != "invalid_input":
             out.append((here + ("verdict",), "names", f"the request leaves out {', '.join(missing)}, which is refused as invalid_input, "
                                                       f"and the example expects {verdict}"))
+        elif unprovided and verdict == "applied":
+            out.append((here + ("verdict",), "names", f"the request leaves out {', '.join(unprovided)}, which is refused by "
+                                                      f"{unprovided[0]}_provided, and the example expects it to apply"))
         if verdict == "applied":
             for k in ("clause", "remedy"):
                 if k in want:
@@ -2411,8 +2420,15 @@ def example_errors(doc, kinds, modules):
                 ct, cx = c.split(".", 1)
                 if cx not in ((kinds.get(ct) or {}).get("transitions") or {}):
                     out.append((here + ("cascaded",), "names", f"{c} names no transition a module checked declares"))
+            for c in want.get("warned") or []:
+                # the transition's own warn guards by name, and a caused transition's qualified by its type
+                ct, _, cn = c.rpartition(".")
+                if not ct and (x.get("guards") or {}).get(cn) != "warn":
+                    out.append((here + ("warned",), "names", f"{cn} is not a guard {tn}.{xn} warns by"))
+                elif ct and cn not in ((kinds.get(ct) or {}).get("conditions") or {}):
+                    out.append((here + ("warned",), "names", f"{c} names no condition of a type a module checked declares"))
             continue
-        for k in ("state", "values", "cascaded"):
+        for k in ("state", "values", "cascaded", "warned"):
             if k in want:
                 out.append((here + (k,), "names", f"a request refused as {verdict} leaves no {'state' if k == 'state' else k} to state"))
         if verdict == "not_requestable" and not x.get("only_via"):
@@ -3026,6 +3042,33 @@ def runner_plants(people, service, examples):
     return ok
 
 
+def inventory_plants(people):
+    """Slice 5 shown on the inventory examples: an expected warning the request does not raise, or one it raises and the
+    example leaves out, a guard that does not warn named as warning, an invariant's remedy the rule does not give, and a
+    left-out input of an optional attribute, refused by its generated guard, expected to apply."""
+    ok = True
+    v1, v2 = (EXAMPLES / "inventory.yaml").read_text(), (EXAMPLES / "inventory-v2.yaml").read_text()
+    ex1, ex2 = (EXAMPLES / "inventory.examples.yaml").read_text(), (EXAMPLES / "inventory-v2.examples.yaml").read_text()
+    plants = [
+        ("a warning the example leaves out", "example", v2, ex2, "warned: [not_below_list_price] }", "warned: [] }"),
+        ("a warning the request does not raise", "example", v2, ex2, "SGD 12000.00 }, warned: [] }",
+         "SGD 12000.00 }, warned: [not_below_list_price] }"),
+        ("a guard that denies, named as warning", "names", v2, ex2, "warned: [not_below_list_price] }", "warned: [not_damaged] }"),
+        ("an invariant's remedy the rule does not give", "example", v1, ex1, "clause: serial_unique, remedy: self_serviceable }",
+         "clause: serial_unique, remedy: dependent }"),
+        ("a left-out input of an optional attribute, expected to apply", "names", v1, ex1,
+         "expect: { verdict: unsatisfied, clause: recipient_provided, remedy: self_serviceable }",
+         "expect: { verdict: applied, state: RESERVED }"),
+    ]
+    for name, code, module, examples, old, new in plants:
+        assert examples.count(old) == 1, old
+        found, _notes = check([("people.yaml", people), ("inventory.yaml", module), ("inventory.examples.yaml", examples.replace(old, new))])
+        hit = [x for x in found if x[3] == code]
+        ok &= bool(hit)
+        print(f"  planted {name}: {'caught by ' + code + ', at ' + hit[0][0] + ':' + str(hit[0][1]) + ' ' + hit[0][4][:70] if hit else 'MISSED ' + str(found[:2])}")
+    return ok
+
+
 def digest_self_test():
     """The digest names the modules and their bytes, and nothing else: not the order the files come in."""
     a, b = ("inventory", b"module: inventory\n"), ("people", b"module: people\n")
@@ -3076,7 +3119,12 @@ def main():
               f"{len(notes)} notice{'s' if len(notes) != 1 else ''}")
         for x in found:
             print(f"  {x[0]}:{x[1]} {x[3]} {x[4]}")
-        clean &= not found
+        # the design's own examples prove the reference runner, so one it does not run fails the corpus, where a
+        # description being written is only told (ADR-0136)
+        unrun = [x for x in notes if x[3] == "notrun"]
+        for x in unrun:
+            print(f"  {x[0]}:{x[1]} notrun {x[4]}")
+        clean &= not found and not unrun
     ok = self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "inventory.yaml").read_text(),
                    (EXAMPLES / "delivery.yaml").read_text(), (EXAMPLES / "approvals.yaml").read_text(),
                    (EXAMPLES / "customers.yaml").read_text(), (EXAMPLES / "servicedesk.yaml").read_text(),
@@ -3088,6 +3136,7 @@ def main():
     ok &= logic_plants(people, (EXAMPLES / "service.yaml").read_text())
     ok &= runner_plants(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text())
     ok &= examples_self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text())
+    ok &= inventory_plants(people)
     sys.exit(0 if clean and ok else 1)
 
 

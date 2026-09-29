@@ -491,6 +491,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D477](#d477) | The decision records from ADR-0081 on still stated what ADR-0114 withdrew | Resolved in place |
 | [D478](#d478) | An example wrote a membership in brackets, which the grammar does not have, and both checkers passed it | Resolved in place |
 | [D479](#d479) | `DESIGN.md` §5.5 listed no verdict for a refused call | Resolved in place |
+| [D480](#d480) | `flow-format.md` §11 refused every left-out required input as invalid input, where §4.8 refuses one of an optional attribute by its generated guard | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3151,4 +3152,11 @@ Six readers, one slice each, read the requirements and the design whole, after t
 **`DESIGN.md` §5.5 listed no verdict for a refused call.** ADR-0122 decision 35 has a refused `call` or `create` name the step that made it and its own verdict, and `library-api.md` carries it as `CallRefused`, but the verdict table and the glossary of `DESIGN.md` named no such verdict, and `flow-format.md` §11.4 cited §5.5 for `call_refused`. Found writing the reference runner's second slice, which must say what a request gets when an effect's call is refused.
 
 **Resolved in place**, 2026-09-29: §5.5 has the row `call refused`, a part a cascade drives refusing with its own verdict instead, as ADR-0038 has it; the glossary lists it; and an example's `call_refused` may name the refused call's clause, qualified, and its remedy (`flow-format.md` §11.4), which step 3 checks.
+
+## Found writing examples for the design's modules, 2026-09-29
+
+### D480
+**`flow-format.md` §11 refused every left-out required input as invalid input, where §4.8 refuses one of an optional attribute by its generated guard.** §11.4 said "A request that leaves out a required input is refused as `invalid_input`, so an example expecting any other verdict for one is refused." §4.8 and §6 refuse a required input of an optional or defaulted attribute that is left out with its generated guard `<attribute>_provided`, `unsatisfied` and `self_serviceable`, after `invalid_input` and the generated guards before it; the reference runner does so. The flow checker's step 3 followed §11, so an example stating what the runner gives was refused. Found writing the inventory's examples, where `reserve` requires `recipient`, an optional attribute.
+
+**Resolved in place**, 2026-09-29: §11.4 says which left-out inputs are invalid input and which are refused by their generated guard, and step 3 tells them apart, refusing an example that expects a request leaving out the second kind to apply, which the flow checker's self-test proves by a plant.
 
