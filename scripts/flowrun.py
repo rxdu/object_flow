@@ -22,7 +22,24 @@ from fractions import Fraction
 
 import flowexpr
 
-ABSENT = type("Absent", (), {"__repr__": lambda self: "absent"})()
+class _Absent:
+    """Absence, and unknown, one value (§8.2). A request works on a copy of the store, so the one value must stay
+    itself when copied, or `is ABSENT` would fail on every copied row."""
+
+    def __repr__(self):
+        return "absent"
+
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
+
+    def __reduce__(self):
+        return "ABSENT"
+
+
+ABSENT = _Absent()
 SECONDS = {"s": 1, "min": 60, "h": 3600, "day": 86400, "days": 86400, "week": 604800, "weeks": 604800}
 EPOCH = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 CLOCK_START = "2026-01-01T00:00:00Z"            # flow-format.md §11.3
@@ -46,6 +63,10 @@ class Refused(Exception):
 def timestamp(text):
     t = datetime.datetime.strptime(text.replace("Z", "+0000"), "%Y-%m-%dT%H:%M%z" if text.count(":") == 1 else "%Y-%m-%dT%H:%M:%S%z")
     return Fraction(int((t - EPOCH).total_seconds()))
+
+
+class Row(dict):
+    """A row of an object's own flow data: a span of `intervals` or an event of `transitions` (§6.9)."""
 
 
 def names_read(n):
@@ -76,6 +97,8 @@ class Obj:
         self.version = 1
         self.id_order = 0                       # creation order, which ascending id order is (§5.1)
         self.admissions = set()                 # invariants whose violation an admission lets stand (ADR-0054)
+        self.spans = {}                         # tracked member -> its spans, each a Row (DESIGN.md §7)
+        self.writes = {}                        # attribute or part relationship -> the event that last wrote it
         self.erased = False                     # its own erasure is recorded (DESIGN.md §8)
 
 
@@ -87,6 +110,7 @@ class Store:
         self.now = timestamp(CLOCK_START)
         self.objects, self.counter = {}, 0
         self.sequences = {}                     # (sequence, scope value) -> the last number minted
+        self.events, self.position = [], 0      # the log, and the last position allocated (DESIGN.md §7)
         op = Obj(OPERATOR, "Operator", "ACTIVE", self.now)
         op.attrs["identity"] = OPERATOR
         self.objects[OPERATOR] = op
@@ -123,8 +147,8 @@ class Store:
 class Evaluator:
     """An expression's value over the store, for one object and one request (§8, §9.2)."""
 
-    def __init__(self, store, tn, this=None, inputs=None, actor=None, stubs=None, filter_mode=False):
-        self.s, self.tn, self.this = store, tn, this
+    def __init__(self, store, tn, this=None, inputs=None, actor=None, stubs=None, filter_mode=False, event=None):
+        self.s, self.tn, self.this, self.event = store, tn, this, event
         self.inputs, self.actor, self.stubs = inputs or {}, actor, stubs or {}
         self.filter_mode = filter_mode          # a filter leaves out an element it cannot decide (§8.2)
         self.unanswered = False                 # an evaluator it asked did not answer (ADR-0138)
@@ -143,7 +167,9 @@ class Evaluator:
         if n == "referrers":
             return self.referrers()
         if n == "this_event":
-            raise NotRunnable("`this_event`")
+            if self.event is None:
+                raise NotRunnable("`this_event` outside an effect")
+            return ("event", self.event)
         if n == "state" or n in (self.t.get("attributes") or {}) or n in (self.t.get("derived_attributes") or {}) \
                 or n in (self.t.get("observations") or {}) or n in ("id", "open", "created_at", "created_by_kind"):
             return self.member(self.this, n) if self.this is not None else ABSENT
@@ -168,6 +194,10 @@ class Evaluator:
             if m in ((self.s.kinds.get(base[1]) or {}).get("states") or {}):
                 return ("state", base[1], m)
             raise NotRunnable(f"`{base[1]}.{m}`")
+        if isinstance(base, Row):
+            if m in base:
+                return base[m]
+            raise NotRunnable(f"the member `{m}` of a row of an object's flow data")
         if isinstance(base, tuple) and base[0] == "state" and m == "category":
             return ("category", ((self.s.kinds.get(base[1]) or {}).get("states") or {}).get(base[2], {}).get("category"))
         if not isinstance(base, str) or base not in self.s.objects:
@@ -178,6 +208,15 @@ class Evaluator:
             return o.id
         if m == "type":
             return ("typeref", o.type)
+        if m == "intervals":
+            return self.intervals(o, "state")
+        if m == "transitions":
+            return tuple(Row(e) for e in self.s.events if e["object"] == o.id)
+        if m == "actor_id":
+            marked = self.s.actor_attr(o.type)
+            return o.attrs.get(marked[0], ABSENT) if marked else ABSENT
+        if m in ("attempts", "labels"):
+            raise NotRunnable(f"an object's `{m}`")
         if m == "state":
             return ("state", o.type, o.state)
         if m == "created_at":
@@ -224,6 +263,41 @@ class Evaluator:
                     out.append(x.id)
                     break
         return tuple(out)
+
+    def intervals(self, o, member):
+        """The object's spans in each state, or each value of a tracked member, as rows (§6.9)."""
+        if member not in o.spans:
+            raise NotRunnable(f"the intervals of {o.type}.{member}, which is not tracked")
+        return tuple(Row(sp, duration=self.duration(o, sp)) for sp in o.spans[member])
+
+    def duration(self, o, sp):
+        """A span's exit less its entry; a current span runs to now while its object is open, and on a finished object
+        to the entry of the state that finished it, a span that began after that entry having none (§6.9, ADR-0101)."""
+        if sp["left_at"] is not ABSENT:
+            return sp["left_at"] - sp["entered_at"]
+        st = ((self.s.kinds.get(o.type) or {}).get("states") or {}).get(o.state) or {}
+        if st.get("category") != "closed" and not st.get("final"):
+            return self.s.now - sp["entered_at"]
+        entry = o.entered.get(o.state, o.created_at)
+        return entry - sp["entered_at"] if sp["entered_at"] < entry else ABSENT
+
+    def time_in(self, o, state):
+        spans = [sp for sp in o.spans.get("state", []) if sp["state"] == ("state", o.type, state)]
+        return sum((d for d in (self.duration(o, sp) for sp in spans) if d is not ABSENT), Fraction(0))
+
+    def entered_at(self, o, what):
+        if what in ((self.s.kinds.get(o.type) or {}).get("states") or {}):
+            return o.entered.get(what, ABSENT)
+        if what in o.spans:
+            return o.spans[what][-1]["entered_at"]
+        raise NotRunnable(f"`entered_at({what})`, which names neither a state nor a tracked member")
+
+    def changed_since(self, names, event):
+        """Whether any of the attributes, or any part of the relationships, was written after the event (§8.3)."""
+        if event is ABSENT or self.this is None:
+            return ABSENT
+        o = self.s.objects[self.this]
+        return any(o.writes.get(n, 0) > event[1] for n in names)
 
     def opposite_end(self, o, spec):
         """An end the other side stores: the objects of the target type whose opposite end names this one."""
@@ -281,8 +355,10 @@ class Evaluator:
             return self.aggregate(e, env)
         if k == "call":
             return self.call(e, env)
-        if k in ("metric", "changed"):
-            raise NotRunnable("`metric()`" if k == "metric" else "`changed_since`")
+        if k == "changed":
+            return self.changed_since(e[1], self.value(e[2], env))
+        if k == "metric":
+            raise NotRunnable("`metric()`")
         raise NotRunnable(f"the expression form {k}")
 
     def binary(self, e, env):
@@ -376,10 +452,20 @@ class Evaluator:
         if fn[0] == "path" and fn[1][0] == "name" and fn[1][1] not in env and fn[1][1] != "this" \
                 and fn[1][1] not in (self.t.get("attributes") or {}):
             raise ExampleError(f"the evaluator function {fn[1][1]}.{fn[2]} is called, and the example stubs no answer for it")
-        if fn == ("name", "entered_at") and len(args) == 1 and args[0][0] == "name":
+        if fn[0] == "path" and fn[2] in ("held", "intervals", "entered_at", "time_in") and len(args) == 1 and args[0][0] == "name":
+            base = self.value(fn[1], env)
+            if isinstance(base, Row) and fn[2] == "held":
+                return base["held"].get(args[0][1], ABSENT)
+            if isinstance(base, str) and base in self.s.objects:
+                o = self.s.objects[base]
+                if fn[2] == "intervals":
+                    return self.intervals(o, args[0][1])
+                return self.entered_at(o, args[0][1]) if fn[2] == "entered_at" else self.time_in(o, args[0][1])
+        if fn in (("name", "entered_at"), ("name", "time_in")) and len(args) == 1 and args[0][0] == "name":
             if self.this is None:
                 return ABSENT
-            return self.s.objects[self.this].entered.get(args[0][1], ABSENT)
+            o = self.s.objects[self.this]
+            return self.entered_at(o, args[0][1]) if fn[1] == "entered_at" else self.time_in(o, args[0][1])
         if fn == ("name", "length") and len(args) == 1:
             v = self.value(args[0], env)
             return ABSENT if v is ABSENT else len(v)
@@ -402,6 +488,8 @@ class Ctx:
         self.flags = []             # the audit and warn guards that failed, at any depth
         self.asserted, self.admits = None, set()    # the object an assertion set, and what it admits
         self.erased = {}            # object id -> the personal attributes this request erased on it
+        self.position_of = {}       # object id -> the position of the event its current transition records
+        self.attr_writes = {}       # object id -> the attributes its current transition's effect wrote
 
     def wrote(self, oid):
         if oid not in self.written:
@@ -630,7 +718,10 @@ class Runner:
                     # an evaluator that did not answer leaves the guard unknown, and the caller may try again (ADR-0138)
                     raise Refused("unsatisfied", g, "temporal" if asking.unanswered else conditions[g].get("remedy"))
                 ctx.flags.append((f"{tn}.{g}", mode))
-        # 5. the outcome: the new state and the attribute writes
+        # 5. the outcome: its event's position allocated as it begins applying, so this_event is known to it (§7)
+        work.position += 1
+        pos = work.position
+        before = (work.objects[oid].state, dict(work.objects[oid].attrs), self.tracked_values(work.objects[oid])) if oid else (None, {}, {})
         if oid is None:
             o = Obj(work.new_id(tn), tn, x["to"], work.now)
             o.id_order = work.counter
@@ -659,6 +750,8 @@ class Runner:
         if oid is None:
             self.mint(ctx, o, attrs)
         ctx.wrote(o.id)
+        ctx.position_of[o.id] = pos
+        ctx.attr_writes[o.id] = set(inputs) & set(x.get("required_inputs", []) + x.get("optional_inputs", []))
         for w in wholes:
             if w is not None:
                 ctx.wrote(w)
@@ -668,8 +761,70 @@ class Runner:
         self.cascades(ctx, t, tn, xn, o, inputs, depth)
         if x["kind"] == "erasure":
             self.erase_chain(ctx, o, inputs, depth)
+        self.record(ctx, o, x, xn, pos, before, inputs, created=oid is None)
         o.version += 1
         return o.id
+
+    # ── the record a transition leaves: its event, its spans and what it wrote ─────
+    def tracked(self, tn):
+        """The members whose every value is timed: the state, each enumeration attribute and each singular stored
+        reference (PRD D11, DESIGN.md §7)."""
+        t = self.kinds.get(tn) or {}
+        out = ["state"]
+        for a, spec in (t.get("attributes") or {}).items():
+            spec = spec or {}
+            if spec.get("type") in self.enums:
+                out.append(a)
+            elif "reference" in spec and not spec["reference"].endswith("[]"):
+                back = ((self.kinds.get(spec["reference"]) or {}).get("attributes") or {}).get(spec.get("opposite") or "") or {}
+                if "opposite" not in spec or back.get("reference", "").endswith("[]") or spec.get("stored"):
+                    out.append(a)
+        return out
+
+    def tracked_values(self, o):
+        return {m: (("state", o.type, o.state) if m == "state" else o.attrs.get(m, ABSENT)) for m in self.tracked(o.type)}
+
+    def record(self, ctx, o, x, xn, pos, before, inputs, created):
+        work = ctx.work
+        before_state, before_attrs, held = before
+        now_values = self.tracked_values(o)
+        for m, v in now_values.items():
+            spans = o.spans.setdefault(m, [])
+            if created or not spans or held.get(m, ABSENT) != v:
+                if spans and spans[-1]["left_at"] is ABSENT:
+                    spans[-1]["left_at"] = work.now
+                key = "state" if m == "state" else "value"
+                spans.append(Row({"object": o.id, key: v, "entered_at": work.now, "left_at": ABSENT,
+                                  "entered_by_kind": ctx.who["kind"], "declaration_version": 1, "legacy": False,
+                                  "held": dict(now_values)}))
+        written = ctx.attr_writes.get(o.id, set()) | ctx.erased.get(o.id, set())
+        written |= {a for a in set(before_attrs) | set(o.attrs) if before_attrs.get(a, ABSENT) != o.attrs.get(a, ABSENT)}
+        for a in written:
+            o.writes[a] = pos
+        # a part's transition is an event on its whole's part relationship, and a recording on its subject's collection
+        for a, spec in ((self.kinds.get(o.type) or {}).get("attributes") or {}).items():
+            if self.owner_end(spec) and o.attrs.get(a) in work.objects:
+                work.objects[o.attrs[a]].writes[spec["opposite"]] = pos
+        if xn == "record" and o.attrs.get("subject") in work.objects:
+            subject = work.objects[o.attrs["subject"]]
+            for name, ob in ((self.kinds.get(subject.type) or {}).get("observations") or {}).items():
+                if ob["kind"] == o.type:
+                    subject.writes[name] = pos
+        states = (self.kinds.get(o.type) or {}).get("states") or {}
+
+        def is_open(sn):
+            st = states.get(sn) or {}
+            return st.get("category") != "closed" and not st.get("final")
+        visited = {sp["state"][2] for sp in o.spans.get("state", [])[:-1]}
+        reason = inputs.get("reason") if x["kind"] == "assertion" else ("erasure" if x["kind"] == "erasure" else ABSENT)
+        work.events.append({
+            "position": pos, "object": o.id, "type": o.type, "transition": xn,
+            "from_state": ("state", o.type, before_state) if before_state else ABSENT, "to_state": ("state", o.type, o.state),
+            "completes": bool(before_state) and is_open(before_state) and not is_open(o.state),
+            "returns": bool(before_state) and before_state != o.state and o.state in visited,
+            "occurred_at": work.now, "recorded_at": work.now, "actor_id": ctx.who["id"], "actor_kind": ctx.who["kind"],
+            "asserted": x["kind"] == "assertion", "overrides": x["kind"] == "assertion", "imported": False, "migrated": False,
+            "redacted": False, "reason": reason, "declaration_version": 1, "held": held})
 
     def effects(self, ctx, tn, o, steps, inputs, env, depth):
         """An effect's steps in order; returns whether one reached another object by a call or a creation."""
@@ -677,7 +832,8 @@ class Runner:
         attrs = (self.kinds.get(tn) or {}).get("attributes") or {}
 
         def ev(tree, filtering=False):
-            return Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs, filter_mode=filtering).value(tree, env)
+            return Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs, filter_mode=filtering,
+                             event=ctx.position_of.get(o.id)).value(tree, env)
 
         def unsupplied(tree):
             # a write whose right-hand side is an unsupplied optional input is skipped (DESIGN.md §5.4)
@@ -707,11 +863,13 @@ class Runner:
                 if self.owner_end(attrs.get(spec["location"])) and o.attrs.get(spec["location"]) not in (None, v):
                     raise NotRunnable("re-parenting a part by an effect, whose whole_open guard this runner does not yet evaluate")
                 o.attrs[spec["location"]] = v
+                ctx.attr_writes.setdefault(o.id, set()).add(spec["location"])
                 if self.owner_end(attrs.get(spec["location"])):
                     ctx.wrote(v)
             elif kind == "clear":
                 for a in spec:
                     o.attrs.pop(a, None)
+                ctx.attr_writes.setdefault(o.id, set()).update(spec)
             elif kind in ("add", "remove"):
                 tree = flowexpr.parse(spec["expr"])
                 if unsupplied(tree):
@@ -719,6 +877,7 @@ class Runner:
                 v = ev(tree)
                 if v is ABSENT:
                     raise NotRunnable(f"an `{kind}` of an absent value")
+                ctx.attr_writes.setdefault(o.id, set()).add(spec["location"])
                 current = tuple(o.attrs.get(spec["location"], ()))
                 if kind == "add" and v not in current:
                     o.attrs[spec["location"]] = current + (v,)
@@ -980,6 +1139,18 @@ def step(runner, store, st, aliases, stubs, under_test=False):
         aliases[im["as"]] = o.id
         # the import writes through the built-in assertion, so what it brings in violating stands admitted (DESIGN.md §8)
         o.admissions = set(runner.failing_invariants(store, o))
+        store.position += 1
+        values = runner.tracked_values(o)
+        for m, v in values.items():
+            o.spans[m] = [Row({"object": o.id, "state" if m == "state" else "value": v, "entered_at": store.now, "left_at": ABSENT,
+                               "entered_by_kind": "human", "declaration_version": 1, "legacy": False, "held": dict(values)})]
+        for a in o.attrs:
+            o.writes[a] = store.position
+        store.events.append({"position": store.position, "object": o.id, "type": o.type, "transition": "import", "from_state": ABSENT,
+                             "to_state": ("state", o.type, o.state), "completes": False, "returns": False,
+                             "occurred_at": store.now, "recorded_at": store.now, "actor_id": OPERATOR, "actor_kind": "human",
+                             "asserted": True, "overrides": False, "imported": True, "migrated": False, "redacted": False,
+                             "reason": ABSENT, "declaration_version": 1, "held": {}})
         return None
     r = st["request"]
     if r.get("after"):
@@ -1138,5 +1309,44 @@ def self_test():
         except Refused as e:
             got = (e.verdict, e.remedy)
         check(f"an evaluator that answers {answer}", got, want)
-    print(f"runner: a small order and its lines, each thing slices 1 and 2 execute and each refusal they give: {'yes' if ok else 'NO'}")
+    # slice 4a: a document signed off, edited, sent back, and timed, over its own history
+    doc = {"Operator": kinds["Operator"], "Doc": {
+        "attributes": {"note": {"type": "string", "optional": True}, "signed": {"type": "event", "optional": True}},
+        "derived_attributes": {"rework": {"expression": "count(t in this.transitions where t.returns)"}},
+        "states": {"DRAFT": {"category": "live"}, "REVIEW": {"category": "live"}, "DONE": {"category": "closed", "final": True}},
+        "conditions": {"fresh": {"expression": "signed is not null and not changed_since([note], signed)", "remedy": "delegable"},
+                       "waited": {"expression": "time_in(REVIEW) >= 1 h", "remedy": "temporal"}},
+        "transitions": {
+            "create": {"kind": "initial", "to": "DRAFT"},
+            "edit": {"kind": "internal", "from": ["DRAFT", "REVIEW"], "required_inputs": ["note"]},
+            "sign": {"kind": "internal", "from": ["DRAFT", "REVIEW"], "effect": [{"assign": {"location": "signed", "expr": "this_event"}}]},
+            "submit": {"kind": "external", "from": ["DRAFT"], "to": "REVIEW"},
+            "back": {"kind": "external", "from": ["REVIEW"], "to": "DRAFT"},
+            "finish": {"kind": "external", "from": ["REVIEW"], "to": "DONE", "guards": {"fresh": "deny"}},
+            "finish_slow": {"kind": "external", "from": ["REVIEW"], "to": "DONE", "guards": {"waited": "deny"}}}}}
+
+    def history(*steps):
+        r, s = Runner(doc, {}), Store(doc, {})
+        d = r.attempt(s, "Doc", "create", None, OPERATOR, {}, {}, {})[1]
+        for st in steps:
+            if isinstance(st, int):
+                s.now += st
+                continue
+            name, inputs = st if isinstance(st, tuple) else (st, {})
+            try:
+                r.attempt(s, "Doc", name, d, OPERATOR, inputs, {}, {})
+            except Refused as e:
+                return (e.verdict, e.clause), s, d
+        return "applied", s, d
+    check("a sign-off nothing changed since", history("sign", "submit", "finish")[0], "applied")
+    check("a sign-off an edit made stale", history("sign", ("edit", {"note": "x"}), "submit", "finish")[0], ("unsatisfied", "fresh"))
+    check("a stale sign-off given again", history("sign", ("edit", {"note": "x"}), "sign", "submit", "finish")[0], "applied")
+    _v, s, d = history("submit", "back", "submit")
+    check("rework, each return to a state held before", Evaluator(s, "Doc", d).member(d, "rework"), 2)
+    check("time in a state over two spells", history("submit", 1800, "back", "submit", 1800, "finish_slow")[0], "applied")
+    check("time in a state not yet long enough", history("submit", 1800, "back", "submit", 1200, "finish_slow")[0],
+          ("unsatisfied", "waited"))
+    _v, s, d = history("submit", 600, "back", 60, "submit")
+    check("when it last entered a state", Evaluator(s, "Doc", d).value(flowexpr.parse("entered_at(REVIEW)"), {}) - timestamp(CLOCK_START), 660)
+    print(f"runner: a small order and its lines, and a document over its history, each thing slices 1 to 4a execute: {'yes' if ok else 'NO'}")
     return ok

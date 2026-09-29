@@ -269,3 +269,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Where a check's claim depends on what an expression means, or on its being well formed, parse it with the grammar the specification states, and prove the parser both ways: on every expression the record holds, and on malformed ones it must refuse.
 - **Context:** The flow and syntax checkers, and any tool that reads the expression language.
 
+### A sentinel compared by identity survives copying only if it says so
+
+- **Pattern:** On 2026-09-29 the reference runner marked absence with one object, `ABSENT`, tested with `is`, and worked on a deep copy of the store for each request. While absence was never stored the copy did not matter; once spans and events held it, `copy.deepcopy` made new instances, `x is ABSENT` became false on every copied row, and a subtraction reached the absent value. The self-test found it on its first run.
+- **Correction:** A sentinel compared by identity defines `__copy__` and `__deepcopy__` to return itself (and `__reduce__` for pickling), and a test asserts `copy.deepcopy([S])[0] is S`.
+- **Context:** Python tools here that copy state holding a sentinel: `scripts/flowrun.py`, and any runner or harness after it.
+

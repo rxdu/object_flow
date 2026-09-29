@@ -2995,10 +2995,10 @@ def runner_plants(people, service, examples):
          "inputs: { login: ben, name: Ben }", "inputs: { login: ana, name: Ben }"),
         ("an example the runner cannot yet run", "notrun", None, None),
     ]
-    # a guard reading how long the job has been open, which the runner's fourth slice will compute
-    timed = service.replace("        backdating_limit: 2 days\n", "        backdating_limit: 2 days\n        guards:\n          waited: deny\n", 1) \
-                   .replace("      photo_attached:\n", "      waited:\n        description: The job has been open for a minute.\n"
-                                                  "        expression: time_in(OPEN) >= 1 min\n        remedy: temporal\n      photo_attached:\n", 1)
+    # a guard reading a metric, which the runner computes only from its slice 4b on
+    timed = service.replace("        backdating_limit: 2 days\n", "        backdating_limit: 2 days\n        guards:\n          quick: deny\n", 1) \
+                   .replace("      photo_attached:\n", "      quick:\n        description: Jobs are worked through quickly.\n"
+                                                  "        expression: metric(time_working) < 30 days\n        remedy: dependent\n      photo_attached:\n", 1)
     for name, code, old, new in plants:
         found, notes = check([("people.yaml", people), ("service.yaml", service if old else timed),
                               ("service.examples.yaml", examples.replace(old, new, 1) if old else examples)])

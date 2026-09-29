@@ -22,6 +22,15 @@ setups:
           as: delivery
           inputs: { unit: robot, price: SGD 11500.00, checklist: [Battery charged, Manual included] }
 
+  an_approved_delivery_with_a_courier:
+    description: A delivery with an empty checklist, a courier assigned, and signed off as it stands.
+    given: a_reserved_item
+    steps:
+      - request: { type: Delivery, transition: open, as: delivery, inputs: { unit: robot, price: SGD 11500.00, checklist: [] } }
+      - request: { type: Courier, transition: register, as: courier, inputs: { name: Swift Couriers } }
+      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier } }
+      - request: { object: delivery, transition: approve }
+
 examples:
   opening_creates_the_checklist:
     description: Opening a delivery creates one checklist item for each label given, and mints the delivery's number.
@@ -50,3 +59,20 @@ examples:
     given: a_delivery_being_prepared
     request: { object: delivery, transition: cancel }
     expect: { verdict: applied, state: CANCELLED, cascaded: [ChecklistItem.discard, ChecklistItem.discard] }
+
+  an_approved_delivery_is_handed_over:
+    description: Completing a signed-off delivery with a courier hands the item over, which delivers it externally at the delivery's price.
+    given: an_approved_delivery_with_a_courier
+    request: { object: delivery, transition: complete }
+    expect: { verdict: applied, state: DELIVERED, cascaded: [InventoryItem.deliver_externally] }
+
+  an_unapproved_delivery_is_not_handed_over:
+    description: Without a sign-off the delivery is not completed, and the caller asks someone to approve it.
+    given: a_reserved_item
+    steps:
+      - request: { type: Delivery, transition: open, as: delivery, inputs: { unit: robot, price: SGD 11500.00, checklist: [] } }
+      - request: { type: Courier, transition: register, as: courier, inputs: { name: Swift Couriers } }
+      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier } }
+    request: { object: delivery, transition: complete }
+    expect: { verdict: unsatisfied, clause: signed_off, remedy: delegable }
+
