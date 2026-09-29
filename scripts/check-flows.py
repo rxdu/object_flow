@@ -1782,6 +1782,197 @@ def notices(doc):
     return out
 
 
+class OptionalReads:
+    """What an expression reads that may be absent, and what it tests with `is null` or `is not null`, over the
+    types of the modules checked (declaration-syntax.md §8.2, ADR-0103 §6). An optional read is an optional attribute
+    without a default, an optional input, or a derived attribute that can itself be unknown so, read through any path
+    whose type is known; an attribute every state the transition may be taken in requires is present there."""
+
+    BUILT_IN = {"id", "state", "open", "created_at", "created_by_kind", "category", "type", "recorded_at",
+                "occurred_at", "subject", "intervals", "transitions"}
+
+    def __init__(self, library, tn, x=None, derived_seen=()):
+        self.lib, self.tn, self.x = library, tn, x or {}
+        self.t = library.get(tn) or {}
+        self.derived_seen = derived_seen
+        states = self.t.get("states") or {}
+        froms = sources(self.x) if self.x.get("kind") in ("external", "internal") else []
+        required = [set((states.get(st) or {}).get("required_attributes") or []) for st in froms]
+        self.present = set.intersection(*required) if required else set()
+        self.reads, self.tested = {}, set()
+
+    def untested(self, tree):
+        """Each optional read the expression never tests, with why it may be absent."""
+        self.walk(tree, {})
+        return {k: why for k, why in self.reads.items() if k not in self.tested}
+
+    @staticmethod
+    def key(e):
+        """The text a read and a test are matched by; `this.x` and `x` are one read."""
+        if e[0] == "name":
+            return e[1]
+        if e[0] == "path":
+            k = OptionalReads.key(e[1])
+            return None if k is None else (e[2] if k == "this" else f"{k}.{e[2]}")
+        return None
+
+    def attribute(self, tn, m, key, own):
+        """The type of a member read, noting it if it may be absent."""
+        t = self.lib.get(tn) or {}
+        spec = (t.get("attributes") or {}).get(m)
+        if spec is not None:
+            spec = spec or {}
+            ref = str(spec.get("reference", ""))
+            if spec.get("optional") and "default" not in spec and not (own and m in self.present):
+                self.reads.setdefault(key, f"{tn}.{m} is optional")
+            return ref or None
+        if m in (t.get("derived_attributes") or {}) and (tn, m) not in self.derived_seen:
+            inner = OptionalReads(self.lib, tn, derived_seen=self.derived_seen + ((tn, m),))
+            why = inner.untested(flowexpr.parse(t["derived_attributes"][m]["expression"]))
+            if why:
+                self.reads.setdefault(key, f"{tn}.{m} can be unknown through {', '.join(sorted(why))}")
+        return None
+
+    def walk(self, e, env):
+        """The type an expression's value has, where it names objects, as `T` or `T[]`; noting its optional reads."""
+        k = e[0]
+        if k == "isnull":
+            key = self.key(e[1])
+            if key is not None:
+                self.tested.add(key)
+            return None
+        if k == "name":
+            n = e[1]
+            if n in env:
+                return env[n]
+            if n == "this":
+                return self.tn
+            if n == "inputs":
+                return "<inputs>"
+            return self.attribute(self.tn, n, n, own=True)
+        if k == "path":
+            if e[1] == ("name", "inputs"):
+                m, x = e[2], self.x
+                declared = (x.get("inputs") or {}).get(m)
+                if declared is not None:
+                    declared = declared or {}
+                    if declared.get("optional") and "default" not in declared:
+                        self.reads.setdefault(f"inputs.{m}", f"the input {m} is optional")
+                    return str(declared.get("reference", "")) or None
+                spec = ((self.t.get("attributes") or {}).get(m)) or {}
+                if m in (x.get("optional_inputs") or []) and "default" not in spec:
+                    self.reads.setdefault(f"inputs.{m}", f"the input {m} is optional")
+                return str(spec.get("reference", "")) or None
+            base = self.walk(e[1], env)
+            if base is None or base.endswith("[]") or base == "<inputs>" or e[2] in self.BUILT_IN:
+                observed = ((self.lib.get(base or "") or {}).get("observations") or {}).get(e[2])
+                return f"{observed['kind']}[]" if observed else None
+            observed = ((self.lib.get(base) or {}).get("observations") or {}).get(e[2])
+            if observed:
+                return f"{observed['kind']}[]"
+            key = self.key(e)
+            return self.attribute(base, e[2], key, own=e[1] == ("name", "this")) if key is not None else None
+        if k == "agg":
+            _, _kind, _distinct, var, coll, where, body = e
+            if var is None:
+                for part in (where, body):
+                    if part is not None:
+                        self.walk(part, env)
+                return None
+            ct = self.walk(coll, env)
+            if ct is None and coll[0] == "name" and coll[1] in self.lib and coll[1] not in env:
+                ct = coll[1] + "[]"                 # a type scan: every object of the type
+            inner = dict(env, **{var: ct[:-2] if ct and ct.endswith("[]") else None})
+            for part in (where, body):
+                if part is not None:
+                    self.walk(part, inner)
+            return None
+        if k == "in":
+            self.walk(e[1], env)
+            if not (e[2][0] == "name" and e[2][1] not in env):
+                self.walk(e[2], env)
+            return None
+        if k == "metric":
+            for _d, x in e[2]:
+                self.walk(x, env)
+            return None
+        if k == "changed":
+            self.walk(e[2], env)
+            return None
+        if k == "call":
+            for a in e[2]:
+                if a[0] != "name":
+                    self.walk(a, env)
+            if e[1][0] == "path":
+                self.walk(e[1][1], env)
+            return None
+        for part in e[1:]:
+            if isinstance(part, tuple) and part and isinstance(part[0], str):
+                self.walk(part, env)
+            elif isinstance(part, list):
+                for q in part:
+                    if isinstance(q, tuple):
+                        self.walk(q, env)
+        return None
+
+
+def unknowns(v, library):
+    """Each guard, and each filter of a loop or a metric, that can be unknown through an optional it never tests
+    (declaration-syntax.md §8.2, ADR-0103 §6): a guard that is unknown refuses, and a filter leaves out an element
+    it cannot decide, whatever the author meant."""
+    out = []
+
+    def said(why):
+        return "; ".join(f"{k} ({w})" for k, w in sorted(why.items()))
+    for tn, t in types(v):
+        conds = t.get("conditions") or {}
+        for xn, x in (t.get("transitions") or {}).items():
+            for g in (x.get("guards") or {}):
+                expr = (conds.get(g) or {}).get("expression")
+                if expr is None:
+                    continue
+                why = OptionalReads(library, tn, x).untested(flowexpr.parse(expr))
+                if why:
+                    out.append((("types", tn, "transitions", xn, "guards", g), "unknown",
+                                f"{g} can be unknown when {xn} is requested, through {said(why)}, which it never tests with "
+                                f"`is null`; a guard that is unknown refuses"))
+
+            def loops(steps, path, env):
+                for i, st in enumerate(steps or []):
+                    kind = next(iter(st))
+                    if kind != "foreach":
+                        continue
+                    spec = st["foreach"]
+                    reader = OptionalReads(library, tn, x)
+                    at = reader.walk(flowexpr.parse(spec["array"]), env) if "array" in spec else None
+                    inner = dict(env, **{spec["item"]: at[:-2] if at and at.endswith("[]") else None})
+                    if spec.get("where"):
+                        r = OptionalReads(library, tn, x)
+                        r.walk(flowexpr.parse(spec["where"]), inner)
+                        why = {k: w for k, w in r.reads.items() if k not in r.tested}
+                        if why:
+                            out.append((path + (i, "foreach", "where"), "unknown",
+                                        f"the loop over {spec.get('array', spec.get('range'))} in {xn} filters by what can be "
+                                        f"unknown, through {said(why)}, which it never tests; an element it cannot decide is left out"))
+                    loops(spec.get("steps"), path + (i, "foreach", "steps"), inner)
+            loops(x.get("effect"), ("types", tn, "transitions", xn, "effect"), {})
+        for mn, m in (t.get("metrics") or {}).items():
+            if not m.get("filter"):
+                continue
+            src = m.get("source")
+            item = tn if src == "objects" else (((t.get("observations") or {}).get(src) or {}).get("kind"))
+            if item is None:
+                continue                          # a row of flow data, whose members are the model's own
+            r = OptionalReads(library, tn)
+            r.walk(flowexpr.parse(m["filter"]), {m["item"]: item})
+            why = {k: w for k, w in r.reads.items() if k not in r.tested}
+            if why:
+                out.append((("types", tn, "metrics", mn, "filter"), "unknown",
+                            f"{mn}'s filter can be unknown through {said(why)}, which it never tests; a row it cannot decide "
+                            "is left out"))
+    return out
+
+
 # ── step 4: conversion to the text language ────────────────────────────────
 def markings(spec):
     """The markings an attribute or a reference carries after its type, in the
@@ -2593,7 +2784,7 @@ def check(files, previous=None, analysed=None):
                 seen.add((p, m))
                 found.append((f, line_of(idx, p), "fatal", c, m))
         library.update(dict(types(v)))
-        notes += [(f, line_of(idx, back(p)), "notice", c, m) for p, c, m in notices(v) if back(p) is not None]
+        notes += [(f, line_of(idx, back(p)), "notice", c, m) for p, c, m in notices(v) + unknowns(v, library) if back(p) is not None]
     for f, idx, doc in example_files:
         errors = examples_schema_errors(doc)
         if not errors:
@@ -3123,6 +3314,46 @@ def inventory_plants(people):
     return ok
 
 
+def unknown_plants(people):
+    """The notice `unknown` shown on the issues and inventory examples: D481's and D482's guards as they stood are
+    reported, and an optional attribute every source state requires is not."""
+    ok = True
+    issues, inventory = (EXAMPLES / "issues.yaml").read_text(), (EXAMPLES / "inventory.yaml").read_text()
+
+    def unknown(module_name, text):
+        _found, notes = check([("people.yaml", people), (module_name, text)])
+        return [n for n in notes if n[3] == "unknown"]
+    cases = [
+        ("an estimate compared with one that may be absent (D481)", issues,
+         "expression: story_points is null or inputs.story_points != story_points", "expression: inputs.story_points != story_points",
+         "points_changed"),
+        ("a date compared with one no transition writes (D482)", issues,
+         "expression: inputs.due_date <= inputs.start_date + 3 days", "expression: inputs.due_date <= start_date + 3 days",
+         "due_within_window"),
+        ("a sale price read when a delivery is cancelled, which DEVELOPMENT does not require", inventory,
+         "          reservation_ends_in_future: deny\n        effect:\n          - clear: [sale_price, development_use]\n",
+         "          reservation_ends_in_future: deny\n          priced: deny\n        effect:\n          - clear: [sale_price, development_use]\n",
+         "priced"),
+    ]
+    priced = "    conditions:\n      priced:\n        description: Planted.\n        expression: sale_price > list_price\n        remedy: dependent\n"
+    for name, text, old, new, guard in cases:
+        assert text.count(old) == 1, old
+        planted = text.replace(old, new, 1)
+        if guard == "priced":
+            planted = planted.replace("    conditions:\n", priced, 1)
+        hit = [n for n in unknown("module.yaml", planted) if n[4].startswith(guard)]
+        ok &= bool(hit)
+        print(f"  planted {name}: {'reported by unknown, at ' + str(hit[0][1]) + ' ' + hit[0][4][:70] if hit else 'MISSED'}")
+    # the same read on accept_return, from SOLD alone, which requires the sale price: present, so not reported
+    planted = inventory.replace("    conditions:\n", priced, 1).replace(
+        "        effect:\n          - clear: [recipient, sale_price]\n",
+        "        guards:\n          priced: deny\n        effect:\n          - clear: [recipient, sale_price]\n", 1)
+    quiet = not [n for n in unknown("module.yaml", planted) if n[4].startswith("priced")]
+    ok &= quiet
+    print(f"  the same read on a transition from a state that requires the attribute is not reported: {'yes' if quiet else 'NO'}")
+    return ok
+
+
 def digest_self_test():
     """The digest names the modules and their bytes, and nothing else: not the order the files come in."""
     a, b = ("inventory", b"module: inventory\n"), ("people", b"module: people\n")
@@ -3191,6 +3422,7 @@ def main():
     ok &= runner_plants(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text())
     ok &= examples_self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text())
     ok &= inventory_plants(people)
+    ok &= unknown_plants(people)
     sys.exit(0 if clean and ok else 1)
 
 

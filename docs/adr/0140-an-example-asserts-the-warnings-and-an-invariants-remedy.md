@@ -1,6 +1,6 @@
 # ADR-0140: An example asserts the warnings its verdict lists and an invariant's remedy, and the design's own examples all run
 
-- **Status:** Accepted by the author in advance, 2026-09-29: "for all similar items that you have confidence in an recommendation, just accept", the standing direction under which ADR-0128 and ADR-0139 were accepted.
+- **Status:** Accepted by the author, 2026-09-29: "accept", on the report of the runner's fifth slice; accepted in advance earlier the same day under the standing direction "for all similar items that you have confidence in an recommendation, just accept".
 - **Date:** 2026-09-29
 - **Refined by:** ADR-0141 — the design documents' examples all run too, as the corpus's do.
 - **Refines:** ADR-0136 (examples), ADR-0131 decision 5 (what a check reports rather than refuses)

@@ -1,6 +1,6 @@
 # ADR-0141: A step names the objects its request creates, and a design document carries its modules' examples
 
-- **Status:** Accepted by the author in advance, 2026-09-29: "for all similar items that you have confidence in an recommendation, just accept", the standing direction under which ADR-0139 and ADR-0140 were accepted.
+- **Status:** Accepted by the author, 2026-09-29: "accept", on the report of the runner's fifth slice, which also asked the author to confirm that a sign-off given before the checklist is ticked goes stale, so the approval comes last; accepted in advance earlier the same day under the standing direction "for all similar items that you have confidence in an recommendation, just accept".
 - **Date:** 2026-09-29
 - **Refines:** ADR-0136 (examples, built by requests from an empty store), ADR-0140 decision 3 (the design's own examples all run), ADR-0121 (the design's YAML is checked where it stands)
 - **Relates to:** `flow-format.md` §11.3; `scripts/check-flow-docs.py`; `jira-flows.md`; `flow-format/examples/delivery.examples.yaml`

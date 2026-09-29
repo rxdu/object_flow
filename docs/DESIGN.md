@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 483 entries and five cosmetics; 482 are closed and 1 is open. The PRD is at revision 19, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 483 entries and five cosmetics; 483 are closed and 0 are open. The PRD is at revision 19, with no revision awaiting the author.
 
 **Every ADR is accepted or superseded.** In the order the author accepted them:
 - ADR-0001 to ADR-0018, on 2026-09-07, from the design discussion the project began with.
