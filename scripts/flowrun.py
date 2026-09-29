@@ -97,6 +97,12 @@ def is_set(v):
     return isinstance(v, tuple) and not (len(v) in (2, 3) and v[0] in TAGS)
 
 
+def is_set_attribute(spec):
+    """A set the object stores: a set of values, or a set of references with no opposite end to compute it from."""
+    spec = spec or {}
+    return str(spec.get("type", "")).endswith("[]") or (str(spec.get("reference", "")).endswith("[]") and "opposite" not in spec)
+
+
 def half_even(v, places):
     """A value rounded half to even to so many decimal places (declaration-syntax.md §8.3)."""
     scaled = Fraction(v) * 10 ** places
@@ -698,6 +704,9 @@ class Evaluator:
         items = self.value(coll, env)
         if items is ABSENT:
             return ABSENT
+        if isinstance(items, tuple) and items[:1] == ("typeref",) and items[1] in self.s.kinds:
+            # a type scan: every object of the type and its family, in ascending id order (declaration-syntax.md §8)
+            items = tuple(o.id for o in sorted(self.s.objects.values(), key=lambda o: o.id_order) if self.s.is_a(o.type, items[1]))
         if not isinstance(items, tuple):
             raise NotRunnable("an aggregate over a value that is not a collection")
         selected, undecided = [], False
@@ -1287,7 +1296,9 @@ class Runner:
                 ctx.created.append(o.id)
             work.objects[o.id] = o
             for a, spec in attrs.items():
-                if (spec or {}).get("type") == "counter":
+                if is_set_attribute(spec):
+                    o.attrs[a] = ()             # a set is never absent: created empty unless given (flow-format.md §4.3)
+                elif (spec or {}).get("type") == "counter":
                     o.attrs[a] = 0
                 elif "default" in (spec or {}):
                     o.attrs[a] = Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs).value(flowexpr.parse(str(spec["default"])), {})
@@ -1601,6 +1612,17 @@ class Runner:
         writes = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", []))
         if x["kind"] == "assertion":
             writes.add("state")
+
+        def from_inputs(steps):
+            # an effect's step that writes a value computed from an input writes that input to it (ADR-0122
+            # decisions 33 and 36, DESIGN.md §5.5)
+            for st in steps or []:
+                kind = next(iter(st))
+                if kind in ("assign", "add", "remove") and "inputs" in names_read(parsed(st[kind]["expr"])):
+                    writes.add(st[kind]["location"])
+                elif kind == "foreach":
+                    from_inputs(st["foreach"].get("steps"))
+        from_inputs(x.get("effect"))
         if writes & reads:
             return "self_serviceable"
         return "dependent" if other else "unreachable_from_here"
@@ -1737,6 +1759,7 @@ def step(runner, store, st, aliases, stubs, under_test=False):
         o = Obj(store.new_id(im["type"]), im["type"], im["state"], store.now)
         o.id_order = store.counter
         attrs = (runner.kinds.get(im["type"]) or {}).get("attributes") or {}
+        o.attrs.update({a: () for a, spec in attrs.items() if is_set_attribute(spec)})
         for k, v in (im.get("values") or {}).items():
             o.attrs[k] = runner.value_of(store, attrs.get(k), v, aliases)
         store.objects[o.id] = o

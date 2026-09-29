@@ -2232,6 +2232,7 @@ def example_errors(doc, kinds, modules):
                 kinds[ob["kind"]] = {
                     "attributes": dict(fields, subject={"reference": tn}, corrects={"reference": ob["kind"], "optional": True}),
                     "states": {"RECORDED": {"final": True}},
+                    "invariants": ob.get("invariants") or {},
                     "transitions": {"record": {"kind": "initial", "to": "RECORDED",
                                                "required_inputs": ["subject"] + [a for a, f in fields.items() if not optional(f)],
                                                "optional_inputs": ["corrects"] + [a for a, f in fields.items() if optional(f)]}}}
@@ -3105,6 +3106,13 @@ def inventory_plants(people):
          "      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier } }\n\n  an_approved",
          "      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier }, creates: [slip] }\n\n  an_approved"),
     ]
+    # one planted mistake in each of the other examples files, each refused by the runner
+    for mod, old, new in [("approvals", "values: { receipt: taxi.pdf } }", "values: { receipt: other.pdf } }"),
+                          ("issues", "expect: { verdict: applied, state: IN_PROGRESS, warned: [not_blocked] }",
+                           "expect: { verdict: applied, state: IN_PROGRESS, warned: [] }"),
+                          ("servicedesk", "clause: reserved_bounded, remedy: self_serviceable }", "clause: reserved_bounded, remedy: unreachable_from_here }")]:
+        plants.append((f"a wrong expectation in the {mod} examples", "example", (EXAMPLES / f"{mod}.yaml").read_text(),
+                       (EXAMPLES / f"{mod}.examples.yaml").read_text(), old, new))
     for name, code, module, examples, old, new in plants:
         assert examples.count(old) == 1, old
         found, _notes = check([("people.yaml", people)] + ([("inventory.yaml", v1)] if module is delivery else [])

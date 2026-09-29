@@ -1,0 +1,88 @@
+# yaml-language-server: $schema=../examples.schema.json
+# What the shared approval lifecycle does for the two kinds of request that bind it, as examples the engine runs at
+# every publish (flow-format.md §11, ADR-0136).
+examples_for: approvals
+
+setups:
+  a_submitted_purchase:
+    description: A purchase request for a monitor, drafted and submitted.
+    steps:
+      - request: { type: PurchaseRequest, transition: start, as: purchase }
+      - request: { object: purchase, transition: submit, after: 1 h }
+  a_drafted_claim:
+    description: An expense claim for a taxi, filed and not yet submitted.
+    steps:
+      - request: { type: ExpenseClaim, transition: file_claim, as: claim, inputs: { amount: SGD 42.50 } }
+
+examples:
+  submitting_records_when:
+    description: Submitting a purchase request records when it was submitted, as the machine's effect does for every binder.
+    steps:
+      - request: { type: PurchaseRequest, transition: start, as: purchase }
+    request: { object: purchase, transition: submit, after: 1 h }
+    expect: { verdict: applied, state: SUBMITTED, values: { submitted_at: now } }
+
+  a_submitted_purchase_is_approved:
+    description: A submitted purchase request is approved.
+    given: a_submitted_purchase
+    request: { object: purchase, transition: approve }
+    expect: { verdict: applied, state: APPROVED }
+
+  a_submitted_purchase_is_rejected:
+    description: A submitted purchase request is rejected, which ends it.
+    given: a_submitted_purchase
+    request: { object: purchase, transition: reject }
+    expect: { verdict: applied, state: REJECTED }
+
+  a_draft_is_not_approved:
+    description: A purchase request still in draft is submitted before anyone approves it.
+    steps:
+      - request: { type: PurchaseRequest, transition: start, as: purchase }
+    request: { object: purchase, transition: approve }
+    expect: { verdict: unavailable }
+
+  a_claim_is_filed_with_its_amount:
+    description: An expense claim begins by its own creation, which takes the amount.
+    request: { type: ExpenseClaim, transition: file_claim, inputs: { amount: SGD 42.50 } }
+    expect: { verdict: applied, state: DRAFT, values: { amount: SGD 42.50 } }
+
+  a_receipt_is_attached_to_a_draft:
+    description: A receipt is attached to a claim still in draft.
+    given: a_drafted_claim
+    request: { object: claim, transition: attach_receipt, inputs: { receipt: taxi.pdf } }
+    expect: { verdict: applied, state: DRAFT, values: { receipt: taxi.pdf } }
+
+  a_submitted_claim_takes_no_receipt:
+    description: Once submitted, a claim takes no receipt, since only a draft is changed.
+    given: a_drafted_claim
+    steps:
+      - request: { object: claim, transition: submit }
+    request: { object: claim, transition: attach_receipt, inputs: { receipt: taxi.pdf } }
+    expect: { verdict: unavailable }
+
+  a_submitted_claim_is_approved:
+    description: The machine's approval applies to a claim as to a purchase request.
+    given: a_drafted_claim
+    steps:
+      - request: { object: claim, transition: submit, after: 2 days }
+    request: { object: claim, transition: approve }
+    expect: { verdict: applied, state: APPROVED, values: { submitted_at: now } }
+
+  a_purchase_is_started_in_draft:
+    description: A purchase request, which declares no creation of its own, begins by the machine's.
+    request: { type: PurchaseRequest, transition: start }
+    expect: { verdict: applied, state: DRAFT, values: { submitted_at: null } }
+
+  submitting_a_claim_records_when:
+    description: Submitting a claim records when, as for a purchase request.
+    given: a_drafted_claim
+    request: { object: claim, transition: submit, after: 1 day }
+    expect: { verdict: applied, state: SUBMITTED, values: { submitted_at: now } }
+
+  a_submitted_claim_is_rejected:
+    description: A submitted claim is rejected, which ends it.
+    given: a_drafted_claim
+    steps:
+      - request: { object: claim, transition: submit }
+    request: { object: claim, transition: reject }
+    expect: { verdict: applied, state: REJECTED }

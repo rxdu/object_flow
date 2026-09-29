@@ -1,0 +1,334 @@
+# yaml-language-server: $schema=../examples.schema.json
+# What the service desk's rules do, as examples the engine runs at every publish (flow-format.md §11, ADR-0136).
+examples_for: servicedesk
+
+setups:
+  a_request_for_help:
+    description: Cara's request for help, raised at medium priority.
+    steps:
+      - request:
+          type: Request
+          transition: raise
+          as: request
+          inputs: { summary: My laptop will not boot, request_type: RequestType.GET_IT_HELP, reporter: cust-cara }
+  a_request_awaiting_two_approvals:
+    description: Cara's request for access, which both of its approvers must approve.
+    steps:
+      - request:
+          type: Request
+          transition: raise_for_approval
+          as: request
+          inputs: { summary: Access to payroll, request_type: RequestType.REQUEST_ACCESS, reporter: cust-cara, approvers: [mgr-ana, mgr-ben] }
+  the_payments_service:
+    description: The payments service, with two responders on call and two change approvers.
+    steps:
+      - request:
+          type: Service
+          transition: register
+          as: payments
+          inputs: { name: Payments, tier: 1, responders: [oncall-1, oncall-2], change_approvers: [cab-1, cab-2] }
+  an_incident_on_payments:
+    description: An incident on the payments service, one responder on it, being worked on.
+    given: the_payments_service
+    steps:
+      - request:
+          type: Incident
+          transition: open
+          as: incident
+          inputs: { summary: Card payments fail, impact: Level.HIGH, urgency: Level.HIGH, major: false, responders: [oncall-1] }
+      - request: { object: incident, transition: investigate }
+  a_change_in_planning:
+    description: A normal change to payments, approved by a peer and being planned.
+    given: the_payments_service
+    steps:
+      - request: { type: Change, transition: request, as: change, inputs: { summary: Rotate the keys, change_type: ChangeType.NORMAL, affected_service: payments } }
+      - request: { type: ChangeApproval, transition: record, after: 1 h, inputs: { subject: change, stage: ReviewStage.PEER, approver: peer-1, decision: Decision.APPROVE } }
+      - request: { object: change, transition: approve_peer }
+  a_change_awaiting_the_cab:
+    description: The change, planned for two days from now and submitted to the change board.
+    given: a_change_in_planning
+    steps:
+      - request: { object: change, transition: submit_to_cab, inputs: { planned_start: now + 2 days, planned_end: now + 50 h } }
+  a_stock_of_power_supplies:
+    description: A stock of power supplies, ten received and four of them reserved.
+    steps:
+      - request: { type: PartStock, transition: open, as: stock, inputs: { part_number: PSU-500 } }
+      - request: { object: stock, transition: receive, inputs: { quantity: 10 } }
+      - request: { object: stock, transition: reserve, inputs: { quantity: 4 } }
+
+examples:
+  a_request_is_medium_priority_until_told_otherwise:
+    description: A customer's request is raised at medium priority, and when.
+    request:
+      type: Request
+      transition: raise
+      inputs: { summary: My laptop will not boot, request_type: RequestType.GET_IT_HELP, reporter: cust-cara }
+    expect: { verdict: applied, state: WAITING_FOR_SUPPORT, values: { priority: Priority.MEDIUM, opened_at: now, participants: [] } }
+
+  a_request_resolved_within_its_goal:
+    description: Resolved seven working hours after it was raised, a medium request meets its eight-hour goal.
+    given: a_request_for_help
+    steps:
+      - request: { object: request, transition: start, after: 1 h }
+    request: { object: request, transition: resolve, after: 6 h, inputs: { resolution: Resolution.DONE } }
+    expect: { verdict: applied, state: RESOLVED, values: { sla_met: true, resolved_at: now } }
+
+  a_request_resolved_past_its_goal:
+    description: Resolved nine hours after it was raised, the same request misses its goal.
+    given: a_request_for_help
+    steps:
+      - request: { object: request, transition: start, after: 1 h }
+    request: { object: request, transition: resolve, after: 8 h, inputs: { resolution: Resolution.DONE } }
+    expect: { verdict: applied, state: RESOLVED, values: { sla_met: false } }
+
+  waiting_for_the_customer_stops_the_clock:
+    description: Ten hours waiting for Cara's reply do not count, so a request resolved seventeen hours after it was raised meets its goal.
+    given: a_request_for_help
+    steps:
+      - request: { object: request, transition: start, after: 1 h }
+      - request: { object: request, transition: respond_to_customer, after: 2 h }
+      - request: { object: request, transition: customer_replies, after: 10 h }
+    request: { object: request, transition: resolve, after: 4 h, inputs: { resolution: Resolution.DONE } }
+    expect: { verdict: applied, state: RESOLVED, values: { sla_met: true } }
+
+  a_platinum_customer_has_a_shorter_goal:
+    description: A platinum organisation's request has two hours, so resolving it in three misses its goal.
+    steps:
+      - request: { type: Organization, transition: create, as: acme, inputs: { name: Acme, support_level: SupportLevel.PLATINUM } }
+      - request:
+          type: Request
+          transition: raise
+          as: request
+          inputs: { summary: Payroll is down, request_type: RequestType.GET_IT_HELP, reporter: cust-cara, organization: acme }
+    request: { object: request, transition: resolve, after: 3 h, inputs: { resolution: Resolution.DONE } }
+    expect: { verdict: applied, state: RESOLVED, values: { sla_met: false } }
+
+  a_resolved_request_closes_after_three_days:
+    description: A resolved request is closed three days after its resolution, and not before.
+    given: a_request_for_help
+    steps:
+      - request: { object: request, transition: resolve, after: 1 h, inputs: { resolution: Resolution.DONE } }
+    request: { object: request, transition: close, after: 2 days }
+    expect: { verdict: unsatisfied, clause: resolved_three_days, remedy: temporal }
+
+  a_request_closed_three_days_on:
+    description: Three days after its resolution, the request is closed.
+    given: a_request_for_help
+    steps:
+      - request: { object: request, transition: resolve, after: 1 h, inputs: { resolution: Resolution.DONE } }
+    request: { object: request, transition: close, after: 3 days }
+    expect: { verdict: applied, state: CLOSED }
+
+  an_approval_asks_someone:
+    description: A request for approval naming no approver is refused, and the caller names one.
+    request:
+      type: Request
+      transition: raise_for_approval
+      inputs: { summary: Access to payroll, request_type: RequestType.REQUEST_ACCESS, reporter: cust-cara, approvers: [] }
+    expect: { verdict: unsatisfied, clause: has_approvers, remedy: self_serviceable }
+
+  one_of_two_approvals_is_not_enough:
+    description: With one of its two approvers' approval, the request waits for the other.
+    given: a_request_awaiting_two_approvals
+    steps:
+      - request: { type: RequestApproval, transition: record, after: 1 h, inputs: { subject: request, approver: mgr-ana, decision: Decision.APPROVE } }
+    request: { object: request, transition: approve }
+    expect: { verdict: unsatisfied, clause: approved, remedy: dependent }
+
+  both_approvals_let_the_request_through:
+    description: With both approvals, the request goes to support.
+    given: a_request_awaiting_two_approvals
+    steps:
+      - request: { type: RequestApproval, transition: record, after: 1 h, inputs: { subject: request, approver: mgr-ana, decision: Decision.APPROVE } }
+      - request: { type: RequestApproval, transition: record, after: 1 h, inputs: { subject: request, approver: mgr-ben, decision: Decision.APPROVE } }
+    request: { object: request, transition: approve }
+    expect: { verdict: applied, state: WAITING_FOR_SUPPORT }
+
+  a_reporter_does_not_approve_their_own_request:
+    description: A request needing one approval is not approved by its own reporter.
+    steps:
+      - request:
+          type: Request
+          transition: raise_for_approval
+          as: request
+          inputs: { summary: A second monitor, request_type: RequestType.NEW_HARDWARE, reporter: cust-cara, approvers: [cust-cara, mgr-ana], approvals_required: 1 }
+      - request: { type: RequestApproval, transition: record, after: 1 h, inputs: { subject: request, approver: cust-cara, decision: Decision.APPROVE } }
+    request: { object: request, transition: approve }
+    expect: { verdict: unsatisfied, clause: approved, remedy: dependent }
+
+  a_declined_request_is_declined:
+    description: Once an approver declines, the request is declined.
+    given: a_request_awaiting_two_approvals
+    steps:
+      - request: { type: RequestApproval, transition: record, after: 1 h, inputs: { subject: request, approver: mgr-ben, decision: Decision.DECLINE } }
+    request: { object: request, transition: decline }
+    expect: { verdict: applied, state: DECLINED }
+
+  a_rating_is_from_one_to_five:
+    description: A satisfaction rating of six is refused, and the customer gives one from one to five.
+    given: a_request_for_help
+    request: { type: SatisfactionRating, transition: record, inputs: { subject: request, score: 6 } }
+    expect: { verdict: invariant_violated, clause: in_range, remedy: self_serviceable }
+
+  an_incident_takes_its_services_responders:
+    description: Naming the affected service adds its responders to the incident, each once.
+    given: an_incident_on_payments
+    request: { object: incident, transition: set_affected_service, inputs: { affected_service: payments } }
+    expect: { verdict: applied, state: WORK_IN_PROGRESS, values: { responders: [oncall-1, oncall-2] } }
+
+  a_resolved_incident_is_reviewed:
+    description: A post-incident review is drafted for a resolved incident.
+    given: an_incident_on_payments
+    steps:
+      - request: { object: incident, transition: resolve, after: 2 h, inputs: { resolution: Resolution.SOFTWARE_FAILURE } }
+    request: { object: incident, transition: create_review, inputs: { title: Card payment outage } }
+    expect: { verdict: applied, state: RESOLVED, cascaded: [PostIncidentReview.draft] }
+
+  an_incident_is_marked_major:
+    description: Marking an incident major records it.
+    given: an_incident_on_payments
+    request: { object: incident, transition: mark_major }
+    expect: { verdict: applied, state: WORK_IN_PROGRESS, values: { major: true } }
+
+  a_standard_change_skips_review:
+    description: A standard change goes straight to planning.
+    given: the_payments_service
+    request: { type: Change, transition: request_standard, inputs: { summary: Renew a certificate, change_type: ChangeType.STANDARD, affected_service: payments } }
+    expect: { verdict: applied, state: PLANNING }
+
+  only_a_standard_change_skips_review:
+    description: A normal change requested as standard is refused.
+    given: the_payments_service
+    request: { type: Change, transition: request_standard, inputs: { summary: Rotate the keys, change_type: ChangeType.NORMAL, affected_service: payments } }
+    expect: { verdict: unsatisfied, clause: standard, remedy: unreachable_from_here }
+
+  only_an_emergency_is_expedited:
+    description: A normal change a peer approved is not expedited past planning.
+    given: the_payments_service
+    steps:
+      - request: { type: Change, transition: request, as: change, inputs: { summary: Rotate the keys, change_type: ChangeType.NORMAL, affected_service: payments } }
+      - request: { type: ChangeApproval, transition: record, after: 1 h, inputs: { subject: change, stage: ReviewStage.PEER, approver: peer-1, decision: Decision.APPROVE } }
+    request: { object: change, transition: expedite }
+    expect: { verdict: unsatisfied, clause: emergency, remedy: unreachable_from_here }
+
+  an_emergency_a_peer_approved_is_expedited:
+    description: An emergency change a peer approved goes straight to implementation.
+    given: the_payments_service
+    steps:
+      - request: { type: Change, transition: request, as: change, inputs: { summary: Block a card range, change_type: ChangeType.EMERGENCY, affected_service: payments } }
+      - request: { type: ChangeApproval, transition: record, after: 10 min, inputs: { subject: change, stage: ReviewStage.PEER, approver: peer-1, decision: Decision.APPROVE } }
+    request: { object: change, transition: expedite }
+    expect: { verdict: applied, state: AWAITING_IMPLEMENTATION }
+
+  every_change_approver_approves:
+    description: The change board's approval needs each of the service's change approvers, so one is not enough.
+    given: a_change_awaiting_the_cab
+    steps:
+      - request: { type: ChangeApproval, transition: record, after: 1 h, inputs: { subject: change, stage: ReviewStage.CAB, approver: cab-1, decision: Decision.APPROVE } }
+    request: { object: change, transition: approve_cab }
+    expect: { verdict: unsatisfied, clause: cab_approved, remedy: dependent }
+
+  the_board_approves_a_change:
+    description: With both change approvers' approval, and no freeze over its start, the change awaits implementation.
+    given: a_change_awaiting_the_cab
+    steps:
+      - request: { type: ChangeApproval, transition: record, after: 1 h, inputs: { subject: change, stage: ReviewStage.CAB, approver: cab-1, decision: Decision.APPROVE } }
+      - request: { type: ChangeApproval, transition: record, after: 1 h, inputs: { subject: change, stage: ReviewStage.CAB, approver: cab-2, decision: Decision.APPROVE } }
+    request: { object: change, transition: approve_cab }
+    expect: { verdict: applied, state: AWAITING_IMPLEMENTATION }
+
+  no_change_starts_in_a_freeze:
+    description: A change planned to start inside a scheduled freeze is not approved, though the board approved it.
+    given: a_change_awaiting_the_cab
+    steps:
+      - request: { type: ChangeWindow, transition: schedule, inputs: { kind: WindowKind.FREEZE, starts_at: now + 1 day, ends_at: now + 3 days } }
+      - request: { type: ChangeApproval, transition: record, after: 1 h, inputs: { subject: change, stage: ReviewStage.CAB, approver: cab-1, decision: Decision.APPROVE } }
+      - request: { type: ChangeApproval, transition: record, after: 1 h, inputs: { subject: change, stage: ReviewStage.CAB, approver: cab-2, decision: Decision.APPROVE } }
+    request: { object: change, transition: approve_cab }
+    expect: { verdict: unsatisfied, clause: outside_freeze, remedy: dependent }
+
+  an_alert_starts_unacknowledged:
+    description: A new alert has occurred once and is not acknowledged.
+    request: { type: Alert, transition: create, inputs: { alias: db-down, message: Database unreachable, priority: AlertPriority.P1 } }
+    expect: { verdict: applied, state: OPEN, values: { occurrences: 1, acknowledged: false } }
+
+  a_repeated_alert_counts_its_occurrences:
+    description: An alert that fires again counts a second occurrence.
+    steps:
+      - request: { type: Alert, transition: create, as: alert, inputs: { alias: db-down, message: Database unreachable, priority: AlertPriority.P1 } }
+    request: { object: alert, transition: repeat, after: 5 min }
+    expect: { verdict: applied, state: OPEN, values: { occurrences: 2 } }
+
+  one_open_alert_per_alias:
+    description: A second open alert with an alias already open is refused, and the caller repeats the first.
+    steps:
+      - request: { type: Alert, transition: create, inputs: { alias: db-down, message: Database unreachable, priority: AlertPriority.P1 } }
+    request: { type: Alert, transition: create, inputs: { alias: db-down, message: Database unreachable, priority: AlertPriority.P1 } }
+    expect: { verdict: invariant_violated, clause: alias_unique, remedy: self_serviceable }
+
+  a_closed_alert_frees_its_alias:
+    description: Once the first alert is closed, a new one with its alias opens.
+    steps:
+      - request: { type: Alert, transition: create, as: alert, inputs: { alias: db-down, message: Database unreachable, priority: AlertPriority.P1 } }
+      - request: { object: alert, transition: close, after: 1 h }
+    request: { type: Alert, transition: create, inputs: { alias: db-down, message: Database unreachable again, priority: AlertPriority.P2 } }
+    expect: { verdict: applied, state: OPEN }
+
+  an_alert_is_snoozed_for_a_week_at_most:
+    description: Snoozing an alert for more than a week is refused.
+    steps:
+      - request: { type: Alert, transition: create, as: alert, inputs: { alias: disk-full, message: Disk at 95 percent, priority: AlertPriority.P3 } }
+    request: { object: alert, transition: snooze, inputs: { snoozed_until: now + 8 days } }
+    expect: { verdict: unsatisfied, clause: snooze_within_a_week, remedy: self_serviceable }
+
+  assets_share_one_key_sequence:
+    description: A laptop and then a server are keyed in one series, since both are assets.
+    steps:
+      - request: { type: Laptop, transition: receive, inputs: { name: ThinkPad 14 } }
+    request: { type: Server, transition: receive, inputs: { name: db-01 } }
+    expect: { verdict: applied, state: IN_STOCK, values: { key: IT-2 } }
+
+  a_laptop_in_use_is_assigned:
+    description: A laptop deployed is assigned to an employee the HR system knows.
+    steps:
+      - import: { type: Employee, as: dana, state: EMPLOYED, values: { employee_id: E-1001, name: Dana Lee, department: Finance } }
+      - request: { type: Laptop, transition: receive, as: laptop, inputs: { name: ThinkPad 14 } }
+      - request: { object: laptop, transition: deploy }
+    request: { object: laptop, transition: assign, inputs: { assigned_to: dana } }
+    expect: { verdict: applied, state: IN_USE, values: { assigned_to: dana } }
+
+  an_employee_is_forgotten:
+    description: Erasing an employee the HR system sent removes their name and keeps their department.
+    steps:
+      - import: { type: Employee, as: dana, state: LEFT, values: { employee_id: E-1001, name: Dana Lee, department: Finance } }
+    request: { object: dana, transition: forget, inputs: { reason: Asked to be forgotten } }
+    expect: { verdict: applied, state: LEFT, values: { name: null, department: Finance } }
+
+  a_stock_opens_empty:
+    description: A new stock has none on hand, none reserved, and reorders at five.
+    request: { type: PartStock, transition: open, inputs: { part_number: PSU-500 } }
+    expect: { verdict: applied, state: STOCKED, values: { on_hand: 0, reserved: 0, reorder_level: 5 } }
+
+  using_reserved_parts:
+    description: Using three of the four reserved leaves seven on hand and one reserved.
+    given: a_stock_of_power_supplies
+    request: { object: stock, transition: use, inputs: { quantity: 3 } }
+    expect: { verdict: applied, state: STOCKED, values: { on_hand: 7, reserved: 1 } }
+
+  reserving_more_than_is_available:
+    description: With six available, reserving seven is refused until more is received.
+    given: a_stock_of_power_supplies
+    request: { object: stock, transition: reserve, inputs: { quantity: 7 } }
+    expect: { verdict: unsatisfied, clause: enough_available, remedy: dependent }
+
+  a_negative_receipt_is_refused:
+    description: Receiving a negative quantity would leave less on hand than is reserved, and the caller gives a quantity received.
+    given: a_stock_of_power_supplies
+    request: { object: stock, transition: receive, inputs: { quantity: -8 } }
+    expect: { verdict: invariant_violated, clause: reserved_bounded, remedy: self_serviceable }
+
+  a_stock_is_withdrawn_only_when_empty:
+    description: A stock with parts on hand is not withdrawn until they are used.
+    given: a_stock_of_power_supplies
+    request: { object: stock, transition: withdraw }
+    expect: { verdict: unsatisfied, clause: empty, remedy: dependent }

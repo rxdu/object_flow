@@ -184,9 +184,9 @@ The old editor's list survives only on a 2021 page ([validators](https://conflue
 | Validator | Verdict | In the format |
 |---|---|---|
 | Field Required | Written | `required_inputs`, or a guard over an input; requiredness belongs to the transition (ADR-0002) |
-| Field has been modified | Written | `points_changed`: `inputs.story_points != story_points` |
+| Field has been modified | Written | `points_changed`: `story_points is null or inputs.story_points != story_points`, so a first estimate is a change *(corrected 2026-09-29: it read `inputs.story_points != story_points`, unknown for an item never estimated, which no item could then leave; D481)* |
 | Field has single value | Written | `one_component`: `count(v in inputs.components) <= 1` |
-| Date Compare, Date Window ("adding a time span in days to one of them") | Written | `due_within_window`: `inputs.due_date <= start_date + 3 days`; durations are `s`, `min`, `h`, `days` and `weeks` |
+| Date Compare, Date Window ("adding a time span in days to one of them") | Written | `due_within_window`: `inputs.due_date <= inputs.start_date + 3 days`, both dates given to `schedule`; durations are `s`, `min`, `h`, `days` and `weeks` *(corrected 2026-09-29: it compared the input with the attribute `start_date`, which no transition wrote, so the guard was always unknown and `schedule` never applied; D482)* |
 | Regular Expression Check | By decision | a pattern's meaning differs between Python and each backend's SQL, so it is left to the caller's edge or an evaluator (ADR-0103, `edge-cases.md`) |
 | Parent Status | Written | `Subtask.parent_in_progress`: `parent.state == WorkItem.IN_PROGRESS` |
 | Previous State | Written | as the Previous Status condition |

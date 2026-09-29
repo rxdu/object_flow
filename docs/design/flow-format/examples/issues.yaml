@@ -194,8 +194,8 @@ types:
         expression: inputs.resolution in {Resolution.DONE, Resolution.WONT_DO}
         remedy: self_serviceable
       points_changed:
-        description: The estimate is changed, as Jira's field-has-been-modified validator requires.
-        expression: inputs.story_points != story_points
+        description: The estimate is changed, as Jira's field-has-been-modified validator requires, a first estimate included.
+        expression: story_points is null or inputs.story_points != story_points
         remedy: self_serviceable
       one_component:
         description: At most one component is chosen, as Jira's field-has-single-value validator requires.
@@ -203,7 +203,7 @@ types:
         remedy: self_serviceable
       due_within_window:
         description: The due date is no later than three days after the start date, as Jira's date window validator checks.
-        expression: inputs.due_date <= start_date + 3 days
+        expression: inputs.due_date <= inputs.start_date + 3 days
         remedy: self_serviceable
       reviewed_twice:
         description: The work item has been in review at least twice, counting every visit, as the previous status condition can.
@@ -301,7 +301,7 @@ types:
       schedule:
         kind: internal
         from: [TO_DO]
-        required_inputs: [due_date]
+        required_inputs: [start_date, due_date]
         guards:
           due_within_window: deny
       auto_resolve:
