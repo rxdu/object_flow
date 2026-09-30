@@ -2822,10 +2822,38 @@ def example_errors(doc, kinds, modules):
         walk(x.get("effect"))
         return out
 
+    def decision_errors(d, env, path):
+        """A decision names a proposal an earlier step filed, as an actor the store holds (DESIGN.md §9)."""
+        errs = []
+        if not str(env.get(d["proposal"], "")).startswith("Proposal:"):
+            errs.append((path + ("proposal",), "names", f"decides '{d['proposal']}', which no earlier step filed as a proposal"))
+        actor = d.get("actor", "operator")
+        if actor != "operator" and not (actor in env and marks_actor(env[actor], kinds)):
+            errs.append((path + ("actor",), "names", f"names the actor '{actor}', which is neither `operator` nor an alias of an "
+                                                     "object whose type marks an actor identity"))
+        return errs
+
     def steps_errors(steps, env, path):
         errs = []
         for i, st in enumerate(steps or []):
             here = path + (i,)
+            if "propose" in st:
+                # a request filed for approval instead of executed, on a transition marked proposable (§11.3)
+                r = st["propose"]
+                e, found, _missing, _unprovided = request_errors(r, env, here + ("propose",), applies=False)
+                errs += e
+                if found and not found[1].get("proposable"):
+                    errs.append((here + ("propose", "transition"), "names",
+                                 f"{found[0]}.{r['transition']} is not proposable, so no proposal of it can be filed"))
+                if r["proposal"] in env or r["proposal"] == "operator":
+                    errs.append((here + ("propose", "proposal"), "names", f"'{r['proposal']}' is already an alias"))
+                if found:
+                    env[r["proposal"]] = f"Proposal:{found[0]}.{r['transition']}"
+                continue
+            verb = next((v for v in ("approve", "reject", "withdraw") if v in st), None)
+            if verb:
+                errs += decision_errors(st[verb], env, here + (verb,))
+                continue
             if "request" in st:
                 r = st["request"]
                 e, found, missing, unprovided = request_errors(r, env, here + ("request",), applies=True)
@@ -2901,16 +2929,35 @@ def example_errors(doc, kinds, modules):
                 env = dict(envs.get(ex["given"], {}))
         out += stubs_errors(ex.get("evaluators"), path + ("evaluators",))
         out += steps_errors(ex.get("steps"), env, path + ("steps",))
-        errs, found, missing, unprovided = request_errors(ex["request"], env, path + ("request",), applies=False)
-        out += errs
-        if ex["request"].get("creates"):
-            out.append((path + ("request", "creates"), "names", "the request under test names no objects it creates, since no step follows it"))
-        if not found:
-            continue
-        tn, x = found
-        xn = ex["request"]["transition"]
         want = ex["expect"]
         verdict = want["verdict"]
+        if "approve" in ex:
+            # approving a proposal executes its request as the approver: the example expects what that request does, and
+            # the state it leaves the proposal in, executed where it applied and pending where it was refused (§11.4)
+            errs = decision_errors(ex["approve"], env, path + ("approve",))
+            out += errs
+            if errs:
+                continue
+            tn, _, xn = env[ex["approve"]["proposal"]][len("Proposal:"):].partition(".")
+            x = kinds[tn]["transitions"][xn]
+            found, missing, unprovided = (tn, x), [], []
+            left = want.get("proposal")
+            right = {"applied": {"executed"}, "unavailable": {"executed", "rejected", "withdrawn"}}.get(verdict, {"pending"})
+            if left and left not in right:
+                out.append((path + ("expect", "proposal"), "names",
+                            f"an approval {'that applies' if verdict == 'applied' else 'refused as ' + verdict} leaves its proposal "
+                            f"{' or '.join(sorted(right))}, not {left}"))
+        else:
+            errs, found, missing, unprovided = request_errors(ex["request"], env, path + ("request",), applies=False)
+            out += errs
+            if ex["request"].get("creates"):
+                out.append((path + ("request", "creates"), "names", "the request under test names no objects it creates, since no step follows it"))
+            if "proposal" in want:
+                out.append((path + ("expect", "proposal"), "names", "only an approval leaves a proposal to state"))
+            if not found:
+                continue
+            tn, x = found
+            xn = ex["request"]["transition"]
         requested.setdefault((tn, xn), []).append(name)
         here = path + ("expect",)
         if missing and verdict != "invalid_input":
@@ -3776,6 +3823,32 @@ def supersession_plant(people):
     return ok
 
 
+def proposal_plants(people):
+    """The proposal steps of §11.3 held to their rules, on the delivery examples: a proposal only of a proposable
+    transition, a decision only of a filed proposal, an expectation of the state the verdict leaves it in, and an
+    approval refused as its request would be (DESIGN.md §9)."""
+    inventory, delivery = (EXAMPLES / "inventory.yaml").read_text(), (EXAMPLES / "delivery.yaml").read_text()
+    examples = (EXAMPLES / "delivery.examples.yaml").read_text()
+    filed = "propose: { object: delivery, transition: complete, actor: scout, proposal: handover }"
+    plants = [("a proposal of a transition that is not proposable", "names", "is not proposable", filed, filed.replace("complete", "approve")),
+              ("an approval of a proposal no step filed", "names", "filed as a proposal",
+               "    approve: { proposal: handover }\n    expect: { verdict: applied", "    approve: { proposal: handoff }\n    expect: { verdict: applied"),
+              ("a proposal left pending by an approval that applies", "names", "leaves its proposal executed",
+               "proposal: executed }", "proposal: pending }"),
+              ("an approval before the sign-off, expected to apply", "example", "expected the request to apply",
+               "expect: { verdict: unsatisfied, clause: signed_off, remedy: delegable, proposal: pending }",
+               "expect: { verdict: applied, state: DELIVERED, proposal: executed }")]
+    ok = True
+    for name, code, words, old, new in plants:
+        assert examples.count(old) >= 1, old
+        found, _n = check([("people.yaml", people), ("inventory.yaml", inventory), ("delivery.yaml", delivery),
+                           ("delivery.examples.yaml", examples.replace(old, new, 1))])
+        hit = [f for f in found if f[3] == code and words in f[4]]
+        ok &= bool(hit)
+        print(f"  planted {name}: {'caught by ' + code if hit else 'MISSED ' + str(found[:1])}")
+    return ok
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -3880,6 +3953,7 @@ def main():
     ok &= decimal_plant(people)
     ok &= cutover_plant(people)
     ok &= supersession_plant(people)
+    ok &= proposal_plants(people)
     sys.exit(0 if clean and ok else 1)
 
 

@@ -410,6 +410,7 @@ class Store:
         self.objects, self.counter = {}, 0
         self.sequences = {}                     # (sequence, scope value) -> the last number minted
         self.events, self.position = [], 0      # the log, and the last position allocated (DESIGN.md §7)
+        self.proposals = {}                     # proposal id -> the request it holds, its proposer and its state (§9)
         op = Obj(OPERATOR, "Operator", "ACTIVE", self.now)
         op.attrs["identity"] = OPERATOR
         self.objects[OPERATOR] = op
@@ -1810,14 +1811,26 @@ def run_examples(doc, library, modules):
                         step(runner, store, st, aliases, stubs)
                     except Refused as r:
                         raise ExampleError(f"{label}'s step {i + 1} does not apply: it is refused as {r}")
-            outcome = step(runner, store, {"request": ex["request"]}, aliases, stubs, under_test=True)
+            tested = {"approve": ex["approve"]} if "approve" in ex else {"request": ex["request"]}
+            outcome = step(runner, store, tested, aliases, stubs, under_test=True)
             problem = compare(runner, store, ex["expect"], outcome, aliases)
+            if problem is None and "proposal" in ex["expect"]:
+                got = store.proposals[aliases[ex["approve"]["proposal"]][1]]["state"]
+                if got != ex["expect"]["proposal"]:
+                    problem = f"expected the proposal {ex['expect']['proposal']}, and it is {got}"
             results.append((name, "failed" if problem else "passed", problem or ""))
         except NotRunnable as e:
             results.append((name, "not run", f"it reaches {e}, which the runner does not yet execute"))
         except ExampleError as e:
             results.append((name, "failed", str(e)))
     return results
+
+
+def advance(store, st):
+    """The clock moved by a step's `after`, before the step."""
+    if st.get("after"):
+        n, unit = st["after"].split()
+        store.now += Fraction(int(n)) * SECONDS[unit]
 
 
 def step(runner, store, st, aliases, stubs, under_test=False):
@@ -1850,10 +1863,50 @@ def step(runner, store, st, aliases, stubs, under_test=False):
                              "asserted": True, "overrides": False, "imported": True, "migrated": False, "redacted": False,
                              "reason": ABSENT, "declaration_version": 1, "held": {}})
         return None
+    if "propose" in st:
+        # a request filed for approval instead of executed, held as it was asked (DESIGN.md §9, ADR-0036)
+        r = st["propose"]
+        advance(store, r)
+        oid = aliases[r["object"]] if "object" in r else None
+        tn = store.type_of(oid) if oid else r["type"]
+        if not ((runner.kinds.get(tn) or {}).get("transitions") or {}).get(r["transition"], {}).get("proposable"):
+            raise ExampleError(f"{tn}.{r['transition']} is not proposable, so no proposal of it can be filed")
+        store.counter += 1
+        key = f"proposal-{store.counter}"
+        store.proposals[key] = {"type": tn, "object": oid, "transition": r["transition"], "inputs": r.get("inputs"),
+                                "aliases": dict(aliases), "proposer": aliases.get(r.get("actor", OPERATOR), r.get("actor")),
+                                "state": "pending", "verdict": None}
+        aliases[r["proposal"]] = ("proposal", key)
+        return None
+    for verb in ("approve", "reject", "withdraw"):
+        if verb not in st:
+            continue
+        d = st[verb]
+        advance(store, d)
+        key = aliases[d["proposal"]][1]
+        actor = aliases.get(d.get("actor", OPERATOR), d.get("actor"))
+        try:
+            if actor not in store.objects or store.actor_attr(store.type_of(actor)) is None:
+                raise Refused("unsatisfied", "actor_known", "dependent")
+            if store.proposals[key]["state"] != "pending":
+                raise Refused("unavailable", remedy="unreachable_from_here", detail=f"the proposal is {store.proposals[key]['state']}")
+            if verb != "approve":
+                store.proposals[key]["state"] = "rejected" if verb == "reject" else "withdrawn"
+                return None
+            # approving executes the request as the approver, every guard evaluated now; a refusal leaves it pending
+            held = store.proposals[key]
+            result = runner.attempt(store, held["type"], held["transition"], held["object"], actor, held["inputs"],
+                                    held["aliases"], stubs)
+        except Refused as refusal:
+            if key in store.proposals and store.proposals[key]["state"] == "pending":
+                store.proposals[key]["verdict"] = refusal
+            if under_test:
+                return ("refused", refusal)
+            raise
+        store.proposals[key]["state"] = "executed"      # the store's own, which the request's commit replaced
+        return result
     r = st["request"]
-    if r.get("after"):
-        n, unit = r["after"].split()
-        store.now += Fraction(int(n)) * SECONDS[unit]
+    advance(store, r)
     actor = aliases.get(r.get("actor", OPERATOR), r.get("actor"))
     if "type" in r:
         tn, oid = r["type"], None

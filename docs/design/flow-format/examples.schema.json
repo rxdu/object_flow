@@ -49,14 +49,19 @@
     },
     "example": {
       "type": "object",
-      "required": ["description", "request", "expect"],
+      "required": ["description", "expect"],
       "additionalProperties": false,
+      "oneOf": [
+        { "required": ["request"], "not": { "required": ["approve"] } },
+        { "required": ["approve"], "not": { "required": ["request"] } }
+      ],
       "properties": {
         "description": { "type": "string", "minLength": 1 },
         "given": { "$ref": "#/definitions/exampleName" },
         "evaluators": { "$ref": "#/definitions/evaluators" },
         "steps": { "type": "array", "items": { "$ref": "#/definitions/step" } },
         "request": { "$ref": "#/definitions/request" },
+        "approve": { "$ref": "#/definitions/decision" },
         "expect": { "$ref": "#/definitions/expect" }
       }
     },
@@ -67,7 +72,11 @@
       "additionalProperties": false,
       "properties": {
         "request": { "$ref": "#/definitions/request" },
-        "import": { "$ref": "#/definitions/import" }
+        "import": { "$ref": "#/definitions/import" },
+        "propose": { "$ref": "#/definitions/propose" },
+        "approve": { "$ref": "#/definitions/decision" },
+        "reject": { "$ref": "#/definitions/decision" },
+        "withdraw": { "$ref": "#/definitions/decision" }
       }
     },
     "request": {
@@ -93,6 +102,36 @@
         "actor": { "$ref": "#/definitions/alias" },
         "after": { "$ref": "#/definitions/duration" },
         "inputs": { "type": "object" }
+      }
+    },
+    "propose": {
+      "description": "A request filed as a proposal instead of executed, on a transition marked proposable; `proposal` names the proposal for the steps after it (DESIGN.md §9).",
+      "type": "object",
+      "required": ["transition", "proposal"],
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["type"], "not": { "required": ["object"] } },
+        { "required": ["object"], "not": { "required": ["type"] } }
+      ],
+      "properties": {
+        "type": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$" },
+        "object": { "$ref": "#/definitions/alias" },
+        "transition": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "proposal": { "$ref": "#/definitions/alias" },
+        "actor": { "$ref": "#/definitions/alias" },
+        "after": { "$ref": "#/definitions/duration" },
+        "inputs": { "type": "object" }
+      }
+    },
+    "decision": {
+      "description": "Approves, rejects or withdraws a pending proposal an earlier step filed; approving executes its request as the approver, and a refusal leaves it pending (DESIGN.md §9).",
+      "type": "object",
+      "required": ["proposal"],
+      "additionalProperties": false,
+      "properties": {
+        "proposal": { "$ref": "#/definitions/alias" },
+        "actor": { "$ref": "#/definitions/alias" },
+        "after": { "$ref": "#/definitions/duration" }
       }
     },
     "import": {
@@ -131,6 +170,10 @@
           "description": "The warn guards an applied request raised, in the order they were decided: the transition's own by name, a caused transition's qualified by its type.",
           "type": "array",
           "items": { "type": "string", "pattern": "^([A-Z][A-Za-z0-9]*\\.)?[a-z][a-z0-9_]*$" }
+        },
+        "proposal": {
+          "description": "The state an approved proposal is left in: executed where its request applied, pending where it was refused, and as it was where it was not pending.",
+          "enum": ["pending", "executed", "rejected", "withdrawn"]
         }
       }
     }
