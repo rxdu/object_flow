@@ -563,7 +563,7 @@ GENERATED = ("subject", "corrects", "occurred_at", "recorded_at", "recorded_by_k
              "created_at", "created_by_kind")
 SOURCES = ("labels", "intervals", "transitions", "attempts", "attempt_counts")
 # the built-in scalar types of §3.1: a reason typed as one of these is not an enum (check 29)
-SCALARS = ("string", "bool", "int", "decimal", "money", "timestamp", "duration", "identity", "file", "event")
+SCALARS = ("string", "bool", "int", "decimal", "money", "timestamp", "duration", "identity", "file", "event", "date", "actor_kind")
 
 
 def stores(d, spec, by_name):

@@ -1,7 +1,8 @@
 # yaml-language-server: $schema=../flow.schema.json
 # Staff reimbursement, the first consumer's first workflow, drafted on 2026-09-30 by an agent that had read only
 # flow-format.md and the sections it cites, as authoring-flows.md §6 prescribes; kept as that agent wrote it, and
-# judged by the defects it found (reimbursement-cold-draft.md).
+# judged by the defects it found (reimbursement-cold-draft.md), except where ADR-0145 answered what it asked: who
+# confirmed a line's nature is recorded, and must be a person, and the day of an expense is a date.
 #
 # Assumptions the business has not decided:
 # - A claim is recorded in Xero as a bill, and the bill is paid separately, so "paid" is a step of its own after
@@ -289,10 +290,12 @@ types:
         inputs:
           amount: { type: money(USD) }
           category: { reference: ExpenseCategory }
-          expense_date: { type: timestamp }
+          expense_date: { type: date }
           receipt: { type: file }
           purpose: { type: string, optional: true, personal: true }
           merchant: { type: string, optional: true }
+          original_amount: { type: "decimal(12,2)", optional: true }
+          original_currency: { type: string, optional: true }
         effect:
           - create:
               type: ClaimLine
@@ -305,6 +308,8 @@ types:
                 receipt: inputs.receipt
                 purpose: inputs.purpose
                 merchant: inputs.merchant
+                original_amount: inputs.original_amount
+                original_currency: inputs.original_currency
       submit:
         kind: external
         from: DRAFT
@@ -464,10 +469,18 @@ types:
     attributes:
       claim: { reference: Claim, opposite: lines }
       amount: { type: money(USD) }
+      original_amount:
+        type: decimal(12,2)
+        optional: true
+        description: The amount spent, in the currency it was spent in, where that is not the home currency; recorded, and never computed with (ADR-0145).
+      original_currency:
+        type: string
+        optional: true
+        description: The ISO 4217 code of the currency the amount was spent in, beside original_amount.
       category: { reference: ExpenseCategory }
       expense_date:
-        type: timestamp
-        description: When the money was spent; the format has no date type, so a day is written as its midnight in UTC.
+        type: date
+        description: The day the money was spent, a calendar day with no time and no zone (ADR-0145).
       receipt: { type: file }
       purpose:
         type: string
@@ -488,6 +501,10 @@ types:
         type: SpendNature
         optional: true
         description: Whether the line is an expense or a purchase, as a person confirmed it.
+      nature_confirmed_by:
+        type: actor_kind
+        optional: true
+        description: The kind of actor that confirmed the line's nature, recorded as it was confirmed (ADR-0145).
     states:
       LISTED:
         category: in_progress
@@ -504,14 +521,21 @@ types:
       over_policy:
         description: The line's amount is above its category's policy amount.
         expression: amount > category.policy_amount
+    invariants:
+      spent_amount_has_its_currency:
+        description: An amount spent in another currency names that currency.
+        expression: original_amount is null or original_currency is not null
+      confirmed_by_a_person:
+        description: A line's nature is confirmed by a person, never by the agent, which only suggests it, so the agent never commits a financial write.
+        expression: nature is null or (nature_confirmed_by is not null and nature_confirmed_by == human)
     conditions:
       amount_positive:
         description: The amount given is above zero.
         expression: inputs.amount > USD 0.00
         remedy: self_serviceable
       spent_in_past:
-        description: The date of the expense is not in the future.
-        expression: inputs.expense_date <= now
+        description: The day of the expense is not in the future, allowing a day, since the claimant's today is a day ahead of UTC's east of it for part of each day.
+        expression: inputs.expense_date <= date(now) + 1 day
         remedy: self_serviceable
       category_in_use:
         description: The category given is in use.
@@ -540,7 +564,7 @@ types:
         description: A line is added to its claim.
         only_via: [Claim.add_line]
         required_inputs: [claim, amount, category, expense_date, receipt]
-        optional_inputs: [purpose, merchant]
+        optional_inputs: [purpose, merchant, original_amount, original_currency]
         guards:
           amount_positive: deny
           spent_in_past: deny
@@ -551,7 +575,7 @@ types:
         from: LISTED
         description: The claimant replaces the line's details, which undoes any suggestion or confirmation of its nature.
         required_inputs: [amount, category, expense_date, receipt]
-        optional_inputs: [purpose, merchant]
+        optional_inputs: [purpose, merchant, original_amount, original_currency]
         guards:
           claim_editable: deny
           amount_positive: deny
@@ -559,7 +583,7 @@ types:
           category_in_use: deny
           within_policy: warn
         effect:
-          - clear: [suggested_nature, suggestion_rationale, nature]
+          - clear: [suggested_nature, suggestion_rationale, nature, nature_confirmed_by]
       discard:
         kind: external
         from: LISTED
@@ -582,6 +606,8 @@ types:
         required_inputs: [nature]
         guards:
           claim_under_review: deny
+        effect:
+          - assign: { location: nature_confirmed_by, expr: actor.kind }
       close:
         kind: external
         from: LISTED

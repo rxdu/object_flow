@@ -176,8 +176,10 @@ A numeric field's declared unit is metadata in `of_declaration`, not a column, s
 | `decimal(p,s)` | `NUMERIC(p,s)` | `INTEGER`, scaled by 10^s | SQLite's numeric affinity stores a decimal as a float, which is not exact; the scale is in the declaration, so the scaling is recoverable |
 | `money(ccy)` | `BIGINT`, minor units | `INTEGER`, minor units | exact, orderable and indexable on both. The currency is fixed by the declaration (ADR-0068) so it is not stored per row |
 | `timestamp` | `TIMESTAMPTZ` | `TEXT`, ISO-8601 UTC | |
+| `date` | `DATE` | `TEXT`, ISO-8601 date | a calendar day with no zone, which orders as text as the day does (ADR-0145) |
 | `duration` | `BIGINT` seconds | `INTEGER` seconds | the unit set is closed and none is calendar-dependent (ADR-0061) |
 | `identity` | `TEXT` | `TEXT` | |
+| `actor_kind` | `TEXT` + `CHECK` | `TEXT` + `CHECK` | `human`, `agent` or `service`, the kind of actor that acted (ADR-0145) |
 | an enum | `TEXT` + `CHECK` | `TEXT` + `CHECK` | a native enum type would need a migration to add a member; a check constraint is replaced with the declaration |
 | `event` | `BIGINT` → `of_event.position` | `INTEGER` | which is what makes `changed_since([…], a.at_event)` a comparison of two integers |
 | `file` | `TEXT` → `of_file.hash` | `TEXT` | content-addressed; the store holds the reference (ADR-0017), and every write of one is a row of `of_file_ref` (§6) |

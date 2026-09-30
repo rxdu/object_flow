@@ -95,8 +95,10 @@ TYPE_ORDER = ["description", "abstract", "extends", "mirror", "tracking", "state
 
 
 class StrictLoader(yaml.SafeLoader):
-    """YAML 1.1 reads yes/no/on/off as booleans and keeps the last of two equal
-    keys; here only true and false are booleans, and a repeated key is an error."""
+    """YAML 1.1 reads yes/no/on/off as booleans, 2026-03-01 as a date, and keeps
+    the last of two equal keys; here only true and false are booleans, a date or
+    a timestamp stays the text it is written as, as YAML 1.2's core schema and the
+    core's loader read it (ADR-0143), and a repeated key is an error (D494)."""
 
     def construct_mapping(self, node, deep=False):
         seen = set()
@@ -110,7 +112,7 @@ class StrictLoader(yaml.SafeLoader):
 
 
 StrictLoader.yaml_implicit_resolvers = {
-    k: [r for r in v if r[0] != "tag:yaml.org,2002:bool"]
+    k: [r for r in v if r[0] not in ("tag:yaml.org,2002:bool", "tag:yaml.org,2002:timestamp")]
     for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()}
 StrictLoader.add_implicit_resolver(
     "tag:yaml.org,2002:bool", re.compile(r"^(?:true|false)$"), list("tf"))
@@ -1160,7 +1162,7 @@ def required_errors(tn, xn, x, required, always):
     return out
 
 
-SIMPLE_TYPES = {"string", "int", "bool", "timestamp", "duration", "identity", "file"}
+SIMPLE_TYPES = {"string", "int", "bool", "timestamp", "duration", "identity", "file", "date", "actor_kind"}
 
 
 def written_kind(spec, enums):
@@ -1189,6 +1191,8 @@ def value_kind(e, tn, t, x, enums):
         return ("string",)
     if k == "num":
         return ("number",)
+    if k == "call" and e[1] == ("name", "date"):
+        return ("date",)
     if k == "money":
         return ("money", e[1])
     if k == "bool":
@@ -1199,6 +1203,8 @@ def value_kind(e, tn, t, x, enums):
             return ("timestamp",)
         if e[1] == "this":
             return ("reference", tn)
+        if e[1] in ACTOR_KINDS and e[1] not in attrs:
+            return ("actor_kind",)
         return written_kind(attrs.get(e[1]), enums)
     if k == "path" and e[1][0] == "name":
         base, m = e[1][1], e[2]
@@ -1206,8 +1212,8 @@ def value_kind(e, tn, t, x, enums):
             return ("enumeration", base)
         if base == "this":
             return written_kind(attrs.get(m), enums)
-        if base == "actor" and m == "id":
-            return ("identity",)
+        if base == "actor" and m in ("id", "kind"):
+            return ("identity",) if m == "id" else ("actor_kind",)
         if base == "inputs":
             spec = (x.get("inputs") or {}).get(m)
             if spec is None and m in set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])):
@@ -1301,7 +1307,7 @@ def value_errors(doc, tn, t):
 KEYWORDS = {"and", "or", "not", "implies", "is", "null", "in", "where", "if", "then", "else",
             "true", "false", "distinct", "over", "last", "fresh"}
 AGGREGATES = ("count", "sum", "min", "max", "all", "any", "none")
-DURATION_UNITS = {"s", "min", "h", "days", "weeks"}
+DURATION_UNITS = flowexpr.UNITS          # the parser's own, singular day and week among them (D494)
 FLOW_DATA = {"intervals", "transitions", "labels"}
 # the kinds of actor, a fixed enumeration expressions write bare (declaration-syntax.md §8.1)
 ACTOR_KINDS = set(json.loads((FORMAT / "flow.schema.json").read_text())
@@ -1406,8 +1412,44 @@ def indexed_errors(tn, t, library):
     return out
 
 
-BUILT_IN_TYPES = ("string", "bool", "int", "decimal", "money", "timestamp", "duration", "identity", "file", "event")
+BUILT_IN_TYPES = ("string", "bool", "int", "decimal", "money", "timestamp", "duration", "identity", "file", "event", "date",
+                  "actor_kind")
+ACTOR_KINDS = ("human", "agent", "service")    # the values of actor_kind, written bare (ADR-0145)
 DECIMAL = re.compile(r"^decimal\(\s*(\d+)\s*,\s*(\d+)\s*\)(\[\])?$")
+
+
+def type_name_errors(doc):
+    """Every type a module declares an attribute, a field, an input, a requirement or an argument of is built in, an
+    enumeration the module declares, or a name it imports (flow-format.md §4.3): an unknown name was taken as some
+    type nothing checked (D493)."""
+    known = set(BUILT_IN_TYPES) | {"counter"} | set(doc.get("enumerations") or {})
+    known |= {n for names in (doc.get("imports") or {}).values() for n in names}
+    out = []
+
+    def one(spec, path):
+        typ = (spec or {}).get("type") if isinstance(spec, dict) else None
+        if isinstance(typ, str):
+            base = re.match(r"[A-Za-z_][A-Za-z0-9_]*", typ)
+            if base and base.group(0) not in known:
+                out.append((path + ("type",), "names", f"{path[-1]} is of the type {typ}, which is neither built in, nor an "
+                                                       "enumeration this module declares, nor a name it imports"))
+
+    def members(section, path):
+        for n, spec in (section or {}).items():
+            one(spec, path + (n,))
+    for kind in ("types", "machines"):
+        for tn, t in (doc.get(kind) or {}).items():
+            base = (kind, tn)
+            members(t.get("attributes"), base + ("attributes",))
+            members(t.get("requires") if isinstance(t.get("requires"), dict) else {}, base + ("requires",))
+            for o, ob in (t.get("observations") or {}).items():
+                members(ob.get("attributes"), base + ("observations", o, "attributes"))
+            for xn, x in (t.get("transitions") or {}).items():
+                members(x.get("inputs"), base + ("transitions", xn, "inputs"))
+    for e, ev in (doc.get("evaluators") or {}).items():
+        for fn, f in (ev.get("functions") or {}).items():
+            members(f.get("arguments"), ("evaluators", e, "functions", fn, "arguments"))
+    return out
 
 
 def decimal_errors(doc):
@@ -2675,6 +2717,7 @@ EXAMPLES_ORDER = ["examples_for", "setups", "examples"]
 # the guards the engine generates, which an example may expect to refuse (DESIGN.md §6)
 GENERATED_GUARDS = {"actor_known", "occurred_within", "whole_open", "not_erased", "subject_open", "corrects_current",
                     "subject_owned", "successor_not_superseded"}
+DATE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")   # a date as an example writes it (ADR-0145)
 EXAMPLE_OUTCOMES = []      # each example step 6 ran, with its outcome, for the summary a file check prints
 TIMESTAMP = re.compile(r"^(now( [+-] [0-9]+ (s|min|h|days?|weeks?))?|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z)$")
 
@@ -2756,6 +2799,10 @@ def example_errors(doc, kinds, modules):
             return [(path, "names", f"'{name}' is an int")]
         elif typ == "timestamp" and not (isinstance(v, str) and TIMESTAMP.match(v)):
             return [(path, "names", f"'{name}' is a timestamp, written in UTC as 2026-01-01T09:00Z, or as now, or now + <duration>")]
+        elif typ == "date" and not (isinstance(v, str) and DATE.match(v)):
+            return [(path, "names", f"'{name}' is a date, written as 2026-03-01")]
+        elif typ == "actor_kind" and v not in ACTOR_KINDS:
+            return [(path, "names", f"'{name}' is an actor_kind, written bare as human, agent or service")]
         return []
 
     def request_errors(r, env, path, applies):
@@ -3116,7 +3163,7 @@ def check(files, previous=None, analysed=None):
         if (previous or {}).get(f):
             pair, pair_notes = migration_pair_errors(load(previous[f]), doc, library)
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes]
-        for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + decimal_errors(doc)
+        for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc)
                         + name_errors(v, library, ordered=False) + migration_errors(doc, v) + pair):
             p = back(p)
             if p is not None and p[0] == "machines" and "'" in m:
@@ -3329,6 +3376,13 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(plant(customers, "      close:\n        kind: external\n        from: any\n        to: CLOSED\n",
                      "      close:\n        kind: external\n        from: any\n        to: CLOSED\n        effect:\n"
                      "          - assign: { location: note_kind, expr: OverrideReason.MIS_KEYED }\n"),
+               "    attributes:\n", "    attributes:\n      note_kind: { type: string, optional: true }\n")),
+        ("a type no module declares", "names", "customers.yaml",
+         plant(customers, "    attributes:\n", "    attributes:\n      note_kind: { type: frobnicate, optional: true }\n")),
+        ("the kind of actor written to a string", "names", "customers.yaml",
+         plant(plant(customers, "      close:\n        kind: external\n        from: any\n        to: CLOSED\n",
+                     "      close:\n        kind: external\n        from: any\n        to: CLOSED\n        effect:\n"
+                     "          - assign: { location: note_kind, expr: actor.kind }\n"),
                "    attributes:\n", "    attributes:\n      note_kind: { type: string, optional: true }\n")),
         ("a condition named as a generated guard", "names", "customers.yaml",
          plant(plant(customers, "      no_open_orders:\n", "      not_erased:\n"), "          no_open_orders: deny", "          not_erased: deny")),
@@ -3849,6 +3903,20 @@ def proposal_plants(people):
     return ok
 
 
+def date_plant(people):
+    """A date an example writes is a day, 2026-03-01, which the strict loader keeps as text (ADR-0145, D494); a
+    timestamp in its place is refused."""
+    module = (EXAMPLES / "reimbursement.yaml").read_text()
+    examples = (EXAMPLES / "reimbursement.examples.yaml").read_text()
+    old = "expense_date: 2025-12-31, receipt: blank.pdf"
+    assert examples.count(old) == 1
+    found, _ = check([("people.yaml", people), ("reimbursement.yaml", module),
+                      ("reimbursement.examples.yaml", examples.replace(old, "expense_date: 2025-12-31T00:00Z, receipt: blank.pdf"))])
+    ok = any("is a date, written as 2026-03-01" in f[4] for f in found) and load("d: 2026-03-01")["d"] == "2026-03-01"
+    print(f"  a date written as a timestamp is refused, and the strict loader keeps a date as its text: {'yes' if ok else 'NO'}")
+    return ok
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -3954,6 +4022,7 @@ def main():
     ok &= cutover_plant(people)
     ok &= supersession_plant(people)
     ok &= proposal_plants(people)
+    ok &= date_plant(people)
     sys.exit(0 if clean and ok else 1)
 
 

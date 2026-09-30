@@ -33,7 +33,7 @@ setups:
           inputs:
             amount: USD 45.00
             category: meals
-            expense_date: 2025-12-30T00:00Z
+            expense_date: 2025-12-30
             receipt: lunch-receipt.pdf
             merchant: Harbour Cafe
 
@@ -100,7 +100,13 @@ examples:
     expect:
       verdict: applied
       state: LISTED
-      values: { suggested_nature: SpendNature.PURCHASE, nature: SpendNature.EXPENSE }
+      values: { suggested_nature: SpendNature.PURCHASE, nature: SpendNature.EXPENSE, nature_confirmed_by: human }
+
+  agent_cannot_confirm_nature:
+    description: The agent may suggest a line's nature and may not confirm it, so its confirmation is refused, and the agent never commits a financial write (ADR-0145).
+    given: submitted
+    request: { object: lunch, transition: confirm_nature, actor: classifier, inputs: { nature: SpendNature.EXPENSE } }
+    expect: { verdict: invariant_violated, clause: confirmed_by_a_person }
 
   refuse_suggestion_after_confirmation:
     description: Once a person has confirmed the line's nature, the agent's later suggestion is refused, so it cannot overwrite a person's decision.
@@ -115,7 +121,7 @@ examples:
       object: claim
       transition: add_line
       actor: alice
-      inputs: { amount: USD 95.00, category: meals, expense_date: 2025-12-31T00:00Z, receipt: dinner-receipt.pdf }
+      inputs: { amount: USD 95.00, category: meals, expense_date: 2025-12-31, receipt: dinner-receipt.pdf }
     expect:
       verdict: applied
       state: DRAFT
@@ -128,7 +134,7 @@ examples:
       object: claim
       transition: add_line
       actor: alice
-      inputs: { amount: USD 300.00, category: equipment, expense_date: 2025-12-31T00:00Z, receipt: cable-receipt.pdf }
+      inputs: { amount: USD 300.00, category: equipment, expense_date: 2025-12-31, receipt: cable-receipt.pdf }
     expect:
       verdict: applied
       state: DRAFT
@@ -144,7 +150,7 @@ examples:
           transition: add_line
           actor: alice
           creates: [dinner]
-          inputs: { amount: USD 95.00, category: meals, expense_date: 2025-12-31T00:00Z, receipt: dinner-receipt.pdf }
+          inputs: { amount: USD 95.00, category: meals, expense_date: 2025-12-31, receipt: dinner-receipt.pdf }
       - request: { object: claim, transition: submit, actor: alice }
       - request: { object: dinner, transition: confirm_nature, actor: rev, inputs: { nature: SpendNature.EXPENSE } }
       - request: { object: claim, transition: complete_review, actor: rev }
@@ -169,8 +175,38 @@ examples:
       object: claim
       transition: add_line
       actor: alice
-      inputs: { amount: USD 0.00, category: meals, expense_date: 2025-12-31T00:00Z, receipt: blank.pdf }
+      inputs: { amount: USD 0.00, category: meals, expense_date: 2025-12-31, receipt: blank.pdf }
     expect: { verdict: call_refused, clause: ClaimLine.amount_positive, remedy: self_serviceable }
+
+  a_line_dated_a_day_ahead_of_utc_is_accepted:
+    description: At midnight UTC on 1 January it is already 2 January east of UTC, so a line dated 2 January is not in the future (ADR-0145).
+    given: drafted
+    request:
+      object: claim
+      transition: add_line
+      actor: alice
+      inputs: { amount: USD 20.00, category: meals, expense_date: 2026-01-02, receipt: taxi.pdf }
+    expect: { verdict: applied, state: DRAFT }
+
+  refuse_line_dated_in_the_future:
+    description: A line dated two days after the UTC day is in the future wherever the claimant is, and is refused by the line's own rule.
+    given: drafted
+    request:
+      object: claim
+      transition: add_line
+      actor: alice
+      inputs: { amount: USD 20.00, category: meals, expense_date: 2026-01-03, receipt: taxi.pdf }
+    expect: { verdict: call_refused, clause: ClaimLine.spent_in_past, remedy: self_serviceable }
+
+  refuse_amount_spent_abroad_without_its_currency:
+    description: A line spent in another currency records the amount spent and names its currency; the amount alone is refused, since no one could read it (ADR-0145).
+    given: drafted
+    request:
+      object: claim
+      transition: add_line
+      actor: alice
+      inputs: { amount: USD 70.00, original_amount: 95.00, category: meals, expense_date: 2025-12-31, receipt: dinner-sgd.pdf }
+    expect: { verdict: invariant_violated, clause: ClaimLine.spent_amount_has_its_currency }
 
   refuse_review_with_unclassified_line:
     description: The review cannot finish while a line's nature is unconfirmed, whatever the agent suggested.
@@ -235,7 +271,7 @@ examples:
           object: lunch
           transition: amend
           actor: alice
-          inputs: { amount: USD 42.50, category: meals, expense_date: 2025-12-30T00:00Z, receipt: lunch-receipt.pdf }
+          inputs: { amount: USD 42.50, category: meals, expense_date: 2025-12-30, receipt: lunch-receipt.pdf }
     request: { object: claim, transition: resubmit, actor: alice }
     expect: { verdict: applied, state: SUBMITTED }
 
@@ -246,7 +282,7 @@ examples:
       object: lunch
       transition: amend
       actor: alice
-      inputs: { amount: USD 40.00, category: meals, expense_date: 2025-12-30T00:00Z, receipt: lunch-receipt.pdf }
+      inputs: { amount: USD 40.00, category: meals, expense_date: 2025-12-30, receipt: lunch-receipt.pdf }
     expect: { verdict: unsatisfied, clause: claim_editable, remedy: dependent }
 
   withdraw_draft:

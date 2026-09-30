@@ -16,8 +16,8 @@ The module, six types around a ten-state `Claim`, passed the flow checker on its
 |---|---|---|---|
 | 1 | The expression language is only in `declaration-syntax.md` §8 | `flow-format.md` §5 cites it by design | Kept: the format does not restate the model's expression language |
 | 2 | What categories other than `closed` mean | `flow-format.md` §4.1 | D492, resolved in place |
-| 3 | No date type; a day is bucketed by its UTC month | `declaration-syntax.md` §3.1, §6.9 | Question 2 for the author (§5) |
-| 4 | One currency per attribute | ADR-0068, the author's ruling | Question 3 for the author |
+| 3 | No date type; a day is bucketed by its UTC month | `declaration-syntax.md` §3.1, §6.9 | Question 2 for the author (§5), answered by ADR-0145 |
+| 4 | One currency per attribute | ADR-0068, the author's ruling | Question 3 for the author, answered by ADR-0145 |
 | 5 | Free text is personal, so a required title is an optional attribute and an invariant | `flow-format.md` §4.13 | The pattern holds: erasure admits the invariant it breaks |
 | 6 | Approval by a function cannot be enforced | ADR-0114 | By design: who may act is the upper layer's |
 | 7 | A proposal cannot be written in an example | `flow-format.md` §11 | `TODO.md` |
@@ -31,7 +31,7 @@ The module, six types around a ten-state `Claim`, passed the flow checker on its
 | 17 | How an `identity` is written in an example | `flow-format.md` §11.3 | D492 |
 | 18 | An unknown `warn` guard: the text says it refuses, the runner raises it | `DESIGN.md` §5.5; the drafter's probe, rerun | D488, resolved in place |
 | 19 | A misspelt transition name in a filter counts nothing, silently | a probe: `t.transition == "confirm_natur"` passed | D490, resolved in place |
-| 20 | `actor.kind` written to a `string`, and an invariant over it | probes: an enumeration's member written to a `string` passed too | D491 for the type check; question 1 for the author |
+| 20 | `actor.kind` written to a `string`, and an invariant over it | probes: an enumeration's member written to a `string` passed too | D491 for the type check; question 1 for the author, answered by ADR-0145 |
 | 21 | `declaration-syntax.md` §8.2 shows a guard reading `actor` | the text | D489, resolved in place |
 | 22 | Coverage counts only an example's request, not its setup | `flow-format.md` §11.5 says "requests" | By design |
 | 23 | `--help` runs the self-tests | a run of the checker | D492 |
@@ -45,6 +45,8 @@ The module, six types around a ten-state `Claim`, passed the flow checker on its
 `flow-format.md` §2.4, §4.1, §4.8, §4.9, §5 and §11.3, and `declaration-syntax.md` §6.9 and §8.2, now say what the drafter could not find; the flow checker refuses a misspelt transition name in a metric and an assignment whose value does not fit its target, words the notice `unknown` by the guard's enforcement, prints how many examples ran, and answers `--help`. Each is recorded in `defects.md` as D487 to D492.
 
 ## 5. Questions for the author
+
+*Answered 2026-09-30, as suggested ("follow your suggestions"): ADR-0145.*
 
 1. **What type holds `actor.kind`, and may an invariant constrain it?** ADR-0114 lets an outcome write `actor.kind` into an attribute, but `declaration-syntax.md` §8.1 types it as "a fixed enum" with no name, so no attribute can be declared to hold it, and the drafter's `string` works only because the checker does not type it. With a type, an invariant over the recorded kind, "a line's nature is confirmed by a human", enforces the business's "the agent never commits a financial write" in the declaration. That has the shape of the rule ADR-0114 kept, one approval per person as an invariant over the recorded approver, and also of the rule its alternatives rejected. Recommendation: give the kind a built-in type, and allow the invariant, since it constrains what the record holds and the upper layer still decides who may ask.
 2. **Should the model have a `date` type?** An expense has a calendar date, not an instant. Written as its UTC midnight it is bucketed into the right month only while every writer keeps that convention; an application that stores a local midnight as the instant it is, as Singapore's 1 March is 28 February 16:00Z, puts it in the month before. Recommendation: a `date` type, bucketed by its own calendar, with `timestamp` unchanged.

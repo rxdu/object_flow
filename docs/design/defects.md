@@ -504,6 +504,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D490](#d490) | A transition named in a metric's filter was never checked, so a misspelt one counted nothing | Resolved in place |
 | [D491](#d491) | The flow checker let an enumeration's member be written to a `string` attribute, against check 17 | Resolved in place |
 | [D492](#d492) | Four small gaps in the flow format and its checker: the quoting rule, other categories, an identity in an example, and what the checker reports | Resolved in place |
+| [D493](#d493) | A type name no module declares passed the flow checker, taken as some type nothing checked | Resolved in place |
+| [D494](#d494) | The strict loader read a date, or a timestamp with seconds, as a Python date, and the names check read a singular `day` or `week` as a name, unlike the parser and the core | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3239,3 +3241,15 @@ An agent drafted the first consumer's reimbursement workflow from `flow-format.m
 **Four small gaps in the flow format and its checker.** The quoting rule of §2.4, read literally, forbade a cascade's inline list; §4.1 gave no meaning to a category other than `closed`; §11.3 did not say how an `identity` is written in an example; and the checker neither said whether any example had run nor answered `--help`, which ran its self-tests instead. Found by the cold draft, entries 2, 14, 15, 17 and 23.
 
 **Resolved in place**, 2026-09-30: §2.4 quotes only a scalar; §4.1 says another category is the author's name, which an expression may read and the engine gives no meaning; §11.3 writes an identity as itself; the checker prints how many examples ran, passed, failed or were not run, and a usage text.
+
+## Found adding ADR-0145's types, 2026-09-30
+
+### D493
+**A type name no module declares passed the flow checker.** `flow-format.md` §4.3 allows an attribute, a field or an input to be of a built-in type or an enumeration, and the flow checker checked neither: `merchant: { type: frobnicate }` passed with no finding, taken as a type nothing then checked. Found 2026-09-30 by a probe, while adding the two types of ADR-0145.
+
+**Resolved in place**, 2026-09-30: step 3 refuses a type, of an attribute, a field, an input, a machine's requirement or an evaluator's argument, that is neither built in, nor an enumeration the module declares, nor a name it imports, proven by a plant; no module in the design has one. §4.3 says so.
+
+### D494
+**The flow checker read two things differently from its own parser and from the core.** The strict loader dropped YAML 1.1's booleans but kept its timestamps, so `2026-03-01`, and a timestamp written with seconds, were read as Python dates, while ADR-0143 has the core read YAML 1.2's core schema, which has no timestamp, and requires the two loaders to agree; an example writing a timestamp with seconds was refused as not a timestamp. And the names check listed `days` and `weeks` as a duration's units, not `day` and `week`, which the parser and the schema accept, so `date(now) + 1 day` was refused as reading a name `day`; `declaration-syntax.md` §8.3 listed the plurals only. Found 2026-09-30 adding the `date` type of ADR-0145.
+
+**Resolved in place**, 2026-09-30: the strict loader keeps a date or a timestamp as the text it is written as, which a self-test proves; the names check takes its units from the parser; §8.3 lists both forms.

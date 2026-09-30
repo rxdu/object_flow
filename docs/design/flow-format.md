@@ -87,7 +87,7 @@ Each attribute is a mapping with exactly one of `type` and `reference`. (step 2,
 
 | Key | Value |
 |---|---|
-| `type` | a built-in type (`string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `duration`, `identity`, `file`, `event`) or an enumeration's name, `[]` making the attribute a set of values; or `counter`, on a type tracked by quantity (§4.17). A `decimal(p,s)` holds 1 to 18 digits, its scale within them, wherever a type is declared (step 3, `names`; ADR-0143) |
+| `type` | a built-in type (`string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `date`, `duration`, `identity`, `actor_kind`, `file`, `event`) or an enumeration's name, which the module declares or imports (step 3, `names`), `[]` making the attribute a set of values; or `counter`, on a type tracked by quantity (§4.17). A `decimal(p,s)` holds 1 to 18 digits, its scale within them, wherever a type is declared (step 3, `names`; ADR-0143) |
 | `reference` | the name of a type the module declares or imports; `[]` makes the attribute a set of references |
 | `opposite` | the attribute of the referenced type that is the other end of this relationship (UML `Property::opposite`) |
 | `stored` | `true` on the one of two single ends that holds the value |
@@ -595,11 +595,12 @@ An `expression` is written in the expression language of `declaration-syntax.md`
 - an enumeration value and a state of another type are written qualified, `<Enumeration>.<VALUE>` and `<Type>.<STATE>`; a value of an enumeration or of a type the module declares MUST exist, and a bare upper-case name MUST be a state of the type (step 3, `names`);
 - an expression that is a boolean or a number MAY be written as YAML's own, `is_debit: true` or `default: 0`, and stands for that literal, where the schema says an expression goes and no key there takes the value as YAML's own, as `final: true` and `limit: 50` do; any other expression is a YAML string, and a text literal is quoted inside it, `site: '"HQ"'` (step 2, `schema`). A YAML author writes `true` bare, and YAML reads it as a boolean before the format sees it, so refusing it as not a string would be a trap; rewriting the design's examples found the refusal on 2026-09-26, first in a default and then in a creation's inputs;
 - a money literal is a currency and an amount, `USD 0.00`, as in the model (`declaration-syntax.md` §8);
+- a `date` is a calendar day: dates compare as days, `d1 - d2` is a duration of whole days, a date plus or minus days or weeks is a date, and `date(<timestamp>)` is the UTC day of an instant (`declaration-syntax.md` §8.3, ADR-0145);
 - over no elements, `count` and `sum` are 0, `all` and `none` are true, `any` is false, and `min`, `max`, `avg`, `median` and `percentile` are absent (ADR-0122);
 - absence is tested with `is null` and `is not null`; a comparison with an absent value is unknown, and a guard that is unknown fails as a false one does, so a `deny` guard refuses and an `audit` or `warn` guard is recorded or raised (§4.8, `declaration-syntax.md` §8.2);
 - a transition is named by a string, as a row's `t.transition == "approve"`, and the string MUST name a transition of the row's type (step 3, `names`); an actor's kind is written bare, `human`, `agent` or `service`, as a row's `t.actor_kind == agent`;
 - only an effect's value MAY read `actor`, as `assign: { location: handled_by, expr: actor.id }` records who acted; a condition, an invariant, a derived attribute, a default, a metric and every other expression MUST NOT, since who may act is decided outside the flow (ADR-0114; step 4, `check 64`). *(Corrected 2026-09-26: this said that no expression may read `actor`, which overstated the model's check 64 and contradicted the delivery example, whose `approve` writes `actor.id`.)*
-- `actor.id` is the identity the request named its actor by, the value the acting object holds in its attribute marked `actor_kind`, and not that object's own `id`; `actor.kind` is that type's actor kind (`declaration-syntax.md` §3.1, ADR-0122);
+- `actor.id` is the identity the request named its actor by, the value the acting object holds in its attribute marked `actor_kind`, and not that object's own `id`; `actor.kind` is that type's actor kind, of the built-in type `actor_kind`, whose values are written bare (`declaration-syntax.md` §3.1, ADR-0122); an outcome may record it in an attribute of that type, which any rule may then read, since it reads the record, as `invariant: nature is null or nature_confirmed_by == human` does (ADR-0145);
 
 ## 6. What a description declares
 
@@ -800,6 +801,8 @@ A `propose` files a request for approval instead of executing it, as a caller do
 - a timestamp, in UTC, as `2026-01-01T09:00Z`, or as `now` or `now + <duration>`, the clock at that step;
 - a file, by a file name, for which the example supplies a file whose content is that name;
 - an `identity`, by the identity itself, such as `ana` or `acct-dev`, which the store compares as a string;
+- an `actor_kind`, bare, as `agent`;
+- a `date`, as `2026-03-01`;
 - anything else as its literal.
 
 **Recording.** A datapoint is recorded by requesting its kind's generated creation, `record`, with `subject` and the kind's fields as inputs, as any caller records one (§4.4, `declaration-syntax.md` §6.8).

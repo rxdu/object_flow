@@ -45,6 +45,7 @@ ABSENT = _Absent()
 SECONDS = {"s": 1, "min": 60, "h": 3600, "day": 86400, "days": 86400, "week": 604800, "weeks": 604800}
 EPOCH = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 CLOCK_START = "2026-01-01T00:00:00Z"            # flow-format.md §11.3
+ACTOR_KINDS = ("human", "agent", "service")
 OPERATOR = "operator"                           # the alias, and the identity, of the store's operator (ADR-0126)
 BUCKETS = {"day", "week", "month", "quarter", "year"}
 ROW_AGGREGATES = {"count", "sum", "min", "max", "avg", "median", "percentile"}
@@ -181,9 +182,20 @@ def arith_kind(op, a, b):
     return ("other",)
 
 
+def is_date(v):
+    return isinstance(v, datetime.date) and not isinstance(v, datetime.datetime)
+
+
+def instant(v):
+    """A date placed at the start of its day, UTC, where a window or a bucket compares it with an instant (ADR-0145);
+    any other value as it is."""
+    return Fraction((v - EPOCH.date()).days * 86400) if is_date(v) else v
+
+
 def bucket(unit, ts):
-    """A timestamp's UTC calendar bucket, the week being the ISO 8601 week that begins on Monday (ADR-0106)."""
-    t = EPOCH + datetime.timedelta(seconds=math.floor(ts))
+    """A timestamp's UTC calendar bucket, the week being the ISO 8601 week that begins on Monday (ADR-0106); a date's
+    own, since the start of its day, UTC, is in it (ADR-0145)."""
+    t = EPOCH + datetime.timedelta(seconds=math.floor(instant(ts)))
     if unit == "week":
         year, week, _ = t.isocalendar()
         return f"{year}-W{week:02d}"
@@ -513,6 +525,8 @@ class Evaluator:
             return ("state", self.tn, n)
         if any(n == v.get("category") for v in (self.t.get("states") or {}).values()) or n == "closed":
             return ("category", n)
+        if n in ACTOR_KINDS:
+            return n                            # a kind of actor, the value actor.kind and a row's .actor_kind hold (ADR-0145)
         return ("typeref", n)
 
     def member(self, base, m):
@@ -722,6 +736,8 @@ class Evaluator:
         """A comparison or an arithmetic operator over two values (§8.2, §8.3)."""
         if a is ABSENT or b is ABSENT:
             return ABSENT
+        if is_date(a) or is_date(b):
+            return self.dates(op, a, b)
         if op == "==":
             return a == b
         if op == "!=":
@@ -741,6 +757,21 @@ class Evaluator:
                 return int(Fraction(a, b))          # int / int discards the remainder (§8.3)
             return Fraction(a) / Fraction(b)
         raise NotRunnable(f"the operator {op}")
+
+    @staticmethod
+    def dates(op, a, b):
+        """Dates compare as days; their difference is a duration of whole days, and a date plus or minus one is a date
+        (ADR-0145)."""
+        if is_date(a) and is_date(b):
+            if op == "-":
+                return Fraction((a - b).days * 86400)
+            if op in ("==", "!=", "<", "<=", ">", ">="):
+                return {"==": a == b, "!=": a != b, "<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
+        if is_date(a) and op in ("+", "-") and isinstance(b, Fraction):
+            if b % 86400:
+                raise NotRunnable("a date moved by part of a day")
+            return a + datetime.timedelta(days=int(b / 86400) * (1 if op == "+" else -1))
+        raise NotRunnable(f"a date {op} a value that is not a date or a duration of days")
 
     def aggregate(self, e, env):
         _, kind, distinct, var, coll, where, body = e
@@ -814,6 +845,9 @@ class Evaluator:
                 return ABSENT
             o = self.s.objects[self.this]
             return self.entered_at(o, args[0][1]) if fn[1] == "entered_at" else self.time_in(o, args[0][1])
+        if fn == ("name", "date") and len(args) == 1:
+            v = self.value(args[0], env)            # the UTC calendar day of an instant (ADR-0145)
+            return v if v is ABSENT or is_date(v) else (EPOCH + datetime.timedelta(seconds=math.floor(v))).date()
         if fn == ("name", "length") and len(args) == 1:
             v = self.value(args[0], env)
             return ABSENT if v is ABSENT else len(v)
@@ -894,7 +928,7 @@ class Evaluator:
             if where is not None and truth(row.value(where, env)) is not True:
                 continue                    # a filter that is unknown selects nothing (§8.2)
             if stamp is not None:
-                at = row.value(stamp, env)
+                at = instant(row.value(stamp, env))
                 if at is ABSENT or not s.now - window <= at <= s.now:
                     continue                # the window holds its start, and a row with no time is in none (ADR-0139)
             if all(v in got if is_set(got) else got == v
@@ -1140,6 +1174,8 @@ class Runner:
                 shift = Fraction(int(m.group(2))) * SECONDS[m.group(3)] if m.group(1) else 0
                 return store.now + (shift if m.group(1) != "-" else -shift)
             return timestamp(v)
+        if typ == "date":
+            return datetime.date.fromisoformat(str(v))
         if typ == "duration":
             n, unit = v.split()
             return Fraction(int(n)) * SECONDS[unit]

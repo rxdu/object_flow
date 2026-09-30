@@ -69,7 +69,7 @@
 | [0065](0065-a-machines-creation-guards-bind-any-creation-that-replaces-it.md) | A machine's creation guards bind any creation that replaces it | Accepted by the author — later refined by ADR-0109 |
 | [0066](0066-a-cascade-clause-carries-arguments.md) | A cascade clause carries arguments | Accepted by the author |
 | [0067](0067-a-third-tracking-mode-for-types-that-track-no-physical-thing.md) | A third tracking mode, for a type that tracks no physical thing | Accepted by the author, amends ADR-0050 |
-| [0068](0068-money-keeps-its-currency-in-the-declaration.md) | Money keeps its currency in the declaration | Accepted by the author |
+| [0068](0068-money-keeps-its-currency-in-the-declaration.md) | Money keeps its currency in the declaration | Accepted by the author — later refined by ADR-0145 |
 | [0069](0069-an-evaluator-returns-a-verdict-and-an-assigning-system-is-a-mirror.md) | An evaluator returns a verdict; an assigning system is a mirror | Accepted by the author — later refined by ADR-0075, ADR-0080 |
 | [0070](0070-authority-is-not-mandatory-at-a-closed-state-and-the-boundary-is-the-undo.md) | An authority list is not mandatory at a closed state | Accepted by the author — later refined by ADR-0096 |
 | [0071](0071-bounds-and-guard-names-stay-and-the-worst-case-product-goes.md) | Bounds and guard names stay; the reported worst-case product goes | Accepted by the author — later refined by ADR-0122 |
@@ -115,7 +115,7 @@
 | [0111](0111-a-rule-may-be-a-flag.md) | A rule may be a flag, seen on every request and never refusing | Accepted by the author |
 | [0112](0112-who-may-read-a-metric.md) | Who may read a metric, with splits by person restricted by default | **Superseded by ADR-0114** |
 | [0113](0113-an-observed-norm-is-held-as-data.md) | A norm observed in history is held as data, refreshed from a metric | Accepted by the author — later refined by ADR-0114 |
-| [0114](0114-objectflow-records-who-acted-and-never-evaluates-it.md) | ObjectFlow records who acted and never evaluates it | Accepted by the author — later refined by ADR-0125, ADR-0126 |
+| [0114](0114-objectflow-records-who-acted-and-never-evaluates-it.md) | ObjectFlow records who acted and never evaluates it | Accepted by the author — later refined by ADR-0125, ADR-0126, ADR-0145 |
 | [0115](0115-the-flow-format-uses-established-state-machine-terms.md) | The flow description format uses established state-machine terms | Accepted by the author — later refined by ADR-0116, ADR-0117, ADR-0118, ADR-0119 |
 | [0116](0116-the-flow-description-format-replaces-the-text-language.md) | The flow description format replaces the text language | Accepted by the author — later refined by ADR-0117, ADR-0118, ADR-0119, ADR-0120, ADR-0121, ADR-0122, ADR-0129, ADR-0131, ADR-0133 |
 | [0117](0117-types-of-a-module-may-reference-each-other-and-relationships-use-uml-terms.md) | Types of a module may reference each other; relationships use UML's terms | Accepted by the author |
@@ -146,3 +146,4 @@
 | [0142](0142-a-span-is-split-across-the-periods-it-covers.md) | A metric may split each span across the calendar periods it covers | Accepted by the author |
 | [0143](0143-the-core-reads-yaml-with-saphyr-and-computes-decimals-in-128-bits.md) | The core reads YAML with saphyr and a strict loader of its own, and computes decimals in 128-bit fixed point, a declared decimal holding at most 18 digits | Accepted by the author |
 | [0144](0144-a-successor-is-neither-the-object-nor-one-already-superseded.md) | A successor is neither the object nor one already superseded, so a supersession chain has no cycle | Accepted by the author |
+| [0145](0145-a-kind-of-actor-and-a-calendar-date-are-types.md) | A kind of actor and a calendar date are types, and an amount in another currency is recorded beside the one the rules compute with | Accepted by the author |

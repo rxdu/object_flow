@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — recommendation accepted by the author 2026-09-08
 - **Date:** 2026-09-08
+- **Refined by:** ADR-0145 — a value in another currency is recorded beside the declared one, as an amount and a code the engine never computes with.
 - **Refines:** ADR-0007, ADR-0032, ADR-0061
 - **Answers:** open question 9
 
