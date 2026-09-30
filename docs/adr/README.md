@@ -133,7 +133,7 @@
 | [0129](0129-a-publish-notices-a-metric-whose-filter-it-reroutes.md) | A publish notices a metric whose filter it reroutes | Accepted by the author in advance |
 | [0130](0130-three-questions-left-open-by-adr-0108-and-adr-0109.md) | Three questions ADR-0108 and ADR-0109 left open | Accepted by the author in advance |
 | [0131](0131-how-flows-are-authored-and-checked.md) | How flows are authored and checked | Accepted by the author — later refined by ADR-0135, ADR-0136, ADR-0137, ADR-0140 |
-| [0132](0132-the-core-is-written-in-rust-behind-an-http-service.md) | The core is written in Rust, behind an HTTP service described by OpenAPI | Accepted by the author |
+| [0132](0132-the-core-is-written-in-rust-behind-an-http-service.md) | The core is written in Rust, behind an HTTP service described by OpenAPI | Accepted by the author — later refined by ADR-0143 |
 | [0133](0133-three-gaps-the-adr-triage-found.md) | Three gaps the triage of the pending decisions found | Accepted by the author — later refined by ADR-0134 |
 | [0134](0134-two-gaps-the-coherence-review-found.md) | Two gaps the coherence review of 2026-09-28 found | Accepted by the author in advance |
 | [0135](0135-a-flow-change-records-where-its-source-came-from.md) | A flow change records where its source came from, and a digest that lets the repository check it | Accepted by the author in advance — later refined by ADR-0136 |
@@ -144,3 +144,4 @@
 | [0140](0140-an-example-asserts-the-warnings-and-an-invariants-remedy.md) | An example asserts the warnings its verdict lists and an invariant's remedy, and the design's own examples all run | Accepted by the author — later refined by ADR-0141 |
 | [0141](0141-a-step-names-what-it-creates-and-a-document-carries-its-examples.md) | A step names the objects its request creates, and a design document carries its modules' examples | Accepted by the author |
 | [0142](0142-a-span-is-split-across-the-periods-it-covers.md) | A metric may split each span across the calendar periods it covers | Accepted by the author |
+| [0143](0143-the-core-reads-yaml-with-saphyr-and-computes-decimals-in-128-bits.md) | The core reads YAML with saphyr and a strict loader of its own, and computes decimals in 128-bit fixed point, a declared decimal holding at most 18 digits | Proposed |
