@@ -1,8 +1,8 @@
 # ADR-0144: A successor is neither the object nor one already superseded, so a supersession chain has no cycle
 
-- **Status:** Proposed, 2026-09-30, for the author's decision. The questions it leaves are listed at its end.
+- **Status:** Accepted by the author, 2026-09-30: "accept all three recommendations", on the three questions the proposal put, which decisions 1 to 3 answer as proposed.
 - **Date:** 2026-09-30
-- **Refines:** ADR-0028 decision 1 (a superseding transition takes a successor)
+- **Refines:** ADR-0028 decision 1 (a superseding transition takes a successor), ADR-0037 (`get` follows supersession), ADR-0138 (the generated guards' remedies)
 - **Relates to:** `declaration-syntax.md` §6.1 and check 26; `flow-format.md` §4.19; `DESIGN.md` §5.5, §6, §8 and §10; ADR-0087 (erasure follows the chain); D485, D486; `TODO.md`, "Say what check 26's cycle is"
 
 ## Context
@@ -36,10 +36,12 @@ A cycle among objects is shown only by the data, so it cannot be a publish check
 ## Consequences
 
 - `declaration-syntax.md` §6.1 and check 26, and `flow-format.md` §4.19, lose the cycle clause and state the generated guard; `flow-format.md`'s refusal order and `DESIGN.md` §5.5 and §6 list it with its remedy; `DESIGN.md` §10's `get` returns the last member of the chain.
-- The reference runner evaluates the guard. The customers examples gain a case: `dana.merge_in(duplicate: dana)` is refused as `call refused`, naming `merged_into`'s call and the clause `Customer.successor_not_superseded`, remedy `self_serviceable`. D486 is resolved, and the TODO item closes.
+- The reference runner evaluates the guard, and the flow checker's self-test proves it on a requestable merge, where Dana cannot be merged into Lee once Lee was merged into her. The customers examples gain a case: `dana.merge_in(duplicate: dana)` is refused as `call refused`, naming `merged_into`'s call and the clause `Customer.successor_not_superseded`, remedy `self_serviceable`. D486 is resolved, and the TODO item closes.
 - `flow-format.md` §3 reserves `<attribute>_provided` among the generated guards' names, and none of the others. That is recorded in `TODO.md` separately, and is not decided here.
 
-## Questions for the author
+## Questions the proposal put
+
+Each was answered as recommended.
 
 1. Is a cycle refused by a generated guard on the request (decision 2), rather than by walking the successor's chain, or not refused at all?
 2. Is the guard narrow as proposed, so that it refuses a successor already superseded but not one closed or deleted, leaving that refusal to an author's own guard?

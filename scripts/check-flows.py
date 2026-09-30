@@ -2536,7 +2536,7 @@ EXAMPLE_CLOCK = "2026-01-01T00:00:00Z"   # the instant every example's clock sta
 EXAMPLES_ORDER = ["examples_for", "setups", "examples"]
 # the guards the engine generates, which an example may expect to refuse (DESIGN.md §6)
 GENERATED_GUARDS = {"actor_known", "occurred_within", "whole_open", "not_erased", "subject_open", "corrects_current",
-                    "subject_owned"}
+                    "subject_owned", "successor_not_superseded"}
 TIMESTAMP = re.compile(r"^(now( [+-] [0-9]+ (s|min|h|days?|weeks?))?|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z)$")
 
 
@@ -3603,6 +3603,30 @@ def cutover_plant(people):
     return ok
 
 
+def supersession_plant(people):
+    """A successor already superseded is refused, so two requests cannot close a supersession chain on itself
+    (ADR-0144). The customers module's merged_into is only via merge_in, whose successor is always the survivor, so
+    it is made requestable here, as a flow that takes its successor from the request would have it."""
+    module = (EXAMPLES / "customers.yaml").read_text()
+    old = "        only_via: [Customer.merge_in]\n"
+    assert module.count(old) == 1
+    examples = (EXAMPLES / "customers.examples.yaml").read_text() + """
+  a_chain_closed_on_itself_is_refused:
+    description: Lee was merged into Dana, so Dana cannot then be merged into Lee.
+    given: a_prospect
+    steps:
+      - request: { type: Customer, transition: register, as: lee, inputs: { name: D. Lee } }
+      - request: { object: lee, transition: merged_into, inputs: { successor: dana } }
+    request: { object: dana, transition: merged_into, inputs: { successor: lee } }
+    expect: { verdict: unsatisfied, clause: successor_not_superseded, remedy: self_serviceable }
+"""
+    found, notes = check([("people.yaml", people), ("customers.yaml", module.replace(old, "", 1)),
+                          ("customers.examples.yaml", examples)])
+    ok = not found and not any(n[3] == "notrun" for n in notes)
+    print(f"  a successor already superseded is refused, so two requests cannot close a chain on itself: {'yes' if ok else 'NO ' + str(found[:1])}")
+    return ok
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -3688,6 +3712,7 @@ def main():
     ok &= conversion_self_test()
     ok &= decimal_plant(people)
     ok &= cutover_plant(people)
+    ok &= supersession_plant(people)
     sys.exit(0 if clean and ok else 1)
 
 

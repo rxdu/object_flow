@@ -72,6 +72,12 @@ examples:
     request: { object: dana, transition: forget, inputs: { reason: asked } }
     expect: { verdict: applied, state: PROSPECT, values: { name: null }, cascaded: [Customer.forget] }
 
+  a_customer_merged_into_itself_is_refused:
+    description: Dana cannot be merged in as her own duplicate, which would leave her superseded by herself.
+    given: a_prospect
+    request: { object: dana, transition: merge_in, inputs: { duplicate: dana } }
+    expect: { verdict: call_refused, clause: Customer.successor_not_superseded, remedy: self_serviceable }
+
   a_correction_replaces_a_mis_keyed_email:
     description: A wrongly recorded email is corrected, with the reason recorded.
     given: an_active_customer

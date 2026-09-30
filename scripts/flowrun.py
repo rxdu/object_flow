@@ -442,6 +442,9 @@ class Store:
     def final(self, o):
         return bool(((self.kinds.get(o.type) or {}).get("states") or {}).get(o.state, {}).get("final"))
 
+    def superseded(self, o):
+        return bool(((self.kinds.get(o.type) or {}).get("states") or {}).get(o.state, {}).get("superseding"))
+
     def find_metric(self, ref, tn=None, module=None):
         """What a metric reference names (declaration-syntax.md §6.9, §6.11): a bare name, a metric of its module, its
         types' or its own; `<Type>.<name>`, a metric declared under that type or a standard one; `<Type>.<name>.<r>`, a
@@ -1079,7 +1082,8 @@ class Evaluator:
 # the generated guards' remedy classes, as DESIGN.md §5.5 states them (ADR-0138)
 GENERATED_REMEDY = {"actor_known": "dependent", "occurred_within": "self_serviceable", "whole_open": "self_serviceable",
                     "not_erased": "unreachable_from_here", "subject_open": "unreachable_from_here",
-                    "corrects_current": "self_serviceable", "subject_owned": "unreachable_from_here"}
+                    "corrects_current": "self_serviceable", "subject_owned": "unreachable_from_here",
+                    "successor_not_superseded": "self_serviceable"}
 
 
 class Ctx:
@@ -1330,6 +1334,13 @@ class Runner:
                         raise Refused("unsatisfied", "whole_open", GENERATED_REMEDY["whole_open"])
                     wholes.append(work.objects[oid].attrs.get(k))
                 wholes.append(inputs[k])
+        # a successor an input names is neither this object nor one already superseded, so no chain closes on itself;
+        # a transition's new state is written before its effect runs, so this holds within one request too (ADR-0144)
+        for st in x.get("effect") or []:
+            m = re.fullmatch(r"inputs\.([a-z][a-z0-9_]*)", " ".join(str(st.get("supersede", "")).split()))
+            successor = inputs.get(m.group(1)) if m else None
+            if successor is not None and (successor == oid or work.superseded(work.objects[successor])):
+                raise Refused("unsatisfied", "successor_not_superseded", GENERATED_REMEDY["successor_not_superseded"])
         for k in x.get("required_inputs", []):
             spec = attrs.get(k) or {}
             if k not in inputs and (spec.get("optional") or "default" in spec):
