@@ -623,7 +623,7 @@ Each form converts to the text language as follows, and means what that declarat
 | `state_machine: M` on a type | `machine M` in the type, with only the type's own transitions |
 | `summary: [a, b]` | `summary  a, b` |
 | `abstract: true`, `extends: B` | `type T extends B version 1 abstract { … }`, with only the type's own members |
-| `migration: { removed_states: { T: { A: B } }, removed_members: { E: { X: Y } }, renamed_attributes: { T: { a: b } }, backfill: { T: { a: e } }, admit: […] }` | `removed state A -> B`, `removed member E.X -> Y`, `renamed attr a -> b`, `backfill a := e`, `admit T.i because E.M`, at the end of the module |
+| `migration: { removed_states: { T: { A: B } }, removed_members: { E: { X: Y } }, renamed_attributes: { T: { a: b } }, backfill: { T: { a: e } }, admit: […] }` | `removed state T.A -> B`, `removed member E.X -> Y`, `renamed attr T.a -> b`, `backfill T.a := e`, `admit T.i because E.M`, at the end of the module |
 | `type: counter`; `default: e` | `counter c`; `default e` |
 | `metrics: { m: { input_metrics: { a: T.x }, group_by: [d], expression: e } }` | `metric m version 1 { combine a = x; by d; value e }` |
 | `superseding: true`; `supersede: s` | `state S category … terminal superseding`; `supersede s` |

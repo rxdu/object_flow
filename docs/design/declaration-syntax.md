@@ -63,7 +63,7 @@ metric    open_jobs version 1 { … }
 
 Ten top-level forms: `module`, `use`, `category`, `enum`, `sequence`, `evaluator`, `machine`, `type`, `observation` (§6.8) and `metric` (§6.9). **None of them says who may do anything.** Who may request a transition, record an observation, label an object or read what, is decided by upper-layer applications, and a condition never reads the actor (check 64, ADR-0114). The `capability` vocabulary, the module rule `requests by <kind> require …` of ADR-0103 and the module line `visible <metric> when …` of ADR-0112 were withdrawn with it.
 
-**What publishing takes** is a module together with the closure of its `use` imports, and every check in §10 runs over that closure. Every top-level declaration is importable; `use` names what a module depends on so that the closure is computable from the text rather than from a directory listing. Categories are **one vocabulary across the closure**, not per module, because a category that meant different things in two modules would make every shared machine's family-wide guards unsafe.
+**What publishing takes** is a module together with the closure of its `use` imports, and every check in §10 runs over that closure. Every top-level declaration is importable; `use` names what a module depends on so that the closure is computable from the text rather than from a directory listing. Categories are **one vocabulary across the closure**, not per module, because a category that meant different things in two modules would make every shared machine's family-wide guards unsafe. A module does not re-export what it imports: a `use` names each name from the module that declares it (check 50, ADR-0122 decision 13).
 
 **`category` declares a vocabulary.** A category is otherwise a bare identifier a typo turns into silence: a mistyped category is a family-wide guard that never matches.
 
@@ -755,14 +755,14 @@ do delete ACTIVE -> DELETED {
 ### 6.6 Migration mappings
 
 ```text
-removed state  LEGACY_HOLD -> AVAILABLE
+removed state  Robot.LEGACY_HOLD -> AVAILABLE
 removed member RetirementReason.OBSOLETE -> FAILED
-renamed attr   old_name    -> new_name
-backfill       manufacturer_serial := "UNKNOWN"
+renamed attr   Robot.old_name -> new_name
+backfill       Robot.manufacturer_serial := "UNKNOWN"
 admit          Robot.one_open_engagement because OverrideReason.LEGACY_DATA
 ```
 
-A publish that drops a state carries its mapping. A dropped attribute merely hides, its recorded values staying in history, so only a rename needs one.
+A publish that drops a state carries its mapping. A dropped attribute merely hides, its recorded values staying in history, so only a rename needs one. Each line names the type it maps, as `removed member` names its enumeration and `admit` its invariant's type, since two types of one module may share a state's or an attribute's name (ADR-0120). *(Corrected 2026-09-30: `removed state`, `renamed attr` and `backfill` named no type, which was ambiguous in a module such as `issues.yaml`, whose types share state names.)*
 
 **A publish changes a live object only by a recorded migration** (ADR-0099). DDL never writes a row: a new column is added nullable, and a `default` applies at creation only. So:
 - a new **required attribute** on a type with live objects needs a `backfill`, whose expression reads the object's own members and literals, and publishing applies it to each live object as a migration transition with provenance `migrated`. Without one, the publish is refused and the report counts the objects (check 23);
@@ -1430,10 +1430,10 @@ states       <STATE> category <name> [terminal] [superseding], …   # either sp
 state        <STATE> category <name> [terminal] [superseding]        # in either place
 summary      <member>, …
 derive       <name> = <expression> [indexed]
-removed state  <STATE> -> <STATE>                                 # §6.6, at the top level of a publish
+removed state  <Type>.<STATE> -> <STATE>                          # §6.6, at the top level of a publish
 removed member <Enum>.<MEMBER> -> <MEMBER>
-renamed attr   <name> -> <name>
-backfill       <attribute> := <expression>
+renamed attr   <Type>.<name> -> <name>
+backfill       <Type>.<attribute> := <expression>
 admit          <Type>.<invariant> because <Enum>.<MEMBER>
 ```
 

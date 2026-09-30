@@ -2316,16 +2316,16 @@ def to_text(doc, library=None):
     mig = doc.get("migration") or {}
     for tn, maps in (mig.get("removed_states") or {}).items():
         for old, new in maps.items():
-            emit(f"removed state  {old} -> {new}", ("migration", "removed_states", tn, old))
+            emit(f"removed state  {tn}.{old} -> {new}", ("migration", "removed_states", tn, old))
     for en, maps in (mig.get("removed_members") or {}).items():
         for old, new in maps.items():
             emit(f"removed member {en}.{old} -> {new}", ("migration", "removed_members", en, old))
     for tn, maps in (mig.get("renamed_attributes") or {}).items():
         for old, new in maps.items():
-            emit(f"renamed attr   {old} -> {new}", ("migration", "renamed_attributes", tn, old))
+            emit(f"renamed attr   {tn}.{old} -> {new}", ("migration", "renamed_attributes", tn, old))
     for tn, maps in (mig.get("backfill") or {}).items():
         for a, expr in maps.items():
-            emit(f"backfill       {a} := {' '.join(str(expr).split())}", ("migration", "backfill", tn, a))
+            emit(f"backfill       {tn}.{a} := {' '.join(str(expr).split())}", ("migration", "backfill", tn, a))
     for i, adm in enumerate(mig.get("admit") or []):
         emit(f"admit          {adm['invariant']} because {adm['reason']}", ("migration", "admit", i))
     return "\n".join(lines) + "\n", paths

@@ -1250,7 +1250,10 @@ def state_literals(text, base, world):
             for st in re.findall(r"(?<![\w.])state\s*(?:==|!=)\s*([A-Z][A-Z0-9_]*)\b(?!\.)", line):
                 if own and st not in own:
                     out.append((19, f"{cur.name}: state {st} names none of its own states", base + i))
-        for t, st in re.findall(r"\b([A-Z]\w*)\.([A-Z][A-Z0-9_]*)\b", line):
+        # a `removed state` line names, on its left, the state the publish removes, which this version lacks by
+        # definition (§6.6)
+        scanned = "" if re.match(r"^\s*removed\s+state\b", line) else line
+        for t, st in re.findall(r"\b([A-Z]\w*)\.([A-Z][A-Z0-9_]*)\b", scanned):
             d = world.get(t)
             if d is None or d.kind not in ("type", "machine"):
                 continue                                   # an enum member, or a name declared elsewhere
