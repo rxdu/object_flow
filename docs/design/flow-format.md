@@ -483,7 +483,7 @@ Employee:
         reason: { type: string }
 ```
 
-A mirror takes no transition but an erasure, since erasure is this store's obligation over its own copy (ADR-0101); nothing of this store may write it, by a `call` or a `create`, or join it to a type this store owns by `extends` or a composition, while mirrors may extend and compose with each other (step 4, `check 53`). A type this store owns may reference a mirror, and read it in a guard, as `Laptop.assigned_to` names an `Employee`. The rules about a lifecycle, such as a state needing a way out, do not apply to a mirror, whose states another system moves.
+A mirror takes no transition but an erasure, since erasure is this store's obligation over its own copy (ADR-0101); nothing of this store may write it, by a `call` or a `create`, or join it to a type this store owns by `extends` or a composition, while mirrors may extend and compose with each other (step 4, `check 53`). A type this store owns may reference a mirror, and read it in a guard, as `Laptop.assigned_to` names an `Employee`. A mirror MUST NOT hold a reference to a type this store owns, one with no opposite, marked `stored`, or whose opposite is a set, since a type is cut over only after every type that references it, and such a reference means a referent was cut over before its referrer (step 3, `names`; ADR-0075). The rules about a lifecycle, such as a state needing a way out, do not apply to a mirror, whose states another system moves.
 
 ### 4.16 Migrations
 

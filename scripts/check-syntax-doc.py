@@ -302,6 +302,14 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                     if far is not None and far.kind == "type" and not far.mirror:
                         add(53, f"{d.name}.{rn} is a mirror composing with {far.name}, "
                                 "which this store owns", rln)
+                # a type is cut over only after every type referencing it (ADR-0075), so a mirror stores no
+                # reference to a type this store owns
+                toks = rspec.split()
+                if rk == "ref" and toks and (stores(d, rspec, by_name) or ("[]" in toks[0] and "inverse" not in rspec)):
+                    far = by_name.get(toks[0].rstrip("?[]"))
+                    if far is not None and far.kind == "type" and not far.mirror:
+                        add(53, f"{d.name}.{rn} is a mirror referencing {far.name}, which this store owns, "
+                                "so a referent was cut over before its referrer", rln)
         if not d.mirror and d.base and getattr(by_name.get(d.base), "mirror", False):
             add(53, f"{d.name} extends mirror {d.base}, so a type this store owns "
                     "would inherit the shape of one it does not", d.start)
@@ -991,6 +999,8 @@ MUTATIONS = [
   (54, "subject declares the kind's part", "  attr     photo file?\n",
        "  attr     photo file?\n  part     results : InspectionResult[] inverse subject\n"),
   (54, "unit on a string field", "field note    : string?", 'field note    : string? unit "V"'),
+  (53, "mirror referencing an owned type", '  attr legacy_key string external "legacy" indexed\n  attr name       string\n}\n',
+       '  attr legacy_key string external "legacy" indexed\n  attr name       string\n  ref  lead       : User\n}\n'),
   (17, "decimal wider than 18 digits", 'field value   : decimal(10,3)? unit "V"', 'field value   : decimal(20,3)? unit "V"'),
   (54, "kind invariant reads the subject", "invariant in_range: value is null",
        "invariant in_range: subject.photo is null"),

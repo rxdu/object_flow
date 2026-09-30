@@ -647,6 +647,21 @@ def family_errors(doc, library):
             members.update(kinds[c].get("attributes") or {})
         if t.get("mirror") and not any(a.get("external") for a in members.values()):
             out.append((here, "names", f"{tn} is a mirror and declares no external identifier, by which the import matches its objects"))
+        if t.get("mirror"):
+            # a type is cut over only after every type referencing it (ADR-0075), so a mirror stores no reference to a
+            # type this store owns: one with no opposite, marked stored, or whose opposite end is a set
+            for a, spec in (t.get("attributes") or {}).items():
+                ref = str((spec or {}).get("reference", ""))
+                target = kinds.get(ref.rstrip("[]")) if ref else None
+                if target is None or target.get("mirror"):
+                    continue
+                far = (target.get("attributes") or {}).get(spec.get("opposite") or "") or {}
+                stored = ("opposite" not in spec) or spec.get("stored") or (
+                    not ref.endswith("[]") and str(far.get("reference", "")).endswith("[]"))
+                if stored:
+                    out.append((here + ("attributes", a), "names", f"{tn}.{a} is a mirror's reference to {ref.rstrip('[]')}, which this "
+                                "store owns: a type is cut over only after every type that references it (ADR-0075), so a mirror "
+                                "references only mirrors"))
         for a, spec in (t.get("attributes") or {}).items():
             if spec.get("external") and "reference" in spec:
                 out.append((here + ("attributes", a, "external"), "names", f"{tn}.{a} is a reference; an external identifier is a value the other system gives"))
@@ -3558,6 +3573,20 @@ def decimal_plant(people):
     return ok
 
 
+def cutover_plant(people):
+    """A mirror that references a type this store owns is refused, since a type is cut over only after every type
+    referencing it (ADR-0075); the service desk's own Laptop, owned, naming the mirror Employee is not."""
+    sd = (EXAMPLES / "servicedesk.yaml").read_text()
+    old = "      department:  { type: string, optional: true }\n"
+    assert sd.count(old) == 1
+    found, _ = check([("people.yaml", people), ("servicedesk.yaml", sd.replace(old, old + "      team:        { reference: Service, optional: true }\n", 1))])
+    hit = [x for x in found if "a mirror's reference to Service" in x[4]]
+    clean, _ = check([("people.yaml", people), ("servicedesk.yaml", sd)])
+    ok = bool(hit) and not clean
+    print(f"  a mirror referencing an owned type is refused, and an owned type referencing a mirror is not: {'yes' if ok else 'NO'}")
+    return ok
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -3642,6 +3671,7 @@ def main():
     ok &= split_plants(people)
     ok &= conversion_self_test()
     ok &= decimal_plant(people)
+    ok &= cutover_plant(people)
     sys.exit(0 if clean and ok else 1)
 
 
