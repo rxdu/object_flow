@@ -470,6 +470,27 @@ def any_satisfiable(requirements, model):
     return any(satisfiable(case, model) for case in product([cases for _name, cases in requirements]))
 
 
+def implied(case, given):
+    """Whether every atom of a case is one of the given atoms, or a domain the given one already lies within."""
+    domains = {a[1]: a[2] for a in given if a[0] == "dom"}
+    return all(a in given or (a[0] == "dom" and a[1] in domains and domains[a[1]] <= a[2]) for a in case)
+
+
+def fixed(requirements, given, model):
+    """The requirements with what `given`, a case every answer includes, already settles taken out: a case that
+    contradicts it is dropped, and a requirement with a case it implies is dropped whole, since that case adds
+    nothing to any answer. Whether the requirements can hold together is unchanged, since a subset of atoms that
+    can hold can hold, and an answer without the dropped requirements takes the implied case for each; but in one
+    state the invariants the other states' required attributes generate all drop, so a lifecycle whose states
+    require what earlier ones set is decided rather than expanded state by state."""
+    out = []
+    for name, cases in requirements:
+        if any(implied(c, given) for c in cases):
+            continue
+        out.append((name, [c for c in cases if satisfiable(c | given, model)]))
+    return out
+
+
 def core(requirements, model):
     """A smallest set of the requirements, by deletion, that still cannot hold together."""
     kept = list(requirements)
@@ -514,8 +535,9 @@ def analyse_type(tn, t, enums):
         a = Analysis(model)
         here = ("types", tn, "states", s)
         try:
-            reqs = [("in " + s, [frozenset({("dom", ("state",), frozenset({s}))})])]
-            reqs += [(f"invariant {n}", holds(a, tree)) for n, tree in invariants.items()]
+            given = frozenset({("dom", ("state",), frozenset({s})), ("present", ("state",))})   # in s, so it has a state
+            reqs = [("in " + s, [given])]
+            reqs += fixed([(f"invariant {n}", holds(a, tree)) for n, tree in invariants.items()], given, model)
             if len(reqs) > 1 and not any_satisfiable(reqs, model):
                 entering = sorted(xn for xn, x in transitions.items()
                                   if x["kind"] in ("initial", "external") and x.get("to") == s)
@@ -665,6 +687,22 @@ def self_test():
         ok &= right
         if not right:
             print(f"  {name}: expected {want or 'nothing'}, found {sorted(codes) or 'nothing'}: {[m for *_x, m in found]}")
+    # a lifecycle of thirteen states, each requiring what the one before set, is decided in every state: 2^13 cases
+    # before the other states' invariants were set aside, which is past LIMIT
+    chain = {f"S{i}": {"category": "live", "required_attributes": [f"t{j}" for j in range(1, i + 1)]} for i in range(1, 14)}
+    chain["S13"]["final"] = True
+    moves = {"start": {"kind": "initial", "to": "S1", "required_inputs": ["t1"]}}
+    moves.update({f"to{i}": {"kind": "external", "from": f"S{i - 1}", "to": f"S{i}", "required_inputs": [f"t{i}"]} for i in range(2, 14)})
+    stamps = {f"t{i}": {"type": "timestamp", "optional": True} for i in range(1, 14)}
+    for name, invariants, want in (("a long lifecycle, its last state contradicted", {"never": "state != S13 or t13 is null"}, "contradiction"),
+                                   ("a long lifecycle that holds together", {}, None)):
+        found, _w, _n = analyse_type("T", _type(stamps, chain, {}, moves, invariants), E)
+        codes = {c for _p, _s, c, _m in found}
+        right = (want in codes and "undecided" not in codes) if want else not codes
+        ok &= right
+        cases.append(name)
+        if not right:
+            print(f"  {name}: expected {want or 'nothing'}, found {sorted(codes) or 'nothing'}")
     print(f"logic: {len(cases)} small types, each contradiction found and each satisfiable set left alone: {'yes' if ok else 'NO'}")
     return ok
 

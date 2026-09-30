@@ -27,7 +27,7 @@ The module, six types around a ten-state `Claim`, passed the flow checker on its
 | 13 | Which figures name a person is only in the model | ADR-0114 decision 4 | D487, resolved in place |
 | 14 | The quoting rule read literally forbids a cascade's inline list | `flow-format.md` §2.4 | D492 |
 | 15 | The checker does not say whether examples ran | a run of the checker | D492 |
-| 16 | Step 5 decides nothing about the ten-state `Claim` | the notice `undecided`, reproduced | `TODO.md` |
+| 16 | Step 5 decides nothing about the ten-state `Claim` | the notice `undecided`, reproduced | Resolved the same day: step 5 sets aside what a state already settles, and decides all ten states (`flow-format.md` §7.1) |
 | 17 | How an `identity` is written in an example | `flow-format.md` §11.3 | D492 |
 | 18 | An unknown `warn` guard: the text says it refuses, the runner raises it | `DESIGN.md` §5.5; the drafter's probe, rerun | D488, resolved in place |
 | 19 | A misspelt transition name in a filter counts nothing, silently | a probe: `t.transition == "confirm_natur"` passed | D490, resolved in place |
