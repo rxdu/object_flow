@@ -1,6 +1,6 @@
 # ADR-0143: The core reads YAML with saphyr and a strict loader of its own, and computes decimals in 128-bit fixed point, a declared decimal holding at most 18 digits
 
-- **Status:** Proposed, 2026-09-30, for the author's decision. The questions it leaves are listed at its end.
+- **Status:** Accepted by the author, 2026-09-30: "accept all three recommendations", on the three questions the proposal put, which decisions 1 to 3 answer as proposed.
 - **Date:** 2026-09-30
 - **Refines:** ADR-0132 decision 3 (two checks before the first line of engine code)
 - **Relates to:** `declaration-syntax.md` §3.1, §8.3; `storage-schema.md` §3.1; `scripts/check-flows.py`'s strict loader; D484
@@ -39,12 +39,7 @@ ADR-0132 decision 3 asked for two checks before the first line of the Rust core.
 
 ## Consequences
 
-- `declaration-syntax.md` §3.1 and check 17, `flow-format.md` §4.3 and the schema state decision 1, and D484 is resolved by it.
-- ADR-0132 decision 3's two checks are made; TODO's two items close when this is decided.
+- `declaration-syntax.md` §3.1 and check 17, `flow-format.md` §4.3 and the schema state decision 1, which the flow checker's step 3 and the text checker's check 17 refuse, each proven by a plant, and D484 is resolved by it.
+- ADR-0132 decision 3's two checks are made, and TODO's two items close.
 - The core's decimal type is written with the first slice of the core, proven against `scripts/flowrun.py`'s exact fractions by the differential tests.
 
-## Open questions
-
-1. **The bound on a declared decimal**: 18 digits, as decision 1 has it, or 38, with SQLite storing decimals as text?
-2. **The parser**: `saphyr-parser` under a strict loader of the core's own, as decision 3 has it?
-3. **The decimal type**: a 128-bit fixed-point type of the core's own, as decision 2 has it, or a crate?

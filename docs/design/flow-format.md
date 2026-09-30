@@ -87,7 +87,7 @@ Each attribute is a mapping with exactly one of `type` and `reference`. (step 2,
 
 | Key | Value |
 |---|---|
-| `type` | a built-in type (`string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `duration`, `identity`, `file`, `event`) or an enumeration's name, `[]` making the attribute a set of values; or `counter`, on a type tracked by quantity (§4.17) |
+| `type` | a built-in type (`string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `duration`, `identity`, `file`, `event`) or an enumeration's name, `[]` making the attribute a set of values; or `counter`, on a type tracked by quantity (§4.17). A `decimal(p,s)` holds 1 to 18 digits, its scale within them, wherever a type is declared (step 3, `names`; ADR-0143) |
 | `reference` | the name of a type the module declares or imports; `[]` makes the attribute a set of references |
 | `opposite` | the attribute of the referenced type that is the other end of this relationship (UML `Property::opposite`) |
 | `stored` | `true` on the one of two single ends that holds the value |

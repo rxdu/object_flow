@@ -438,7 +438,10 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                     add(38, f"{d.name}.{tn} has 'may admit' but no admits input", ln)
             if kind == "erase" and not re.search(r"input\s+reason\b", body):
                 add(29, f"{d.name}.{tn} erases with no reason input", ln)
-            # 17 — a write must target this object
+            # 17 — a write must target this object; and a declared decimal holds 1 to 18 digits (ADR-0143)
+            for dp, dsc in re.findall(r"\bdecimal\(\s*(\d+)\s*,\s*(\d+)\s*\)", body):
+                if not 1 <= int(dp) <= 18 or int(dsc) > int(dp):
+                    add(17, f"{d.name}.{tn} declares decimal({dp},{dsc}); a decimal holds 1 to 18 digits, its scale within them", ln)
             for tgt in re.findall(r"^\s*(?:set|add|remove)\s+([\w.]+)\s*:=", body, flags=re.M):
                 if "." in tgt: add(17, f"{d.name}.{tn} writes through a path '{tgt}'", ln)
                 elif tgt not in attrs and tgt not in rels and tgt not in d.counters \
@@ -561,6 +564,12 @@ def data_checks(decls, by_name, text, base=0):
     """Checks 54 to 62: the constructs of ADR-0082 to ADR-0087, ADR-0092, ADR-0110 and ADR-0111."""
     out = []
     def add(c, d, l): out.append((c, d, l))
+    # 17 — a declared attribute or field decimal holds 1 to 18 digits, its scale within them (ADR-0143)
+    for d in decls:
+        for an, (spec, aln) in (getattr(d, "attrs", None) or {}).items():
+            for dp, dsc in re.findall(r"\bdecimal\(\s*(\d+)\s*,\s*(\d+)\s*\)", spec):
+                if not 1 <= int(dp) <= 18 or int(dsc) > int(dp):
+                    add(17, f"{d.name}.{an} is a decimal({dp},{dsc}); a decimal holds 1 to 18 digits, its scale within them", aln)
     evaluators = set(re.findall(r"^evaluator\s+(\w+)", text, flags=re.M)) | \
         {n for n, x in by_name.items() if x.kind == "evaluator"}
     everything = list(by_name.values())
@@ -982,6 +991,7 @@ MUTATIONS = [
   (54, "subject declares the kind's part", "  attr     photo file?\n",
        "  attr     photo file?\n  part     results : InspectionResult[] inverse subject\n"),
   (54, "unit on a string field", "field note    : string?", 'field note    : string? unit "V"'),
+  (17, "decimal wider than 18 digits", 'field value   : decimal(10,3)? unit "V"', 'field value   : decimal(20,3)? unit "V"'),
   (54, "kind invariant reads the subject", "invariant in_range: value is null",
        "invariant in_range: subject.photo is null"),
   (55, "label read by a guard", "require none_failed: none(r in inspections",

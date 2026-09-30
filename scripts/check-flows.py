@@ -1292,6 +1292,27 @@ def indexed_errors(tn, t, library):
 
 
 BUILT_IN_TYPES = ("string", "bool", "int", "decimal", "money", "timestamp", "duration", "identity", "file", "event")
+DECIMAL = re.compile(r"^decimal\(\s*(\d+)\s*,\s*(\d+)\s*\)(\[\])?$")
+
+
+def decimal_errors(doc):
+    """Every decimal a module declares, wherever it declares a type, holds 1 to 18 digits, its scale within them, so
+    it is a 64-bit integer on both backends and any product with an int fits the core's 128 bits (ADR-0143)."""
+    out = []
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            m = DECIMAL.match(str(node.get("type", ""))) if isinstance(node.get("type"), str) else None
+            if m and not (1 <= int(m.group(1)) <= 18 and int(m.group(2)) <= int(m.group(1))):
+                out.append((path + ("type",), "names", f"{path[-1]} is a decimal({m.group(1)},{m.group(2)}); a decimal holds 1 to 18 "
+                                                       "digits, and its scale is within them"))
+            for k, v in node.items():
+                walk(v, path + (k,))
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, path + (i,))
+    walk(doc, ())
+    return out
 
 
 def is_text(spec):
@@ -2884,7 +2905,7 @@ def check(files, previous=None, analysed=None):
         if (previous or {}).get(f):
             pair, pair_notes = migration_pair_errors(load(previous[f]), doc, library)
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes]
-        for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v)))
+        for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + decimal_errors(doc)
                         + name_errors(v, library, ordered=False) + migration_errors(doc, v) + pair):
             p = back(p)
             if p is not None and p[0] == "machines" and "'" in m:
@@ -3522,6 +3543,21 @@ def split_plants(people):
     return ok
 
 
+def decimal_plant(people):
+    """A decimal wider than 18 digits is refused (ADR-0143), and one of 18 is not."""
+    inventory = (EXAMPLES / "inventory.yaml").read_text()
+    old = "      sale_price:        { type: money(SGD), optional: true }\n"
+    assert inventory.count(old) == 1
+    verdict = []
+    for p in (18, 19):
+        text = inventory.replace(old, old + f"      margin:            {{ type: \"decimal({p},4)\", optional: true }}\n", 1)
+        found, _ = check([("people.yaml", people), ("inventory.yaml", text)])
+        verdict.append(bool([x for x in found if "a decimal holds 1 to 18 digits" in x[4]]))
+    ok = verdict == [False, True]
+    print(f"  a decimal of 19 digits is refused, and one of 18 is not: {'yes' if ok else 'NO ' + str(verdict)}")
+    return ok
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -3605,6 +3641,7 @@ def main():
     ok &= reference_plants(people)
     ok &= split_plants(people)
     ok &= conversion_self_test()
+    ok &= decimal_plant(people)
     sys.exit(0 if clean and ok else 1)
 
 

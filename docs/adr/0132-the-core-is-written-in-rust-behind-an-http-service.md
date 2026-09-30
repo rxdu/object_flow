@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-28: "go with Rust, accept the rest", after asking "what do you recommend for the core's language?" and "how about Rust?". The author's reason, given the same day: "as this project is expected to be the driving engine for many applications, so I'd rather get it solid so that I can save time in the future for the applications". The recommendation first put was Python; re-examined at the author's question, it was withdrawn in favour of Rust, for the reasons below.
 - **Date:** 2026-09-28
-- **Refined by:** ADR-0143, proposed — the parser and the decimal type decision 3 asked to be checked, and a declared decimal of at most 18 digits.
+- **Refined by:** ADR-0143 — the parser and the decimal type decision 3 asked to be checked, and a declared decimal of at most 18 digits.
 - **Refines:** ADR-0110 §5 (the transport and the core's language left open), ADR-0104 (upper-layer applications), ADR-0091 (a synchronous core driven by the harness)
 - **Relates to:** PRD N1, N2, N3, N4, N7, C5, UC-20; `library-api.md` §1; `adversarial-harness.md`; `renderers.md` §3
 

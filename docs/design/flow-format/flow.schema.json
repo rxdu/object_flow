@@ -1101,7 +1101,7 @@
         "type": {
           "type": "string",
           "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\([A-Za-z0-9, ]+\\))?(\\[\\])?$",
-          "description": "A built-in type (string, bool, int, decimal(p,s), money(ccy), timestamp, duration, identity, file) or an enumeration's name; or counter, an int never absent and zero at creation, on a type tracked by quantity."
+          "description": "A built-in type (string, bool, int, decimal(p,s) of 1 to 18 digits with its scale within them, money(ccy), timestamp, duration, identity, file) or an enumeration's name; or counter, an int never absent and zero at creation, on a type tracked by quantity."
         },
         "reference": {
           "type": "string",

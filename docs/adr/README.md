@@ -144,4 +144,4 @@
 | [0140](0140-an-example-asserts-the-warnings-and-an-invariants-remedy.md) | An example asserts the warnings its verdict lists and an invariant's remedy, and the design's own examples all run | Accepted by the author — later refined by ADR-0141 |
 | [0141](0141-a-step-names-what-it-creates-and-a-document-carries-its-examples.md) | A step names the objects its request creates, and a design document carries its modules' examples | Accepted by the author |
 | [0142](0142-a-span-is-split-across-the-periods-it-covers.md) | A metric may split each span across the calendar periods it covers | Accepted by the author |
-| [0143](0143-the-core-reads-yaml-with-saphyr-and-computes-decimals-in-128-bits.md) | The core reads YAML with saphyr and a strict loader of its own, and computes decimals in 128-bit fixed point, a declared decimal holding at most 18 digits | Proposed |
+| [0143](0143-the-core-reads-yaml-with-saphyr-and-computes-decimals-in-128-bits.md) | The core reads YAML with saphyr and a strict loader of its own, and computes decimals in 128-bit fixed point, a declared decimal holding at most 18 digits | Accepted by the author |
