@@ -498,6 +498,12 @@ Findings from every review of this design. It began as the implementation-readin
 | [D484](#d484) | A declared decimal's precision has no bound, while SQLite stores it as a 64-bit integer | Resolved by ADR-0143 |
 | [D485](#d485) | A superseding transition could name no successor or several: an optional successor, a `supersede` in a loop, or two, passed both checkers | Resolved in place |
 | [D486](#d486) | Nothing refuses a successor that is the object itself or already superseded, so a supersession chain can close on itself, and the customers example lets one request do it | Resolved by ADR-0144 |
+| [D487](#d487) | The flow format omitted that an `audit` or `warn` failure is written to the attempt log, what its remedy means, whose log holds it, the standard metrics that count it, and the marking of a figure that names a person | Resolved in place |
+| [D488](#d488) | The flow format and the checker's notice said an unknown guard refuses, where an unknown `audit` or `warn` guard is recorded or raised and refuses nothing | Resolved in place |
+| [D489](#d489) | `declaration-syntax.md` §8.2 illustrated a guard reading `actor`, which check 64 refuses | Resolved in place |
+| [D490](#d490) | A transition named in a metric's filter was never checked, so a misspelt one counted nothing | Resolved in place |
+| [D491](#d491) | The flow checker let an enumeration's member be written to a `string` attribute, against check 17 | Resolved in place |
+| [D492](#d492) | Four small gaps in the flow format and its checker: the quoting rule, other categories, an identity in an example, and what the checker reports | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3199,3 +3205,37 @@ Six readers, one slice each, read the requirements and the design whole, after t
 **Nothing refuses a successor that is the object itself or already superseded, so a supersession chain can close on itself.** Check 26 refuses `supersede this` as written and names "a cycle among the declared supersession targets", which no checker implements and which a declaration cannot show: the one cycle among types is a type superseded by its own, as every merge is. A successor given as an input is not checked at all, yet `get(id, follow)` follows the chain "to the live successor" (`DESIGN.md` §10) and erasure walks it (§8). Run by the reference runner on 2026-09-30: in `flow-format/examples/customers.yaml`, `dana.merge_in(duplicate: dana)` applies, and `merge_in`'s call `inputs.duplicate.merged_into(successor: this)` leaves Dana in `MERGED`, superseded by herself; with `only_via` removed from `merged_into`, `lee.merged_into(successor: dana)` then `dana.merged_into(successor: lee)` both apply. Found 2026-09-30 saying what check 26's cycle is (`TODO.md`).
 
 **Resolved by ADR-0144**, 2026-09-30, accepted by the author: a successor given as an input is neither the object itself nor already superseded, which the generated guard `successor_not_superseded` refuses with the remedy `self_serviceable`, and check 26 no longer names a cycle among types. The reference runner evaluates it; the customers examples refuse `dana.merge_in(duplicate: dana)` as a refused call naming `Customer.successor_not_superseded`, and the flow checker's self-test refuses merging Dana into Lee once Lee was merged into her. Each fails with its half of the guard disabled.
+
+## Found by the reimbursement worked example's cold draft, 2026-09-30
+
+An agent drafted the first consumer's reimbursement workflow from `flow-format.md` alone, as `authoring-flows.md` §6 prescribes, and logged where the reference failed it; [`reimbursement-cold-draft.md`](reimbursement-cold-draft.md) records the test and classifies each entry. These are the entries that were defects.
+
+### D487
+**The flow format left out what the design says about a guard that refuses nothing.** `flow-format.md` §4.8 said an `audit` guard's failures "are recorded" and a `warn` guard's are "reported to the caller", and §4.9 defined `attempts` as "each request that did not apply", so a first-time author read `warn` as never recorded and found no way to count flags. `DESIGN.md` §5.5 says a raised flag "is written to the attempt log, marked `flagged`" and counted per clause; the standard metric `flags_raised` counts it (`declaration-syntax.md` §6.11), which the format never named; `.enforced` and `.flagged` were listed in §6.9 and defined nowhere; nothing said a flag's remedy is the one that would clear it, or whose log holds a flag raised by a transition another's effect reaches; and the marking of a dimension that names an actor (ADR-0114 decision 4) was only in the model. Found by the cold draft, entries 9, 10, 11 and 13.
+
+**Resolved in place**, 2026-09-30: `flow-format.md` §4.8 says each failure is written to the attempt log, a `warn` one marked flagged and counted, that a guard's remedy is the one that would clear it, and that a row belongs to the type whose guard failed; §4.9 defines `attempts` as including both, and names the standard metrics and the marking; `declaration-syntax.md` §6.9 defines `.enforced` and `.flagged`.
+
+### D488
+**An unknown `audit` or `warn` guard was said to refuse.** `flow-format.md` §5 said "a guard that is unknown refuses", and the flow checker's notice `unknown` said the same of a `warn` guard, while `DESIGN.md` §5.5 fails an unknown guard as a false one, so a `warn` guard is raised and refuses nothing, which is what the reference runner does. The business rule "never refuses" sat exactly on the contradiction. Found by the cold draft, entry 18, whose probe was rerun.
+
+**Resolved in place**, 2026-09-30: §4.8 and §5 say an unknown guard fails as a false one does, whatever its enforcement, and the notice says what an unknown guard does in its own enforcement.
+
+### D489
+**The model's own text showed a guard reading `actor`.** `declaration-syntax.md` §8.2 illustrated a fail-closed aggregate with `none(a in approvals where a.approver == actor.id)` in a guard, which §8.1 and check 64 refuse since ADR-0114. Found by the cold draft, entry 21.
+
+**Resolved in place**, 2026-09-30: the example compares with an input, and says what it corrected.
+
+### D490
+**A transition named in a metric's filter was never checked.** A metric over `transitions`, `attempts` or `attempt_counts` selects by comparing `.transition` with a transition's name, and nothing said how the name is written: the flow checker accepted `t.transition == "confirm_natur"`, a misspelling that counts nothing, and refused the bare name that `metric-scenarios.md` wrote. Found by the cold draft, entry 19, and by a probe.
+
+**Resolved in place**, 2026-09-30: `flow-format.md` §5 and `declaration-syntax.md` §6.9 say a transition is named by a string that must name a transition of the type, and an actor's kind is written bare; the flow checker's step 3 refuses a string naming no transition, in a comparison or a set, proven by a plant that fails with the check disabled; the scenario's read writes the name as a string.
+
+### D491
+**The flow checker let an enumeration's member be written to a string.** Check 17 refuses "a write whose value does not fit the target", and the flow checker enforced only a decimal's scale and precision: `assign: { location: note_kind, expr: OverrideReason.MIS_KEYED }`, with `note_kind` a `string`, passed. Found by the cold draft, entry 20, and by probes.
+
+**Resolved in place**, 2026-09-30: step 3 types each `assign` whose value is a literal, `now`, an enumeration's member, an input, an attribute, `this` or `actor.id`, and refuses one whose value does not fit its target, proven by a plant that fails with the check disabled; no module in the design has one. `actor.kind` is left untyped, since no attribute can yet be declared to hold it, which is the author's question (`reimbursement-cold-draft.md` §5).
+
+### D492
+**Four small gaps in the flow format and its checker.** The quoting rule of §2.4, read literally, forbade a cascade's inline list; §4.1 gave no meaning to a category other than `closed`; §11.3 did not say how an `identity` is written in an example; and the checker neither said whether any example had run nor answered `--help`, which ran its self-tests instead. Found by the cold draft, entries 2, 14, 15, 17 and 23.
+
+**Resolved in place**, 2026-09-30: §2.4 quotes only a scalar; §4.1 says another category is the author's name, which an expression may read and the engine gives no meaning; §11.3 writes an identity as itself; the checker prints how many examples ran, passed, failed or were not run, and a usage text.

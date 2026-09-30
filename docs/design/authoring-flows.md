@@ -159,7 +159,7 @@ This is the first thing in the design that states what was meant and checks the 
 
 ## 6. How it would be tested
 
-The reimbursement worked example already on `TODO.md` is the test: an agent drafts it from the language reference alone, and the result is judged by the design defects its findings and iterations reveal in the language, the formatter, the offline check, the examples and the analysis. No figure for how well an agent drafts is claimed until that is done.
+The reimbursement worked example already on `TODO.md` is the test: an agent drafts it from the language reference alone, and the result is judged by the design defects its findings and iterations reveal in the language, the formatter, the offline check, the examples and the analysis. No figure for how well an agent drafts is claimed until that is done. *Run on 2026-09-30* ([`reimbursement-cold-draft.md`](reimbursement-cold-draft.md)): the draft passed the flow checker at once, with twenty examples, and its log of twenty-three entries found six defects, D487 to D492, three questions for the author and two items of work. It is one draft by one agent, so it is evidence about the reference, not a figure for how well agents draft.
 
 ## 7. Questions for the author
 

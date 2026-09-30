@@ -1023,6 +1023,7 @@ def name_errors(doc, library=None, ordered=True):
         for c in sorted(conds - used):
             out.append((("types", tn, "conditions", c), "names", f"condition '{c}' of {tn} is used by no transition"))
         out += value_errors(doc, tn, t)
+        out += write_type_errors(doc, tn, t, library)
         out += conditional_step_errors(tn, t)
         out += (read_errors(tn, t, set(doc.get("categories") or []) | BUILT_IN_CATEGORIES | evaluator_names(doc))
                 + indexed_errors(tn, t, library) + identifier_errors(doc, tn, t, library) + evaluator_errors(doc, tn, t)
@@ -1156,6 +1157,101 @@ def required_errors(tn, xn, x, required, always):
         out.append((base + ("to",), "required",
                     f"{tn}.{xn} enters {x['to']} without setting '{a}', which {x['to']} requires: "
                     f"make it a required input, assign it a value that is provably present, {how}"))
+    return out
+
+
+SIMPLE_TYPES = {"string", "int", "bool", "timestamp", "duration", "identity", "file"}
+
+
+def written_kind(spec, enums):
+    """What a write to an attribute must be, as far as a publish can tell: a reference to a type, a member of an
+    enumeration, money in one currency, a decimal, or one of the simple types; None where it cannot be told here."""
+    if not spec:
+        return None
+    if "reference" in spec:
+        return None if spec["reference"].endswith("[]") else ("reference", spec["reference"])
+    typ = str(spec.get("type", ""))
+    if typ in enums:
+        return ("enumeration", typ)
+    m = re.fullmatch(r"money\((\w+)\)", typ)
+    if m:
+        return ("money", m.group(1))
+    if re.fullmatch(r"decimal\(\d+,\s*\d+\)", typ):
+        return ("decimal",)
+    return ("int",) if typ == "counter" else ((typ,) if typ in SIMPLE_TYPES else None)
+
+
+def value_kind(e, tn, t, x, enums):
+    """The kind of an assigned value where a publish can tell it: a literal, now, an enumeration's member, an input,
+    an attribute of this object, this object, or actor.id; None for anything else, which no finding is made on."""
+    k = e[0]
+    if k == "str":
+        return ("string",)
+    if k == "num":
+        return ("number",)
+    if k == "money":
+        return ("money", e[1])
+    if k == "bool":
+        return ("bool",)
+    attrs = t.get("attributes") or {}
+    if k == "name":
+        if e[1] == "now":
+            return ("timestamp",)
+        if e[1] == "this":
+            return ("reference", tn)
+        return written_kind(attrs.get(e[1]), enums)
+    if k == "path" and e[1][0] == "name":
+        base, m = e[1][1], e[2]
+        if base in enums:
+            return ("enumeration", base)
+        if base == "this":
+            return written_kind(attrs.get(m), enums)
+        if base == "actor" and m == "id":
+            return ("identity",)
+        if base == "inputs":
+            spec = (x.get("inputs") or {}).get(m)
+            if spec is None and m in set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])):
+                spec = attrs.get(m)
+            return written_kind(spec, enums)
+    return None
+
+
+def fits(target, value, library):
+    """Whether a value of one kind may be written to a target of another (the model's check 17)."""
+    if target == value:
+        return True
+    if value == ("number",) and target in (("int",), ("decimal",)):
+        return True
+    if target == ("decimal",) and value == ("int",):
+        return True
+    if target[0] == value[0] == "reference":       # a subtype fits where its base is written
+        seen, kind = set(), value[1]
+        while kind and kind not in seen:
+            if kind == target[1]:
+                return True
+            seen.add(kind)
+            kind = (library.get(kind) or {}).get("extends")
+    return False
+
+
+def write_type_errors(doc, tn, t, library):
+    """Each assign whose value does not fit its target, where both kinds can be told: an enumeration's member
+    written to a string, money of one currency to another, a timestamp to an int (the model's check 17)."""
+    enums = set(doc.get("enumerations") or {})
+    out = []
+    for xn, x in (t.get("transitions") or {}).items():
+        for st, kind, path, _d in walk(x.get("effect")):
+            if kind != "assign":
+                continue
+            target = written_kind((t.get("attributes") or {}).get(st["assign"]["location"]), enums)
+            try:
+                value = value_kind(flowexpr.parse(" ".join(str(st["assign"]["expr"]).split())), tn, t, x, enums)
+            except flowexpr.ParseError:
+                continue                        # step 2 refuses what does not parse
+            if target and value and not fits(target, value, library):
+                out.append((("types", tn, "transitions", xn, "effect") + path, "names",
+                            f"{tn}.{xn} writes {st['assign']['expr']}, {' '.join(value)}, to {st['assign']['location']}, which "
+                            f"holds {' '.join(target)}: a write's value must fit its target (the model's check 17)"))
     return out
 
 
@@ -1487,6 +1583,29 @@ def row_members(t, source):
 
 
 PIECE_MEMBERS = {"period", "piece_start", "piece_end"}
+TRANSITION_ROWS = {"transitions", "attempts", "attempt_counts"}   # the sources whose rows name a transition
+
+
+def transition_literals(e, item):
+    """The strings a row's .transition is compared with, by ==, != or in, each of which names a transition of the
+    metric's type (flow-format.md §4.9): a misspelt one would otherwise count nothing, silently."""
+    row, found = ("path", ("name", item), "transition"), set()
+
+    def walk(n):
+        if isinstance(n, list):
+            for c in n:
+                walk(c)
+        elif isinstance(n, tuple) and n:
+            if n[0] == "bin" and n[1] in ("==", "!=") and row in (n[2], n[3]):
+                other = n[3] if n[2] == row else n[2]
+                if other[0] == "str":
+                    found.add(other[1])
+            if n[0] == "in" and n[1] == row and n[2][0] == "set":
+                found.update(m[1] for m in n[2][1] if m[0] == "str")
+            for c in n[1:]:
+                walk(c)
+    walk(e)
+    return found
 
 
 def formula_errors(tn, t, mn, m):
@@ -1528,6 +1647,16 @@ def formula_errors(tn, t, mn, m):
             if members is not None and r not in members:
                 out.append((base + key, "names", f"metric {mn} reads {item}.{r}, a label's note, which is personal and not readable"
                             if source == "labels" and r == "note" else f"metric {mn} reads {item}.{r}, and a row of {source} has no member '{r}'"))
+    if source in TRANSITION_ROWS:
+        names = set(t.get("transitions") or {})
+        for key, text in parts:
+            try:
+                tree = flowexpr.parse(" ".join(str(text).split())) if text is not None else None
+            except flowexpr.ParseError:
+                continue                        # step 2 refuses what does not parse
+            for lit in sorted(transition_literals(tree, item) - names):
+                out.append((base + key, "names", f'metric {mn} compares {item}.transition with "{lit}", which is not a '
+                                                 f"transition of {tn}"))
     dims = set(m.get("dimensions") or {}) | STANDARD_DIMENSIONS
     for f, c in (m.get("flag_when") or {}).items():
         for r in sorted(reads(c) - dims - {"value", "now"}):
@@ -2074,9 +2203,14 @@ def unknowns(v, library):
                     continue
                 why = OptionalReads(library, tn, x).untested(flowexpr.parse(expr))
                 if why:
+                    # an unknown guard fails as a false one does: a deny guard refuses, an audit one is recorded and a
+                    # warn one raised, and neither of those refuses (flow-format.md §4.8, §5)
+                    does = {"deny": "a deny guard that is unknown refuses",
+                            "audit": "an audit guard that is unknown is recorded as failing, and refuses nothing",
+                            "warn": "a warn guard that is unknown is raised, and refuses nothing"}.get(x["guards"][g], "")
                     out.append((("types", tn, "transitions", xn, "guards", g), "unknown",
                                 f"{g} can be unknown when {xn} is requested, through {said(why)}, which it never tests with "
-                                f"`is null`; a guard that is unknown refuses"))
+                                f"`is null`; {does}"))
 
             def loops(steps, path, env):
                 for i, st in enumerate(steps or []):
@@ -2541,6 +2675,7 @@ EXAMPLES_ORDER = ["examples_for", "setups", "examples"]
 # the guards the engine generates, which an example may expect to refuse (DESIGN.md §6)
 GENERATED_GUARDS = {"actor_known", "occurred_within", "whole_open", "not_erased", "subject_open", "corrects_current",
                     "subject_owned", "successor_not_superseded"}
+EXAMPLE_OUTCOMES = []      # each example step 6 ran, with its outcome, for the summary a file check prints
 TIMESTAMP = re.compile(r"^(now( [+-] [0-9]+ (s|min|h|days?|weeks?))?|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z)$")
 
 
@@ -2980,6 +3115,7 @@ def check(files, previous=None, analysed=None):
         # step 6: each example run against the rules by the reference runner (flow-format.md §11.5, ADR-0136)
         for f, idx, doc in example_files:
             for name, outcome, message in flowrun.run_examples(doc, library, modules):
+                EXAMPLE_OUTCOMES.append((name, outcome))
                 where = line_of(idx, ("examples", name))
                 if outcome == "failed":
                     found.append((f, where, "fatal", "example", f"{name}: {message}"))
@@ -3140,6 +3276,13 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(customers, "        effect:\n          - supersede: inputs.successor\n", "")),
         ("an object that supersedes itself", "names", "customers.yaml",
          plant(customers, "        effect:\n          - supersede: inputs.successor\n", "        effect:\n          - supersede: this\n")),
+        ("a misspelt transition compared in a metric's filter", "names", "customers.yaml",
+         plant(customers, "        filter: t.overrides\n", "        filter: 't.overrides and t.transition != \"corect_state\"'\n")),
+        ("an enumeration's member written to a string", "names", "customers.yaml",
+         plant(plant(customers, "      close:\n        kind: external\n        from: any\n        to: CLOSED\n",
+                     "      close:\n        kind: external\n        from: any\n        to: CLOSED\n        effect:\n"
+                     "          - assign: { location: note_kind, expr: OverrideReason.MIS_KEYED }\n"),
+               "    attributes:\n", "    attributes:\n      note_kind: { type: string, optional: true }\n")),
         ("a condition named as a generated guard", "names", "customers.yaml",
          plant(plant(customers, "      no_open_orders:\n", "      not_erased:\n"), "          no_open_orders: deny", "          not_erased: deny")),
         ("a successor a request may leave out", "names", "customers.yaml",
@@ -3661,7 +3804,19 @@ def digest_self_test():
     return ok
 
 
+USAGE = """usage: check-flows.py [--previous=<file>] <module.yaml> [<module.examples.yaml> ...]
+       check-flows.py --digest <module.yaml> ...
+       check-flows.py
+
+Checks flow descriptions as docs/design/flow-format.md §7 states: the named files, a module's examples with it, and
+with --previous=<file> the last file against the version before it. With no file, it checks the design's own modules
+and runs its self-tests. Exits 1 on a fatal finding, 0 otherwise; notices never fail it."""
+
+
 def main():
+    if {"-h", "--help"} & set(sys.argv[1:]):
+        print(USAGE)
+        sys.exit(0)
     if "--digest" in sys.argv[1:]:
         paths = [pathlib.Path(a) for a in sys.argv[1:] if not a.startswith("-")]
         print(source_digest(module_files(paths)))
@@ -3672,8 +3827,14 @@ def main():
         files = [(pathlib.Path(a).name, pathlib.Path(a).read_text()) for a in args]
         previous = {files[-1][0]: pathlib.Path(before).read_text()} if before else None
         counts = {}
+        EXAMPLE_OUTCOMES.clear()
         found, notes = check(files, previous, counts)
         report(found, notes)
+        if any(n.endswith(".examples.yaml") for n, _ in files):
+            ran = [o for _n, o in EXAMPLE_OUTCOMES]
+            print(f"examples: {len(ran)} run: {ran.count('passed')} passed, {ran.count('failed')} failed, "
+                  f"{ran.count('not run')} not run" if ran else
+                  "examples: none run, since step 6 runs only when every earlier step finds nothing fatal")
         for module, (whole, total) in counts.items():
             if total:
                 print(f"{module}: step 5 decided {whole} of {total} guard conditions in full; the rest read something outside "
@@ -3684,7 +3845,7 @@ def main():
     needs = {"delivery.yaml": ["inventory.yaml"]}
     versions_of = {"inventory-v2.yaml": "inventory.yaml", "service-v2.yaml": "service.yaml"}   # each checked against the one before
     for version in ("people.yaml", "inventory.yaml", "inventory-v2.yaml", "service.yaml", "service-v2.yaml", "delivery.yaml", "approvals.yaml",
-                    "customers.yaml", "issues.yaml", "servicedesk.yaml"):
+                    "customers.yaml", "issues.yaml", "servicedesk.yaml", "reimbursement.yaml"):
         before = [(n, (EXAMPLES / n).read_text()) for n in needs.get(version, [])]
         files = [("people.yaml", people)] + before + ([(version, (EXAMPLES / version).read_text())] if version != "people.yaml" else [])
         carried = EXAMPLES / version.replace(".yaml", ".examples.yaml")   # a module's examples, checked with it (§11)

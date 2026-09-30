@@ -2517,7 +2517,7 @@ Read: `provenance(J4)`
 | reassign | ana | human | absent |
 | start | scout | agent | ben |
 
-Read: `metric(ServiceJob.transition_counts, keep: [transition, actor_kind], filter: "t.transition == start")`
+Read: `metric(ServiceJob.transition_counts, keep: [transition, actor_kind], filter: "t.transition == \"start\"")`
 
 | transition | actor_kind | value | gaps |
 |---|---|---|---|
