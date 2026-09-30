@@ -1635,12 +1635,13 @@ def override_errors(doc, tn, t, library):
 
 
 def supersession_errors(doc, tn, t, library):
-    """A transition into a superseding state names its successor with a
-    supersede step, and only such a transition does; the successor is an input
-    or a name an earlier create binds, never the object itself; and a type with
-    personal data that takes part in supersession declares an erasure, since the
-    chain is erased through each of its members (declaration-syntax.md §6.1,
-    §6.4; the model's checks 26, 49 and 60)."""
+    """A transition into a superseding state names its successor with one
+    supersede step, at the top level of its effect, and only such a transition
+    does; the successor is a required input or a name an earlier top-level
+    create binds, never the object itself, so every request of it names exactly
+    one; and a type with personal data that takes part in supersession declares
+    an erasure, since the chain is erased through each of its members
+    (declaration-syntax.md §6.1, §6.4; the model's checks 26, 49 and 60)."""
     states = t.get("states") or {}
     out = []
     for xn, x in (t.get("transitions") or {}).items():
@@ -1652,12 +1653,17 @@ def supersession_errors(doc, tn, t, library):
             out.append((where + ("effect",), "names", f"{tn}.{xn} supersedes, and does not enter a superseding state"))
         if superseding and not steps:
             out.append((where + ("to",), "names", f"{tn}.{xn} enters the superseding state {x['to']} and names no successor with supersede"))
+        if len(steps) > 1:
+            out.append((where + ("effect",) + steps[1][1], "names", f"{tn}.{xn} names more than one successor, and an object has one"))
         bound = []
-        for st, kind, path, _d in walk(x.get("effect")):
-            if kind == "create" and st["create"].get("result"):
-                bound.append(st["create"]["result"])
+        for st, kind, path, depth in walk(x.get("effect")):
+            if kind == "create" and st["create"].get("result") and depth == 0:
+                bound.append(st["create"]["result"])   # a create in a loop binds once per element, or never
             if kind != "supersede":
                 continue
+            if depth:
+                out.append((where + ("effect",) + path, "names", f"{tn}.{xn} supersedes inside a foreach, which may name no "
+                                                               "successor or several"))
             who = " ".join(str(st["supersede"]).split())
             m = re.fullmatch(r"inputs\.([a-z][a-z0-9_]*)", who)
             if who == "this":
@@ -1666,8 +1672,12 @@ def supersession_errors(doc, tn, t, library):
                 spec = (x.get("inputs") or {}).get(m.group(1))
                 if spec is not None and "reference" not in spec:   # an input it does not take is refused as any read of one is
                     out.append((where + ("effect",) + path, "names", f"{tn}.{xn} supersedes with inputs.{m.group(1)}, which is not an object"))
+                elif spec is not None and spec.get("optional"):
+                    out.append((where + ("effect",) + path, "names", f"{tn}.{xn} supersedes with inputs.{m.group(1)}, which is "
+                                                                   "optional, so a request leaving it out would name no successor"))
             elif who not in bound:
-                out.append((where + ("effect",) + path, "names", f"{tn}.{xn} supersedes with {who}, which is neither an input nor a name an earlier create binds (check 49)"))
+                out.append((where + ("effect",) + path, "names", f"{tn}.{xn} supersedes with {who}, which is neither an input nor a "
+                                                               "name a create at the top level of the effect binds (check 49)"))
     takes_part = any(v.get("superseding") for v in states.values())
     for other in library.values():
         for x in (other.get("transitions") or {}).values():
@@ -3126,6 +3136,12 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(customers, "        effect:\n          - supersede: inputs.successor\n", "")),
         ("an object that supersedes itself", "names", "customers.yaml",
          plant(customers, "        effect:\n          - supersede: inputs.successor\n", "        effect:\n          - supersede: this\n")),
+        ("a successor a request may leave out", "names", "customers.yaml",
+         plant(customers, "          successor: { reference: Customer }\n        effect:\n", "          successor: { reference: Customer, optional: true }\n        effect:\n")),
+        ("a supersede inside a foreach", "names", "customers.yaml",
+         plant(customers, "        effect:\n          - supersede: inputs.successor\n", "        effect:\n          - foreach: { item: c, array: this.contacts, limit: 5, steps: [ { supersede: inputs.successor } ] }\n")),
+        ("two supersede steps", "names", "customers.yaml",
+         plant(customers, "        effect:\n          - supersede: inputs.successor\n", "        effect:\n          - supersede: inputs.successor\n          - supersede: inputs.successor\n")),
         ("a successor that is neither an input nor a created object", "names", "customers.yaml",
          plant(customers, "        effect:\n          - supersede: inputs.successor\n", "        effect:\n          - supersede: survivor\n")),
         ("a supersede in a transition that does not end superseded", "names", "customers.yaml",

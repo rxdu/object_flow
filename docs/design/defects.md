@@ -496,6 +496,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D482](#d482) | The issues example's `schedule` compared with a start date no transition wrote, so it never applied | Resolved in place |
 | [D483](#d483) | No checker reports a guard or filter that can be unknown through an optional it never tests, which ADR-0103 has the publish report list | Resolved in place |
 | [D484](#d484) | A declared decimal's precision has no bound, while SQLite stores it as a 64-bit integer | Resolved by ADR-0143 |
+| [D485](#d485) | A superseding transition could name no successor or several: an optional successor, a `supersede` in a loop, or two, passed both checkers | Resolved in place |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3185,3 +3186,10 @@ Six readers, one slice each, read the requirements and the design whole, after t
 **A declared decimal's precision has no bound, while SQLite stores it as a 64-bit integer.** `declaration-syntax.md` §3.1 and §8.3 name `decimal(p,s)` with no largest `p`. `storage-schema.md` §3.1 stores a decimal on SQLite as an `INTEGER` scaled by 10^s, and SQLite's integer is "stored in 0, 1, 2, 3, 4, 6, or 8 bytes", at most 64 bits, so a decimal of more than 18 digits cannot be stored there. ADR-0132's "up to 38 digits" for `int × decimal(p,s)` assumes a `p` of at most 19, which nothing states. Found 2026-09-30 making ADR-0132 decision 3's check of a decimal type for the core.
 
 **Resolved by ADR-0143**, 2026-09-30, accepted by the author: a declared decimal holds 1 to 18 digits, its scale within them (`declaration-syntax.md` §3.1, check 17; `flow-format.md` §4.3), which both checkers refuse, and the core computes decimals in 128-bit fixed point.
+
+## Found saying what check 26's cycle is, 2026-09-30
+
+### D485
+**A superseding transition could name no successor, or several, and both checkers passed it.** Check 26 refuses "a `superseding` state entered without one", and the checkers read that as the transition having a `supersede` step. But a step whose operand is exactly an unsupplied optional input is skipped (`declaration-syntax.md` §5.2), a step inside a loop runs once per element, and nothing refused a second step, while an object records one `superseded_by` (ADR-0028, `storage-schema.md`). Planted into the customers module, an optional `successor`, a `supersede` inside a `foreach`, and the step written twice each passed the flow checker with no finding. Found 2026-09-30 reading check 26 for TODO 186.
+
+**Resolved in place**, 2026-09-30: the successor is a required input or a name a `create` at the top level of the effect binds, and the `supersede` step is written once, at the top level (`flow-format.md` §4.19; `declaration-syntax.md` §6.1, checks 26 and 49). The flow checker's step 3 and the text checker's check 26 refuse each form, proven by three plants and three fixtures, each of which fails with its clause disabled.

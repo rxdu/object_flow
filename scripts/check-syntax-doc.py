@@ -490,11 +490,22 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                     add(20, f"{d.name}.{tn} gives a default to optional input '{inp[0]}'", ln)
             # 26 — supersession
             to_states = set(re.findall(r"->\s*([A-Z][A-Z_0-9]*)", head))
-            sup = re.search(r"^\s*supersede\s+([^}\n]*)", body, flags=re.M)
+            sups = list(re.finditer(r"^\s*supersede\s+([^}\n]*)", body, flags=re.M))
+            sup = sups[0] if sups else None
             if sup and not any("superseding" in states.get(t, ("", 0))[0] for t in to_states):
                 add(26, f"{d.name}.{tn} supersedes into a non-superseding state", ln)
             if sup and sup.group(1).strip() == "this":
                 add(26, f"{d.name}.{tn} supersedes itself", ln)
+            if len(sups) > 1:
+                add(26, f"{d.name}.{tn} names more than one successor", ln)
+            for s26 in sups:                     # one successor on every request: not in a loop, not optional
+                pre = body[:s26.start()]
+                if pre.count("{") - pre.count("}") > 0:
+                    add(26, f"{d.name}.{tn} supersedes inside a loop, which may name no successor or several", ln)
+                om = re.fullmatch(r"inputs\.(\w+)", s26.group(1).strip())
+                im = om and re.search(rf"^\s*input\s+{om.group(1)}\s*:\s*(\S+)", body, flags=re.M)
+                if im and im.group(1).endswith("?"):
+                    add(26, f"{d.name}.{tn} supersedes with optional input '{om.group(1)}', which a request may leave out", ln)
             if not sup:
                 for t in to_states:
                     if "superseding" in states.get(t, ("", 0))[0]:
@@ -884,7 +895,11 @@ FIXTURES = {
        "type A version 1 {\n tracking record\n states S category live, D category closed terminal\n attr n string?\n invariant i: state != NOPE or n is not null\n create mk -> S { }\n do go S -> D { }\n}"],
   20: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require 1 == 1 }\n}",
   21: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { require n: x == null }\n}",
-  26: "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { supersede this }\n}",
+  26: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { supersede this }\n}",
+       # a successor a request may leave out, one in a loop, and two: each request names exactly one
+       "type A version 1 {\n tracking serial\n states S category live, M category closed superseding terminal\n create mk -> S { }\n do merge S -> M {\n  input successor : A?\n  supersede inputs.successor\n }\n}",
+       "type A version 1 {\n tracking serial\n states S category live, M category closed superseding terminal\n create mk -> S { }\n do merge S -> M {\n  input successor : A\n  for i in 1..2 limit 2 {\n   supersede inputs.successor\n  }\n }\n}",
+       "type A version 1 {\n tracking serial\n states S category live, M category closed superseding terminal\n create mk -> S { }\n do merge S -> M {\n  input successor : A\n  supersede inputs.successor\n  supersede inputs.successor\n }\n}"],
   29: ["machine M version 1 {\n state S category live\n state D category closed terminal\n assert fix -> { S } { }\n}",
        # an override's reason must be a declared enum (ADR-0106)
        "machine M version 1 {\n state S category live\n state D category closed terminal\n do go S -> D { }\n assert fix -> { S } {\n  input to : state\n  input reason : string\n }\n}"],

@@ -690,7 +690,7 @@ do merged_into ACTIVE -> MERGED only via Contact.merge_in {
 }
 ```
 
-The successor may be an input or a name bound by an earlier `create`. Self-supersession is a publish error (check 26). Check 26 also names a cycle among the supersession targets, whose meaning is open, since this document's own example supersedes a `Contact` with a `Contact` (`TODO.md`).
+The successor is a required input or a name bound by a `create` earlier at the top level of the outcome, and `supersede` is written once, at the top level and not inside a `for`, so every request names exactly one successor. Self-supersession is a publish error (check 26). Check 26 also names a cycle among the supersession targets, whose meaning is open, since this document's own example supersedes a `Contact` with a `Contact` (`TODO.md`).
 
 ### 6.2 External evaluators
 
@@ -1482,7 +1482,7 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 23 | A state removed with no mapping. A **rename is reported, not failed**: a rename with no mapping is textually identical to a drop plus an add, and no information in either declaration distinguishes them, so publishing lists each dropped and added pair and asks. Also a new required attribute or singular reference on a type with live objects and no `backfill`; a new required singular part on such a type; a removed enum member that any observation holds; and a removed enum member that live objects hold with no `removed member` mapping; these need the live objects, like the new-invariant scan (§6.6, ADR-0099). Reported as a decision, not failed: every invariant the objects a mapping writes would violate, with the objects, until an `admit` covers it or the mapping or the objects change (§6.6, ADR-0105) |
 | 24 | An expression that does not type (§8) |
 | 25 | An `event`-typed input receiving anything but `this_event` |
-| 26 | A `supersede` outside a `superseding` to-state, a `superseding` state entered without one, self-supersession, or a cycle among the declared supersession targets |
+| 26 | A `supersede` outside a `superseding` to-state, a `superseding` state entered without one, a `supersede` written twice, inside a `for` or naming an optional input, any of which lets a request name no successor or several, self-supersession, or a cycle among the declared supersession targets |
 | 27 | A `may admit` naming an invariant that is neither the binding type's own nor on a type reachable from it by a declared inverse (§6.3) |
 | 28 | `corrects` naming attributes the outcome does not write, or the reverse; a `corrects` with no `reason` input |
 | 29 | An `assert` with no `reason` input, or one whose type is not a declared `enum` (§6.3, ADR-0106); an `erase` with no `reason` input. Its clause requiring an actor guard was withdrawn (ADR-0114) |
@@ -1505,7 +1505,7 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 46 | An `indexed` derivation reading a clock, an unindexed attribute, another object, or its own object's flow data (§7, §8.3) |
 | 47 | A `sum`, `min` or `max` with no body; a cascade clause with no `limit` |
 | 48 | An unsupplied optional input appearing as a sub-expression rather than as the whole step or argument; a path through an absent optional anywhere but the two places §5.2 permits absence to skip a step |
-| 49 | A `supersede` whose operand is neither an input nor a name bound by an earlier `create` |
+| 49 | A `supersede` whose operand is neither an input nor a name bound by an earlier `create` at the top level of the outcome |
 | 50 | A `use` importing a name its module does not declare; a `default` expression reading an input or another attribute, which would make the expansion order-dependent |
 | 51 | A body that does not close on its opening line and puts a clause on that line; a line that can only be a continuation and is not indented deeper than the clause it continues (§9.1) |
 | 52 | A normative statement in §1 to §9 — anything the text says is rejected or is a publish error — that does not cite the check enforcing it. It verifies that a citation is **present**, never that it is **right**: two of the first twelve named a check whose text did not cover the statement, and both were found by reading rather than by running. Its reach is bounded in one way worth knowing: it recognises a fixed list of phrasings. A proximity window used to shield any statement near a citation, which gave a demonstrated false pass, so the citation must now be in the same **sentence** as the statement. An earlier draft of this row claimed it would have caught the four rule-and-check divergences that motivated it; running the predicate over those four shows it catches **one**, and the two it misses are the two that produced blocking defects. What it does is enforce the discipline going forward, for the phrasings it knows |
