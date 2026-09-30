@@ -421,7 +421,8 @@ CREATE TABLE of_declaration (
 CREATE TABLE of_engine_release (
   seq           INTEGER PRIMARY KEY,  -- 1 when the store is created, one more per upgrade
   release       TEXT    NOT NULL,     -- the release whose tables and meanings apply
-  installed_at  TEXT    NOT NULL
+  installed_at  TEXT    NOT NULL,
+  installed_by  TEXT    NOT NULL      -- the operator who created the store or asked for the upgrade (§12)
 );
 
 -- Every actor, by the identity a request names (ADR-0110): the object that holds
@@ -766,3 +767,20 @@ A removed attribute leaving its column in place is deliberate: the column is how
 - **The size of a partition**, the retention window for an idempotency record, and the attempt log's retention; `maintain` applies both retentions (ADR-0101, ADR-0103). These are numbers to measure against a real event rate and a real retry chain, not designs.
 - **Whether one table per type survives many types.** A hundred types is a hundred tables, and the first consumer has perhaps thirty. The case to check is a family with many members: an issue tracker with a type per project reaches hundreds. This is the measurement that could send the whole arrangement back to a shared table.
 - **The exclusion constraint of §8 is unexecuted**, as is the PostgreSQL column apart from the two probed behaviours of §7.
+
+## 12. Installing an engine release
+
+*Added 2026-09-30, specifying the step ADR-0110 §4 left to `TODO.md` (D382).* A release is installed over a store by one explicit step, `upgrade`, which a core of the new release runs, as a core creates a store: an operation of the service, not a request on a type, since no flow declares it.
+
+**What the step does**, in one serialisable transaction:
+1. It reads the last row of `of_engine_release`. At the new release already, it does nothing and says so, so a repeated upgrade is harmless. At a release the new one does not name as one it upgrades from, it refuses, naming both, and changes nothing: each release names the releases it upgrades from, and a store further behind is upgraded through the releases between, one step each.
+2. It runs the new release's migration of the store's own tables, the `of_` tables of §6 and the tables §3 makes of each type, which is that release's own work and all this step writes besides its record. Both backends take a schema change inside a transaction, so a migration that fails leaves the store whole, at the old release.
+3. Where the new release's built-in module, its built-in types and standard metrics, differs from the one the installed version was published with (`of_declaration.builtins`), it checks the installed flows against the new one. Where they pass, it records them as the next version, with the installed version's source, reference and digest and the new built-ins, and no `DeclarationChange`; where they do not, it refuses, naming the findings, and the deployment changes its flows under the old release first.
+4. It appends a row to `of_engine_release`: the new release, when, and `installed_by`, the operator who asked, recorded as that operator's act naming the release, as creating the store is (ADR-0126).
+
+**Draining the old release.** Every request reads the release row in its transaction (§7), and the step writes it, so under serialisable isolation no request of the old release commits after the upgrade: one that read the row before the upgrade committed fails its serialisation, on either backend, and, retried, reads the new release and refuses with `EngineMismatch` (`library-api.md` §7). A deployment therefore upgrades in three moves:
+1. it starts copies of the new release, which refuse with `EngineMismatch` while the store is at the old one, and so take no traffic;
+2. it runs `upgrade` once, from one of them;
+3. it stops the copies of the old release, which from that commit refuse every request.
+
+No timing of a load balancer can then let two releases both write. A copy of a release older than the store's refuses as well, so there is no downgrade: a release that fails in service is replaced by restoring the backup taken before the step, both files of it on SQLite (§6).

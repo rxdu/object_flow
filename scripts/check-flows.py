@@ -1028,7 +1028,7 @@ def name_errors(doc, library=None, ordered=True):
         out += write_type_errors(doc, tn, t, library)
         out += conditional_step_errors(tn, t)
         out += (read_errors(tn, t, set(doc.get("categories") or []) | BUILT_IN_CATEGORIES | evaluator_names(doc))
-                + indexed_errors(tn, t, library) + identifier_errors(doc, tn, t, library) + evaluator_errors(doc, tn, t)
+                + indexed_errors(tn, t, library) + scan_errors(tn, t, library) + identifier_errors(doc, tn, t, library) + evaluator_errors(doc, tn, t)
                 + supersession_errors(doc, tn, t, library))
         out += override_errors(doc, tn, t, library)
         for mn, m in (t.get("metrics") or {}).items():
@@ -1379,6 +1379,56 @@ def stores(spec, library):
     it does unless its opposite is also single and it is not the end marked stored."""
     other = ((library.get(spec["reference"]) or {}).get("attributes") or {}).get(spec.get("opposite"))
     return other is None or str(other.get("reference", "")).endswith("[]") or bool(spec.get("stored"))
+
+
+def scan_errors(tn, t, library):
+    """A type-scan invariant or guard, one whose aggregate ranges over every object of a type, reads only what the
+    store holds indexed on that type: indexed or unique attributes, references, the state, the id and indexed derived
+    attributes, since a scan over anything else reads every row (the model's check 7)."""
+    out = []
+
+    def readable(tt, m):
+        spec = (tt.get("attributes") or {}).get(m)
+        if spec is not None:
+            return bool(spec.get("indexed") or spec.get("unique") or "reference" in spec)
+        derived = (tt.get("derived_attributes") or {}).get(m)
+        return m in ("state", "id") or bool(derived and derived.get("indexed")) or derived is None and spec is None
+
+    def walk(e, found):
+        if isinstance(e, list):
+            for c in e:
+                walk(c, found)
+        elif isinstance(e, tuple) and e:
+            if e[0] == "agg" and isinstance(e[4], tuple) and e[4][0] == "name" and e[4][1] in library \
+                    and e[4][1] not in (t.get("attributes") or {}):
+                var, scanned = e[3], library[e[4][1]]
+
+                def reads(n):
+                    if isinstance(n, list):
+                        for c in n:
+                            reads(c)
+                    elif isinstance(n, tuple) and n:
+                        if n[0] == "path" and n[1] == ("name", var) and not readable(scanned, n[2]):
+                            found.add((e[4][1], f"{var}.{n[2]}"))
+                        for c in n[1:]:
+                            reads(c)
+                reads([e[5], e[6]])
+            for c in e[1:]:
+                walk(c, found)
+    rules = [("invariant", n, i["expression"], ("types", tn, "invariants", n)) for n, i in (t.get("invariants") or {}).items()]
+    rules += [("condition", n, c["expression"], ("types", tn, "conditions", n)) for n, c in (t.get("conditions") or {}).items()]
+    for kind, name, text, path in rules:
+        try:
+            tree = flowexpr.parse(" ".join(str(text).split()))
+        except flowexpr.ParseError:
+            continue                            # step 2 refuses what does not parse
+        found = set()
+        walk(tree, found)
+        for scanned, read in sorted(found):
+            out.append((path, "names", f"{kind} {name} scans every {scanned} and reads {read}, which is not indexed: a type scan "
+                                       "reads only indexed or unique attributes, references, the state and indexed derived "
+                                       "attributes (the model's check 7)"))
+    return out
 
 
 def indexed_errors(tn, t, library):
@@ -3917,6 +3967,19 @@ def date_plant(people):
     return ok
 
 
+def scan_plant(people):
+    """A type scan reads only what the store holds indexed (the model's check 7): the service desk's freeze guard scans
+    every ChangeWindow by its kind, which is indexed; unindexed, it is refused."""
+    sd = (EXAMPLES / "servicedesk.yaml").read_text()
+    old = "      kind:      { type: WindowKind, indexed: true }\n"
+    assert sd.count(old) == 1
+    found, _ = check([("people.yaml", people), ("servicedesk.yaml", sd.replace(old, "      kind:      { type: WindowKind }\n"))])
+    clean, _ = check([("people.yaml", people), ("servicedesk.yaml", sd)])
+    ok = any("scans every ChangeWindow and reads w.kind" in f[4] for f in found) and not clean
+    print(f"  a type scan over an attribute that is not indexed is refused, and one over an indexed one is not: {'yes' if ok else 'NO'}")
+    return ok
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -4023,6 +4086,7 @@ def main():
     ok &= supersession_plant(people)
     ok &= proposal_plants(people)
     ok &= date_plant(people)
+    ok &= scan_plant(people)
     sys.exit(0 if clean and ok else 1)
 
 

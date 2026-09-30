@@ -50,7 +50,7 @@ There is one service per store, and every caller reaches it through one interfac
 
 ### 4. One engine release serves a store at a time
 
-The store records the engine release it is at (`of_engine_release`), and every request reads it in its transaction. A core of any other release raises `EngineMismatch`, a fault for the deployment rather than a verdict for the caller. So once an upgrade commits, the copies still running the old release refuse instead of computing under different meanings, and a rolling deploy needs no coordination beyond the upgrade itself. **Installing a release is an explicit, recorded step**, like creating the store: it is attributed to the release, and it migrates the store's own tables. What each release migrates is that release's work, and `TODO.md` holds the step's specification.
+The store records the engine release it is at (`of_engine_release`), and every request reads it in its transaction. A core of any other release raises `EngineMismatch`, a fault for the deployment rather than a verdict for the caller. So once an upgrade commits, the copies still running the old release refuse instead of computing under different meanings, and a rolling deploy needs no coordination beyond the upgrade itself. **Installing a release is an explicit, recorded step**, like creating the store: it is attributed to the release, and it migrates the store's own tables. What each release migrates is that release's work, and `TODO.md` holds the step's specification. *(2026-09-30: specified in `storage-schema.md` §12, including how the copies of the old release drain.)*
 
 ### 5. What the choice leaves open
 

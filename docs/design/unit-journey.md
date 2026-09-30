@@ -505,6 +505,9 @@ types:
       in_service:
         description: An open service job names the unit.
         expression: any(s in services where s.open)
+      intake_overrunning:
+        description: The unit has been in intake longer than the usual time for its model, the norm observed in history (PRD M7, ADR-0113).
+        expression: state == INTAKE and model.usual_intake_time is not null and time_in(INTAKE) > model.usual_intake_time
 
     summary: [serial, model, state]
 
@@ -566,6 +569,15 @@ types:
           model: i.object.model
           month: i.period
         expression: sum(i.duration)
+      intake_time_p80:
+        description: The time four in five of a model's units took to leave intake, over the intakes they finished, which the model holds as its usual intake time.
+        source: intervals
+        item: i
+        filter: i.state == Robot.INTAKE and i.left_at is not null
+        dimensions:
+          model: i.object.model
+        time_dimension: i.left_at
+        expression: percentile(0.8, i.duration)
 ```
 
 **What every unit on offer carries is an invariant, and what intake checks is a guard** (ADR-0109). A unit in `AVAILABLE` carries a recorded label print, and the manufacturer serial its model requires, whichever way it got there. `labelled` and `mfr_serial` are invariants of `Robot`, and the machine requires every binder to declare them, so they bind `inventorize`, `add_opening_stock`, a return, a release from the pool, an override and a ported unit alike, which a guard on one transition cannot. Production states the serial rule the same way, for every unit reaching `AVAILABLE`, at its birth or at the intake gate (`wr:app/services/inventory_item_service.py:277-286`, `:410-416`), and enforces it where a unit is born with the serial in hand, at opening stock (`:287-293`) and at a walk-in intake (`wr:app/services/intake_batch_service.py:398-404`); the label is the module's intent, as §4 says. `inventorize` keeps guards of the same names, since `availability` evaluates guards and not invariants, and its remedy, to print the label first, is the one a caller needs before asking. The photo is different. Production checks it only for an intake batch (`wr:app/services/intake_batch_service.py:816-821`), so `photo` stays a guard of intake alone, and opening stock does not carry it.
@@ -591,6 +603,8 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
 
 **The model catalogue.** The unit's rules read its model — whether a manufacturer serial or a label photo is required, and the maker's code a serial carries — so the model is declared here with the unit. Production's `robot_models` holds a name, a manufacturer, a warranty period and the two flags (`wr:app/models/robot_models.py:25-47`). The reorder point, and the two derivations that read it, are not production's: they are added to test PRD L4 and M7, a threshold that is governed data and a business exception over one object, and production defers reorder logic (`wr:app/models/procurement.py:15`).
 
+**A norm observed in history** (PRD M7, ADR-0113). The model also holds `usual_intake_time`, the time four in five of its units took to leave intake, and `Robot.intake_overrunning` compares a unit in intake with it, so a reader or a metric can select the units overrunning the usual time for their model. `refresh_intake_norm` writes it, and its guard accepts only what `Robot.intake_time_p80` reads now for the model over the last 180 days: the norm is observed, never typed in, and a threshold a person sets is a different attribute, as `reorder_point` is. An upper-layer job requests the refresh on its own schedule, as an actor whose type marks the kind `service`, or a person does after reading the metric. Neither the job nor its schedule is declared, since the engine sends nothing and who may make a request is the upper layer's (ADR-0105, ADR-0114); how old a norm is shows in its refresh events, the rows of `RobotModel.transitions` for `refresh_intake_norm`. A job that read the metric a moment before a unit left intake is refused, and reads it again. Like the reorder point, it is added to test M7; production has no such norm.
+
 ```yaml
 # inventory_journey, continued
   RobotModel:
@@ -605,6 +619,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
       label_photo_required:         { type: bool, default: false }
       manufacturer_serial_required: { type: bool, default: false, indexed: true }
       reorder_point:                { type: int, default: 0 }
+      usual_intake_time:            { type: duration, optional: true }
       units:                        { reference: "Robot[]", opposite: model }
 
     states:
@@ -626,6 +641,12 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         description: The reorder point is not negative.
         expression: reorder_point >= 0
 
+    conditions:
+      intake_norm_observed:
+        description: The usual intake time given is what the intake metric reads now for this model over the last 180 days, so the norm is observed and never typed in.
+        expression: inputs.usual_intake_time == metric(Robot.intake_time_p80, model := this, over last 180 days)
+        remedy: self_serviceable
+
     transitions:
       add:
         kind: initial
@@ -641,6 +662,13 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         kind: internal
         from: ACTIVE
         required_inputs: [reorder_point]
+      refresh_intake_norm:
+        kind: internal
+        from: ACTIVE
+        description: Writes the model's usual intake time from the metric, as an upper-layer job requests it on its own schedule, or a person after reading the metric.
+        required_inputs: [usual_intake_time]
+        guards:
+          intake_norm_observed: deny
       discontinue:
         kind: external
         from: ACTIVE
@@ -1410,6 +1438,16 @@ setups:
     given: two_scouts_in_transit
     steps:
       - request: { object: shipment, transition: arrive, after: 5 days }
+  two_scouts_through_intake:
+    description: Two Scouts added to intake and put in stock, one after three days and one after five.
+    given: models_and_people
+    steps:
+      - request: { type: Robot, transition: add_to_intake, as: early, inputs: { model: scout } }
+      - request: { type: Robot, transition: add_to_intake, as: late, inputs: { model: scout } }
+      - request: { object: early, transition: record_label_print }
+      - request: { object: late, transition: record_label_print }
+      - request: { object: early, transition: inventorize, after: 3 days }
+      - request: { object: late, transition: inventorize, after: 2 days }
   a_scout_in_stock:
     description: A Scout from opening stock, labelled and available.
     given: models_and_people
@@ -1528,6 +1566,18 @@ examples:
       - request: { object: shipment, transition: flag_missing, inputs: { robot: second } }
     request: { object: shipment, transition: commit }
     expect: { verdict: applied, state: COMMITTED, cascaded: [Robot.inventorize] }
+
+  the_intake_norm_is_the_metrics_value:
+    description: The Scout's usual intake time is refreshed from the metric, the nearest-rank 80th percentile of three and five days, which is five (ADR-0113).
+    given: two_scouts_through_intake
+    request: { object: scout, transition: refresh_intake_norm, inputs: { usual_intake_time: 5 days } }
+    expect: { verdict: applied, state: ACTIVE, values: { usual_intake_time: 5 days } }
+
+  an_intake_norm_typed_in_is_refused:
+    description: A usual intake time the metric does not read is refused, so the norm stays observed and never declared.
+    given: two_scouts_through_intake
+    request: { object: scout, transition: refresh_intake_norm, inputs: { usual_intake_time: 2 days } }
+    expect: { verdict: unsatisfied, clause: intake_norm_observed, remedy: self_serviceable }
 
   a_rover_needs_its_manufacturers_serial:
     description: A Rover in intake, labelled and photographed, is not put in stock without its manufacturer's serial.
