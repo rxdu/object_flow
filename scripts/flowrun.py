@@ -1307,25 +1307,8 @@ class Runner:
             if not set(inputs.get("admits", ())) <= set(x.get("may_admit") or []):
                 raise Refused("invalid_input", remedy="self_serviceable", detail="an admission it does not list in may_admit")
             ctx.asserted, ctx.admits = oid, set(inputs.get("admits", ()))
-        # the generated guards, then the <attribute>_provided ones, then the transition's own (flow-format.md §4.8)
-        personal = {a for a, sp in attrs.items() if (sp or {}).get("personal")}
-        if oid is not None and x["kind"] != "erasure" and work.objects[oid].erased:
-            writes = set(inputs) & set(x.get("required_inputs", []) + x.get("optional_inputs", []))
-            writes |= {st["assign"]["location"] for st in x.get("effect") or [] if "assign" in st}
-            if writes & personal:
-                raise Refused("unsatisfied", "not_erased", GENERATED_REMEDY["not_erased"])
-        if xn == "record" and "subject" in inputs:
-            subject = work.objects[inputs["subject"]]
-            if (self.kinds.get(subject.type) or {}).get("mirror"):
-                raise Refused("unsatisfied", "subject_owned", GENERATED_REMEDY["subject_owned"])
-            if "corrects" in inputs:
-                corrected = work.objects[inputs["corrects"]]
-                if corrected.attrs.get("subject") != subject.id:
-                    raise NotRunnable("a correction naming a datapoint of another subject, whose refusal the design does not state")
-                if any(other.attrs.get("corrects") == corrected.id for other in work.objects.values()):
-                    raise Refused("unsatisfied", "corrects_current", GENERATED_REMEDY["corrects_current"])
-            elif work.final(subject):       # a correction may be recorded after the subject is finished (DESIGN.md §5.11)
-                raise Refused("unsatisfied", "subject_open", GENERATED_REMEDY["subject_open"])
+        # the generated guards, in the order flow-format.md §4.8 states, then the <attribute>_provided ones, then the
+        # transition's own; occurred_within is never reached, since no request here is backdated
         wholes = []
         for k in set(x.get("required_inputs", []) + x.get("optional_inputs", [])) & set(inputs):
             if self.owner_end(attrs.get(k)):
@@ -1334,6 +1317,12 @@ class Runner:
                         raise Refused("unsatisfied", "whole_open", GENERATED_REMEDY["whole_open"])
                     wholes.append(work.objects[oid].attrs.get(k))
                 wholes.append(inputs[k])
+        personal = {a for a, sp in attrs.items() if (sp or {}).get("personal")}
+        if oid is not None and x["kind"] != "erasure" and work.objects[oid].erased:
+            writes = set(inputs) & set(x.get("required_inputs", []) + x.get("optional_inputs", []))
+            writes |= {st["assign"]["location"] for st in x.get("effect") or [] if "assign" in st}
+            if writes & personal:
+                raise Refused("unsatisfied", "not_erased", GENERATED_REMEDY["not_erased"])
         # a successor an input names is neither this object nor one already superseded, so no chain closes on itself;
         # a transition's new state is written before its effect runs, so this holds within one request too (ADR-0144)
         for st in x.get("effect") or []:
@@ -1341,6 +1330,18 @@ class Runner:
             successor = inputs.get(m.group(1)) if m else None
             if successor is not None and (successor == oid or work.superseded(work.objects[successor])):
                 raise Refused("unsatisfied", "successor_not_superseded", GENERATED_REMEDY["successor_not_superseded"])
+        if xn == "record" and "subject" in inputs:
+            subject = work.objects[inputs["subject"]]
+            if "corrects" in inputs:
+                corrected = work.objects[inputs["corrects"]]
+                if corrected.attrs.get("subject") != subject.id:
+                    raise NotRunnable("a correction naming a datapoint of another subject, whose refusal the design does not state")
+                if any(other.attrs.get("corrects") == corrected.id for other in work.objects.values()):
+                    raise Refused("unsatisfied", "corrects_current", GENERATED_REMEDY["corrects_current"])
+            elif work.final(subject):       # a correction may be recorded after the subject is finished (DESIGN.md §5.11)
+                raise Refused("unsatisfied", "subject_open", GENERATED_REMEDY["subject_open"])
+            if (self.kinds.get(subject.type) or {}).get("mirror"):
+                raise Refused("unsatisfied", "subject_owned", GENERATED_REMEDY["subject_owned"])
         for k in x.get("required_inputs", []):
             spec = attrs.get(k) or {}
             if k not in inputs and (spec.get("optional") or "default" in spec):
@@ -2077,6 +2078,35 @@ def self_test():
           ("unsatisfied", "waited"))
     _v, s, d = history("submit", 600, "back", 60, "submit")
     check("when it last entered a state", Evaluator(s, "Doc", d).value(flowexpr.parse("entered_at(REVIEW)"), {}) - timestamp(CLOCK_START), 660)
+    # a request failing two generated guards is refused naming the first in the order flow-format.md §4.8 states
+    wallet = {"attributes": {"cards": {"reference": "Card[]", "aggregation": "composite", "opposite": "wallet"}},
+              "states": {"OPEN": {"category": "live"}, "SHUT": {"category": "closed", "final": True}},
+              "transitions": {"open": {"kind": "initial", "to": "OPEN"}, "shut": {"kind": "external", "from": ["OPEN"], "to": "SHUT"}}}
+    card = {"attributes": {"wallet": {"reference": "Wallet", "opposite": "cards"},
+                           "holder": {"type": "string", "optional": True, "personal": True}},
+            "states": {"LIVE": {"category": "live"}, "MERGED": {"category": "closed", "final": True, "superseding": True}},
+            "transitions": {"issue": {"kind": "initial", "to": "LIVE", "required_inputs": ["wallet", "holder"]},
+                            "move": {"kind": "internal", "from": ["LIVE"], "required_inputs": ["wallet", "holder"]},
+                            "merged_into": {"kind": "external", "from": ["LIVE"], "to": "MERGED", "required_inputs": ["holder"],
+                                            "inputs": {"successor": {"reference": "Card"}}, "effect": [{"supersede": "inputs.successor"}]},
+                            "forget": {"kind": "erasure", "inputs": {"reason": {"type": "string"}}}}}
+    cards = {"Operator": kinds["Operator"], "Wallet": wallet, "Card": card}
+
+    def first_refusal(xn, inputs):
+        r, s = Runner(cards, {}), Store(cards, {})
+        w = r.attempt(s, "Wallet", "open", None, OPERATOR, {}, {}, {})[1]
+        shut = r.attempt(s, "Wallet", "open", None, OPERATOR, {}, {}, {})[1]
+        c = r.attempt(s, "Card", "issue", None, OPERATOR, {"wallet": "w", "holder": "Dana"}, {"w": w}, {})[1]
+        r.attempt(s, "Wallet", "shut", shut, OPERATOR, {}, {}, {})
+        r.attempt(s, "Card", "forget", c, OPERATOR, {"reason": "asked"}, {}, {})
+        aliases = {"w": w, "shut": shut, "c": c}
+        try:
+            r.attempt(s, "Card", xn, c, OPERATOR, dict(inputs, holder="Dee", **({"successor": "c"} if xn == "merged_into" else {"wallet": "shut"})), aliases, {})
+            return "applied"
+        except Refused as e:
+            return e.clause
+    check("whole_open before not_erased", first_refusal("move", {}), "whole_open")
+    check("not_erased before successor_not_superseded", first_refusal("merged_into", {}), "not_erased")
     ok &= metrics_self_test(kinds["Operator"])
     print(f"runner: a small order and its lines, a document over its history, and jobs read by their metrics, each thing "
           f"slices 1 to 4 execute: {'yes' if ok else 'NO'}")

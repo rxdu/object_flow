@@ -41,7 +41,7 @@ Every word in a description is one of two kinds, and the examples in this docume
    - a category MUST NOT be named `any`, `terminal` or `superseding`, and a transition MUST NOT be named `any` (the text language's check 33);
    - an attribute, including an observation's, MUST NOT be named `state`, `inputs`, `actor`, `this`, `now`, `referrers` or `this_event`, since an expression resolves those words before any attribute;
    - a member MUST NOT be named `id`, `open`, `created_at`, `created_by_kind`, `recorded_from` or `declaration_version`, which every object has, or `imported_at`, which every mirror has, since it would shadow them (§5; the model's check 33);
-   - a condition MUST NOT be named `<attribute>_provided`, and an invariant MUST NOT be named `<state>_invariant` with the state in lower case or `<attribute>_unique`, since those are the names of generated guards and invariants (§6): `<attribute>_unique` is the invariant a `unique` attribute, or the stored end of a one-to-one relationship, generates, and the name a refusal of a duplicate carries.
+   - a condition MUST NOT be named `<attribute>_provided`, or `actor_known`, `occurred_within`, `whole_open`, `not_erased`, `successor_not_superseded`, `subject_open`, `corrects_current` or `subject_owned`, and an invariant MUST NOT be named `<state>_invariant` with the state in lower case or `<attribute>_unique`, since those are the names of generated guards and invariants (§4.8, §6), and a refusal naming one would not say which it was: `<attribute>_unique` is the invariant a `unique` attribute, or the stored end of a one-to-one relationship, generates, and the name a refusal of a duplicate carries.
 
 ## 4. Structure
 

@@ -916,6 +916,10 @@ def reserved_name_errors(doc):
             if c.endswith("_provided") and c[:-len("_provided")] in attrs:
                 out.append((("types", tn, "conditions", c), "names",
                             f"'{c}' is the name of the guard generated for a required input; choose another name"))
+            if c in GENERATED_GUARDS:
+                out.append((("types", tn, "conditions", c), "names",
+                            f"'{c}' is the name of a guard the engine generates, so a refusal naming it would not say which "
+                            "it was; choose another name"))
         for i in (t.get("invariants") or {}):
             if i.endswith("_invariant") and i[:-len("_invariant")].upper() in states:
                 out.append((("types", tn, "invariants", i), "names",
@@ -3136,6 +3140,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(customers, "        effect:\n          - supersede: inputs.successor\n", "")),
         ("an object that supersedes itself", "names", "customers.yaml",
          plant(customers, "        effect:\n          - supersede: inputs.successor\n", "        effect:\n          - supersede: this\n")),
+        ("a condition named as a generated guard", "names", "customers.yaml",
+         plant(plant(customers, "      no_open_orders:\n", "      not_erased:\n"), "          no_open_orders: deny", "          not_erased: deny")),
         ("a successor a request may leave out", "names", "customers.yaml",
          plant(customers, "          successor: { reference: Customer }\n        effect:\n", "          successor: { reference: Customer, optional: true }\n        effect:\n")),
         ("a supersede inside a foreach", "names", "customers.yaml",
