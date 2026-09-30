@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 2 (2026-09-07); accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand. Superseding an object re-points no reference unless a declared cascade does, accepted with theme 2 of the triage.
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0144, proposed — a successor is neither the object nor one already superseded, so a supersession chain has no cycle.
 
 ## Context
 
