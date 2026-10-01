@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 504 entries and five cosmetics; 503 are closed and 1 is open. The PRD is at revision 20, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 504 entries and five cosmetics; 504 are closed and zero are open. The PRD is at revision 20, with no revision awaiting the author.
 
 **Every ADR is accepted or superseded.** In the order the author accepted them:
 - ADR-0001 to ADR-0018, on 2026-09-07, from the design discussion the project began with.
@@ -394,13 +394,13 @@ A **metric** is a declared formula across many objects, grouped and windowed as 
 
   Every metric, declared or standard, has the `version` and `actor_kind` dimensions from its rows unless it declares them, and a combined metric passes them through. A legacy row whose record names no actor has the kind `unknown` (ADR-0106), and so does the attempt of a request naming an actor the store does not know (ADR-0125);
 - a **value**, which may combine `count`, `sum`, `min`, `max`, `avg`, `median` and `percentile` arithmetically, over a window relative to `now` if it wants one, which holds both its ends and no row without a time (ADR-0139); a metric over spans may split each across the calendar periods it covers, so a share of time is right per period, and its window clips the pieces (ADR-0142). A percentile is nearest-rank, the smallest value whose rank reaches `p × n`, and a median is the fiftieth percentile, so both backends give the same value; `avg` keeps its body's type, so an average duration is a duration, and an average of integers is a decimal to six places (ADR-0106, ADR-0139);
-- optional **flags**: named conditions on the value.
+- optional **flags**: named conditions on the value, evaluated on each declared group whatever a read keeps, one whose condition is unknown reported as unknown and not raised (ADR-0146).
 
 Metrics are **computed on read, over every row their source and filter select** (ADR-0114). A reader narrows a metric by passing a filter, as it narrows a query, and an upper layer decides who may read which metric and passes the filter that scopes it to what its user may see. So every reader of a definition over the same filter gets the same value (PRD C2), a reader limited to part of the data gets the value over that part (PRD M2), and who may see what stays the upper layer's (PRD T5).
 
 **Every result also says how far the record covers it** (ADR-0106).
 - **`recorded_from`.** Each object records the time from which its record is continuous: its creation, or for a ported object the earliest time its legacy history vouches for (§11).
-- **`gaps`.** A row counts, as its `gaps`, the objects for which it read something from before what their record vouches for: a window beginning before the object's `recorded_from`; an interval, legacy or current, that began before it; an undated `.created_at`; or a member read from before its tracking began. The page says whether any row has one.
+- **`gaps`.** A row counts, as its `gaps`, the objects for which it read something from before what their record vouches for: a window beginning before the `recorded_from` of an object that existed then; an interval, legacy or current, that began before it; an undated `.created_at`; or a member read from before its tracking began. The page says whether any row has one.
 - **A silent stretch is not a whole figure.** Coverage is about what was ever recorded, so a reader over a silent stretch of legacy history is told so, rather than told the figure is whole.
 
 A guard computes a metric over every row its source holds, as a type-scan guard reads every object of its type. Its value is recorded on the event and carried in a refusal, which names it (PRD UC-10). A metric is retroactive by construction and stores nothing, which is why erasure needs nothing from one. **A metric reads no personal value**, in its filter, a dimension, a flag or its value. So an erasure removes no row a metric reads and changes no value it reads, and every count over what was recorded before it stays as it was (PRD UC-17, ADR-0106). The erasure adds its own events: the `erase` request is counted as the transition it is, and the event it records on an object reached by the taint analysis is marked `.redacted` and counted by no standard metric but the override counts, where it carries an admission.

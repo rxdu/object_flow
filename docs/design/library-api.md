@@ -376,10 +376,18 @@ class MetricRow:
 
     dimensions: Mapping[str, Any]
     value: Any                            # unknown is None, as division by zero is
-    flags: Sequence[str]                  # the declared flags that hold for this row
     gaps: int = 0                         # objects read whose record does not cover the span
                                           # this row measures (ADR-0106)
     time_basis: str = "UTC calendar"      # every metric says so, ISO weeks from Monday (PRD C6)
+
+
+@dataclass(frozen=True)
+class RaisedFlag:
+    """A metric's flag on one of its declared groups (ADR-0146)."""
+
+    flag: str
+    group: Mapping[str, Any]              # the declared dimensions' values
+    unknown: bool = False                 # its condition is unknown there: not raised
 
 
 @dataclass(frozen=True)
@@ -388,6 +396,8 @@ class MetricPage:
 
     rows: Sequence[MetricRow]
     cursor: str | None
+    flags: Sequence[RaisedFlag]           # each declared flag raised, or unknown, on a declared
+                                          # group, whatever the read keeps (ADR-0146)
     history_complete: bool                # no row has gaps: the record covers every span it
                                           # measures (ADR-0106)
 
@@ -651,7 +661,7 @@ Nineteen operations: the sixteen of §10, the write path of §6, and the operati
 - `get` and `query` evaluate a derived attribute that reads other objects over every object it reads (ADR-0114). `query` accepts a time-dependent derived attribute the publish report lists as queryable, and filters on the stored operand it compares against `now` (ADR-0048).
 - `history`, `pull` and `export` return the `reads` and `consulted` of an event or an attempt whole, and a refusal's `Unsatisfied.consulted` gives its requester the value it was decided on (ADR-0114).
 - A `Page` of objects ascends by object id unless `query` names an `order`, a key or a list of keys, each an indexed attribute, `created_at` or `entered_at(<tracked member>)`, ascending unless marked `desc`, with the id breaking ties and an absent value last; a `MetricPage` ascends by the dimensions kept, in the order `keep` names them, or by the declared dimensions in their declared order when `keep` is none, a time bucket in time order and an absent value last (ADR-0127).
-- `metric` aggregates every row its source selects, after narrowing them by `filter`, which is how an upper layer scopes a read to what its user may see (PRD C2, M2, T5, ADR-0114).
+- `metric` aggregates every row its source selects, after narrowing them by `filter`, which is how an upper layer scopes a read to what its user may see (PRD C2, M2, T5, ADR-0114). A `filter` on a combined metric is refused, since it has no rows to narrow; the reader reads each input with its own filter and combines them (ADR-0146).
 - `declaration(type, version)` returns, with the rule set, the version's `source_ref` and `source_digest`, where its source came from and the digest the repository's side checks it by, neither for version 0 (ADR-0135); a `DeclarationChange`'s own are read by `get`.
 - `declaration(type)` marks every metric dimension whose value names an actor, so an upper layer can put reads that keep one, bind it or filter on the value it reads behind its own door, since each gives a person's figure (PRD T7, ADR-0114, D451).
 - Creating a store is not an operation of this protocol. It installs version 0 and the store's operator, named by the identity the creation is given, and the first `publish` or `import_batch` names that operator as its actor (ADR-0126).

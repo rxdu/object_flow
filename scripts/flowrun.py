@@ -348,16 +348,8 @@ def formula(kinds, enums, owner, spec):
         out = {"source": "intervals", "item": "i", "filter": f"i.state == {owner}.{spec['state']}", "expression": "median(i.duration)"}
     elif measure == "transition_count":
         item, stamp = "t", "t.occurred_at"
-        x = ((kinds.get(owner) or {}).get("transitions") or {}).get(spec["transition"]) or {}
-        froms = x.get("from")
-        froms = [froms] if isinstance(froms, str) else list(froms or [])
-        if x.get("kind") == "initial":
-            along = f"t.from_state is null and t.to_state == {owner}.{x['to']}"
-        elif x.get("kind") in ("external", "internal") and froms:
-            along = "t.from_state is not null" if froms == ["any"] else "t.from_state in {" + ", ".join(f"{owner}.{f}" for f in froms) + "}"
-            along += f" and t.to_state == {owner}.{x['to']}" if x["kind"] == "external" else " and t.to_state == t.from_state"
-        else:
-            raise NotRunnable(f"a transition_count of {owner}.{spec['transition']}, a transition of the kind {x.get('kind')}")
+        # the transition's events by name, with the standard metrics' exclusions (ADR-0146)
+        along = f't.transition == "{spec["transition"]}" and not t.imported and not t.migrated and not t.redacted'
         out = {"source": "transitions", "item": "t", "filter": along, "expression": "count()"}
     else:
         raise NotRunnable(f"the measure {measure}")
@@ -630,13 +622,20 @@ class Evaluator:
 
     def duration(self, o, sp):
         """A span's exit less its entry; a current span runs to now while its object is open, and on a finished object
-        to the entry of the state that finished it, a span that began after that entry having none (§6.9, ADR-0101)."""
+        to the start of the unbroken stretch of closed or terminal states it is in, a span that began within that
+        stretch having none (§6.9, ADR-0101, ADR-0146)."""
         if sp["left_at"] is not ABSENT:
             return sp["left_at"] - sp["entered_at"]
-        st = ((self.s.kinds.get(o.type) or {}).get("states") or {}).get(o.state) or {}
-        if st.get("category") != "closed" and not st.get("final"):
+        states = (self.s.kinds.get(o.type) or {}).get("states") or {}
+        finished = lambda name: (states.get(name) or {}).get("category") == "closed" or (states.get(name) or {}).get("final")
+        if not finished(o.state):
             return self.s.now - sp["entered_at"]
+        # the unbroken stretch of closed or terminal states the object is in now begins where its earliest span does
         entry = o.entered.get(o.state, o.created_at)
+        for past in reversed(o.spans.get("state", [])):
+            if not finished(past["state"][2]):
+                break
+            entry = past["entered_at"]
         return entry - sp["entered_at"] if sp["entered_at"] < entry else ABSENT
 
     def time_in(self, o, state):
@@ -891,7 +890,7 @@ class Evaluator:
         # its rows are those of the store as the request found it, whichever transition of the request reads it
         return Evaluator(committed, self.tn, stubs=self.stubs).read_metric(owner, spec, module, bound, window)[0]
 
-    def read_metric(self, owner, spec, module, bound, window):
+    def read_metric(self, owner, spec, module, bound, window, exact=False):
         """A metric's value over the rows its filter, the bound dimensions and the window select, rounded half to even to
         its expression's scale (ADR-0128); and that expression's type."""
         s = self.s
@@ -905,10 +904,11 @@ class Evaluator:
             for n, ref in spec["input_metrics"].items():
                 o2, s2, m2 = s.find_metric(parsed(ref), module=module)
                 mine = s.metric_dimensions(o2, s2)
-                values[n], kinds[n] = self.read_metric(o2, s2, m2, {d: v for d, v in bound.items() if d in mine}, window)
+                values[n], kinds[n] = self.read_metric(o2, s2, m2, {d: v for d, v in bound.items() if d in mine}, window, exact=True)
             tree = parsed(spec["expression"])
             kind = self.kind(tree, kinds)
-            return rounded(self.value(tree, values), kind), kind
+            v = self.value(tree, values)
+            return (v if exact else rounded(v, kind)), kind
         f = formula(s.kinds, s.enums, owner, spec)
         rows, rowkind, by_kind = self.metric_rows(owner, f["source"])
         split = f.get("split_by")
@@ -944,7 +944,8 @@ class Evaluator:
                 picked.append(r)
         tree = parsed(f["expression"])
         kind = row.kind(tree, {item: rowkind})
-        return rounded(row.over_rows(tree, picked, item, rowkind), kind), kind
+        v = row.over_rows(tree, picked, item, rowkind)
+        return (v if exact else rounded(v, kind)), kind
 
     def metric_rows(self, owner, source):
         """A metric's rows (declaration-syntax.md §6.9): each object of the type or its family, each span of its state or
@@ -1019,7 +1020,7 @@ class Evaluator:
             if fn in ("min", "max"):
                 return (min if fn == "min" else max)(values)
             if fn == "avg":
-                return rounded(Fraction(sum(values, 0)) / len(values), self.kind(e, {item: rowkind}))
+                return Fraction(sum(values, 0)) / len(values)   # exact: the metric's value is rounded once (ADR-0146)
             p = Fraction(1, 2) if fn == "median" else self.value(args[0], {})
             ordered = sorted(values)        # nearest rank: the smallest whose rank is at least p × n; a median the lower middle
             return ordered[max(1, math.ceil(p * len(ordered))) - 1]
@@ -2289,7 +2290,8 @@ def metrics_self_test(operator):
         "attributes": {"engineer": {"reference": "User", "optional": True, "assignee": True},
                        "tags": {"type": "string[]", "optional": True}},
         "observations": {"checks": {"kind": "Check", "attributes": {"outcome": {"type": "Outcome"}}}},
-        "states": {"OPEN": {"category": "inbound"}, "WORKING": {"category": "live"}, "DONE": {"category": "closed", "final": True}},
+        "states": {"OPEN": {"category": "inbound"}, "WORKING": {"category": "live"}, "SHELVED": {"category": "closed"},
+                   "DONE": {"category": "closed", "final": True}},
         "conditions": {
             "good": {"expression": "metric(pass_rate, engineer := engineer, over last 30 days) >= 0.900", "remedy": "dependent"},
             "not_busy": {"expression": "metric(Job.open_work.engineer, assignee := inputs.engineer) < 2", "remedy": "dependent"}},
@@ -2298,6 +2300,9 @@ def metrics_self_test(operator):
             "assign": {"kind": "internal", "from": ["OPEN", "WORKING"], "required_inputs": ["engineer"], "guards": {"not_busy": "deny"}},
             "start": {"kind": "external", "from": ["OPEN"], "to": "WORKING"},
             "back": {"kind": "external", "from": ["WORKING"], "to": "OPEN"},
+            "pause": {"kind": "external", "from": ["WORKING"], "to": "OPEN"},
+            "shelve": {"kind": "external", "from": ["WORKING"], "to": "SHELVED"},
+            "close": {"kind": "external", "from": ["SHELVED"], "to": "DONE"},
             "finish": {"kind": "external", "from": ["WORKING"], "to": "DONE", "guards": {"good": "deny"}}},
         "metrics": {
             "pass_rate": {"source": "checks", "item": "r", "filter": "r.outcome != Outcome.NA", "dimensions": {"engineer": "r.subject.engineer"},
@@ -2312,6 +2317,9 @@ def metrics_self_test(operator):
             "starts": {"measure": "transition_count", "transition": "start", "group_by": ["actor", "month"]},
             "tagged": {"source": "objects", "item": "o", "dimensions": {"tag": "o.tags"}, "expression": "count()"},
             "tags_per_job": {"source": "objects", "item": "o", "expression": "avg(count(t in o.tags))"},
+            "tags_tripled": {"source": "objects", "item": "o", "expression": "avg(count(t in o.tags)) * 3"},
+            "backs": {"measure": "transition_count", "transition": "back"},
+            "time_held": {"source": "intervals(engineer)", "item": "i", "filter": "i.value is not null", "expression": "sum(i.duration)"},
             "working_by_month": {"source": "intervals", "item": "i", "split_by": "month", "filter": "i.state == WORKING",
                                  "dimensions": {"month": "i.period"}, "expression": "sum(i.duration)"},
             "jobs_working_by_month": {"source": "intervals", "item": "i", "split_by": "month", "filter": "i.state == WORKING",
@@ -2395,6 +2403,22 @@ def metrics_self_test(operator):
     check("the same guard for an assignee with none", req(r, s, "Job", "assign", jc, engineer=ben), jc)
     check("a set dimension, a job under each of its tags", (read(s, ja, 'metric(tagged, tag := "urgent")'), read(s, ja, 'metric(tagged, tag := "vip")')), (2, 2))
     check("an average of integers, to six places", read(s, ja, "metric(tags_per_job)"), Fraction(1333333, 1000000))
+    check("an average rounded once, at the end, and not before it is tripled", read(s, ja, "metric(tags_tripled)"), 4)
+    req(r, s, "Job", "start", jb)
+    req(r, s, "Job", "pause", jb)
+    check("a transition count by name, apart from another between the same states", read(s, ja, "metric(backs)"), 5)
+    # a span still current accrues nothing over an unbroken stretch of closed states (ADR-0146)
+    r, s = world()
+    eve = req(r, s, "User", "add", login="eve")
+    je = req(r, s, "Job", "open", engineer=eve)
+    req(r, s, "Job", "start", je)
+    s.now += 3600
+    req(r, s, "Job", "shelve", je)
+    s.now += 5 * 3600
+    req(r, s, "Job", "close", je)
+    s.now += 7 * 3600
+    check("an assignment still current stops at the start of the closed stretch", read(s, je, "metric(time_held)"), 3600)
+    check("time in the closed state before the terminal one is still measured", read(s, je, "time_in(SHELVED)"), 5 * 3600)
     # a span split across the months it covers, a current one cut at now, and a window clipping the pieces (ADR-0142)
     r, s = world()
     one, two = req(r, s, "Job", "open"), req(r, s, "Job", "open")

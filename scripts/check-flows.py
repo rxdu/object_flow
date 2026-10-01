@@ -38,8 +38,7 @@ The conversion is mechanical, and nothing in the YAML has a default:
     required_attributes: [a] on state S    invariant s_invariant:
                                              state != S or a is not null
     measure: median_time_in_state          the intervals in the state
-    measure: transition_count              the transitions along the
-                                           transition's from and to states
+    measure: transition_count              the transition's events, by name
 
 The terms are UML's, SCXML's and Kubernetes', as ADR-0115 records. Every
 finding is reported at the YAML file and line it comes from. Audit and warn
@@ -52,6 +51,7 @@ import hashlib
 import json
 import pathlib
 import re
+from fractions import Fraction
 import subprocess
 import sys
 import tempfile
@@ -1255,6 +1255,21 @@ def value_kind(e, tn, t, x, enums):
     return None
 
 
+def range_kind(e, tn, t, x, enums):
+    """What a loop's range counts to, where a publish can tell: a number literal is an int only if it is whole, and an
+    input or attribute declared as a set is a set, which value_kind leaves untold (ADR-0146)."""
+    if e[0] == "num":
+        return ("int",) if isinstance(e[1], int) else ("decimal",)
+    attrs = t.get("attributes") or {}
+    m = e[1] if e[0] == "name" else e[2] if e[0] == "path" and e[1] in (("name", "inputs"), ("name", "this")) else None
+    spec = None
+    if m is not None:
+        spec = attrs.get(m) if e[0] == "name" or e[1] == ("name", "this") else (x.get("inputs") or {}).get(m) or attrs.get(m)
+    if spec and str(spec.get("type", spec.get("reference", ""))).endswith("[]"):
+        return ("set",)
+    return value_kind(e, tn, t, x, enums)
+
+
 def fits(target, value, library):
     """Whether a value of one kind may be written to a target of another (the model's check 17)."""
     if target == value:
@@ -1283,10 +1298,11 @@ def write_type_errors(doc, tn, t, library):
             if kind == "foreach" and "range" in st["foreach"]:
                 # a range counts from 1 to an int, an absent or non-positive one running no step (ADR-0146)
                 try:
-                    got = value_kind(flowexpr.parse(" ".join(str(st["foreach"]["range"]).split())), tn, t, x, enums)
+                    expr = flowexpr.parse(" ".join(str(st["foreach"]["range"]).split()))
                 except flowexpr.ParseError:
-                    got = None
-                if got and got not in (("int",), ("number",)):
+                    expr = None
+                got = range_kind(expr, tn, t, x, enums) if expr else None
+                if got and got != ("int",):
                     out.append((("types", tn, "transitions", xn, "effect") + path + ("foreach", "range"), "names",
                                 f"{tn}.{xn} loops over a range of {' '.join(got)}, and a range is an int"))
             if kind != "assign":
@@ -1805,6 +1821,9 @@ def formula_errors(tn, t, mn, m):
             out.append((base + ("dimensions", d), "names", f"metric {mn} has a dimension named 'value', which its flags read as the metric's value"))
     parts = [(("filter",), m.get("filter")), (("time_dimension",), m.get("time_dimension")), (("expression",), m["expression"])]
     parts += [(("dimensions", d), e) for d, e in (m.get("dimensions") or {}).items()]
+    for p in re.findall(r"\bpercentile\(\s*([-+]?[0-9.]+)\s*,", " ".join(str(m["expression"]).split())):
+        if not 0 < Fraction(p) <= 1:
+            out.append((base + ("expression",), "names", f"metric {mn} takes the percentile {p}, and a percentile's p is in (0, 1] (ADR-0146)"))
     for key, text in parts:
         if text is None:
             continue
@@ -2146,14 +2165,6 @@ def metric_errors(tn, t, mn, m):
         xn = m["transition"]
         if xn not in trans:
             return [(base + ("transition",), "names", f"metric {mn} counts '{xn}', which is not a transition of {tn}")]
-        if trans[xn]["kind"] in ("assertion", "erasure"):
-            return [(base + ("transition",), "names", f"metric {mn} counts '{xn}', an {trans[xn]['kind']}, which runs from any state; "
-                                                      "count it with a formula over transitions, by t.transition")]
-        twins = [o for o, x in trans.items() if o != xn and set(pairs(x)) & set(pairs(trans[xn]))]
-        if twins:
-            out.append((base + ("transition",), "names",
-                        f"metric {mn} counts {xn}, which moves between the same states as {', '.join(twins)}; "
-                        "a count by states cannot tell them apart"))
     if m.get("measure") == "median_time_in_state" and m["state"] not in (t.get("states") or {}):
         out.append((base + ("state",), "names", f"metric {mn} measures the state {m['state']}, which {tn} does not declare"))
     for d in m.get("group_by") or []:
@@ -2754,10 +2765,9 @@ def metric_text(tn, t, mn, m, library=None):
         v, time, value = "i", "i.entered_at", "median(i.duration)"
         out.append((f"  from      i in {tn}.intervals where i.state == {tn}.{m['state']}", M + ("state",)))
     else:
+        # the transition's events by name, with the standard metrics' exclusions (ADR-0146)
         v, time, value = "t", "t.occurred_at", "count()"
-        conds = [(f"t.from_state == {tn}.{a}" if a else "t.from_state is null") + f" and t.to_state == {tn}.{b}"
-                 for a, b in pairs(resolve_any(t["transitions"][m["transition"]], t.get("states")))]
-        cond = conds[0] if len(conds) == 1 else " or ".join(f"({c})" for c in conds)
+        cond = f't.transition == "{m["transition"]}" and not t.imported and not t.migrated and not t.redacted'
         out.append((f"  from      t in {tn}.transitions where {cond}", M + ("transition",)))
     dims = [f"{d} = " + {"month": f"month({time})", "week": f"week({time})", "actor": "t.actor_id"}.get(
         d, f"{v}.held({d})" if d in tracked else f"{v}.object.{d}") for d in m.get("group_by") or []]
@@ -4139,6 +4149,37 @@ def migration_plants(people):
     return renamed and superseding
 
 
+def metric_plants(people):
+    """A percentile's p is in (0, 1] (ADR-0146): a planted service metric taking the 1.5th is refused, and the 1st is not."""
+    sv = (EXAMPLES / "service.yaml").read_text()
+    old = "    metrics:\n"
+    assert sv.count(old) == 1
+    metric = ("      slowest:\n        description: A planted percentile.\n        source: intervals\n        item: i\n"
+              "        expression: percentile({}, i.duration)\n")
+    caught = []
+    for p in ("1.5", "1"):
+        found, _ = check([("people.yaml", people), ("service.yaml", sv.replace(old, old + metric.format(p)))])
+        caught.append(any("a percentile's p is in (0, 1]" in f[4] for f in found))
+    ok = caught == [True, False]
+    print(f"  a percentile outside (0, 1] is refused, and the first is not: {'yes' if ok else 'NO ' + str(caught)}")
+    return ok
+
+
+def range_plant(people):
+    """A range is an int (ADR-0146): the delivery's loop over its checklist, written as a range over the checklist, a
+    set of strings, or of 2.5, is refused, and as a range of 3 is not."""
+    dv = (EXAMPLES / "delivery.yaml").read_text()
+    old = "              array: inputs.checklist\n"
+    assert dv.count(old) == 1
+    caught = []
+    for rng in ("inputs.checklist", "2.5", "3"):
+        found, _ = check([("people.yaml", people), ("delivery.yaml", dv.replace(old, f"              range: {rng}\n"))])
+        caught.append(any("and a range is an int" in f[4] for f in found))
+    ok = caught == [True, True, False]
+    print(f"  a range over a set or a fraction is refused, and one of 3 is not: {'yes' if ok else 'NO ' + str(caught)}")
+    return ok
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -4250,6 +4291,8 @@ def main():
     ok &= binder_plant(people)
     ok &= abstract_summary_plant(people)
     ok &= migration_plants(people)
+    ok &= metric_plants(people)
+    ok &= range_plant(people)
     sys.exit(0 if clean and ok else 1)
 
 
