@@ -435,6 +435,11 @@
                 ]
               },
               {
+                "required": [
+                  "summary"
+                ]
+              },
+              {
                 "properties": {
                   "mirror": {
                     "const": true

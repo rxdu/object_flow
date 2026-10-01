@@ -1032,7 +1032,7 @@ def name_errors(doc, library=None, ordered=True):
         out += write_type_errors(doc, tn, t, library)
         out += conditional_step_errors(tn, t)
         out += (read_errors(tn, t, set(doc.get("categories") or []) | BUILT_IN_CATEGORIES | evaluator_names(doc))
-                + indexed_errors(tn, t, library) + scan_errors(tn, t, library) + observation_read_errors(tn, t) + identifier_errors(doc, tn, t, library) + evaluator_errors(doc, tn, t)
+                + indexed_errors(tn, t, library) + scan_errors(tn, t, library) + observation_read_errors(tn, t) + binder_errors(tn, t) + identifier_errors(doc, tn, t, library) + evaluator_errors(doc, tn, t)
                 + supersession_errors(doc, tn, t, library))
         out += override_errors(doc, tn, t, library)
         for mn, m in (t.get("metrics") or {}).items():
@@ -1409,6 +1409,20 @@ def observation_read_errors(tn, t):
             out.append((("types", tn, "invariants", n), "names", f"invariant {n} reads the observations {', '.join(sorted(hit))}; "
                                                               "a recorded fact matters to the flow only through a guard, so no "
                                                               "invariant reads one"))
+    return out
+
+
+def binder_errors(tn, t):
+    """A name an effect binds, a `create`'s `result` or a loop's `item`, shares no name with a member of the type, since
+    a later step reading it would otherwise read one where the author meant the other (ADR-0146)."""
+    members = set(t.get("attributes") or {}) | set(t.get("derived_attributes") or {}) | set(t.get("observations") or {}) | {"state"}
+    out = []
+    for xn, x in (t.get("transitions") or {}).items():
+        for st, kind, path, _d in walk(x.get("effect")):
+            name = st["create"].get("result") if kind == "create" else st["foreach"].get("item") if kind == "foreach" else None
+            if name in members:
+                out.append((("types", tn, "transitions", xn, "effect") + path, "names",
+                            f"{tn}.{xn} binds '{name}', which is a member of {tn}; a bound name shares no name with a member"))
     return out
 
 
@@ -4053,6 +4067,32 @@ def group_erasure_plant(people):
     return hit
 
 
+def binder_plant(people):
+    """A loop's item named as a member of the type is refused (ADR-0146): the customers erasure's loop over its
+    contacts, its item renamed to the member `email`."""
+    cu = (EXAMPLES / "customers.yaml").read_text()
+    old = "              item: c\n"
+    assert cu.count(old) == 1
+    found, _ = check([("people.yaml", people), ("customers.yaml", cu.replace(old, "              item: email\n"))])
+    hit = any("binds 'email', which is a member of Customer" in f[4] for f in found)
+    print(f"  a bound name that is a member of its type is refused: {'yes' if hit else 'NO'}")
+    return hit
+
+
+def abstract_summary_plant(people):
+    """An abstract base declares no summary, each subtype declaring its own (ADR-0146): the service desk's Asset, given
+    one, is refused at step 2."""
+    sd = (EXAMPLES / "servicedesk.yaml").read_text()
+    old = "    abstract: true\n    tracking: serial\n"
+    assert sd.count(old) == 1
+    found, _ = check([("people.yaml", people), ("servicedesk.yaml", sd.replace(old, old + "    summary: [key]\n"))])
+    hit = any(f[3] == "schema" for f in found)
+    clean, _ = check([("people.yaml", people), ("servicedesk.yaml", sd)])
+    ok = hit and not clean
+    print(f"  an abstract base declaring a summary is refused: {'yes' if ok else 'NO ' + str([f[4] for f in found][:1])}")
+    return ok
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -4161,6 +4201,8 @@ def main():
     ok &= date_plant(people)
     ok &= scan_plant(people)
     ok &= group_erasure_plant(people)
+    ok &= binder_plant(people)
+    ok &= abstract_summary_plant(people)
     sys.exit(0 if clean and ok else 1)
 
 
