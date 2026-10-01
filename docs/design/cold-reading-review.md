@@ -1072,7 +1072,7 @@ Each finding is decided here, the overlaps between reports merged; references ar
 19. (K7) A rename keeps its attribute's type and optionality, or step 3 refuses it; it carries the attribute's history, its intervals included; it does not apply to an observation kind's fields.
 20. (K8) A removed state mapped to a final state drives no cascade, so the publish is refused where an object in it has parts the mapping would strand; a mapping into a superseding state is refused.
 21. (K9) An object's `declaration_version` is the version of its latest event: a migration moves it, and an object no publish writes keeps its own.
-22. (M19) Interval rows gain `.migrated`, true on a span a migration opened, and the standard metrics leave such spans out as they leave out migrated events.
+22. (M19) Interval rows gain `.migrated`, true on a span a migration opened, so a metric can tell such a span apart; the standard metrics count it, the time in it being real and its state the one the mapping says the old one now is, and leave out only migrated events, as they do. *(Corrected 2026-10-01, before it was written into the specification: this first left such spans out of the standard metrics, which would lose the real time an object spent in the state a mapping moved it to.)*
 
 **The import.**
 23. (B17) `import_batch` is one transaction: a refusal refuses the batch, naming the first row it could not place, and a resumed run sends the batch again.

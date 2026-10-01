@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 504 entries and five cosmetics; 502 are closed and 2 are open. The PRD is at revision 20, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 504 entries and five cosmetics; 503 are closed and 1 is open. The PRD is at revision 20, with no revision awaiting the author.
 
 **Every ADR is accepted or superseded.** In the order the author accepted them:
 - ADR-0001 to ADR-0018, on 2026-09-07, from the design discussion the project began with.
@@ -328,16 +328,16 @@ A type may **extend** a base declaration for attributes, relationships, invarian
 
 Every type, machine, enum, sequence, evaluator, observation kind and metric carries its own **version**, which publishing computes, since a description carries none (ADR-0131), and the internal form the checks read writes out, and each publish installs the whole closure under one **declaration version**, per store and monotonic. Every object and event records the declaration version in force, which fixes the version of every type at that instant; a type version alone would not, since a machine or enum it depends on may have moved (ADR-0077). Because a type's behaviour depends on the machine, enums, sequences, evaluators and base types it uses, advancing any of those requires advancing every dependent type, which publishing enforces (ADR-0027, ADR-0056). A machine declares what it requires of its binders, and publishing verifies each one. Publishing is a designed operation with a report:
 
-- **additions apply forward**; a new guard bites at the next transition. A publish changes a live object only by a recorded migration transition, never by DDL: a new required attribute needs a `backfill` mapping, a removed enum member that live objects hold needs a mapping, a field added to an observation kind must be optional, and a removed type is retired, its objects and history staying readable (ADR-0099);
-- **a migration is F2's third route**, not an assertion: one event per object with source `migrated`, caused by the publish event (ADR-0105);
+- **additions apply forward**; a new guard bites at the next transition. A publish changes a live object only by a recorded migration transition, never by DDL: a new required attribute needs a `backfill` mapping, a removed enum member that live objects hold needs a mapping, a field added to an observation kind must be optional, and a kind's new invariant applies to recordings after the publish, the observations already recorded that violate it reported as a notice (ADR-0146), and a removed type is retired, its objects and history staying readable (ADR-0099);
+- **a migration is F2's third route**, not an assertion: one event per object, carrying every mapping that reaches it, with source `migrated`, caused by the publish event, objects taken in ascending id order (ADR-0105, ADR-0146). It reaches every object of the type, final ones included, and never an observation, so "live" in the rules of publishing means every object, and elsewhere, as in deletion's rule, an object not in a final state;
 - **every mapping is checked.** The dry run applies each mapping in simulation — a removed state, a removed member, a `backfill` — and evaluates every invariant over what it writes, and the publish repeats the check in its transaction, so what the dry run reports is what the publish does (ADR-0105);
-- **a new invariant** is checked against live objects and every violation reported, as is a violation a mapping would cause. Each is resolved in one of three ways (ADR-0105):
+- **a new invariant** is checked against every object as the mappings leave it, and every violation reported, as is a violation a mapping would cause. **A publish leaves no object in a violation nobody admitted**: it waits until each is resolved in one of three ways (ADR-0105, ADR-0146):
   - the objects' own transitions, before the publish;
-  - a different mapping;
-  - an `admit` of `<Type>.<invariant>` the publish carries, whose reason is a member of a declared enumeration, as an assertion's is, so overrides stay countable per reason (`design/publish-and-import.md` §3). This records an admission with its reason on each object's migration event, and is an override (§8);
+  - a different mapping, a `backfill` with a real value or a placeholder the author chooses among them;
+  - an `admit` of `<Type>.<invariant>` the publish carries, whose reason is a member of a declared enumeration, as an assertion's is, so overrides stay countable per reason (`design/publish-and-import.md` §3). This records an admission with its reason on each object's migration event, and is an override (§8); it is the preferred placeholder, the value staying absent and `exceptions` listing the object until the invariant holds, and an admission over objects in a final state, which nothing can discharge, is reported;
 - **removing a state** requires a mapping, applied as recorded migration transitions;
-- a member the publish makes **tracked** is tracked from the publish: its current interval opens then for every live object (§7, ADR-0106);
-- pending **proposals** the new version cannot express are invalidated (§9);
+- a member the publish makes **tracked** is tracked from the publish: its current interval opens, for every object, at the event that first gives it a value in the publish, the object's migration where a backfill writes it and else the publish event, and a member it stops tracking has its open intervals closed at the publish event (§7, ADR-0106, ADR-0146);
+- pending **proposals** the new version cannot express are invalidated: those whose transition it removes, whose input it no longer takes, or one of whose input values its type no longer holds, its mappings never rewriting a proposal's inputs (§9, ADR-0146);
 - a **creation that lands past its lifecycle's first state** — the first its declaration lists — is reported with the path it skips: the external transitions into its state from the states the first leads to without passing through it, and, for each, the clauses the creation carries, those the type holds as invariants of the same name, and those nothing carries. It is a notice, never a refusal, since opening stock or a walk-in intake starts partway on purpose (ADR-0109);
 - the report also names which invariants compile on this backend, which transitions are sweepable, which derived attributes are queryable (§10), every guard clause that is observing rather than enforced (§5.5), and each declared metric whose filter the version reroutes, since what it counts changes though its text does not (ADR-0129);
 - a description's **examples**, a file beside it, are run at the publish, each from a setup built by requests against an empty store with the clock, the ids and every evaluator's answer injected, and a failing one refuses the publish, so a change that breaks an example must update it; the report lists, per transition, the examples that request it, and the flow checker runs them at every check with a reference runner that shares nothing with the engine but the parser (PRD F11, ADR-0131, ADR-0136, `design/flow-format.md` §11). A definite contradiction within one type refuses it too: a transition no request can take, a state no object can be in, or a write that breaks the state it enters, found by an analysis that refuses only what it proves (PRD F12, ADR-0137, `design/flow-format.md` §7.1);
@@ -413,7 +413,7 @@ Every type gets **standard metrics** without declaring any. They are declaration
 - Throughput and cycle time carry the state entered as a dimension, so a cancellation and a finish are counted apart, and the reader decides which closed states are success.
 
 **What the standard metrics count:**
-- none counts the import's events, a publish's migrations or an erasure's redactions of other objects, which are the port, the publish and the erasure, not the flow — except the override counts, which count every override, a migration's or a redaction's admission included (ADR-0105);
+- none counts the import's events, a publish's migrations or an erasure's redactions of other objects, which are the port, the publish and the erasure, not the flow — except the override counts, which count every override, a migration's or a redaction's admission included (ADR-0105). A span a migration opened is counted, the time in it being real and its state the one the mapping says the old one now is, and `.migrated` marks it, so a metric can tell it apart (ADR-0146);
 - a span still open on an object in a `closed` or terminal state stops at its entry into that state, so an engineer still named on a closed job accrues no time;
 - each can be split by version and actor kind;
 - two name the objects, so the jobs that changed hands more than once can be listed (ADR-0101).
@@ -491,7 +491,7 @@ A refusal is re-evaluated by replaying the request over those versions and value
 
 Row locks are taken as objects are reached, for contention rather than correctness: serialisable isolation is what makes a guard's reads safe, including reads of objects the request never writes. A serialisation failure is retried to a declared bound and then refused with `stale`. **A contended row does not queue** on PostgreSQL: the second request waits for the first and then fails with a serialisation error, which the retry absorbs, and the lock only makes the loser fail at its first touch of the row rather than after doing its work (ADR-0090, probed). On SQLite a contended request waits out the busy timeout, and a timeout exceeded counts as a serialisation failure, so either backend answers a race with a verdict, never a fault. The sequence mint draws from a pool of its own, so a burst of creations cannot starve the request pool (ADR-0090).
 
-An **asserting** transition (§8) differs in two ways: step 4 evaluates the generated guards every request does and its own guards, which are its reason requirement, and none of the flow's (ADR-0122); and step 7 refuses on any invariant violation the request did not explicitly admit. A **migration** a publish applies runs steps 5 to 8 for each object as part of the publish's transaction, with the publish's `admit` lines as its admissions (§5.9, ADR-0105).
+An **asserting** transition (§8) differs in two ways: step 4 evaluates the generated guards every request does and its own guards, which are its reason requirement, and none of the flow's (ADR-0122); and step 7 refuses on any invariant violation the request did not explicitly admit. A **migration** a publish applies runs steps 5 to 8 once for each object, carrying every mapping that reaches it, as part of the publish's transaction, with the publish's `admit` lines as its admissions; its step 7 checks every invariant once over the row it leaves, and a violation neither fixed, backfilled nor admitted refuses the publish (§5.9, ADR-0105, ADR-0146).
 
 ## 7. History, events and delivery
 
@@ -505,7 +505,7 @@ Beside the log the engine keeps two more records (ADR-0083):
 Three rows of the interval index begin somewhere other than at a request (ADR-0106):
 - **A port.** The import's event opens each current interval at the time the legacy record says the object took that value, and carries that time, so one stay is never split in two at cutover.
 - **A mirror's refresh.** A refresh that changes a tracked value does the same, and may carry the intermediate values the legacy record shows since the last import, opened and closed in order on its event.
-- **A publish.** A member a publish makes tracked opens its current interval at the publish event, for every live object.
+- **A publish.** A member a publish makes tracked opens its current interval, for every object, at the event that first gives it a value in the publish, an object's migration where a backfill writes it and else the publish event; a member a publish stops tracking has its open intervals closed at the publish event (ADR-0146).
 
 The fold of the log reproduces all three.
 
@@ -609,7 +609,7 @@ A **DeclarationChange** is how a flow changes (ADR-0085, ADR-0097). It is a buil
 - `reject` and `withdraw` end it, and a publish **supersedes** every other open change drafted against an older version, in the same transaction, moving each to `SUPERSEDED`, a plain final state naming the publishing change and not supersession of §8, so a stale change can never reinstall a description that drops a newer guard.
 
 The impact report names, keeping the ids of each:
-- the live objects violating a new invariant, or an invariant a mapping would break;
+- the objects violating an invariant, a new one included, as the mappings leave them;
 - those in a removed state;
 - those each mapping will rewrite;
 - those lacking a value a mapping must supply, or holding a removed enum member with no mapping;
@@ -739,6 +739,7 @@ PRD §5 defines the product's terms and this table uses them: **engine**, the go
 | **Admission** | A recorded decision to tolerate one invariant violation on one object, discharged when the invariant holds again; made by an assertion, an erasure or a publish's `admit`, and always an override. |
 | **Override** | A change to governed state that does not satisfy the rules: an assertion's event, or any event recording an admission; always with a reason, and counted (PRD §5, ADR-0105). |
 | **Migration** | A flow change's mapping applied to one object: F2's third route, recorded `migrated` and caused by the publish. |
+| **Live** | Of an object a publish reaches, every object of the type, final ones included and observations excepted; of a referrer, as deletion's rule reads it, an object not in a final state (ADR-0146). |
 | **Derived attribute** | A named expression, never stored, evaluated on read. |
 | **Expression language** | The one language of guards, invariants, derived attributes, outcome values and filters. |
 | **External evaluator** | A named consultant for facts the store does not hold, returning the same verdict shape, consulted before the transaction with an as-of time. |

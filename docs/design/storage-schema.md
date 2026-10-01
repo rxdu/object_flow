@@ -143,7 +143,7 @@ Every declared type gets one table. Its identity columns are the same in every o
 | `declaration_version` | the declaration | the publish whose rules the row was last written under (ADR-0027, ADR-0077); the same number the event carries |
 | `last_event` | the store | the event that last wrote this object |
 | `superseded_by` | the store | present only on a type with a `superseding` state; `get(id, follow)` walks it (ADR-0028), and erasure follows it (ADR-0087) |
-| `state_source` | the store | the `source` of the event that last **changed** `state`: `observed`, `asserted`, or `imported` for the import's state change. A migration leaves it as it was, which is why `migrated` is not a value (ADR-0105). Indexed; an action leaves it alone. `exceptions(type)` reads `asserted` (ADR-0083) |
+| `state_source` | the store | the `source` of the event that last **changed** `state`, a migration's excepted: `observed`, `asserted`, or `imported` for the import's state change. A migration leaves it as it was, even where its mapping moves the state, which is why `migrated` is not a value, and an object an assertion put in its state stays listed by `exceptions` until a transition changes it (ADR-0105, ADR-0146). Indexed; an action leaves it alone. `exceptions(type)` reads `asserted` (ADR-0083) |
 
 There is no `last_part_event` column. A part relationship's last event is a row of `of_attribute_write` keyed by the relationship's name, so a guard naming `checklist_items` is not invalidated by a change to `approvals` (ADR-0082, repairing D202).
 
@@ -583,6 +583,7 @@ CREATE TABLE of_interval (
   entered_by_kind  TEXT    NOT NULL,        -- 'unknown' where a legacy record names no actor
   declaration_version INTEGER NOT NULL,
   legacy           INTEGER NOT NULL DEFAULT 0,   -- supplied by the import mapping
+  migrated         INTEGER NOT NULL DEFAULT 0,   -- opened by a publish's migration (ADR-0146)
   PRIMARY KEY (object_id, dimension, entered_position, entered_at)
 );
 CREATE INDEX of_interval_current ON of_interval (dimension, value) WHERE left_position IS NULL;

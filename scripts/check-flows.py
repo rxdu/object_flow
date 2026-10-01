@@ -700,6 +700,9 @@ def migration_errors(doc, v):
                 out.append((where + (old,), "names", f"the migration maps {tn}.{old}, which this version still has; a mapping is for a state it removes"))
             if new not in states:
                 out.append((where + (old,), "names", f"the migration moves {tn}.{old} to {new}, which is not a state of {tn}"))
+            elif (states.get(new) or {}).get("superseding"):
+                out.append((where + (old,), "names", f"the migration moves {tn}.{old} to {new}, a superseding state, which would "
+                                                     "leave its objects superseded by nothing (ADR-0146)"))
     for en, maps in (m.get("removed_members") or {}).items():
         where = ("migration", "removed_members", en)
         if en not in enums:
@@ -751,6 +754,25 @@ def migration_errors(doc, v):
     return out
 
 
+def final_admission_notes(doc, v):
+    """An admission of an invariant that can fail only in a final state can never be discharged, since nothing writes an
+    object there but an erasure: a placeholder no one can update (ADR-0146)."""
+    kinds = dict(types(v))
+    out = []
+    for i, adm in enumerate((doc.get("migration") or {}).get("admit") or []):
+        tn, inv = adm["invariant"].split(".")
+        t = kinds.get(tn) or {}
+        states = t.get("states") or {}
+        expr = ((t.get("invariants") or {}).get(inv) or {}).get("expression", "")
+        m = re.match(r"\s*state\s*!=\s*([A-Z][A-Z0-9_]*)\s+or\b", str(expr))
+        gen = re.fullmatch(r"([a-z0-9_]+)_invariant", inv)
+        only = m.group(1) if m else (gen.group(1).upper() if gen and gen.group(1).upper() in states else None)
+        if only and (states.get(only) or {}).get("final"):
+            out.append((("migration", "admit", i), "migration", f"the migration admits {adm['invariant']}, which fails only in {only}, a "
+                        "final state no transition leaves: nothing can ever discharge the admission"))
+    return out
+
+
 def migration_pair_errors(prev, doc, library):
     """This version against the one before it: every state it removes from a
     type is mapped, every mapping names what the previous version had, and a
@@ -777,6 +799,13 @@ def migration_pair_errors(prev, doc, library):
         renamed = (m.get("renamed_attributes") or {}).get(tn, {})
         for a in sorted(set(renamed) - set(ot.get("attributes") or {})):
             fatal.append((("migration", "renamed_attributes", tn, a), "names", f"the migration renames {tn}.{a}, which the previous version did not have"))
+        for a, b in sorted(renamed.items()):
+            before, after = (ot.get("attributes") or {}).get(a), (t.get("attributes") or {}).get(b)
+            if before and after and (str(before.get("type", before.get("reference"))), optional(before)) != \
+                    (str(after.get("type", after.get("reference"))), optional(after)):
+                fatal.append((("migration", "renamed_attributes", tn, a), "names",
+                              f"the migration renames {tn}.{a} to {b}, which changes its type or whether it is optional; a rename "
+                              "carries the values and their history unchanged (ADR-0146)"))
         added = set(t.get("attributes") or {}) - set(ot.get("attributes") or {}) - set(renamed.values())
         dropped = set(ot.get("attributes") or {}) - set(t.get("attributes") or {}) - set(renamed)
         filled = (m.get("backfill") or {}).get(tn, {})
@@ -1692,7 +1721,7 @@ OBJECT_ROW = {"id", "state", "open", "created_at", "created_by_kind", "recorded_
 KIND_ROW = {"subject", "corrects", "occurred_at", "recorded_at", "recorded_by_kind", "declaration_version"}
 DATASET_ROWS = {
     "intervals": {"object", "state", "entered_at", "left_at", "duration", "entered_by_kind", "declaration_version", "legacy", "held",
-                  "corrected_by"},
+                  "migrated", "corrected_by"},
     "transitions": {"object", "transition", "from_state", "to_state", "completes", "returns", "occurred_at", "recorded_at",
                     "actor_id", "actor_kind", "asserted", "overrides", "imported", "migrated", "redacted", "reason",
                     "declaration_version", "held"},
@@ -3278,7 +3307,7 @@ def check(files, previous=None, analysed=None):
         pair, pair_notes = [], []
         if (previous or {}).get(f):
             pair, pair_notes = migration_pair_errors(load(previous[f]), doc, library)
-        notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes]
+        notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes + final_admission_notes(doc, v)]
         for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc)
                         + name_errors(v, library, ordered=False) + migration_errors(doc, v) + pair):
             p = back(p)
@@ -4093,6 +4122,23 @@ def abstract_summary_plant(people):
     return ok
 
 
+def migration_plants(people):
+    """A rename carries its attribute unchanged, so one that changes its type is refused, and a mapping into a
+    superseding state would leave its objects superseded by nothing (ADR-0146)."""
+    v1, v2 = (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service-v2.yaml").read_text()
+    old = "      completion_photo: { type: file, optional: true }\n"
+    assert v2.count(old) == 1
+    found, _ = check([("people.yaml", people), ("service-v2.yaml", v2.replace(old, "      completion_photo: { type: string, optional: true }\n"))],
+                     {"service-v2.yaml": v1})
+    renamed = any("changes its type or whether it is optional" in f[4] for f in found)
+    cu = (EXAMPLES / "customers.yaml").read_text()
+    text = cu + ("\nmigration:\n  description: A planted mapping.\n  removed_states:\n    Customer: { LAPSED: MERGED }\n")
+    found, _ = check([("people.yaml", people), ("customers.yaml", text)])
+    superseding = any("a superseding state, which would leave its objects superseded by nothing" in f[4] for f in found)
+    print(f"  a rename that changes a type, and a mapping into a superseding state, are refused: {'yes' if renamed and superseding else 'NO ' + str((renamed, superseding))}")
+    return renamed and superseding
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -4203,6 +4249,7 @@ def main():
     ok &= group_erasure_plant(people)
     ok &= binder_plant(people)
     ok &= abstract_summary_plant(people)
+    ok &= migration_plants(people)
     sys.exit(0 if clean and ok else 1)
 
 

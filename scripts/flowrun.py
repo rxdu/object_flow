@@ -1491,7 +1491,7 @@ class Runner:
                 key = "state" if m == "state" else "value"
                 spans.append(Row({"object": o.id, key: v, "entered_at": work.now, "left_at": ABSENT,
                                   "entered_by_kind": ctx.who["kind"], "declaration_version": 1, "legacy": False,
-                                  "held": dict(now_values)}))
+                                  "migrated": False, "held": dict(now_values)}))
         written = ctx.attr_writes.get(o.id, set()) | ctx.erased.get(o.id, set())
         written |= {a for a in set(before_attrs) | set(o.attrs) if before_attrs.get(a, ABSENT) != o.attrs.get(a, ABSENT)}
         for a in written:
@@ -1921,7 +1921,8 @@ def step(runner, store, st, aliases, stubs, under_test=False):
         values = runner.tracked_values(o)
         for m, v in values.items():
             o.spans[m] = [Row({"object": o.id, "state" if m == "state" else "value": v, "entered_at": store.now, "left_at": ABSENT,
-                               "entered_by_kind": "human", "declaration_version": 1, "legacy": False, "held": dict(values)})]
+                               "entered_by_kind": "human", "declaration_version": 1, "legacy": False, "migrated": False,
+                               "held": dict(values)})]
         for a in o.attrs:
             o.writes[a] = store.position
         store.events.append({"position": store.position, "object": o.id, "type": o.type, "transition": "import", "from_state": ABSENT,
