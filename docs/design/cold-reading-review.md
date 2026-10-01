@@ -1,6 +1,6 @@
 # Cold reading of what the engine does beyond a request, 2026-09-30
 
-Status: **findings recorded, triage pending.** At the author's direction ("review the open questions, unless particularly important, you may infer and make the decisions"), three readers with no context of the design read the parts no earlier round had, each asked whether two careful builders following the text could build engines that behave differently (`TODO.md`, the items on cold readers). They found 97 findings, about 85 distinct once the overlaps between reports are merged. Their decisions are to follow, and this record will carry them.
+Status: **decided**, 2026-10-01: four questions by the author (§4), the rest in this record's triage (§5), and ADR-0146 records them. At the author's direction ("review the open questions, unless particularly important, you may infer and make the decisions"), three readers with no context of the design read the parts no earlier round had, each asked whether two careful builders following the text could build engines that behave differently (`TODO.md`, the items on cold readers). They found 97 findings, about 85 distinct once the overlaps between reports are merged. Their decisions are to follow, and this record will carry them.
 
 **Method.** Each reader was given only what a builder gets for its area and barred from the decision records, the defect register, `TODO.md`, the lessons, the reviews and the code; each checked its quotations against the files by script. Their reports follow as they wrote them.
 
@@ -1034,3 +1034,115 @@ Every area has at least one finding.
 | **Total** | **41** | |
 
 By area: datapoints 5, publish 11, import 11, delivery 3, erasure 4, lifecycles 3, harness 4.
+
+## 4. Decisions
+
+The author decided four questions one at a time, given a sample each (2026-10-01); the rest are decided in this record's triage, and ADR-0146 will record them all.
+
+1. **A publish leaves no object in an invariant violation nobody admitted** (§1 finding 5, §3 findings 9 and 12). The publish waits until every object that would violate an invariant after it, a new invariant over objects no mapping writes included, is resolved: fixed by its own transitions first, given a value by a backfill, a real one or a placeholder the author chooses, or admitted. The admission is the preferred placeholder: the value stays absent, the object is listed by `exceptions`, it can still be written, and the admission discharges when the invariant holds. A new invariant is evaluated over the objects as the mappings leave them. Step 3 gives a notice for an admission on objects in a final state, which nothing can ever discharge. The author: "settle", after asking for a placeholder users can later update, which an admission is where the type has a transition that can write the value.
+2. **Erasure reaches everything that is the person's** (§3 findings 31, 33 and 34; §1 finding 19). (a) It reaches the whole group supersession joins, every object whose chain ends in the same survivor, whichever member the request names, since superseding says each continues the same thing and a split is not supersession. (b) It reaches every value that was personal under any version the object's events were written under; a publish that newly marks an attribute personal redacts it on objects already erased, as part of the publish, recorded. (c) Every object whose record an erasure redacts, an input in a past event of its included, gets an `erased` event naming what was redacted and never the values. The author: "accept all 3".
+3. **The engine asks an evaluator on every request, and caches nothing** (§1 findings 12 to 15). A verdict serves only the request that asked for it. `fresh`, declared on the function, bounds how old an answer may be by the as-of time the evaluator reports, and an answer older is refused as `temporal`, so an adapter may cache to save calls only while it stamps its answers honestly. Where a function declares no `fresh`, the bound is zero: only a live answer is used, and one the evaluator stamps earlier than the moment the engine asked is refused as `temporal`. The author: "go for A and the fresh limit should be a configuration param if user choose to set it, otherwise it may default to 0 to indicate no cache"; taken as the declared `fresh`, so a change to it is a recorded publish.
+4. **A correction replaces the wrong value for the span it was held, explicitly** (§1 finding 4). A transition marked `corrects` replaces the value each attribute it corrects holds now, from when that value was written: the index of who held what, and when, reads the corrected value over that span, so a metric credits the right holder, as an observation's correction replaces its fact for guards and metrics (PRD D4). It is explicit, so its context is always recoverable: the original write's event is never changed, and history shows it and then the correction; the correction's event names each attribute, the value it replaces, the new value, the span it corrects (from the position and occurred time the replaced value was written), the reason and the actor; and every interval row it relabels carries `.corrected_by`, its event, so a figure can be traced to the corrections behind it and a metric can leave them out or show them. A correction reaches only the value an attribute holds now; a wrong value an ordinary change has since replaced is not correctable this way. The author: "b sounds more comprehensive, but I do want the correction to be explicit, so that we can always recover the context".
+
+## 5. The triage of the rest
+
+Each finding is decided here, the overlaps between reports merged; references are §1 (K), §2 (M) and §3 (B) by finding number. A decision states what the specification will say; where a worked scenario or example already determined it, the scenario stands.
+
+**Recording and correction.**
+1. (K1) `max_recording_delay` is the model's `occurred within`: a supplied occurred time is no further back than the bound and not after the recorded time; omitted, the occurred time is the recorded time and a request supplying one is refused by `occurred_within`. `backdating_limit` reads the same way for a transition. §6 gains the conversion, and an example's request may give an `occurred_at`.
+2. (K2, B1) A correction takes the occurred time of the observation it corrects, since it replaces that fact, supplies none of its own, and is exempt from `occurred_within` as it is from `subject_open`.
+3. (K3, B4) An invariant may not read an observation collection (step 3): a recorded fact matters to the flow only through a guard (ADR-0099). A recording re-checks its kind's own invariants and nothing else, and advances no version.
+4. (B2) Guards, metrics and aggregates see only uncorrected observations; `get` and `query` of a kind return both, each with the observation that corrects it; `history` of a subject returns its own events, an observation's recording being its own; `export` keeps both.
+5. (B3) `subject_open` reads the subject's state before the request, so a transition's outcome may record on its own object while entering a final state, which is how it records what it decided on.
+6. (B5) A correction's subject is the corrected observation's; a request giving another is refused as `invalid input`.
+
+**Publishing and migration.**
+7. (B6, K11, M20) "Live" in the rules of publishing, reporting and tracking means every object of the type, final ones included, observations excepted; DESIGN.md §14 defines live as not in a final state where it is used of referrers.
+8. (B7) A migration is one transition per object, carrying every mapping that reaches it, its invariants checked once over the row it leaves; objects are migrated in ascending id order.
+9. (K6) Within that transition the mappings apply in one order: renames, removed members, removed states, then backfills in the order written, each backfill reading the object as the mappings before it left it and naming this version's members. A backfill writes every object of its type; one that fills only an absent value says so, `if x is null then … else x`.
+10. (B8) A publish adds columns and renames first, applies the mappings, and only then replaces a `CHECK` or adds a constraint.
+11. (B9) Decided with §4's first decision: a new invariant is evaluated over the objects as the mappings leave them.
+12. (B10) The approval's comparison of reports is per impact category; the list of changes the publish will supersede is reported and not compared.
+13. (B11) The dry run fixes its `now`, recorded on the report, and the approval's recomputation uses it; it consults no evaluator and no metric, listing the guards that read one as not evaluated, as `availability` does.
+14. (B12) Each impact has a severity: an invariant violated after the publish is a decision, resolved as §4's first decision says; an object in a removed state or holding a removed member with no mapping, and a required value with no backfill, are fatal; a clause newly enforced that would refuse objects, transitions gained or lost, proposals invalidated, changes superseded, and an admission on objects in a final state are notices.
+15. (B13, K10) A publish invalidates a pending proposal whose transition it removes, whose input it no longer takes, or one of whose input values its type no longer holds; mappings never rewrite a proposal's inputs. An example may expect `proposal: invalidated`.
+16. (B14) A member a publish makes tracked opens its interval at the event that first gives it a value in the publish, an object's migration where a backfill writes it, else the publish event; a publish that stops tracking a member closes its open intervals at the publish event.
+17. (B15) A migration leaves `state_source` as it was (ADR-0105), so an object whose state an assertion set stays listed by `exceptions` until a transition changes its state; storage's definition says "a migration's excepted".
+18. (B16) A change to an observation kind with recorded observations: a new required field is refused (as now); a new invariant applies to recordings after the publish, its present violators reported as a notice, and the harness exempts an observation recorded before the invariant existed.
+19. (K7) A rename keeps its attribute's type and optionality, or step 3 refuses it; it carries the attribute's history, its intervals included; it does not apply to an observation kind's fields.
+20. (K8) A removed state mapped to a final state drives no cascade, so the publish is refused where an object in it has parts the mapping would strand; a mapping into a superseding state is refused.
+21. (K9) An object's `declaration_version` is the version of its latest event: a migration moves it, and an object no publish writes keeps its own.
+22. (M19) Interval rows gain `.migrated`, true on a span a migration opened, and the standard metrics leave such spans out as they leave out migrated events.
+
+**The import.**
+23. (B17) `import_batch` is one transaction: a refusal refuses the batch, naming the first row it could not place, and a resumed run sends the batch again.
+24. (B18) An object whose legacy key has arrived is refreshed, and a refresh that changes nothing writes no event and does not move `imported_at`.
+25. (B19) `import_batch` takes the decided disposition file. A class applies to every object in it at import, an object newly in an `ADMIT` class admitted with that class's reason; an object in a `CLEAN_UPSTREAM` class refuses the batch; a reference into an excluded object is a class of its own in the dry run, decided like any other.
+26. (B20) Admissions recorded at import are listed by `exceptions`; the import's exclusion covers the states it asserts.
+27. (B21) The import evaluates the mirror's installed declaration, and a mirror may declare invariants; the owned version's violations surface in the cutover publish, whose `admit` is counted.
+28. (B22) `.recorded_from` is per object and read from intervals: where an object's current interval begins at the port, it is the port.
+29. (B23) The built-in assertion is exempt from a declared assertion's rules: it may write attributes with the state unchanged, and write an object in a final state, as a refresh mirrors the legacy record.
+30. (B24) A refresh whose legacy times precede the object's latest interval entry is refused, which refuses the batch, naming the object.
+31. (B25) On import, every personal attribute of an object whose erasure is recorded is skipped, and the rest of the row applied.
+32. (B26, M17) An interval a port or a refresh opens records the legacy changer where the mapping names one, as a ported actor, and otherwise the kind `unknown`, never the importing actor; a scenario saying otherwise is corrected.
+33. (B27) A field about another object moves to it only where that object is held when the entry is attached; otherwise it is not ported, and the dry run reports such fields as a class to decide.
+
+**Evaluators.** Decided with §4's third decision, and:
+34. (K13) An argument that is absent makes no call: the guard is unknown and refused with its condition's remedy. A request consults the evaluator guards of every transition its declaration can reach, their arguments resolved against committed state; one whose argument the outcome writes is refused at publish (check 61).
+35. (K14, K15) `fresh` takes the general duration; an evaluator's argument takes only `type` or `reference` and `description`.
+
+**Erasure.** Decided with §4's second decision, and:
+36. (K18) An erasure records an admission only for an invariant it leaves violated, as a declared admission is recorded only where the request breaks it; the customers module's `overrides` says it counts erasures and migrations' admissions too.
+37. (K19) Each member's erasure in a chain receives the requested erasure's inputs by name; step 3 refuses a supersession whose members' erasures require different inputs.
+38. (B32) `not_erased` refuses only a value that is not absent, and never an erasure. Erasing an object already erased, directly or as a member of a group, records an `erased` event naming what it retried, such as a file deletion, and writes nothing else.
+
+**Proposals and flow changes.**
+39. (K20) Filing a proposal checks that the transition is proposable, the object exists and the inputs are of the transition's types, refusing as a request would; state and guards are evaluated at approval.
+40. (B35) `DeclarationChange`'s lifecycle is printed: `DRAFTED`, `SUBMITTED`, and the final `PUBLISHED`, `REJECTED`, `WITHDRAWN` and `SUPERSEDED`. `revise` keeps a draft a draft and returns a submitted change to `DRAFTED`; `submit` is refused while the dry run is fatal; `refresh` stays `SUBMITTED`; `publish` and `reject` leave `SUBMITTED`; `withdraw` leaves either; a publish moves every other open change drafted against an older version to `SUPERSEDED`, a plain final state naming the publishing change.
+41. (B36) A refused approval is one attempt row naming the proposal, whatever the verdict; the proposal gets no event, and the verdict attached is that row, which a read of the proposal returns.
+42. (B37) A proposal may be filed with an expiry; an approval after it is refused as `unavailable`, and a read says it expired; without one, it does not expire.
+
+**Delivery.**
+43. (B28) Every event names a transition: a migration's `migrate`, an import's or a refresh's `import`, an erasure's redaction of another object `redact`; a filter by transition selects by these names, and one naming none selects every event.
+44. (B29) `pull` reads from the cursor it is given, and without one from the acknowledged cursor; `acknowledge` may move the cursor back, which is how a subscription is revived; death is derived for alerting and stops no pull; a revoked subscription's pull is refused.
+45. (B30) Lag is measured by recorded time.
+
+**The harness.**
+46. (B38) Reachability counts declared transitions and assertions, not the built-in assertion, under the object's current declaration; a mirror's objects and a retired type's are exempt.
+47. (B39) A part that survives by declaration, and a required attribute an admission covers, are exempt.
+48. (B40) A gap between the last legacy interval and the first recorded one is reported, not failed; any overlap with a silent span fails; order is by occurred time. DESIGN.md §7's "ends where" becomes "ends no later than".
+49. (B41) Any value written to a personal attribute of an object whose erasure is recorded fails the run; the attempt log holds requests' refusals, not operational calls'; rows a retention pruned are not missing.
+
+**Metrics.**
+50. (M1) The model states the broadcast: an input without a dimension the combination names contributes its value to every group that differs only in it; a group only a broadcast input has gives no row.
+51. (M2) Settled by the scenario, and the D487 correction of the same day: a refusal is the requested transition's row.
+52. (M3) On a span, `.held` is the value after the writes of the transition that began it; "a creation's is absent" is a transition row's.
+53. (M18) `.held` on a span reads the member at the span's entry by position.
+54. (M4) A window counts an object as a gap only where the object existed before its `.recorded_from`; a piece inherits its span's gap.
+55. (M5, M22) A span accrues only while its object is open: a current span on an object in an unbroken closed stretch stops at the stretch's start, and `time_in` follows the same rule.
+56. (M6) Each aggregate is computed over the rows where its own body is present; `count()` counts rows.
+57. (M7) A flag whose condition is unknown is reported as unknown, not raised; §8.2's table gains a row for it.
+58. (M8) A flag is evaluated on the declared groups, whatever a read keeps, and a read returns each raised flag with its group.
+59. (M9, M10) Pieces are half-open, `[start, end)`, so no zero-length piece is made; a piece with no duration is kept where its start lies in the window; the window clips first, and a piece's members read the clipped piece everywhere, a filter included.
+60. (M11) A percentile's rank is computed exactly, the smallest integer at least `p × n`, and passed to either backend as an integer; a `p` outside `(0, 1]` is refused at publish.
+61. (M12, K16) `transition_count` counts the named transition's events, with the standard metrics' exclusions, and the rule against a shared source and target goes.
+62. (M13) `median_time_in_state` is the median `.duration` of the spans in the state.
+63. (M14) A member reaching no value counts under the absent value too; two set-valued dimensions are taken per member, never crossed.
+64. (M15) A reader's `filter` on a combined metric is refused; its inputs are read and filtered instead.
+65. (M16) `.returns` reads every interval the index holds, legacy ones included, a migrated state counting as the state it was mapped to.
+66. (M21, M23, M24) A metric's expression is computed exactly and rounded once, half to even, at the end; a `sum` is not bounded by its element's precision; a duration's resolution is the second.
+67. (M25, M26) §4.9's summary names split metrics; a bucket is a string, `YYYY-MM-DD`, `YYYY-Www` of the ISO week-year, `YYYY-MM`, `YYYY-Qn` or `YYYY`.
+
+**The model's remaining details.**
+68. (K17) Coverage applies to every transition into a final state, an assertion whose `to` lists one included; check 37 agrees.
+69. (K21) Every form of uniqueness is partial over absent values.
+70. (K22) A `unique` declared on a base spans the family, the type scan it expands to ranging over every subtype.
+71. (K23) A `range` is an `int` (step 3), and an absent or non-positive one runs no step.
+72. (K24) A `result` or loop item sharing a name with a member is refused (step 3), and a `result` bound in a loop is visible only within it.
+73. (K25) An abstract base declares no `summary`; each subtype declares its own.
+74. (K26) `cascaded` is the exact sequence, in execution order, of the transitions a request causes on other objects, calls, creations, cascades and a group's erasures, as the runner already compares it.
+75. (K27) A generated guard names: `subject_open` and `subject_owned` the subject, `corrects_current` the correction already recorded, `successor_not_superseded` the successor, `whole_open` the destination whole, and `not_erased`, `occurred_within` and `actor_known` none.
+76. (K28) A refusal names the references outside any aggregate and the elements the outermost aggregate's filter selects; a nested aggregate adds none, and a bound name is not a reference.
+77. (K29) A `unique` expands to a type scan over the other objects; its refusal names the written object, its conflicting objects the existing holders, which are not re-checked.
+78. (K30) A type's invariants are in this order: declared, in the order written; inherited, in the base's order; a machine's; then the generated, `<state>_invariant` by state and `<attribute>_unique` by attribute.
+

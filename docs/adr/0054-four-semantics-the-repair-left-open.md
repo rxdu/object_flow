@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D43 to D46, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0074 — an admissible invariant is not compiled to a database constraint; ADR-0077 — the partial verdict of `check` has a shape, `Checked`. ADR-0100 — execution step 7 performs decision 4's discharge and records the discharging position. ADR-0105 — the built-in assertion is the import's alone; a migration is not an assertion.
+- **Refined by:** ADR-0074 — an admissible invariant is not compiled to a database constraint; ADR-0077 — the partial verdict of `check` has a shape, `Checked`. ADR-0100 — execution step 7 performs decision 4's discharge and records the discharging position. ADR-0105 — the built-in assertion is the import's alone; a migration is not an assertion. ADR-0146 — a publish leaves no object in a violation nobody admitted.
 - **Refines:** ADR-0038, ADR-0040, ADR-0027, ADR-0049
 
 ## Context
