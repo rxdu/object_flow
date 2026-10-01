@@ -979,12 +979,14 @@ class Store:
             o.created_at = when(imp["created"]) if imp.get("created") else min(known)
             o.undated = not imp.get("created")
             o.created_by_kind = imp.get("created_by", "unknown")
+            # a member's interval records the legacy changer its own line names, and `unknown` where it names none, never
+            # the state's changer nor the importing actor (ADR-0146)
             for m, spans in (imp.get("legacy_members") or {}).items():
-                o.members[m] = [[v, when(a), when(b), imp.get("entered_by", "unknown"), True] for v, a, b in spans]
+                o.members[m] = [[sp[0], when(sp[1]), when(sp[2]), sp[3] if len(sp) > 3 else "unknown", True] for sp in spans]
             for m in self.tracked(o.type):
                 entered = (imp.get("member_entered") or {}).get(m)
                 o.members.setdefault(m, []).append([o.attrs.get(m), when(entered) if entered else port, None,
-                                                    imp.get("entered_by", "unknown"), False])
+                                                    (imp.get("member_entered_by") or {}).get(m, "unknown"), False])
             o.state_source = "imported"
             silent = imp.get("silent")
             o.recorded_from = (when(silent[1]) if silent else o.created_at if imp.get("created") else port)

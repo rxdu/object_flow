@@ -602,8 +602,12 @@ def part_coverage(tn, t, an, target, part, clauses, survives, here, finals):
     for w in sorted(covered & kept):
         out.append((here, "names", f"{tn}.{an} both cascades on and survives '{w}'"))
     for xn, x in (t.get("transitions") or {}).items():
-        if x["kind"] == "external" and x.get("to") in finals and xn not in covered | kept:
-            out.append((here, "names", f"{tn}.{xn} enters the final state {x['to']}, and {tn}.{an} neither cascades on it nor survives it"))
+        # every transition into a final state, an assertion whose `to` lists one included (ADR-0146)
+        into = ([x.get("to")] if x["kind"] == "external" else
+                [s for s in (x.get("to") if isinstance(x.get("to"), list) else [x.get("to")]) if s] if x["kind"] == "assertion" else [])
+        final = [s for s in into if s in finals]
+        if final and xn not in covered | kept:
+            out.append((here, "names", f"{tn}.{xn} enters the final state {final[0]}, and {tn}.{an} neither cascades on it nor survives it"))
     return out
 
 
@@ -1028,7 +1032,7 @@ def name_errors(doc, library=None, ordered=True):
         out += write_type_errors(doc, tn, t, library)
         out += conditional_step_errors(tn, t)
         out += (read_errors(tn, t, set(doc.get("categories") or []) | BUILT_IN_CATEGORIES | evaluator_names(doc))
-                + indexed_errors(tn, t, library) + scan_errors(tn, t, library) + identifier_errors(doc, tn, t, library) + evaluator_errors(doc, tn, t)
+                + indexed_errors(tn, t, library) + scan_errors(tn, t, library) + observation_read_errors(tn, t) + identifier_errors(doc, tn, t, library) + evaluator_errors(doc, tn, t)
                 + supersession_errors(doc, tn, t, library))
         out += override_errors(doc, tn, t, library)
         for mn, m in (t.get("metrics") or {}).items():
@@ -1247,6 +1251,15 @@ def write_type_errors(doc, tn, t, library):
     out = []
     for xn, x in (t.get("transitions") or {}).items():
         for st, kind, path, _d in walk(x.get("effect")):
+            if kind == "foreach" and "range" in st["foreach"]:
+                # a range counts from 1 to an int, an absent or non-positive one running no step (ADR-0146)
+                try:
+                    got = value_kind(flowexpr.parse(" ".join(str(st["foreach"]["range"]).split())), tn, t, x, enums)
+                except flowexpr.ParseError:
+                    got = None
+                if got and got not in (("int",), ("number",)):
+                    out.append((("types", tn, "transitions", xn, "effect") + path + ("foreach", "range"), "names",
+                                f"{tn}.{xn} loops over a range of {' '.join(got)}, and a range is an int"))
             if kind != "assign":
                 continue
             target = written_kind((t.get("attributes") or {}).get(st["assign"]["location"]), enums)
@@ -1379,6 +1392,24 @@ def stores(spec, library):
     it does unless its opposite is also single and it is not the end marked stored."""
     other = ((library.get(spec["reference"]) or {}).get("attributes") or {}).get(spec.get("opposite"))
     return other is None or str(other.get("reference", "")).endswith("[]") or bool(spec.get("stored"))
+
+
+def observation_read_errors(tn, t):
+    """No invariant reads an observation collection, directly or through a derived attribute: a recorded fact matters to
+    the flow only through a guard, and a recording re-checks only its own kind's invariants (ADR-0099, ADR-0146)."""
+    kinds = set(t.get("observations") or {})
+    if not kinds:
+        return []
+    derived = {d: reads(spec["expression"]) & kinds for d, spec in (t.get("derived_attributes") or {}).items()}
+    out = []
+    for n, inv in (t.get("invariants") or {}).items():
+        names = reads(inv["expression"])
+        hit = (names & kinds) | {k for d in names & set(derived) for k in derived[d]}
+        if hit:
+            out.append((("types", tn, "invariants", n), "names", f"invariant {n} reads the observations {', '.join(sorted(hit))}; "
+                                                              "a recorded fact matters to the flow only through a guard, so no "
+                                                              "invariant reads one"))
+    return out
 
 
 def scan_errors(tn, t, library):
@@ -1646,7 +1677,8 @@ OBJECT_ROW = {"id", "state", "open", "created_at", "created_by_kind", "recorded_
               "entered_at", "time_in", "intervals", "transitions", "attempts"}
 KIND_ROW = {"subject", "corrects", "occurred_at", "recorded_at", "recorded_by_kind", "declaration_version"}
 DATASET_ROWS = {
-    "intervals": {"object", "state", "entered_at", "left_at", "duration", "entered_by_kind", "declaration_version", "legacy", "held"},
+    "intervals": {"object", "state", "entered_at", "left_at", "duration", "entered_by_kind", "declaration_version", "legacy", "held",
+                  "corrected_by"},
     "transitions": {"object", "transition", "from_state", "to_state", "completes", "returns", "occurred_at", "recorded_at",
                     "actor_id", "actor_kind", "asserted", "overrides", "imported", "migrated", "redacted", "reason",
                     "declaration_version", "held"},
@@ -1903,6 +1935,26 @@ def supersession_errors(doc, tn, t, library):
             elif who not in bound:
                 out.append((where + ("effect",) + path, "names", f"{tn}.{xn} supersedes with {who}, which is neither an input nor a "
                                                                "name a create at the top level of the effect binds (check 49)"))
+    # the group a supersession joins is erased together, each member's erasure receiving the request's inputs, so the
+    # types it joins require the same inputs of their erasures (ADR-0146)
+    def erasure_needs(tt):
+        ex = [x for x in ((tt or {}).get("transitions") or {}).values() if x["kind"] == "erasure"]
+        return None if not ex else {i for i, sp in (ex[0].get("inputs") or {}).items() if not (sp or {}).get("optional")}
+    for xn, x in (t.get("transitions") or {}).items():
+        for st, kind, path, _d in walk(x.get("effect")):
+            if kind != "supersede":
+                continue
+            who = " ".join(str(st["supersede"]).split())
+            m = re.fullmatch(r"inputs\.([a-z][a-z0-9_]*)", who)
+            ref = str(((x.get("inputs") or {}).get(m.group(1)) or {}).get("reference", "")) if m else ""
+            made = [c["create"]["type"] for c, ck, _p, _dd in walk(x.get("effect")) if ck == "create" and c["create"].get("result") == who]
+            other = ref.rstrip("[]") or (made[0] if made else "")
+            mine, theirs = erasure_needs(t), erasure_needs(library.get(other))
+            if other and other != tn and mine is not None and theirs is not None and mine != theirs:
+                out.append((("types", tn, "transitions", xn, "effect") + path, "names",
+                            f"{tn}.{xn} supersedes with a {other}, whose erasure requires {', '.join(sorted(theirs)) or 'no input'} "
+                            f"where {tn}'s requires {', '.join(sorted(mine)) or 'no input'}; a group's erasures receive one "
+                            "request's inputs, so they require the same"))
     takes_part = any(v.get("superseding") for v in states.values())
     for other in library.values():
         for x in (other.get("transitions") or {}).values():
@@ -3434,6 +3486,11 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
                      "      close:\n        kind: external\n        from: any\n        to: CLOSED\n        effect:\n"
                      "          - assign: { location: note_kind, expr: actor.kind }\n"),
                "    attributes:\n", "    attributes:\n      note_kind: { type: string, optional: true }\n")),
+        ("an invariant reading an observation collection", "names", "service.yaml",
+         plant(service, "\n    conditions:\n", "\n    invariants:\n      few_failures:\n        description: A planted invariant.\n"
+                        "        expression: count(r in inspections where r.outcome == CheckOutcome.FAIL) <= 2\n\n    conditions:\n")),
+        ("an override into a final state its parts neither cascade on nor survive", "names", "customers.yaml",
+         plant(customers, "        to: [PROSPECT, ACTIVE, DORMANT]\n", "        to: [PROSPECT, ACTIVE, DORMANT, CLOSED]\n")),
         ("a condition named as a generated guard", "names", "customers.yaml",
          plant(plant(customers, "      no_open_orders:\n", "      not_erased:\n"), "          no_open_orders: deny", "          not_erased: deny")),
         ("a successor a request may leave out", "names", "customers.yaml",
@@ -3980,6 +4037,22 @@ def scan_plant(people):
     return ok
 
 
+def group_erasure_plant(people):
+    """The group a supersession joins is erased in one request, each member's erasure receiving its inputs, so the types
+    it joins require the same inputs of their erasures (ADR-0146): a customer superseded by a contact whose erasure
+    requires a ticket the customer's does not is refused."""
+    cu = (EXAMPLES / "customers.yaml").read_text()
+    old_ref = "          successor: { reference: Customer }\n"
+    old_in = "        only_via: [Customer.forget]\n        inputs:\n          reason: { type: string }\n"
+    assert cu.count(old_ref) == 1 and cu.count(old_in) == 1
+    text = cu.replace(old_ref, "          successor: { reference: Contact }\n").replace(
+        old_in, old_in + "          ticket: { type: string }\n")
+    found, _ = check([("people.yaml", people), ("customers.yaml", text)])
+    hit = any("whose erasure requires reason, ticket where Customer's requires reason" in f[4] for f in found)
+    print(f"  a supersession joining types whose erasures require different inputs is refused: {'yes' if hit else 'NO ' + str([f[4] for f in found][:2])}")
+    return hit
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -4087,6 +4160,7 @@ def main():
     ok &= proposal_plants(people)
     ok &= date_plant(people)
     ok &= scan_plant(people)
+    ok &= group_erasure_plant(people)
     sys.exit(0 if clean and ok else 1)
 
 

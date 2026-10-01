@@ -166,7 +166,7 @@ types:
 
     metrics:
       overrides:
-        description: How many times a customer's state was overridden, by reason.
+        description: How many overrides a customer's events record, by reason, an erasure that leaves an invariant violated and a migration's admission counted with a state overridden.
         source: transitions
         item: t
         filter: t.overrides
@@ -227,7 +227,7 @@ types:
         expression: invoice_number is not null
         remedy: unreachable_from_here
       invoice_valid_in_xero:
-        description: The order's invoice is valid in Xero, as Xero said within the last half hour.
+        description: The order's invoice is valid in Xero, by an answer no older than half an hour, as Xero reports it.
         expression: xero.invoice_valid(invoice_number)
         remedy: dependent
 

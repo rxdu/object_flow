@@ -547,6 +547,8 @@ class Evaluator:
         if isinstance(base, Row):
             if m in base:
                 return base[m]
+            if m == "corrected_by":
+                return ABSENT                   # a span no correction relabelled (ADR-0146)
             raise NotRunnable(f"the member `{m}` of a row of an object's flow data")
         if isinstance(base, tuple) and base[0] == "state" and m == "category":
             return ("category", ((self.s.kinds.get(base[1]) or {}).get("states") or {}).get(base[2], {}).get("category"))
@@ -822,6 +824,12 @@ class Evaluator:
 
     def call(self, e, env):
         fn, args = e[1], e[2]
+        if fn[0] == "path" and fn[1][0] == "name" and fn[1][1] not in env and fn[1][1] != "this" \
+                and fn[1][1] not in (self.t.get("attributes") or {}):
+            # an evaluator is asked nothing where an argument is absent: its guard is unknown, refused with the condition's
+            # own remedy, not as an unanswered call (ADR-0146)
+            if any(self.value(a, env) is ABSENT for a in args):
+                return ABSENT
         if fn[0] == "path" and fn[1][0] == "name" and f"{fn[1][1]}.{fn[2]}" in self.stubs:
             answer = self.stubs[f"{fn[1][1]}.{fn[2]}"]
             if answer == "unanswered":
@@ -1372,10 +1380,14 @@ class Runner:
             if "corrects" in inputs:
                 corrected = work.objects[inputs["corrects"]]
                 if corrected.attrs.get("subject") != subject.id:
-                    raise NotRunnable("a correction naming a datapoint of another subject, whose refusal the design does not state")
+                    # a correction's subject is the corrected observation's (ADR-0146)
+                    raise Refused("invalid_input", remedy="self_serviceable", detail="corrects an observation of another subject")
                 if any(other.attrs.get("corrects") == corrected.id for other in work.objects.values()):
                     raise Refused("unsatisfied", "corrects_current", GENERATED_REMEDY["corrects_current"])
-            elif work.final(subject):       # a correction may be recorded after the subject is finished (DESIGN.md §5.11)
+            elif work.final((ctx.before.objects.get(subject.id) if ctx.before else None) or subject) \
+                    and (not ctx.before or subject.id in ctx.before.objects):
+                # a correction may be recorded after the subject is finished (DESIGN.md §5.11); otherwise the subject is read
+                # as the request found it, so an outcome may record on its own object as it enters a final state (ADR-0146)
                 raise Refused("unsatisfied", "subject_open", GENERATED_REMEDY["subject_open"])
             if (self.kinds.get(subject.type) or {}).get("mirror"):
                 raise Refused("unsatisfied", "subject_owned", GENERATED_REMEDY["subject_owned"])
@@ -1412,7 +1424,9 @@ class Runner:
                     o.attrs[a] = Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs).value(flowexpr.parse(str(spec["default"])), {})
             if xn == "record" and "subject" in inputs:
                 o.attrs["recorded_at"] = work.now
-                o.attrs["occurred_at"] = work.now
+                # a correction replaces the fact it corrects, so it keeps that fact's occurred time (ADR-0146)
+                corrected = work.objects.get(inputs["corrects"]) if "corrects" in inputs else None
+                o.attrs["occurred_at"] = corrected.attrs.get("occurred_at", work.now) if corrected else work.now
         else:
             o = work.objects[oid]
             if x["kind"] == "external":
@@ -1457,6 +1471,20 @@ class Runner:
         now_values = self.tracked_values(o)
         for m, v in now_values.items():
             spans = o.spans.setdefault(m, [])
+            if m in (x.get("corrects") or []) and spans and spans[-1]["left_at"] is ABSENT and held.get(m, ABSENT) != v:
+                # a correction replaces the wrong value for the span it was held, explicitly: the span is relabelled and
+                # carries the correction, and every value held then, by a span or an event of the object begun within it,
+                # reads the corrected one; the original event is not changed (ADR-0146)
+                wrong, since = spans[-1]["value"], spans[-1]["entered_at"]
+                spans[-1]["value"], spans[-1]["corrected_by"] = v, pos
+                for rows in o.spans.values():
+                    for row in rows:
+                        if row["entered_at"] >= since and row["held"].get(m) == wrong:
+                            row["held"][m] = v
+                for ev in work.events:
+                    if ev["object"] == o.id and ev["occurred_at"] >= since and ev["held"].get(m) == wrong:
+                        ev["held"][m] = v
+                continue
             if created or not spans or held.get(m, ABSENT) != v:
                 if spans and spans[-1]["left_at"] is ABSENT:
                     spans[-1]["left_at"] = work.now
@@ -1490,7 +1518,10 @@ class Runner:
             "completes": bool(before_state) and is_open(before_state) and not is_open(o.state),
             "returns": bool(before_state) and before_state != o.state and o.state in visited,
             "occurred_at": work.now, "recorded_at": work.now, "actor_id": ctx.who["id"], "actor_kind": ctx.who["kind"],
-            "asserted": x["kind"] == "assertion", "overrides": x["kind"] == "assertion", "imported": False, "migrated": False,
+            # an erasure is an override only where it leaves an invariant violated, which it admits (ADR-0146)
+            "asserted": x["kind"] == "assertion",
+            "overrides": x["kind"] == "assertion" or (x["kind"] == "erasure" and bool(self.failing_invariants(work, o))),
+            "imported": False, "migrated": False,
             "redacted": False, "reason": reason, "declaration_version": 1, "held": held})
 
     def effects(self, ctx, tn, o, steps, inputs, env, depth):
@@ -1574,9 +1605,7 @@ class Runner:
             elif kind == "foreach":
                 if "range" in spec:
                     n = ev(flowexpr.parse(spec["range"]))
-                    if n is ABSENT:
-                        raise NotRunnable("a loop over an absent range")
-                    items = list(range(1, n + 1))
+                    items = [] if n is ABSENT else list(range(1, int(n) + 1))   # absent or non-positive: no step (ADR-0146)
                 else:
                     coll = ev(flowexpr.parse(spec["array"]))
                     if coll is ABSENT or not isinstance(coll, tuple):
@@ -1681,7 +1710,9 @@ class Runner:
             erasures = [n for n, xx in ((self.kinds.get(m.type) or {}).get("transitions") or {}).items() if xx["kind"] == "erasure"]
             if not erasures:
                 raise NotRunnable(f"erasing {m.type}, a member of the chain, which declares no erasure")
-            self.take(ctx, m.type, erasures[0], member, {k: v for k, v in inputs.items() if k == "reason"}, depth + 1)
+            # each member's erasure receives the requested erasure's inputs by name (ADR-0146)
+            takes = set(((self.kinds.get(m.type) or {}).get("transitions") or {})[erasures[0]].get("inputs") or {})
+            self.take(ctx, m.type, erasures[0], member, {k: v for k, v in inputs.items() if k in takes}, depth + 1)
 
     def invariant_remedy(self, work, x, obj, n, requested):
         """The remedy DESIGN.md §5.5 infers for an invariant that fails, a property of the transition requested:
@@ -1905,8 +1936,18 @@ def step(runner, store, st, aliases, stubs, under_test=False):
         advance(store, r)
         oid = aliases[r["object"]] if "object" in r else None
         tn = store.type_of(oid) if oid else r["type"]
-        if not ((runner.kinds.get(tn) or {}).get("transitions") or {}).get(r["transition"], {}).get("proposable"):
+        x = ((runner.kinds.get(tn) or {}).get("transitions") or {}).get(r["transition"], {})
+        if not x.get("proposable"):
             raise ExampleError(f"{tn}.{r['transition']} is not proposable, so no proposal of it can be filed")
+        # filing checks the inputs as a request would, and leaves the object's state and the guards to approval (ADR-0146)
+        attrs, declared = (runner.kinds.get(tn) or {}).get("attributes") or {}, x.get("inputs") or {}
+        for k, v in (r.get("inputs") or {}).items():
+            spec = declared.get(k) if k in declared else attrs.get(k)
+            if k not in set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared):
+                raise Refused("invalid_input", remedy="self_serviceable", detail=f"no input {k}")
+            if "reference" in (spec or {}) and not all(a in aliases and store.is_a(store.type_of(aliases[a]), spec["reference"].rstrip("[]"))
+                                                       for a in (v if isinstance(v, list) else [v])):
+                raise Refused("invalid_input", remedy="self_serviceable", detail=f"{k} names no {spec['reference']}")
         store.counter += 1
         key = f"proposal-{store.counter}"
         store.proposals[key] = {"type": tn, "object": oid, "transition": r["transition"], "inputs": r.get("inputs"),
@@ -2117,7 +2158,7 @@ def self_test():
         got = (e.verdict, e.clause)
     check("a metric guard on caused transitions, read as the request found the store", got, ["Line.pack", "Line.pack", "Line.pack"])
     k = copy.deepcopy(kinds)
-    k["Order"]["conditions"] = {"paid": {"expression": "xero.invoice_paid(note)", "remedy": "dependent"}}
+    k["Order"]["conditions"] = {"paid": {"expression": "xero.invoice_paid(id)", "remedy": "dependent"}}
     k["Order"]["transitions"]["settle"] = {"kind": "internal", "from": ["OPEN"], "guards": {"paid": "deny"}}
     for answer, want in (("satisfied", "applied"), ("unsatisfied", ("unsatisfied", "dependent")),
                          ("unanswered", ("unsatisfied", "temporal"))):
@@ -2128,6 +2169,15 @@ def self_test():
         except Refused as e:
             got = (e.verdict, e.remedy)
         check(f"an evaluator that answers {answer}", got, want)
+    # an argument that is absent makes no call: the guard is unknown, refused with the condition's own remedy (ADR-0146)
+    k["Order"]["conditions"]["paid"]["expression"] = "xero.invoice_paid(note)"
+    r, s = Runner(k, {}), Store(k, {})
+    order = r.attempt(s, "Order", "open", None, OPERATOR, {}, {}, {})[1]
+    try:
+        got = r.attempt(s, "Order", "settle", order, OPERATOR, {}, {}, {"xero.invoice_paid": "satisfied"})[0]
+    except Refused as e:
+        got = (e.verdict, e.remedy)
+    check("an evaluator asked nothing where its argument is absent", got, ("unsatisfied", "dependent"))
     # slice 4a: a document signed off, edited, sent back, and timed, over its own history
     doc = {"Operator": kinds["Operator"], "Doc": {
         "attributes": {"note": {"type": "string", "optional": True}, "signed": {"type": "event", "optional": True}},
@@ -2167,6 +2217,28 @@ def self_test():
           ("unsatisfied", "waited"))
     _v, s, d = history("submit", 600, "back", 60, "submit")
     check("when it last entered a state", Evaluator(s, "Doc", d).value(flowexpr.parse("entered_at(REVIEW)"), {}) - timestamp(CLOCK_START), 660)
+    # a correction replaces the wrong value for the span it was held, explicitly (ADR-0146): the crew span is relabelled
+    # and carries the correction, and the WORKING span and the start event begun within it credit the right crew
+    jobs = {"Operator": kinds["Operator"], "Job": {
+        "attributes": {"crew": {"type": "Crew"}},
+        "states": {"OPEN": {"category": "live"}, "WORKING": {"category": "live"}, "DONE": {"category": "closed", "final": True}},
+        "transitions": {"open": {"kind": "initial", "to": "OPEN", "required_inputs": ["crew"]},
+                        "start": {"kind": "external", "from": ["OPEN"], "to": "WORKING"},
+                        "fix_crew": {"kind": "internal", "from": ["OPEN", "WORKING"], "corrects": ["crew"],
+                                     "required_inputs": ["crew"], "inputs": {"reason": {"type": "string"}}}}}}
+    r, s = Runner(jobs, {"Crew": ["NORTH", "SOUTH"]}), Store(jobs, {"Crew": ["NORTH", "SOUTH"]})
+    j = r.attempt(s, "Job", "open", None, OPERATOR, {"crew": "Crew.NORTH"}, {}, {})[1]
+    r.attempt(s, "Job", "start", j, OPERATOR, {}, {}, {})
+    r.attempt(s, "Job", "fix_crew", j, OPERATOR, {"crew": "Crew.SOUTH", "reason": "mis-keyed"}, {}, {})
+    o = s.objects[j]
+    spans = o.spans["crew"]
+    check("a correction relabels the span it corrects, marking it", (len(spans), spans[0]["value"], "corrected_by" in spans[0]),
+          (1, ("enum", "Crew", "SOUTH"), True))
+    check("a span begun within the corrected one credits the corrected value", o.spans["state"][-1]["held"]["crew"], ("enum", "Crew", "SOUTH"))
+    start = next(ev for ev in s.events if ev["object"] == j and ev["transition"] == "start")
+    check("an event taken within it does too, and the original write's event is not changed",
+          (start["held"]["crew"], next(ev for ev in s.events if ev["transition"] == "open")["held"].get("crew", ABSENT)),
+          (("enum", "Crew", "SOUTH"), ABSENT))
     # a request failing two generated guards is refused naming the first in the order flow-format.md §4.8 states
     wallet = {"attributes": {"cards": {"reference": "Card[]", "aggregation": "composite", "opposite": "wallet"}},
               "states": {"OPEN": {"category": "live"}, "SHUT": {"category": "closed", "final": True}},

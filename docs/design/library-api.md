@@ -606,9 +606,11 @@ class Store(Protocol):
     def declaration(self, actor: Actor, type: str,
                     version: int | None = None) -> Mapping[str, Any]: ...
 
+    # from the cursor given, else the acknowledged one; refused for a revoked subscription (ADR-0146)
     def pull(self, actor: Actor, subscription: str,
              cursor: str | None = None) -> EventPage: ...
 
+    # back as well as forward: moving it back revives the subscription there (ADR-0146)
     def acknowledge(self, actor: Actor, subscription: str,
                     cursor: str) -> None: ...
 
@@ -625,7 +627,9 @@ class Store(Protocol):
     def diagnostics(self, actor: Actor, type: str,
                     window: timedelta) -> Sequence[Diagnostic]: ...
 
+    # one transaction per batch, applying the decided disposition file by class (ADR-0146)
     def import_batch(self, actor: Actor, batch: "ImportBatch",
+                     disposition: "DispositionFile",
                      dry_run: bool = False) -> "ImportReport": ...
 
     def maintain(self, actor: Actor, task: "MaintenanceTask") -> int: ...   # rows it moved or removed

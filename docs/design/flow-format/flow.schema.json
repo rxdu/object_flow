@@ -1481,6 +1481,38 @@
         }
       ]
     },
+    "argument": {
+      "description": "An argument of an evaluator's function: its type or the type of object it names, and what it is.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\([A-Za-z0-9, ]+\\))?(\\[\\])?$",
+          "description": "A built-in type or an enumeration's name; [] makes the argument a set."
+        },
+        "reference": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9]*(\\[\\])?$",
+          "description": "The type of object the argument names; [] makes it a set of objects."
+        },
+        "description": {
+          "$ref": "#/definitions/description"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "required": [
+            "reference"
+          ]
+        }
+      ]
+    },
     "cascadeClause": {
       "type": "object",
       "required": [
@@ -1733,14 +1765,13 @@
             "$ref": "#/definitions/memberName"
           },
           "additionalProperties": {
-            "$ref": "#/definitions/input"
+            "$ref": "#/definitions/argument"
           },
           "description": "Its arguments, in the order a call passes them."
         },
         "fresh": {
-          "type": "string",
-          "pattern": "^[0-9]+ (s|min|h|days|weeks)$",
-          "description": "How old a verdict may be and still be used, such as 30 min."
+          "$ref": "#/definitions/duration",
+          "description": "The oldest an answer may be, by the as-of time the evaluator reports for it, such as 30 min; without it, only a live answer is used."
         }
       }
     },

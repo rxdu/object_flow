@@ -61,7 +61,7 @@ imported:
   - { object: L06, type: Robot, state: SOLD, created: 2025-08-04T00:00Z, entered: 2025-10-01T00:00Z, entered_by: human, legacy: [[REQUESTED, 2025-08-04T00:00Z, 2025-09-10T00:00Z], [INTAKE, 2025-09-10T00:00Z, 2025-09-12T00:00Z], [AVAILABLE, 2025-09-12T00:00Z, 2025-10-01T00:00Z]], attributes: { model: M-ROVER, label_printed_at: 2025-09-11T00:00Z, sold_to: C-ACME } }
   - { object: L07, type: Robot, state: REQUESTED, created: 2026-07-20T00:00Z, entered: 2026-07-20T00:00Z, entered_by: human, attributes: { model: M-ARM } }
   - { object: E01, type: Engagement, state: OUT, entered: 2026-08-25T00:00Z, entered_by: human, attributes: { kind: LEASE, expected_return: 2026-11-10T00:00Z } }
-  - { object: SJ1, type: ServiceJob, state: OPEN, created: 2026-08-24T00:00Z, created_by: human, entered: 2026-08-24T00:00Z, entered_by: human, legacy_members: { engineer: [[null, 2026-08-24T00:00Z, 2026-08-26T00:00Z], [U-BEN, 2026-08-26T00:00Z, 2026-08-29T00:00Z]] }, member_entered: { engineer: 2026-08-29T00:00Z }, attributes: { kind: REPAIR, robot: L06, customer: C-ACME, engineer: U-CHEN } }
+  - { object: SJ1, type: ServiceJob, state: OPEN, created: 2026-08-24T00:00Z, created_by: human, entered: 2026-08-24T00:00Z, entered_by: human, legacy_members: { engineer: [[null, 2026-08-24T00:00Z, 2026-08-26T00:00Z, human], [U-BEN, 2026-08-26T00:00Z, 2026-08-29T00:00Z, human]] }, member_entered: { engineer: 2026-08-29T00:00Z }, member_entered_by: { engineer: human }, attributes: { kind: REPAIR, robot: L06, customer: C-ACME, engineer: U-CHEN } }
 
 requests:
   - { at: 2026-09-01T01:00Z, actor: U-ANA, create: Agent, object: A-SCOUT, transition: issue, inputs: { key_id: scout, name: Scout } }
