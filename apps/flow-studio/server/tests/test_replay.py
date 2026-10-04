@@ -1,14 +1,20 @@
 """Slice 1's acceptance: every example replays through the wire with the
 verdict the reference runner gives it (`docs/design/flow-studio.md` §6)."""
 
+import pathlib
+import tempfile
+
 import pytest
 
-from flowstudio import catalogue
+from flowstudio.catalogue import Catalogue
 from flowstudio.sandbox import build
 from flowstudio.scripts import flowrun, flows
 from replay import replay
 
-FILES = [m["file"] for m in catalogue.modules() if m["examples"]]
+# the design's modules, read through a catalogue whose workspace is empty
+DESIGN = Catalogue(pathlib.Path(tempfile.mkdtemp()))
+FILES = [m["file"] for m in DESIGN.modules()
+         if m["examples"] and m["source"] == "design"]
 
 # what an example may wait on, and nothing else (ADR-0150, Consequences)
 WAITING = ("import_batch",)
@@ -16,7 +22,7 @@ WAITING = ("import_batch",)
 
 def oracle(module_file: str) -> dict[str, str]:
     """Each example's outcome as the flow checker's step 6 decides it."""
-    bundle = catalogue.bundle(module_file)
+    bundle = DESIGN.bundle(module_file)
     library, modules = build([(f["name"], f["text"])
                               for f in bundle["files"]])
     doc = flows.load(bundle["examples"]["text"])

@@ -19,15 +19,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="flowstudio")
     parser.add_argument("--port", type=int, default=int(config["server_port"]),
                         help="0 takes a free port, as a test does")
+    parser.add_argument("--workspace", type=pathlib.Path,
+                        default=CONFIG.parent / config["workspace"],
+                        help="where the author's own flows are edited")
     args = parser.parse_args()
     host = "127.0.0.1"
     origin = f"http://127.0.0.1:{int(config['web_port'])}"
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
-    server = serve(host, args.port, origin)
+    server = serve(host, args.port, args.workspace, origin)
     logging.getLogger("flowstudio").info(
-        "listening on http://%s:%d, for %s", host, server.server_address[1],
-        origin)
+        "listening on http://%s:%d, for %s, editing %s", host,
+        server.server_address[1], origin, args.workspace)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

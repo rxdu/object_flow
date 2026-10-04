@@ -3247,7 +3247,10 @@ def example_errors(doc, kinds, modules):
             xn = ex["request"]["transition"]
         requested.setdefault((tn, xn), []).append(name)
         here = path + ("expect",)
-        if missing and verdict != "invalid_input":
+        # a left-out input is refused as invalid_input, unless a refusal DESIGN.md §6 orders before it decides the request
+        # first: the actor, a transition only via others, or a state the transition does not leave (D517)
+        earlier = verdict in ("unavailable", "not_requestable") or (verdict == "unsatisfied" and want.get("clause") == "actor_known")
+        if missing and verdict != "invalid_input" and not earlier:
             out.append((here + ("verdict",), "names", f"the request leaves out {', '.join(missing)}, which is refused as invalid_input, "
                                                       f"and the example expects {verdict}"))
         elif unprovided and verdict == "applied":
@@ -4409,6 +4412,31 @@ def cluster3_plants(people):
     return ok
 
 
+def refusal_order_plant(people):
+    """A request leaving out an input its transition requires, from a state the transition does not leave, is refused
+    as unavailable, which DESIGN.md §6 orders before invalid_input; one expected to be refused later still is (D517)."""
+    service = (EXAMPLES / "service.yaml").read_text()
+    examples = (EXAMPLES / "service.examples.yaml").read_text().rstrip("\n")
+    opened = ("    given: two_engineers\n"
+              "    steps:\n"
+              "      - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }\n"
+              "    request: { object: job, transition: finish, actor: ana }\n")
+    early = examples + ("\n\n  a_job_just_opened_is_not_finished:\n"
+                        "    description: A job just opened cannot be finished, whatever the request leaves out.\n"
+                        + opened + "    expect: { verdict: unavailable }\n")
+    found, _ = check([("people.yaml", people), ("service.yaml", service), ("service.examples.yaml", early)])
+    accepted = not found
+    late = examples + ("\n\n  a_job_just_opened_is_refused_late:\n"
+                       "    description: Expected refused by a guard, which a left-out input comes before.\n"
+                       + opened + "    expect: { verdict: unsatisfied, clause: photo_attached, remedy: self_serviceable }\n")
+    found, _ = check([("people.yaml", people), ("service.yaml", service), ("service.examples.yaml", late)])
+    refused = any("is refused as invalid_input" in f[4] for f in found)
+    ok = accepted and refused
+    print(f"  a left-out input does not decide a request its state refuses first, and still decides one refused later: "
+          f"{'yes' if ok else 'NO ' + str((accepted, refused))}")
+    return ok
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -4527,6 +4555,7 @@ def main():
     ok &= migration_more_plants(people)
     ok &= metric_more_plants(people)
     ok &= cluster3_plants(people)
+    ok &= refusal_order_plant(people)
     sys.exit(0 if clean and ok else 1)
 
 

@@ -85,6 +85,20 @@ export type Outcome = "passed" | "failed" | "not run" | "waiting";
 
 export class Waiting extends Error {}
 
+/** One thing done to the sandbox since it was reset, kept so a session can
+ * be written as an example (docs/design/flow-studio.md §5). */
+export type TrailEntry =
+  | { kind: "evaluators"; answers: Record<string, unknown> }
+  | { kind: "clock"; by: string }
+  | { kind: "step"; step: ExampleStep; verdict: Verdict }
+  | {
+      kind: "free";
+      body: RequestBody;
+      verdict: Verdict;
+      /** the objects it created other than its own, in the order created */
+      created: string[];
+    };
+
 class Failed extends Error {}
 
 const VERBS = ["request", "propose", "approve", "reject", "withdraw"] as const;
@@ -229,10 +243,18 @@ export class Player {
   /** Answer the evaluators, or take one step; a verdict for a step taken. */
   async perform(ps: PlanStep): Promise<Verdict | null> {
     if (ps.kind === "evaluators") {
-      await this.wire.evaluators(ps.answers);
+      await this.answer(ps.answers);
       return null;
     }
-    return this.play(ps.step);
+    const v = await this.play(ps.step);
+    this.trail.push({ kind: "step", step: ps.step, verdict: v });
+    return v;
+  }
+
+  /** Set what evaluators answer, as an example's `evaluators` does. */
+  async answer(answers: Record<string, unknown>): Promise<void> {
+    await this.wire.evaluators(answers);
+    this.trail.push({ kind: "evaluators", answers });
   }
 
   async play(step: ExampleStep): Promise<Verdict> {
@@ -299,13 +321,26 @@ export class Player {
   /** What the session did beyond its example: each request a person made in
    * free play, and its verdict, in order. */
   readonly log: { summary: string; verdict: Verdict }[] = [];
+  /** everything done to the sandbox since it was reset, in order */
+  readonly trail: TrailEntry[] = [];
 
   /** A request a person makes in free play, as any caller makes it: its
    * verdict is logged, and what it wrote is listed. */
   async request(body: RequestBody, summary: string): Promise<Verdict> {
     const v = await this.wire.request(body);
-    if (v.kind === "satisfied") await this.note(v);
+    let created: string[] = [];
+    if (v.kind === "satisfied") {
+      const events = await this.appended(v);
+      for (const e of events) {
+        if (!this.touched.includes(e.object_id)) this.touched.push(e.object_id);
+      }
+      created = events
+        .slice(1)
+        .filter((e) => e.from_state === null)
+        .map((e) => e.object_id);
+    }
     this.log.push({ summary, verdict: v });
+    this.trail.push({ kind: "free", body, verdict: v, created });
     return v;
   }
 
@@ -332,6 +367,7 @@ export class Player {
   /** Advance the sandbox's clock, as an example's `after` does. */
   async advance(by: string): Promise<void> {
     this.now = instantSeconds((await this.wire.clock({ advance: by })).now);
+    this.trail.push({ kind: "clock", by });
   }
 
   /** Every object the request wrote, for the objects the page lists. */

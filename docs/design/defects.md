@@ -528,6 +528,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D514](#d514) | The text written for ADR-0147 contradicted other passages and regressed in about thirty places, among them which objects a publish's invariants are evaluated over | Resolved by ADR-0148 |
 | [D515](#d515) | One rule was stated in full in up to five documents, so each decision had to land in all of them and the copies drifted | Resolved by ADR-0148 |
 | [D516](#d516) | The third cold reading's other findings are edges a builder reaches, recorded as open questions | Open — deferred to the core by ADR-0148 |
+| [D517](#d517) | The flow checker read a left-out input as deciding a request a state refuses first | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3389,3 +3390,8 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **The third cold reading's other findings are edges a builder reaches, recorded as open questions.** `cold-reading-3-review.md` §5, its open questions. Found 2026-10-04.
 
 **Open — deferred to the core by ADR-0148 decision 3.** Each is answered when the Rust core's first slice reaches it, the answer written into the rule's home citing that record.
+
+### D517
+**The flow checker read a left-out input as deciding a request a state refuses first.** Its step 4 refused any example whose request leaves out an input the transition requires unless the example expects `invalid_input`. `DESIGN.md` §6 orders `actor_known`, `not_requestable` and `unavailable` before `invalid_input`, and the reference runner refuses such a request as `unavailable`, so the checker refused an example that holds. Found 2026-10-04 by the Flow Studio's slice 3: a session saving `finish` on a job just opened, which the runner refused as `unavailable`, was refused by the checker as `names`.
+
+**Resolved** 2026-10-04: the rule allows a verdict the order of refusals decides before `invalid_input`, the actor's, `not_requestable` and `unavailable`, and still refuses any other. A plant in `scripts/check-flows.py`, `refusal_order_plant`, holds both: an example expecting `unavailable` with an input left out passes, and one expecting a guard's refusal is still refused; with the rule reverted the plant fails.

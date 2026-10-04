@@ -3,15 +3,21 @@
 // fails, not skips, without it.
 
 import { spawn } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Wire, httpWire } from "../src/api/wire";
 
 const SERVER = fileURLToPath(new URL("../../server", import.meta.url));
 
+/** A server whose workspace is a fresh directory of its own, so no test
+ * writes the author's. */
 export async function startServer(): Promise<{ wire: Wire; stop: () => void }> {
+  const workspace = mkdtempSync(join(tmpdir(), "flow-studio-"));
   const server = spawn(
     ".venv/bin/python",
-    ["-m", "flowstudio", "--port", "0"],
+    ["-m", "flowstudio", "--port", "0", "--workspace", workspace],
     {
       cwd: SERVER,
     },

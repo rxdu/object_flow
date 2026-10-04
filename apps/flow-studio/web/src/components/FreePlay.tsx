@@ -3,6 +3,7 @@ import type { Declaration, TransitionSpec, Verdict, Wire } from "../api/wire";
 import { explain } from "../session/explain";
 import { OPERATOR, type Player } from "../session/player";
 import { InputForm, type Known } from "./InputForm";
+import { SaveExample } from "./SaveExample";
 
 const ANSWERS = ["satisfied", "unsatisfied", "unanswered"] as const;
 
@@ -30,6 +31,7 @@ export function FreePlay({
   setActor,
   tick,
   onDone,
+  editable,
 }: {
   wire: Wire;
   player: Player;
@@ -39,6 +41,8 @@ export function FreePlay({
   setActor: (a: string) => void;
   tick: number;
   onDone: (v: Verdict | null) => void;
+  /** the workspace module free play may save an example of, if any */
+  editable: string | null;
 }) {
   const [known, setKnown] = useState<Known[]>([]);
   const [actors, setActors] = useState<Known[]>([]);
@@ -151,7 +155,7 @@ export function FreePlay({
                   const a = e.target.value;
                   setAnswers((prev) => ({ ...prev, [fn]: a }));
                   void guarded(async () => {
-                    await wire.evaluators({ [fn]: a });
+                    await player.answer({ [fn]: a });
                     return null;
                   });
                 }}
@@ -238,6 +242,16 @@ export function FreePlay({
           </ol>
         </div>
       )}
+
+      {player.log.length > 0 &&
+        (editable ? (
+          <SaveExample wire={wire} player={player} module={editable} />
+        ) : (
+          <p className="text-xs text-slate-500">
+            To save this session as an example, copy the module to the
+            workspace, where the studio may write.
+          </p>
+        ))}
     </div>
   );
 }

@@ -5,7 +5,9 @@ Routes (ADR-0150):
 - `POST /v1/<operation>`: the library's operations the slices use, `request`,
   `get`, `history`, `events`, `availability`, `metric` and `declaration`;
 - `POST /sandbox/<control>`: load, reset, clock, evaluators;
-- `GET /studio/...`: the module catalogue, a module's files, a diagram.
+- `GET /studio/...`: the module catalogue, a module's files, a diagram;
+- `POST /studio/...`: check a text, draw a text, save to the workspace, copy a
+  design module into it, and add an example a check passes.
 
 A refusal is a 200 carrying the verdict; a fault is a 4xx or 5xx carrying a
 `fault` message; a construct the reference runner cannot run is a 501.
@@ -15,12 +17,14 @@ from __future__ import annotations
 
 import json
 import logging
+import pathlib
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 from . import catalogue
+from .catalogue import Catalogue
 from .sandbox import Fault, Sandbox
 
 log = logging.getLogger("flowstudio")
@@ -28,8 +32,16 @@ log = logging.getLogger("flowstudio")
 MAX_BODY = 4 * 1024 * 1024
 
 
-def routes(box: Sandbox) -> dict[str, Callable[[dict], Any]]:
+def routes(box: Sandbox, cat: Catalogue) -> dict[str, Callable[[dict], Any]]:
     return {
+        "/studio/check": lambda b: cat.check(b.get("files") or []),
+        "/studio/draw": lambda b: {"mermaid": cat.diagram(
+            "", b.get("type", ""), text=b.get("text", ""))},
+        "/studio/save": lambda b: cat.save(b.get("file", ""),
+                                           b.get("text", "")),
+        "/studio/copy": lambda b: cat.copy(b.get("file", "")),
+        "/studio/examples": lambda b: cat.add_example(
+            b.get("module", ""), b.get("name", ""), b.get("example") or {}),
         "/v1/request": box.request,
         "/v1/get": box.get,
         "/v1/history": box.history,
@@ -44,20 +56,21 @@ def routes(box: Sandbox) -> dict[str, Callable[[dict], Any]]:
     }
 
 
-def studio(path: str, query: dict) -> Any:
+def studio(cat: Catalogue, path: str, query: dict) -> Any:
     one = {k: v[0] for k, v in query.items()}
+    source = one.get("source", "design")
     if path == "/studio/modules":
-        return catalogue.modules()
+        return cat.modules()
     if path == "/studio/module":
-        return catalogue.bundle(one.get("file", ""))
+        return cat.bundle(one.get("file", ""), source)
     if path == "/studio/diagram":
-        return {"mermaid": catalogue.diagram(one.get("file", ""),
-                                             one.get("type", ""))}
+        return {"mermaid": cat.diagram(one.get("file", ""),
+                                       one.get("type", ""), source)}
     raise Fault(404, f"no studio route {path}")
 
 
-def handler(box: Sandbox, origin: str | None) -> type:
-    table = routes(box)
+def handler(box: Sandbox, cat: Catalogue, origin: str | None) -> type:
+    table = routes(box, cat)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "FlowStudio/0.1"
@@ -86,7 +99,7 @@ def handler(box: Sandbox, origin: str | None) -> type:
 
         def do_GET(self) -> None:  # noqa: N802
             url = urlparse(self.path)
-            self.answer(lambda: studio(url.path, parse_qs(url.query)))
+            self.answer(lambda: studio(cat, url.path, parse_qs(url.query)))
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
@@ -115,6 +128,10 @@ def handler(box: Sandbox, origin: str | None) -> type:
                 self.send(f.status, {"fault": f.message})
             except catalogue.Unknown as e:
                 self.send(404, {"fault": str(e)})
+            except catalogue.Refused as e:
+                self.send(409, {"fault": str(e)})
+            except catalogue.yaml.YAMLError as e:
+                self.send(400, {"fault": f"the text is not YAML: {e}"})
             except Exception as e:  # a fault of the server's own, reported
                 log.error("unhandled: %s", traceback.format_exc())
                 self.send(500, {"fault": f"{type(e).__name__}: {e}"})
@@ -122,8 +139,10 @@ def handler(box: Sandbox, origin: str | None) -> type:
     return Handler
 
 
-def serve(host: str, port: int, origin: str | None = None,
+def serve(host: str, port: int, workspace: pathlib.Path,
+          origin: str | None = None,
           box: Sandbox | None = None) -> ThreadingHTTPServer:
-    """A server bound to the address given; the caller runs it."""
-    return ThreadingHTTPServer((host, port), handler(box or Sandbox(),
-                                                     origin))
+    """A server bound to the address given, editing flows in the workspace
+    given; the caller runs it."""
+    return ThreadingHTTPServer(
+        (host, port), handler(box or Sandbox(), Catalogue(workspace), origin))

@@ -148,15 +148,31 @@ export interface TransitionSpec {
 
 export interface ModuleEntry {
   file: string;
+  /** the design's example modules are read-only; the workspace's are the
+   * author's to edit */
+  source: Source;
+  editable: boolean;
   module: string;
   imports: string[];
   types: string[];
   examples: string | null;
 }
 
+export type Source = "design" | "workspace";
+
 export interface ModuleFile {
   name: string;
   text: string;
+}
+
+/** A finding of the flow checker against a file's line (flow-format.md
+ * §11.5). */
+export interface Finding {
+  file: string;
+  line: number;
+  severity: "fatal" | "notice";
+  code: string;
+  message: string;
 }
 
 export interface ModuleBundle {
@@ -212,8 +228,22 @@ export interface Wire {
   ): Promise<{ now: string }>;
   evaluators(answers: Record<string, unknown>): Promise<unknown>;
   modules(): Promise<ModuleEntry[]>;
-  module(file: string): Promise<ModuleBundle>;
-  diagram(file: string, type: string): Promise<{ mermaid: string }>;
+  module(file: string, source?: Source): Promise<ModuleBundle>;
+  diagram(
+    file: string,
+    type: string,
+    source?: Source,
+  ): Promise<{ mermaid: string }>;
+  /** the studio's editing tools (docs/design/flow-studio.md §3.1, §5) */
+  check(files: ModuleFile[]): Promise<{ findings: Finding[]; fatal: number }>;
+  draw(text: string, type: string): Promise<{ mermaid: string }>;
+  save(file: string, text: string): Promise<{ saved: string }>;
+  copy(file: string): Promise<{ copied: string[] }>;
+  addExample(
+    module: string,
+    name: string,
+    example: Record<string, unknown>,
+  ): Promise<{ saved: boolean; findings?: Finding[]; text: string }>;
 }
 
 /** The wire over HTTP; `base` is empty for the page's own origin. */
@@ -253,11 +283,21 @@ export function httpWire(base = ""): Wire {
     clock: (change) => post("/sandbox/clock", change),
     evaluators: (answers) => post("/sandbox/evaluators", { answers }),
     modules: () => call("GET", "/studio/modules"),
-    module: (file) => call("GET", `/studio/module?file=${q(file)}`),
+    module: (file, source = "design") =>
+      call("GET", `/studio/module?file=${q(file)}&source=${source}`),
     availability: (actor, id) =>
       post("/v1/availability", { actor: { id: actor }, id }),
     metric: (actor, name) => post("/v1/metric", { actor: { id: actor }, name }),
-    diagram: (file, type) =>
-      call("GET", `/studio/diagram?file=${q(file)}&type=${q(type)}`),
+    diagram: (file, type, source = "design") =>
+      call(
+        "GET",
+        `/studio/diagram?file=${q(file)}&type=${q(type)}&source=${source}`,
+      ),
+    check: (files) => post("/studio/check", { files }),
+    draw: (text, type) => post("/studio/draw", { text, type }),
+    save: (file, text) => post("/studio/save", { file, text }),
+    copy: (file) => post("/studio/copy", { file }),
+    addExample: (module, name, example) =>
+      post("/studio/examples", { module, name, example }),
   };
 }

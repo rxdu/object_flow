@@ -14,6 +14,12 @@
     "check": "tsc --noEmit && eslint . && prettier --check . && vitest run"
   },
   "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-yaml": "6.1.3",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/lint": "6.9.7",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13",
     "mermaid": "12.1.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"

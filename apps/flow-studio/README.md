@@ -18,6 +18,10 @@ python3 -m venv --system-site-packages .venv
 
 The replay test plays every example of the design's example modules through the wire, as a caller would, and holds each to the outcome the flow checker gives it. An example that needs what the interface does not yet offer is reported as waiting, with the reason, never passed (ADR-0150, Consequences).
 
+## Editing
+
+The studio edits flows in its workspace, [`flows/`](flows/), and never the design's example modules, which the repository's checkers hold the design to; a design module is copied there to be edited. A session in the sandbox can be saved as an example of a workspace module, written only once the flow checker runs it and finds it holds (`docs/design/flow-studio.md` §3.1, §5).
+
 ## Ports
 
 Both are set in [`config.json`](config.json), and neither is a default: the server's, and the web front end's, which the server allows as the one origin that may call it.
