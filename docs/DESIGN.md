@@ -399,7 +399,7 @@ Every type gets **standard metrics** without declaring any. They are declaration
 
 **What the standard metrics count:**
 - none counts the import's events, a publish's migrations or an erasure's redactions of other objects, which are the port, the publish and the erasure, not the flow, except the override counts, while a span a migration opened is counted, marked `.migrated`: exactly what each counts is its definition in `design/declaration-syntax.md` §6.11 (ADR-0105, ADR-0146, ADR-0147, ADR-0148);
-- a span's duration on an object in a `closed` or terminal state follows `design/declaration-syntax.md` §6.9's closed-stretch rule, so an engineer still named on a closed job accrues no time while the span is current, and `time_in` is real elapsed time (ADR-0147, ADR-0148);
+- a span's duration on an object that has been `closed` or terminal follows `design/declaration-syntax.md` §6.9: an engineer's span accrues only while the job is open, whatever happens to the span after the close, while time spent in a closed state is measured, and `time_in` is real elapsed time (ADR-0147, ADR-0148);
 - each can be split by version and actor kind;
 - two name the objects, so the jobs that changed hands more than once can be listed (ADR-0101).
 

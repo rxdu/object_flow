@@ -1113,8 +1113,9 @@ def rows_of(groups, keep, agg):
 
 
 def time_in(s, o, state):
-    """`o.time_in(<state>)`: the total of the object's spans in the state, each by §6.9's rule for a span."""
-    return sum((d for iv in o.intervals if iv[0] == state for d in [duration(s, o, iv)] if d is not None), timedelta())
+    """`o.time_in(<state>)`: the total of the object's spans in the state, real elapsed time (§8.3)."""
+    # real elapsed time, a current span up to now whatever state the object is in (declaration-syntax.md §8.3, ADR-0147)
+    return sum(((iv[2] if iv[2] is not None else s.now) - iv[1] for iv in o.intervals if iv[0] == state), timedelta())
 
 
 def first_results(s):

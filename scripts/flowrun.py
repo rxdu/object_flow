@@ -233,10 +233,14 @@ def pieces(span, unit):
     start, d = span["entered_at"], span["duration"]
     if d is ABSENT:
         return [Row(span, period=bucket(unit, start), piece_start=start, piece_end=ABSENT, duration=ABSENT)]
-    end, out, at = start + d, [], start
+    # a member's span counts only the time its object was open, so its end is its own and a piece's duration the open
+    # time within it (ADR-0148)
+    end, closed = (span["_end"], span["_closed"]) if "_end" in span else (start + d, ())
+    out, at = [], start
     while True:
         cut = min(next_boundary(unit, at), end)
-        out.append(Row(span, period=bucket(unit, at), piece_start=at, piece_end=cut, duration=cut - at))
+        shut = sum(max(Fraction(0), min(cut, b) - max(at, a)) for a, b in closed)
+        out.append(Row(span, period=bucket(unit, at), piece_start=at, piece_end=cut, duration=cut - at - shut))
         if cut >= end:
             return out
         at = cut
@@ -624,12 +628,27 @@ class Evaluator:
         """The object's spans in each state, or each value of a tracked member, as rows (§6.9)."""
         if member not in o.spans:
             raise NotRunnable(f"the intervals of {o.type}.{member}, which is not tracked")
-        return tuple(Row(sp, duration=self.duration(o, sp)) for sp in o.spans[member])
+        if member == "state":
+            return tuple(Row(sp, duration=self.duration(o, sp)) for sp in o.spans[member])
+        return tuple(Row(sp, duration=self.duration(o, sp), _end=sp["left_at"] if sp["left_at"] is not ABSENT else self.s.now,
+                         _closed=self.closed_periods(o)) for sp in o.spans[member])
+
+    def closed_periods(self, o):
+        """The stretches, by occurred time, in which an object was in a closed or terminal state."""
+        states = (self.s.kinds.get(o.type) or {}).get("states") or {}
+        finished = lambda name: (states.get(name) or {}).get("category") == "closed" or (states.get(name) or {}).get("final")
+        return tuple((sp["entered_at"], sp["left_at"] if sp["left_at"] is not ABSENT else self.s.now)
+                     for sp in o.spans.get("state", []) if finished(sp["state"][2]))
 
     def duration(self, o, sp):
-        """A span's exit less its entry; a current span runs to now while its object is open, and on a finished object
-        to the start of the unbroken stretch of closed or terminal states it is in, a span that began within that
-        stretch having none (§6.9, ADR-0101, ADR-0146)."""
+        """A span's exit less its entry, a current one running to now. A member's span counts only the time its object
+        was open, and has none where it had no open time; a state's span keeps its exit less its entry, but the span of
+        the closed or terminal state the object is in now has none (§6.9, ADR-0101, ADR-0146, ADR-0148)."""
+        if "state" not in sp:
+            end = sp["left_at"] if sp["left_at"] is not ABSENT else self.s.now
+            length = end - sp["entered_at"]
+            shut = sum(max(Fraction(0), min(end, b) - max(sp["entered_at"], a)) for a, b in self.closed_periods(o))
+            return length - shut if length - shut > 0 or length == 0 else ABSENT
         if sp["left_at"] is not ABSENT:
             return sp["left_at"] - sp["entered_at"]
         states = (self.s.kinds.get(o.type) or {}).get("states") or {}
@@ -2542,7 +2561,8 @@ def metrics_self_test(operator):
             "not_busy": {"expression": "metric(Job.open_work.engineer, assignee := inputs.engineer) < 2", "remedy": "dependent"}},
         "transitions": {
             "open": {"kind": "initial", "to": "OPEN", "optional_inputs": ["engineer", "tags"]},
-            "assign": {"kind": "internal", "from": ["OPEN", "WORKING"], "required_inputs": ["engineer"], "guards": {"not_busy": "deny"}},
+            "assign": {"kind": "internal", "from": ["OPEN", "WORKING", "SHELVED"], "required_inputs": ["engineer"], "guards": {"not_busy": "deny"}},
+            "resume": {"kind": "external", "from": ["SHELVED"], "to": "WORKING"},
             "start": {"kind": "external", "from": ["OPEN"], "to": "WORKING"},
             "back": {"kind": "external", "from": ["WORKING"], "to": "OPEN"},
             "pause": {"kind": "external", "from": ["WORKING"], "to": "OPEN"},
@@ -2565,6 +2585,8 @@ def metrics_self_test(operator):
             "tags_tripled": {"source": "objects", "item": "o", "expression": "avg(count(t in o.tags)) * 3"},
             "backs": {"measure": "transition_count", "transition": "back"},
             "time_held": {"source": "intervals(engineer)", "item": "i", "filter": "i.value is not null", "expression": "sum(i.duration)"},
+            "held_by_month": {"source": "intervals(engineer)", "item": "i", "split_by": "month", "filter": "i.value is not null",
+                              "dimensions": {"month": "i.period"}, "expression": "sum(i.duration)"},
             "working_by_month": {"source": "intervals", "item": "i", "split_by": "month", "filter": "i.state == WORKING",
                                  "dimensions": {"month": "i.period"}, "expression": "sum(i.duration)"},
             "jobs_working_by_month": {"source": "intervals", "item": "i", "split_by": "month", "filter": "i.state == WORKING",
@@ -2665,6 +2687,40 @@ def metrics_self_test(operator):
     check("an assignment still current stops at the start of the closed stretch", read(s, je, "metric(time_held)"), 3600)
     check("time in the closed state before the terminal one is still measured", read(s, je, "time_in(SHELVED)"), 5 * 3600)
     check("time in the closed state the object is in, real elapsed time", read(s, je, "time_in(DONE)"), 7 * 3600)
+    # a member's span accrues only while its object is open: one ending after the close stops there, and one outlasting
+    # a closed stretch the object reopened from leaves it out, a split piece likewise (ADR-0148, the author deciding)
+    r, s = world()
+    ann, bob = req(r, s, "User", "add", login="ann"), req(r, s, "User", "add", login="bob")
+    jx = req(r, s, "Job", "open", engineer=ann)
+    req(r, s, "Job", "start", jx)
+    s.now += 2 * 3600
+    req(r, s, "Job", "shelve", jx)
+    s.now += 3 * 3600
+    req(r, s, "Job", "assign", jx, engineer=bob)
+    s.now += 4 * 3600
+    check("a member's span ending after its object closed stops at the close", read(s, jx, "metric(time_held)"), 2 * 3600)
+    r, s = world()
+    cy = req(r, s, "User", "add", login="cy")
+    jy = req(r, s, "Job", "open", engineer=cy)
+    req(r, s, "Job", "start", jy)
+    s.now += 3600
+    req(r, s, "Job", "shelve", jy)
+    s.now += 3 * 3600
+    req(r, s, "Job", "resume", jy)
+    s.now += 2 * 3600
+    check("a member's span leaves out a closed stretch its object reopened from", read(s, jy, "metric(time_held)"), 3 * 3600)
+    r, s = world()
+    dee = req(r, s, "User", "add", login="dee")
+    s.now = timestamp("2026-01-31T12:00Z")
+    jz = req(r, s, "Job", "open", engineer=dee)
+    req(r, s, "Job", "start", jz)
+    s.now = timestamp("2026-01-31T18:00Z")
+    req(r, s, "Job", "shelve", jz)
+    s.now = timestamp("2026-02-01T06:00Z")
+    req(r, s, "Job", "resume", jz)
+    s.now = timestamp("2026-02-01T12:00Z")
+    check("a member's split piece counts only its open time",
+          (read(s, jz, 'metric(held_by_month, month := "2026-01")'), read(s, jz, 'metric(held_by_month, month := "2026-02")')), (6 * 3600, 6 * 3600))
     # a span split across the months it covers, a current one cut at now, and a window clipping the pieces (ADR-0142)
     r, s = world()
     one, two = req(r, s, "Job", "open"), req(r, s, "Job", "open")

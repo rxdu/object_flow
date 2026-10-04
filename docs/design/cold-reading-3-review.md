@@ -1827,6 +1827,6 @@ Decided by the author, 2026-10-04 ("go ahead with 1 and 2, and do 3 too"), and r
 | F26 | D9 | An abstract base declares no metrics; a family's figure is combined from its subtypes' |
 | F27 | D20, D21 | The restatements of the closed-stretch rule cite it, and its summary is narrowed to a span still current |
 
-**For the author** (ADR-0148 decision 3): D21's case, that a member's span ending after its object closed counts the closed days retroactively, is a question about what the rule should be, not about its wording.
+**For the author** (ADR-0148 decision 3): D21's case, that a member's span ending after its object closed counts the closed days retroactively, is a question about what the rule should be, not about its wording. *Decided by the author, 2026-10-04 ("yes, stop it at the close"), and recorded as ADR-0148 decision 4: a member's span accrues only while its object is open.*
 
 **Open questions** (ADR-0148 decision 3), every other finding: A3 to A12, A14, A16 to A18, A20, A21, A23, A25 and A27; B3 to B7, B9, B10, B12 to B25, B27 to B36, B41 and B42; C4 to C17, C21 to C38, C41, C42, C45 and C46; D1 to D3, D7, D8, D10 to D19 and D22. Each is answered when a builder reaches it, the Rust core's first slice and its comparison with the Python reference being the instrument, and the answer is written into the rule's home with this record cited.
