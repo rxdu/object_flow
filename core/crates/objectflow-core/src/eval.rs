@@ -301,6 +301,7 @@ impl<'a> Evaluator<'a> {
             let member = n == "state"
                 || t.attribute(n).is_some()
                 || t.derived.iter().any(|(d, _)| d == n)
+                || t.observations.iter().any(|(c, _)| c == n)
                 || ["id", "open", "created_at", "created_by_kind"].contains(&n);
             if member {
                 return match self.this {
@@ -400,7 +401,7 @@ impl<'a> Evaluator<'a> {
                 name: o.state.clone(),
             },
             "created_at" | "recorded_from" => Value::Timestamp(o.created_at),
-            "created_by_kind" => Value::Text(o.created_by_kind.clone()),
+            "created_by_kind" | "recorded_by_kind" => Value::Text(o.created_by_kind.clone()),
             "declaration_version" => Value::Int(1),
             "open" => Value::Bool(!t.finished(&o.state)),
             "actor_id" => match t.actor_identity() {
@@ -422,6 +423,8 @@ impl<'a> Evaluator<'a> {
                     } else {
                         Value::Absent
                     }
+                } else if let Some((_, kind)) = t.observations.iter().find(|(c, _)| c == m) {
+                    self.collection(o, kind)
                 } else if let Some((_, e)) = t.derived.iter().find(|(d, _)| d == m) {
                     // asked with the same answers, as the runner asks it
                     let mut derived = Evaluator::new(self.world, Some(t), Some(&o.id));
@@ -699,6 +702,22 @@ impl<'a> Evaluator<'a> {
         }
     }
 
+    /// A subject's collection of a kind: its observations nothing has
+    /// corrected, in ascending id order (`declaration-syntax.md` §6.8).
+    fn collection(&self, o: &Object, kind: &str) -> Value {
+        let of_kind = self.world.of_type(kind);
+        let corrected: Vec<Value> = of_kind.iter().map(|x| x.attr("corrects")).collect();
+        let subject = Value::Object(o.id.clone());
+        Value::Set(
+            of_kind
+                .iter()
+                .filter(|x| x.attr("subject") == subject)
+                .filter(|x| !corrected.contains(&Value::Object(x.id.clone())))
+                .map(|x| Value::Object(x.id.clone()))
+                .collect(),
+        )
+    }
+
     /// An object's `intervals(<member>)`, `entered_at(<STATE or member>)` or
     /// `time_in(<STATE>)`, read from its flow data (`declaration-syntax.md`
     /// §8.3).
@@ -831,8 +850,26 @@ impl<'a> Evaluator<'a> {
 }
 
 /// A comparison or an arithmetic operator over two values (§8.2, §8.3).
+/// The integer 0 a sum over no elements yields, read as the zero of the
+/// value it meets. Such a sum is 0 of its element type (§8.3), which an empty
+/// set cannot tell, and a module the flow checker passed sets an int against a
+/// duration or an amount nowhere else (ADR-0153 decision 5).
+fn zero_as(v: &Value, other: &Value) -> Value {
+    match (v, other) {
+        (Value::Int(0), Value::Duration(_)) => Value::Duration(0),
+        (Value::Int(0), Value::Money { currency, amount }) => Decimal::new(0, amount.scale())
+            .map_or(Value::Int(0), |zero| Value::Money {
+                currency: currency.clone(),
+                amount: zero,
+            }),
+        _ => v.clone(),
+    }
+}
+
 pub fn combine(op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
     use Value as V;
+    let (za, zb) = (zero_as(a, b), zero_as(b, a));
+    let (a, b) = (&za, &zb);
     if a.is_absent() || b.is_absent() {
         return Ok(V::Absent);
     }
@@ -1236,6 +1273,16 @@ types:
             Ok(Value::Date(11))
         );
         assert!(combine(BinOp::Add, &Value::Date(10), &Value::Duration(3600)).is_err());
+        // a sum over nothing is 0 of what it meets (§8.3)
+        assert_eq!(
+            combine(BinOp::Lt, &Value::Int(0), &Value::Duration(60)),
+            Ok(Value::Bool(true))
+        );
+        assert_eq!(
+            combine(BinOp::Add, &Value::Int(0), &usd("1.00")),
+            Ok(usd("1.00"))
+        );
+        assert!(combine(BinOp::Lt, &Value::Int(1), &Value::Duration(60)).is_err());
         assert!(combine(BinOp::Lt, &usd("1.00"), &Value::Text("x".into())).is_err());
     }
 

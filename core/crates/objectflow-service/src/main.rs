@@ -408,13 +408,6 @@ async fn declaration(State(shared): State<Shared>, Json(body): Json<J>) -> Answe
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
     let name = text(&body, "type").unwrap_or_default();
-    // an observation kind is declared, as a type of its own (ADR-0082), and
-    // the first slice does not model it: not run, never "not declared"
-    if s.lib.observation_kinds.contains(name) {
-        return Err(Fault::NotRun(format!(
-            "the declaration of {name}, an observation kind"
-        )));
-    }
     let Some(t) = s.lib.type_(name) else {
         return Err(Fault::Missing(format!("no type {name} is declared")));
     };

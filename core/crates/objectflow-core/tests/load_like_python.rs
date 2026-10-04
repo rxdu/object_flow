@@ -16,7 +16,9 @@ fn repo() -> PathBuf {
 
 fn summary(m: &Module) -> Value {
     let mut types = serde_json::Map::new();
-    for t in &m.types {
+    // the types the description declares; an observation kind's expansion is
+    // the core's, which the flow checker's loader does not make
+    for t in m.types.iter().filter(|t| t.observation_on.is_none()) {
         let mut transitions = serde_json::Map::new();
         for (n, x) in &t.transitions {
             let kind = match x.kind {

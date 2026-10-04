@@ -122,11 +122,6 @@ pub fn availability(
     if let Some(what) = t.beyond.first() {
         return Err(NotRun(what.clone()));
     }
-    if let Some(kind) = t.observes.first() {
-        return Err(NotRun(format!(
-            "the offer of recording {kind}, an observation kind"
-        )));
-    }
     let who = resolve_actor(world, actor);
     let no_inputs = BTreeMap::new();
     let mut offers = Vec::new();
@@ -233,6 +228,47 @@ pub fn availability(
             inputs,
             unevaluated,
             flags,
+        });
+    }
+    // and recording each kind on it, its generated guards decided on the
+    // subject and its fields waiting for the caller (ADR-0099)
+    for (_, kind) in &t.observations {
+        let Some(k) = world.lib.type_(kind) else {
+            return Err(NotRun(format!("the observation kind {kind}")));
+        };
+        let Some(x) = k.transition("record") else {
+            return Err(NotRun(format!("{kind}, which has no record")));
+        };
+        let inputs: Vec<(String, String)> = input_schema(k, x)
+            .into_iter()
+            .filter(|(n, _)| n != "subject")
+            .collect();
+        let refusal = if who.is_none() {
+            Some(Verdict::Unsatisfied {
+                clause: "actor_known".into(),
+                remedy: Some(Remedy::Dependent),
+            })
+        } else if t.state(&o.state).is_some_and(|s| s.is_final) {
+            Some(Verdict::Unsatisfied {
+                clause: "subject_open".into(),
+                remedy: Some(Remedy::UnreachableFromHere),
+            })
+        } else {
+            None
+        };
+        let needs = x.required_inputs.iter().any(|n| n != "subject");
+        offers.push(Offer {
+            transition: "record".into(),
+            creates: Some(kind.clone()),
+            availability: match (&refusal, needs) {
+                (Some(_), _) => Availability::Unavailable,
+                (None, true) => Availability::AvailableWithInput,
+                (None, false) => Availability::Available,
+            },
+            verdict: refusal,
+            inputs,
+            unevaluated: Vec::new(),
+            flags: Vec::new(),
         });
     }
     Ok(Some(offers))

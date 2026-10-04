@@ -242,8 +242,12 @@ pub struct Type {
     /// What only an applying request reaches that the first slice does not
     /// run: its refusals are still decided, and an outcome is not run.
     pub at_outcome: Vec<String>,
-    /// The observation kinds recorded on it, by name.
-    pub observes: Vec<String>,
+    /// The observation kinds recorded on it: each collection's name and the
+    /// kind it holds, in the order declared (`flow-format.md` §4.4).
+    pub observations: Vec<(String, String)>,
+    /// For an observation kind, the type of its subject (`declaration-syntax.md`
+    /// §6.8); none for any other type.
+    pub observation_on: Option<String>,
     /// The type as its description writes it, which `declaration` returns.
     pub source: serde_json::Value,
 }
@@ -754,14 +758,172 @@ impl Reader<'_> {
             transitions,
             beyond,
             at_outcome,
-            observes: node
+            observations: node
                 .get("observations")
                 .map(Node::entries)
                 .unwrap_or_default()
                 .iter()
-                .filter_map(|(_, ob)| ob.get("kind").and_then(Node::text).map(str::to_string))
+                .filter_map(|(c, ob)| {
+                    ob.get("kind")
+                        .and_then(Node::text)
+                        .map(|k| (c.clone(), k.to_string()))
+                })
                 .collect(),
+            observation_on: None,
             source: node.to_json(),
+        })
+    }
+
+    /// An observation kind as the type it is sugar for (`declaration-syntax.md`
+    /// §6.8): its fields, `subject`, an optional `corrects`, and the times it
+    /// was recorded and occurred; one state, `RECORDED`, closed and final; a
+    /// creation, `record`, taking the subject and the fields; and, for a kind
+    /// with a personal field, an erasure, `forget`.
+    fn kind_type(&self, module: &str, subject: &str, kind: &str, ob: &Node) -> Loaded<Type> {
+        let plain = |declared: Declared, optional: bool| Attribute {
+            declared,
+            many: false,
+            optional,
+            default: None,
+            unique: Unique::No,
+            assignee: false,
+            personal: false,
+            actor_kind: None,
+            identifier: None,
+            opposite: None,
+            composite: false,
+            cascade: Vec::new(),
+        };
+        let mut attributes = Vec::new();
+        let mut required = vec!["subject".to_string()];
+        let mut optional = vec!["corrects".to_string()];
+        let mut personal = false;
+        for (n, spec) in ob.get("attributes").map(Node::entries).unwrap_or_default() {
+            let a = self.attribute(spec)?;
+            if a.optional {
+                &mut optional
+            } else {
+                &mut required
+            }
+            .push(n.clone());
+            personal |= a.personal;
+            attributes.push((n.clone(), a));
+        }
+        attributes.push((
+            "subject".into(),
+            plain(Declared::Reference(subject.into()), false),
+        ));
+        attributes.push((
+            "corrects".into(),
+            plain(Declared::Reference(kind.into()), true),
+        ));
+        for at in ["recorded_at", "occurred_at"] {
+            attributes.push((
+                at.into(),
+                plain(Declared::Scalar("timestamp".into()), false),
+            ));
+        }
+        let mut invariants = Vec::new();
+        for (n, spec) in ob.get("invariants").map(Node::entries).unwrap_or_default() {
+            let Some(e) = spec.get("expression") else {
+                return self.error(spec, "an invariant has an expression");
+            };
+            invariants.push((n.clone(), self.expression(e)?));
+        }
+        let limit = ob
+            .get("max_recording_delay")
+            .map(|b| self.text(b, "a duration"))
+            .transpose()?;
+        let mut transitions = vec![(
+            "record".to_string(),
+            Transition {
+                kind: Kind::Initial,
+                from: None,
+                to: vec!["RECORDED".into()],
+                only_via: Vec::new(),
+                proposable: false,
+                required_inputs: required.clone(),
+                optional_inputs: optional.clone(),
+                inputs: Vec::new(),
+                guards: Vec::new(),
+                effect: Vec::new(),
+                backdating_limit: limit.clone(),
+            },
+        )];
+        let mut source_transitions = serde_json::json!({
+            "record": {
+                "kind": "initial", "to": "RECORDED",
+                "required_inputs": required, "optional_inputs": optional,
+            }
+        });
+        if let Some(l) = &limit {
+            source_transitions["record"]["backdating_limit"] = serde_json::json!(l);
+        }
+        if personal {
+            let reason = Input {
+                declared: Declared::Scalar("string".into()),
+                many: false,
+                optional: false,
+                default: None,
+            };
+            transitions.push((
+                "forget".into(),
+                Transition {
+                    kind: Kind::Erasure,
+                    from: None,
+                    to: Vec::new(),
+                    only_via: Vec::new(),
+                    proposable: false,
+                    required_inputs: Vec::new(),
+                    optional_inputs: Vec::new(),
+                    inputs: vec![("reason".into(), reason)],
+                    guards: Vec::new(),
+                    effect: Vec::new(),
+                    backdating_limit: None,
+                },
+            ));
+            source_transitions["forget"] = serde_json::json!({ "kind": "erasure", "inputs": { "reason": { "type": "string" } } });
+        }
+        // the declaration as the reference runner serves it: the kind's
+        // expansion, in the flow format's shape
+        let mut source_attributes = ob
+            .get("attributes")
+            .map_or(serde_json::json!({}), Node::to_json);
+        source_attributes["subject"] = serde_json::json!({ "reference": subject });
+        source_attributes["corrects"] = serde_json::json!({ "reference": kind, "optional": true });
+        source_attributes["recorded_at"] = serde_json::json!({ "type": "timestamp" });
+        source_attributes["occurred_at"] = serde_json::json!({ "type": "timestamp" });
+        let mut source = serde_json::json!({
+            "attributes": source_attributes,
+            "states": { "RECORDED": { "category": "closed", "final": true } },
+            "invariants": ob.get("invariants").map_or(serde_json::json!({}), Node::to_json),
+            "transitions": source_transitions,
+        });
+        if let Some(d) = ob.get("description").map(Node::to_json) {
+            source["description"] = d;
+        }
+        Ok(Type {
+            name: kind.to_string(),
+            module: module.to_string(),
+            attributes,
+            derived: Vec::new(),
+            states: vec![(
+                "RECORDED".into(),
+                State {
+                    category: "closed".into(),
+                    is_final: true,
+                    required_attributes: Vec::new(),
+                    superseding: false,
+                },
+            )],
+            conditions: Vec::new(),
+            invariants,
+            transitions,
+            beyond: Vec::new(),
+            at_outcome: Vec::new(),
+            observations: Vec::new(),
+            observation_on: Some(subject.to_string()),
+            source,
         })
     }
 
@@ -779,6 +941,7 @@ impl Reader<'_> {
         }
         let mut types = Vec::new();
         let mut observation_kinds = Vec::new();
+        let mut kinds = Vec::new();
         for (n, spec) in doc.get("types").map(Node::entries).unwrap_or_default() {
             types.push(self.type_(name, n, spec)?);
             for (_, ob) in spec
@@ -786,11 +949,14 @@ impl Reader<'_> {
                 .map(Node::entries)
                 .unwrap_or_default()
             {
-                if let Some(kind) = ob.get("kind").and_then(Node::text) {
-                    observation_kinds.push(kind.to_string());
-                }
+                let Some(kind) = ob.get("kind").and_then(Node::text) else {
+                    return self.error(ob, "an observation names its kind");
+                };
+                observation_kinds.push(kind.to_string());
+                kinds.push(self.kind_type(name, n, kind, ob)?);
             }
         }
+        types.extend(kinds);
         let mut evaluators = Vec::new();
         for (e, spec) in doc.get("evaluators").map(Node::entries).unwrap_or_default() {
             for (f, _) in spec.get("functions").map(Node::entries).unwrap_or_default() {
@@ -823,8 +989,7 @@ pub fn load_module(file: &str, text: &str) -> Result<Module, LoadError> {
 pub struct Library {
     pub types: BTreeMap<String, Type>,
     pub enumerations: BTreeMap<String, Vec<String>>,
-    /// The observation kinds the types declare, which the first slice does
-    /// not run.
+    /// The observation kinds the types declare, each also a type of its own.
     pub observation_kinds: BTreeSet<String>,
     /// The evaluators' functions the modules declare, in the order loaded.
     pub evaluators: Vec<String>,
@@ -883,7 +1048,8 @@ fn operator_type() -> Type {
         transitions: Vec::new(),
         beyond: Vec::new(),
         at_outcome: Vec::new(),
-        observes: Vec::new(),
+        observations: Vec::new(),
+        observation_on: None,
         source: serde_json::json!({
             "description": "The store's operator, its first actor (ADR-0126).",
             "attributes": { "identity": { "type": "identity", "actor_kind": "human" } },

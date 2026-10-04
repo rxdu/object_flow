@@ -158,6 +158,8 @@ fn as_part(stop: Stop, type_: &str) -> Stop {
 /// One request's working copy of the store, and what it has done so far.
 struct Ctx<'w> {
     work: World<'w>,
+    /// The store as the request found it.
+    before: World<'w>,
     who: Who,
     /// The requested transition's type, whose own clauses go unqualified.
     requested: String,
@@ -212,9 +214,6 @@ fn decide_or_stop(
             }
         },
     };
-    if lib.observation_kinds.contains(&tn) {
-        return stop_not_run(format!("recording an observation of {tn}"));
-    }
     let Some(t) = lib.type_(&tn) else {
         return refused(Verdict::UnknownTransition {
             transition: req.transition.clone(),
@@ -281,6 +280,7 @@ fn decide_or_stop(
     }
     let mut ctx = Ctx {
         work: world.clone(),
+        before: world.clone(),
         who,
         requested: tn.clone(),
         occurred: req.occurred_at,
@@ -370,9 +370,6 @@ fn take(
     depth: usize,
 ) -> Result<String, Stop> {
     let lib = ctx.work.lib;
-    if lib.observation_kinds.contains(tn) {
-        return stop_not_run(format!("recording an observation of {tn}"));
-    }
     let Some(t) = lib.type_(tn) else {
         return stop_not_run(format!("the type {tn}"));
     };
@@ -476,6 +473,45 @@ fn take(
                     remedy: Some(Remedy::SelfServiceable),
                 });
             }
+        }
+    }
+    // a recording's: a correction names an observation of its subject that
+    // nothing has corrected yet; a new fact is not added to a finished
+    // subject, read as the request found it (declaration-syntax.md §6.8)
+    if t.observation_on.is_some()
+        && xn == "record"
+        && let Some(Value::Object(subject)) = inputs.get("subject")
+    {
+        if let Some(Value::Object(corrected)) = inputs.get("corrects") {
+            let named = Value::Object(corrected.clone());
+            if ctx.work.get(corrected).map(|c| c.attr("subject"))
+                != Some(Value::Object(subject.clone()))
+            {
+                return refused(Verdict::InvalidInput {
+                    inputs: vec!["corrects".into()],
+                });
+            }
+            if ctx
+                .work
+                .objects
+                .values()
+                .any(|other| other.attr("corrects") == named)
+            {
+                return refused(Verdict::Unsatisfied {
+                    clause: "corrects_current".into(),
+                    remedy: Some(Remedy::SelfServiceable),
+                });
+            }
+        } else if let Some(s) = ctx.before.get(subject)
+            && lib
+                .type_(&s.type_)
+                .and_then(|st| st.state(&s.state))
+                .is_some_and(|state| state.is_final)
+        {
+            return refused(Verdict::Unsatisfied {
+                clause: "subject_open".into(),
+                remedy: Some(Remedy::UnreachableFromHere),
+            });
         }
     }
     for k in &x.required_inputs {
@@ -594,6 +630,20 @@ fn take(
     let id = o.id.clone();
     if from_state.is_none() {
         mint(&mut ctx.work, alloc, t, &mut o)?;
+    }
+    // a recording is dated as it is recorded; a correction keeps the
+    // occurred time of the fact it replaces (ADR-0146)
+    if t.observation_on.is_some() && xn == "record" {
+        let now = ctx.work.now;
+        o.attrs.insert("recorded_at".into(), Value::Timestamp(now));
+        let occurred = match inputs.get("corrects") {
+            Some(Value::Object(c)) => ctx
+                .work
+                .get(c)
+                .map_or(Value::Timestamp(now), |c| c.attr("occurred_at")),
+            _ => Value::Timestamp(now),
+        };
+        o.attrs.insert("occurred_at".into(), occurred);
     }
     ctx.work.objects.insert(id.clone(), o);
     // the effect, then the cascades to the parts, depth-first (ADR-0038)
@@ -1454,7 +1504,7 @@ types:
       estimate: { kind: internal, from: any, required_inputs: [hours], guards: { small: deny } }
       annotate: { kind: internal, from: [OPEN], required_inputs: [note] }
       finish: { kind: external, from: [WORKING], to: DONE }
-      archive: { kind: external, from: [DONE], to: DONE, only_via: [finish] }
+      archive: { kind: internal, from: [DONE], only_via: [finish] }
 "#;
 
     fn store() -> Store {
@@ -1964,5 +2014,143 @@ types:
                 .0
                 .contains("not tracked")
         );
+    }
+
+    #[test]
+    fn a_recording_is_dated_corrected_once_and_kept_off_a_finished_subject() {
+        let text = JOBS.replace(
+            "    states:\n      OPEN: { category: inbound }",
+            "    observations:\n      checks:\n        kind: Check\n        attributes:\n          outcome: { type: Priority }\n          \
+             note: { type: string, optional: true, personal: true }\n    states:\n      OPEN: { category: inbound }",
+        );
+        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let t0 = s.now;
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fix"}),
+        ));
+        let other = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Other"}),
+        ));
+        let first = created(&req(
+            &mut s,
+            "record",
+            OPERATOR,
+            ("Check", true),
+            json!({"subject": &job, "outcome": "LOW"}),
+        ));
+        let theirs = created(&req(
+            &mut s,
+            "record",
+            OPERATOR,
+            ("Check", true),
+            json!({"subject": &other, "outcome": "LOW"}),
+        ));
+        s.now += 3600;
+        // a correction keeps the occurred time of the fact it replaces
+        let fixed = created(&req(
+            &mut s,
+            "record",
+            OPERATOR,
+            ("Check", true),
+            json!({"subject": &job, "outcome": "HIGH", "corrects": &first}),
+        ));
+        let w = s.snapshot().unwrap();
+        let f = w.get(&fixed).unwrap();
+        assert_eq!(f.attr("occurred_at"), Value::Timestamp(t0));
+        assert_eq!(f.attr("recorded_at"), Value::Timestamp(t0 + 3600));
+        // the subject reads only what nothing has corrected
+        let t = w.lib.type_("Job");
+        let checks = Evaluator::new(&w, t, Some(&job))
+            .eval(&crate::expr::parse("checks").unwrap())
+            .unwrap();
+        assert_eq!(checks, Value::Set(vec![Value::Object(fixed.clone())]));
+        // a fact is corrected once, and only by its own subject's
+        assert_eq!(
+            req(
+                &mut s,
+                "record",
+                OPERATOR,
+                ("Check", true),
+                json!({"subject": &job, "outcome": "LOW", "corrects": &first})
+            ),
+            Verdict::Unsatisfied {
+                clause: "corrects_current".into(),
+                remedy: Some(Remedy::SelfServiceable)
+            }
+        );
+        assert_eq!(
+            req(
+                &mut s,
+                "record",
+                OPERATOR,
+                ("Check", true),
+                json!({"subject": &job, "outcome": "LOW", "corrects": &theirs})
+            ),
+            Verdict::InvalidInput {
+                inputs: vec!["corrects".into()]
+            }
+        );
+        // a finished subject takes no new fact, and still takes a correction
+        let ana = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        created(&req(
+            &mut s,
+            "start",
+            OPERATOR,
+            (&job, false),
+            json!({"engineer": &ana}),
+        ));
+        created(&req(&mut s, "finish", OPERATOR, (&job, false), json!({})));
+        assert_eq!(
+            req(
+                &mut s,
+                "record",
+                OPERATOR,
+                ("Check", true),
+                json!({"subject": &job, "outcome": "LOW"})
+            ),
+            Verdict::Unsatisfied {
+                clause: "subject_open".into(),
+                remedy: Some(Remedy::UnreachableFromHere)
+            }
+        );
+        created(&req(
+            &mut s,
+            "record",
+            OPERATOR,
+            ("Check", true),
+            json!({"subject": &job, "outcome": "LOW", "corrects": &fixed}),
+        ));
+        // and its offer says so
+        let w = s.snapshot().unwrap();
+        let offers = crate::reads::availability(&w, OPERATOR, &job)
+            .unwrap()
+            .unwrap();
+        let record = offers
+            .iter()
+            .find(|o| o.creates.as_deref() == Some("Check"))
+            .unwrap();
+        assert_eq!(
+            record.verdict,
+            Some(Verdict::Unsatisfied {
+                clause: "subject_open".into(),
+                remedy: Some(Remedy::UnreachableFromHere)
+            })
+        );
+        assert!(record.inputs.iter().all(|(n, _)| n != "subject"));
     }
 }
