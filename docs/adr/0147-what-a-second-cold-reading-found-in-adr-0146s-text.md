@@ -2,6 +2,7 @@
 
 - **Status:** Accepted, 2026-10-04. Decisions 1 to 3 by the author, one at a time, each given a sample; decisions 4 to 13 at the author's direction ("go with B, continue with your recommends"), as `cold-reading-2-review.md` §6 decides each finding.
 - **Date:** 2026-10-04
+- **Refined by:** ADR-0148 — its triage items 17, 54, 94 and 123 corrected where the third cold reading found them contradicting other text.
 - **Refines:** ADR-0105 (an engine release's built-ins, amended by decision 3), ADR-0146 (`time_in`, correcting its triage item 55; corrections; erasure; publishing), ADR-0036 (proposals), ADR-0089 (delivery), ADR-0101 (the import), ADR-0106 and ADR-0142 (metric rules), ADR-0122 (the objects and order a refusal names)
 - **Relates to:** `cold-reading-2-review.md`; `DESIGN.md` §5.5, §5.6, §5.11, §5.12, §6 to §9, §11; `publish-and-import.md`; `storage-schema.md` §3, §6, §10, §12; `library-api.md`; `adversarial-harness.md` §1; `declaration-syntax.md` §4.2, §6.4, §6.6, §6.8, §6.9, §6.11, §8.3; `flow-format.md` §4, §5, §11; D505 to D513
 

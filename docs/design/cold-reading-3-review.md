@@ -1,6 +1,6 @@
 # Third cold reading, of the text written for ADR-0147, 2026-10-04
 
-Status: **reports recorded, triage to follow.** At the author's request ("run another cold reading over today's text"), four readers with no context read the text written on 2026-10-04 to state ADR-0147's decisions, each asked whether two careful builders following it could build engines that behave differently, and to watch for a rule stated twice in two places differently. They found 139 findings.
+Status: **disposed**, 2026-10-04: the contradictions and regressions fixed and the rest recorded as open questions (§5), as ADR-0148 records. At the author's request ("run another cold reading over today's text"), four readers with no context read the text written on 2026-10-04 to state ADR-0147's decisions, each asked whether two careful builders following it could build engines that behave differently, and to watch for a rule stated twice in two places differently. They found 139 findings.
 
 **Method.** As in `cold-reading-2-review.md`: each reader was given only what a builder gets for its area, pointed at the passages citing ADR-0147 and told to read their whole sections, and barred from the decision records, both earlier review records, the defect register, `TODO.md`, the lessons, the code and git history; each checked its quotations against the files by script. Their reports follow as they wrote them, each opening heading renamed to place it in this record.
 
@@ -1790,3 +1790,43 @@ The text settles the following without ambiguity.
 | changes-value | 0 | — (findings 10, 12, 13, 15 also change values; each is counted once, at its highest severity) |
 | wording | 4 | 19–22 |
 | **Total** | **22** | |
+
+## 5. Disposition
+
+Decided by the author, 2026-10-04 ("go ahead with 1 and 2, and do 3 too"), and recorded as ADR-0148: the contradictions and regressions are fixed, each in its rule's one normative home, and every other finding is an open question, answered when a builder reaches it.
+
+**Fixed** (ADR-0148 decision 2), each fix naming the findings it settles, by report and number (A for §1, B for §2, C for §3, D for §4):
+
+| Fix | Findings | What is stated |
+|---|---|---|
+| F1 | C1, C3 | A publish evaluates every invariant over every object as the mappings leave it, an invariant it did not change needing no new evaluation over an object nothing it wrote affects; a type the change touches is one whose declaration it alters, or whose rules read such a declaration |
+| F2 | C2 | A migration event goes to each object whose row the mappings change, and an admission-only event to one only an `admit` reaches |
+| F3 | B2 | One list of what invalidates a pending proposal, in `DESIGN.md` §9, which §5.9 cites |
+| F4 | B1 | An approval's events: the proposal's `approve` first, then the target's and what it causes; `Satisfied` names the target |
+| F5 | A1 | A function without `fresh` does not read the stamp: only an answer obtained for the request is used |
+| F6 | A2 | An evaluator that does not answer, or answers too old, refuses with `temporal`, an exception to the declared remedy that an example's expectation follows |
+| F7 | A13, A15, A29 | An attribute correction marks the rows whose value or `.held` it changes, relabels from the current interval's start, and for an untracked attribute changes only its value and its event |
+| F8 | A19 | A correction supplies `subject`, the corrected observation's |
+| F9 | A22 | An expectation's `values` may name an observation's members, `occurred_at`, `recorded_at`, `recorded_by_kind`, `subject` and `corrects` |
+| F10 | A24, B8 | Only a kind with a personal field has a generated `forget`, which the subject's erasure takes; a label's note is redacted on the subject's erasure event |
+| F11 | A26 | Scalars stay strings but for booleans and numbers: timestamps and dates are not resolved by the loader |
+| F12 | A28 | A creation never fails the interval check, having no current interval |
+| F13 | B11 | A set may be personal, and an erasure empties it |
+| F14 | B26 | `migrate`, `import` and `redact` are reserved transition names |
+| F15 | B37 | An abstract base may be a mirror, its family ported together |
+| F16 | B38 | An examples file resolves its names against every module the check is given |
+| F17 | B39 | The built-in `DeclarationChange` guards' remedy is `unreachable_from_here`, the cure being another transition |
+| F18 | B40 | The library's comment on a refusal's objects cites `DESIGN.md` §5.5 |
+| F19 | C18, C19, C20 | The DDL for a removed or newly optional required attribute, a changed type, and a removed or changed compiled invariant |
+| F20 | C39 | A publish leaving an object in a state no transition or assertion of its new version reaches is fatal |
+| F21 | C40 | An upgrade over a store still at version 0 records version 1 with no source, naming the release |
+| F22 | C43, C44 | The model's §10 lists and the order of mappings follow `publish-and-import.md` |
+| F23 | D4 | Check 56's row states both rules §6.9 attributes to it |
+| F24 | D5 | `MetricPage` carries a refusal, as `EventPage` does |
+| F25 | D6 | `recorded_from` is read from the state's intervals and those the mapping supplies; a member opened at the port does not move it, its reads before then being gaps of their own |
+| F26 | D9 | An abstract base declares no metrics; a family's figure is combined from its subtypes' |
+| F27 | D20, D21 | The restatements of the closed-stretch rule cite it, and its summary is narrowed to a span still current |
+
+**For the author** (ADR-0148 decision 3): D21's case, that a member's span ending after its object closed counts the closed days retroactively, is a question about what the rule should be, not about its wording.
+
+**Open questions** (ADR-0148 decision 3), every other finding: A3 to A12, A14, A16 to A18, A20, A21, A23, A25 and A27; B3 to B7, B9, B10, B12 to B25, B27 to B36, B41 and B42; C4 to C17, C21 to C38, C41, C42, C45 and C46; D1 to D3, D7, D8, D10 to D19 and D22. Each is answered when a builder reaches it, the Rust core's first slice and its comparison with the Python reference being the instrument, and the answer is written into the rule's home with this record cited.

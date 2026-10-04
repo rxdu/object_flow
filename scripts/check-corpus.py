@@ -70,6 +70,44 @@ def check_references(nums, maxcheck):
                         findings.append(f"{rel}:{i}  anchor #{want} does not resolve in {m.group(1) or p.name}")
 
 
+CITATION = re.compile(r"`?(wr:(?:[\w.-]+/)*)?([A-Za-z][\w-]*\.md)`? (§\d+(?:\.\d+)*(?:(?:,? and |, | to |–)§\d+(?:\.\d+)*)*)")
+
+
+def citable(path):
+    """The section numbers a document can be cited by: its numbered headings, its numbered bold paragraphs such as
+    `**2.1 Title**`, and the numbered items of a numbered section, `§2.4` being item 4 of section 2."""
+    text = path.read_text()
+    found = {m.group(1) for m in re.finditer(r"^#+ (\d+(?:\.\d+)*)\.?\s", text, re.M)}
+    found |= {m.group(1) for m in re.finditer(r"^\*\*(\d+\.\d+(?:\.\d+)*)\b", text, re.M)}
+    parts = re.split(r"^(#+) (\d+(?:\.\d+)*)\.?\s.*$", text, flags=re.M)
+    for i in range(1, len(parts) - 2, 3):
+        number, body = parts[i + 1], parts[i + 2]
+        found |= {f"{number}.{m.group(1)}" for m in re.finditer(r"^(\d+)\. ", body, re.M)}
+    return found
+
+
+def check_citations():
+    """Every citation of another document's section resolves in it (ADR-0148): one rule has one home, and the others
+    cite it, so a citation that resolves nowhere leaves a rule with no statement. A decision record, a lesson and a
+    review cite documents as they were then, and the first consumer's repository (`wr:`) is not this one."""
+    files = {p.name: p for p in list(ROOT.glob("docs/*.md")) + list(ROOT.glob("docs/design/*.md"))}
+    cache = {}
+    for p in docs():
+        rel = p.relative_to(ROOT)
+        if "adr" in p.parts or p.name == "LESSONS.md" or "review" in p.name or "cold-draft" in p.name:
+            continue
+        for i, line in enumerate(p.read_text().split("\n"), 1):
+            for m in CITATION.finditer(line):
+                if m.group(1) or m.group(2) not in files:
+                    continue
+                target = files[m.group(2)]
+                if target not in cache:
+                    cache[target] = citable(target)
+                for sec in re.findall(r"§(\d+(?:\.\d+)*)", m.group(3)):
+                    if sec not in cache[target]:
+                        findings.append(f"{rel}:{i}  cites {m.group(2)} §{sec}, which {m.group(2)} has no section numbered")
+
+
 def check_retired():
     for p in docs():
         rel, text = p.relative_to(ROOT), p.read_text()
@@ -310,6 +348,7 @@ def main():
     maxcheck = max(int(x) for x in re.findall(r"^\| (\d+) \|", sec, flags=re.M))
 
     check_references(nums, maxcheck)
+    check_citations()
     check_retired()
     check_adr_headers(nums)
     check_amendments()
