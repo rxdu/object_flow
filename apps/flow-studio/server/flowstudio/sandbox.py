@@ -278,7 +278,9 @@ class Sandbox:
         s = self.store
         if oid in s.proposals:
             p = s.proposals[oid]
-            return {"id": oid, "type": "Proposal", "state": p["state"],
+            # the state as the built-in type names it (DESIGN.md §9, D521)
+            return {"id": oid, "type": "Proposal",
+                    "state": p["state"].upper(),
                     "attributes": {"transition": p["transition"],
                                    "target": p["object"]},
                     "not_computed": ["version", "declaration_version",

@@ -24,7 +24,7 @@ use serde_json::{Value as Json, json};
 use crate::eval::{Evaluator, NotRun, Who, truth};
 use crate::expr::Expr;
 use crate::model::{
-    Declared, Enforce, From, Kind, Library, Remedy, Step, Transition, Type, Unique,
+    Declared, Enforce, From, Kind, Library, PROPOSAL, Remedy, Step, Transition, Type, Unique,
 };
 use crate::store::{Allocator, Change, Event};
 use crate::value::{Value, parse_duration};
@@ -44,6 +44,10 @@ pub struct Request {
     /// The inputs as the wire carries them (ADR-0150).
     pub inputs: BTreeMap<String, Json>,
     pub occurred_at: Option<i64>,
+    /// File it as a proposal instead of executing it (`DESIGN.md` §9).
+    pub propose: bool,
+    /// A proposal's expiry, with `propose` only.
+    pub expires_at: Option<i64>,
 }
 
 fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
@@ -164,6 +168,9 @@ struct Ctx<'w> {
     /// The requested transition's type, whose own clauses go unqualified.
     requested: String,
     occurred: Option<i64>,
+    /// For an approved proposal, when it was filed, from which its occurred
+    /// time's bound is measured (ADR-0147).
+    filed_at: Option<i64>,
     /// The occurred time every transition the request takes records: the
     /// request's own, or now (`DESIGN.md` §6).
     at: i64,
@@ -191,7 +198,21 @@ pub fn decide(
     req: &Request,
     answers: &BTreeMap<String, String>,
 ) -> Result<(Verdict, Option<Change>), NotRun> {
-    match decide_or_stop(world, alloc, req, answers) {
+    // a request filed for approval, and one deciding a proposal, are the
+    // store's own (DESIGN.md §9)
+    let deciding = req
+        .object_id
+        .as_deref()
+        .and_then(|id| world.get(id))
+        .is_some_and(|o| o.type_ == PROPOSAL);
+    let answer = if req.propose {
+        file(world, alloc, req)
+    } else if deciding {
+        decide_proposal(world, alloc, req, answers)
+    } else {
+        decide_or_stop(world, alloc, req, answers, None)
+    };
+    match answer {
         Ok(answer) => Ok(answer),
         Err(Stop::Refused(v)) => Ok((v, None)),
         Err(Stop::NotRun(e)) => Err(e),
@@ -203,6 +224,7 @@ fn decide_or_stop(
     alloc: &mut Allocator,
     req: &Request,
     answers: &BTreeMap<String, String>,
+    filed_at: Option<i64>,
 ) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
     // 1. the actor
@@ -311,6 +333,7 @@ fn decide_or_stop(
         who,
         requested: tn.clone(),
         occurred: req.occurred_at,
+        filed_at,
         at: req.occurred_at.unwrap_or(world.now),
         answers: answers.clone(),
         flags: Vec::new(),
@@ -576,7 +599,7 @@ fn take(
     if depth == 0
         && let Some(occurred) = ctx.occurred
     {
-        let now = ctx.work.now;
+        let now = ctx.filed_at.unwrap_or(ctx.work.now);
         let within = x
             .backdating_limit
             .as_deref()
@@ -862,6 +885,7 @@ fn take(
         }
         o.erased = true;
         ctx.erased.entry(o.id.clone()).or_default().extend(erased);
+        invalidate_proposals(ctx, alloc, &o.id)?;
     }
     // an assertion puts the object into the state the request names
     if x.kind == Kind::Assertion
@@ -1082,6 +1106,416 @@ fn record_spans(
         });
     }
     true
+}
+
+/// Every proposal still pending on an erased object is invalidated, its
+/// inputs redacted, the two one event, which is no transition the request
+/// took (`DESIGN.md` §8, `storage-schema.md` §9 steps 7 and 11).
+fn invalidate_proposals(
+    ctx: &mut Ctx<'_>,
+    alloc: &mut Allocator,
+    erased: &str,
+) -> Result<(), Stop> {
+    let lib = ctx.work.lib;
+    let Some(pt) = lib.type_(PROPOSAL) else {
+        return Ok(());
+    };
+    let target = Value::Text(erased.to_string());
+    let pending: Vec<String> = ctx
+        .work
+        .of_type(PROPOSAL)
+        .iter()
+        .filter(|p| p.state == "PENDING" && p.attr("target") == target)
+        .map(|p| p.id.clone())
+        .collect();
+    for id in pending {
+        let Some(mut p) = ctx.work.get(&id).cloned() else {
+            continue;
+        };
+        let names: BTreeSet<String> = match p.attr("inputs") {
+            Value::Text(t) => serde_json::from_str::<serde_json::Map<String, Json>>(&t)
+                .map(|m| m.keys().cloned().collect())
+                .unwrap_or_default(),
+            _ => BTreeSet::new(),
+        };
+        let position = alloc.position();
+        let before = tracked_values(lib, pt, &p);
+        p.state = "INVALIDATED".into();
+        p.attrs.insert("inputs".into(), Value::Text("{}".into()));
+        record_spans(lib, pt, &mut p, Some(&before), position, ctx.at, &ctx.who);
+        p.version += 1;
+        ctx.events.push(Event {
+            position,
+            object_id: id.clone(),
+            object_seq: p.version,
+            transition: "invalidate".into(),
+            from_state: Some("PENDING".into()),
+            to_state: "INVALIDATED".into(),
+            changes_state: true,
+            source: "erased".into(),
+            actor_id: ctx.who.id.clone(),
+            actor_kind: ctx.who.kind.clone(),
+            declaration_version: 1,
+            recorded_at: ctx.work.now,
+            occurred_at: Some(ctx.at),
+            imported: false,
+            payload: json!({ "redacted": ["inputs"] }),
+        });
+        // the inputs leave the proposal's own creation event too
+        ctx.erased.entry(id.clone()).or_default().extend(names);
+        ctx.work.objects.insert(id, p);
+    }
+    Ok(())
+}
+
+/// A request filed for approval instead of executed (`DESIGN.md` §9): it is
+/// checked as a request is short of the object's state and the guards, its
+/// occurred time held to the transition's bound now, when the store is
+/// told; it creates a proposal, `PENDING`, which `Satisfied` names.
+fn file(
+    world: &World<'_>,
+    alloc: &mut Allocator,
+    req: &Request,
+) -> Result<(Verdict, Option<Change>), Stop> {
+    let lib = world.lib;
+    let Some(who) = resolve_actor(world, &req.actor) else {
+        return refused(Verdict::Unsatisfied {
+            clause: "actor_known".into(),
+            remedy: Some(Remedy::Dependent),
+        });
+    };
+    let (tn, oid) = match &req.object_id {
+        Some(id) => match world.get(id) {
+            None => return refused(Verdict::NotFound),
+            Some(o) => (o.type_.clone(), Some(id.clone())),
+        },
+        None => match &req.type_ {
+            Some(t) => (t.clone(), None),
+            None => {
+                return refused(Verdict::UnknownTransition {
+                    transition: req.transition.clone(),
+                });
+            }
+        },
+    };
+    let unknown = || Verdict::UnknownTransition {
+        transition: req.transition.clone(),
+    };
+    let Some(t) = lib.type_(&tn) else {
+        return refused(unknown());
+    };
+    if let Some(what) = t.beyond.first() {
+        return stop_not_run(what.clone());
+    }
+    let x = match t.transition(&req.transition) {
+        Some(x) if (x.kind == Kind::Initial) == oid.is_none() => x,
+        _ => return refused(unknown()),
+    };
+    if !x.proposable {
+        return refused(Verdict::NotRequestable {
+            parents: x.only_via.clone(),
+        });
+    }
+    // its inputs as a request checks them: taken, of their type, naming
+    // what exists, and none left out
+    let mut wrong: Vec<String> = req
+        .inputs
+        .keys()
+        .filter(|k| !takes(t, x, k))
+        .cloned()
+        .collect();
+    for (k, raw) in &req.inputs {
+        if wrong.contains(k) {
+            continue;
+        }
+        let Some((declared, many)) = input_type(t, x, k) else {
+            continue;
+        };
+        match wire::decode(raw, declared, many, lib) {
+            Ok(v) => {
+                if let Declared::Reference(target) = declared {
+                    let ids: Vec<&Value> = match &v {
+                        Value::Set(items) => items.iter().collect(),
+                        Value::Absent => Vec::new(),
+                        one => vec![one],
+                    };
+                    let fits = ids.iter().all(|i| matches!(i, Value::Object(id) if world.get(id).is_some_and(|o| lib.is_a(&o.type_, target))));
+                    if !fits {
+                        wrong.push(k.clone());
+                    }
+                }
+            }
+            Err(_) => wrong.push(k.clone()),
+        }
+    }
+    let given = |k: &String| req.inputs.get(k).is_some_and(|v| !v.is_null());
+    wrong.extend(
+        x.required_inputs
+            .iter()
+            .filter(|k| !given(k))
+            .filter(|k| {
+                t.attribute(k)
+                    .is_none_or(|a| !a.optional && a.default.is_none())
+            })
+            .cloned(),
+    );
+    wrong.extend(
+        x.inputs
+            .iter()
+            .filter(|(k, spec)| !given(k) && !spec.optional && spec.default.is_none())
+            .map(|(k, _)| k.clone()),
+    );
+    if !wrong.is_empty() {
+        return refused(Verdict::InvalidInput { inputs: wrong });
+    }
+    if let Some(occurred) = req.occurred_at {
+        let within = x
+            .backdating_limit
+            .as_deref()
+            .and_then(parse_duration)
+            .is_some_and(|limit| world.now - limit <= occurred && occurred <= world.now);
+        if !within {
+            return refused(Verdict::Unsatisfied {
+                clause: "occurred_within".into(),
+                remedy: Some(Remedy::SelfServiceable),
+            });
+        }
+    }
+    let Some(pt) = lib.type_(PROPOSAL) else {
+        return stop_not_run("a store without the built-in Proposal");
+    };
+    let position = alloc.position();
+    alloc.txn();
+    let id = alloc.object_id(PROPOSAL);
+    let mut attrs = BTreeMap::new();
+    if let Some(target) = &oid {
+        attrs.insert("target".to_string(), Value::Text(target.clone()));
+    }
+    attrs.insert("target_type".into(), Value::Text(tn.clone()));
+    attrs.insert("transition".into(), Value::Text(req.transition.clone()));
+    attrs.insert(
+        "inputs".into(),
+        Value::Text(Json::Object(req.inputs.clone().into_iter().collect()).to_string()),
+    );
+    attrs.insert("proposer".into(), Value::Text(req.actor.clone()));
+    if let Some(occurred) = req.occurred_at {
+        attrs.insert("occurred".into(), Value::Timestamp(occurred));
+    }
+    attrs.insert("filed_at".into(), Value::Timestamp(world.now));
+    if let Some(expiry) = req.expires_at {
+        attrs.insert("expires_at".into(), Value::Timestamp(expiry));
+    }
+    let mut o = Object {
+        id: id.clone(),
+        type_: PROPOSAL.into(),
+        state: "PENDING".into(),
+        version: 0,
+        attrs,
+        created_at: world.now,
+        created_by_kind: who.kind.clone(),
+        order: world.next_order(),
+        superseded_by: None,
+        spans: BTreeMap::new(),
+        writes: BTreeMap::new(),
+        admissions: BTreeSet::new(),
+        erased: false,
+    };
+    record_spans(lib, pt, &mut o, None, position, world.now, &who);
+    o.version = 1;
+    let event = Event {
+        position,
+        object_id: id.clone(),
+        object_seq: 1,
+        transition: "propose".into(),
+        from_state: None,
+        to_state: "PENDING".into(),
+        changes_state: true,
+        source: "observed".into(),
+        actor_id: who.id.clone(),
+        actor_kind: who.kind.clone(),
+        declaration_version: 1,
+        recorded_at: world.now,
+        occurred_at: Some(world.now),
+        imported: false,
+        payload: json!({ "inputs": req.inputs }),
+    };
+    Ok((
+        Verdict::Satisfied {
+            object_id: id,
+            version: 1,
+            events: vec![position],
+            flags: Vec::new(),
+        },
+        Some(Change {
+            writes: vec![(o, true, event)],
+            index: Vec::new(),
+            admitted: Vec::new(),
+            discharged: Vec::new(),
+            redacted: Vec::new(),
+        }),
+    ))
+}
+
+/// A decision on a proposal (`DESIGN.md` §9): `reject` and `withdraw` end
+/// it; `approve` executes the request it holds as the approver, every guard
+/// evaluated now under the rules in force, its occurred time's bound
+/// measured from the filing. A refused approval returns the request's
+/// verdict and leaves the proposal pending; an applied one records the
+/// proposal's `approve` first, then the target's event and what it causes,
+/// and `Satisfied` names the target. A decision on a proposal no longer
+/// pending is refused as `unavailable`, and so is an approval from its
+/// expiry on, naming the state `expired`.
+fn decide_proposal(
+    world: &World<'_>,
+    alloc: &mut Allocator,
+    req: &Request,
+    answers: &BTreeMap<String, String>,
+) -> Result<(Verdict, Option<Change>), Stop> {
+    let lib = world.lib;
+    let Some(who) = resolve_actor(world, &req.actor) else {
+        return refused(Verdict::Unsatisfied {
+            clause: "actor_known".into(),
+            remedy: Some(Remedy::Dependent),
+        });
+    };
+    let Some(p) = req.object_id.as_deref().and_then(|id| world.get(id)) else {
+        return refused(Verdict::NotFound);
+    };
+    let Some(pt) = lib.type_(PROPOSAL) else {
+        return stop_not_run("a store without the built-in Proposal");
+    };
+    let to = match req.transition.as_str() {
+        "approve" => "EXECUTED",
+        "reject" => "REJECTED",
+        "withdraw" => "WITHDRAWN",
+        // only a publish or an erasure invalidates a proposal
+        "invalidate" => {
+            return refused(Verdict::NotRequestable {
+                parents: Vec::new(),
+            });
+        }
+        _ => {
+            return refused(Verdict::UnknownTransition {
+                transition: req.transition.clone(),
+            });
+        }
+    };
+    if p.state != "PENDING" {
+        return refused(Verdict::Unavailable {
+            state: p.state.clone(),
+        });
+    }
+    if to == "EXECUTED"
+        && let Value::Timestamp(expiry) = p.attr("expires_at")
+        && world.now >= expiry
+    {
+        return refused(Verdict::Unavailable {
+            state: "expired".into(),
+        });
+    }
+    // the proposal's own event, first
+    let position = alloc.position();
+    alloc.txn();
+    let mut decided = p.clone();
+    let before = tracked_values(lib, pt, &decided);
+    decided.state = to.into();
+    record_spans(
+        lib,
+        pt,
+        &mut decided,
+        Some(&before),
+        position,
+        world.now,
+        &who,
+    );
+    decided.version += 1;
+    let event = Event {
+        position,
+        object_id: p.id.clone(),
+        object_seq: decided.version,
+        transition: req.transition.clone(),
+        from_state: Some("PENDING".into()),
+        to_state: to.into(),
+        changes_state: true,
+        source: "observed".into(),
+        actor_id: who.id.clone(),
+        actor_kind: who.kind.clone(),
+        declaration_version: 1,
+        recorded_at: world.now,
+        occurred_at: Some(world.now),
+        imported: false,
+        payload: json!({}),
+    };
+    if to != "EXECUTED" {
+        return Ok((
+            Verdict::Satisfied {
+                object_id: p.id.clone(),
+                version: decided.version,
+                events: vec![position],
+                flags: Vec::new(),
+            },
+            Some(Change {
+                writes: vec![(decided, false, event)],
+                index: Vec::new(),
+                admitted: Vec::new(),
+                discharged: Vec::new(),
+                redacted: Vec::new(),
+            }),
+        ));
+    }
+    let text = |a: &str| match p.attr(a) {
+        Value::Text(t) => Some(t),
+        _ => None,
+    };
+    let held = Request {
+        transition: text("transition").unwrap_or_default(),
+        actor: req.actor.clone(),
+        object_id: text("target"),
+        type_: if text("target").is_some() {
+            None
+        } else {
+            text("target_type")
+        },
+        inputs: text("inputs")
+            .and_then(|i| serde_json::from_str::<BTreeMap<String, Json>>(&i).ok())
+            .unwrap_or_default(),
+        occurred_at: match p.attr("occurred") {
+            Value::Timestamp(t) => Some(t),
+            _ => None,
+        },
+        propose: false,
+        expires_at: None,
+    };
+    let filed_at = match p.attr("filed_at") {
+        Value::Timestamp(t) => Some(t),
+        _ => None,
+    };
+    let (verdict, change) = decide_or_stop(world, alloc, &held, answers, filed_at)?;
+    let Some(mut change) = change else {
+        return Ok((verdict, None));
+    };
+    change.writes.insert(0, (decided, false, event));
+    Ok((
+        match verdict {
+            Verdict::Satisfied {
+                object_id,
+                version,
+                mut events,
+                flags,
+            } => {
+                events.push(position);
+                events.sort_unstable();
+                Verdict::Satisfied {
+                    object_id,
+                    version,
+                    events,
+                    flags,
+                }
+            }
+            other => other,
+        },
+        Some(change),
+    ))
 }
 
 /// Each observation in the subject's collections whose kind has a personal
@@ -2044,6 +2478,8 @@ types:
                 .into_iter()
                 .collect(),
             occurred_at: None,
+            propose: false,
+            expires_at: None,
         };
         request(s, &r).unwrap().unwrap()
     }
@@ -2715,6 +3151,8 @@ types:
                 type_: None,
                 inputs,
                 occurred_at: Some(when),
+                propose: false,
+                expires_at: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -3281,5 +3719,167 @@ types:
             .eval(&crate::expr::parse("count(a in Asset: a)").unwrap())
             .unwrap();
         assert_eq!(n, Value::Int(2));
+    }
+
+    #[test]
+    fn a_proposal_is_filed_decided_and_invalidated_by_an_erasure() {
+        let text = JOBS
+            .replace(
+                "      finish: { kind: external, from: [WORKING], to: DONE }",
+                "      finish: { kind: external, from: [WORKING], to: DONE, proposable: true }\n      \
+                 forget: { kind: erasure, inputs: { reason: { type: string } } }",
+            )
+            .replace(
+                "      annotate: { kind: internal, from: [OPEN], required_inputs: [note] }",
+                "      annotate: { kind: internal, from: [OPEN], required_inputs: [note], proposable: true }",
+            )
+            .replace(
+                "      note: { type: string, optional: true }",
+                "      note: { type: string, optional: true, personal: true }",
+            );
+        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fix"}),
+        ));
+        let propose = |s: &mut Store, xn: &str, inputs: Json, expires_at: Option<i64>| {
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: Some(job.clone()),
+                type_: None,
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose: true,
+                expires_at,
+            };
+            request(s, &r).unwrap().unwrap()
+        };
+        // filing checks the transition and the inputs, not the state
+        assert_eq!(
+            propose(&mut s, "start", json!({}), None),
+            Verdict::NotRequestable {
+                parents: Vec::new()
+            }
+        );
+        assert_eq!(
+            propose(&mut s, "finish", json!({"bogus": 1}), None),
+            Verdict::InvalidInput {
+                inputs: vec!["bogus".into()]
+            }
+        );
+        // an input left out that a generated guard refuses waits for approval
+        assert!(matches!(
+            propose(&mut s, "annotate", json!({}), None),
+            Verdict::Satisfied { .. }
+        ));
+        let handover = created(&propose(&mut s, "finish", json!({}), None));
+        // approved too soon, it is refused as the request would be, and waits
+        assert_eq!(
+            req(&mut s, "approve", OPERATOR, (&handover, false), json!({})),
+            Verdict::Unavailable {
+                state: "OPEN".into()
+            }
+        );
+        assert_eq!(
+            s.snapshot().unwrap().get(&handover).unwrap().state,
+            "PENDING"
+        );
+        let ana = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        created(&req(
+            &mut s,
+            "start",
+            OPERATOR,
+            (&job, false),
+            json!({"engineer": &ana}),
+        ));
+        // approved, it is executed as the approver, its own event first
+        let v = req(&mut s, "approve", OPERATOR, (&handover, false), json!({}));
+        let Verdict::Satisfied {
+            object_id, events, ..
+        } = &v
+        else {
+            panic!("{v:?}");
+        };
+        assert_eq!(object_id, &job);
+        let first = s.events(&events[..1]).unwrap().remove(0).unwrap();
+        assert_eq!(
+            (first.object_id.as_str(), first.transition.as_str()),
+            (handover.as_str(), "approve")
+        );
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            (
+                w.get(&job).unwrap().state.as_str(),
+                w.get(&handover).unwrap().state.as_str()
+            ),
+            ("DONE", "EXECUTED")
+        );
+        // a decided proposal is decided once
+        assert_eq!(
+            req(&mut s, "reject", OPERATOR, (&handover, false), json!({})),
+            Verdict::Unavailable {
+                state: "EXECUTED".into()
+            }
+        );
+        // an expired one is not approved
+        let other = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Other"}),
+        ));
+        let late = {
+            let r = Request {
+                transition: "annotate".into(),
+                actor: OPERATOR.into(),
+                object_id: Some(other.clone()),
+                type_: None,
+                inputs: [("note".to_string(), json!("ana's"))].into(),
+                occurred_at: None,
+                propose: true,
+                expires_at: Some(s.now + 60),
+            };
+            created(&request(&mut s, &r).unwrap().unwrap())
+        };
+        s.now += 60;
+        assert_eq!(
+            req(&mut s, "approve", OPERATOR, (&late, false), json!({})),
+            Verdict::Unavailable {
+                state: "expired".into()
+            }
+        );
+        // an erasure of its object invalidates it, and redacts its inputs
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&other, false),
+            json!({"reason": "asked"}),
+        ));
+        let w = s.snapshot().unwrap();
+        let p = w.get(&late).unwrap();
+        assert_eq!(p.state, "INVALIDATED");
+        assert_eq!(p.attr("inputs"), Value::Text("{}".into()));
+        assert_eq!(
+            s.history(&late).unwrap()[0].payload["inputs"]["note"],
+            Json::Null
+        );
     }
 }

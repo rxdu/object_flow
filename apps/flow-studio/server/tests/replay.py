@@ -195,9 +195,12 @@ class Player:
         """The transitions a request caused, in the order each began: its
         events after the first, a redaction left out (`flow-format.md`
         §11.4)."""
+        # a proposal's own events, an approval's and an invalidation's, are
+        # not transitions the request took (flow-format.md §11.4)
+        taken = [e for e in self.appended(v) if e is not None
+                 and self.type_of(e["object_id"]) != "Proposal"]
         return [f"{self.type_of(e['object_id'])}.{e['transition']}"
-                for e in self.appended(v)[1:]
-                if e is not None and e["transition"] != "redact"]
+                for e in taken[1:] if e["transition"] != "redact"]
 
     # ── an expectation ────────────────────────────────────────────────────
     def requested_type(self, tested: dict) -> str:
@@ -350,7 +353,8 @@ def replay(wire: Wire, module_file: str,
             if problem is None and "proposal" in ex["expect"]:
                 prop = wire.post("/v1/get", {
                     "id": p.alias(ex["approve"]["proposal"])})
-                if prop["state"] != ex["expect"]["proposal"]:
+                # the format writes the state in lower case (§11.4, D521)
+                if prop["state"].lower() != ex["expect"]["proposal"]:
                     problem = f"expected the proposal " \
                               f"{ex['expect']['proposal']}, and it is " \
                               f"{prop['state']}"

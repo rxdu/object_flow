@@ -338,6 +338,8 @@ types:
             type_: Some("Job".into()),
             inputs: [("title".to_string(), json!("Fix"))].into_iter().collect(),
             occurred_at: None,
+            propose: false,
+            expires_at: None,
         };
         let job = match request(&mut s, &r).unwrap().unwrap() {
             Verdict::Satisfied { object_id, .. } => object_id,

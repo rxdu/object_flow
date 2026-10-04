@@ -417,16 +417,21 @@ export class Player {
   }
 
   /** The transitions a request caused, in the order each began: its events
-   * after the first, a redaction left out (flow-format.md §11.4). */
+   * after the first, a redaction left out, and a proposal's own events, an
+   * approval's and an invalidation's, which are not transitions the request
+   * took (flow-format.md §11.4). */
   async caused(v: Verdict & { kind: "satisfied" }): Promise<string[]> {
-    const later = (await this.appended(v))
-      .slice(1)
-      .filter((e) => e.transition !== "redact");
-    return Promise.all(
-      later.map(
-        async (e) => `${await this.typeOf(e.object_id)}.${e.transition}`,
-      ),
+    const typed = await Promise.all(
+      (await this.appended(v)).map(async (e) => ({
+        e,
+        type: await this.typeOf(e.object_id),
+      })),
     );
+    return typed
+      .filter(({ type }) => type !== "Proposal")
+      .slice(1)
+      .filter(({ e }) => e.transition !== "redact")
+      .map(({ e, type }) => `${type}.${e.transition}`);
   }
 
   private async requestedType(tested: ExampleStep): Promise<string | null> {
@@ -606,7 +611,8 @@ export async function runExample(
           ps.step.approve
         ) {
           const prop = await wire.get(p.alias(ps.step.approve.proposal ?? ""));
-          if (prop?.state !== ps.expect.proposal) {
+          // the format writes the state in lower case (§11.4, D521)
+          if (prop?.state.toLowerCase() !== ps.expect.proposal) {
             problem = `expected the proposal ${ps.expect.proposal}, and it is ${prop?.state}`;
           }
         }

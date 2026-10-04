@@ -298,14 +298,25 @@ async fn evaluators(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
 
 // ── the library's operations ──────────────────────────────────────────────
 async fn request_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
-    for k in ["expected_version", "idempotency_key", "expires_at"] {
+    for k in ["expected_version", "idempotency_key"] {
         if body.get(k).is_some_and(|v| !v.is_null()) {
             return Err(Fault::NotRun(format!("a request's {k}")));
         }
     }
-    if body.get("propose").and_then(J::as_bool) == Some(true) {
-        return Err(Fault::NotRun("filing a proposal".to_string()));
-    }
+    let propose = body.get("propose").and_then(J::as_bool) == Some(true);
+    // a proposal's expiry, with `propose` only (library-api.md §3)
+    let expires_at =
+        match text(&body, "expires_at") {
+            Some(_) if !propose => {
+                return Err(Fault::Bad(
+                    "expires_at is a proposal's, with propose".to_string(),
+                ));
+            }
+            Some(t) => Some(parse_timestamp(t).ok_or_else(|| {
+                Fault::Bad(format!("expires_at takes an RFC 3339 timestamp: {t}"))
+            })?),
+            None => None,
+        };
     let (Some(transition), Some(actor)) = (
         text(&body, "transition"),
         body.get("actor").and_then(|a| text(a, "id")),
@@ -342,6 +353,8 @@ async fn request_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
         type_,
         inputs,
         occurred_at,
+        propose,
+        expires_at,
     };
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;

@@ -1236,13 +1236,105 @@ fn operator_type() -> Type {
     }
 }
 
+/// The built-in type of a request filed for approval (`DESIGN.md` §9):
+/// what it would request, who filed it, and its lifecycle, `PENDING` until it
+/// is approved and executed, rejected, withdrawn or invalidated. Its
+/// transitions are the store's own, not declared here.
+pub const PROPOSAL: &str = "Proposal";
+
+fn proposal_type() -> Type {
+    let attribute = |t: &str, optional: bool| Attribute {
+        declared: Declared::Scalar(t.to_string()),
+        many: false,
+        optional,
+        default: None,
+        unique: Unique::No,
+        assignee: false,
+        personal: false,
+        actor_kind: None,
+        identifier: None,
+        opposite: None,
+        composite: false,
+        cascade: Vec::new(),
+    };
+    let state = |category: &str, is_final: bool| State {
+        category: category.to_string(),
+        is_final,
+        required_attributes: Vec::new(),
+        superseding: false,
+    };
+    Type {
+        name: PROPOSAL.to_string(),
+        module: String::new(),
+        attributes: vec![
+            // none for a proposed creation
+            ("target".into(), attribute("string", true)),
+            ("target_type".into(), attribute("string", false)),
+            ("transition".into(), attribute("string", false)),
+            // the inputs as the wire carried them, re-read under the
+            // declaration in force when it is approved
+            ("inputs".into(), attribute("string", false)),
+            ("proposer".into(), attribute("string", false)),
+            ("occurred".into(), attribute("timestamp", true)),
+            ("filed_at".into(), attribute("timestamp", false)),
+            ("expires_at".into(), attribute("timestamp", true)),
+        ],
+        derived: Vec::new(),
+        states: vec![
+            ("PENDING".into(), state("live", false)),
+            ("EXECUTED".into(), state("closed", true)),
+            ("REJECTED".into(), state("closed", true)),
+            ("WITHDRAWN".into(), state("closed", true)),
+            ("INVALIDATED".into(), state("closed", true)),
+        ],
+        conditions: Vec::new(),
+        invariants: Vec::new(),
+        transitions: Vec::new(),
+        beyond: Vec::new(),
+        at_outcome: Vec::new(),
+        observations: Vec::new(),
+        observation_on: None,
+        state_machine: None,
+        extends: None,
+        abstract_: false,
+        inherited: BTreeMap::new(),
+        source: serde_json::json!({
+            "description": "A request filed for approval instead of executed (DESIGN.md §9).",
+            "attributes": {
+                "target": { "type": "string", "optional": true },
+                "target_type": { "type": "string" },
+                "transition": { "type": "string" },
+                "inputs": { "type": "string" },
+                "proposer": { "type": "string" },
+                "occurred": { "type": "timestamp", "optional": true },
+                "filed_at": { "type": "timestamp" },
+                "expires_at": { "type": "timestamp", "optional": true }
+            },
+            "states": {
+                "PENDING": { "category": "live" },
+                "EXECUTED": { "category": "closed", "final": true },
+                "REJECTED": { "category": "closed", "final": true },
+                "WITHDRAWN": { "category": "closed", "final": true },
+                "INVALIDATED": { "category": "closed", "final": true }
+            },
+            "transitions": {
+                "approve": { "kind": "external", "from": ["PENDING"], "to": "EXECUTED" },
+                "reject": { "kind": "external", "from": ["PENDING"], "to": "REJECTED" },
+                "withdraw": { "kind": "external", "from": ["PENDING"], "to": "WITHDRAWN" },
+                "invalidate": { "kind": "external", "from": ["PENDING"], "to": "INVALIDATED" }
+            }
+        }),
+    }
+}
+
 impl Library {
     /// The library of modules given as (file, text), in import order, with
-    /// the built-in Operator type.
+    /// the built-in Operator and Proposal types.
     pub fn load(files: &[(String, String)]) -> Result<Library, LoadError> {
         let mut lib = Library::default();
         let mut machines: BTreeMap<String, Type> = BTreeMap::new();
         lib.types.insert("Operator".to_string(), operator_type());
+        lib.types.insert(PROPOSAL.to_string(), proposal_type());
         for (file, text) in files {
             let m = load_module(file, text)?;
             for (n, members) in m.enumerations {
