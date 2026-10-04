@@ -408,10 +408,13 @@ CREATE TABLE of_declaration (
   published_at  TEXT    NOT NULL,
   published_by  TEXT    NOT NULL,   -- for version 0, the engine release that created the store
   change_id     TEXT,               -- the DeclarationChange it installed (ADR-0085); none for 0
+  release       TEXT,               -- the engine release an upgrade's version names as its
+                                    -- cause; none for a publish's (ADR-0147, ADR-0148)
   report        TEXT    NOT NULL,   -- what publishing reported, kept for audit; for version 0,
                                     -- the built-in module's own check report
   CONSTRAINT of_declaration_source CHECK
-    ((version = 0) = (source_ref IS NULL) AND (source_ref IS NULL) = (source_digest IS NULL))
+    ((source_ref IS NULL) = (source_digest IS NULL)
+     AND (version = 0 OR source_ref IS NOT NULL OR release IS NOT NULL))
 );
 
 -- The engine releases this store has been at: the one that created it, then one
@@ -733,14 +736,17 @@ A publish is a declaration version and a set of DDL statements derived from it, 
 | Declaration change | DDL |
 |---|---|
 | a new type, or a new observation kind | `CREATE TABLE`, its indexes, its constraints |
-| a new attribute | `ADD COLUMN`, nullable. DDL never writes a live row: a `default` applies at creation, and a new required attribute is filled by a `backfill` mapping, applied as recorded migration transitions (ADR-0099), its `NOT NULL` applied after the mappings, by a table rebuild on SQLite; an attribute made required is treated the same way, and one whose type changed is a removed attribute and a new one of the same name (ADR-0147) |
+| a new attribute | `ADD COLUMN`, nullable. DDL never writes a live row: a `default` applies at creation, and a new required attribute is filled by a `backfill` mapping, applied as recorded migration transitions (ADR-0099), its `NOT NULL` applied after the mappings, by a table rebuild on SQLite; an attribute made required is treated the same way (ADR-0147) |
 | a new indexed attribute | `ADD COLUMN` then `CREATE INDEX` |
-| a removed attribute | **nothing.** A dropped attribute hides; its recorded values stay in history (ADR-0027) |
+| a removed attribute | **nothing**, but that a required one's `NOT NULL` is dropped, by a table rebuild on SQLite. A dropped attribute hides; its recorded values stay in history (ADR-0027, ADR-0148) |
+| an attribute made optional | its `NOT NULL` dropped, by a table rebuild on SQLite (ADR-0148) |
+| an attribute whose type changed | before the mappings, its column renamed aside, to `<name>__v<version>` of the last version that declared it, keeping its values readable for history, and a new column of the name added, nullable, every object's value starting absent (ADR-0148) |
 | a renamed attribute | `RENAME COLUMN`, carrying the mapping |
 | a removed state | no DDL; the `CHECK` is widened to the union of both versions' states before the mappings, which move every object out of it, a mirror's included, and replaced by the new version's after (ADR-0147) |
 | a removed enum member | the `CHECK` is widened to the union of both versions' members before the mappings, and replaced after a `removed member` mapping has moved every row off it by recorded migration transitions (ADR-0099, ADR-0147); a retired type's table keeps its `CHECK` |
 | a removed type or observation kind | **nothing.** It is retired: no creation, no transition, and its table and history stay readable (ADR-0099) |
-| a new invariant of compilable shape | `ADD CONSTRAINT`, after the report says how many live objects violate it, and only where no `admit` covers it, since a constraint cannot yield for one row (§8) |
+| a new invariant of compilable shape | `ADD CONSTRAINT`, after the mappings, and only where no `admit` covers it, since a constraint cannot yield for one row (§8) |
+| a removed or changed compiled invariant | its constraint dropped before the mappings, and a changed one's added after them where no `admit` covers it (ADR-0148) |
 | an `admit` mapping | an `of_admission` row per violating object, on its migration event; where the admitted invariant is compiled, its constraint is dropped first, in the same transaction, and stays dropped while any admission of it stands (§8, ADR-0074, ADR-0105) |
 | a new tracked member | no DDL; an `of_interval` row per object holding its current value, opened at the event that first gives it a value in the publish, the object's migration where a backfill writes it and else the publish event, marked `migrated`, which a fold reproduces (ADR-0106, ADR-0147) |
 
@@ -777,7 +783,7 @@ A removed attribute leaving its column in place is deliberate: the column is how
 **What the step does**, in one serialisable transaction:
 1. It reads the last row of `of_engine_release`. At the new release already, it does nothing and says so, so a repeated upgrade is harmless. At a release the new one does not name as one it upgrades from, it refuses, naming both, and changes nothing: each release names the releases it upgrades from, and a store further behind is upgraded through the releases between, one step each.
 2. It runs the new release's migration of the store's own tables, the `of_` tables of §6 and the tables §3 makes of each type, which is that release's own work and all this step writes besides its record. Both backends take a schema change inside a transaction, so a migration that fails leaves the store whole, at the old release.
-3. Where the new release's built-in module, its built-in types and standard metrics, differs from the one the installed version was published with (`of_declaration.builtins`), it checks the installed flows against the new one. Where they pass, it records them as the next version, with the installed version's source, reference and digest and the new built-ins, naming the release as its cause, and supersedes every open `DeclarationChange`, as a publish does; where they do not, it refuses, naming the findings, and the deployment changes its flows under the old release first. **`upgrade --dry-run`** runs these checks and writes nothing, producing an impact report of what the new built-ins change, a standard metric's definition or a built-in type's, of which installed flows fail, and of the open changes it would supersede; running the step is the operator's recorded act on that report, so the built-ins change only through a reported, recorded act (ADR-0105, ADR-0147).
+3. Where the new release's built-in module, its built-in types and standard metrics, differs from the one the installed version was published with (`of_declaration.builtins`), it checks the installed flows against the new one. Where they pass, it records them as the next version, with the installed version's source, reference and digest and the new built-ins, naming the release as its cause in `release` — over a store still at version 0, version 1 with no source, reference or digest, which only an upgrade's version may lack beside version 0 (ADR-0148) — and supersedes every open `DeclarationChange`, as a publish does; where they do not, it refuses, naming the findings, and the deployment changes its flows under the old release first. **`upgrade --dry-run`** runs these checks and writes nothing, producing an impact report of what the new built-ins change, a standard metric's definition or a built-in type's, of which installed flows fail, and of the open changes it would supersede; running the step is the operator's recorded act on that report, so the built-ins change only through a reported, recorded act (ADR-0105, ADR-0147).
 4. It appends a row to `of_engine_release`: the new release, when, and `installed_by`, the operator who asked, recorded as that operator's act naming the release, as creating the store is (ADR-0126).
 
 **Draining the old release.** Every request reads the release row in its transaction (§7), and the step writes it, so under serialisable isolation no request of the old release commits after the upgrade: one that read the row before the upgrade committed fails its serialisation, on either backend, and, retried, reads the new release and refuses with `EngineMismatch` (`library-api.md` §7). A deployment therefore upgrades in three moves:

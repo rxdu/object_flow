@@ -33,7 +33,7 @@ That is falsifiable, which is what makes it worth a harness. A run **fails** if 
 
 | Failure | What it means |
 |---|---|
-| an object in a state no transition reaches, counting the type's declared transitions and assertions and not the import's built-in assertion, under the installed version, so a cutover leaves every ported object in a state its owned declaration reaches (ADR-0147); a mirror's objects and a retired type's are exempt | the machine was not the only way in |
+| an object in a state no transition reaches, counting the type's declared transitions and assertions and not the import's built-in assertion, under the installed version, so a cutover leaves every ported object in a state its owned declaration reaches, which a publish ensures by refusing one that would not (`publish-and-import.md` §2, ADR-0147, ADR-0148); a mirror's objects and a retired type's are exempt | the machine was not the only way in |
 | an invariant false, with no admission recorded, except a kind's invariant on an observation recorded before a publish declared it, which nothing can change (ADR-0146) | enforcement was skipped or lost a race |
 | a required attribute absent, except where an admission covers it | a creation wrote less than it declared |
 | a part alive under a whole in a terminal state, except one its type declares `survives` that transition, or `survives: true` where a migration moved the whole there, and a mirror's, which the import writes as the legacy record has them (ADR-0147) | a cascade was skipped or a coverage rule was wrong |
