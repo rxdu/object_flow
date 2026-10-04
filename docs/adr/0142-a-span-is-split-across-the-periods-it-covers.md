@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-29: "accept all three recommendations", on the three questions the proposal put, which decisions 2, 4 and 9 now answer.
 - **Date:** 2026-09-29
+- **Refined by:** ADR-0147 — a span of zero length is one piece of zero duration, in the bucket it began.
 - **Refines:** ADR-0103 §5 (a share of time), ADR-0101 (where a span ends), ADR-0106 (calendar buckets), ADR-0123 (a group with no body)
 - **Relates to:** PRD C3; ADR-0084 (metrics computed on read); `declaration-syntax.md` §6.9; `flow-format.md` §4.9; `flow-review.md` §4.2; `edge-cases.md`; `unit-journey.md` §2
 

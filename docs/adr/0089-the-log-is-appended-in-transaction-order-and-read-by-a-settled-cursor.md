@@ -4,6 +4,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` T3, M5 and D1; repairs D210 and D211; the PostgreSQL mechanism observed by probe
 - **Date:** 2026-09-23
+- **Refined by:** ADR-0147 — a new subscription starts at the settled cursor of its creation; a cursor is exclusive; lag has named thresholds a read returns; a refused `pull` is a value.
 - **Refines:** ADR-0034, ADR-0046, ADR-0077
 
 ## Context
