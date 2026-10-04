@@ -175,9 +175,13 @@
           "type": "array",
           "items": { "type": "string", "pattern": "^([A-Z][A-Za-z0-9]*\\.)?[a-z][a-z0-9_]*$" }
         },
+        "occurred_at": {
+          "description": "For applied: the occurred time the request recorded, a timestamp such as now - 1 day.",
+          "type": "string"
+        },
         "proposal": {
-          "description": "The state an approved proposal is left in: executed where its request applied, pending where it was refused, and as it was where it was not pending.",
-          "enum": ["pending", "executed", "rejected", "withdrawn"]
+          "description": "The state an approved proposal is left in: executed where its request applied, pending where it was refused, and as it was where it was not pending, invalidated included.",
+          "enum": ["pending", "executed", "rejected", "withdrawn", "invalidated"]
         }
       }
     }

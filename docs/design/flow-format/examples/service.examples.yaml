@@ -111,7 +111,7 @@ examples:
     steps:
       - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
     request: { object: job, transition: start, actor: ana, after: 25 h, occurred_at: now - 1 day }
-    expect: { verdict: applied, state: WORKING }
+    expect: { verdict: applied, state: WORKING, occurred_at: now - 1 day }
 
   a_start_is_not_dated_further_back_than_two_days:
     description: A start recorded three days after it happened is refused, and the caller can record it with a time within two days, or undated.

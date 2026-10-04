@@ -1270,7 +1270,7 @@ class Runner:
             store.sequences = work.sequences    # a number minted by a refused request stays used: the gap
             raise
         store.__dict__.update(work.__dict__)
-        return ("applied", root, ctx.flags, ctx.taken[1:], ctx.created)
+        return ("applied", root, ctx.flags, ctx.taken[1:], ctx.created, ctx.at)
 
     def mint(self, ctx, o, attrs):
         """Each identifier of a new object, numbered from 1 per sequence and scope, as its format writes it
@@ -1476,6 +1476,7 @@ class Runner:
         self.effects(ctx, tn, o, x.get("effect") or [], inputs, {}, depth)
         self.cascades(ctx, t, tn, xn, o, inputs, depth)
         if x["kind"] == "erasure":
+            self.forget_observations(ctx, o, inputs, depth)
             self.erase_chain(ctx, o, inputs, depth)
         self.record(ctx, o, x, xn, pos, before, inputs, created=oid is None)
         o.version += 1
@@ -1508,13 +1509,19 @@ class Runner:
                 # reads the corrected one; the original event is not changed (ADR-0146)
                 wrong, since = spans[-1]["value"], spans[-1]["entered_at"]
                 spans[-1]["value"], spans[-1]["corrected_by"] = v, pos
+                if len(spans) > 1 and spans[-2]["value"] == v:
+                    # equal to the interval before it, it merges with it, so a correction never counts as a change of
+                    # holder; the merged row carries the latest correction that reached it (ADR-0147)
+                    spans[-2]["left_at"], spans[-2]["corrected_by"] = ABSENT, pos
+                    spans.pop()
                 for rows in o.spans.values():
                     for row in rows:
                         if row["entered_at"] >= since and row["held"].get(m) == wrong:
-                            row["held"][m] = v
+                            row["held"][m], row["corrected_by"] = v, pos    # every row whose .held it changes (ADR-0147)
                 for ev in work.events:
                     if ev["object"] == o.id and ev["occurred_at"] >= since and ev["held"].get(m) == wrong:
                         ev["held"][m] = v
+                held[m] = v     # its own row credits the corrected value, begun in the span it corrects (ADR-0147)
                 continue
             if created or not spans or held.get(m, ABSENT) != v:
                 if not created:
@@ -1711,16 +1718,17 @@ class Runner:
             del o.attrs[a]
         o.erased = True
         ctx.erased.setdefault(o.id, set()).update(erased)
-        for ob in (t.get("observations") or {}).values():
-            fields = {a for a, sp in (ob.get("attributes") or {}).items() if (sp or {}).get("personal")}
-            for other in work.objects.values():
-                if other.type == ob["kind"] and other.attrs.get("subject") == o.id:
-                    gone = fields & set(other.attrs)
-                    for a in gone:
-                        del other.attrs[a]
-                    if gone:
-                        ctx.erased.setdefault(other.id, set()).update(gone)
-                        ctx.wrote(other.id)
+
+    def forget_observations(self, ctx, o, inputs, depth):
+        """An erasure reaches its object's observations through each one's generated `forget`, taken after its declared
+        steps and cascades, in ascending id order, as transitions the request causes (DESIGN.md §8, ADR-0147)."""
+        work = ctx.work
+        for ob in ((self.kinds.get(o.type) or {}).get("observations") or {}).values():
+            if "forget" not in ((self.kinds.get(ob["kind"]) or {}).get("transitions") or {}):
+                continue                    # a kind with no personal field has nothing to forget
+            for other in sorted((x for x in work.objects.values() if x.type == ob["kind"] and x.attrs.get("subject") == o.id),
+                                key=lambda x: x.id_order):
+                self.take(ctx, ob["kind"], "forget", other.id, {"reason": inputs.get("reason", "erasure")}, depth + 1)
 
     def erase_chain(self, ctx, o, inputs, depth):
         """Every member of its supersession chain, predecessors and successors, each through its own type's erasure,
@@ -1865,6 +1873,9 @@ def observation_kinds(modules):
                     "transitions": {"record": {"kind": "initial", "to": "RECORDED",
                                                "required_inputs": ["subject"] + [a for a, f in fields.items() if not f.get("optional")],
                                                "optional_inputs": ["corrects"] + [a for a, f in fields.items() if f.get("optional")]}}}
+                if any((f or {}).get("personal") for f in fields.values()):
+                    # a kind with a personal field has a generated erasure, `forget` (declaration-syntax.md §6.8)
+                    kinds[ob["kind"]]["transitions"]["forget"] = {"kind": "erasure", "inputs": {"reason": {"type": "string"}}}
                 if ob.get("max_recording_delay"):
                     # the model's `occurred within`, the bound a recording's occurred time is held to (flow-format.md §4.4)
                     kinds[ob["kind"]]["transitions"]["record"]["backdating_limit"] = ob["max_recording_delay"]
@@ -2047,6 +2058,12 @@ def step(runner, store, st, aliases, stubs, under_test=False):
     return result
 
 
+# the members every object has, by the type an expectation's value of one is written as (flow-format.md §5)
+BUILT_IN_MEMBERS = {"id": {"type": "string"}, "open": {"type": "bool"}, "created_at": {"type": "timestamp"},
+                    "created_by_kind": {"type": "actor_kind"}, "recorded_from": {"type": "timestamp"},
+                    "declaration_version": {"type": "int"}}
+
+
 def compare(runner, store, want, outcome, aliases):
     """What differs between an expectation and what the request did, or None."""
     if outcome[0] == "refused":
@@ -2069,12 +2086,17 @@ def compare(runner, store, want, outcome, aliases):
     attrs = (runner.kinds.get(o.type) or {}).get("attributes") or {}
     derived = (runner.kinds.get(o.type) or {}).get("derived_attributes") or {}
     for k, v in (want.get("values") or {}).items():
-        expected = runner.value_of(store, attrs.get(k), v, aliases)
-        # a derived attribute is computed as a reader reads it, the others read as stored
-        got = Evaluator(store, o.type, o.id).member(o.id, k) if k in derived else o.attrs.get(k, ABSENT)
+        expected = runner.value_of(store, attrs.get(k) or BUILT_IN_MEMBERS.get(k), v, aliases)
+        # a derived attribute and a member every object has are read as a reader reads them, the others as stored
+        got = Evaluator(store, o.type, o.id).member(o.id, k) if k in derived or (k in BUILT_IN_MEMBERS and k not in attrs) \
+            else o.attrs.get(k, ABSENT)
         if got != expected:
             named = {oid: alias for alias, oid in aliases.items()}
             return f"expected {k} to hold {v}, and it holds {named.get(got, got) if isinstance(got, str) else got}"
+    if "occurred_at" in want:
+        expected = runner.value_of(store, {"type": "timestamp"}, want["occurred_at"], aliases)
+        if outcome[5] != expected:
+            return f"expected the request to record the occurred time {want['occurred_at']}, and it records {outcome[5]}"
     if "cascaded" in want and list(want["cascaded"]) != list(outcome[3]):
         return f"expected the request to cause {want['cascaded'] or 'nothing'}, and it causes {outcome[3] or 'nothing'}"
     if "warned" in want:
@@ -2262,6 +2284,7 @@ def self_test():
         "states": {"OPEN": {"category": "live"}, "WORKING": {"category": "live"}, "DONE": {"category": "closed", "final": True}},
         "transitions": {"open": {"kind": "initial", "to": "OPEN", "required_inputs": ["crew"]},
                         "start": {"kind": "external", "from": ["OPEN"], "to": "WORKING"},
+                        "move_crew": {"kind": "internal", "from": ["OPEN", "WORKING"], "required_inputs": ["crew"]},
                         "fix_crew": {"kind": "internal", "from": ["OPEN", "WORKING"], "corrects": ["crew"],
                                      "required_inputs": ["crew"], "inputs": {"reason": {"type": "string"}}}}}}
     r, s = Runner(jobs, {"Crew": ["NORTH", "SOUTH"]}), Store(jobs, {"Crew": ["NORTH", "SOUTH"]})
@@ -2277,6 +2300,19 @@ def self_test():
     check("an event taken within it does too, and the original write's event is not changed",
           (start["held"]["crew"], next(ev for ev in s.events if ev["transition"] == "open")["held"].get("crew", ABSENT)),
           (("enum", "Crew", "SOUTH"), ABSENT))
+    check("a state span whose .held it changed carries the correction", "corrected_by" in o.spans["state"][-1], True)
+    # a crew moved by mistake and corrected back: the relabelled interval merges with the one before it, and the
+    # correction's own row credits the corrected crew (ADR-0147)
+    r, s = Runner(jobs, {"Crew": ["NORTH", "SOUTH"]}), Store(jobs, {"Crew": ["NORTH", "SOUTH"]})
+    j = r.attempt(s, "Job", "open", None, OPERATOR, {"crew": "Crew.NORTH"}, {}, {})[1]
+    s.now += 3600
+    r.attempt(s, "Job", "move_crew", j, OPERATOR, {"crew": "Crew.SOUTH"}, {}, {})
+    s.now += 3600
+    r.attempt(s, "Job", "fix_crew", j, OPERATOR, {"crew": "Crew.NORTH", "reason": "never moved"}, {}, {})
+    spans = s.objects[j].spans["crew"]
+    check("a corrected interval equal to the one before it merges with it",
+          (len(spans), spans[0]["value"], spans[0]["left_at"], "corrected_by" in spans[0]), (1, ("enum", "Crew", "NORTH"), ABSENT, True))
+    check("the correction's own row credits the corrected value", s.events[-1]["held"]["crew"], ("enum", "Crew", "NORTH"))
     # a request failing two generated guards is refused naming the first in the order flow-format.md §4.8 states
     wallet = {"attributes": {"cards": {"reference": "Card[]", "aggregation": "composite", "opposite": "wallet"}},
               "states": {"OPEN": {"category": "live"}, "SHUT": {"category": "closed", "final": True}},
@@ -2330,6 +2366,21 @@ def self_test():
     check("a call dated before the current interval of what it changes", dated("ship", 2 * 3600),
           ("call_refused", "Line.occurred_within"))
     check("a transition with no bound, dated", dated("cancel", 60), ("unsatisfied", "occurred_within"))
+    # an erasure takes each observation's generated forget after its own steps, a transition it causes and lists
+    # (DESIGN.md §8, ADR-0147)
+    module = {"types": {"Person": {
+        "attributes": {"name": {"type": "string", "personal": True}},
+        "observations": {"notes": {"kind": "Note", "attributes": {"body": {"type": "string", "personal": True}}}},
+        "states": {"ACTIVE": {"category": "live"}},
+        "transitions": {"add": {"kind": "initial", "to": "ACTIVE", "required_inputs": ["name"]},
+                        "forget": {"kind": "erasure", "inputs": {"reason": {"type": "string"}}}}}}}
+    k = {"Operator": kinds["Operator"], **module["types"], **observation_kinds({"m": module})}
+    r, s = Runner(k, {}), Store(k, {})
+    person = r.attempt(s, "Person", "add", None, OPERATOR, {"name": "Ana"}, {}, {})[1]
+    note = r.attempt(s, "Note", "record", None, OPERATOR, {"subject": person, "body": "rang"}, {person: person}, {})[1]
+    erased = r.attempt(s, "Person", "forget", person, OPERATOR, {"reason": "asked"}, {}, {})
+    check("an erasure takes each observation's forget, a transition it causes",
+          (erased[3], s.objects[note].attrs.get("body", ABSENT)), (["Note.forget"], ABSENT))
     ok &= metrics_self_test(kinds["Operator"])
     print(f"runner: a small order and its lines, a document over its history, and jobs read by their metrics, each thing "
           f"slices 1 to 4 execute: {'yes' if ok else 'NO'}")

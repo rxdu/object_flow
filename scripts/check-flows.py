@@ -2873,6 +2873,7 @@ EXAMPLES_ORDER = ["examples_for", "setups", "examples"]
 GENERATED_GUARDS = {"actor_known", "occurred_within", "whole_open", "not_erased", "subject_open", "corrects_current",
                     "subject_owned", "successor_not_superseded"}
 DATE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")   # a date as an example writes it (ADR-0145)
+BUILT_IN_MEMBERS = {"id", "open", "created_at", "created_by_kind", "recorded_from", "declaration_version"}
 EXAMPLE_OUTCOMES = []      # each example step 6 ran, with its outcome, for the summary a file check prints
 TIMESTAMP = re.compile(r"^(now( [+-] [0-9]+ (s|min|h|days?|weeks?))?|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z)$")
 
@@ -2922,6 +2923,9 @@ def example_errors(doc, kinds, modules):
                     "transitions": {"record": {"kind": "initial", "to": "RECORDED",
                                                "required_inputs": ["subject"] + [a for a, f in fields.items() if not optional(f)],
                                                "optional_inputs": ["corrects"] + [a for a, f in fields.items() if optional(f)]}}}
+                if any((f or {}).get("personal") for f in fields.values()):
+                    # a kind with a personal field has a generated erasure, `forget`, a step may request (ADR-0147)
+                    kinds[ob["kind"]]["transitions"]["forget"] = {"kind": "erasure", "inputs": {"reason": {"type": "string"}}}
     enums = {n: set(v) for m in modules.values() for n, v in (m.get("enumerations") or {}).items()}
     functions = {f"{e}.{fn}" for m in modules.values() for e, ev in (m.get("evaluators") or {}).items()
                  for fn in (ev.get("functions") or {})}
@@ -3187,8 +3191,11 @@ def example_errors(doc, kinds, modules):
                     out.append((here + ("state",), "names", f"{tn}.{xn} does not leave an object in {st}"))
             attrs = kinds[tn].get("attributes") or {}
             for k in (want.get("values") or {}):
-                if k not in attrs and k not in (kinds[tn].get("derived_attributes") or {}):
+                # an attribute, a derived attribute, or a member every object has (flow-format.md §5, ADR-0147)
+                if k not in attrs and k not in (kinds[tn].get("derived_attributes") or {}) and k not in BUILT_IN_MEMBERS:
                     out.append((here + ("values", k), "names", f"{tn} declares no attribute '{k}'"))
+            if "occurred_at" in want:
+                out += value_errors(want["occurred_at"], {"type": "timestamp"}, env, here + ("occurred_at",), "occurred_at")
             for c in want.get("cascaded") or []:
                 ct, cx = c.split(".", 1)
                 if cx not in ((kinds.get(ct) or {}).get("transitions") or {}):
@@ -3201,7 +3208,7 @@ def example_errors(doc, kinds, modules):
                 elif ct and cn not in ((kinds.get(ct) or {}).get("conditions") or {}):
                     out.append((here + ("warned",), "names", f"{c} names no condition of a type a module checked declares"))
             continue
-        for k in ("state", "values", "cascaded", "warned"):
+        for k in ("state", "values", "cascaded", "warned", "occurred_at"):
             if k in want:
                 out.append((here + (k,), "names", f"a request refused as {verdict} leaves no {'state' if k == 'state' else k} to state"))
         if verdict == "not_requestable" and not x.get("only_via"):
