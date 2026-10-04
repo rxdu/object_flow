@@ -138,9 +138,6 @@ class Player:
             return self.wire.post("/v1/request", {
                 "transition": verb, "actor": actor,
                 "object_id": self.alias(r["proposal"])})
-        if r.get("creates"):
-            raise Waiting("names the objects a request created, which needs "
-                          "an event read")
         body: dict[str, Any] = {"transition": r["transition"],
                                 "actor": actor}
         if "type" in r:
@@ -166,7 +163,38 @@ class Player:
             elif "as" in r:
                 self.aliases[r["as"]] = v["object_id"]
                 self.types[v["object_id"]] = r["type"]
+            if r.get("creates"):
+                self.name_created(r["creates"], v)
         return v
+
+    def appended(self, v: dict) -> list[dict]:
+        """The events a satisfied request appended, read by position
+        (ADR-0151)."""
+        return self.wire.post("/v1/events",
+                              {"positions": v["events"]})["events"]
+
+    def name_created(self, names: list[str], v: dict) -> None:
+        """Alias the objects the request created, other than its own, in the
+        order it created them: its creation events after the first
+        (`flow-format.md` §11.3)."""
+        made = [e["object_id"] for e in self.appended(v)[1:]
+                if e is not None and e["from_state"] is None]
+        if len(names) > len(made):
+            raise Failed(f"a step names {len(names)} objects its request "
+                         f"creates, and it creates {len(made)}")
+        if len({self.type_of(m) for m in made[:len(names)]}) > 1:
+            raise Failed("a step names objects its request creates, and "
+                         "they are of more than one type")
+        for alias, oid in zip(names, made):
+            self.aliases[alias] = oid
+
+    def caused(self, v: dict) -> list[str]:
+        """The transitions a request caused, in the order each began: its
+        events after the first, a redaction left out (`flow-format.md`
+        §11.4)."""
+        return [f"{self.type_of(e['object_id'])}.{e['transition']}"
+                for e in self.appended(v)[1:]
+                if e is not None and e["transition"] != "redact"]
 
     # ── an expectation ────────────────────────────────────────────────────
     def requested_type(self, tested: dict) -> str:
@@ -190,13 +218,7 @@ class Player:
                 clause, remedy = v["clause"], v["remedy"]
             elif got == "invariant_violated":
                 first = v["failures"][0]
-                if self.wire.post("/v1/get", {"id": first["object_id"]}) \
-                        is None:
-                    raise Waiting("an invariant fails on an object the "
-                                  "refused request would have created, "
-                                  "which no read resolves, so the failure "
-                                  "needs to carry its type")
-                owner = self.type_of(first["object_id"])
+                owner = first["type"]
                 clause = (first["invariant"]
                           if owner == self.requested_type(tested)
                           else f"{owner}.{first['invariant']}")
@@ -229,9 +251,9 @@ class Player:
             if not mine or mine[0]["occurred_at"] != self.instant(
                     want["occurred_at"]):
                 return "the occurred time differs"
-        if "cascaded" in want:
-            raise Waiting("expects the transitions a request caused, which "
-                          "needs an event read")
+        if "cascaded" in want and list(want["cascaded"]) != self.caused(v):
+            return f"expected the request to cause {want['cascaded']}, and " \
+                   f"it causes {self.caused(v)}"
         if "warned" in want:
             warned = [f["clause"] for f in v["flags"]]
             if list(want["warned"]) != warned:

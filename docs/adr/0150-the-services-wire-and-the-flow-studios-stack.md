@@ -2,6 +2,7 @@
 
 - **Status:** Accepted, 2026-10-04. Decisions 1, 3, 4 and 5 by the author ("go with your recommedtations"), answering `flow-studio.md` §9 and approving its §8. Decision 2 at the author's direction, as what decision 1 needs to carry the library's values, and open to the author's revision until the core implements it. The two findings of §Consequences are the author's to decide.
 - **Date:** 2026-10-04
+- **Refined by:** ADR-0151 — both findings decided as recommended: an `events` operation, and an invariant failure naming its object's type.
 - **Refines:** ADR-0132 (the service's HTTP, which it left without a shape), ADR-0149 (the studio's stack and the PRD's proposals)
 - **Relates to:** `design/flow-studio.md`; `design/library-api.md` §2 to §6; PRD §12
 
@@ -48,7 +49,7 @@ ADR-0132 decided that the engine's service speaks HTTP, described by OpenAPI and
 
 ## Consequences
 
-**Two findings against the interface, for the author**, from the studio's first slice.
+**Two findings against the interface, for the author**, from the studio's first slice, decided as recommended by ADR-0151.
 
 **1. A caller cannot read the events its request appended.** The studio's first slice needs to know which objects a request created, and which transitions it caused, since 42 of the 163 examples name the one or expect the other. `Satisfied.events` gives the positions of every event the request appended, and `Event.cause` links each to the one that caused it. But no operation reads an event by its position: `history` reads by object, and `pull` through a subscription. So a caller is handed positions it cannot resolve.
 

@@ -72,10 +72,11 @@ class Refused(Exception):
     beside them where the runner knows it: the object an invariant fails on, and a refused call's step, target and own
     refusal (library-api.md §4), which the Flow Studio's server reports (ADR-0150)."""
 
-    def __init__(self, verdict, clause=None, remedy=None, detail="", object_id=None, step=None, inner=None):
+    def __init__(self, verdict, clause=None, remedy=None, detail="", object_id=None, object_type=None, step=None,
+                 inner=None):
         super().__init__(f"{verdict} {clause or ''} {remedy or ''} {detail}".strip())
         self.verdict, self.clause, self.remedy, self.detail = verdict, clause, remedy, detail
-        self.object_id, self.step, self.inner = object_id, step, inner
+        self.object_id, self.object_type, self.step, self.inner = object_id, object_type, step, inner
 
 
 def seconds(duration):
@@ -1293,7 +1294,8 @@ class Runner:
                 if refused:
                     first = refused[0].rpartition(".")[2]
                     raise Refused("invariant_violated", refused[0], self.invariant_remedy(work, x, obj, first, requested),
-                                  detail=", ".join(refused[1:]) and "and " + ", ".join(refused[1:]), object_id=obj.id)
+                                  detail=", ".join(refused[1:]) and "and " + ", ".join(refused[1:]), object_id=obj.id,
+                                  object_type=obj.type)
         except Refused:
             store.sequences = work.sequences    # a number minted by a refused request stays used: the gap
             raise

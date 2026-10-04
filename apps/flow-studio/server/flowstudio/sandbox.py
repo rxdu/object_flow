@@ -289,7 +289,9 @@ class Sandbox:
                 attrs[k] = values.encode(o.attrs.get(k, flowrun.ABSENT), typ)
             for k, spec in (t.get("derived_attributes") or {}).items():
                 expr = flowexpr.parse(spec["expression"])
-                typ = values.type_of_kind(ev.kind(expr, {}))
+                # typed as the runner types it, a bare name read on `this`
+                typ = values.type_of_kind(
+                    ev.kind(expr, {"this": ("object", o.type)}))
                 attrs[k] = values.encode(ev.member(o.id, k), typ)
             built = {k: values.encode(ev.member(o.id, k), typ)
                      for k, typ in BUILT_IN.items()}
@@ -311,6 +313,20 @@ class Sandbox:
         events = [self.event(e) for e in self.store.events
                   if e["object"] == oid]
         return {"events": events, "not_computed": EVENT_NOT_COMPUTED}
+
+    def events(self, body: dict) -> dict:
+        """The event at each position given, in the order given, and null
+        where the log holds none (ADR-0151)."""
+        self.loaded()
+        positions = body.get("positions")
+        if not isinstance(positions, list) or not all(
+                isinstance(p, int) and not isinstance(p, bool)
+                for p in positions):
+            raise Fault(400, "events takes positions, a list of integers")
+        log = {e["position"]: e for e in self.store.events}
+        return {"events": [self.event(log[p]) if p in log else None
+                           for p in positions],
+                "not_computed": EVENT_NOT_COMPUTED}
 
     def declaration(self, body: dict) -> dict:
         self.loaded()
@@ -345,8 +361,11 @@ class Sandbox:
         return {"kind": "satisfied", "object_id": root,
                 "version": s.objects[root].version if root in s.objects
                 else None,
-                "events": [e["position"] for e in s.events
-                           if e["position"] > before],
+                # by position, the order each began, which puts the parent's
+                # first though the runner appends it after its effects'
+                # (`library-api.md` §4)
+                "events": sorted(e["position"] for e in s.events
+                                 if e["position"] > before),
                 "replayed": False, "flags": flags,
                 "not_computed": ["flags[].unknown", "flags[].objects"]}
 
@@ -360,6 +379,7 @@ class Sandbox:
                 "unknown", "objects", "proposable", "consulted"])
         elif v == "invariant_violated":
             out["failures"] = [{"object_id": r.object_id,
+                                "type": r.object_type,
                                 "invariant": (r.clause or "").rpartition(
                                     ".")[2],
                                 "remedy": r.remedy}]

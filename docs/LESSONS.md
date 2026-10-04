@@ -303,3 +303,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The Flow Studio's example player passed every example in its test, which drives it directly, and the page built on it refused the second step of the first example run in a browser. "Run to the end" looped inside one event handler and read React state from the render it started in, so every pass took the first step again; no test exercised the component, only the player beneath it.
 - **Correction:** A test of the logic a page calls is not a test of the page. Before calling a page done, use it: open it in a browser, the cached Playwright Chromium driven over the DevTools protocol where no Chrome is installed, and take the steps a user would. Inside an async loop in a handler, keep progress in a ref, never in render state.
 - **Context:** React, TypeScript; the Flow Studio's front end, 2026-10-04.
+
+### `pkill -f` and `pgrep -f` matched the shell that ran them
+- **Pattern:** Stopping the Flow Studio's servers with `pkill -f "python -m flowstudio"`, and later with `pgrep -f "...|python -m flowstudio$"` inside a kill loop, the pattern also matched the Bash command line that carried it, so the shell killed itself and the command ended with status 144; it happened twice in one session.
+- **Correction:** Stop a background process by the id recorded when it was started (`cmd & echo $!`). Where a pattern is unavoidable, bracket one character, `pgrep -f "[v]ite/bin/vite.js"`, so the pattern cannot match its own command line.
+- **Context:** Shell, any session that starts and stops servers.

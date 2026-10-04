@@ -14,7 +14,7 @@ import {
 } from "../src/session/player";
 
 const SERVER = fileURLToPath(new URL("../../server", import.meta.url));
-const WAITING = ["an event read", "import_batch", "carry its type"];
+const WAITING = ["import_batch"];
 
 let server: ChildProcess;
 let wire: Wire;

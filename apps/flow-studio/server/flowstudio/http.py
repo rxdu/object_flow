@@ -2,7 +2,8 @@
 
 Routes (ADR-0150):
 
-- `POST /v1/<operation>`: the library's operations the slices use;
+- `POST /v1/<operation>`: the library's operations the slices use, `request`,
+  `get`, `history`, `events` and `declaration`;
 - `POST /sandbox/<control>`: load, reset, clock, evaluators;
 - `GET /studio/...`: the module catalogue, a module's files, a diagram.
 
@@ -32,6 +33,7 @@ def routes(box: Sandbox) -> dict[str, Callable[[dict], Any]]:
         "/v1/request": box.request,
         "/v1/get": box.get,
         "/v1/history": box.history,
+        "/v1/events": box.events,
         "/v1/declaration": box.declaration,
         "/sandbox/load": box.load,
         "/sandbox/reset": box.reset,

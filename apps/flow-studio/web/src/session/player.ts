@@ -7,6 +7,7 @@
 import {
   type AttributeSpec,
   type Declaration,
+  type FlowEvent,
   NotRun,
   type RequestBody,
   type Verdict,
@@ -167,6 +168,9 @@ export class Player {
   readonly wire: Wire;
   now: number;
   readonly aliases = new Map<string, string>([[OPERATOR, OPERATOR]]);
+  /** every object a request of the session wrote, in the order first
+   * written, read from the events each appended (ADR-0151) */
+  readonly touched: string[] = [];
   private readonly types = new Map<string, string>();
   private readonly decls = new Map<string, Declaration>();
 
@@ -244,16 +248,13 @@ export class Player {
       );
     const actor = { id: this.alias(r.actor ?? OPERATOR) };
     if (verb === "approve" || verb === "reject" || verb === "withdraw") {
-      return this.wire.request({
+      const decided = await this.wire.request({
         transition: verb,
         actor,
         object_id: this.alias(r.proposal ?? ""),
       });
-    }
-    if (r.creates && r.creates.length > 0) {
-      throw new Waiting(
-        "names the objects a request created, which needs an event read",
-      );
+      if (decided.kind === "satisfied") await this.note(decided);
+      return decided;
     }
     const body: RequestBody = { transition: r.transition ?? "", actor };
     let type: string;
@@ -288,8 +289,68 @@ export class Player {
         this.aliases.set(r.as, v.object_id);
         this.types.set(v.object_id, type);
       }
+      await this.note(v);
+      if (r.creates && r.creates.length > 0)
+        await this.nameCreated(r.creates, v);
     }
     return v;
+  }
+
+  /** Every object the request wrote, for the objects the page lists. */
+  private async note(v: Verdict & { kind: "satisfied" }): Promise<void> {
+    for (const e of await this.appended(v)) {
+      if (!this.touched.includes(e.object_id)) this.touched.push(e.object_id);
+    }
+  }
+
+  /** The events a satisfied request appended, read by position
+   * (ADR-0151). */
+  async appended(v: Verdict & { kind: "satisfied" }): Promise<FlowEvent[]> {
+    const { events } = await this.wire.events(v.events);
+    return events.filter((e): e is FlowEvent => e !== null);
+  }
+
+  /** Alias the objects the request created, other than its own, in the order
+   * it created them: its creation events after the first (flow-format.md
+   * §11.3). */
+  private async nameCreated(
+    names: string[],
+    v: Verdict & { kind: "satisfied" },
+  ): Promise<void> {
+    const made = (await this.appended(v))
+      .slice(1)
+      .filter((e) => e.from_state === null)
+      .map((e) => e.object_id);
+    if (names.length > made.length) {
+      throw new Failed(
+        `a step names ${names.length} objects its request creates, and it creates ${made.length}`,
+      );
+    }
+    const types = new Set(
+      await Promise.all(made.slice(0, names.length).map((m) => this.typeOf(m))),
+    );
+    if (types.size > 1) {
+      throw new Failed(
+        "a step names objects its request creates, and they are of more than one type",
+      );
+    }
+    names.forEach((alias, i) => {
+      const id = made[i];
+      if (id !== undefined) this.aliases.set(alias, id);
+    });
+  }
+
+  /** The transitions a request caused, in the order each began: its events
+   * after the first, a redaction left out (flow-format.md §11.4). */
+  async caused(v: Verdict & { kind: "satisfied" }): Promise<string[]> {
+    const later = (await this.appended(v))
+      .slice(1)
+      .filter((e) => e.transition !== "redact");
+    return Promise.all(
+      later.map(
+        async (e) => `${await this.typeOf(e.object_id)}.${e.transition}`,
+      ),
+    );
   }
 
   private async requestedType(tested: ExampleStep): Promise<string | null> {
@@ -323,13 +384,7 @@ export class Player {
       } else if (v.kind === "invariant_violated") {
         const first = v.failures[0];
         if (!first) return "an invariant violation names no failure";
-        if ((await this.wire.get(first.object_id)) === null) {
-          throw new Waiting(
-            "an invariant fails on an object the refused request would have created, " +
-              "which no read resolves, so the failure needs to carry its type",
-          );
-        }
-        const owner = await this.typeOf(first.object_id);
+        const owner = first.type;
         clause =
           owner === (await this.requestedType(tested))
             ? first.invariant
@@ -388,9 +443,10 @@ export class Player {
       }
     }
     if (want.cascaded !== undefined) {
-      throw new Waiting(
-        "expects the transitions a request caused, which needs an event read",
-      );
+      const caused = await this.caused(v);
+      if (JSON.stringify(caused) !== JSON.stringify(want.cascaded)) {
+        return `expected the request to cause ${want.cascaded.join(", ") || "nothing"}, and it causes ${caused.join(", ") || "nothing"}`;
+      }
     }
     if (want.warned !== undefined) {
       const warned = v.flags.map((f) => f.clause);

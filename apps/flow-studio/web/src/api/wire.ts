@@ -23,6 +23,9 @@ export interface Flag {
 
 export interface InvariantFailure {
   object_id: string;
+  /** the object's type, which no read gives for an object the refused
+   * request would have created (ADR-0151) */
+  type: string;
   invariant: string;
   remedy: Remedy | null;
 }
@@ -161,6 +164,11 @@ export interface Wire {
   request(body: RequestBody): Promise<Verdict>;
   get(id: string): Promise<FlowObject | null>;
   history(id: string): Promise<{ events: FlowEvent[]; not_computed: string[] }>;
+  /** the event at each position given, in the order given, and null where
+   * the log holds none (ADR-0151) */
+  events(
+    positions: number[],
+  ): Promise<{ events: (FlowEvent | null)[]; not_computed: string[] }>;
   declaration(type: string): Promise<Declaration>;
   load(files: ModuleFile[]): Promise<LoadResult>;
   reset(): Promise<{ now: string }>;
@@ -203,6 +211,7 @@ export function httpWire(base = ""): Wire {
     request: (body) => post("/v1/request", body),
     get: (id) => post("/v1/get", { id }),
     history: (id) => post("/v1/history", { id }),
+    events: (positions) => post("/v1/events", { positions }),
     declaration: (type) => post("/v1/declaration", { type }),
     load: (files) => post("/sandbox/load", { files }),
     reset: () => post("/sandbox/reset", {}),

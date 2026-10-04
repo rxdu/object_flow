@@ -11,7 +11,7 @@ from replay import replay
 FILES = [m["file"] for m in catalogue.modules() if m["examples"]]
 
 # what an example may wait on, and nothing else (ADR-0150, Consequences)
-WAITING = ("an event read", "import_batch", "carry its type")
+WAITING = ("import_batch",)
 
 
 def oracle(module_file: str) -> dict[str, str]:

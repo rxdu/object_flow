@@ -26,7 +26,7 @@ Draft, 2026-09-09, amended 2026-09-23. The request and verdict shapes of [`../DE
 
 The core is library-shaped: a call goes in, guards evaluate, a transition and its record come out (§2 of the model). The first consumer is a FastAPI and SQLAlchemy system being rebuilt on this, so a Python interface is the one that will be exercised first and is the one written here.
 
-Since ADR-0110 this interface is what the engine's internal service exposes, one-to-one, and what the adversarial harness drives, in Rust against the core in process (ADR-0132); callers in other languages reach it through the service, not through bindings. That is a **binding**, not the design. The operations, their arguments and their results are the API; the dataclasses are one rendering of it. A second binding should offer the same nineteen operations with the same meanings, and the checker's comparison against §10 is written against the operation set rather than against Python.
+Since ADR-0110 this interface is what the engine's internal service exposes, one-to-one, and what the adversarial harness drives, in Rust against the core in process (ADR-0132); callers in other languages reach it through the service, not through bindings. That is a **binding**, not the design. The operations, their arguments and their results are the API; the dataclasses are one rendering of it. A second binding should offer the same twenty operations with the same meanings, and the checker's comparison against §10 is written against the operation set rather than against Python.
 
 ## 2. Three rules the shapes follow
 
@@ -224,6 +224,9 @@ class InvalidInput:
 @dataclass(frozen=True)
 class InvariantFailure:
     object_id: str
+    type: str                             # the object's type, which no read gives for an
+                                          # object the refused request would have created
+                                          # (ADR-0151)
     invariant: str
     remedy: Remedy                        # SELF_SERVICEABLE where the transition takes an input
                                           # it writes to a value the invariant reads; else
@@ -259,7 +262,7 @@ Verdict = (
 
 `Stale` carries its cause. Only a stale `expected_version` has an expected and an actual version; exhausted retries — a contended row on PostgreSQL, a busy timeout on SQLite (ADR-0090) — have neither.
 
-`Satisfied.events` is the positions of every event the request appended, the parent's first. A cascade of three parts returns four.
+`Satisfied.events` is the positions of every event the request appended, the parent's first. A cascade of three parts returns four. `events` reads them, so a caller learns what its request created, its creation events after the first, and what it caused, its events after the first but a `redact` (ADR-0151).
 
 `Satisfied.flags` is every flag the request raised, at any depth of its cascades: the request proceeded, and the caller is told what a deployment wants seen (PRD F9, ADR-0111). A replay returns the original's flags. A flag is not a refusal, so it is never a verdict of its own, and a caller that ignores it has lost nothing the store enforced.
 
@@ -621,6 +624,10 @@ class Store(Protocol):
     # follow: the whole group supersession joins, every member whose chain ends where
     # this object's does, in position order (ADR-0147)
 
+    # one entry per position, in the order given: the event the log holds there, or None
+    # where it holds none, as `get` gives None for an id no object has (ADR-0151)
+    def events(self, actor: Actor, positions: Sequence[int]) -> Sequence[Event | None]: ...
+
     def exceptions(self, actor: Actor, type: str,
                    cursor: str | None = None) -> Page: ...
 
@@ -663,7 +670,7 @@ class Store(Protocol):
 
 `PublishReport` is defined in [`publish-and-import.md`](publish-and-import.md) §2, which owns it: publishing is where its shape is decided and one shape should have one home.
 
-Nineteen operations: the sixteen of §10, the write path of §6, and the operational calls that are not object operations, `acknowledge` and `publish`. `import_batch` and `maintain` are the only other ways anything writes the database (ADR-0100). The checker holds this list against §10 rather than trusting it.
+Twenty operations: the seventeen of §10, the write path of §6, and the operational calls that are not object operations, `acknowledge` and `publish`. `import_batch` and `maintain` are the only other ways anything writes the database (ADR-0100). The checker holds this list against §10 rather than trusting it.
 
 - `metric` returns a `MetricPage`, and `diagnostics` a short fixed list, each computed over every row its source and filter select (ADR-0114).
 - `import_batch` writes a port through the built-in assertion, and only into a type declared `mirror` and the observations and labels on a mirror's objects; it never rewrites a personal value an erasure removed, redacts the legacy entries and intervals it attaches to an erased object as the erasure would have, and marks every event it writes `imported` (ADR-0100, ADR-0101). Its event opens each current interval at the time `entered` gives, so a stay is not split at the port; a refresh does the same for what changed since the last import; and no legacy interval may cross a silent span (ADR-0106). A legacy interval pages in the export by the cursor of the import event that wrote its object. `maintain` refuses a prune inside the store's attempt or idempotency retention, changes no governed state or history, and is never needed for correctness (ADR-0100, ADR-0101, ADR-0103). The idempotency retention must cover the longest period over which any caller repeats a key, a scheduler's periodic sweep and an at-least-once reader's re-delivery included, since a repeat after the prune is a new request.

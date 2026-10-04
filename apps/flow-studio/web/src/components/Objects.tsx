@@ -2,10 +2,9 @@ import { useEffect, useState } from "react";
 import type { FlowEvent, FlowObject, Wire } from "../api/wire";
 import { OPERATOR, type Player } from "../session/player";
 
-/** The objects the session has named, each read through `get`, and the
- * selected one's history through `history`. Objects a request created
- * without an alias are not listed: finding them needs an event read the
- * interface does not yet offer (ADR-0150, Consequences). */
+/** Every object the session's requests wrote, each read through `get`,
+ * named as the example names it where it does, and the selected one's
+ * history through `history`. */
 export function Objects({
   wire,
   player,
@@ -21,8 +20,16 @@ export function Objects({
 
   useEffect(() => {
     let live = true;
-    const named = [...(player?.aliases ?? new Map<string, string>())].filter(
-      ([alias, id]) => alias !== OPERATOR && !id.startsWith("proposal-"),
+    const aliases = player?.aliases ?? new Map<string, string>();
+    const names = new Map([...aliases].map(([a, id]) => [id, a]));
+    const ids = [
+      ...[...aliases]
+        .filter(([a, id]) => a !== OPERATOR && !id.startsWith("proposal-"))
+        .map(([, id]) => id),
+      ...(player?.touched ?? []),
+    ];
+    const named = [...new Set(ids)].map(
+      (id) => [names.get(id) ?? id, id] as const,
     );
     void Promise.all(
       named.map(async ([alias, id]) => [alias, await wire.get(id)] as const),
