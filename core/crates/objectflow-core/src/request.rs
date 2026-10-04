@@ -174,6 +174,9 @@ struct Ctx<'w> {
     wrote: BTreeMap<String, BTreeSet<String>>,
     /// The write index's rows the request sets, in the order set.
     index: Vec<(String, String, i64)>,
+    /// The object an assertion set, and the invariants it admits (§4.13).
+    asserted: Option<String>,
+    admits: BTreeSet<String>,
     /// Every event, in the order recorded.
     events: Vec<Event>,
     created: BTreeSet<String>,
@@ -238,13 +241,8 @@ fn decide_or_stop(
             });
         }
     };
-    if matches!(x.kind, Kind::Assertion | Kind::Erasure) {
-        let what = if x.kind == Kind::Assertion {
-            "assertion"
-        } else {
-            "erasure"
-        };
-        return stop_not_run(format!("an {what} ({tn}.{})", req.transition));
+    if x.kind == Kind::Erasure {
+        return stop_not_run(format!("an erasure ({tn}.{})", req.transition));
     }
     // 3. not requestable, and unavailable
     if !x.only_via.is_empty() {
@@ -252,8 +250,13 @@ fn decide_or_stop(
             parents: x.only_via.clone(),
         });
     }
+    // an assertion runs from any state but a final one
     if let Some(o) = oid.as_deref().and_then(|id| world.get(id))
-        && !takes_from(t, x, &o.state)
+        && !(if x.kind == Kind::Assertion {
+            t.state(&o.state).is_some_and(|s| !s.is_final)
+        } else {
+            takes_from(t, x, &o.state)
+        })
     {
         return refused(Verdict::Unavailable {
             state: o.state.clone(),
@@ -272,6 +275,23 @@ fn decide_or_stop(
     let mut inputs: BTreeMap<String, Value> = BTreeMap::new();
     let mut wrong = Vec::new();
     for (k, raw) in &req.inputs {
+        // an assertion's own: a state, and invariants, by name (§4.13)
+        if x.kind == Kind::Assertion && (k == "to" || k == "admits") {
+            match (k.as_str(), raw) {
+                ("to", Json::String(s)) => {
+                    inputs.insert(k.clone(), Value::Text(s.clone()));
+                }
+                ("admits", Json::Array(items)) if items.iter().all(Json::is_string) => {
+                    let names = items
+                        .iter()
+                        .filter_map(|i| i.as_str().map(|s| Value::Text(s.to_string())))
+                        .collect();
+                    inputs.insert(k.clone(), Value::Set(names));
+                }
+                _ => wrong.push(k.clone()),
+            }
+            continue;
+        }
         let Some((declared, many)) = input_type(t, x, k) else {
             return stop_not_run(format!("the input {k}, which names no attribute of {tn}"));
         };
@@ -297,27 +317,65 @@ fn decide_or_stop(
         flags: Vec::new(),
         wrote: BTreeMap::new(),
         index: Vec::new(),
+        asserted: None,
+        admits: BTreeSet::new(),
         events: Vec::new(),
         created: BTreeSet::new(),
     };
+    // an admission records the request's reason (ADR-0054)
+    let reason = inputs.get("reason").map(text_of).unwrap_or_default();
     let root = take(&mut ctx, alloc, &tn, &req.transition, oid, inputs, 0)?;
-    // 7. the invariants, on every object, in ascending id order
-    for obj in ctx.work.in_order() {
-        let failing = failing_invariants(&ctx.work, obj)?;
-        if failing.is_empty() {
+    // 7. the invariants, on every object, in ascending id order, except a
+    // violation an admission lets stand, which is discharged once the
+    // invariant holds again (ADR-0054); an assertion admits what it names
+    let first = ctx.events.iter().map(|e| e.position).min().unwrap_or(0);
+    let mut admitted = Vec::new();
+    let mut discharged = Vec::new();
+    let ids: Vec<String> = ctx.work.in_order().iter().map(|o| o.id.clone()).collect();
+    for id in ids {
+        let Some(obj) = ctx.work.get(&id) else {
             continue;
-        }
-        let failures: Vec<InvariantFailure> = failing
+        };
+        let failing = failing_invariants(&ctx.work, obj)?;
+        let holding: Vec<String> = obj
+            .admissions
             .iter()
-            .map(|n| InvariantFailure {
-                object_id: obj.id.clone(),
-                type_: obj.type_.clone(),
-                invariant: n.clone(),
-                remedy: invariant_remedy(&ctx.work, x, obj, n, &root),
-            })
+            .filter(|n| !failing.contains(n))
+            .cloned()
             .collect();
-        let remedy = failures.first().and_then(|f| f.remedy);
-        return refused(Verdict::InvariantViolated { failures, remedy });
+        let mut admit = Vec::new();
+        let mut refusing = Vec::new();
+        for n in failing {
+            if obj.admissions.contains(&n) {
+                continue;
+            }
+            let named = (ctx.asserted.as_deref() == Some(id.as_str()) && ctx.admits.contains(&n))
+                || ctx.admits.contains(&format!("{}.{n}", obj.type_));
+            if named { &mut admit } else { &mut refusing }.push(n);
+        }
+        if !refusing.is_empty() {
+            let failures: Vec<InvariantFailure> = refusing
+                .iter()
+                .map(|n| InvariantFailure {
+                    object_id: obj.id.clone(),
+                    type_: obj.type_.clone(),
+                    invariant: n.clone(),
+                    remedy: invariant_remedy(&ctx.work, x, obj, n, &root),
+                })
+                .collect();
+            let remedy = failures.first().and_then(|f| f.remedy);
+            return refused(Verdict::InvariantViolated { failures, remedy });
+        }
+        if let Some(o) = ctx.work.objects.get_mut(&id) {
+            for n in holding {
+                o.admissions.remove(&n);
+                discharged.push((id.clone(), n, first));
+            }
+            for n in admit {
+                o.admissions.insert(n.clone());
+                admitted.push((id.clone(), n, first, reason.clone()));
+            }
+        }
     }
     let mut seen = BTreeSet::new();
     let mut writes = Vec::new();
@@ -348,6 +406,8 @@ fn decide_or_stop(
         Some(Change {
             writes,
             index: ctx.index,
+            admitted,
+            discharged,
         }),
     ))
 }
@@ -355,10 +415,11 @@ fn decide_or_stop(
 /// Whether a transition takes an input of a name.
 fn takes(t: &Type, x: &Transition, k: &str) -> bool {
     let _ = t;
-    x.required_inputs
-        .iter()
-        .chain(&x.optional_inputs)
-        .any(|n| n == k)
+    (x.kind == Kind::Assertion && (k == "to" || k == "admits"))
+        || x.required_inputs
+            .iter()
+            .chain(&x.optional_inputs)
+            .any(|n| n == k)
         || x.inputs.iter().any(|(n, _)| n == k)
 }
 
@@ -398,8 +459,11 @@ fn take(
             });
         }
     };
-    if matches!(x.kind, Kind::Assertion | Kind::Erasure) {
-        return stop_not_run(format!("a caused assertion or erasure ({tn}.{xn})"));
+    if x.kind == Kind::Erasure {
+        return stop_not_run(format!("an erasure ({tn}.{xn})"));
+    }
+    if x.kind == Kind::Assertion && depth > 0 {
+        return stop_not_run(format!("a caused assertion ({tn}.{xn})"));
     }
     if depth > 0 {
         if let Some(o) = oid.as_deref().and_then(|id| ctx.work.get(id))
@@ -465,6 +529,34 @@ fn take(
     if !missing.is_empty() {
         return refused(Verdict::InvalidInput { inputs: missing });
     }
+    // an assertion's `to` is a state it lists, other than the one the object
+    // is in, and its `admits` only invariants it may admit (§4.13)
+    if x.kind == Kind::Assertion {
+        let current = oid
+            .as_deref()
+            .and_then(|id| ctx.work.get(id))
+            .map(|o| o.state.clone());
+        let to = match inputs.get("to") {
+            Some(Value::Text(s)) if x.to.contains(s) && current.as_ref() != Some(s) => s.clone(),
+            _ => {
+                return refused(Verdict::InvalidInput {
+                    inputs: vec!["to".into()],
+                });
+            }
+        };
+        let admits: BTreeSet<String> = match inputs.get("admits") {
+            Some(Value::Set(items)) => items.iter().map(text_of).collect(),
+            _ => BTreeSet::new(),
+        };
+        if !admits.iter().all(|a| x.may_admit.contains(a)) {
+            return refused(Verdict::InvalidInput {
+                inputs: vec!["admits".into()],
+            });
+        }
+        let _ = to;
+        ctx.asserted = oid.clone();
+        ctx.admits = admits;
+    }
     // 5. the generated guards, in the order flow-format.md §4.8 states,
     // then the transition's own. occurred_within: the requested transition's
     // bound, its backdating_limit or its kind's max_recording_delay, takes an
@@ -496,7 +588,9 @@ fn take(
             .into_iter()
             .filter(|m| inputs.get(m).is_some_and(|v| *v != o.attr(m)))
             .collect();
-        if x.kind == Kind::External {
+        let asserted_elsewhere = x.kind == Kind::Assertion
+            && !matches!(inputs.get("to"), Some(Value::Text(s)) if *s == o.state);
+        if x.kind == Kind::External || asserted_elsewhere {
             changing.push("state".into());
         }
         if changing.iter().any(|m| {
@@ -677,6 +771,7 @@ fn take(
                 superseded_by: None,
                 spans: BTreeMap::new(),
                 writes: BTreeMap::new(),
+                admissions: BTreeSet::new(),
             };
             for (a, spec) in &t.attributes {
                 // a set is never absent: created empty unless given, a derived
@@ -705,6 +800,12 @@ fn take(
     };
     if x.kind == Kind::External
         && let Some(to) = x.to.first()
+    {
+        o.state = to.clone();
+    }
+    // an assertion puts the object into the state the request names
+    if x.kind == Kind::Assertion
+        && let Some(Value::Text(to)) = inputs.get("to")
     {
         o.state = to.clone();
     }
@@ -821,7 +922,12 @@ fn take(
         from_state: from_state.clone(),
         to_state: o.state.clone(),
         changes_state: from_state.as_deref() != Some(o.state.as_str()),
-        source: "observed".into(),
+        source: if x.kind == Kind::Assertion {
+            "asserted"
+        } else {
+            "observed"
+        }
+        .into(),
         actor_id: ctx.who.id.clone(),
         actor_kind: ctx.who.kind.clone(),
         declaration_version: 1,
@@ -2557,5 +2663,111 @@ types:
         assert!(o.writes["note"] > o.writes["signed"]);
         created(&req(&mut s, "sign", OPERATOR, (&job, false), json!({})));
         created(&req(&mut s, "finish", OPERATOR, (&job, false), json!({})));
+    }
+
+    #[test]
+    fn an_assertion_admits_what_it_names_until_it_holds_again() {
+        let text = JOBS.replace(
+            "      finish: { kind: external, from: [WORKING], to: DONE }",
+            "      finish: { kind: external, from: [WORKING], to: DONE }\n      \
+             correct: { kind: assertion, to: [OPEN, WORKING], inputs: { reason: { type: Priority } }, may_admit: [working_invariant] }\n      \
+             assign: { kind: internal, from: any, required_inputs: [engineer] }",
+        );
+        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fix"}),
+        ));
+        let to =
+            |state: &str, admits: &[&str]| json!({"to": state, "reason": "LOW", "admits": admits});
+        // without its admission, the state it asserts breaks an invariant
+        assert!(matches!(
+            req(
+                &mut s,
+                "correct",
+                OPERATOR,
+                (&job, false),
+                to("WORKING", &[])
+            ),
+            Verdict::InvariantViolated { .. }
+        ));
+        // no assertion leaves a state for itself, or admits what it may not
+        assert_eq!(
+            req(&mut s, "correct", OPERATOR, (&job, false), to("OPEN", &[])),
+            Verdict::InvalidInput {
+                inputs: vec!["to".into()]
+            }
+        );
+        assert_eq!(
+            req(
+                &mut s,
+                "correct",
+                OPERATOR,
+                (&job, false),
+                to("WORKING", &["bounded"])
+            ),
+            Verdict::InvalidInput {
+                inputs: vec!["admits".into()]
+            }
+        );
+        created(&req(
+            &mut s,
+            "correct",
+            OPERATOR,
+            (&job, false),
+            to("WORKING", &["working_invariant"]),
+        ));
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.get(&job).unwrap().state, "WORKING");
+        assert!(
+            w.get(&job)
+                .unwrap()
+                .admissions
+                .contains("working_invariant")
+        );
+        assert_eq!(s.history(&job).unwrap().last().unwrap().source, "asserted");
+        // the admitted violation stands through another request
+        created(&req(
+            &mut s,
+            "estimate",
+            OPERATOR,
+            (&job, false),
+            json!({"hours": 3}),
+        ));
+        // and is discharged once the invariant holds again
+        let ana = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        created(&req(
+            &mut s,
+            "assign",
+            OPERATOR,
+            (&job, false),
+            json!({"engineer": &ana}),
+        ));
+        assert!(
+            s.snapshot()
+                .unwrap()
+                .get(&job)
+                .unwrap()
+                .admissions
+                .is_empty()
+        );
+        // and none is taken at a final state
+        created(&req(&mut s, "finish", OPERATOR, (&job, false), json!({})));
+        assert_eq!(
+            req(&mut s, "correct", OPERATOR, (&job, false), to("OPEN", &[])),
+            Verdict::Unavailable {
+                state: "DONE".into()
+            }
+        );
     }
 }

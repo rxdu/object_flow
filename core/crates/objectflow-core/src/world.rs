@@ -30,6 +30,9 @@ pub struct Object {
     /// collection, the position of the event that last wrote it
     /// (`storage-schema.md`, `of_attribute_write`).
     pub writes: BTreeMap<String, i64>,
+    /// The invariants whose violation an admission lets stand on it, until
+    /// they hold again (ADR-0054, `of_admission`).
+    pub admissions: std::collections::BTreeSet<String>,
 }
 
 /// How long an object held a state, or a value of a tracked member, as one

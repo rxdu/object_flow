@@ -69,6 +69,12 @@ pub struct Change {
     /// The write index's rows the request sets: an object, what it wrote,
     /// and the event's position, written once every event is.
     pub index: Vec<(String, String, i64)>,
+    /// The admissions it records: an object, the invariant, the event and
+    /// the reason (ADR-0054).
+    pub admitted: Vec<(String, String, i64, String)>,
+    /// The admissions it discharges, the invariant holding again: an
+    /// object, the invariant, and the event that discharged it.
+    pub discharged: Vec<(String, String, i64)>,
 }
 
 fn table(type_: &str) -> String {
@@ -232,6 +238,15 @@ CREATE TABLE of_counter (
   value  INTEGER NOT NULL
 );
 INSERT INTO of_counter (name, value) VALUES ('position', 0), ('txn', 0), ('object', 0);
+CREATE TABLE of_admission (
+  object_id           TEXT    NOT NULL REFERENCES of_object(id),
+  invariant           TEXT    NOT NULL,
+  position            INTEGER NOT NULL REFERENCES of_event(position),
+  reason              TEXT    NOT NULL,
+  discharged_position INTEGER REFERENCES of_event(position),
+  PRIMARY KEY (object_id, invariant, position)
+);
+CREATE INDEX of_admission_by_object ON of_admission (object_id);
 CREATE TABLE of_attribute_write (
   object_id  TEXT    NOT NULL REFERENCES of_object(id),
   attribute  TEXT    NOT NULL,
@@ -719,6 +734,7 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
                     order,
                     spans: BTreeMap::new(),
                     writes: BTreeMap::new(),
+                    admissions: std::collections::BTreeSet::new(),
                 },
             );
         }
@@ -737,6 +753,17 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
         let (id, attribute, position) = row?;
         if let Some(o) = world.objects.get_mut(&id) {
             o.writes.insert(attribute, position);
+        }
+    }
+    // the admissions that stand
+    let mut standing = conn.prepare(
+        "SELECT object_id, invariant FROM of_admission WHERE discharged_position IS NULL",
+    )?;
+    let rows = standing.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    for row in rows {
+        let (id, invariant) = row?;
+        if let Some(o) = world.objects.get_mut(&id) {
+            o.admissions.insert(invariant);
         }
     }
     Ok(world)
@@ -940,6 +967,19 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
             "INSERT INTO of_attribute_write (object_id, attribute, position) VALUES (?1, ?2, ?3) \
              ON CONFLICT (object_id, attribute) DO UPDATE SET position = excluded.position",
             params![id, attribute, position],
+        )?;
+    }
+    for (id, invariant, position, reason) in &change.admitted {
+        tx.execute(
+            "INSERT INTO of_admission (object_id, invariant, position, reason) VALUES (?1, ?2, ?3, ?4)",
+            params![id, invariant, position, reason],
+        )?;
+    }
+    for (id, invariant, position) in &change.discharged {
+        tx.execute(
+            "UPDATE of_admission SET discharged_position = ?3 \
+             WHERE object_id = ?1 AND invariant = ?2 AND discharged_position IS NULL",
+            params![id, invariant, position],
         )?;
     }
     Ok(())

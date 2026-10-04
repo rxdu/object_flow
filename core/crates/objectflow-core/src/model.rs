@@ -223,6 +223,8 @@ pub struct Transition {
     /// The writes it makes, in order (`flow-format.md` §4.8).
     pub effect: Vec<Step>,
     pub backdating_limit: Option<String>,
+    /// On an assertion, the invariants a request may admit breaking (§4.13).
+    pub may_admit: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -660,6 +662,7 @@ impl Reader<'_> {
                 .get("backdating_limit")
                 .map(|b| self.text(b, "a duration"))
                 .transpose()?,
+            may_admit: self.names(node.get("may_admit"))?,
         })
     }
 
@@ -856,6 +859,7 @@ impl Reader<'_> {
                 guards: Vec::new(),
                 effect: Vec::new(),
                 backdating_limit: limit.clone(),
+                may_admit: Vec::new(),
             },
         )];
         let mut source_transitions = serde_json::json!({
@@ -888,6 +892,7 @@ impl Reader<'_> {
                     guards: Vec::new(),
                     effect: Vec::new(),
                     backdating_limit: None,
+                    may_admit: Vec::new(),
                 },
             ));
             source_transitions["forget"] = serde_json::json!({ "kind": "erasure", "inputs": { "reason": { "type": "string" } } });
