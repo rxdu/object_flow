@@ -3110,4 +3110,77 @@ types:
         let stamp = offers.iter().find(|o| o.transition == "stamp").unwrap();
         assert_eq!(stamp.verdict, Some(not_erased));
     }
+
+    #[test]
+    fn referrers_are_what_refers_to_an_object_its_parts_excepted() {
+        let text = r#"
+module: orders
+categories: [open, closed]
+types:
+  Order:
+    attributes:
+      ref: { type: string }
+      lines: { reference: "Line[]", opposite: order, aggregation: composite }
+    states:
+      OPEN: { category: open }
+    transitions:
+      place: { kind: initial, to: OPEN, required_inputs: [ref] }
+  Line:
+    attributes:
+      order: { reference: Order, opposite: lines }
+    states:
+      ACTIVE: { category: open }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [order] }
+  Note:
+    attributes:
+      about: { reference: Order }
+    states:
+      KEPT: { category: open }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [about] }
+"#;
+        let lib = Library::load(&[("orders.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let order = created(&req(
+            &mut s,
+            "place",
+            OPERATOR,
+            ("Order", true),
+            json!({"ref": "A"}),
+        ));
+        let other = created(&req(
+            &mut s,
+            "place",
+            OPERATOR,
+            ("Order", true),
+            json!({"ref": "B"}),
+        ));
+        created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"order": &order}),
+        ));
+        let note = created(&req(
+            &mut s,
+            "write",
+            OPERATOR,
+            ("Note", true),
+            json!({"about": &order}),
+        ));
+        created(&req(
+            &mut s,
+            "write",
+            OPERATOR,
+            ("Note", true),
+            json!({"about": &other}),
+        ));
+        let w = s.snapshot().unwrap();
+        let referrers = Evaluator::new(&w, w.lib.type_("Order"), Some(&order))
+            .eval(&crate::expr::parse("referrers").unwrap())
+            .unwrap();
+        assert_eq!(referrers, Value::Set(vec![Value::Object(note)]));
+    }
 }

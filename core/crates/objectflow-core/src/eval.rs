@@ -301,7 +301,7 @@ impl<'a> Evaluator<'a> {
             }
             "inputs" => return Ok(Term::Inputs),
             "actor" => return Ok(Term::Actor),
-            "referrers" => return not_run("referrers"),
+            "referrers" => return Ok(Term::Value(self.referrers())),
             "this_event" => {
                 return match self.event {
                     Some(p) => Ok(Term::Value(Value::Int(p))),
@@ -713,6 +713,46 @@ impl<'a> Evaluator<'a> {
             },
             _ => not_run(format!("the function `{name}`")),
         }
+    }
+
+    /// Every object holding a reference to this one, in ascending id order,
+    /// its parts excepted, since they cascade (`declaration-syntax.md` §6.5).
+    fn referrers(&self) -> Value {
+        let Some(this) = self.this else {
+            return Value::Set(Vec::new());
+        };
+        let target = Value::Object(this.to_string());
+        let lib = self.world.lib;
+        let holds = |x: &Object| {
+            let Some(xt) = lib.type_(&x.type_) else {
+                return false;
+            };
+            xt.attributes.iter().any(|(a, spec)| {
+                let Declared::Reference(to) = &spec.declared else {
+                    return false;
+                };
+                // a part's end back to its whole cascades, and is no referrer
+                let part = spec
+                    .opposite
+                    .as_ref()
+                    .and_then(|back| lib.type_(to).and_then(|tt| tt.attribute(back)))
+                    .is_some_and(|b| b.composite);
+                !part
+                    && match x.attrs.get(a) {
+                        Some(Value::Set(items)) => items.contains(&target),
+                        Some(v) => *v == target,
+                        None => false,
+                    }
+            })
+        };
+        Value::Set(
+            self.world
+                .in_order()
+                .into_iter()
+                .filter(|x| x.id != this && holds(x))
+                .map(|x| Value::Object(x.id.clone()))
+                .collect(),
+        )
     }
 
     /// A subject's collection of a kind: its observations nothing has
