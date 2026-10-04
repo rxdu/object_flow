@@ -117,6 +117,13 @@ class Sandbox:
             "modules": list(modules),
             "notices": len(notes),
             "now": values.timestamp_text(self.store.now),
+            # what a caller may create and answer in this sandbox: every
+            # type the modules declare, and every evaluator function
+            "types": [tn for m in modules.values()
+                      for tn in (m.get("types") or {})],
+            "evaluators": [f"{e}.{fn}" for m in modules.values()
+                           for e, ev in (m.get("evaluators") or {}).items()
+                           for fn in (ev.get("functions") or {})],
         }
 
     def fresh(self) -> None:
@@ -314,6 +321,63 @@ class Sandbox:
                   if e["object"] == oid]
         return {"events": events, "not_computed": EVENT_NOT_COMPUTED}
 
+    def availability(self, body: dict) -> list:
+        """What each requestable transition of an object offers its actor
+        now (`library-api.md` §5, ADR-0152)."""
+        self.loaded()
+        actor = (body.get("actor") or {}).get("id")
+        oid = body.get("id")
+        if not actor or not oid:
+            raise Fault(400, "availability names its actor and an object's id")
+        s = self.store
+        try:
+            offers = self.runner.availability(s, actor, oid)
+        except flowrun.Refused as r:
+            raise Fault(404, f"no object {oid}") from r
+        except flowrun.NotRunnable as e:
+            raise not_run(e)
+        out = []
+        for xn, creates, how, refusal, schema, unevaluated, flags in offers:
+            tn = creates or s.objects[oid].type
+            out.append({
+                "transition": xn, "creates": creates, "availability": how,
+                "verdict": self.refusal(refusal, tn, oid, {}, xn)
+                if refusal else None,
+                "inputs": schema, "unevaluated": unevaluated,
+                "flags": [{"clause": c, "remedy": rem} for c, rem in flags],
+            })
+        return out
+
+    def metric(self, body: dict) -> dict:
+        """A metric read over every row it selects (`library-api.md` §5).
+        The runner reads a metric as a guard does, one value with its
+        dimensions bound, so a read that groups by a dimension, or filters,
+        is not run."""
+        self.loaded()
+        name = body.get("name")
+        if not name:
+            raise Fault(400, "metric names the metric")
+        if body.get("keep") or body.get("filter") or body.get("cursor"):
+            raise not_run("a metric read grouped by a dimension, filtered or "
+                          "paged, which the runner reads only bound")
+        s = self.store
+        try:
+            owner, spec, module = s.find_metric(flowrun.parsed(name))
+            window = flowrun.seconds(body["over"]) if body.get("over") \
+                else None
+            ev = flowrun.Evaluator(s, owner, stubs=flowrun.NEVER_ASKED)
+            bound = dict(body.get("bind") or {})
+            v, kind = ev.read_metric(owner, spec, module, bound, window)
+            value = values.encode(v, values.type_of_kind(kind))
+        except flowrun.NotRunnable as e:
+            raise not_run(e)
+        except values.Unencodable as e:
+            raise Fault(500, f"cannot encode {name}'s value: {e}")
+        return {"rows": [{"dimensions": bound, "value": value}],
+                "cursor": None, "flags": [],
+                "not_computed": ["rows[].gaps", "flags",
+                                 "history_complete", "refused"]}
+
     def events(self, body: dict) -> dict:
         """The event at each position given, in the order given, and null
         where the log holds none (ADR-0151)."""
@@ -334,7 +398,18 @@ class Sandbox:
         t = self.runner.kinds.get(tn)
         if t is None:
             raise Fault(404, f"no type {tn} is declared")
-        return jsonable(t)
+        out = jsonable(t)
+        # the members of each enumeration the type's attributes are of, which
+        # its rules are read against
+        used = {str((spec or {}).get("type", "")).removesuffix("[]")
+                for spec in (t.get("attributes") or {}).values()}
+        used |= {str((spec or {}).get("type", "")).removesuffix("[]")
+                 for x in (t.get("transitions") or {}).values()
+                 for spec in (x.get("inputs") or {}).values()}
+        out["enumerations"] = {e: list(self.runner.enums[e])
+                               for e in sorted(used)
+                               if e in self.runner.enums}
+        return out
 
     # ── translations ──────────────────────────────────────────────────────
     def aliases(self) -> dict:

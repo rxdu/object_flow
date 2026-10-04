@@ -296,6 +296,44 @@ export class Player {
     return v;
   }
 
+  /** What the session did beyond its example: each request a person made in
+   * free play, and its verdict, in order. */
+  readonly log: { summary: string; verdict: Verdict }[] = [];
+
+  /** A request a person makes in free play, as any caller makes it: its
+   * verdict is logged, and what it wrote is listed. */
+  async request(body: RequestBody, summary: string): Promise<Verdict> {
+    const v = await this.wire.request(body);
+    if (v.kind === "satisfied") await this.note(v);
+    this.log.push({ summary, verdict: v });
+    return v;
+  }
+
+  /** Every object the session knows, by the name the example gives it where
+   * it gives one, with its type: what an input naming an object chooses
+   * from. */
+  async known(): Promise<{ id: string; name: string; type: string }[]> {
+    const names = new Map([...this.aliases].map(([a, id]) => [id, a]));
+    const ids = [
+      ...[...this.aliases.values()].filter(
+        (id) => id !== OPERATOR && !id.startsWith("proposal-"),
+      ),
+      ...this.touched,
+    ];
+    return Promise.all(
+      [...new Set(ids)].map(async (id) => ({
+        id,
+        name: names.get(id) ?? id,
+        type: await this.typeOf(id),
+      })),
+    );
+  }
+
+  /** Advance the sandbox's clock, as an example's `after` does. */
+  async advance(by: string): Promise<void> {
+    this.now = instantSeconds((await this.wire.clock({ advance: by })).now);
+  }
+
   /** Every object the request wrote, for the objects the page lists. */
   private async note(v: Verdict & { kind: "satisfied" }): Promise<void> {
     for (const e of await this.appended(v)) {

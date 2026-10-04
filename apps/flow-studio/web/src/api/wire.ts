@@ -105,7 +105,31 @@ export type Declaration = Record<string, unknown> & {
   transitions?: Record<string, TransitionSpec>;
   conditions?: Record<string, { expression: string; remedy?: Remedy }>;
   states?: Record<string, { category?: string; final?: boolean }>;
+  metrics?: Record<string, unknown>;
+  /** the members of each enumeration the type's attributes are of */
+  enumerations?: Record<string, string[]>;
 };
+
+export type Availability = "available" | "available_with_input" | "unavailable";
+
+/** What a transition offers its actor now (library-api.md §5, ADR-0152). */
+export interface TransitionOffer {
+  transition: string;
+  /** the observation kind a recording creates; otherwise null */
+  creates: string | null;
+  availability: Availability;
+  verdict: Verdict | null;
+  /** each input by name, with the type a caller supplies */
+  inputs: Record<string, string>;
+  unevaluated: string[];
+  flags: Flag[];
+}
+
+export interface MetricPage extends Reported {
+  rows: { dimensions: Record<string, WireValue>; value: WireValue }[];
+  cursor: string | null;
+  flags: unknown[];
+}
 
 export interface AttributeSpec {
   type?: string;
@@ -141,7 +165,16 @@ export interface ModuleBundle {
 }
 
 export type LoadResult =
-  | { loaded: true; modules: string[]; notices: number; now: string }
+  | {
+      loaded: true;
+      modules: string[];
+      notices: number;
+      now: string;
+      /** every type the modules declare, which a caller may create */
+      types: string[];
+      /** every evaluator function, as `<evaluator>.<function>` */
+      evaluators: string[];
+    }
   | {
       loaded: false;
       findings: { file: string; line: number; code: string; message: string }[];
@@ -170,6 +203,8 @@ export interface Wire {
     positions: number[],
   ): Promise<{ events: (FlowEvent | null)[]; not_computed: string[] }>;
   declaration(type: string): Promise<Declaration>;
+  availability(actor: string, id: string): Promise<TransitionOffer[]>;
+  metric(actor: string, name: string): Promise<MetricPage>;
   load(files: ModuleFile[]): Promise<LoadResult>;
   reset(): Promise<{ now: string }>;
   clock(
@@ -219,6 +254,9 @@ export function httpWire(base = ""): Wire {
     evaluators: (answers) => post("/sandbox/evaluators", { answers }),
     modules: () => call("GET", "/studio/modules"),
     module: (file) => call("GET", `/studio/module?file=${q(file)}`),
+    availability: (actor, id) =>
+      post("/v1/availability", { actor: { id: actor }, id }),
+    metric: (actor, name) => post("/v1/metric", { actor: { id: actor }, name }),
     diagram: (file, type) =>
       call("GET", `/studio/diagram?file=${q(file)}&type=${q(type)}`),
   };

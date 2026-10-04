@@ -3,17 +3,24 @@ import {
   type Declaration,
   type LoadResult,
   type ModuleEntry,
+  type Verdict,
   httpWire,
 } from "./api/wire";
 import { Diagram } from "./components/Diagram";
+import { FreePlay } from "./components/FreePlay";
+import { Metrics } from "./components/Metrics";
 import { Objects } from "./components/Objects";
+import { Offers } from "./components/Offers";
 import { RuleSet } from "./components/RuleSet";
 import { Stepper } from "./components/Stepper";
-import type { ExamplesDoc, Player } from "./session/player";
+import { explain } from "./session/explain";
+import { type ExamplesDoc, OPERATOR, Player } from "./session/player";
 
-/** Slice 1 (docs/design/flow-studio.md §6): open one of the design's example
- * modules, see each type's lifecycle and rules, and step through one of its
- * examples against the sandbox. */
+/** Slices 1 and 2 (docs/design/flow-studio.md §6): open one of the design's
+ * example modules, see each type's lifecycle, rules and metrics, step
+ * through one of its examples against the sandbox, and then play freely:
+ * any transition the live offer allows, on any object, as any actor, with
+ * the clock and the evaluators' answers in hand. */
 export function App() {
   const wire = useMemo(() => httpWire(), []);
   const [modules, setModules] = useState<ModuleEntry[]>([]);
@@ -27,6 +34,14 @@ export function App() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [tick, setTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [actor, setActor] = useState(OPERATOR);
+  const [last, setLast] = useState<Verdict | null>(null);
+
+  const changed = useCallback((p: Player) => {
+    setPlayer(p);
+    setTick((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     wire
@@ -54,11 +69,16 @@ export function App() {
       setDoc(examples);
       setExample(examples ? (Object.keys(examples.examples)[0] ?? null) : null);
       setType(modules.find((m) => m.file === file)?.types[0] ?? null);
+      if (!examples && result.loaded) {
+        // with no example to step, free play starts from an empty sandbox
+        const { now } = await wire.reset();
+        if (live) changed(new Player(wire, now));
+      }
     })().catch((e: unknown) => setError(String(e)));
     return () => {
       live = false;
     };
-  }, [wire, file, modules]);
+  }, [wire, file, modules, changed]);
 
   useEffect(() => {
     if (!file || !type || !load?.loaded) return;
@@ -83,13 +103,17 @@ export function App() {
     setDoc(null);
     setDiagram("");
     setDecl(null);
+    setSelected(null);
+    setActor(OPERATOR);
+    setLast(null);
+    setPlayer(null);
     setFile(next);
   };
 
-  const changed = useCallback((p: Player) => {
-    setPlayer(p);
+  const done = (v: Verdict | null) => {
+    setLast(v);
     setTick((t) => t + 1);
-  }, []);
+  };
 
   return (
     <div className="min-h-full bg-stone-50 text-slate-900">
@@ -181,6 +205,18 @@ export function App() {
               <RuleSet decl={decl} />
             </div>
           )}
+          {decl && type && load?.loaded && (
+            <div className="rounded border border-slate-200 bg-white p-3">
+              <h2 className="label">Metrics of {type}, over every object</h2>
+              <Metrics
+                wire={wire}
+                type={type}
+                decl={decl}
+                actor={actor}
+                tick={tick}
+              />
+            </div>
+          )}
         </section>
 
         <aside className="min-w-0 space-y-4">
@@ -196,9 +232,56 @@ export function App() {
               />
             </div>
           )}
+          {player && load?.loaded && (
+            <div className="rounded border border-slate-200 bg-white p-3">
+              <h2 className="label">Free play</h2>
+              <p className="mb-3 text-xs text-slate-500">
+                From wherever the sandbox stands: after an example's steps, or
+                from empty. Choose an object below to see what it offers.
+              </p>
+              <FreePlay
+                wire={wire}
+                player={player}
+                types={load.types}
+                evaluators={load.evaluators}
+                actor={actor}
+                setActor={setActor}
+                tick={tick}
+                onDone={done}
+              />
+              {last && (
+                <p
+                  className={`mt-3 rounded px-2 py-1 text-sm ${last.kind === "satisfied" ? "bg-emerald-50" : "bg-amber-50"}`}
+                >
+                  {explain(last)}
+                  {"clause" in last && last.clause ? ` · ${last.clause}` : ""}
+                  {"remedy" in last && last.remedy ? ` · ${last.remedy}` : ""}
+                </p>
+              )}
+            </div>
+          )}
+          {player && selected && (
+            <div className="rounded border border-slate-200 bg-white p-3">
+              <h2 className="label">What {selected} offers</h2>
+              <Offers
+                wire={wire}
+                player={player}
+                objectId={selected}
+                actor={actor}
+                tick={tick}
+                onDone={done}
+              />
+            </div>
+          )}
           <div className="rounded border border-slate-200 bg-white p-3">
             <h2 className="label">Objects</h2>
-            <Objects wire={wire} player={player} tick={tick} />
+            <Objects
+              wire={wire}
+              player={player}
+              tick={tick}
+              selected={selected}
+              onSelect={setSelected}
+            />
           </div>
         </aside>
       </main>

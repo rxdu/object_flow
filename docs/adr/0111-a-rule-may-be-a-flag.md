@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-25 ("yes to all four, go ahead and write them"), against `docs/PRD.md` revision 9: F9, T1 and UC-23.
 - **Date:** 2026-09-25
+- **Refined by:** ADR-0152 — an offer's flags are the `warn` guards that fail, an `audit` one never listed.
 - **Refines:** ADR-0083 (the attempt log), ADR-0085 (a clause on trial)
 - **Relates to:** ADR-0110 (the service every caller uses), `design/first-consumer-prd-check.md` §3.1
 

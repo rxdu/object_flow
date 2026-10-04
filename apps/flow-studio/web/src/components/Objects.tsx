@@ -9,13 +9,16 @@ export function Objects({
   wire,
   player,
   tick,
+  selected,
+  onSelect,
 }: {
   wire: Wire;
   player: Player | null;
   tick: number;
+  selected: string | null;
+  onSelect: (id: string) => void;
 }) {
   const [objects, setObjects] = useState<[string, FlowObject][]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
   const [events, setEvents] = useState<FlowEvent[]>([]);
 
   useEffect(() => {
@@ -80,7 +83,7 @@ export function Objects({
           <li key={o.id}>
             <button
               className={`w-full rounded px-2 py-1 text-left text-sm ${selected === o.id ? "bg-slate-200" : "hover:bg-slate-100"}`}
-              onClick={() => setSelected(o.id)}
+              onClick={() => onSelect(o.id)}
             >
               <span className="font-mono">{alias}</span>{" "}
               <span className="text-slate-500">{o.type}</span>{" "}

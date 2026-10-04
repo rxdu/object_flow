@@ -7,6 +7,9 @@
   .btn {
     @apply rounded bg-slate-800 px-3 py-1 text-sm text-white hover:bg-slate-700 disabled:opacity-40;
   }
+  .field {
+    @apply w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm;
+  }
   .btn-quiet {
     @apply rounded px-3 py-1 text-sm ring-1 ring-slate-300 hover:bg-slate-100 disabled:opacity-40;
   }

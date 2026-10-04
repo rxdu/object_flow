@@ -3,44 +3,25 @@
 // server's virtual environment (apps/flow-studio/README.md), and fails, not
 // skips, without it.
 
-import { type ChildProcess, spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type Wire, httpWire } from "../src/api/wire";
+import type { Wire } from "../src/api/wire";
 import {
   type ExamplesDoc,
   type Outcome,
   runExample,
 } from "../src/session/player";
+import { startServer } from "./server";
 
-const SERVER = fileURLToPath(new URL("../../server", import.meta.url));
 const WAITING = ["import_batch"];
 
-let server: ChildProcess;
 let wire: Wire;
+let stop: () => void;
 
 beforeAll(async () => {
-  server = spawn(".venv/bin/python", ["-m", "flowstudio", "--port", "0"], {
-    cwd: SERVER,
-  });
-  const base = await new Promise<string>((resolve, reject) => {
-    let log = "";
-    server.stderr?.on("data", (chunk: Buffer) => {
-      log += chunk.toString();
-      const m = /listening on (http:\/\/127\.0\.0\.1:\d+)/.exec(log);
-      if (m?.[1]) resolve(m[1]);
-    });
-    server.on("exit", (code) =>
-      reject(new Error(`the server exited (${code}): ${log}`)),
-    );
-    server.on("error", reject);
-  });
-  wire = httpWire(base);
+  ({ wire, stop } = await startServer());
 }, 30_000);
 
-afterAll(() => {
-  server?.kill();
-});
+afterAll(() => stop?.());
 
 describe("every example, played through the wire as the page plays it", () => {
   it("passes or waits for a named reason, and none fails", async () => {

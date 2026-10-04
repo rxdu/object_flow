@@ -1157,6 +1157,21 @@ class Evaluator:
         return ("other",)
 
 # the generated guards' remedy classes, as DESIGN.md §5.5 states them (ADR-0138)
+class _NeverAsked(dict):
+    """The answers an offer gives its evaluators: none, each call left unanswered, so nothing is asked (ADR-0048)."""
+
+    def __contains__(self, key):
+        return True
+
+    def __getitem__(self, key):
+        return "unanswered"
+
+    def __bool__(self):
+        return True                     # an empty table the evaluator would otherwise replace with its own
+
+
+NEVER_ASKED = _NeverAsked()
+
 GENERATED_REMEDY = {"actor_known": "dependent", "occurred_within": "self_serviceable", "whole_open": "self_serviceable",
                     "not_erased": "unreachable_from_here", "subject_open": "unreachable_from_here",
                     "corrects_current": "self_serviceable", "subject_owned": "unreachable_from_here",
@@ -1301,6 +1316,98 @@ class Runner:
             raise
         store.__dict__.update(work.__dict__)
         return ("applied", root, ctx.flags, ctx.taken[1:], ctx.created, ctx.at)
+
+    def availability(self, store, actor, oid):
+        """What each requestable transition of an object offers an actor now, and for a subject the recording of each
+        observation kind on it (DESIGN.md §10, library-api.md §5): decided on the actor, the state, and the guards that
+        read no input, as `available` sweeps, and never on the effect or the invariants, which `check` simulates
+        (ADR-0152). An evaluator is never asked: a guard that would ask one is listed as unevaluated (ADR-0048,
+        ADR-0049). A transition that takes a required input, or whose guard reads an input, is available with input
+        once the rest passes. Each offer is (transition, the type a recording creates, availability, the refusal or
+        None, the input schema, the guards unevaluated, the flags it would raise as (clause, remedy))."""
+        if oid not in store.objects:
+            raise Refused("not_found", remedy="unreachable_from_here")
+        o = store.objects[oid]
+        t = self.kinds.get(o.type) or {}
+        who = None
+        if actor in store.objects and store.actor_attr(store.type_of(actor)) is not None:
+            attr, akind = store.actor_attr(store.type_of(actor))
+            who = {"id": store.objects[actor].attrs.get(attr, ABSENT), "kind": akind}
+        offers = []
+        for xn, x in (t.get("transitions") or {}).items():
+            if x["kind"] == "initial" or x.get("only_via"):
+                continue
+            offers.append(self.offer(store, o, t, xn, x, who))
+        for kn, k in self.kinds.items():
+            ref = ((k.get("attributes") or {}).get("subject") or {}).get("reference")
+            if "record" in (k.get("transitions") or {}) and ref and store.is_a(o.type, ref):
+                offers.append(self.record_offer(store, o, kn, k, who))
+        return offers
+
+    @staticmethod
+    def input_schema(attrs, x, leave=()):
+        """A transition's inputs by name, each with the type a caller supplies (library-api.md §5)."""
+        def typed(spec):
+            spec = spec or {}
+            return spec.get("reference") or str(spec.get("type", ""))
+        out = {k: typed(attrs.get(k)) for k in x.get("required_inputs", []) + x.get("optional_inputs", []) if k not in leave}
+        out.update({k: typed(spec) for k, spec in (x.get("inputs") or {}).items()})
+        if x["kind"] == "assertion":
+            out.update({"to": "state", "admits": "invariant[]"})
+        return out
+
+    def offer(self, store, o, t, xn, x, who):
+        attrs = t.get("attributes") or {}
+        schema = self.input_schema(attrs, x)
+        needs = x["kind"] == "assertion" or bool(x.get("required_inputs")) or any(
+            not (spec or {}).get("optional") and "default" not in (spec or {}) for spec in (x.get("inputs") or {}).values())
+        unevaluated, flags = [], []
+        try:
+            if who is None:
+                raise Refused("unsatisfied", "actor_known", GENERATED_REMEDY["actor_known"])
+            self.check_state(store, x, o.id)
+            personal = {a for a, sp in attrs.items() if (sp or {}).get("personal")}
+            if x["kind"] != "erasure" and o.erased:
+                # decided on what its effect writes; what its inputs would write waits for them (ADR-0147)
+                writes = {st[k]["location"] for st in x.get("effect") or [] for k in ("assign", "add") if k in st}
+                if writes & personal:
+                    raise Refused("unsatisfied", "not_erased", GENERATED_REMEDY["not_erased"])
+            conditions = t.get("conditions") or {}
+            for g, mode in (x.get("guards") or {}).items():
+                expr = flowexpr.parse(conditions[g]["expression"])
+                if "inputs" in names_read(expr):
+                    needs = True                # decided when the inputs are given
+                    continue
+                asking = Evaluator(store, o.type, o.id, {}, who, NEVER_ASKED, committed=store)
+                ok = truth(asking.value(expr, {}))
+                if asking.unanswered:
+                    unevaluated.append(g)
+                    continue
+                if ok is not True:
+                    if mode == "deny":
+                        raise Refused("unsatisfied", g, conditions[g].get("remedy"))
+                    if mode == "warn":
+                        flags.append((g, conditions[g].get("remedy")))
+        except Refused as r:
+            return (xn, None, "unavailable", r, schema, unevaluated, [])
+        return (xn, None, "available_with_input" if needs else "available", None, schema, unevaluated, flags)
+
+    def record_offer(self, store, o, kn, k, who):
+        """Recording an observation of a kind on this subject: its generated guards are decided on the subject, and
+        its fields wait for the caller (ADR-0099)."""
+        x = k["transitions"]["record"]
+        schema = self.input_schema(k.get("attributes") or {}, x, leave=("subject",))
+        try:
+            if who is None:
+                raise Refused("unsatisfied", "actor_known", GENERATED_REMEDY["actor_known"])
+            if store.final(o):
+                raise Refused("unsatisfied", "subject_open", GENERATED_REMEDY["subject_open"])
+            if (self.kinds.get(o.type) or {}).get("mirror"):
+                raise Refused("unsatisfied", "subject_owned", GENERATED_REMEDY["subject_owned"])
+        except Refused as r:
+            return ("record", kn, "unavailable", r, schema, [], [])
+        needs = any(i != "subject" for i in x.get("required_inputs", []))
+        return ("record", kn, "available_with_input" if needs else "available", None, schema, [], [])
 
     def mint(self, ctx, o, attrs):
         """Each identifier of a new object, numbered from 1 per sequence and scope, as its format writes it
@@ -2317,6 +2424,13 @@ def self_test():
     except Refused as e:
         got = (e.verdict, e.remedy)
     check("an evaluator asked nothing where its argument is absent", got, ("unsatisfied", "dependent"))
+    # an offer asks no evaluator: the guard that would ask one is listed as unevaluated, and refuses nothing (ADR-0152)
+    k["Order"]["conditions"]["paid"]["expression"] = "xero.invoice_paid(id)"
+    r, s = Runner(k, {}), Store(k, {})
+    order = r.attempt(s, "Order", "open", None, OPERATOR, {}, {}, {})[1]
+    settle = next(x for x in r.availability(s, OPERATOR, order) if x[0] == "settle")
+    check("an offer lists a guard that would ask an evaluator as unevaluated, and asks nothing",
+          (settle[2], settle[3], settle[5]), ("available", None, ["paid"]))
     # slice 4a: a document signed off, edited, sent back, and timed, over its own history
     doc = {"Operator": kinds["Operator"], "Doc": {
         "attributes": {"note": {"type": "string", "optional": True}, "signed": {"type": "event", "optional": True}},
@@ -2746,6 +2860,42 @@ def metrics_self_test(operator):
     check("a current span's piece up to now", hours('metric(working_by_month, month := "2026-03")'), 6)
     check("a window clipping the pieces to its last ten hours", hours("metric(working_by_month, over last 10 h)"), 10)
     check("a split metric counting the spans active in a month", read(s, one, 'metric(jobs_working_by_month, month := "2026-02")'), 2)
+    # the live offer: decided on the actor, the state and the guards that read no input (ADR-0152)
+    r, s = world()
+    ana = req(r, s, "User", "add", login="ana")
+    jo = req(r, s, "Job", "open")
+
+    def offered(oid, actor=OPERATOR):
+        return {(x[0], x[1]): (x[2], (x[3].verdict, x[3].clause) if x[3] else None, x[5], x[6])
+                for x in r.availability(s, actor, oid)}
+
+    o = offered(jo)
+    check("an offer for each requestable transition, the initial left out, and the recording of each kind on it",
+          sorted(o), sorted([("assign", None), ("resume", None), ("start", None), ("back", None), ("pause", None),
+                             ("shelve", None), ("close", None), ("finish", None), ("record", "Check")]))
+    check("a transition its state allows, taking no input, is available", o[("start", None)], ("available", None, [], []))
+    check("one taking a required input is available with input, its guard on that input left for the input",
+          o[("assign", None)], ("available_with_input", None, [], []))
+    check("one its state does not allow is unavailable, refused as a request would be",
+          o[("resume", None)], ("unavailable", ("unavailable", None), [], []))
+    check("recording a kind on the subject waits for its fields", o[("record", "Check")][0], "available_with_input")
+    check("an actor the store does not hold is refused every offer as actor_known",
+          {v[1] for v in offered(jo, actor="nobody").values()}, {("unsatisfied", "actor_known")})
+    req(r, s, "Job", "start", jo)
+    check("a guard that reads no input is decided, its refusal the offer's verdict",
+          offered(jo)[("finish", None)][:2], ("unavailable", ("unsatisfied", "good")))
+    req(r, s, "Job", "shelve", jo)
+    req(r, s, "Job", "close", jo)
+    check("recording on a finished subject is refused as subject_open",
+          offered(jo)[("record", "Check")][1], ("unsatisfied", "subject_open"))
+    warned = copy.deepcopy(kinds)
+    warned["Job"]["transitions"]["finish"]["guards"] = {"good": "warn"}
+    r = Runner(warned, enums)
+    s = Store(warned, enums, declared, homes)
+    jw = r.attempt(s, "Job", "open", None, OPERATOR, {}, {}, {})[1]
+    r.attempt(s, "Job", "start", jw, OPERATOR, {}, {}, {})
+    check("a warning guard that would fail is a flag on an available offer, never a refusal",
+          offered(jw)[("finish", None)], ("available", None, [], [("good", "dependent")]))
     print(f"  metrics: a rate windowed and bound, a combined one, rounding half to even, medians and percentiles, time held "
           f"by who held the job, counts, set dimensions, and the standard ones, as guards read them: {'yes' if ok else 'NO'}")
     return ok

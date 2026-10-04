@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — decided 2026-09-23 at the author's direction, against `docs/PRD.md` D3, D5, D10, D11, F3, F5, T1, T3, UC-4, UC-6, UC-8, UC-19; repairs D245 to D250 Accepted by the author on 2026-09-26: "accept the older pending ADRs too".
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0101 — migrations reach terminal objects and never observations; `backfill` fills references; a new required part on live objects is refused. ADR-0120 — in the flow format, a migration is a section of the module it publishes, each mapping naming its type. ADR-0146 — no invariant reads an observation collection; a correction replaces the wrong value for the span it was held.
+- **Refined by:** ADR-0101 — migrations reach terminal objects and never observations; `backfill` fills references; a new required part on live objects is refused. ADR-0120 — in the flow format, a migration is a section of the module it publishes, each mapping naming its type. ADR-0146 — no invariant reads an observation collection; a correction replaces the wrong value for the span it was held. ADR-0152 — a recording's offer is decided on the actor, `subject_open` and `subject_owned`.
 - **Refines:** ADR-0027, ADR-0073, ADR-0082, ADR-0083, ADR-0095, ADR-0096
 
 ## Context
