@@ -529,6 +529,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D515](#d515) | One rule was stated in full in up to five documents, so each decision had to land in all of them and the copies drifted | Resolved by ADR-0148 |
 | [D516](#d516) | The third cold reading's other findings are edges a builder reaches, recorded as open questions | Open — deferred to the core by ADR-0148 |
 | [D517](#d517) | The flow checker read a left-out input as deciding a request a state refuses first | Resolved |
+| [D518](#d518) | The flow checker accepted an external transition from a state to itself | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3395,3 +3396,8 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **The flow checker read a left-out input as deciding a request a state refuses first.** Its step 4 refused any example whose request leaves out an input the transition requires unless the example expects `invalid_input`. `DESIGN.md` §6 orders `actor_known`, `not_requestable` and `unavailable` before `invalid_input`, and the reference runner refuses such a request as `unavailable`, so the checker refused an example that holds. Found 2026-10-04 by the Flow Studio's slice 3: a session saving `finish` on a job just opened, which the runner refused as `unavailable`, was refused by the checker as `names`.
 
 **Resolved** 2026-10-04: the rule allows a verdict the order of refusals decides before `invalid_input`, the actor's, `not_requestable` and `unavailable`, and still refuses any other. A plant in `scripts/check-flows.py`, `refusal_order_plant`, holds both: an example expecting `unavailable` with an input left out passes, and one expecting a guard's refusal is still refused; with the rule reverted the plant fails.
+
+### D518
+**The flow checker accepted an external transition from a state to itself, which the format forbids.** `flow-format.md` §4.8 states it: "No transition leaves a state for itself: an external transition always changes the state, and a change that keeps it is an internal transition" (ADR-0122). No step tested it: `restart: { kind: external, from: [WORK_IN_PROGRESS], to: WORK_IN_PROGRESS }`, added to a copy of `servicedesk.yaml`, gave 0 fatal from `scripts/check-flows.py`. It matters because the reference runner and the Rust core would read `entered_at` differently after one. The runner sets a state's entry time on every external transition (`o.entered[o.state] = ctx.at`). The core reads it from `of_interval`, which opens nothing for a value left as it was (ADR-0106). Found 2026-10-05 building the core's interval slice.
+
+**Resolved** 2026-10-05: step 3, `names`, refuses an external transition whose target is among its sources, which §7's list of what the step refuses now names. A plant in `scripts/check-flows.py` holds it, the service example's `start` given `from: [OPEN, WORKING]`, and the probe above is refused. The core's own unit tests declared one, `archive`, now an internal transition.

@@ -1029,6 +1029,11 @@ def name_errors(doc, library=None, ordered=True):
                 if s not in states:
                     key = "to" if s in targets(x) else "from"
                     out.append((base + (key,), "names", f"{tn}.{xn} names the state {s}, which {tn} does not declare"))
+            # no transition leaves a state for itself: a change that keeps the state is internal (§4.8, ADR-0122, D518)
+            if x.get("kind") == "external" and x.get("to") in sources(x):
+                out.append((base + ("from",), "names",
+                            f"{tn}.{xn} leaves {x['to']} for itself; an external transition changes the state, and a "
+                            "change that keeps it is an internal transition"))
             conditions = t.get("conditions") or {}
             for g in (x.get("guards") or {}):
                 used.add(g)
@@ -3715,6 +3720,9 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
         ("a personal input on a type with no erasure", "names", "service.yaml",
          plant(service, "      forget:\n        kind: erasure\n        description: Erases the notes given when the job was reassigned, which are personal.\n"
                         "        inputs:\n          reason: { type: string }\n", "")),
+        ("an external transition from a state to itself", "names", "service.yaml",
+         plant(service, "      start:\n        kind: external\n        from: OPEN\n",
+               "      start:\n        kind: external\n        from: [OPEN, WORKING]\n")),
         ("a `?` inside an inline mapping", "yaml", "service.yaml",
          plant(service, "      photo:    { type: file, optional: true }", "      photo:    { type: file? }")),
     ]
