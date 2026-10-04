@@ -497,7 +497,7 @@ CREATE TABLE t_proposal (
   last_verdict   TEXT,          -- the verdict that left it pending (ADR-0044)
   expires_at     TEXT,          -- expiry is derived from this, never a state
   CONSTRAINT t_proposal_state CHECK (state IN
-    ('pending','executed','rejected','withdrawn','invalidated'))
+    ('PENDING','EXECUTED','REJECTED','WITHDRAWN','INVALIDATED'))
 );
 CREATE INDEX t_proposal_target_ix ON t_proposal (target_id, state);
 
@@ -588,6 +588,8 @@ CREATE TABLE of_interval (
   declaration_version INTEGER NOT NULL,
   legacy           INTEGER NOT NULL DEFAULT 0,   -- supplied by the import mapping
   migrated         INTEGER NOT NULL DEFAULT 0,   -- opened by a publish's migration (ADR-0146)
+  corrected_by     INTEGER REFERENCES of_event(position),  -- the latest correction that changed
+                                            -- its value or its .held (ADR-0147, D522)
   PRIMARY KEY (object_id, dimension, entered_position, entered_at)
 );
 CREATE INDEX of_interval_current ON of_interval (dimension, value) WHERE left_position IS NULL;

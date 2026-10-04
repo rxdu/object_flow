@@ -532,6 +532,9 @@ Findings from every review of this design. It began as the implementation-readin
 | [D518](#d518) | The flow checker accepted an external transition from a state to itself | Resolved |
 | [D519](#d519) | The reference runner held a base's uniqueness along one line of its family | Resolved |
 | [D520](#d520) | The storage design gave a reference into a family no table to name | Resolved |
+| [D521](#d521) | The built-in Proposal's states were spelt two ways | Resolved |
+| [D522](#d522) | The interval index had no column for a row's `.corrected_by` | Resolved |
+| [D523](#d523) | An approval's `cascaded` read as listing the target's own transition | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3413,3 +3416,18 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **The storage design gave a reference into a family no table to name.** `storage-schema.md` puts each type's objects in its own table and declares a stored end's foreign key on its target, but the objects of a type with subtypes are in the subtypes' tables, so a key to the base's table refuses every one of them. Found 2026-10-05 by the Rust core's family slice: a reference to an abstract `Asset` naming a laptop failed with `FOREIGN KEY constraint failed`.
 
 **Resolved** 2026-10-05: a reference whose target has subtypes takes its foreign key to the directory, `of_object`, which holds every object; the runtime checks the type, as it checks every reference, and the constraint stays the backstop that the object exists. `storage-schema.md` §3 states it, and the core does it.
+
+### D521
+**The built-in Proposal's states were spelt two ways.** `DESIGN.md` §9 names them `PENDING`, `EXECUTED`, `REJECTED`, `WITHDRAWN` and `INVALIDATED`, as every type's states and the built-in `DeclarationChange`'s are written, and `storage-schema.md` checks `t_declaration_change`'s in upper case; but `t_proposal` checked `('pending','executed','rejected','withdrawn','invalidated')`, the reference runner held them in lower case, and the Flow Studio's runner backend reported them so. Found 2026-10-05 writing the Rust core's proposal slice, whose read of a proposal reported `EXECUTED` where the replay compared it with an expectation's `executed`.
+
+**Resolved** 2026-10-05: the states are the upper case `DESIGN.md` gives them. `t_proposal`'s constraint is corrected; `flow-format.md` §11.4 keeps an expectation's `proposal` in lower case, now said to be the state's name so written; the runner backend reports the state in upper case, and the studio's two players compare without case.
+
+### D522
+**The interval index had no column for a row's `.corrected_by`.** `declaration-syntax.md` §6.9 makes `.corrected_by`, "the event of the latest correction that changed its value or its `.held`", a member of every interval row (ADR-0147), and `storage-schema.md`'s `of_interval` held no such column, so a store could not answer it. Found 2026-10-05 adding corrections to the Rust core: a correction there had run as a plain transition, its provenance `observed`, which the core now records as `corrected`.
+
+**Resolved** 2026-10-05: `of_interval` gains `corrected_by`, referencing the correction's event, and the core's schema has it. The core does not yet relabel a corrected tracked value's span, and leaves such a correction not run, naming the value. `of_interval` has no column for a row's `.held` either; whether it is stored, or derived from the other dimensions' rows at the row's entry, is left to the slice that relabels, and `TODO.md` lists it.
+
+### D523
+**An approval's `cascaded` read as listing the target's own transition.** `flow-format.md` §11.4 has `cascaded` list "the transitions the request took on other objects", and an approval is a request on the proposal, so the approved request's own transition, on the target, read as one of them; the delivery example `an_agents_proposal_is_executed_when_approved` lists only what that transition caused, and the reference runner, which records no event for the proposal, agreed with the example. Found 2026-10-05 by the Rust core's proposal slice, which records the proposal's `approve` first, as `DESIGN.md` §9 orders an approval's events (ADR-0148).
+
+**Resolved** 2026-10-05: for an `approve`, `cascaded` is what the approved request caused, neither the proposal's `approve` nor the target's own transition; §11.4 says so, and the studio's two players pass over a proposal's own events.
