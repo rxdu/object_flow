@@ -447,6 +447,7 @@ CREATE TABLE of_migration (
   to_name     TEXT,                 -- the target; none for a backfill or an admit
   expression  TEXT,                 -- a backfill's expression; none otherwise
   reason      TEXT,                 -- an admit's reason, which each admission records
+  ordinal     INTEGER NOT NULL,     -- its place in the order written, which backfills apply in (ADR-0147)
   PRIMARY KEY (version, type_name, kind, from_name),
   CONSTRAINT of_migration_kind CHECK (kind IN
     ('removed state', 'removed member', 'renamed attr', 'backfill', 'admit')),
@@ -689,7 +690,7 @@ Enforcement is dynamic and correctness comes from serialisable isolation; a cons
 | non-negativity of a counter | `CHECK` | `CHECK` |
 | overlap of two ranges, per key | `EXCLUDE USING gist` | **none** — dynamic only |
 | a traversal or type-scan invariant | none | none |
-| any invariant that an assertion may `admit`, or of which an admission stands, whatever recorded it: a publish's `admit` or an import's `ADMIT` | **none, on either** | see below |
+| any invariant that an assertion may `admit`, or of which an admission stands, whatever recorded it: a publish's `admit` or an import's `ADMIT`; and every invariant of a mirror, which the import may admit (ADR-0147) | **none, on either** | see below |
 | any invariant that reads a personal attribute, which an erasure admits (`DESIGN.md` §5.6, ADR-0060) | **none, on either** | none |
 
 The row on admissions is **ADR-0074**, derived here because this is the first document that had to hold ADR-0041 and ADR-0054 at once. An admission suppresses **one** invariant for **one** object (ADR-0054), and a database constraint cannot yield for one row. So an invariant a type's assertion names in `may admit` must not be compiled, or an admitted violation would be refused by the database after the runtime allowed it. Publishing knows both facts and can decide it; this is the schema's constraint on that decision. *(Added 2026-09-28, D457: an erasure admits every invariant reading an attribute it erased, for the object it erases, so an invariant that reads a personal attribute is not compiled either, or the database would refuse an erasure the engine allows.)*
@@ -732,16 +733,16 @@ A publish is a declaration version and a set of DDL statements derived from it, 
 | Declaration change | DDL |
 |---|---|
 | a new type, or a new observation kind | `CREATE TABLE`, its indexes, its constraints |
-| a new attribute | `ADD COLUMN`, nullable. DDL never writes a live row: a `default` applies at creation, and a new required attribute is filled by a `backfill` mapping, applied as recorded migration transitions (ADR-0099) |
+| a new attribute | `ADD COLUMN`, nullable. DDL never writes a live row: a `default` applies at creation, and a new required attribute is filled by a `backfill` mapping, applied as recorded migration transitions (ADR-0099), its `NOT NULL` applied after the mappings, by a table rebuild on SQLite; an attribute made required is treated the same way, and one whose type changed is a removed attribute and a new one of the same name (ADR-0147) |
 | a new indexed attribute | `ADD COLUMN` then `CREATE INDEX` |
 | a removed attribute | **nothing.** A dropped attribute hides; its recorded values stay in history (ADR-0027) |
 | a renamed attribute | `RENAME COLUMN`, carrying the mapping |
-| a removed state | no DDL; the `CHECK` is replaced, and the mapping moves live objects out of it first |
-| a removed enum member | the `CHECK` is replaced after a `removed member` mapping has moved every live row off it by recorded migration transitions (ADR-0099) |
+| a removed state | no DDL; the `CHECK` is widened to the union of both versions' states before the mappings, which move every object out of it, a mirror's included, and replaced by the new version's after (ADR-0147) |
+| a removed enum member | the `CHECK` is widened to the union of both versions' members before the mappings, and replaced after a `removed member` mapping has moved every row off it by recorded migration transitions (ADR-0099, ADR-0147); a retired type's table keeps its `CHECK` |
 | a removed type or observation kind | **nothing.** It is retired: no creation, no transition, and its table and history stay readable (ADR-0099) |
 | a new invariant of compilable shape | `ADD CONSTRAINT`, after the report says how many live objects violate it, and only where no `admit` covers it, since a constraint cannot yield for one row (§8) |
 | an `admit` mapping | an `of_admission` row per violating object, on its migration event; where the admitted invariant is compiled, its constraint is dropped first, in the same transaction, and stays dropped while any admission of it stands (§8, ADR-0074, ADR-0105) |
-| a new tracked member | no DDL; an `of_interval` row per live object holding its current value, opened at the publish event, which a fold reproduces (ADR-0106) |
+| a new tracked member | no DDL; an `of_interval` row per object holding its current value, opened at the event that first gives it a value in the publish, the object's migration where a backfill writes it and else the publish event, marked `migrated`, which a fold reproduces (ADR-0106, ADR-0147) |
 
 **A migration reaches every row the change affects, terminal ones included, and no observation's** (ADR-0101): it is the publish's recorded change, not a transition the object takes, and an observation is born final, so a publish removing an enum member an observation holds is refused. **A request or an import never writes a personal column of an object whose erasure is recorded**, so neither a refresh of a mirror nor an externally owned type's sync can restore an erased value (ADR-0101, ADR-0105).
 

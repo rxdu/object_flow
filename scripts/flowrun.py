@@ -1568,6 +1568,16 @@ class Runner:
             "imported": False, "migrated": False,
             "redacted": False, "reason": reason, "declaration_version": 1, "held": held})
 
+    def loop_order(self, work, item):
+        """A loop's order: objects by ascending id, which is creation order; values ascending, strings by code point,
+        numbers by value and enumeration members in declaration order (DESIGN.md §6, ADR-0147)."""
+        if isinstance(item, str) and item in work.objects:
+            return (0, work.objects[item].id_order)
+        if isinstance(item, tuple) and item and item[0] == "enum":
+            members = list(self.enums.get(item[1]) or [])
+            return (1, members.index(item[2]) if item[2] in members else len(members))
+        return (2, item)
+
     def effects(self, ctx, tn, o, steps, inputs, env, depth):
         """An effect's steps in order; returns whether one reached another object by a call or a creation."""
         work, reached = ctx.work, False
@@ -1654,7 +1664,7 @@ class Runner:
                     coll = ev(flowexpr.parse(spec["array"]))
                     if coll is ABSENT or not isinstance(coll, tuple):
                         raise NotRunnable("a loop over what is not a collection")
-                    items = sorted(coll, key=lambda i: work.objects[i].id_order if isinstance(i, str) and i in work.objects else 0)
+                    items = sorted(coll, key=lambda i: self.loop_order(work, i))
                 if spec.get("where"):
                     where = flowexpr.parse(spec["where"])
                     items = [i for i in items if truth(Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs, filter_mode=True)
@@ -1840,10 +1850,19 @@ class Runner:
         return names_read(flowexpr.parse(inv["expression"])) if inv else set()
 
     def failing_invariants(self, store, o):
-        """An object's failing invariants in the order its type declares them: an attribute's uniqueness, a
-        state's required attributes, then the invariants (flow-format.md §3's order)."""
+        """An object's failing invariants in the order its type declares them: its own declared invariants as written,
+        then inherited ones, then the generated, each state's requirement and then each attribute's uniqueness by
+        attribute, inherited attributes first (flow-format.md §4.8, ADR-0147)."""
         t = self.kinds.get(o.type) or {}
-        out = []
+        out, generated = [], []
+        invariants = t.get("invariants") or {}
+        origin = t.get("_from") or {}
+        for n in [n for n in invariants if ("invariants", n) not in origin] + [n for n in invariants if ("invariants", n) in origin]:
+            if truth(Evaluator(store, o.type, o.id).value(flowexpr.parse(invariants[n]["expression"]), {})) is False:
+                out.append(n)
+        st = (t.get("states") or {}).get(o.state) or {}
+        if any(a not in o.attrs for a in st.get("required_attributes") or []):
+            out.append(f"{o.state.lower()}_invariant")
         for a, spec in (t.get("attributes") or {}).items():
             spec = spec or {}
             unique = spec.get("unique")
@@ -1870,12 +1889,6 @@ class Runner:
             if mine is not None and any(x.id != o.id and (store.is_a(x.type, o.type) or store.is_a(o.type, x.type)) and key(x) == mine
                                         for x in store.objects.values()):
                 out.append(f"{a}_unique")
-        st = (t.get("states") or {}).get(o.state) or {}
-        if any(a not in o.attrs for a in st.get("required_attributes") or []):
-            out.append(f"{o.state.lower()}_invariant")
-        for n, inv in (t.get("invariants") or {}).items():
-            if truth(Evaluator(store, o.type, o.id).value(flowexpr.parse(inv["expression"]), {})) is False:
-                out.append(n)
         return out
 
 
@@ -2476,6 +2489,26 @@ def self_test():
         check("filing a proposal that leaves out a required input", "filed", "invalid_input")
     except Refused as e:
         check("filing a proposal that leaves out a required input", e.verdict, "invalid_input")
+    # a type's invariants are named in their order, its own declared before a generated one; a loop over values runs in
+    # ascending value order, whatever order they were given in (flow-format.md §4.8, ADR-0147)
+    k = {"Operator": kinds["Operator"], "Tag": {
+        "attributes": {"code": {"type": "string"}, "seen": {"type": "string[]", "optional": True},
+                       "owner": {"type": "string", "optional": True}},
+        "states": {"ON": {"category": "live", "required_attributes": ["owner"]}},
+        "invariants": {"not_reserved": {"expression": 'code != "XX"'}},
+        "transitions": {"add": {"kind": "initial", "to": "ON", "required_inputs": ["code"], "optional_inputs": ["owner"]},
+                        "walk": {"kind": "internal", "from": ["ON"], "inputs": {"labels": {"type": "string[]"}},
+                                 "effect": [{"foreach": {"item": "l", "array": "inputs.labels", "limit": 5,
+                                                         "steps": [{"add": {"location": "seen", "expr": "l"}}]}}]}}}}
+    r, s = Runner(k, {}), Store(k, {})
+    try:
+        r.attempt(s, "Tag", "add", None, OPERATOR, {"code": "XX"}, {}, {})
+        check("a declared invariant named before a generated one", "applied", "not_reserved")
+    except Refused as e:
+        check("a declared invariant named before a generated one", e.clause, "not_reserved")
+    tag = r.attempt(s, "Tag", "add", None, OPERATOR, {"code": "AB", "owner": "ana"}, {}, {})[1]
+    r.attempt(s, "Tag", "walk", tag, OPERATOR, {"labels": ["b", "c", "a"]}, {}, {})
+    check("a loop over values runs in ascending value order", s.objects[tag].attrs.get("seen"), ("a", "b", "c"))
     ok &= metrics_self_test(kinds["Operator"])
     print(f"runner: a small order and its lines, a document over its history, and jobs read by their metrics, each thing "
           f"slices 1 to 4 execute: {'yes' if ok else 'NO'}")

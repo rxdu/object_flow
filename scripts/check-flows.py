@@ -739,10 +739,18 @@ def migration_errors(doc, v):
             for owner, value in re.findall(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b", str(expr)):
                 if owner in enums and value not in enums[owner]:
                     out.append((where + (a,), "names", f"the backfill of {tn}.{a} names {owner}.{value}, and {owner} has no {value}"))
+    observed = {ob["kind"] for _tn, t in types(v) for ob in (t.get("observations") or {}).values()}
+    admitted = set()
     for i, adm in enumerate(m.get("admit") or []):
         where = ("migration", "admit", i)
         tn, inv = adm["invariant"].split(".")
-        if tn not in kinds:
+        if adm["invariant"] in admitted:
+            out.append((where, "names", f"the migration admits {adm['invariant']} twice; one change admits an invariant once (ADR-0147)"))
+        admitted.add(adm["invariant"])
+        if tn in observed:
+            out.append((where, "names", f"the migration admits {adm['invariant']}, an observation kind's invariant, which no "
+                                        "migration reaches; its recorded observations are reported as a notice (ADR-0147)"))
+        elif tn not in kinds:
             out.append((where, "names", f"the migration admits {adm['invariant']}, and this module declares no type {tn}"))
         elif inv not in invariant_names(doc, tn, kinds[tn]):
             out.append((where, "names", f"the migration admits {adm['invariant']}, which is not an invariant of {tn}"))
@@ -818,6 +826,14 @@ def migration_pair_errors(prev, doc, library):
                 notes.append((here + ("attributes", a), "migration", f"{tn}.{a} is a new required part: a publish over live objects of {tn} is refused, so declare it optional or a set"))
             elif a not in filled:
                 notes.append((here + ("attributes", a), "migration", f"{tn}.{a} is new and required: a publish over live objects of {tn} needs a backfill for it"))
+        for a in sorted(set(t.get("attributes") or {}) & set(ot.get("attributes") or {})):
+            now_spec, was_spec = t["attributes"][a] or {}, ot["attributes"][a] or {}
+            if str(now_spec.get("type", now_spec.get("reference"))) != str(was_spec.get("type", was_spec.get("reference"))):
+                notes.append((here + ("attributes", a), "migration", f"{tn}.{a} changed its type: that is a drop and an add of the "
+                                                                    "same name, every object's value starting absent (ADR-0147)"))
+            elif optional(was_spec) and not optional(now_spec) and a not in filled and not str(now_spec.get("reference", "")).endswith("[]"):
+                notes.append((here + ("attributes", a), "migration", f"{tn}.{a} is now required, which counts as a new required "
+                                                                    "attribute: a publish over objects lacking it needs a backfill (ADR-0147)"))
         for d in sorted(dropped):
             for a in sorted(added):
                 if (ot["attributes"][d].get("type"), ot["attributes"][d].get("reference")) == (t["attributes"][a].get("type"), t["attributes"][a].get("reference")):
@@ -1463,17 +1479,32 @@ def observation_read_errors(tn, t):
     return out
 
 
+BINDER_RESERVED = {"state", "inputs", "actor", "this", "now", "referrers", "this_event", "id", "open", "created_at",
+                   "created_by_kind", "recorded_from", "declaration_version"}
+
+
 def binder_errors(tn, t):
-    """A name an effect binds, a `create`'s `result` or a loop's `item`, shares no name with a member of the type, since
-    a later step reading it would otherwise read one where the author meant the other (ADR-0146)."""
-    members = set(t.get("attributes") or {}) | set(t.get("derived_attributes") or {}) | set(t.get("observations") or {}) | {"state"}
+    """A name an effect binds, a `create`'s `result` or a loop's `item`, shares no name with a member of the type or a
+    word an expression resolves first or every object has, and a nested loop reuses no name its loop binds, since a later
+    step reading it would otherwise read one where the author meant the other (ADR-0146, ADR-0147)."""
+    members = set(t.get("attributes") or {}) | set(t.get("derived_attributes") or {}) | set(t.get("observations") or {})
     out = []
-    for xn, x in (t.get("transitions") or {}).items():
-        for st, kind, path, _d in walk(x.get("effect")):
+
+    def scan(steps, path, bound, xn):
+        for i, st in enumerate(steps or []):
+            kind = next(k for k in STEP_KINDS if k in st)
             name = st["create"].get("result") if kind == "create" else st["foreach"].get("item") if kind == "foreach" else None
+            where = ("types", tn, "transitions", xn, "effect") + path + (i,)
             if name in members:
-                out.append((("types", tn, "transitions", xn, "effect") + path, "names",
-                            f"{tn}.{xn} binds '{name}', which is a member of {tn}; a bound name shares no name with a member"))
+                out.append((where, "names", f"{tn}.{xn} binds '{name}', which is a member of {tn}; a bound name shares no name with a member"))
+            elif name in BINDER_RESERVED:
+                out.append((where, "names", f"{tn}.{xn} binds '{name}', a word an expression resolves first or every object has (ADR-0147)"))
+            elif kind == "foreach" and name in bound:
+                out.append((where, "names", f"{tn}.{xn} binds '{name}' in a loop inside one that binds it already (ADR-0147)"))
+            if kind == "foreach":
+                scan(st["foreach"].get("steps"), path + (i, "foreach", "steps"), bound | {name}, xn)
+    for xn, x in (t.get("transitions") or {}).items():
+        scan(x.get("effect"), (), set(), xn)
     return out
 
 
@@ -4244,6 +4275,54 @@ def range_plant(people):
     return ok
 
 
+def binder_more_plants(people):
+    """A bound name is no reserved word and is not reused by a nested loop (ADR-0147): the customers erasure's loop
+    item renamed to `now`, and the delivery's loop wrapped in a loop binding the same name, are refused."""
+    cu = (EXAMPLES / "customers.yaml").read_text()
+    old = "              item: c\n"
+    assert cu.count(old) == 1
+    found, _ = check([("people.yaml", people), ("customers.yaml", cu.replace(old, "              item: now\n"))])
+    reserved = any("binds 'now', a word an expression resolves first" in f[4] for f in found)
+    dv = (EXAMPLES / "delivery.yaml").read_text()
+    old = "                - create: { type: ChecklistItem, transition: add, inputs: { delivery: this, label: label } }\n"
+    assert dv.count(old) == 1
+    nested = ("                - foreach:\n                    item: label\n                    array: inputs.checklist\n"
+              "                    limit: 50\n                    steps:\n                      - create: { type: ChecklistItem, "
+              "transition: add, inputs: { delivery: this, label: label } }\n")
+    found, _ = check([("people.yaml", people), ("delivery.yaml", dv.replace(old, nested))])
+    reused = any("in a loop inside one that binds it already" in f[4] for f in found)
+    ok = reserved and reused
+    print(f"  a bound name that is a reserved word, or reused by a nested loop, is refused: {'yes' if ok else 'NO ' + str((reserved, reused))}")
+    return ok
+
+
+def migration_more_plants(people):
+    """Against the version before (ADR-0147): an attribute whose type changed, and one made required with no backfill, are
+    notices; an invariant admitted twice, and an observation kind's invariant admitted, are refused."""
+    v1, v2 = (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service-v2.yaml").read_text()
+    old = "      signed_off_by_user: { reference: User, optional: true }\n"
+    adm = "    - { invariant: ServiceJob.photo_when_done, reason: MigrationReason.LEGACY_DATA }\n"
+    assert v2.count(old) == 1 and v2.count(adm) == 1
+
+    def run(text):
+        found, notes = check([("people.yaml", people), ("service-v2.yaml", text)], {"service-v2.yaml": v1})
+        return [f[4] for f in found], [n[4] for n in notes]
+    _f, notes = run(v2.replace(old, "      signed_off_by_user: { type: string, optional: true }\n"))
+    typed = any("changed its type" in n for n in notes)
+    _f, notes = run(v2.replace(old, "      signed_off_by_user: { reference: User }\n"))
+    required = any("is now required, which counts as a new required attribute" in n for n in notes)
+    found, _n = run(v2.replace(adm, adm + adm))
+    twice = any("admits ServiceJob.photo_when_done twice" in f for f in found)
+    found, _n = run(v2.replace(adm, adm + "    - { invariant: InspectionResult.value_in_range, reason: MigrationReason.LEGACY_DATA }\n"))
+    kind = any("an observation kind's invariant, which no migration reaches" in f for f in found)
+    _f, clean = run(v2)
+    quiet = not any("changed its type" in n or "is now required" in n for n in clean)
+    ok = typed and required and twice and kind and quiet
+    print(f"  a type changed and an attribute made required are noticed, and an invariant admitted twice or a kind's "
+          f"admitted are refused: {'yes' if ok else 'NO ' + str((typed, required, twice, kind, quiet))}")
+    return ok
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -4358,6 +4437,8 @@ def main():
     ok &= metric_plants(people)
     ok &= range_plant(people)
     ok &= erasure_plants(people)
+    ok &= binder_more_plants(people)
+    ok &= migration_more_plants(people)
     sys.exit(0 if clean and ok else 1)
 
 

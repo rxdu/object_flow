@@ -36,7 +36,7 @@ That is falsifiable, which is what makes it worth a harness. A run **fails** if 
 | an object in a state no transition reaches, counting the type's declared transitions and assertions and not the import's built-in assertion, under the object's current declaration; a mirror's objects and a retired type's are exempt | the machine was not the only way in |
 | an invariant false, with no admission recorded, except a kind's invariant on an observation recorded before a publish declared it, which nothing can change (ADR-0146) | enforcement was skipped or lost a race |
 | a required attribute absent, except where an admission covers it | a creation wrote less than it declared |
-| a part alive under a whole in a terminal state, except one its type declares `survives` that transition | a cascade was skipped or a coverage rule was wrong |
+| a part alive under a whole in a terminal state, except one its type declares `survives` that transition, or `survives: true` where a migration moved the whole there, and a mirror's, which the import writes as the legacy record has them (ADR-0147) | a cascade was skipped or a coverage rule was wrong |
 | a stored relationship end whose far side disagrees | something wrote the derived end |
 | an event whose replay does not reproduce the row | the log stopped being the history |
 | a verdict of `satisfied` with no event | a write that was not recorded |
