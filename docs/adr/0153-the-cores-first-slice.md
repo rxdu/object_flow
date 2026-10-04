@@ -2,6 +2,7 @@
 
 - **Status:** Accepted, 2026-10-04, at the author's direction ("go with your recommendations"), given the recommendation of a first slice for the Rust core: a SQLite store, the expression language, a request on one object with its guards and invariants, the reads, and the service's `/v1` and `/sandbox` routes, judged by replaying the design's examples through the Flow Studio.
 - **Date:** 2026-10-04
+- **Refined by:** ADR-0154 — the import, after which every example passes against the core.
 - **Refines:** ADR-0132 (the core in Rust, behind an HTTP service), ADR-0143 (its YAML parser and decimal type), ADR-0150 (the wire it serves)
 - **Relates to:** `design/storage-schema.md` §2, §3; `DESIGN.md` §6, §10; `design/declaration-syntax.md` §8; `design/flow-studio.md` §6, slice 4
 
@@ -63,7 +64,7 @@ Recorded 2026-10-04, when the slice was built.
 
 ## The later slices
 
-Each later slice is recorded here with the replay's figures when it was committed, of the same 163 examples, 2 of which wait for importing throughout. None has failed.
+Each later slice is recorded here with the replay's figures when it was committed, of the same 163 examples, 2 of which waited for importing until the import ran them. None has failed.
 
 | Date | Slice | Passed | Not run |
 |---|---|---|---|
@@ -81,8 +82,9 @@ Each later slice is recorded here with the replay's figures when it was committe
 | 2026-10-05 | `referrers`, for a deletion guard | 157 | 4 |
 | 2026-10-05 | Families, a type extending a base | 158 | 3 |
 | 2026-10-05 | Proposals, filed, decided and invalidated | 161 | 0 |
+| 2026-10-05 | The import, and `lookup` (ADR-0154) | 163 | 0 |
 
-Minting raised no count: the examples that had stopped at minting went on to stop at an effect. With proposals, every example that runs against the reference runner passes against the core; the 2 that wait for importing wait against both. What the core does not yet do is listed in `TODO.md`, the design and not the replay now saying what comes next. `TODO.md`'s list of the core's next slices keeps those counts.
+Minting raised no count: the examples that had stopped at minting went on to stop at an effect. With proposals, every example that runs against the reference runner passes against the core, and with the import (ADR-0154) every one of the 163 runs and passes against both. What the core does not yet do is listed in `TODO.md`, the design and not the replay now saying what comes next. `TODO.md`'s list of the core's next slices keeps those counts.
 
 ## Alternatives rejected
 

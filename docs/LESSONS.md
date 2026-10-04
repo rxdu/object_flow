@@ -324,3 +324,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The Flow Studio's two players sent a decimal from an example's YAML as a JSON number, where ADR-0150's wire carries it as a string. The Python reference runner accepted the number, and every example that sends one passed against it. The Rust core decodes the wire strictly and refused the input as `invalid_input`, which made the replay look like a fault in the core.
 - **Correction:** When a second implementation of a contract refuses what the first accepted, check the caller against the contract before either implementation. Decode the wire strictly in the reference too, or test the callers against the contract directly, so a breach shows where it is made.
 - **Context:** Any wire with more than one server behind it; the studio's `tests/replay.py` and `web/src/session/player.ts`, found 2026-10-05.
+
+### Search the deferred questions before recording a gap as new
+- **Pattern:** Building the core's import, I listed four gaps in the interface as new register entries. Three of them, two channels for an import's admissions, a class's identity and an owned type in a batch, were already the third cold reading's open questions C31 to C33, which ADR-0148 deferred to whoever built the import. Entered again, each question would have had two records and two answers.
+- **Correction:** Before recording a gap, search the register's open entries and the questions they defer (D516's list, the cold readings' sections) for it. A gap already recorded is answered where it is, in the rule's home citing the record; only a gap no record holds becomes a new entry.
+- **Context:** ObjectFlow's defect register and cold readings; ADR-0154, 2026-10-05.

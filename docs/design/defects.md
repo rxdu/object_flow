@@ -535,6 +535,9 @@ Findings from every review of this design. It began as the implementation-readin
 | [D521](#d521) | The built-in Proposal's states were spelt two ways | Resolved |
 | [D522](#d522) | The interval index had no column for a row's `.corrected_by` | Resolved |
 | [D523](#d523) | An approval's `cascaded` read as listing the target's own transition | Resolved |
+| [D524](#d524) | `import_batch` took a disposition file no document defined | Resolved by ADR-0154 |
+| [D525](#d525) | A refused import batch had nowhere to say why | Resolved by ADR-0154 |
+| [D526](#d526) | An example's import admitted whatever it violated | Resolved by ADR-0154 |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3397,6 +3400,8 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 
 **Open — deferred to the core by ADR-0148 decision 3.** Each is answered when the Rust core's first slice reaches it, the answer written into the rule's home citing that record.
 
+*Answered 2026-10-05 by ADR-0154, the core's import:* C14's third case, C22 to C24, C28, C29 and C31 to C37, each written into `publish-and-import.md` §4 and §6, `library-api.md` §5 or `storage-schema.md` §6. The rest stay open.
+
 ### D517
 **The flow checker read a left-out input as deciding a request a state refuses first.** Its step 4 refused any example whose request leaves out an input the transition requires unless the example expects `invalid_input`. `DESIGN.md` §6 orders `actor_known`, `not_requestable` and `unavailable` before `invalid_input`, and the reference runner refuses such a request as `unavailable`, so the checker refused an example that holds. Found 2026-10-04 by the Flow Studio's slice 3: a session saving `finish` on a job just opened, which the runner refused as `unavailable`, was refused by the checker as `names`.
 
@@ -3431,3 +3436,18 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **An approval's `cascaded` read as listing the target's own transition.** `flow-format.md` §11.4 has `cascaded` list "the transitions the request took on other objects", and an approval is a request on the proposal, so the approved request's own transition, on the target, read as one of them; the delivery example `an_agents_proposal_is_executed_when_approved` lists only what that transition caused, and the reference runner, which records no event for the proposal, agreed with the example. Found 2026-10-05 by the Rust core's proposal slice, which records the proposal's `approve` first, as `DESIGN.md` §9 orders an approval's events (ADR-0148).
 
 **Resolved** 2026-10-05: for an `approve`, `cascaded` is what the approved request caused, neither the proposal's `approve` nor the target's own transition; §11.4 says so, and the studio's two players pass over a proposal's own events.
+
+### D524
+**`import_batch` took a disposition file no document defined.** `library-api.md` §6's `import_batch` takes a `DispositionFile`, and neither it nor `publish-and-import.md` §6, which defines the file's classes, `ViolationClass` and `Disposition`, defines the file itself. Found 2026-10-05 reading the interface to build the Rust core's import.
+
+**Resolved** by ADR-0154 decision 2: a disposition file is the list of §6's classes, each matched by its type, kind, rule and shape, its `id` being the dry run's label. Both documents define it.
+
+### D525
+**A refused import batch had nowhere to say why.** `publish-and-import.md` §4 refuses a batch whole, "naming the first row it could not place", and `ImportReport` held only `written`, `findings` and `refused_types`. Found 2026-10-05 with D524.
+
+**Resolved** by ADR-0154 decision 3: `ImportReport.refusal` names the first object the import could not place, by type and legacy key, and why, `written` being zero.
+
+### D526
+**An example's import admitted whatever it violated.** An example's `import` step (`flow-format.md` §11.3) takes no disposition, and the reference runner admitted every invariant the imported object failed, with no decision and no reason; no example imports a violating object, so nothing showed it. Found 2026-10-05 with D524.
+
+**Resolved** by ADR-0154 decision 4: an example's import is a one-object batch with an empty disposition file, so it admits nothing, and an object that leaves a required attribute out or violates an invariant refuses the step; §11.3 says so, and the runner's `import_object` refuses it, held by a self-test.

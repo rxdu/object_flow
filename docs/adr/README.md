@@ -155,3 +155,4 @@
 | [0151](0151-a-caller-reads-the-events-its-request-appended.md) | A caller reads the events its request appended, and an invariant failure names its object's type | Accepted by the author |
 | [0152](0152-what-an-offer-decides.md) | What an offer decides, before its inputs are given | Accepted by the author |
 | [0153](0153-the-cores-first-slice.md) | The core's first slice | At the author's direction |
+| [0154](0154-the-cores-import.md) | The core's import | At the author's direction |

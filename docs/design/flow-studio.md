@@ -20,7 +20,7 @@ The studio has two parts, a web front end and a server, and the server offers th
 
 | Surface | What it is | Examples | Whose |
 |---|---|---|---|
-| **Engine operations** | The library's operations as the service exposes them, one to one (`library-api.md` §6, ADR-0132) | `request`, `get`, `history`, `events`, `availability`, `declaration`, `metric` | the engine's |
+| **Engine operations** | The library's operations as the service exposes them, one to one (`library-api.md` §6, ADR-0132) | `request`, `get`, `history`, `events`, `availability`, `declaration`, `metric`, and from ADR-0154 `import_batch` and `lookup` | the engine's |
 | **Sandbox control** | What a sandbox store needs and a deployment's store never offers: loading a sandbox's modules, the clock, the evaluators' answers, resetting | `sandbox/load`, `sandbox/clock`, `sandbox/evaluators`, `sandbox/reset` | the engine's, accepted as F13 (PRD §12) |
 | **Studio tooling** | What the studio does with descriptions and examples files, through this repository's scripts | the module catalogue, the diagram, the checker's findings, copying to and saving in the workspace, appending an example the checker holds | the studio's |
 

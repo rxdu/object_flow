@@ -20,6 +20,8 @@ Draft, 2026-09-09, amended 2026-09-23. The request and verdict shapes of [`../DE
 
 **Amended 2026-09-24** for ADR-0105 and ADR-0106, from a review of the whole record against PRD revision 5: a remedy class on every verdict; `context` as the caller's reason; an attempt's request values; `pull` and `acknowledge` for a subscription's reader only; `DeclarationError` for a failed load alone, since a store begins at version 0; derivations marked partial; a metric's `gaps`; the `unknown` actor kind; an import's entry times, silent spans and `recorded_from`; and two more export sources.
 
+**Amended 2026-10-05** for ADR-0154, from building the import in the Rust core: `DispositionFile` defined as the list of `publish-and-import.md` §6's classes; `ImportBatch.admitted` and `Admission` removed, the file being the one way an import admits; `ImportedObject.recorded_from` removed, since the import computes it; `ImportBatch.sequences` keyed by sequence and scope; `ImportReport.refusal`; and `lookup` named as how a caller finds what it imported.
+
 ## 1. Why Python, and what that does not mean
 
 *(Amended 2026-09-28 for ADR-0132: the core is written in Rust, and the Python below is the interface's executable specification, which `scripts/check-api-doc.py` holds to the read surface. The Rust core implements the same operations with the same meanings, the HTTP service exposes them one to one, and the adversarial harness drives the core in Rust. The reasons the Python was written first stand as history.)*
@@ -508,19 +510,14 @@ class PublishResult:
 
 
 @dataclass(frozen=True)
-class Admission:
-    invariant: str
-    reason: str                           # required, as for any admission
-
-
-@dataclass(frozen=True)
 class EnteredAt:
     """When an imported object took its current value of one dimension, and
     who changed it, where the legacy record says (ADR-0106)."""
 
     at: datetime
     by: str | None = None
-    by_kind: ActorKind | None = None      # UNKNOWN where the record is silent
+    by_kind: ActorKind | None = None      # recorded as given; UNKNOWN where the record is
+                                          # silent, the store's own actors not consulted (ADR-0154)
 
 
 @dataclass(frozen=True)
@@ -538,10 +535,8 @@ class ImportedObject:
     entered: Mapping[str, EnteredAt] = field(default_factory=dict)
                                           # "state" or a tracked member -> when it took its
                                           # current value; the import's interval opens then
-    created_at: datetime | None = None    # the legacy creation, where known
-    created_by_kind: ActorKind | None = None
-    recorded_from: datetime | None = None # the earliest time its legacy record vouches for;
-                                          # None means the port
+    created_at: datetime | None = None    # the legacy creation, where known; else undated
+    created_by_kind: ActorKind | None = None   # else UNKNOWN, whether or not a time is given
     silent_spans: Sequence[tuple[datetime, datetime]] = ()
                                           # where the legacy record is silent: no legacy
                                           # interval may cross one (ADR-0106)
@@ -549,20 +544,45 @@ class ImportedObject:
 
 
 @dataclass(frozen=True)
+class SequenceValue:
+    """The last value the legacy system minted from a sequence in a scope;
+    the store raises the sequence past it, so the next number minted is the
+    one after it, and never lowers it (ADR-0103, ADR-0154)."""
+
+    sequence: str
+    last: int
+    scope: str = ""                       # empty for an unscoped sequence
+
+
+@dataclass(frozen=True)
 class ImportBatch:
     objects: Sequence[ImportedObject]
-    admitted: Mapping[str, Sequence["Admission"]] = field(default_factory=dict)
-                                          # disposition: legacy key -> admissions
-    sequences: Mapping[str, int] = field(default_factory=dict)
-                                          # sequence -> the last value the legacy system minted;
-                                          # the store raises the sequence to it, never lowers it (ADR-0103)
+    sequences: Sequence[SequenceValue] = ()
+    # an object's admissions come from its disposition file's ADMIT classes
+    # alone (ADR-0154)
+
+
+# The violation classes of publish-and-import.md §6, as a person decided
+# them; a class is matched by its type, kind, rule and shape (ADR-0154).
+DispositionFile = Sequence["ViolationClass"]
+
+
+@dataclass(frozen=True)
+class ImportRefusal:
+    """The first object an import could not place, and why (ADR-0154)."""
+
+    type: str
+    legacy_key: str
+    reason: str
 
 
 @dataclass(frozen=True)
 class ImportReport:
-    written: int                          # zero on a dry run
-    findings: Sequence[Any]               # the disposition classes of publish-and-import.md §6
-    refused_types: Sequence[str] = ()     # owned types, which the import may not write
+    written: int                          # zero on a dry run and on a refused batch
+    findings: Sequence["ViolationClass"]  # the classes found, each with the file's decision
+    refused_types: Sequence[str] = ()     # owned types the batch named, which the import
+                                          # may not write, on a dry run and a refused batch alike
+    refusal: ImportRefusal | None = None  # why the batch is refused, where it is
 
 
 @dataclass(frozen=True)
@@ -673,7 +693,7 @@ class Store(Protocol):
 Twenty operations: the seventeen of §10, the write path of §6, and the operational calls that are not object operations, `acknowledge` and `publish`. `import_batch` and `maintain` are the only other ways anything writes the database (ADR-0100). The checker holds this list against §10 rather than trusting it.
 
 - `metric` returns a `MetricPage`, and `diagnostics` a short fixed list, each computed over every row its source and filter select (ADR-0114).
-- `import_batch` writes a port through the built-in assertion, and only into a type declared `mirror` and the observations and labels on a mirror's objects; it never rewrites a personal value an erasure removed, redacts the legacy entries and intervals it attaches to an erased object as the erasure would have, and marks every event it writes `imported` (ADR-0100, ADR-0101). Its event opens each current interval at the time `entered` gives, so a stay is not split at the port; a refresh does the same for what changed since the last import; and no legacy interval may cross a silent span (ADR-0106). A legacy interval pages in the export by the cursor of the import event that wrote its object. `maintain` refuses a prune inside the store's attempt or idempotency retention, changes no governed state or history, and is never needed for correctness (ADR-0100, ADR-0101, ADR-0103). The idempotency retention must cover the longest period over which any caller repeats a key, a scheduler's periodic sweep and an at-least-once reader's re-delivery included, since a repeat after the prune is a new request.
+- `import_batch` writes a port through the built-in assertion, and only into a type declared `mirror` and the observations and labels on a mirror's objects; it never rewrites a personal value an erasure removed, redacts the legacy entries and intervals it attaches to an erased object as the erasure would have, and marks every event it writes `imported` (ADR-0100, ADR-0101). It applies its disposition file by class, the only way it admits, and a batch it cannot place is refused whole, written as nothing, its report's `refusal` naming the first object and why; it names no object it wrote, so a caller finds one by `lookup` with the source `legacy` and the legacy key qualified by its family's root type (ADR-0154). Its event opens each current interval at the time `entered` gives, so a stay is not split at the port; a refresh does the same for what changed since the last import; and no legacy interval may cross a silent span (ADR-0106). A legacy interval pages in the export by the cursor of the import event that wrote its object. `maintain` refuses a prune inside the store's attempt or idempotency retention, changes no governed state or history, and is never needed for correctness (ADR-0100, ADR-0101, ADR-0103). The idempotency retention must cover the longest period over which any caller repeats a key, a scheduler's periodic sweep and an at-least-once reader's re-delivery included, since a repeat after the prune is a new request.
 - `export` pages an attempt source by its writing transaction's settled cursor, and an interval source by the cursor of the event that last opened or closed each row, so a closing re-emits the row and a reader keeps the latest per object, dimension and entry (ADR-0100).
 - `export` takes a source — `log`, `<Type>.intervals`, `<Type>.transitions`, `<Type>.attempts`, `<Type>.attempt_counts`, `<Type>.labels`, or an observation kind — and returns JSON lines of the corresponding shape above, with every personal value omitted, so the permanent refusal counts and the labels can leave the store after a prune (ADR-0094, ADR-0106).
 - `pull` and `acknowledge` take a subscription's id; who may use one is the upper layer's (ADR-0114). The core posts nothing: a relay that posts to an endpoint is an upper-layer application pulling as its own actor (ADR-0105).

@@ -323,11 +323,15 @@ CREATE TABLE of_sequence (
   next_value INTEGER NOT NULL,
   PRIMARY KEY (name, scope_key)
 );
--- An import batch may carry, per sequence, the last value the legacy system
--- minted; the import raises next_value past it and never lowers it, so a
--- serial minted after cutover follows the last one ported (ADR-0103).
+-- An import batch may carry, per sequence and scope key, the last value the
+-- legacy system minted; the import raises next_value past it and never lowers
+-- it, so a serial minted after cutover follows the last one ported (ADR-0103,
+-- ADR-0154).
 
--- External identifiers, which lookup(source, value) answers from.
+-- External identifiers, which lookup(source, value) answers from. A legacy
+-- key is kept under source 'legacy', its value qualified by its family's root
+-- type, '<Type>:<key>', and its attribute '', since no attribute holds it
+-- (ADR-0154).
 CREATE TABLE of_external_id (
   source     TEXT NOT NULL,
   value      TEXT NOT NULL,
