@@ -76,7 +76,7 @@ MACHINE_ORDER = ["description", "requires", "states", "conditions", "transitions
 NOT_A_CATEGORY = {"any", "terminal", "superseding"}
 # every vocabulary has `closed`, whether or not a module declares it (declaration-syntax.md §1)
 BUILT_IN_CATEGORIES = {"closed"}
-NOT_A_TRANSITION = {"any"}
+NOT_A_TRANSITION = {"any", "migrate", "import", "redact"}     # the last three name the engine's own events (ADR-0148)
 # a bare name in an expression resolves to these before an attribute (declaration-syntax.md §9.2), so no attribute may take one
 NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "this_event"}
 # what every object has beside its state, read by name as the state is (declaration-syntax.md §8),
@@ -284,6 +284,10 @@ def pairs(x):
     if x["kind"] == "initial":
         return [(None, x["to"])]
     return [(s, x.get("to", s)) for s in sources(x)]
+
+
+def is_set_spec(spec):
+    return str((spec or {}).get("type", (spec or {}).get("reference", ""))).endswith("[]")
 
 
 def optional(spec):
@@ -651,7 +655,14 @@ def family_errors(doc, library):
         members = dict(t.get("attributes") or {})
         for c in chain:
             members.update(kinds[c].get("attributes") or {})
-        if t.get("mirror") and not any(a.get("external") for a in members.values()):
+        # a family is ported together: a mirror's base is a mirror, and so is every type extending a mirror (ADR-0148)
+        for c in chain:
+            if bool(kinds[c].get("mirror")) != bool(t.get("mirror")):
+                out.append((here, "names", f"{tn} {'is' if t.get('mirror') else 'is not'} a mirror and extends {c}, which "
+                                           f"{'is not' if t.get('mirror') else 'is'}; a family is ported together, every type "
+                                           "of it a mirror or none (ADR-0148)"))
+                break
+        if t.get("mirror") and not t.get("abstract") and not any(a.get("external") for a in members.values()):
             out.append((here, "names", f"{tn} is a mirror and declares no external identifier, by which the import matches its objects"))
         if t.get("mirror"):
             # a type is cut over only after every type referencing it (ADR-0075), so a mirror stores no reference to a
@@ -968,7 +979,8 @@ def reserved_name_errors(doc):
                                 f"'{k}' applies only to a type's attribute, not to the observation attribute {o}.{a}"))
         for xn in (t.get("transitions") or {}):
             if xn in NOT_A_TRANSITION:
-                out.append((("types", tn, "transitions", xn), "names", f"'{xn}' cannot name a transition: the text language reserves it"))
+                out.append((("types", tn, "transitions", xn), "names", f"'{xn}' cannot name a transition: " + (
+                    "the text language reserves it" if xn == "any" else "the engine's own events carry that name (ADR-0148)")))
         for c in (t.get("conditions") or {}):
             if c.endswith("_provided") and c[:-len("_provided")] in attrs:
                 out.append((("types", tn, "conditions", c), "names",
@@ -1938,7 +1950,8 @@ def override_errors(doc, tn, t, library):
     enums = set(doc.get("enumerations") or {}) | {n for names in (doc.get("imports") or {}).values() for n in names}
     out = []
     for a, spec in attrs.items():
-        if spec.get("personal") and not optional(spec):
+        if spec.get("personal") and not optional(spec) and not is_set_spec(spec):
+            # a personal set is emptied by an erasure (ADR-0148)
             out.append((("types", tn, "attributes", a), "names", f"{tn}.{a} is personal and required; erasure writes absence, so a personal attribute is optional"))
     for o, ob in (t.get("observations") or {}).items():
         for a, spec in (ob.get("attributes") or {}).items():
@@ -4373,6 +4386,29 @@ def metric_more_plants(people):
     return ok
 
 
+def cluster3_plants(people):
+    """A personal set is accepted, emptied by an erasure; `redact` is a reserved transition name; and a family is ported
+    together, an abstract base a mirror only with every subtype one (ADR-0148)."""
+    cu = (EXAMPLES / "customers.yaml").read_text()
+    old = "      email: { type: string, optional: true, personal: true }\n"
+    assert cu.count(old) == 1
+    found, _ = check([("people.yaml", people), ("customers.yaml", cu.replace(old, old + "      aliases: { type: \"string[]\", personal: true }\n"))])
+    personal_set = not any("aliases" in f[4] for f in found)
+    old_t = "      correct_email:\n"
+    assert cu.count(old_t) == 1
+    found, _ = check([("people.yaml", people), ("customers.yaml", cu.replace(old_t, old_t.replace("correct_email", "redact")))])
+    reserved = any("redact" in f[4] and f[3] in ("names", "schema") for f in found)
+    sd = (EXAMPLES / "servicedesk.yaml").read_text()
+    old_a = "    abstract: true\n    tracking: serial\n"
+    assert sd.count(old_a) == 1
+    found, _ = check([("people.yaml", people), ("servicedesk.yaml", sd.replace(old_a, "    abstract: true\n    mirror: true\n    tracking: serial\n"))])
+    family = any("a family is ported together" in f[4] for f in found) and not any(f[3] == "schema" for f in found)
+    ok = personal_set and reserved and family
+    print(f"  a personal set is accepted, a transition named redact is refused, and a family half ported as a mirror is refused "
+          f"while the abstract mirror itself passes the schema: {'yes' if ok else 'NO ' + str((personal_set, reserved, family))}")
+    return ok
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -4490,6 +4526,7 @@ def main():
     ok &= binder_more_plants(people)
     ok &= migration_more_plants(people)
     ok &= metric_more_plants(people)
+    ok &= cluster3_plants(people)
     sys.exit(0 if clean and ok else 1)
 
 

@@ -167,10 +167,9 @@ class Unsatisfied:
     clause: str
     remedy: Remedy
     unknown: bool
-    objects: Sequence[str] = ()           # the objects the failing clause reads evaluated in
-                                          # full, other than the one it is evaluated on, a
-                                          # collection's by its `where`, in id order
-                                          # (DESIGN.md §5.5, ADR-0092, ADR-0122)
+    objects: Sequence[str] = ()           # the objects DESIGN.md §5.5 says the failing clause
+                                          # names, a generated guard's included, in id order
+                                          # (ADR-0092, ADR-0122, ADR-0148)
     proposable: bool = False              # whether a proposal would be accepted
     consulted: Mapping[str, Any] = field(default_factory=dict)
                                           # the metric values and evaluator verdicts
@@ -406,6 +405,10 @@ class MetricPage:
                                           # group, whatever the read keeps (ADR-0146)
     history_complete: bool                # no row has gaps: the record covers every span it
                                           # measures (ADR-0106)
+    refused: str | None = None            # why the read cannot be answered, with no rows:
+                                          # "unknown_metric", "unknown_dimension",
+                                          # "filter_on_combined", "no_window" or "personal";
+                                          # a refusal is a value (ADR-0148)
 
 
 @dataclass(frozen=True)

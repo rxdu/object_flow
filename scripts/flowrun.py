@@ -1731,7 +1731,10 @@ class Runner:
         t = self.kinds.get(o.type) or {}
         erased = {a for a, sp in (t.get("attributes") or {}).items() if (sp or {}).get("personal") and a in o.attrs}
         for a in erased:
-            del o.attrs[a]
+            if is_set_attribute((t.get("attributes") or {})[a]):
+                o.attrs[a] = ()             # a personal set is emptied, a set being never absent (ADR-0148)
+            else:
+                del o.attrs[a]
         o.erased = True
         ctx.erased.setdefault(o.id, set()).update(erased)
         # every pending proposal targeting the erased object is invalidated, its redaction and invalidation one event
@@ -2454,6 +2457,7 @@ def self_test():
                          "proposer": OPERATOR, "state": "pending", "verdict": None}
     r.attempt(s, "Person", "forget", person, OPERATOR, {"reason": "asked"}, {}, {})
     check("an erasure's admission is recorded on the object the invariant fails on", s.objects[order].admissions, {"named_customer"})
+    check("an erasure empties a personal set", s.objects[person].attrs.get("aliases", ABSENT), ())
     check("a pending proposal on the erased object is invalidated", s.proposals["p1"]["state"], "invalidated")
 
     def after(xn, **inputs):

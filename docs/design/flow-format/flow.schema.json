@@ -438,16 +438,6 @@
                 "required": [
                   "summary"
                 ]
-              },
-              {
-                "properties": {
-                  "mirror": {
-                    "const": true
-                  }
-                },
-                "required": [
-                  "mirror"
-                ]
               }
             ]
           }

@@ -16,14 +16,14 @@ Three cold readings found 97, 124 and 139 findings. The third, of the text writt
    | Topic | Home |
    |---|---|
    | What a deployment writes: keys, values, forms, the MUST rules on a description, the checker's steps and codes, the examples format and what an example runs | `flow-format.md` |
-   | What each construct means: types, attributes, states, transitions and their markings, guards and conditions, invariants, effects, the expression language, observations, recording and corrections, erasure and supersession, the meaning of migration mappings, metrics and the standard metrics, and the publish checks | `declaration-syntax.md` |
-   | How a request executes: its steps, verdicts and remedies, the order of refusals and the objects they name, the generated guards' order, idempotency and the attempt log; history and delivery; the built-in types and their lifecycles; the read surface | `DESIGN.md` §5.5, §6, §7, §9, §10 |
+   | What each construct means: types, attributes, states, transitions and their markings, guards and conditions, invariants, effects, the expression language, observations, recording and corrections, the `erase` construct and which types declare one, supersession, the meaning of migration mappings, metrics and the standard metrics, and the publish checks | `declaration-syntax.md` |
+   | How a request executes: its steps, verdicts and remedies, the order of refusals and the objects they name, the generated guards' order, idempotency and the attempt log; history and delivery; what erasure reaches and records; the built-in types and their lifecycles; the read surface | `DESIGN.md` §5.5, §6, §7, §8, §9, §10 |
    | Publishing, from the dry run to the approval, the report and its severities, the application of mappings; and the import | `publish-and-import.md` |
    | The shapes of operations, requests, verdicts and pages | `library-api.md` |
    | Storage, the DDL each change emits, and what is compiled | `storage-schema.md` |
    | The acceptance conditions | `adversarial-harness.md` |
 
-   `DESIGN.md` §5, §8 and §11 summarise and cite. Worked documents, `metric-scenarios.md` and `unit-journey.md`, illustrate; where one disagrees with a home, it is a finding against one of them. The corpus checker now resolves every citation of a document's section to a heading of that document.
+   `DESIGN.md` §5 and §11 summarise and cite. Worked documents, `metric-scenarios.md` and `unit-journey.md`, illustrate; where one disagrees with a home, it is a finding against one of them. The corpus checker now resolves every citation of a document's section to a heading of that document.
 
 2. **The third reading's contradictions and regressions are fixed** (`cold-reading-3-review.md` §5, F1 to F27), each in its home, the other statements replaced by citations:
    - F1: a publish evaluates every invariant over every object as the mappings leave it, an invariant it did not change needing no new evaluation over an object nothing it wrote affects; a type the change touches is one whose declaration it alters, or whose rules read such a declaration (correcting the narrowing of 2026-10-04).
