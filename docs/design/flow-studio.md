@@ -1,0 +1,100 @@
+# The Flow Studio
+
+**Status: proposed, 2026-10-04, for the author's review before any code** (ADR-0149). It is the first application built on the engine: a place to write a flow, see it, and run it under triggers you choose, built in this repository as the test case that follows the implementation and as the sample an evaluator of ObjectFlow can run.
+
+## 1. What it is for
+
+The author's words, 2026-10-04: "a flow editing/view/simulation, so that I can define the flows we've went through already, then simulate how states evolve under different triggers. it will help me better understand the behavior of the system we build."
+
+It has three readers, and each sets a condition on it:
+
+- **The author**, understanding the engine's behaviour. The studio shows what the engine decided and why, a refusal's clause and remedy, the intervals a transition opened, the metrics it moved, and never a paraphrase of a rule.
+- **The implementation**, which needs a test case that follows it. Every session in the studio is a sequence of the engine's operations, so it can be replayed against each backend, and saved as examples the flow checker runs.
+- **A user evaluating ObjectFlow**, who needs a sample to read. The studio is an upper-layer application and uses the engine as any application must (PRD N6), with no privileged path, so its code is an honest example of building on the engine.
+
+It is not an operations application, it publishes nothing to a deployment's store, and it holds no data but a sandbox's.
+
+## 2. Where it sits
+
+The studio has two parts, a web front end and a server, and the server offers three surfaces, kept apart because the difference between them is what the studio tests:
+
+| Surface | What it is | Examples | Whose |
+|---|---|---|---|
+| **Engine operations** | The library's operations as the service exposes them, one to one (`library-api.md` §6, ADR-0132) | `request`, `get`, `history`, `availability`, `declaration`, `metric` | the engine's |
+| **Sandbox control** | What a sandbox store needs and a deployment's store never offers: loading a sandbox's modules, the clock, the evaluators' answers, resetting | `sandbox/load`, `sandbox/clock`, `sandbox/evaluators`, `sandbox/reset` | the engine's, proposed (PRD §12) |
+| **Studio tooling** | What the studio does with descriptions and examples files, through this repository's scripts | the diagram, the checker's findings, reading and writing an examples file | the studio's |
+
+Anything the studio needs that fits none of the three is a finding against the engine's interface, recorded in `TODO.md`, and is never met by reaching into a backend.
+
+**Two backends, one wire.** The first backend is a thin server over the reference runner (`scripts/flowrun.py`), so the studio runs before the core does. The second is the Rust core's service, as its slices land. Both speak the same wire, so the front end does not know which it talks to. The runner is the Python oracle of ADR-0132 decision 2, and the server calls it as the flow checker does, adding no rule of its own, so it does not become a second engine. Where the runner reaches a construct it cannot yet run, it raises `NotRunnable` with the construct's name, and the studio shows "not run: <construct>", as the flow checker reports an example not run.
+
+**Replaying a session on both backends** gives two sequences of verdicts, and a difference is a finding against one of them. That is the comparison of the core with the Python reference that `TODO.md` asks for from the core's first slice.
+
+## 3. The panes
+
+### 3.1 The editor
+
+A module's YAML, edited as text, re-checked as it changes: the flow checker's findings appear against their lines (`flow-format.md` §11.5), and the diagram follows the text. Text first, because a description is "clearly described and version controlled" (PRD F10), and a graphical editor that writes YAML would lose its comments and its order. Saving writes the file, and loading it into the sandbox is a separate act, so a half-written module never replaces a running one.
+
+### 3.2 The viewer
+
+- **The lifecycle diagram** of each type, in the notation of `scripts/flow-diagram.py`, UML's state machine notation, so the studio's diagram and the documents' are the same drawing. In the first slice the server draws it from the module with that script, as studio tooling. Drawing it from the engine's `declaration`, so that it shows the version the sandbox runs, is later work, and the test that the two drawings agree comes with it.
+- **The rule set**, as `renderers.md` §2 lays it out, so a guard is read as written, never restated (`renderers.md` §1).
+- **Each object**: its state, its attributes, its tracked members, and its history, every event with its actor, kind of actor, occurred and recorded times and cause.
+
+### 3.3 The simulator
+
+Objects in a sandbox store, and the triggers of §4. For the object selected, the **live offer** (`renderers.md` §4): every transition it may take now, and for every other, the clause that blocks it and its remedy. A refused request shows its verdict, the clause, the remedy and the objects it names (`DESIGN.md` §5.5, §6). A metrics strip shows the type's metrics and how the last step moved them.
+
+## 4. Triggers
+
+A trigger is one of the examples format's own steps (`flow-format.md` §11.3), so the studio and an examples file share a vocabulary:
+
+- **a request** by a chosen actor, the operator or an actor object, with inputs and, optionally, an occurred time;
+- **a clock advance**, an `after`;
+- **an evaluator's answer**, a stub, for a guard that asks an external evaluator.
+
+Importing legacy data and publishing a new version, to watch a migration, are later slices (§6). Time never runs on its own: a session is repeatable only if every change of the clock is a step.
+
+## 5. Sessions and examples
+
+A session is a setup and a sequence of steps, and is saved as an examples file's setup and examples (`flow-format.md` §11.1). An example claims what a request must do, in its author's words, so saving does not turn every outcome into an expectation. The studio proposes the expectation it observed, the verdict, the clause and the remedy, or the state and values, and the author confirms it and writes the description. A saved file is checked by `scripts/check-flows.py` like any other, which is how an exploration becomes a test.
+
+## 6. Slices
+
+1. **Load and step.** Choose one of the eleven example modules in `docs/design/flow-format/examples/` and its examples file, see each type's diagram and the rule set, and step through one example a step at a time, seeing after each step the verdict, every object's state and the history. The server offers `request`, `get`, `history` and `declaration` over the runner, and sandbox load, clock, evaluators and reset. **Done when** every example in the ten examples files, 163 on 2026-10-04, replays through the studio's wire with the verdict the flow checker gives it, an example the runner cannot run being "not run" in both, checked by a test that drives the wire, not the runner.
+2. **Free simulation.** Fire any transition on any object as any actor, with the live offer and refusals in full. It needs `availability`, which the runner does not yet offer and which is written into the runner first, as the library states it, since the runner is the oracle the core is compared with. A metrics strip.
+3. **Edit.** The editor of §3.1, with live findings and diagram, reloading the sandbox from the edited module, and saving a session as examples (§5).
+4. **The Rust backend.** The same sessions against the core's service as its slices land, and a report of where the two backends' verdicts differ.
+
+Later: publishing a second version and watching its migration and impact report, `publish-and-import.md` §1 to §3 being the reference; importing; proposals and their approval.
+
+## 7. Layout and stack
+
+```
+apps/flow-studio/
+  web/        the front end: TypeScript, strict; Vite, Vitest, pnpm, Tailwind
+  server/     the backend: the wire, the sandbox control, the studio tooling
+```
+
+- **The server** is Python's standard library HTTP server over the runner, the checker and the diagram script, which it imports from `scripts/`. It adds no Python dependency: PyYAML and jsonschema are already the checkers'. It listens on `127.0.0.1` only, on a port set explicitly in one configuration file, and the front end's development server's port likewise, never a default. It serves one user and holds only a sandbox store, so it has no authentication.
+- **The wire** carries JSON. Its shape is a decision for the service as much as for the studio (question 1 of §9).
+- **Tests.** The front end's with Vitest. The server's with pytest, the slice 1 replay test among them. A single `check` script for each part runs typecheck, lint and tests, as the author's web conventions ask.
+
+## 8. Dependencies awaiting approval
+
+None is added before the author approves it.
+
+| Dependency | For | Slice |
+|---|---|---|
+| `typescript`, `vite`, `vitest`, `eslint`, `prettier`, `tailwindcss` | the toolchain the author's web conventions name | 1 |
+| `react`, `react-dom` | the user interface (question 2 of §9) | 1 |
+| `mermaid` | drawing the diagram, in the notation the documents already use | 1 |
+| `@codemirror/*` | the YAML editor, with findings against lines | 3 |
+| `pytest` | the server's tests, in a virtual environment | 1 |
+
+## 9. Questions for the author
+
+1. **The wire's shape.** ADR-0132 says the service exposes the library one to one, and no OpenAPI description exists yet. I recommend the literal reading: one `POST /v1/<operation>` per library operation, its arguments a JSON object with the library's names, its result the library's shape as JSON, a refusal a 200 with the verdict, since a refusal is a value (`library-api.md` §2), and sandbox control under `/sandbox/`, which a deployment's service does not route. The slice 1 operations would be the first entries of the OpenAPI description. The alternative is resource paths (`GET /objects/{id}`, `POST /objects/{id}/transitions/{name}`), more conventional for HTTP, but a second naming of the same operations to keep in step with the library.
+2. **The user interface library.** I recommend React: the sample is meant to be read by people building on ObjectFlow, and React is the one most of them read. The alternative with the fewest dependencies is plain TypeScript with no framework, which is lighter but makes the three panes' state harder to follow.
+3. **The PRD's proposed requirement and use case** (PRD §12): a sandbox store with a clock the caller sets and evaluators the caller answers. The engine needs it for the studio to run on the Rust core, and no requirement states it.

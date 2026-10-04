@@ -114,7 +114,7 @@ What it is not:
 
 ## Designed against a real system
 
-ObjectFlow's first consumer is the author's robotics operations platform: inventory, deliveries and service in production today, with loans and leasing designed, and every row of its data to be ported. The design has been checked rule by rule against that system's production code ([`first-consumer-audit.md`](docs/design/first-consumer-audit.md)) and against its own product requirements ([`first-consumer-prd-check.md`](docs/design/first-consumer-prd-check.md)). Its worked examples are written as checked modules: a unit's whole journey from purchase request to lease-to-own, and a returns flow tightened from its own data.
+ObjectFlow's case study, called the first consumer, is the author's robotics operations platform: inventory, deliveries and service in production today, with loans and leasing designed. The first application built on the engine is the Flow Studio ([`flow-studio.md`](docs/design/flow-studio.md)), an editor, viewer and simulator of flows in this repository. The design has been checked rule by rule against that system's production code ([`first-consumer-audit.md`](docs/design/first-consumer-audit.md)) and against its own product requirements ([`first-consumer-prd-check.md`](docs/design/first-consumer-prd-check.md)). Its worked examples are written as checked modules: a unit's whole journey from purchase request to lease-to-own, and a returns flow tightened from its own data.
 
 ## Where it stands
 

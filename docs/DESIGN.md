@@ -76,7 +76,7 @@ The threat model is **mistakes, not malice**. Actors are trusted but fallible: a
 - what is due, overdue or ageing (§5.12);
 - what waits, and on whom (§5.13).
 
-Genericity is a requirement from the start. The first consumer is the author's own operations platform (§4); it is a first customer, not a domain to specialise for.
+Genericity is a requirement from the start. The first consumer is the author's own operations platform (§4); it is the case study, not a domain to specialise for, and the first application built on the engine is the Flow Studio (ADR-0149).
 
 ## 2. Position in the stack and deployment shapes
 
@@ -118,7 +118,9 @@ An ORM abstracts *mechanism*: it hides SQL and faithfully executes whatever the 
 
 ## 4. First consumer and case studies
 
-The first consumer is an extended version of the Weston Robot inventory management system: an operations platform covering procurement, allocation, pre-delivery inspection, leasing and customer identity mirrored from Xero. The existing system is in production at `~/RduWs/wr_inventory_management`, already contains a hand-built version of every concern below, and will be rebuilt on ObjectFlow with its production data ported and preserved (ADR-0015). The PRD's use cases are drawn from it wherever they can be.
+The first consumer is an extended version of the Weston Robot inventory management system: an operations platform covering procurement, allocation, pre-delivery inspection, leasing and customer identity mirrored from Xero. The existing system is in production at `~/RduWs/wr_inventory_management`, already contains a hand-built version of every concern below, and was to be rebuilt on ObjectFlow with its production data ported and preserved (ADR-0015). Since ADR-0149 it is the case study and not a target: no switch-over of it is planned, and the import and cutover designs stand for any deployment that moves from a legacy system. The PRD's use cases are drawn from it wherever they can be.
+
+**The first application built on the engine is the Flow Studio** ([`design/flow-studio.md`](design/flow-studio.md), ADR-0149): an editor, viewer and simulator of flows, in this repository, which loads the example modules and the case study's flows, runs them in a sandbox under triggers its user chooses, and saves what it finds as examples. It reaches the engine only through the service's operations and a sandbox's controls, first over the Python reference runner and then over the core, so it is the test case that follows the implementation, and the sample a user of ObjectFlow can read.
 
 The model was tested against five further shapes, each recorded with what it forced: issue tracking, customer records, orders at volume, approvals with bookings, and a payments ledger, in [`design/`](design/). The ledger is the one written after the model rather than before it, and it is the only case that is high-volume, short-lived and money-carrying; four of the thirteen language questions the author ruled on (ADR-0065 to ADR-0072) came from it.
 
