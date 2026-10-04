@@ -282,6 +282,7 @@ CREATE TABLE of_interval (
   declaration_version INTEGER NOT NULL,
   legacy              INTEGER NOT NULL DEFAULT 0,
   migrated            INTEGER NOT NULL DEFAULT 0,
+  corrected_by        INTEGER REFERENCES of_event(position),
   PRIMARY KEY (object_id, dimension, entered_position, entered_at)
 );
 CREATE INDEX of_interval_current ON of_interval (dimension, value) WHERE left_position IS NULL;

@@ -952,6 +952,18 @@ fn take(
     let Some(o) = ctx.work.objects.get_mut(&id) else {
         return stop_not_run(format!("the object {id}, which its own effect removed"));
     };
+    // a correction of a tracked value relabels the span it was held for,
+    // which the core does not yet run (declaration-syntax.md §6.4)
+    if let Some(m) = x.corrects.iter().find(|m| {
+        lib.tracked(t).contains(m)
+            && before
+                .as_ref()
+                .is_some_and(|b| b.iter().any(|(n, v)| n == *m && *v != o.attr(m)))
+    }) {
+        return stop_not_run(format!(
+            "a correction of the tracked value {tn}.{m}, which relabels its interval"
+        ));
+    }
     if !record_spans(lib, t, o, before.as_ref(), position, ctx.at, &ctx.who) {
         // what an effect changed, which no guard could see, precedes its
         // current interval
@@ -1016,6 +1028,7 @@ fn take(
         source: match x.kind {
             Kind::Assertion => "asserted",
             Kind::Erasure => "erased",
+            _ if !x.corrects.is_empty() => "corrected",
             _ => "observed",
         }
         .into(),
@@ -3881,5 +3894,44 @@ types:
             s.history(&late).unwrap()[0].payload["inputs"]["note"],
             Json::Null
         );
+    }
+
+    #[test]
+    fn a_correction_is_recorded_as_one_and_a_tracked_one_is_not_yet_run() {
+        let text = JOBS.replace(
+            "      finish: { kind: external, from: [WORKING], to: DONE }",
+            "      finish: { kind: external, from: [WORKING], to: DONE }\n      \
+             fix_title: { kind: internal, from: any, required_inputs: [title], corrects: [title] }\n      \
+             fix_priority: { kind: internal, from: any, required_inputs: [priority], corrects: [priority] }",
+        );
+        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fx", "priority": "LOW"}),
+        ));
+        created(&req(
+            &mut s,
+            "fix_title",
+            OPERATOR,
+            (&job, false),
+            json!({"title": "Fix"}),
+        ));
+        assert_eq!(s.history(&job).unwrap().last().unwrap().source, "corrected");
+        let r = Request {
+            transition: "fix_priority".into(),
+            actor: OPERATOR.into(),
+            object_id: Some(job.clone()),
+            type_: None,
+            inputs: [("priority".to_string(), json!("HIGH"))].into(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+        };
+        let not = request(&mut s, &r).unwrap().unwrap_err();
+        assert!(not.0.contains("Job.priority"), "{not}");
     }
 }

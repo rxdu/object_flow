@@ -225,6 +225,9 @@ pub struct Transition {
     pub backdating_limit: Option<String>,
     /// On an assertion, the invariants a request may admit breaking (§4.13).
     pub may_admit: Vec<String>,
+    /// On a correction, the attributes it corrects, whose events carry the
+    /// `corrected` provenance (§4.13).
+    pub corrects: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -670,6 +673,7 @@ impl Reader<'_> {
                 .map(|b| self.text(b, "a duration"))
                 .transpose()?,
             may_admit: self.names(node.get("may_admit"))?,
+            corrects: self.names(node.get("corrects"))?,
         })
     }
 
@@ -868,6 +872,7 @@ impl Reader<'_> {
                 effect: Vec::new(),
                 backdating_limit: limit.clone(),
                 may_admit: Vec::new(),
+                corrects: Vec::new(),
             },
         )];
         let mut source_transitions = serde_json::json!({
@@ -901,6 +906,7 @@ impl Reader<'_> {
                     effect: Vec::new(),
                     backdating_limit: None,
                     may_admit: Vec::new(),
+                    corrects: Vec::new(),
                 },
             ));
             source_transitions["forget"] = serde_json::json!({ "kind": "erasure", "inputs": { "reason": { "type": "string" } } });
