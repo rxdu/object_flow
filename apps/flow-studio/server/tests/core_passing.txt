@@ -1,6 +1,17 @@
 # The examples the core passes with the reference runner's outcome (ADR-0153
 # decision 6), one "<module file> <example>" a line: a ratchet, so none may
 # stop passing. tests/test_core_replay.py prints any newly passing.
+approvals.yaml a_claim_is_filed_with_its_amount
+approvals.yaml a_draft_is_not_approved
+approvals.yaml a_purchase_is_started_in_draft
+approvals.yaml a_receipt_is_attached_to_a_draft
+approvals.yaml a_submitted_claim_is_approved
+approvals.yaml a_submitted_claim_is_rejected
+approvals.yaml a_submitted_claim_takes_no_receipt
+approvals.yaml a_submitted_purchase_is_approved
+approvals.yaml a_submitted_purchase_is_rejected
+approvals.yaml submitting_a_claim_records_when
+approvals.yaml submitting_records_when
 customers.yaml a_correction_replaces_a_mis_keyed_email
 customers.yaml a_customer_merged_into_itself_is_refused
 delivery.yaml an_item_not_reserved_is_not_delivered
@@ -41,10 +52,15 @@ issues.yaml a_due_date_within_the_window
 issues.yaml a_duplicate_is_not_a_resolution_for_done
 issues.yaml a_first_estimate_is_a_change
 issues.yaml a_label_is_added_once
+issues.yaml an_epic_shares_the_space_numbering
+issues.yaml an_open_subtask_holds_the_story
 issues.yaml an_unchanged_estimate_is_refused
 issues.yaml an_unestimated_item_is_not_reviewed
+issues.yaml archiving_archives_the_subtasks
 issues.yaml a_reviewed_story_is_done_with_a_warning
 issues.yaml a_story_reviewed_twice_is_done_without_one
+issues.yaml a_subtask_begins_while_its_parent_is_in_progress
+issues.yaml a_subtask_waits_for_its_parent
 issues.yaml cloning_links_the_copy
 issues.yaml completing_into_the_next_sprint
 issues.yaml moving_supersedes_the_item

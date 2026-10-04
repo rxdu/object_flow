@@ -248,6 +248,9 @@ pub struct Type {
     /// For an observation kind, the type of its subject (`declaration-syntax.md`
     /// §6.8); none for any other type.
     pub observation_on: Option<String>,
+    /// The shared machine it binds, whose states, conditions and
+    /// transitions the library merges into it (`flow-format.md` §4.10).
+    pub state_machine: Option<String>,
     /// The type as its description writes it, which `declaration` returns.
     pub source: serde_json::Value,
 }
@@ -341,6 +344,8 @@ pub struct Module {
     pub types: Vec<Type>,
     /// The observation kinds its types declare, by name.
     pub observation_kinds: Vec<String>,
+    /// The shared state machines it declares.
+    pub machines: Vec<Type>,
     /// Its evaluators' functions, as `<evaluator>.<function>`.
     pub evaluators: Vec<String>,
 }
@@ -662,7 +667,6 @@ impl Reader<'_> {
         let mut beyond = Vec::new();
         let at_outcome = Vec::new();
         for (key, what) in [
-            ("state_machine", "a machine the type binds"),
             ("extends", "a family, the type extending a base"),
             ("abstract", "an abstract type"),
             ("mirror", "a mirror type, owned elsewhere"),
@@ -770,6 +774,10 @@ impl Reader<'_> {
                 })
                 .collect(),
             observation_on: None,
+            state_machine: node
+                .get("state_machine")
+                .and_then(Node::text)
+                .map(str::to_string),
             source: node.to_json(),
         })
     }
@@ -923,6 +931,7 @@ impl Reader<'_> {
             at_outcome: Vec::new(),
             observations: Vec::new(),
             observation_on: Some(subject.to_string()),
+            state_machine: None,
             source,
         })
     }
@@ -957,6 +966,12 @@ impl Reader<'_> {
             }
         }
         types.extend(kinds);
+        // a shared machine reads as a type whose attributes are those it
+        // requires, which its binders declare (flow-format.md §4.10)
+        let mut machines = Vec::new();
+        for (n, spec) in doc.get("machines").map(Node::entries).unwrap_or_default() {
+            machines.push(self.type_(name, n, spec)?);
+        }
         let mut evaluators = Vec::new();
         for (e, spec) in doc.get("evaluators").map(Node::entries).unwrap_or_default() {
             for (f, _) in spec.get("functions").map(Node::entries).unwrap_or_default() {
@@ -968,6 +983,7 @@ impl Reader<'_> {
             enumerations,
             types,
             observation_kinds,
+            machines,
             evaluators,
         })
     }
@@ -995,6 +1011,69 @@ pub struct Library {
     pub evaluators: Vec<String>,
     /// The modules loaded, in import order.
     pub modules: Vec<String>,
+}
+
+/// A binder with its machine merged in: the machine's states; its
+/// conditions, beside the binder's own; and its transitions, of which the
+/// initial ones give way to a binder's own initial transition, the binder's
+/// own after them (`flow-format.md` §4.10, `declaration-syntax.md` §2.1).
+fn bind(t: &mut Type, m: &Type) {
+    let own_initial = t.transitions.iter().any(|(_, x)| x.kind == Kind::Initial);
+    let own = std::mem::take(&mut t.transitions);
+    t.transitions = m
+        .transitions
+        .iter()
+        .filter(|(_, x)| !(own_initial && x.kind == Kind::Initial))
+        .cloned()
+        .collect();
+    for (n, x) in own {
+        match t.transitions.iter_mut().find(|(k, _)| *k == n) {
+            Some(slot) => slot.1 = x,
+            None => t.transitions.push((n, x)),
+        }
+    }
+    let own_conditions = std::mem::take(&mut t.conditions);
+    t.conditions = m.conditions.clone();
+    for (n, c) in own_conditions {
+        match t.conditions.iter_mut().find(|(k, _)| *k == n) {
+            Some(slot) => slot.1 = c,
+            None => t.conditions.push((n, c)),
+        }
+    }
+    t.states = m.states.clone();
+    // the declaration as the reference runner serves a binder's: its own,
+    // with the machine's states, conditions and transitions merged in
+    let section = |key: &str| {
+        m.source
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}))
+    };
+    let mut transitions = section("transitions");
+    if let Some(map) = transitions.as_object_mut() {
+        if own_initial {
+            map.retain(|_, x| x.get("kind").and_then(|k| k.as_str()) != Some("initial"));
+        }
+        if let Some(mine) = t.source.get("transitions").and_then(|x| x.as_object()) {
+            for (k, v) in mine {
+                map.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    let mut conditions = section("conditions");
+    if let (Some(map), Some(mine)) = (
+        conditions.as_object_mut(),
+        t.source.get("conditions").and_then(|x| x.as_object()),
+    ) {
+        for (k, v) in mine {
+            map.insert(k.clone(), v.clone());
+        }
+    }
+    if let Some(src) = t.source.as_object_mut() {
+        src.insert("states".into(), section("states"));
+        src.insert("transitions".into(), transitions);
+        src.insert("conditions".into(), conditions);
+    }
 }
 
 /// The built-in type of the store's operator, its first actor (ADR-0126):
@@ -1050,6 +1129,7 @@ fn operator_type() -> Type {
         at_outcome: Vec::new(),
         observations: Vec::new(),
         observation_on: None,
+        state_machine: None,
         source: serde_json::json!({
             "description": "The store's operator, its first actor (ADR-0126).",
             "attributes": { "identity": { "type": "identity", "actor_kind": "human" } },
@@ -1063,6 +1143,7 @@ impl Library {
     /// the built-in Operator type.
     pub fn load(files: &[(String, String)]) -> Result<Library, LoadError> {
         let mut lib = Library::default();
+        let mut machines: BTreeMap<String, Type> = BTreeMap::new();
         lib.types.insert("Operator".to_string(), operator_type());
         for (file, text) in files {
             let m = load_module(file, text)?;
@@ -1073,8 +1154,23 @@ impl Library {
                 lib.types.insert(t.name.clone(), t);
             }
             lib.observation_kinds.extend(m.observation_kinds);
+            for machine in m.machines {
+                machines.insert(machine.name.clone(), machine);
+            }
             lib.evaluators.extend(m.evaluators);
             lib.modules.push(m.name);
+        }
+        // each binder with its machine merged in, once every module, and so
+        // every machine it may import, is read
+        for t in lib.types.values_mut() {
+            if let Some(name) = t.state_machine.clone() {
+                match machines.get(&name) {
+                    Some(m) => bind(t, m),
+                    None => t
+                        .beyond
+                        .push(format!("the machine {name}, which no module declares")),
+                }
+            }
         }
         Ok(lib)
     }
@@ -1155,5 +1251,50 @@ types:
         let err = load_module("jobs.yaml", &text).unwrap_err();
         assert_eq!(err.line, 17);
         assert!(err.message.contains("not an expression"));
+    }
+
+    #[test]
+    fn a_binder_takes_its_machine_its_own_initial_replacing_the_machines() {
+        let text = r#"
+module: approvals
+categories: [pending, closed]
+machines:
+  Approval:
+    description: An approval.
+    requires:
+      attributes:
+        amount: { type: int }
+    states:
+      DRAFT: { category: pending }
+      DONE: { category: closed, final: true }
+    conditions:
+      small: { expression: amount < 10, remedy: delegable }
+    transitions:
+      draft: { kind: initial, to: DRAFT, required_inputs: [amount] }
+      approve: { kind: external, from: [DRAFT], to: DONE, guards: { small: deny } }
+types:
+  Purchase:
+    state_machine: Approval
+    attributes:
+      amount: { type: int }
+      vendor: { type: string }
+    conditions:
+      named: { expression: vendor is not null, remedy: self_serviceable }
+    transitions:
+      raise: { kind: initial, to: DRAFT, required_inputs: [amount, vendor] }
+      rename: { kind: internal, from: [DRAFT], required_inputs: [vendor], guards: { named: deny } }
+"#;
+        let lib = Library::load(&[("approvals.yaml".into(), text.into())]).unwrap();
+        let t = lib.type_("Purchase").unwrap();
+        assert!(t.beyond.is_empty(), "{:?}", t.beyond);
+        let names: Vec<&str> = t.transitions.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["approve", "raise", "rename"]);
+        let states: Vec<&str> = t.states.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(states, vec!["DRAFT", "DONE"]);
+        assert!(t.condition("small").is_some() && t.condition("named").is_some());
+        let src = &t.source;
+        assert!(src["transitions"].get("draft").is_none());
+        assert!(src["transitions"].get("approve").is_some());
+        assert_eq!(src["states"]["DONE"]["final"], serde_json::json!(true));
     }
 }
