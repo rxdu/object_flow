@@ -308,3 +308,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Stopping the Flow Studio's servers with `pkill -f "python -m flowstudio"`, and later with `pgrep -f "...|python -m flowstudio$"` inside a kill loop, the pattern also matched the Bash command line that carried it, so the shell killed itself and the command ended with status 144; it happened twice in one session.
 - **Correction:** Stop a background process by the id recorded when it was started (`cmd & echo $!`). Where a pattern is unavoidable, bracket one character, `pgrep -f "[v]ite/bin/vite.js"`, so the pattern cannot match its own command line.
 - **Context:** Shell, any session that starts and stops servers.
+
+### A differential test covers only what its corpus contains
+- **Pattern:** The Rust core's parser was held to Python's over all 280 expressions of the design, and a parser made right-associative for `-` still passed: no expression in the design chains `-`, `/`, `or` or `and`, so associativity was never compared. Only reverting a rule on a copy showed it.
+- **Correction:** Beside the real corpus, give a differential test a hand-written set that reaches each construct the grammar defines, the rules a corpus happens not to use among them: chains of each left-associative operator, nesting, every literal, and inputs that must fail. Then break one rule at a time and see the test fail.
+- **Context:** Any oracle comparison over a corpus; the core's `tests/parse_like_python.rs`, 2026-10-04.

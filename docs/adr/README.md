@@ -153,4 +153,5 @@
 | [0149](0149-the-flow-studio-is-the-first-application-built-on-the-engine.md) | The Flow Studio is the first application built on the engine | Accepted by the author — later refined by ADR-0150 |
 | [0150](0150-the-services-wire-and-the-flow-studios-stack.md) | The service's wire, and the Flow Studio's stack | Accepted by the author (decisions 1, 3 to 5), and at the author's direction (decision 2) — later refined by ADR-0151 |
 | [0151](0151-a-caller-reads-the-events-its-request-appended.md) | A caller reads the events its request appended, and an invariant failure names its object's type | Accepted by the author |
-| [0152](0152-what-an-offer-decides.md) | What an offer decides, before its inputs are given | At the author's direction, the author's review pending |
+| [0152](0152-what-an-offer-decides.md) | What an offer decides, before its inputs are given | Accepted by the author |
+| [0153](0153-the-cores-first-slice.md) | The core's first slice | At the author's direction |

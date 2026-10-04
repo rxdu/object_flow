@@ -1,6 +1,6 @@
 # ADR-0152: What an offer decides, before its inputs are given
 
-- **Status:** Accepted, 2026-10-04, at the author's direction ("go ahead with slice 2"), as what the Flow Studio's second slice needs and the record did not state; the author's own review is pending.
+- **Status:** Accepted, 2026-10-04, at the author's direction ("go ahead with slice 2"), as what the Flow Studio's second slice needs and the record did not state; accepted by the author the same day ("go with your recommendations").
 - **Date:** 2026-10-04
 - **Refines:** ADR-0048 (`available` sweeps on guards and asks no evaluator), ADR-0099 (an offer lists recording on a subject), ADR-0111 (an offer lists the flags it would raise)
 - **Relates to:** `DESIGN.md` §6, §10; `design/library-api.md` §5; `design/renderers.md` §4; `design/flow-studio.md` §6

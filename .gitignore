@@ -4,3 +4,4 @@ __pycache__/
 apps/flow-studio/server/.venv/
 apps/flow-studio/web/node_modules/
 apps/flow-studio/web/dist/
+core/target/

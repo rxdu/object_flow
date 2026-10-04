@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-30: "accept all three recommendations", on the three questions the proposal put, which decisions 1 to 3 answer as proposed.
 - **Date:** 2026-09-30
+- **Refined by:** ADR-0153 — the first slice uses `saphyr-parser` and the core's own fixed-point decimal.
 - **Refines:** ADR-0132 decision 3 (two checks before the first line of engine code)
 - **Relates to:** `declaration-syntax.md` §3.1, §8.3; `storage-schema.md` §3.1; `scripts/check-flows.py`'s strict loader; D484
 

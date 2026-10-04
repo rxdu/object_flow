@@ -1,0 +1,6 @@
+# The toolchain is pinned exactly, since rustfmt's output and clippy's lints
+# change between releases; this is also the minimum supported version.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

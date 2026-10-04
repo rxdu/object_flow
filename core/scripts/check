@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# The core's gates (the author's rules/rust.md): the format, clippy with every
+# warning an error, and the tests. CI runs the same.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
+"$CARGO" fmt --all -- --check
+"$CARGO" clippy --all-targets --all-features -- -D warnings
+"$CARGO" test --all-features

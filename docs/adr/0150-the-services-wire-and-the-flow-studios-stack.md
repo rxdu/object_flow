@@ -2,7 +2,7 @@
 
 - **Status:** Accepted, 2026-10-04. Decisions 1, 3, 4 and 5 by the author ("go with your recommedtations"), answering `flow-studio.md` §9 and approving its §8. Decision 2 at the author's direction, as what decision 1 needs to carry the library's values, and open to the author's revision until the core implements it. The two findings of §Consequences are the author's to decide.
 - **Date:** 2026-10-04
-- **Refined by:** ADR-0151 — both findings decided as recommended: an `events` operation, and an invariant failure naming its object's type.
+- **Refined by:** ADR-0151 — both findings decided as recommended: an `events` operation, and an invariant failure naming its object's type. ADR-0153 — the core's service serves the same wire.
 - **Refines:** ADR-0132 (the service's HTTP, which it left without a shape), ADR-0149 (the studio's stack and the PRD's proposals)
 - **Relates to:** `design/flow-studio.md`; `design/library-api.md` §2 to §6; PRD §12
 
