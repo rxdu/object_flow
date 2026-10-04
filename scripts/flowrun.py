@@ -2126,6 +2126,54 @@ def advance(store, st):
         store.now += Fraction(int(n)) * SECONDS[unit]
 
 
+class ImportRefused(ExampleError):
+    """An object an import could not place, and why (ADR-0154)."""
+
+
+def import_object(runner, store, tn, state, given):
+    """One new object of a mirror type, written through the built-in assertion as an import writes it, and returned
+    by id (publish-and-import.md §4). An example's import admits nothing, so an object whose state its type does not
+    declare, which leaves a required attribute out, or which violates an invariant is refused, the store left as it
+    was (ADR-0154, D526). Its intervals open at the import, by a changer of kind `unknown` (ADR-0154, C28)."""
+    kind = runner.kinds.get(tn) or {}
+    if not kind.get("mirror"):
+        raise ImportRefused(f"{tn} is owned by this store, not a mirror, and the import writes only a mirror")
+    if state not in (kind.get("states") or {}):
+        raise ImportRefused(f"{tn} declares no state {state}")
+    attrs = kind.get("attributes") or {}
+    for k in given:
+        if k not in attrs:
+            raise ImportRefused(f"{tn} declares no attribute {k}")
+    counter = store.counter
+    o = Obj(store.new_id(tn), tn, state, store.now)
+    o.id_order = store.counter
+    o.created_by_kind = "unknown"
+    o.attrs.update({a: () for a, spec in attrs.items() if is_set_attribute(spec)})
+    o.attrs.update({k: v for k, v in given.items() if v is not ABSENT})
+    store.objects[o.id] = o
+    left_out = [a for a, spec in attrs.items() if not (spec or {}).get("optional") and "default" not in (spec or {})
+                and (spec or {}).get("type") != "counter" and a not in o.attrs]
+    failing = left_out and [f"{left_out[0]}_provided"] or runner.failing_invariants(store, o)
+    if failing:
+        del store.objects[o.id]
+        store.counter = counter
+        raise ImportRefused(f"the imported {tn} fails {failing[0]}, and an example's import admits nothing")
+    store.position += 1
+    values = runner.tracked_values(o)
+    for m, v in values.items():
+        o.spans[m] = [Row({"object": o.id, "state" if m == "state" else "value": v, "entered_at": store.now, "left_at": ABSENT,
+                           "entered_by_kind": "unknown", "declaration_version": 1, "legacy": False, "migrated": False,
+                           "held": dict(values)})]
+    for a in o.attrs:
+        o.writes[a] = store.position
+    store.events.append({"position": store.position, "object": o.id, "type": o.type, "transition": "import", "from_state": ABSENT,
+                         "to_state": ("state", o.type, o.state), "completes": False, "returns": False,
+                         "occurred_at": store.now, "recorded_at": store.now, "actor_id": OPERATOR, "actor_kind": "human",
+                         "asserted": True, "overrides": False, "imported": True, "migrated": False, "redacted": False,
+                         "reason": ABSENT, "declaration_version": 1, "held": {}})
+    return o.id
+
+
 def step(runner, store, st, aliases, stubs, under_test=False):
     """One step of a setup or the request under test; a setup's refusal propagates, the tested one is returned."""
     if "import" in st:
@@ -2133,29 +2181,9 @@ def step(runner, store, st, aliases, stubs, under_test=False):
         if im.get("after"):
             n, unit = im["after"].split()
             store.now += Fraction(int(n)) * SECONDS[unit]
-        o = Obj(store.new_id(im["type"]), im["type"], im["state"], store.now)
-        o.id_order = store.counter
         attrs = (runner.kinds.get(im["type"]) or {}).get("attributes") or {}
-        o.attrs.update({a: () for a, spec in attrs.items() if is_set_attribute(spec)})
-        for k, v in (im.get("values") or {}).items():
-            o.attrs[k] = runner.value_of(store, attrs.get(k), v, aliases)
-        store.objects[o.id] = o
-        aliases[im["as"]] = o.id
-        # the import writes through the built-in assertion, so what it brings in violating stands admitted (DESIGN.md §8)
-        o.admissions = set(runner.failing_invariants(store, o))
-        store.position += 1
-        values = runner.tracked_values(o)
-        for m, v in values.items():
-            o.spans[m] = [Row({"object": o.id, "state" if m == "state" else "value": v, "entered_at": store.now, "left_at": ABSENT,
-                               "entered_by_kind": "human", "declaration_version": 1, "legacy": False, "migrated": False,
-                               "held": dict(values)})]
-        for a in o.attrs:
-            o.writes[a] = store.position
-        store.events.append({"position": store.position, "object": o.id, "type": o.type, "transition": "import", "from_state": ABSENT,
-                             "to_state": ("state", o.type, o.state), "completes": False, "returns": False,
-                             "occurred_at": store.now, "recorded_at": store.now, "actor_id": OPERATOR, "actor_kind": "human",
-                             "asserted": True, "overrides": False, "imported": True, "migrated": False, "redacted": False,
-                             "reason": ABSENT, "declaration_version": 1, "held": {}})
+        given = {k: runner.value_of(store, attrs.get(k), v, aliases) for k, v in (im.get("values") or {}).items()}
+        aliases[im["as"]] = import_object(runner, store, im["type"], im["state"], given)
         return None
     if "propose" in st:
         # a request filed for approval instead of executed, held as it was asked (DESIGN.md §9, ADR-0036)
@@ -2578,6 +2606,22 @@ def self_test():
     person = r.attempt(s, "Person", "add", None, OPERATOR, {"name": "Ana"}, {}, {})[1]
     note = r.attempt(s, "Note", "record", None, OPERATOR, {"subject": person, "body": "rang"}, {person: person}, {})[1]
     erased = r.attempt(s, "Person", "forget", person, OPERATOR, {"reason": "asked"}, {}, {})
+    # an example's import admits nothing: a violation refuses it, leaving the store as it was (ADR-0154, D526)
+    hr = {"Operator": kinds["Operator"],
+          "Employee": {"mirror": True, "attributes": {"grade": {"type": "int"}},
+                       "states": {"EMPLOYED": {"category": "live"}},
+                       "invariants": {"graded": {"expression": "grade >= 1"}}}}
+    hs = Store(hr, {})
+    held_before = (len(hs.objects), hs.counter)
+    try:
+        import_object(Runner(hr, {}), hs, "Employee", "EMPLOYED", {"grade": 0})
+        imported = "applied"
+    except ImportRefused as refusal:
+        imported = str(refusal)
+    check("an example's import that violates an invariant is refused, writing nothing",
+          ("graded" in imported, (len(hs.objects), hs.counter)), (True, held_before))
+    check("an example's import that complies is written",
+          hs.objects[import_object(Runner(hr, {}), hs, "Employee", "EMPLOYED", {"grade": 2})].state, "EMPLOYED")
     # a base's uniqueness spans the whole family, siblings included (flow-format.md §4.14, D519)
     key = {"key": {"type": "string", "unique": True}, "name": {"type": "string"}}
     fam = {"Operator": kinds["Operator"], "Asset": {"abstract": True, "attributes": dict(key)}}
