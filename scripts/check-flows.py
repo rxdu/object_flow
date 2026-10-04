@@ -1880,10 +1880,16 @@ def formula_errors(tn, t, mn, m):
             for lit in sorted(transition_literals(tree, item) - names):
                 out.append((base + key, "names", f'metric {mn} compares {item}.transition with "{lit}", which is not a '
                                                  f"transition of {tn}"))
-    dims = set(m.get("dimensions") or {}) | STANDARD_DIMENSIONS
+    # a flag is evaluated on the groups of the dimensions the metric declares, so it reads version or actor_kind only
+    # where the metric names it (ADR-0147)
+    dims = set(m.get("dimensions") or {})
     for f, c in (m.get("flag_when") or {}).items():
         for r in sorted(reads(c) - dims - {"value", "now"}):
-            out.append((base + ("flag_when", f), "names", f"metric {mn}'s flag {f} reads '{r}', which is neither value nor a dimension"))
+            out.append((base + ("flag_when", f), "names", f"metric {mn}'s flag {f} reads '{r}', which is neither value nor a dimension "
+                                                          "the metric declares"))
+    for p in re.findall(r"\bpercentile\(\s*([^,()]+?)\s*,", " ".join(str(m["expression"]).split())):
+        if not re.fullmatch(r"[-+]?[0-9.]+", p):
+            out.append((base + ("expression",), "names", f"metric {mn} takes the percentile {p}, and a percentile's p is a literal (ADR-0147)"))
     return out
 
 
@@ -2173,7 +2179,7 @@ def combined_errors(doc):
         base = ("metrics", mn)
         if mn in owner:
             out.append((base, "names", f"the metric {mn} is also declared by {owner[mn]}; a module's metrics share one namespace"))
-        dims = set(STANDARD_DIMENSIONS)
+        dims, held = set(STANDARD_DIMENSIONS), []
         for alias, ref in m["input_metrics"].items():
             where = base + ("input_metrics", alias)
             if "." in ref:
@@ -2185,22 +2191,30 @@ def combined_errors(doc):
                     out.append((where, "names", f"metric {mn} combines {ref}, which is not a metric of {tn}"))
                 else:
                     dims |= dimensions_of(target)
+                    held.append(dimensions_of(target) | STANDARD_DIMENSIONS)
             elif ref in names[i:]:
                 out.append((where, "order", f"metric {mn} combines {ref}, which is itself or declared after it; a combined metric combines those above it"))
             elif ref not in combined:
                 out.append((where, "names", f"metric {mn} combines {ref}, which is neither a combined metric of this module nor written as <Type>.<metric>"))
             else:
                 dims |= dimensions_of(combined[ref])
+                held.append(dimensions_of(combined[ref]) | STANDARD_DIMENSIONS)
         for d in m.get("group_by") or []:
             if d not in dims:
                 out.append((base + ("group_by",), "names", f"metric {mn} groups by '{d}', which none of the metrics it combines has as a dimension"))
+        wanted = set(m.get("group_by") or [])
+        if held and wanted <= dims and not any(wanted <= h for h in held):
+            out.append((base + ("group_by",), "names", f"metric {mn} groups by {', '.join(sorted(wanted))}, which no one of the metrics it "
+                                                       "combines has all of; one input has every dimension the combination names "
+                                                       "(the model's check 56, ADR-0147)"))
         for r in sorted(reads(m["expression"]) - set(m["input_metrics"])):
             out.append((base + ("expression",), "names", f"metric {mn} reads '{r}', which is not one of the metrics it combines"))
         if AGGREGATE_CALL.search(str(m["expression"])):
             out.append((base + ("expression",), "names", f"metric {mn} aggregates, and a combined metric has no rows: its value combines the values of the metrics it names"))
         for f, c in (m.get("flag_when") or {}).items():
-            for r in sorted(reads(c) - set(m.get("group_by") or []) - STANDARD_DIMENSIONS - {"value", "now"}):
-                out.append((base + ("flag_when", f), "names", f"metric {mn}'s flag {f} reads '{r}', which is neither value nor a dimension"))
+            for r in sorted(reads(c) - set(m.get("group_by") or []) - {"value", "now"}):
+                out.append((base + ("flag_when", f), "names", f"metric {mn}'s flag {f} reads '{r}', which is neither value nor a dimension "
+                                                              "the metric names"))
     return out
 
 
@@ -4323,6 +4337,37 @@ def migration_more_plants(people):
     return ok
 
 
+def metric_more_plants(people):
+    """A flag reads only the dimensions its metric declares, a percentile's p is a literal, and one input of a combined
+    metric has every dimension it names (ADR-0147): a service flag reading actor_kind, a percentile of an expression, and
+    the service desk's combined metric grouped by a dimension each input has only one of, are refused."""
+    sv = (EXAMPLES / "service.yaml").read_text()
+    old = 'flag_when: { low: "value < 0.900" }'
+    assert sv.count(old) == 1
+    found, _ = check([("people.yaml", people), ("service.yaml", sv.replace(old, 'flag_when: { low: "value < 0.900 and actor_kind == human" }'))])
+    flagged = any("reads 'actor_kind', which is neither value nor a dimension the metric declares" in f[4] for f in found)
+    old_m = "    metrics:\n"
+    metric = ("      slowest:\n        description: A planted percentile.\n        source: intervals\n        item: i\n"
+              "        expression: percentile(0.5 * 1, i.duration)\n")
+    found, _ = check([("people.yaml", people), ("service.yaml", sv.replace(old_m, old_m + metric, 1))])
+    literal = any("a percentile's p is a literal" in f[4] for f in found)
+    sd = (EXAMPLES / "servicedesk.yaml").read_text()
+    old_c = "      problems: Problem.problems_opened\n      incidents: Incident.incidents_opened\n    group_by: [month]\n"
+    assert sd.count(old_c) == 1
+    # each input given a second dimension the other lacks, so no one input has both the combination names
+    inc = "          month: month(i.created_at)\n"
+    prob = "          month: month(p.created_at)\n"
+    assert sd.count(inc) == 1 and sd.count(prob) == 1
+    split = sd.replace(inc, inc + "          day: day(i.created_at)\n").replace(prob, prob + "          year: year(p.created_at)\n")
+    split = split.replace(old_c, old_c.replace("group_by: [month]", "group_by: [day, year]"))
+    found, _ = check([("people.yaml", people), ("servicedesk.yaml", split)])
+    combined = any("which no one of the metrics it combines has all of" in f[4] for f in found)
+    ok = flagged and literal and combined
+    print(f"  a flag reading an undeclared dimension, a percentile of an expression, and a combined metric's dimensions "
+          f"split across its inputs, are refused: {'yes' if ok else 'NO ' + str((flagged, literal, combined))}")
+    return ok
+
+
 def conversion_self_test():
     """A fixed measure's attribute dimension converts as ADR-0139 reads it: a tracked one, such as an enumeration, as
     it was held when the span began, and any other as it is now."""
@@ -4439,6 +4484,7 @@ def main():
     ok &= erasure_plants(people)
     ok &= binder_more_plants(people)
     ok &= migration_more_plants(people)
+    ok &= metric_more_plants(people)
     sys.exit(0 if clean and ok else 1)
 
 

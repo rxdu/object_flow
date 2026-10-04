@@ -1119,7 +1119,7 @@ Each finding is decided here, the overlaps between reports merged; references ar
 52. (M3) On a span, `.held` is the value after the writes of the transition that began it; "a creation's is absent" is a transition row's.
 53. (M18) `.held` on a span reads the member at the span's entry by position.
 54. (M4) A window counts an object as a gap only where the object existed before its `.recorded_from`; a piece inherits its span's gap.
-55. (M5, M22) A span accrues only while its object is open: a current span on an object in an unbroken closed stretch stops at the stretch's start, and `time_in` follows the same rule.
+55. (M5, M22) A span accrues only while its object is open: a current span on an object in an unbroken closed stretch stops at the stretch's start, and `time_in` follows the same rule. *(Corrected 2026-10-04 by ADR-0147, the author deciding: `time_in` is real elapsed time, every span with a current one up to `now`, since following the rule read zero on a closed state and blocked a guard such as an auto-close a week after resolution; the rule stays a span's `.duration` in a metric, for a span still current.)*
 56. (M6) Each aggregate is computed over the rows where its own body is present; `count()` counts rows.
 57. (M7) A flag whose condition is unknown is reported as unknown, not raised; §8.2's table gains a row for it.
 58. (M8) A flag is evaluated on the declared groups, whatever a read keeps, and a read returns each raised flag with its group.

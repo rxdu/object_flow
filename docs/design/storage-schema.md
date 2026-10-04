@@ -175,7 +175,7 @@ A numeric field's declared unit is metadata in `of_declaration`, not a column, s
 | `int` | `BIGINT` | `INTEGER` | |
 | `decimal(p,s)` | `NUMERIC(p,s)` | `INTEGER`, scaled by 10^s | SQLite's numeric affinity stores a decimal as a float, which is not exact; the scale is in the declaration, so the scaling is recoverable |
 | `money(ccy)` | `BIGINT`, minor units | `INTEGER`, minor units | exact, orderable and indexable on both. The currency is fixed by the declaration (ADR-0068) so it is not stored per row |
-| `timestamp` | `TIMESTAMPTZ` | `TEXT`, ISO-8601 UTC | |
+| `timestamp` | `TIMESTAMPTZ` | `TEXT`, ISO-8601 UTC | held to the second, the engine reading its clock to the second, so a duration is whole seconds (ADR-0147) |
 | `date` | `DATE` | `TEXT`, ISO-8601 date | a calendar day with no zone, which orders as text as the day does (ADR-0145) |
 | `duration` | `BIGINT` seconds | `INTEGER` seconds | the unit set is closed and none is calendar-dependent (ADR-0061) |
 | `identity` | `TEXT` | `TEXT` | |

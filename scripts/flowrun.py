@@ -645,8 +645,10 @@ class Evaluator:
         return entry - sp["entered_at"] if sp["entered_at"] < entry else ABSENT
 
     def time_in(self, o, state):
+        """Real elapsed time: every span in the state, a current one up to now, whatever state the object is in; the
+        closed stretch is a rule of a span's .duration in a metric, not of time_in (declaration-syntax.md §8.3, ADR-0147)."""
         spans = [sp for sp in o.spans.get("state", []) if sp["state"] == ("state", o.type, state)]
-        return sum((d for d in (self.duration(o, sp) for sp in spans) if d is not ABSENT), Fraction(0))
+        return sum(((sp["left_at"] if sp["left_at"] is not ABSENT else self.s.now) - sp["entered_at"] for sp in spans), Fraction(0))
 
     def entered_at(self, o, what):
         if what in ((self.s.kinds.get(o.type) or {}).get("states") or {}):
@@ -2658,6 +2660,7 @@ def metrics_self_test(operator):
     s.now += 7 * 3600
     check("an assignment still current stops at the start of the closed stretch", read(s, je, "metric(time_held)"), 3600)
     check("time in the closed state before the terminal one is still measured", read(s, je, "time_in(SHELVED)"), 5 * 3600)
+    check("time in the closed state the object is in, real elapsed time", read(s, je, "time_in(DONE)"), 7 * 3600)
     # a span split across the months it covers, a current one cut at now, and a window clipping the pieces (ADR-0142)
     r, s = world()
     one, two = req(r, s, "Job", "open"), req(r, s, "Job", "open")
