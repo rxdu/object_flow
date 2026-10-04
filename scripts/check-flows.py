@@ -822,6 +822,12 @@ def migration_pair_errors(prev, doc, library):
             for a in sorted(added):
                 if (ot["attributes"][d].get("type"), ot["attributes"][d].get("reference")) == (t["attributes"][a].get("type"), t["attributes"][a].get("reference")):
                     notes.append((here + ("attributes", a), "migration", f"{tn}.{d} is gone and {tn}.{a} is new, of the same type: if it is a rename, map it, or its values stay behind"))
+        held_personal = any((sp or {}).get("personal") for sp in (ot.get("attributes") or {}).values()) or any(
+            (sp or {}).get("personal") for x in (ot.get("transitions") or {}).values() for sp in (x.get("inputs") or {}).values())
+        if held_personal and not any(x["kind"] == "erasure" for x in (t.get("transitions") or {}).values()):
+            fatal.append((here, "names", f"{tn} held personal data in the version before and now declares no erasure; a type keeps "
+                                         "its erasure once it has needed one, so the values written then can be erased "
+                                         "(the model's check 60, ADR-0147)"))
         for o, ob in (t.get("observations") or {}).items():
             before = ((ot.get("observations") or {}).get(o) or {}).get("attributes")
             if before is None:
@@ -2000,8 +2006,10 @@ def supersession_errors(doc, tn, t, library):
     # the group a supersession joins is erased together, each member's erasure receiving the request's inputs, so the
     # types it joins require the same inputs of their erasures (ADR-0146)
     def erasure_needs(tt):
+        # the inputs a group's erasure passes by name: each one's name, type and optionality (ADR-0147)
         ex = [x for x in ((tt or {}).get("transitions") or {}).values() if x["kind"] == "erasure"]
-        return None if not ex else {i for i, sp in (ex[0].get("inputs") or {}).items() if not (sp or {}).get("optional")}
+        return None if not ex else {i: (str((sp or {}).get("type", (sp or {}).get("reference"))), bool((sp or {}).get("optional")))
+                                    for i, sp in (ex[0].get("inputs") or {}).items()}
     for xn, x in (t.get("transitions") or {}).items():
         for st, kind, path, _d in walk(x.get("effect")):
             if kind != "supersede":
@@ -2014,9 +2022,9 @@ def supersession_errors(doc, tn, t, library):
             mine, theirs = erasure_needs(t), erasure_needs(library.get(other))
             if other and other != tn and mine is not None and theirs is not None and mine != theirs:
                 out.append((("types", tn, "transitions", xn, "effect") + path, "names",
-                            f"{tn}.{xn} supersedes with a {other}, whose erasure requires {', '.join(sorted(theirs)) or 'no input'} "
-                            f"where {tn}'s requires {', '.join(sorted(mine)) or 'no input'}; a group's erasures receive one "
-                            "request's inputs, so they require the same"))
+                            f"{tn}.{xn} supersedes with a {other}, whose erasure takes {', '.join(sorted(theirs)) or 'no input'} "
+                            f"where {tn}'s takes {', '.join(sorted(mine)) or 'no input'}; a group's erasures receive one "
+                            "request's inputs, so they require the same, by name, type and optionality"))
     takes_part = any(v.get("superseding") for v in states.values())
     for other in library.values():
         for x in (other.get("transitions") or {}).values():
@@ -2027,6 +2035,16 @@ def supersession_errors(doc, tn, t, library):
                     made = [s2["create"]["type"] for s2, k2, _p2, _d2 in walk(x.get("effect")) if k2 == "create"
                             and s2["create"].get("result") == " ".join(str(st["supersede"]).split())]
                     takes_part |= ref == tn or tn in made
+    erasures = [xn for xn, x in (t.get("transitions") or {}).items() if x["kind"] == "erasure"]
+    if len(erasures) > 1:
+        out.append((("types", tn, "transitions", erasures[1]), "names",
+                    f"{tn} declares the erasures {', '.join(erasures)}; a type declares at most one, which a group's erasure takes (ADR-0147)"))
+    for xn, x in (t.get("transitions") or {}).items():
+        to = x.get("to") if isinstance(x.get("to"), list) else [x.get("to")]
+        if x["kind"] == "assertion" and any((states.get(st) or {}).get("superseding") for st in to):
+            out.append((("types", tn, "transitions", xn, "to"), "names",
+                        f"{tn}.{xn} asserts a superseding state, which would name no successor; a merge is a declared transition "
+                        "(the model's check 26, ADR-0147)"))
     personal = any(sp.get("personal") for sp in (t.get("attributes") or {}).values())
     # a personal input is erased from the events that carried it only by its object's erasure (DESIGN.md §8, ADR-0134)
     taken = sorted(f"{xn}.{i}" for xn, x in (t.get("transitions") or {}).items()
@@ -4115,9 +4133,41 @@ def group_erasure_plant(people):
     text = cu.replace(old_ref, "          successor: { reference: Contact }\n").replace(
         old_in, old_in + "          ticket: { type: string }\n")
     found, _ = check([("people.yaml", people), ("customers.yaml", text)])
-    hit = any("whose erasure requires reason, ticket where Customer's requires reason" in f[4] for f in found)
-    print(f"  a supersession joining types whose erasures require different inputs is refused: {'yes' if hit else 'NO ' + str([f[4] for f in found][:2])}")
+    hit = any("whose erasure takes reason, ticket where Customer's takes reason" in f[4] for f in found)
+    # the same names, one of another type, differ too (ADR-0147)
+    typed = cu.replace(old_ref, "          successor: { reference: Contact }\n").replace(
+        old_in, old_in.replace("reason: { type: string }", "reason: { type: OverrideReason }"))
+    found, _ = check([("people.yaml", people), ("customers.yaml", typed)])
+    hit &= any("whose erasure takes reason where Customer's takes reason" in f[4] for f in found)
+    print(f"  a supersession joining types whose erasures take different inputs, by name or by type, is refused: {'yes' if hit else 'NO ' + str([f[4] for f in found][:2])}")
     return hit
+
+
+def erasure_plants(people):
+    """A type declares at most one erasure, an assertion enters no superseding state, and a type keeps its erasure once
+    it has needed one (ADR-0147): a second erasure of a customer, an assertion into MERGED, and a version that drops a
+    type's last personal attribute with its erasure are each refused."""
+    cu = (EXAMPLES / "customers.yaml").read_text()
+    old_forget = "      forget:\n        kind: erasure\n        description: Erases the customer's personal data, and their contacts'.\n"
+    old_to = "        to: [PROSPECT, ACTIVE, DORMANT]\n        description: Puts the customer into the state they are really in"
+    assert cu.count(old_forget) == 1 and cu.count(old_to) == 1
+    two = cu.replace(old_forget, "      purge:\n        kind: erasure\n        description: A second erasure.\n" + old_forget)
+    found, _ = check([("people.yaml", people), ("customers.yaml", two)])
+    twice = any("declares the erasures" in f[4] for f in found)
+    merged = cu.replace(old_to, old_to.replace("DORMANT]", "DORMANT, MERGED]"))
+    found, _ = check([("people.yaml", people), ("customers.yaml", merged)])
+    asserted = any("asserts a superseding state" in f[4] for f in found)
+    v1 = ("module: m\ncategories: [live, closed]\ntypes:\n  T:\n    description: A planted type.\n    tracking: record\n    attributes:\n"
+          "      p: { type: string, optional: true, personal: true }\n    states:\n      A: { category: live }\n    transitions:\n"
+          "      add: { kind: initial, to: A, description: A planted step. }\n"
+          "      forget: { kind: erasure, description: A planted erasure, inputs: { reason: { type: string } } }\n")
+    v2 = v1.replace(", personal: true", "").replace("      forget: { kind: erasure, description: A planted erasure, inputs: { reason: { type: string } } }\n", "")
+    found, _ = check([("m.yaml", v2)], {"m.yaml": v1})
+    kept = any("keeps its erasure once it has needed one" in f[4] for f in found)
+    ok = twice and asserted and kept
+    print(f"  a second erasure, an assertion into a superseding state, and a dropped erasure once needed, are refused: "
+          f"{'yes' if ok else 'NO ' + str((twice, asserted, kept))}")
+    return ok
 
 
 def binder_plant(people):
@@ -4307,6 +4357,7 @@ def main():
     ok &= migration_plants(people)
     ok &= metric_plants(people)
     ok &= range_plant(people)
+    ok &= erasure_plants(people)
     sys.exit(0 if clean and ok else 1)
 
 

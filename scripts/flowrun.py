@@ -1258,8 +1258,8 @@ class Runner:
                         continue
                     if (obj.id == ctx.asserted and n in ctx.admits) or f"{obj.type}.{n}" in ctx.admits:
                         obj.admissions.add(n)           # an assertion's admission (§4.13)
-                    elif obj.id in ctx.erased and self.reads(obj.type, n) & ctx.erased[obj.id]:
-                        obj.admissions.add(n)           # an erasure admits what reads what it erased (§4.13)
+                    elif self.erasure_broke(ctx, obj, n):
+                        obj.admissions.add(n)           # an erasure admits what it leaves violated, on that object (§4.13)
                     else:
                         refused.append(n if obj.type == tn else f"{obj.type}.{n}")
                 if refused:
@@ -1388,7 +1388,9 @@ class Runner:
         personal = {a for a, sp in attrs.items() if (sp or {}).get("personal")}
         if oid is not None and x["kind"] != "erasure" and work.objects[oid].erased:
             writes = set(inputs) & set(x.get("required_inputs", []) + x.get("optional_inputs", []))
-            writes |= {st["assign"]["location"] for st in x.get("effect") or [] if "assign" in st}
+            # decided here, from the inputs and the steps that assign or add to an attribute, whatever they compute; a
+            # clear writes absence and passes (ADR-0147)
+            writes |= {st[k]["location"] for st in x.get("effect") or [] for k in ("assign", "add") if k in st}
             if writes & personal:
                 raise Refused("unsatisfied", "not_erased", GENERATED_REMEDY["not_erased"])
         # a successor an input names is neither this object nor one already superseded, so no chain closes on itself;
@@ -1718,6 +1720,11 @@ class Runner:
             del o.attrs[a]
         o.erased = True
         ctx.erased.setdefault(o.id, set()).update(erased)
+        # every pending proposal targeting the erased object is invalidated, its redaction and invalidation one event
+        # (DESIGN.md §8, ADR-0147)
+        for proposal in work.proposals.values():
+            if proposal["state"] == "pending" and proposal["object"] == o.id:
+                proposal["state"] = "invalidated"
 
     def forget_observations(self, ctx, o, inputs, depth):
         """An erasure reaches its object's observations through each one's generated `forget`, taken after its declared
@@ -1750,10 +1757,14 @@ class Runner:
                 continue
             erasures = [n for n, xx in ((self.kinds.get(m.type) or {}).get("transitions") or {}).items() if xx["kind"] == "erasure"]
             if not erasures:
-                raise NotRunnable(f"erasing {m.type}, a member of the chain, which declares no erasure")
-            # each member's erasure receives the requested erasure's inputs by name (ADR-0146)
+                continue                # a member holding nothing personal declares no erasure and is passed over (ADR-0147)
+            # each member's erasure receives the requested erasure's inputs by name (ADR-0146), and a member's refusal
+            # refuses the request as a caused refusal does, its step `group erasure` (ADR-0147)
             takes = set(((self.kinds.get(m.type) or {}).get("transitions") or {})[erasures[0]].get("inputs") or {})
-            self.take(ctx, m.type, erasures[0], member, {k: v for k, v in inputs.items() if k in takes}, depth + 1)
+            try:
+                self.take(ctx, m.type, erasures[0], member, {k: v for k, v in inputs.items() if k in takes}, depth + 1)
+            except Refused as r:
+                raise self.call_refused(r, "group erasure", m.type, member)
 
     def invariant_remedy(self, work, x, obj, n, requested):
         """The remedy DESIGN.md §5.5 infers for an invariant that fails, a property of the transition requested:
@@ -1806,6 +1817,14 @@ class Runner:
         if writes & reads:
             return "self_serviceable"
         return "dependent" if other else "unreachable_from_here"
+
+    def erasure_broke(self, ctx, obj, n):
+        """Whether invariant n fails on obj because this request erased what it reads: obj's own attribute, or, one hop
+        away, an object a reference it reads names (§4.13, ADR-0147). The runner follows one hop."""
+        read = self.reads(obj.type, n)
+        if obj.id in ctx.erased and read & ctx.erased[obj.id]:
+            return True
+        return any(isinstance(obj.attrs.get(r), str) and obj.attrs[r] in ctx.erased for r in read)
 
     def reads(self, tn, n):
         """The attributes an invariant reads, generated ones included: an attribute's uniqueness, a state's requirement."""
@@ -2381,6 +2400,39 @@ def self_test():
     erased = r.attempt(s, "Person", "forget", person, OPERATOR, {"reason": "asked"}, {}, {})
     check("an erasure takes each observation's forget, a transition it causes",
           (erased[3], s.objects[note].attrs.get("body", ABSENT)), (["Note.forget"], ABSENT))
+    # erasure (ADR-0147): its admission on the object the invariant fails on, one hop away; not_erased refusing an
+    # assignment or an add to a personal attribute and passing a clear; a pending proposal on it invalidated
+    k = {"Operator": kinds["Operator"],
+         "Person": {"attributes": {"name": {"type": "string", "optional": True, "personal": True},
+                                   "aliases": {"type": "string[]", "optional": True, "personal": True}},
+                    "states": {"ACTIVE": {"category": "live"}},
+                    "transitions": {"add": {"kind": "initial", "to": "ACTIVE", "required_inputs": ["name"]},
+                                    "rename": {"kind": "internal", "from": ["ACTIVE"], "inputs": {"n": {"type": "string"}},
+                                               "effect": [{"assign": {"location": "name", "expr": "inputs.n"}}]},
+                                    "alias": {"kind": "internal", "from": ["ACTIVE"], "inputs": {"n": {"type": "string"}},
+                                              "effect": [{"add": {"location": "aliases", "expr": "inputs.n"}}]},
+                                    "wipe": {"kind": "internal", "from": ["ACTIVE"], "effect": [{"clear": ["name"]}]},
+                                    "forget": {"kind": "erasure", "inputs": {"reason": {"type": "string"}}}}},
+         "Order": {"attributes": {"customer": {"reference": "Person"}},
+                   "states": {"OPEN": {"category": "live"}},
+                   "invariants": {"named_customer": {"expression": "customer.name is not null"}},
+                   "transitions": {"open": {"kind": "initial", "to": "OPEN", "required_inputs": ["customer"]}}}}
+    r, s = Runner(k, {}), Store(k, {})
+    person = r.attempt(s, "Person", "add", None, OPERATOR, {"name": "Ana"}, {}, {})[1]
+    order = r.attempt(s, "Order", "open", None, OPERATOR, {"customer": person}, {person: person}, {})[1]
+    s.proposals["p1"] = {"type": "Person", "object": person, "transition": "rename", "inputs": {"n": "Bo"}, "aliases": {},
+                         "proposer": OPERATOR, "state": "pending", "verdict": None}
+    r.attempt(s, "Person", "forget", person, OPERATOR, {"reason": "asked"}, {}, {})
+    check("an erasure's admission is recorded on the object the invariant fails on", s.objects[order].admissions, {"named_customer"})
+    check("a pending proposal on the erased object is invalidated", s.proposals["p1"]["state"], "invalidated")
+
+    def after(xn, **inputs):
+        try:
+            return r.attempt(copy.deepcopy(s), "Person", xn, person, OPERATOR, inputs, {}, {})[0]
+        except Refused as e:
+            return e.clause
+    check("not_erased refuses an assignment and an add to a personal attribute, and passes a clear",
+          (after("rename", n="Bo"), after("alias", n="B"), after("wipe")), ("not_erased", "not_erased", "applied"))
     ok &= metrics_self_test(kinds["Operator"])
     print(f"runner: a small order and its lines, a document over its history, and jobs read by their metrics, each thing "
           f"slices 1 to 4 execute: {'yes' if ok else 'NO'}")

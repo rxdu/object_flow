@@ -609,6 +609,8 @@ class Store(Protocol):
 
     def history(self, actor: Actor, id: str,
                 follow: bool = False) -> Iterator[Event | LegacyEntry]: ...
+    # follow: the whole group supersession joins, every member whose chain ends where
+    # this object's does, in position order (ADR-0147)
 
     def exceptions(self, actor: Actor, type: str,
                    cursor: str | None = None) -> Page: ...
