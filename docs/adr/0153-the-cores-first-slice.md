@@ -61,6 +61,24 @@ Recorded 2026-10-04, when the slice was built.
   Those are the next slices.
 - **The ratchet:** a replay judged only by "none fails" let a broken state check through, the example it decided turning from passed to not run. So `apps/flow-studio/server/tests/core_passing.txt` lists every example the core passes, and one that stops passing fails the replay.
 
+## The later slices
+
+Each later slice is recorded here with the replay's figures when it was committed, of the same 163 examples, 2 of which wait for importing throughout. None has failed.
+
+| Date | Slice | Passed | Not run |
+|---|---|---|---|
+| 2026-10-04 | The first slice | 21 | 140 |
+| 2026-10-05 | Identifiers minted from sequences | 21 | 140 |
+| 2026-10-05 | Effects and cascades, a request taken depth-first | 55 | 106 |
+| 2026-10-05 | Supersession, and a sandbox's evaluators | 76 | 85 |
+| 2026-10-05 | The interval index, and the flow data read from it | 97 | 64 |
+| 2026-10-05 | Observation kinds, recorded and read by their subjects | 122 | 39 |
+| 2026-10-05 | Shared state machines, bound into their types at load | 138 | 23 |
+| 2026-10-05 | A request dated by when it happened, and `whole_open` | 145 | 16 |
+| 2026-10-05 | The attribute write index, and `changed_since` read from it | 149 | 12 |
+
+Minting raised no count: the examples that had stopped at minting went on to stop at an effect. The not-run examples now reach erasure (4), assertion (3), proposals (3), a family (1) and `referrers` (1). `TODO.md`'s list of the core's next slices keeps those counts.
+
 ## Alternatives rejected
 
 - **For decision 1:** one crate, which would let the service's asynchronous code reach the core's; a crate per subsystem now, ahead of any second user of one.

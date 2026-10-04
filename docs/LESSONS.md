@@ -307,7 +307,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 ### `pkill -f` and `pgrep -f` matched the shell that ran them
 - **Pattern:** Stopping the Flow Studio's servers with `pkill -f "python -m flowstudio"`, and later with `pgrep -f "...|python -m flowstudio$"` inside a kill loop, the pattern also matched the Bash command line that carried it, so the shell killed itself and the command ended with status 144; it happened twice in one session.
 - **Correction:** Stop a background process by the id recorded when it was started (`cmd & echo $!`). Where a pattern is unavoidable, bracket one character, `pgrep -f "[v]ite/bin/vite.js"`, so the pattern cannot match its own command line.
-- **Context:** Shell, any session that starts and stops servers.
+- **Recurred 2026-10-05, past the bracket.** `ps … | grep "[c]heck-" | xargs kill`, run in the same command as `for c in scripts/check-*.py; …`, killed that command's own shell: the bracket keeps `grep` from matching itself, but the shell's command line held the text `check-` from the loop it was about to run. So a bracket is no defence when the command that kills is also the command that does the work. Kill by the ids already read, and start the work in a separate command once they are gone.
+- **Context:** Shell, any session that starts and stops servers or background checks.
 
 ### A differential test covers only what its corpus contains
 - **Pattern:** The Rust core's parser was held to Python's over all 280 expressions of the design, and a parser made right-associative for `-` still passed: no expression in the design chains `-`, `/`, `or` or `and`, so associativity was never compared. Only reverting a rule on a copy showed it.
@@ -318,3 +319,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The Rust core's first slice was judged by the replay of every example, none allowed to fail and any allowed to be not run. A core with its state check broken still passed. The one example the check decided carried on past the state and reached an effect the slice does not run, so it turned from passed to not run, which the criterion allowed.
 - **Correction:** Where an outcome may honestly be "not run", hold what passes with a ratchet: record each example that passes, and fail when one stops passing. Then break a rule on a copy and see the comparison fail.
 - **Context:** Differential testing of a partial implementation against an oracle; the core's replay, `apps/flow-studio/server/tests/core_passing.txt`, 2026-10-04.
+
+### A lenient oracle hides its callers' breaches of the wire
+- **Pattern:** The Flow Studio's two players sent a decimal from an example's YAML as a JSON number, where ADR-0150's wire carries it as a string. The Python reference runner accepted the number, and every example that sends one passed against it. The Rust core decodes the wire strictly and refused the input as `invalid_input`, which made the replay look like a fault in the core.
+- **Correction:** When a second implementation of a contract refuses what the first accepted, check the caller against the contract before either implementation. Decode the wire strictly in the reference too, or test the callers against the contract directly, so a breach shows where it is made.
+- **Context:** Any wire with more than one server behind it; the studio's `tests/replay.py` and `web/src/session/player.ts`, found 2026-10-05.
