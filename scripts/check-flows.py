@@ -3255,7 +3255,8 @@ def example_errors(doc, kinds, modules):
             attrs = kinds[tn].get("attributes") or {}
             for k in (want.get("values") or {}):
                 # an attribute, a derived attribute, or a member every object has (flow-format.md §5, ADR-0147)
-                if k not in attrs and k not in (kinds[tn].get("derived_attributes") or {}) and k not in BUILT_IN_MEMBERS:
+                if k not in attrs and k not in (kinds[tn].get("derived_attributes") or {}) and k not in BUILT_IN_MEMBERS \
+                        and not (k == "recorded_by_kind" and "subject" in attrs):
                     out.append((here + ("values", k), "names", f"{tn} declares no attribute '{k}'"))
             if "occurred_at" in want:
                 out += value_errors(want["occurred_at"], {"type": "timestamp"}, env, here + ("occurred_at",), "occurred_at")
@@ -3284,12 +3285,16 @@ def example_errors(doc, kinds, modules):
             ct, cn = clause.split(".", 1) if "." in clause else (tn, clause)
             conds = (kinds.get(ct) or {}).get("conditions") or {}
             provided = {f"{a}_provided" for a in x.get("required_inputs", [])}
+            def asks(cond):
+                # an evaluator not answering, or answering too old, refuses with temporal whatever is declared (ADR-0148)
+                text = " ".join(str((cond or {}).get("expression", "")).split())
+                return remedy == "temporal" and any(re.search(rf"\b{re.escape(f)}\(", text) for f in functions)
             if ct == tn and cn in (x.get("guards") or {}):
                 declared = conds.get(cn, {}).get("remedy")
-                if declared and declared != remedy:
+                if declared and declared != remedy and not asks(conds.get(cn)):
                     out.append((here + ("remedy",), "names", f"{tn}.{cn} declares the remedy {declared}, not {remedy}"))
             elif ct != tn and cn in conds:
-                if conds[cn].get("remedy") != remedy:
+                if conds[cn].get("remedy") != remedy and not asks(conds[cn]):
                     out.append((here + ("remedy",), "names", f"{ct}.{cn} declares the remedy {conds[cn].get('remedy')}, not {remedy}"))
             elif cn not in GENERATED_GUARDS | provided:
                 out.append((here + ("clause",), "names", f"{clause} is not a guard of {tn}.{xn}, a generated guard, "

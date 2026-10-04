@@ -230,6 +230,14 @@ examples:
     request: { object: claim, transition: verify_xero_record, actor: fin }
     expect: { verdict: unsatisfied, clause: bill_matches_xero, remedy: delegable }
 
+  an_unanswered_xero_can_be_asked_again:
+    description: When Xero does not answer, the claim is not verified, and the remedy is to try again, whatever the condition declares.
+    given: recorded
+    evaluators:
+      xero.bill_matches: unanswered
+    request: { object: claim, transition: verify_xero_record, actor: fin }
+    expect: { verdict: unsatisfied, clause: bill_matches_xero, remedy: temporal }
+
   correct_bill_id_then_verify:
     description: A wrong bill id is corrected, and the read-back then matches.
     given: recorded
