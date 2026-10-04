@@ -87,6 +87,9 @@ class Request:
     context: str | None = None            # why, and by which route: the caller's reason (ADR-0105)
     occurred_at: datetime | None = None   # a backdatable transition's, or an observation's
                                           # record's; checked by `occurred_within` (ADR-0099)
+    propose: bool = False                 # file it as a Proposal instead of executing it;
+                                          # Satisfied names the proposal (ADR-0147)
+    expires_at: datetime | None = None    # a proposal's expiry, with `propose` only
 
 
 # ------------------------------------------- what the store is built from
@@ -368,6 +371,8 @@ class EventPage:
     events: Sequence[Event]
     settled: str                          # the settled cursor: acknowledge this, and
                                           # never anything past it (ADR-0089)
+    refused: str | None = None            # "revoked" or "unknown", with no events: a
+                                          # refusal is a value (ADR-0147)
 
 
 @dataclass(frozen=True)
@@ -622,9 +627,10 @@ class Store(Protocol):
     def pull(self, actor: Actor, subscription: str,
              cursor: str | None = None) -> EventPage: ...
 
-    # back as well as forward: moving it back revives the subscription there (ADR-0146)
+    # back as well as forward: moving it back makes the next pull without a cursor read
+    # from there again (ADR-0146); "revoked" or "unknown" where it is refused (ADR-0147)
     def acknowledge(self, actor: Actor, subscription: str,
-                    cursor: str) -> None: ...
+                    cursor: str) -> str | None: ...
 
     def metric(self, actor: Actor, name: str,
                bind: Mapping[str, Any] | None = None,
@@ -667,7 +673,7 @@ Nineteen operations: the sixteen of §10, the write path of §6, and the operati
 - `declaration(type, version)` returns, with the rule set, the version's `source_ref` and `source_digest`, where its source came from and the digest the repository's side checks it by, neither for version 0 (ADR-0135); a `DeclarationChange`'s own are read by `get`.
 - `declaration(type)` marks every metric dimension whose value names an actor, so an upper layer can put reads that keep one, bind it or filter on the value it reads behind its own door, since each gives a person's figure (PRD T7, ADR-0114, D451).
 - Creating a store is not an operation of this protocol. It installs version 0 and the store's operator, named by the identity the creation is given, and the first `publish` or `import_batch` names that operator as its actor (ADR-0126).
-- `publish` takes the id of a `DeclarationChange` (ADR-0085, ADR-0097): with `dry_run` it produces the impact report `submit` and `refresh` attach, and without it it requests the change's `publish` transition, which is the approval and installs the version. `expected_version` is the version of the change the approver read, required unless `dry_run`, and a change that has moved since, by a `refresh`, is refused as `stale`. The result carries the verdict — `Satisfied`, `Stale`, or `Unsatisfied` naming `current` or `impact_unchanged` — beside the report (ADR-0097, ADR-0101). Who may approve, and that the approver is not the drafter, are the upper layer's; the change records both (ADR-0114).
+- `publish` takes the id of a `DeclarationChange` (ADR-0085, ADR-0097): with `dry_run` it produces the impact report `submit` and `refresh` attach, and without it it requests the change's `publish` transition, which is the approval and installs the version. `expected_version` is the version of the change the approver read, required unless `dry_run`, and a change that has moved since, by a `refresh`, is refused as `stale`. The result carries the verdict — `Satisfied`, `Stale`, or `Unsatisfied` naming `current`, `fatal`, `impact_unchanged` or `decision_unresolved` (ADR-0147) — beside the report (ADR-0097, ADR-0101). Who may approve, and that the approver is not the drafter, are the upper layer's; the change records both (ADR-0114).
 
 Three of them are worth reading twice.
 

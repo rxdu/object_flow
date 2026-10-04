@@ -1151,6 +1151,7 @@ class Ctx:
         self.created = []           # the objects it creates other than its own, in the order it creates them
         self.attr_writes = {}       # object id -> the attributes its current transition's effect wrote
         self.occurred = None        # the time the request says the change happened, where it gives one
+        self.filed_at = None        # for an approved proposal, when it was filed
         self.at = work.now          # the occurred time every transition the request takes records (DESIGN.md §6)
 
     def wrote(self, oid):
@@ -1209,7 +1210,7 @@ class Runner:
         return back.get("aggregation") == "composite"
 
     # ── a request ─────────────────────────────────────────────────────────────
-    def attempt(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred=None):
+    def attempt(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred=None, filed_at=None):
         """The request's result, ("applied", object id, flags, the transitions it caused), or a Refused.
         The store changes only if the request applies. `occurred` is the time the request says the change happened."""
         work = copy.deepcopy(store)
@@ -1221,6 +1222,7 @@ class Runner:
         ctx.before = store
         if occurred is not None:
             ctx.occurred = ctx.at = occurred
+        ctx.filed_at = filed_at     # an approved proposal's bound is measured from its filing (ADR-0147)
         t = self.kinds.get(tn) or {}
         x = (t.get("transitions") or {}).get(xn)
         # 3. not found, and unknown transition; 4. not requestable, unavailable, invalid input, in that order
@@ -1369,8 +1371,8 @@ class Runner:
         # and one with no bound, or a correction, which takes the corrected's, takes none; and every transition the
         # request takes keeps the time from preceding the current interval of what it changes on its own object (§4.4)
         if depth == 0 and ctx.occurred is not None:
-            limit = x.get("backdating_limit")
-            if "corrects" in inputs or limit is None or not work.now - seconds(limit) <= ctx.occurred <= work.now:
+            limit, told = x.get("backdating_limit"), ctx.filed_at if ctx.filed_at is not None else work.now
+            if "corrects" in inputs or limit is None or not told - seconds(limit) <= ctx.occurred <= told:
                 raise Refused("unsatisfied", "occurred_within", GENERATED_REMEDY["occurred_within"])
         if oid is not None:
             changing = {m for m in set(self.tracked(tn)) & set(inputs) if work.objects[oid].attrs.get(m, ABSENT) != inputs[m]}
@@ -2015,11 +2017,24 @@ def step(runner, store, st, aliases, stubs, under_test=False):
             if "reference" in (spec or {}) and not all(a in aliases and store.is_a(store.type_of(aliases[a]), spec["reference"].rstrip("[]"))
                                                        for a in (v if isinstance(v, list) else [v])):
                 raise Refused("invalid_input", remedy="self_serviceable", detail=f"{k} names no {spec['reference']}")
+        given = set(r.get("inputs") or {})
+        left = [k for k in x.get("required_inputs", []) if k not in given and not (attrs.get(k) or {}).get("optional")
+                and "default" not in (attrs.get(k) or {})]
+        left += [k for k, sp in declared.items() if k not in given and not (sp or {}).get("optional") and "default" not in (sp or {})]
+        if left:
+            raise Refused("invalid_input", remedy="self_serviceable", detail=f"{left[0]} left out")   # as a request would (ADR-0147)
+        # a proposal keeps the occurred time the request gives, held to the bound when it is filed, since that is when
+        # the store was told; the check against the current interval runs at approval (ADR-0147)
+        occurred = runner.value_of(store, {"type": "timestamp"}, r["occurred_at"], aliases) if "occurred_at" in r else None
+        if occurred is not None:
+            limit = x.get("backdating_limit")
+            if limit is None or not store.now - seconds(limit) <= occurred <= store.now:
+                raise Refused("unsatisfied", "occurred_within", GENERATED_REMEDY["occurred_within"])
         store.counter += 1
         key = f"proposal-{store.counter}"
         store.proposals[key] = {"type": tn, "object": oid, "transition": r["transition"], "inputs": r.get("inputs"),
                                 "aliases": dict(aliases), "proposer": aliases.get(r.get("actor", OPERATOR), r.get("actor")),
-                                "state": "pending", "verdict": None}
+                                "state": "pending", "verdict": None, "occurred": occurred, "filed_at": store.now}
         aliases[r["proposal"]] = ("proposal", key)
         return None
     for verb in ("approve", "reject", "withdraw"):
@@ -2040,7 +2055,7 @@ def step(runner, store, st, aliases, stubs, under_test=False):
             # approving executes the request as the approver, every guard evaluated now; a refusal leaves it pending
             held = store.proposals[key]
             result = runner.attempt(store, held["type"], held["transition"], held["object"], actor, held["inputs"],
-                                    held["aliases"], stubs)
+                                    held["aliases"], stubs, held.get("occurred"), held.get("filed_at"))
         except Refused as refusal:
             if key in store.proposals and store.proposals[key]["state"] == "pending":
                 store.proposals[key]["verdict"] = refusal
@@ -2433,6 +2448,34 @@ def self_test():
             return e.clause
     check("not_erased refuses an assignment and an add to a personal attribute, and passes a clear",
           (after("rename", n="Bo"), after("alias", n="B"), after("wipe")), ("not_erased", "not_erased", "applied"))
+    # a proposal of a backdatable transition keeps its occurred time, bounded at filing, so an approval two days later
+    # dates the change when it happened; one dated past the bound is refused when filed (ADR-0147)
+    k = {"Operator": kinds["Operator"], "Unit": {
+        "attributes": {}, "states": {"ARRIVING": {"category": "inbound"}, "HERE": {"category": "live"}},
+        "transitions": {"ship": {"kind": "initial", "to": "ARRIVING"},
+                        "receive": {"kind": "external", "from": ["ARRIVING"], "to": "HERE", "proposable": True,
+                                    "backdating_limit": "2 days"},
+                        "remark": {"kind": "internal", "from": ["ARRIVING", "HERE"], "proposable": True,
+                                   "inputs": {"text": {"type": "string"}}}}}}
+    r, s, aliases = Runner(k, {}), Store(k, {}), {OPERATOR: OPERATOR}
+    step(r, s, {"request": {"type": "Unit", "transition": "ship", "as": "u"}}, aliases, {})
+    step(r, s, {"propose": {"object": "u", "transition": "receive", "after": "1 day", "occurred_at": "now - 1 day",
+                            "proposal": "p"}}, aliases, {})
+    filed = s.now
+    applied = step(r, s, {"approve": {"proposal": "p", "after": "2 days"}}, aliases, {})
+    check("an approved proposal records the occurred time it was filed with, bounded at filing",
+          (applied[0], applied[5], s.proposals[aliases["p"][1]]["state"]), ("applied", filed - 86400, "executed"))
+    try:
+        step(r, s, {"propose": {"object": "u", "transition": "receive", "occurred_at": "now - 3 days", "proposal": "q"}},
+             aliases, {})
+        check("a proposal dated past its bound when filed", "filed", "occurred_within")
+    except Refused as e:
+        check("a proposal dated past its bound when filed", e.clause, "occurred_within")
+    try:
+        step(r, s, {"propose": {"object": "u", "transition": "remark", "proposal": "m"}}, aliases, {})
+        check("filing a proposal that leaves out a required input", "filed", "invalid_input")
+    except Refused as e:
+        check("filing a proposal that leaves out a required input", e.verdict, "invalid_input")
     ok &= metrics_self_test(kinds["Operator"])
     print(f"runner: a small order and its lines, a document over its history, and jobs read by their metrics, each thing "
           f"slices 1 to 4 execute: {'yes' if ok else 'NO'}")

@@ -124,6 +124,10 @@
         "proposal": { "$ref": "#/definitions/alias" },
         "actor": { "$ref": "#/definitions/alias" },
         "after": { "$ref": "#/definitions/duration" },
+        "occurred_at": {
+          "description": "When the proposed change happened, held to the transition's backdating_limit when the proposal is filed.",
+          "type": "string"
+        },
         "inputs": { "type": "object" }
       }
     },
