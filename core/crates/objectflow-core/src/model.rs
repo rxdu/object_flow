@@ -115,6 +115,8 @@ pub struct Attribute {
     pub opposite: Option<String>,
     /// `composite`: its objects are parts of this one, for no longer.
     pub composite: bool,
+    /// An external identifier: the source whose value it holds (§4.15).
+    pub external: Option<String>,
     /// On a composite end, the transitions its parts take when this object
     /// takes one of those listed.
     pub cascade: Vec<CascadeClause>,
@@ -259,6 +261,8 @@ pub struct Type {
     /// The base it extends, whose attributes, derived attributes and
     /// invariants it inherits (`declaration-syntax.md` §2).
     pub extends: Option<String>,
+    /// Another system owns it, and only the import writes it (§4.15).
+    pub mirror: bool,
     /// A base with no objects of its own.
     pub abstract_: bool,
     /// Each inherited attribute, and the base that declares it.
@@ -483,6 +487,10 @@ impl Reader<'_> {
             },
             assignee: self.flag(node, "assignee")?,
             personal: self.flag(node, "personal")?,
+            external: node
+                .get("external")
+                .and_then(Node::text)
+                .map(str::to_string),
             actor_kind: node
                 .get("actor_kind")
                 .map(|k| self.text(k, "a kind of actor"))
@@ -680,13 +688,11 @@ impl Reader<'_> {
     fn type_(&self, module: &str, name: &str, node: &Node) -> Loaded<Type> {
         let mut beyond = Vec::new();
         let at_outcome = Vec::new();
-        for (key, what) in [
-            ("mirror", "a mirror type, owned elsewhere"),
-            ("inherited_parts", "parts a family inherits"),
-        ] {
-            if node.get(key).is_some_and(|v| v.boolean() != Some(false)) {
-                beyond.push(format!("{what} ({name}.{key})"));
-            }
+        if node
+            .get("inherited_parts")
+            .is_some_and(|v| v.boolean() != Some(false))
+        {
+            beyond.push(format!("parts a family inherits ({name}.inherited_parts)"));
         }
         let mut attributes = Vec::new();
         for (n, spec) in node
@@ -791,6 +797,7 @@ impl Reader<'_> {
                 .and_then(Node::text)
                 .map(str::to_string),
             extends: node.get("extends").and_then(Node::text).map(str::to_string),
+            mirror: self.flag(node, "mirror")?,
             abstract_: self.flag(node, "abstract")?,
             inherited: BTreeMap::new(),
             source: node.to_json(),
@@ -816,6 +823,7 @@ impl Reader<'_> {
             opposite: None,
             composite: false,
             cascade: Vec::new(),
+            external: None,
         };
         let mut attributes = Vec::new();
         let mut required = vec!["subject".to_string()];
@@ -952,6 +960,7 @@ impl Reader<'_> {
             observation_on: Some(subject.to_string()),
             state_machine: None,
             extends: None,
+            mirror: false,
             abstract_: false,
             inherited: BTreeMap::new(),
             source,
@@ -1200,6 +1209,7 @@ fn operator_type() -> Type {
                 opposite: None,
                 composite: false,
                 cascade: Vec::new(),
+                external: None,
             },
         )],
         derived: Vec::new(),
@@ -1232,6 +1242,7 @@ fn operator_type() -> Type {
         observation_on: None,
         state_machine: None,
         extends: None,
+        mirror: false,
         abstract_: false,
         inherited: BTreeMap::new(),
         source: serde_json::json!({
@@ -1262,6 +1273,7 @@ fn proposal_type() -> Type {
         opposite: None,
         composite: false,
         cascade: Vec::new(),
+        external: None,
     };
     let state = |category: &str, is_final: bool| State {
         category: category.to_string(),
@@ -1302,6 +1314,7 @@ fn proposal_type() -> Type {
         observation_on: None,
         state_machine: None,
         extends: None,
+        mirror: false,
         abstract_: false,
         inherited: BTreeMap::new(),
         source: serde_json::json!({
@@ -1456,11 +1469,11 @@ types:
     fn what_the_slice_does_not_run_is_named_not_dropped() {
         let text = JOBS.replace(
             "    description: A job.\n",
-            "    description: A job.\n    mirror: true\n",
+            "    description: A job.\n    inherited_parts: { lines: { survives: true } }\n",
         );
         let m = load_module("jobs.yaml", &text).unwrap();
         assert_eq!(m.types[0].beyond.len(), 1);
-        assert!(m.types[0].beyond[0].contains("Job.mirror"));
+        assert!(m.types[0].beyond[0].contains("Job.inherited_parts"));
     }
 
     #[test]

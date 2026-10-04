@@ -63,7 +63,7 @@ pub struct Event {
 
 /// What a request writes: the objects it created or changed, each with its
 /// event, in the order the events were allocated.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Change {
     pub writes: Vec<(Object, bool, Event)>,
     /// The write index's rows the request sets: an object, what it wrote,
@@ -79,6 +79,12 @@ pub struct Change {
     /// erased attributes in every past event's payload, and its personal
     /// attributes' values in the interval index (§9, steps 2 and 9).
     pub redacted: Vec<(String, Vec<String>)>,
+    /// External identifiers it keeps: source, value, object and attribute,
+    /// a legacy key's attribute empty (ADR-0154).
+    pub external: Vec<(String, String, String, String)>,
+    /// Sequences it raises past a value, never lowering one: sequence, scope
+    /// and value (ADR-0154).
+    pub raised: Vec<(String, String, i64)>,
 }
 
 fn table(type_: &str) -> String {
@@ -254,6 +260,13 @@ CREATE TABLE of_counter (
   value  INTEGER NOT NULL
 );
 INSERT INTO of_counter (name, value) VALUES ('position', 0), ('txn', 0), ('object', 0);
+CREATE TABLE of_external_id (
+  source     TEXT NOT NULL,
+  value      TEXT NOT NULL,
+  object_id  TEXT NOT NULL REFERENCES of_object(id),
+  attribute  TEXT NOT NULL,
+  PRIMARY KEY (source, value)
+);
 CREATE TABLE of_admission (
   object_id           TEXT    NOT NULL REFERENCES of_object(id),
   invariant           TEXT    NOT NULL,
@@ -753,11 +766,42 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
                     writes: BTreeMap::new(),
                     admissions: std::collections::BTreeSet::new(),
                     erased: false,
+                    created_dated: true,
+                    recorded_from: created_at,
                 },
             );
         }
     }
     spans(conn, lib, &mut world)?;
+    // whether each creation is dated, and its record's start
+    let mut dated = conn.prepare("SELECT id, created_dated, recorded_from FROM of_object")?;
+    let rows = dated.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (id, is_dated, from) = row?;
+        if let Some(o) = world.objects.get_mut(&id) {
+            o.created_dated = is_dated != 0;
+            o.recorded_from = parse_timestamp(&from)
+                .ok_or_else(|| StoreError(format!("{id}'s recorded_from")))?;
+        }
+    }
+    let mut ids = conn.prepare("SELECT source, value, object_id FROM of_external_id")?;
+    let rows = ids.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (source, value, id) = row?;
+        world.external.insert((source, value), id);
+    }
     let mut index =
         conn.prepare("SELECT object_id, attribute, position FROM of_attribute_write")?;
     let rows = index.query_map([], |r| {
@@ -868,14 +912,22 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
         if *created {
             let at = timestamp_text(o.created_at);
             tx.execute(
-                "INSERT INTO of_object (id, type, created_at, created_by_kind, recorded_from) VALUES (?1, ?2, ?3, ?4, ?3)",
-                params![o.id, o.type_, at, o.created_by_kind],
+                "INSERT INTO of_object (id, type, created_at, created_by_kind, created_dated, recorded_from) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    o.id,
+                    o.type_,
+                    at,
+                    o.created_by_kind,
+                    i64::from(o.created_dated),
+                    timestamp_text(o.recorded_from)
+                ],
             )?;
         }
         tx.execute(
             "INSERT INTO of_event (position, txn, object_id, object_seq, transition, from_state, to_state, changes_state, \
-             source, actor_id, actor_kind, declaration_version, taint_version, recorded_at, occurred_at, payload, reads) \
-             VALUES (?1, (SELECT value FROM of_counter WHERE name = 'txn'), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?13, ?14, '{}')",
+             source, actor_id, actor_kind, declaration_version, taint_version, recorded_at, occurred_at, payload, reads, imported) \
+             VALUES (?1, (SELECT value FROM of_counter WHERE name = 'txn'), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?13, ?14, '{}', ?15)",
             params![
                 event.position,
                 event.object_id,
@@ -891,6 +943,7 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
                 timestamp_text(event.recorded_at),
                 event.occurred_at.map(timestamp_text),
                 event.payload.to_string(),
+                i64::from(event.imported),
             ],
         )?;
         let name = table(&o.type_);
@@ -913,6 +966,18 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
         if t.states.iter().any(|(_, s)| s.superseding) {
             cols.push("superseded_by".to_string());
             vals.push(o.superseded_by.clone().map_or(Sql::Null, Sql::Text));
+        }
+        // the source of the event that last changed the state (§3)
+        if *created || event.changes_state {
+            cols.push("state_source".to_string());
+            vals.push(Sql::Text(
+                match (event.source.as_str(), event.imported) {
+                    (_, true) => "imported",
+                    ("asserted", false) => "asserted",
+                    _ => "observed",
+                }
+                .to_string(),
+            ));
         }
         for (n, a) in &scalars {
             cols.push(quote(&column(n, a)));
@@ -1016,7 +1081,26 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
                 "UPDATE of_interval SET value = NULL WHERE object_id = ?1 AND dimension = ?2",
                 params![id, a],
             )?;
+            // an erased personal external identifier no longer resolves (§9 step 10)
+            tx.execute(
+                "DELETE FROM of_external_id WHERE object_id = ?1 AND attribute = ?2",
+                params![id, a],
+            )?;
         }
+    }
+    for (source, value, id, attribute) in &change.external {
+        tx.execute(
+            "INSERT INTO of_external_id (source, value, object_id, attribute) VALUES (?1, ?2, ?3, ?4) \
+             ON CONFLICT (source, value) DO UPDATE SET object_id = excluded.object_id, attribute = excluded.attribute",
+            params![source, value, id, attribute],
+        )?;
+    }
+    for (sequence, scope, value) in &change.raised {
+        tx.execute(
+            "INSERT INTO of_sequence (sequence, scope, value) VALUES (?1, ?2, ?3) \
+             ON CONFLICT (sequence, scope) DO UPDATE SET value = max(value, excluded.value)",
+            params![sequence, scope, value],
+        )?;
     }
     for (id, invariant, position) in &change.discharged {
         tx.execute(

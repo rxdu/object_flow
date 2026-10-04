@@ -127,10 +127,51 @@ class Player:
         return v
 
     # ── a step ────────────────────────────────────────────────────────────
+    def root(self, tn: str) -> str:
+        """The type a family's legacy keys are qualified by: its farthest
+        base, or itself (ADR-0154, C23)."""
+        seen = set()
+        while tn not in seen and self.decl(tn).get("extends"):
+            seen.add(tn)
+            tn = self.decl(tn)["extends"]
+        return tn
+
+    def imported(self, im: dict) -> None:
+        """An import step: a one-object batch, its legacy key the step's
+        alias, with an empty disposition file, so it admits nothing; the
+        object is then found by its legacy key (ADR-0154)."""
+        if im.get("after"):
+            self.now = seconds_of(self.wire.post(
+                "/sandbox/clock", {"advance": im["after"]})["now"])
+        tn, key = im["type"], im["as"]
+        specs = self.decl(tn).get("attributes") or {}
+        attributes = {
+            # a reference names another imported object by its legacy key,
+            # which is its alias
+            k: v if "reference" in (specs.get(k) or {})
+            else self.wire_value(v, specs.get(k))
+            for k, v in (im.get("values") or {}).items()}
+        r = self.wire.post("/v1/import_batch", {
+            "actor": {"id": OPERATOR},
+            "batch": {"objects": [{"type": tn, "legacy_key": key,
+                                   "state": im["state"],
+                                   "attributes": attributes}]},
+            "disposition": [], "dry_run": False})
+        if r["refusal"]:
+            raise Failed(f"the import of {key} is refused: "
+                         f"{r['refusal']['reason']}")
+        obj = self.wire.post("/v1/lookup", {
+            "actor": {"id": OPERATOR}, "source": "legacy",
+            "value": f"{self.root(tn)}:{key}"})
+        if obj is None:
+            raise Failed(f"the import of {key} wrote nothing lookup finds")
+        self.aliases[key] = obj["id"]
+        self.types[obj["id"]] = obj["type"]
+
     def play(self, st: dict) -> dict | None:
         if "import" in st:
-            raise Waiting("an import step, which reaches the port, "
-                          "import_batch, a later slice")
+            self.imported(st["import"])
+            return None
         verb = next(v for v in VERBS if v in st)
         r = st[verb]
         if r.get("after"):

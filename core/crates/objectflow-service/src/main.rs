@@ -19,6 +19,10 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
 use objectflow_core::eval::NotRun;
+use objectflow_core::import::{
+    self, Disposition, EnteredAt, ImportBatch, ImportReport, ImportedObject, Raise, ViolationClass,
+    ViolationKind,
+};
 use objectflow_core::model::{Declared, Library};
 use objectflow_core::reads::{self, Offer};
 use objectflow_core::request::{self, Request};
@@ -362,10 +366,198 @@ async fn request_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
     Ok(Json(verdict(&v)))
 }
 
-async fn get(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+// ── the import (ADR-0154) ─────────────────────────────────────────────────
+fn instant(v: Option<&J>, what: &str) -> Result<Option<i64>, Fault> {
+    match v {
+        None | Some(J::Null) => Ok(None),
+        Some(J::String(t)) => parse_timestamp(t)
+            .map(Some)
+            .ok_or_else(|| Fault::Bad(format!("{what} takes an RFC 3339 timestamp: {t}"))),
+        Some(other) => Err(Fault::Bad(format!(
+            "{what} takes an RFC 3339 timestamp: {other}"
+        ))),
+    }
+}
+
+fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
+    let field = |k: &str| text(o, k).map(str::to_string);
+    let (Some(type_), Some(legacy_key), Some(state)) =
+        (field("type"), field("legacy_key"), field("state"))
+    else {
+        return Err(Fault::Bad(
+            "an imported object names its type, legacy_key and state".to_string(),
+        ));
+    };
+    // removed by ADR-0154: recorded_from is computed (C24)
+    if o.get("recorded_from").is_some_and(|v| !v.is_null()) {
+        return Err(Fault::Bad(
+            "recorded_from is computed by the import, not given (ADR-0154)".to_string(),
+        ));
+    }
+    let mut entered = std::collections::BTreeMap::new();
+    for (dimension, e) in o
+        .get("entered")
+        .and_then(J::as_object)
+        .into_iter()
+        .flatten()
+    {
+        let Some(at) = instant(e.get("at"), "entered.at")? else {
+            return Err(Fault::Bad(format!(
+                "entered.{dimension} names its time, at"
+            )));
+        };
+        entered.insert(
+            dimension.clone(),
+            EnteredAt {
+                at,
+                by: text(e, "by").map(str::to_string),
+                by_kind: text(e, "by_kind").map(str::to_string),
+            },
+        );
+    }
+    // what the core does not yet import, named (ADR-0154 decision 6)
+    let mut beyond = Vec::new();
+    for (k, what) in [
+        ("legacy_entries", "legacy entries"),
+        ("legacy_intervals", "legacy intervals"),
+        ("silent_spans", "silent spans"),
+    ] {
+        if o.get(k)
+            .and_then(J::as_array)
+            .is_some_and(|a| !a.is_empty())
+        {
+            beyond.push(format!("{what}, on {type_} {legacy_key}"));
+        }
+    }
+    if o.get("occurred_at").is_some_and(|v| !v.is_null()) {
+        beyond.push(format!(
+            "an observation's occurred time, on {type_} {legacy_key}"
+        ));
+    }
+    Ok(ImportedObject {
+        type_,
+        legacy_key,
+        state,
+        attributes: o
+            .get("attributes")
+            .and_then(J::as_object)
+            .map(|m| m.clone().into_iter().collect())
+            .unwrap_or_default(),
+        entered,
+        created_at: instant(o.get("created_at"), "created_at")?,
+        created_by_kind: field("created_by_kind"),
+        beyond,
+    })
+}
+
+fn violation_class(c: &J) -> Result<ViolationClass, Fault> {
+    let field = |k: &str| text(c, k).map(str::to_string);
+    let kind = field("kind").as_deref().and_then(ViolationKind::parse);
+    let disposition = field("disposition")
+        .as_deref()
+        .map_or(Some(Disposition::Undecided), Disposition::parse);
+    let (Some(type_), Some(kind), Some(rule), Some(shape), Some(disposition)) = (
+        field("type"),
+        kind,
+        field("rule"),
+        field("shape"),
+        disposition,
+    ) else {
+        return Err(Fault::Bad(
+            "a class names its type, kind, rule and shape, and a disposition of publish-and-import.md §6".to_string(),
+        ));
+    };
+    Ok(ViolationClass {
+        id: field("id").unwrap_or_default(),
+        type_,
+        kind,
+        rule,
+        shape,
+        count: c
+            .get("count")
+            .and_then(J::as_u64)
+            .map_or(0, |n| usize::try_from(n).unwrap_or(usize::MAX)),
+        sample: c
+            .get("sample")
+            .and_then(J::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|s| s.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        disposition,
+        decided_by: field("decided_by"),
+        reason: field("reason"),
+    })
+}
+
+fn report(r: &ImportReport) -> J {
+    json!({
+        "written": r.written,
+        "findings": r.findings.iter().map(|c| json!({
+            "id": c.id, "type": c.type_, "kind": c.kind.text(), "rule": c.rule, "shape": c.shape,
+            "count": c.count, "sample": c.sample, "disposition": c.disposition.text(),
+            "decided_by": c.decided_by, "reason": c.reason,
+        })).collect::<Vec<_>>(),
+        "refused_types": r.refused_types,
+        "refusal": r.refusal.as_ref().map(|f| json!({"type": f.type_, "legacy_key": f.legacy_key, "reason": f.reason})),
+    })
+}
+
+async fn import_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let Some(actor) = body.get("actor").and_then(|a| text(a, "id")) else {
+        return Err(Fault::Bad("an import names its actor".to_string()));
+    };
+    let Some(b) = body.get("batch") else {
+        return Err(Fault::Bad("an import names its batch".to_string()));
+    };
+    // removed by ADR-0154: the file is the one way an import admits (C32)
+    if b.get("admitted").is_some_and(|v| !v.is_null()) {
+        return Err(Fault::Bad(
+            "a batch admits through its disposition file, not admitted (ADR-0154)".to_string(),
+        ));
+    }
+    let mut batch = ImportBatch::default();
+    for o in b.get("objects").and_then(J::as_array).into_iter().flatten() {
+        batch.objects.push(imported_object(o)?);
+    }
+    for r in b
+        .get("sequences")
+        .and_then(J::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let (Some(sequence), Some(last)) = (text(r, "sequence"), r.get("last").and_then(J::as_i64))
+        else {
+            return Err(Fault::Bad(
+                "a sequence names its sequence and the last value minted".to_string(),
+            ));
+        };
+        batch.sequences.push(Raise {
+            sequence: sequence.to_string(),
+            scope: text(r, "scope").unwrap_or_default().to_string(),
+            last,
+        });
+    }
+    let mut file = Vec::new();
+    for c in body
+        .get("disposition")
+        .and_then(J::as_array)
+        .into_iter()
+        .flatten()
+    {
+        file.push(violation_class(c)?);
+    }
+    let dry_run = body.get("dry_run").and_then(J::as_bool) == Some(true);
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
-    let id = text(&body, "id").unwrap_or_default();
+    let r = import::import_batch(s, actor, &batch, &file, dry_run)??;
+    Ok(Json(report(&r)))
+}
+
+/// An object as `get` reads it, or null where the store holds none.
+fn object_json(s: &Store, id: &str) -> Answer {
     let world = s.snapshot()?;
     let Some(view) = reads::get(&world, id)? else {
         return Ok(Json(J::Null));
@@ -384,9 +576,30 @@ async fn get(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     Ok(Json(json!({
         "id": o.id, "type": o.type_, "state": o.state, "version": o.version, "declaration_version": 1,
         "created_at": timestamp_text(o.created_at), "created_by_kind": o.created_by_kind,
-        "attributes": attributes, "recorded_from": timestamp_text(o.created_at), "open": view.open,
-        "not_computed": ["created_dated"],
+        "created_dated": o.created_dated, "attributes": attributes,
+        "recorded_from": timestamp_text(o.recorded_from), "open": view.open,
     })))
+}
+
+async fn get(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    object_json(s, text(&body, "id").unwrap_or_default())
+}
+
+/// The object whose external identifier for a source has a value, a legacy
+/// key among them (`library-api.md` §6, ADR-0154).
+async fn lookup(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let (Some(source), Some(value)) = (text(&body, "source"), text(&body, "value")) else {
+        return Err(Fault::Bad("lookup names a source and a value".to_string()));
+    };
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    let world = s.snapshot()?;
+    match world.external.get(&(source.to_string(), value.to_string())) {
+        Some(id) => object_json(s, &id.clone()),
+        None => Ok(Json(J::Null)),
+    }
 }
 
 async fn history(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
@@ -478,6 +691,8 @@ fn app(shared: Shared) -> Router {
         .route("/v1/declaration", post(declaration))
         .route("/v1/availability", post(availability))
         .route("/v1/metric", post(metric))
+        .route("/v1/import_batch", post(import_op))
+        .route("/v1/lookup", post(lookup))
         .route("/sandbox/load", post(load))
         .route("/sandbox/reset", post(reset))
         .route("/sandbox/clock", post(clock))

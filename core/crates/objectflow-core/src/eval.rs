@@ -413,7 +413,8 @@ impl<'a> Evaluator<'a> {
                 type_: o.type_.clone(),
                 name: o.state.clone(),
             },
-            "created_at" | "recorded_from" => Value::Timestamp(o.created_at),
+            "created_at" => Value::Timestamp(o.created_at),
+            "recorded_from" => Value::Timestamp(o.recorded_from),
             "created_by_kind" | "recorded_by_kind" => Value::Text(o.created_by_kind.clone()),
             "declaration_version" => Value::Int(1),
             "open" => Value::Bool(!t.finished(&o.state)),
@@ -1178,6 +1179,8 @@ types:
             writes: BTreeMap::new(),
             admissions: std::collections::BTreeSet::new(),
             erased: false,
+            created_dated: true,
+            recorded_from: 0,
         }
     }
 

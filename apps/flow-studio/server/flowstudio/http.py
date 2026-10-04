@@ -3,7 +3,8 @@
 Routes (ADR-0150):
 
 - `POST /v1/<operation>`: the library's operations the slices use, `request`,
-  `get`, `history`, `events`, `availability`, `metric` and `declaration`;
+  `get`, `history`, `events`, `availability`, `metric`, `declaration`,
+  `import_batch` and `lookup` (ADR-0154);
 - `POST /sandbox/<control>`: load, reset, clock, evaluators;
 - `GET /studio/...`: the module catalogue, a module's files, a diagram;
 - `POST /studio/...`: check a text, draw a text, save to the workspace, copy a
@@ -49,6 +50,8 @@ def routes(box: Sandbox, cat: Catalogue) -> dict[str, Callable[[dict], Any]]:
         "/v1/availability": box.availability,
         "/v1/metric": box.metric,
         "/v1/declaration": box.declaration,
+        "/v1/import_batch": box.import_batch,
+        "/v1/lookup": box.lookup,
         "/sandbox/load": box.load,
         "/sandbox/reset": box.reset,
         "/sandbox/clock": box.clock,

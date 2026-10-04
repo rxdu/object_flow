@@ -36,6 +36,11 @@ pub struct Object {
     /// Its own erasure is recorded, so a later write of a personal attribute
     /// is refused (`DESIGN.md` §8).
     pub erased: bool,
+    /// Whether its creation time is known; an object the import created with
+    /// none is undated, and a measure from its creation counts it as a gap.
+    pub created_dated: bool,
+    /// From when its record is continuous (`DESIGN.md` §5.12).
+    pub recorded_from: i64,
 }
 
 /// How long an object held a state, or a value of a tracked member, as one
@@ -66,6 +71,9 @@ pub struct World<'l> {
     pub lib: &'l Library,
     pub objects: BTreeMap<String, Object>,
     pub now: i64,
+    /// Each external identifier, by source and value, and the object that
+    /// holds it, a legacy key among them (`storage-schema.md`, `of_external_id`).
+    pub external: BTreeMap<(String, String), String>,
 }
 
 impl<'l> World<'l> {
@@ -74,6 +82,7 @@ impl<'l> World<'l> {
             lib,
             objects: BTreeMap::new(),
             now,
+            external: BTreeMap::new(),
         }
     }
 

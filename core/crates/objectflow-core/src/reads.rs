@@ -275,6 +275,11 @@ pub fn availability(
                 clause: "subject_open".into(),
                 remedy: Some(Remedy::UnreachableFromHere),
             })
+        } else if t.mirror {
+            Some(Verdict::Unsatisfied {
+                clause: "subject_owned".into(),
+                remedy: Some(Remedy::UnreachableFromHere),
+            })
         } else {
             None
         };

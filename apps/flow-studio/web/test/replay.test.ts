@@ -12,8 +12,6 @@ import {
 } from "../src/session/player";
 import { startServer } from "./server";
 
-const WAITING = ["import_batch"];
-
 let wire: Wire;
 let stop: () => void;
 
@@ -24,7 +22,7 @@ beforeAll(async () => {
 afterAll(() => stop?.());
 
 describe("every example, played through the wire as the page plays it", () => {
-  it("passes or waits for a named reason, and none fails", async () => {
+  it("passes, and none fails, waits or is not run", async () => {
     const tally: Record<Outcome, number> = {
       passed: 0,
       failed: 0,
@@ -41,13 +39,8 @@ describe("every example, played through the wire as the page plays it", () => {
       for (const name of Object.keys(doc.examples)) {
         const { outcome, why } = await runExample(wire, doc, name);
         tally[outcome] += 1;
-        if (outcome === "failed" || outcome === "not run")
-          failures.push(`${m.file} ${name}: ${why}`);
-        if (outcome === "waiting")
-          expect(
-            WAITING.some((w) => why.includes(w)),
-            `${name}: ${why}`,
-          ).toBe(true);
+        // every example runs through the wire since the import did (ADR-0154)
+        if (outcome !== "passed") failures.push(`${m.file} ${name}: ${why}`);
       }
     }
     expect(failures).toEqual([]);

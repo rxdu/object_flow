@@ -14,6 +14,8 @@ runner leaves out, so nothing here fills one in by guessing
 
 from __future__ import annotations
 
+import copy
+
 import threading
 from fractions import Fraction
 from typing import Any
@@ -130,6 +132,9 @@ class Sandbox:
         kinds, enums, declared, homes = self.parts
         self.store = flowrun.Store(kinds, enums, declared, homes)
         self.stubs = {}
+        # each imported object by its legacy key, qualified by its family's
+        # root type (ADR-0154, C23)
+        self.legacy: dict[tuple[str, str], str] = {}
 
     def loaded(self) -> None:
         if self.runner is None:
@@ -271,6 +276,107 @@ class Sandbox:
             return self.refusal(outcome[1], held["type"], held["object"],
                                 {}, held["transition"])
         return self.satisfied(outcome, s.proposals[oid]["type"], before)
+
+    # ── the import (ADR-0154) ─────────────────────────────────────────────
+    def root(self, tn: str) -> str:
+        """The type a family's legacy keys are qualified by: its farthest
+        base, or itself."""
+        kinds, seen = self.runner.kinds, set()
+        while tn not in seen and (kinds.get(tn) or {}).get("extends") in kinds:
+            seen.add(tn)
+            tn = kinds[tn]["extends"]
+        return tn
+
+    def import_batch(self, body: dict) -> dict:
+        """New objects of mirror types with an empty disposition file, which
+        is all an example's import is; the rest of the import, its classes,
+        refreshes and legacy history, is the core's (ADR-0154 decision 8)."""
+        self.loaded()
+        batch = body.get("batch") or {}
+        if not (body.get("actor") or {}).get("id"):
+            raise Fault(400, "an import names its actor")
+        if batch.get("admitted") is not None:
+            raise Fault(400, "a batch admits through its disposition file, "
+                             "not admitted (ADR-0154)")
+        for k, what in (("dry_run", "a dry run"),
+                        ("disposition", "a disposition file")):
+            if body.get(k):
+                raise not_run(what)
+        if batch.get("sequences"):
+            raise not_run("raising a sequence")
+        kinds = self.runner.kinds
+        objects = batch.get("objects") or []
+        report: dict[str, Any] = {"written": 0, "findings": [],
+                                  "refused_types": [], "refusal": None}
+        for o in objects:
+            tn = o.get("type")
+            if tn in kinds and not kinds[tn].get("mirror") \
+                    and tn not in report["refused_types"]:
+                report["refused_types"].append(tn)
+        backup, made = copy.deepcopy(self.store), {}
+
+        def refused(o: dict, why: str) -> dict:
+            self.store = backup
+            report.update(written=0, refusal={
+                "type": o.get("type"), "legacy_key": o.get("legacy_key"),
+                "reason": why})
+            return report
+
+        for o in objects:
+            tn, key = o.get("type"), o.get("legacy_key")
+            for k in ("entered", "created_at", "created_by_kind",
+                      "legacy_entries", "legacy_intervals", "silent_spans",
+                      "occurred_at"):
+                if o.get(k):
+                    raise not_run(f"an import's {k}")
+            qualified = ("legacy", f"{self.root(tn)}:{key}")
+            if qualified in self.legacy:
+                raise not_run("a refresh of an object already imported")
+            if qualified in made:
+                return refused(o, "its legacy key appears twice in the batch")
+            specs = (kinds.get(tn) or {}).get("attributes") or {}
+            given: dict[str, Any] = {}
+            for k, v in (o.get("attributes") or {}).items():
+                spec = specs.get(k)
+                if spec and "reference" in spec and v is not None:
+                    target = self.root(spec["reference"].rstrip("[]"))
+                    keys = v if isinstance(v, list) else [v]
+                    ids = [made.get(("legacy", f"{target}:{x}"))
+                           or self.legacy.get(("legacy", f"{target}:{x}"))
+                           for x in keys]
+                    if None in ids:
+                        return refused(o, f"{k} names a legacy key the "
+                                          "batch and the store lack")
+                    given[k] = tuple(ids) if isinstance(v, list) else ids[0]
+                else:
+                    given[k] = values.decode_input(v, spec, self.runner.enums) \
+                        if spec else v
+            try:
+                made[qualified] = flowrun.import_object(
+                    self.runner, self.store, tn, o.get("state"), given)
+            except flowrun.ImportRefused as r:
+                return refused(o, str(r))
+            report["written"] += 1
+        self.legacy.update(made)
+        return report
+
+    def lookup(self, body: dict) -> dict | None:
+        """The object whose external identifier for a source has a value, a
+        legacy key among them (`library-api.md` §6)."""
+        self.loaded()
+        source, value = body.get("source"), body.get("value")
+        if source == "legacy":
+            oid = self.legacy.get((source, value))
+        else:
+            oid = next((
+                o.id for o in sorted(self.store.objects.values(),
+                                     key=lambda o: o.id_order)
+                if any((spec or {}).get("external") == source
+                       and str(o.attrs.get(a)) == value
+                       for a, spec in ((self.runner.kinds.get(o.type) or {})
+                                       .get("attributes") or {}).items())),
+                None)
+        return self.get({"id": oid}) if oid else None
 
     def get(self, body: dict) -> dict | None:
         self.loaded()

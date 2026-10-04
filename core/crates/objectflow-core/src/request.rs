@@ -439,6 +439,7 @@ fn decide_or_stop(
                 .iter()
                 .map(|(id, attrs)| (id.clone(), attrs.iter().cloned().collect()))
                 .collect(),
+            ..Change::default()
         }),
     ))
 }
@@ -742,6 +743,18 @@ fn take(
                 remedy: Some(Remedy::UnreachableFromHere),
             });
         }
+        // a mirror's observations are the import's to write (ADR-0101)
+        if ctx
+            .work
+            .get(subject)
+            .and_then(|s| lib.type_(&s.type_))
+            .is_some_and(|st| st.mirror)
+        {
+            return refused(Verdict::Unsatisfied {
+                clause: "subject_owned".into(),
+                remedy: Some(Remedy::UnreachableFromHere),
+            });
+        }
     }
     for k in &x.required_inputs {
         if !inputs.contains_key(k) {
@@ -828,6 +841,8 @@ fn take(
                 writes: BTreeMap::new(),
                 admissions: BTreeSet::new(),
                 erased: false,
+                created_dated: true,
+                recorded_from: ctx.at,
             };
             for (a, spec) in &t.attributes {
                 // a set is never absent: created empty unless given, a derived
@@ -1332,6 +1347,8 @@ fn file(
         writes: BTreeMap::new(),
         admissions: BTreeSet::new(),
         erased: false,
+        created_dated: true,
+        recorded_from: world.now,
     };
     record_spans(lib, pt, &mut o, None, position, world.now, &who);
     o.version = 1;
@@ -1365,6 +1382,7 @@ fn file(
             admitted: Vec::new(),
             discharged: Vec::new(),
             redacted: Vec::new(),
+            ..Change::default()
         }),
     ))
 }
@@ -1473,6 +1491,7 @@ fn decide_proposal(
                 admitted: Vec::new(),
                 discharged: Vec::new(),
                 redacted: Vec::new(),
+                ..Change::default()
             }),
         ));
     }
@@ -2069,7 +2088,7 @@ fn cascades(
 }
 
 /// A value as an identifier's format writes it, as text.
-fn text_of(v: &Value) -> String {
+pub(crate) fn text_of(v: &Value) -> String {
     match v {
         Value::Text(s) | Value::Object(s) => s.clone(),
         Value::State { name, .. } => name.clone(),

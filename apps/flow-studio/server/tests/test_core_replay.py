@@ -63,7 +63,7 @@ def test_no_example_fails_in_the_core(core):
                 passed.add(f"{module_file} {name}")
             if outcome == "not run":
                 reached[why.split(" (")[0][:70]] += 1
-            elif outcome != want[name] and outcome != "waiting":
+            elif outcome != want[name]:
                 failures.append(f"{module_file} {name}: the core gives "
                                 f"{outcome}, the runner {want[name]}: {why}")
     print(f"\nthe core's first slice: {dict(tally)}")

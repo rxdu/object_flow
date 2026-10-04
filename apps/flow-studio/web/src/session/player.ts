@@ -34,6 +34,9 @@ export interface StepRequest {
   occurred_at?: string;
   inputs?: Record<string, unknown>;
   proposal?: string;
+  /** an import's: the state it arrives in, and its attribute values */
+  state?: string;
+  values?: Record<string, unknown>;
 }
 
 export type ExampleStep = Partial<
@@ -90,7 +93,8 @@ export class Waiting extends Error {}
 export type TrailEntry =
   | { kind: "evaluators"; answers: Record<string, unknown> }
   | { kind: "clock"; by: string }
-  | { kind: "step"; step: ExampleStep; verdict: Verdict }
+  /** a step's verdict, or null for an import, which no verdict answers */
+  | { kind: "step"; step: ExampleStep; verdict: Verdict | null }
   | {
       kind: "free";
       body: RequestBody;
@@ -259,11 +263,61 @@ export class Player {
     this.trail.push({ kind: "evaluators", answers });
   }
 
-  async play(step: ExampleStep): Promise<Verdict> {
-    if (step.import) {
-      throw new Waiting(
-        "an import step, which reaches the port, import_batch, a later slice",
+  /** The type a family's legacy keys are qualified by: its farthest base,
+   * or itself (ADR-0154, C23). */
+  async root(type: string): Promise<string> {
+    const seen = new Set<string>();
+    let at = type;
+    for (;;) {
+      const base = (await this.decl(at)).extends;
+      if (typeof base !== "string" || seen.has(at)) return at;
+      seen.add(at);
+      at = base;
+    }
+  }
+
+  /** An import step: a one-object batch, its legacy key the step's alias,
+   * with an empty disposition file, so it admits nothing; the object is then
+   * found by its legacy key (ADR-0154). */
+  async imported(im: StepRequest): Promise<void> {
+    if (im.after)
+      this.now = instantSeconds(
+        (await this.wire.clock({ advance: im.after })).now,
       );
+    const type = im.type ?? "";
+    const key = im.as ?? "";
+    const specs = (await this.decl(type)).attributes ?? {};
+    const attributes: Record<string, WireValue> = {};
+    for (const [k, v] of Object.entries(im.values ?? {})) {
+      // a reference names another imported object by its legacy key, which
+      // is its alias
+      attributes[k] =
+        specs[k] && "reference" in specs[k]
+          ? (v as WireValue)
+          : this.wireValue(v, specs[k]);
+    }
+    const report = await this.wire.importBatch(OPERATOR, [
+      { type, legacy_key: key, state: im.state ?? "", attributes },
+    ]);
+    if (report.refusal)
+      throw new Failed(
+        `the import of ${key} is refused: ${report.refusal.reason}`,
+      );
+    const found = await this.wire.lookup(
+      OPERATOR,
+      "legacy",
+      `${await this.root(type)}:${key}`,
+    );
+    if (!found)
+      throw new Failed(`the import of ${key} wrote nothing lookup finds`);
+    this.aliases.set(key, found.id);
+    this.types.set(found.id, found.type);
+  }
+
+  async play(step: ExampleStep): Promise<Verdict | null> {
+    if (step.import) {
+      await this.imported(step.import);
+      return null;
     }
     const [verb, r] = verbOf(step);
     if (r.after)

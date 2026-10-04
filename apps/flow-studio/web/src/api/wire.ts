@@ -196,6 +196,24 @@ export type LoadResult =
       findings: { file: string; line: number; code: string; message: string }[];
     };
 
+/** One object of an import batch, as the mapping produced it (ADR-0154). */
+export interface ImportedObject {
+  type: string;
+  legacy_key: string;
+  state: string;
+  /** values in the wire's notation, a reference by legacy key */
+  attributes: Record<string, WireValue>;
+}
+
+/** What an import wrote, the classes it found, and why it was refused,
+ * where it was (`library-api.md` §5, ADR-0154). */
+export interface ImportReport {
+  written: number;
+  findings: Record<string, unknown>[];
+  refused_types: string[];
+  refusal: { type: string; legacy_key: string; reason: string } | null;
+}
+
 /** A request the backend cannot answer: the wire's 4xx or 5xx. */
 export class WireFault extends Error {
   readonly status: number;
@@ -219,6 +237,14 @@ export interface Wire {
     positions: number[],
   ): Promise<{ events: (FlowEvent | null)[]; not_computed: string[] }>;
   declaration(type: string): Promise<Declaration>;
+  /** a batch of a port, with an empty disposition file (ADR-0154) */
+  importBatch(actor: string, objects: ImportedObject[]): Promise<ImportReport>;
+  /** the object an external identifier names, a legacy key among them */
+  lookup(
+    actor: string,
+    source: string,
+    value: string,
+  ): Promise<FlowObject | null>;
   availability(actor: string, id: string): Promise<TransitionOffer[]>;
   metric(actor: string, name: string): Promise<MetricPage>;
   load(files: ModuleFile[]): Promise<LoadResult>;
@@ -278,6 +304,15 @@ export function httpWire(base = ""): Wire {
     history: (id) => post("/v1/history", { id }),
     events: (positions) => post("/v1/events", { positions }),
     declaration: (type) => post("/v1/declaration", { type }),
+    importBatch: (actor, objects) =>
+      post("/v1/import_batch", {
+        actor: { id: actor },
+        batch: { objects },
+        disposition: [],
+        dry_run: false,
+      }),
+    lookup: (actor, source, value) =>
+      post("/v1/lookup", { actor: { id: actor }, source, value }),
     load: (files) => post("/sandbox/load", { files }),
     reset: () => post("/sandbox/reset", {}),
     clock: (change) => post("/sandbox/clock", change),

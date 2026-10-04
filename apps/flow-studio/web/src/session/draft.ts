@@ -166,7 +166,7 @@ export async function draftExample(
       }
     } else if (e.kind === "clock") {
       pending += durationSeconds(e.by);
-    } else if (e.verdict.kind !== "satisfied") {
+    } else if (e.verdict !== null && e.verdict.kind !== "satisfied") {
       notes.push(
         "A refused request is left out, since an example's steps must apply.",
       );

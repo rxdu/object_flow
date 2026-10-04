@@ -12,7 +12,14 @@ import {
 import { instantText } from "../session/notation";
 
 interface Done {
-  status: "applied" | "refused" | "answered" | "waiting" | "not run" | "fault";
+  status:
+    | "applied"
+    | "refused"
+    | "answered"
+    | "imported"
+    | "waiting"
+    | "not run"
+    | "fault";
   verdict?: Verdict;
   note?: string;
 }
@@ -81,7 +88,7 @@ export function Stepper({
       const v = await p.perform(ps);
       d =
         v === null
-          ? { status: "answered" }
+          ? { status: ps.kind === "evaluators" ? "answered" : "imported" }
           : {
               status: v.kind === "satisfied" ? "applied" : "refused",
               verdict: v,
@@ -193,6 +200,7 @@ export function Stepper({
 const STATUS: Record<Done["status"], string> = {
   applied: "bg-emerald-50 text-emerald-900",
   answered: "bg-slate-50 text-slate-700",
+  imported: "bg-emerald-50 text-emerald-900",
   refused: "bg-amber-50 text-amber-900",
   waiting: "bg-sky-50 text-sky-900",
   "not run": "bg-violet-50 text-violet-900",
