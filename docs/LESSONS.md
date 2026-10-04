@@ -313,3 +313,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The Rust core's parser was held to Python's over all 280 expressions of the design, and a parser made right-associative for `-` still passed: no expression in the design chains `-`, `/`, `or` or `and`, so associativity was never compared. Only reverting a rule on a copy showed it.
 - **Correction:** Beside the real corpus, give a differential test a hand-written set that reaches each construct the grammar defines, the rules a corpus happens not to use among them: chains of each left-associative operator, nesting, every literal, and inputs that must fail. Then break one rule at a time and see the test fail.
 - **Context:** Any oracle comparison over a corpus; the core's `tests/parse_like_python.rs`, 2026-10-04.
+
+### "None fails" cannot see a regression when "not run" is allowed
+- **Pattern:** The Rust core's first slice was judged by the replay of every example, none allowed to fail and any allowed to be not run. A core with its state check broken still passed. The one example the check decided carried on past the state and reached an effect the slice does not run, so it turned from passed to not run, which the criterion allowed.
+- **Correction:** Where an outcome may honestly be "not run", hold what passes with a ratchet: record each example that passes, and fail when one stops passing. Then break a rule on a copy and see the comparison fail.
+- **Context:** Differential testing of a partial implementation against an oracle; the core's replay, `apps/flow-studio/server/tests/core_passing.txt`, 2026-10-04.

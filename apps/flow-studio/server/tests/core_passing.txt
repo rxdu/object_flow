@@ -1,0 +1,24 @@
+# The examples the core passes with the reference runner's outcome (ADR-0153
+# decision 6), one "<module file> <example>" a line: a ratchet, so none may
+# stop passing. tests/test_core_replay.py prints any newly passing.
+inventory-v2.yaml a_damaged_item_is_refused_before_its_photo
+inventory-v2.yaml a_sale_without_a_photo_is_refused
+inventory.yaml a_damaged_item_is_not_reserved
+inventory.yaml adding_puts_an_item_in_stock
+inventory.yaml an_item_damaged_while_reserved_is_not_sold
+inventory.yaml an_item_in_stock_is_not_released
+inventory.yaml a_regraded_item_is_reserved
+inventory.yaml a_reservation_ends_after_now
+inventory.yaml a_reservation_names_its_recipient
+inventory.yaml a_sale_names_its_price
+inventory.yaml a_serial_is_in_stock_once
+inventory.yaml grading_records_the_condition
+inventory.yaml reserving_holds_the_item
+issues.yaml one_active_sprint_per_space
+servicedesk.yaml an_approval_asks_someone
+servicedesk.yaml a_standard_change_skips_review
+servicedesk.yaml a_stock_opens_empty
+servicedesk.yaml only_a_standard_change_skips_review
+service-v2.yaml a_job_is_not_given_to_an_engineer_who_left
+service-v2.yaml a_job_needs_its_site
+service.yaml a_job_is_not_given_to_an_engineer_who_left

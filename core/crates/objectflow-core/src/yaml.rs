@@ -110,6 +110,34 @@ impl Node {
         }
     }
 
+    /// The node as JSON, as the flow checker's strict loader reads it: a
+    /// plain `true` or `false` a boolean, a plain whole number a number, a
+    /// plain null a null, every other scalar a string, a mapping in the order
+    /// written.
+    pub fn to_json(&self) -> serde_json::Value {
+        match self {
+            Node::Scalar { .. } if self.is_null() => serde_json::Value::Null,
+            Node::Scalar { text, .. } => {
+                if let Some(b) = self.boolean() {
+                    serde_json::Value::Bool(b)
+                } else if let Some(n) = self.integer() {
+                    serde_json::Value::from(n)
+                } else {
+                    serde_json::Value::String(text.clone())
+                }
+            }
+            Node::Seq { items, .. } => {
+                serde_json::Value::Array(items.iter().map(Node::to_json).collect())
+            }
+            Node::Map { entries, .. } => serde_json::Value::Object(
+                entries
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.to_json()))
+                    .collect(),
+            ),
+        }
+    }
+
     /// A null scalar: empty and plain, or `null` or `~` written plain.
     pub fn is_null(&self) -> bool {
         matches!(self, Node::Scalar { text, plain: true, .. } if text.is_empty() || text == "null" || text == "~")

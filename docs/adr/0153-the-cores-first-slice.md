@@ -46,6 +46,21 @@ ADR-0132 chose Rust for the core, with the Python checkers as its independent or
 5. **The core does not check a module before it loads it in this slice.** The flow checker stays what checks one: the studio's editor and its `load` both run it. The core refuses only a module it cannot read, and the publish checks come with publishing.
 6. **The slice is judged by the studio's replay.** Every example of the design is played through the core's service as through the reference runner's. **None may fail**: each passes with the runner's outcome, or is not run, naming what it reaches. A failure is a finding against the core or the runner, settled by the specification (ADR-0132 decision 2). The count of examples run is recorded with the slice, and each later slice raises it.
 
+## Where the first slice stands
+
+Recorded 2026-10-04, when the slice was built.
+- **Outcome:** of the design's 163 examples, the core passes 21 with the reference runner's outcome, fails none, and does not run 140. The remaining 2 wait for importing, as they do against the runner.
+- **What the not-run examples reach**, by count:
+  - an identifier minted from a sequence: 57;
+  - an effect: 48;
+  - an observation kind: 16;
+  - a machine a type binds: 12;
+  - a request's occurred time: 4;
+  - an object's intervals: 3.
+
+  Those are the next slices.
+- **The ratchet:** a replay judged only by "none fails" let a broken state check through, the example it decided turning from passed to not run. So `apps/flow-studio/server/tests/core_passing.txt` lists every example the core passes, and one that stops passing fails the replay.
+
 ## Alternatives rejected
 
 - **For decision 1:** one crate, which would let the service's asynchronous code reach the core's; a crate per subsystem now, ahead of any second user of one.

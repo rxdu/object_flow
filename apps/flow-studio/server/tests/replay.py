@@ -313,9 +313,13 @@ def chain(setups: dict, name: str) -> list[dict]:
     return (chain(setups, s["given"]) if "given" in s else []) + [s]
 
 
-def replay(wire: Wire, module_file: str) -> dict[str, tuple[str, str]]:
-    """Every example of a module's examples file: its outcome and why."""
-    bundle = wire.get(f"/studio/module?file={module_file}")
+def replay(wire: Wire, module_file: str,
+           bundle: dict | None = None) -> dict[str, tuple[str, str]]:
+    """Every example of a module's examples file: its outcome and why. The
+    module's files come from the studio's catalogue on the same wire, or are
+    given, for an engine's service that serves no studio routes."""
+    if bundle is None:
+        bundle = wire.get(f"/studio/module?file={module_file}")
     loaded = wire.post("/sandbox/load", {"files": bundle["files"]})
     if not loaded["loaded"]:
         raise AssertionError(f"{module_file} does not load: {loaded}")

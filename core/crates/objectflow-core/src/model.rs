@@ -9,7 +9,7 @@
 //! is the flow checker's to say, in this slice (ADR-0153 decision 5); the
 //! loader refuses only what it cannot read.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::expr::{self, Expr, Number};
@@ -169,9 +169,17 @@ pub struct Type {
     pub conditions: Vec<(String, Condition)>,
     pub invariants: Vec<(String, Expr)>,
     pub transitions: Vec<(String, Transition)>,
-    /// What this type declares that the first slice does not run: a request
-    /// on it is not run, naming the first (ADR-0153 decision 3).
+    /// What this type's structure holds that the first slice's model does
+    /// not: a request on it is not run, naming the first (ADR-0153 decision
+    /// 3).
     pub beyond: Vec<String>,
+    /// What only an applying request reaches that the first slice does not
+    /// run: its refusals are still decided, and an outcome is not run.
+    pub at_outcome: Vec<String>,
+    /// The observation kinds recorded on it, by name.
+    pub observes: Vec<String>,
+    /// The type as its description writes it, which `declaration` returns.
+    pub source: serde_json::Value,
 }
 
 impl Type {
@@ -221,6 +229,10 @@ pub struct Module {
     pub name: String,
     pub enumerations: Vec<(String, Vec<String>)>,
     pub types: Vec<Type>,
+    /// The observation kinds its types declare, by name.
+    pub observation_kinds: Vec<String>,
+    /// Its evaluators' functions, as `<evaluator>.<function>`.
+    pub evaluators: Vec<String>,
 }
 
 /// Why a module does not load.
@@ -422,6 +434,7 @@ impl Reader<'_> {
 
     fn type_(&self, module: &str, name: &str, node: &Node) -> Loaded<Type> {
         let mut beyond = Vec::new();
+        let mut at_outcome = Vec::new();
         for (key, what) in [
             ("state_machine", "a machine the type binds"),
             ("extends", "a family, the type extending a base"),
@@ -441,10 +454,10 @@ impl Reader<'_> {
         {
             let a = self.attribute(spec)?;
             if spec.get("cascade").is_some() {
-                beyond.push(format!("a cascade to the parts ({name}.{n})"));
+                at_outcome.push(format!("a cascade to the parts ({name}.{n})"));
             }
             if a.minted {
-                beyond.push(format!("an identifier minted from a sequence ({name}.{n})"));
+                at_outcome.push(format!("an identifier minted from a sequence ({name}.{n})"));
             }
             attributes.push((n.clone(), a));
         }
@@ -462,7 +475,7 @@ impl Reader<'_> {
         let mut states = Vec::new();
         for (n, spec) in node.get("states").map(Node::entries).unwrap_or_default() {
             if spec.get("superseding").is_some() {
-                beyond.push(format!("supersession ({name}.{n})"));
+                at_outcome.push(format!("supersession ({name}.{n})"));
             }
             states.push((
                 n.clone(),
@@ -526,6 +539,15 @@ impl Reader<'_> {
             invariants,
             transitions,
             beyond,
+            at_outcome,
+            observes: node
+                .get("observations")
+                .map(Node::entries)
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|(_, ob)| ob.get("kind").and_then(Node::text).map(str::to_string))
+                .collect(),
+            source: node.to_json(),
         })
     }
 
@@ -542,13 +564,31 @@ impl Reader<'_> {
             enumerations.push((n.clone(), self.names(Some(members))?));
         }
         let mut types = Vec::new();
+        let mut observation_kinds = Vec::new();
         for (n, spec) in doc.get("types").map(Node::entries).unwrap_or_default() {
             types.push(self.type_(name, n, spec)?);
+            for (_, ob) in spec
+                .get("observations")
+                .map(Node::entries)
+                .unwrap_or_default()
+            {
+                if let Some(kind) = ob.get("kind").and_then(Node::text) {
+                    observation_kinds.push(kind.to_string());
+                }
+            }
+        }
+        let mut evaluators = Vec::new();
+        for (e, spec) in doc.get("evaluators").map(Node::entries).unwrap_or_default() {
+            for (f, _) in spec.get("functions").map(Node::entries).unwrap_or_default() {
+                evaluators.push(format!("{e}.{f}"));
+            }
         }
         Ok(Module {
             name: name.to_string(),
             enumerations,
             types,
+            observation_kinds,
+            evaluators,
         })
     }
 }
@@ -569,12 +609,77 @@ pub fn load_module(file: &str, text: &str) -> Result<Module, LoadError> {
 pub struct Library {
     pub types: BTreeMap<String, Type>,
     pub enumerations: BTreeMap<String, Vec<String>>,
+    /// The observation kinds the types declare, which the first slice does
+    /// not run.
+    pub observation_kinds: BTreeSet<String>,
+    /// The evaluators' functions the modules declare, in the order loaded.
+    pub evaluators: Vec<String>,
+    /// The modules loaded, in import order.
+    pub modules: Vec<String>,
+}
+
+/// The built-in type of the store's operator, its first actor (ADR-0126):
+/// one object, `operator`, a human, active from the store's creation.
+pub const OPERATOR: &str = "operator";
+
+fn operator_type() -> Type {
+    Type {
+        name: "Operator".to_string(),
+        module: String::new(),
+        attributes: vec![(
+            "identity".to_string(),
+            Attribute {
+                declared: Declared::Scalar("identity".to_string()),
+                many: false,
+                optional: false,
+                default: None,
+                unique: Unique::No,
+                assignee: false,
+                personal: false,
+                actor_kind: Some("human".to_string()),
+                minted: false,
+                opposite: None,
+            },
+        )],
+        derived: Vec::new(),
+        states: vec![
+            (
+                "ACTIVE".to_string(),
+                State {
+                    category: "live".to_string(),
+                    is_final: false,
+                    required_attributes: Vec::new(),
+                },
+            ),
+            (
+                "RETIRED".to_string(),
+                State {
+                    category: "closed".to_string(),
+                    is_final: true,
+                    required_attributes: Vec::new(),
+                },
+            ),
+        ],
+        conditions: Vec::new(),
+        invariants: Vec::new(),
+        transitions: Vec::new(),
+        beyond: Vec::new(),
+        at_outcome: Vec::new(),
+        observes: Vec::new(),
+        source: serde_json::json!({
+            "description": "The store's operator, its first actor (ADR-0126).",
+            "attributes": { "identity": { "type": "identity", "actor_kind": "human" } },
+            "states": { "ACTIVE": { "category": "live" }, "RETIRED": { "category": "closed", "final": true } }
+        }),
+    }
 }
 
 impl Library {
-    /// The library of modules given as (file, text), in import order.
+    /// The library of modules given as (file, text), in import order, with
+    /// the built-in Operator type.
     pub fn load(files: &[(String, String)]) -> Result<Library, LoadError> {
         let mut lib = Library::default();
+        lib.types.insert("Operator".to_string(), operator_type());
         for (file, text) in files {
             let m = load_module(file, text)?;
             for (n, members) in m.enumerations {
@@ -583,6 +688,9 @@ impl Library {
             for t in m.types {
                 lib.types.insert(t.name.clone(), t);
             }
+            lib.observation_kinds.extend(m.observation_kinds);
+            lib.evaluators.extend(m.evaluators);
+            lib.modules.push(m.name);
         }
         Ok(lib)
     }
