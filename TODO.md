@@ -212,7 +212,19 @@ The engine in Rust (ADR-0132), built slice by slice and judged by replaying the 
 - [x] **Erasure.** Done 2026-10-05 (`src/request.rs`, `src/store.rs`, `src/reads.rs`): personal attributes cleared, observations forgotten, the supersession chain erased, past payloads and interval values redacted, an invariant it breaks admitted, and `not_erased` refusing a later write in a request and an offer. 156 pass. Not yet: the taint walk into callers' and caused events (`storage-schema.md` §9, steps 3 and 12), and files, legacy entries, proposals, external ids and labels, which the core does not hold.
 - [x] **`referrers`.** Done 2026-10-05 (`src/eval.rs`): every object holding a stored reference to this one, its parts excepted. 157 pass.
 - [x] **Families.** Done 2026-10-05 (`src/model.rs`, `src/world.rs`, `src/request.rs`, `src/store.rs`): a subtype inherits its bases' attributes, derived attributes and invariants; scans, references and uniqueness count the family. The slice found D519 in the reference runner and D520 in the storage design. 158 pass.
-- [ ] **The core's next slices, by what the replay finds not run.** Each raises the examples the core passes, and adds them to the ratchet. As of 2026-10-05, 3 examples are not run, all filing a proposal.
+- [x] **Proposals.** Done 2026-10-05 (`src/request.rs`, `src/model.rs`): the built-in `Proposal`; filing checked short of the state and the guards, its occurred time bounded at filing; `approve` executing the held request as the approver, the proposal's event first, a refusal leaving it pending; `reject` and `withdraw`; expiry; an erasure invalidating a pending proposal on its object and redacting its inputs. The slice found D521 and D523. All 161 examples that run pass, the other 2 waiting for importing as against the runner.
+- [x] **Corrections recorded as such.** Done 2026-10-05 (`src/request.rs`): the core had not read `corrects`, so a correction's event carried `observed`; it now carries `corrected`, and a correction of a tracked value is not run until its relabelling is. Found D522.
+- [ ] **The core beyond the replay.** Every example that runs now passes, so the replay no longer says what comes next; the design does. What the core does not yet do, each answered as not run where a request reaches it:
+  - importing, the port and `import_batch`, which the 2 waiting examples reach;
+  - publishing a `DeclarationChange`, with its migration and impact report;
+  - metrics read in a guard, and the metric source `transitions`, `attempts` and `labels`;
+  - the attempt log, so a refused approval's verdict is read from its proposal (ADR-0044);
+  - `cause_position`, linking a caused event to its cause;
+  - idempotency keys and `expected_version`;
+  - a correction of a tracked value, relabelling its span and the rows whose `.held` it changes, and a row's `.held` itself;
+  - a caused assertion;
+  - erasure's taint walk into callers' and caused events, and files, legacy entries, external ids and labels (`storage-schema.md` §9);
+  - subscriptions and `pull`.
 
 ## Toward implementation
 

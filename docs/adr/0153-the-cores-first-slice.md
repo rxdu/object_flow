@@ -80,8 +80,9 @@ Each later slice is recorded here with the replay's figures when it was committe
 | 2026-10-05 | Erasure, its reach and what it redacts | 156 | 5 |
 | 2026-10-05 | `referrers`, for a deletion guard | 157 | 4 |
 | 2026-10-05 | Families, a type extending a base | 158 | 3 |
+| 2026-10-05 | Proposals, filed, decided and invalidated | 161 | 0 |
 
-Minting raised no count: the examples that had stopped at minting went on to stop at an effect. The three examples not run all file a proposal. `TODO.md`'s list of the core's next slices keeps those counts.
+Minting raised no count: the examples that had stopped at minting went on to stop at an effect. With proposals, every example that runs against the reference runner passes against the core; the 2 that wait for importing wait against both. What the core does not yet do is listed in `TODO.md`, the design and not the replay now saying what comes next. `TODO.md`'s list of the core's next slices keeps those counts.
 
 ## Alternatives rejected
 
