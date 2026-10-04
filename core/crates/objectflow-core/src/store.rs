@@ -85,6 +85,18 @@ fn table(type_: &str) -> String {
     format!("t_{}", type_.to_lowercase())
 }
 
+/// The table a reference's foreign key names: its target's, or, for a
+/// target with subtypes, whose objects live in their own types' tables, the
+/// directory, which holds every object (§3.1, D520).
+fn referenced(lib: &Library, target: &str) -> String {
+    let family = lib.types.keys().any(|n| n != target && lib.is_a(n, target));
+    if family {
+        "of_object".to_string()
+    } else {
+        table(target)
+    }
+}
+
 fn quote(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
@@ -360,7 +372,7 @@ impl Store {
                     Declared::Reference(target) if self.lib.types.contains_key(target) => {
                         format!(
                             " REFERENCES {}(id) DEFERRABLE INITIALLY DEFERRED",
-                            table(target)
+                            referenced(&self.lib, target)
                         )
                     }
                     _ => String::new(),
@@ -385,7 +397,7 @@ impl Store {
                 Declared::Reference(target) if self.lib.types.contains_key(target) => {
                     def.push_str(&format!(
                         " REFERENCES {}(id) DEFERRABLE INITIALLY DEFERRED",
-                        table(target)
+                        referenced(&self.lib, target)
                     ));
                     after.push(format!(
                         "CREATE INDEX {} ON {name} ({});",

@@ -493,7 +493,7 @@ fn take(
                 one => vec![one],
             };
             let fits = ids.iter().all(|i| match i {
-                Value::Object(id) => ctx.work.get(id).is_some_and(|o| &o.type_ == target),
+                Value::Object(id) => ctx.work.get(id).is_some_and(|o| lib.is_a(&o.type_, target)),
                 _ => false,
             });
             if !fits {
@@ -1797,7 +1797,9 @@ pub fn failing_invariants(world: &World<'_>, o: &Object) -> Result<Vec<String>, 
             Ok(Some(values))
         };
         let Some(mine) = key(o)? else { continue };
-        for other in world.of_type(&o.type_) {
+        // unique across the family of the type declaring it
+        let scope = world.lib.unique_scope(t, a);
+        for other in world.of_type(scope) {
             if other.id != o.id
                 && key(other)?.is_some_and(|k| k.iter().zip(&mine).all(|(x, y)| x.equals(y)))
             {
@@ -3182,5 +3184,102 @@ types:
             .eval(&crate::expr::parse("referrers").unwrap())
             .unwrap();
         assert_eq!(referrers, Value::Set(vec![Value::Object(note)]));
+    }
+
+    #[test]
+    fn a_family_shares_its_base_s_members_scans_and_uniqueness() {
+        let text = r#"
+module: assets
+categories: [live]
+types:
+  Asset:
+    abstract: true
+    attributes:
+      key: { type: string, unique: true }
+      name: { type: string }
+    invariants:
+      named: { expression: "length(name) > 0" }
+  Laptop:
+    extends: Asset
+    attributes:
+      owner: { type: string, optional: true }
+    states:
+      IN_USE: { category: live }
+    transitions:
+      receive: { kind: initial, to: IN_USE, required_inputs: [key, name] }
+  Server:
+    extends: Asset
+    states:
+      RACKED: { category: live }
+    transitions:
+      receive: { kind: initial, to: RACKED, required_inputs: [key, name] }
+  Ticket:
+    attributes:
+      about: { reference: Asset }
+    states:
+      OPEN: { category: live }
+    transitions:
+      raise: { kind: initial, to: OPEN, required_inputs: [about] }
+"#;
+        let lib = Library::load(&[("assets.yaml".into(), text.into())]).unwrap();
+        assert!(lib.is_a("Laptop", "Asset") && !lib.is_a("Asset", "Laptop"));
+        let names: Vec<&str> = lib
+            .type_("Laptop")
+            .unwrap()
+            .attributes
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect();
+        assert_eq!(names, vec!["key", "name", "owner"]);
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let laptop = created(&req(
+            &mut s,
+            "receive",
+            OPERATOR,
+            ("Laptop", true),
+            json!({"key": "IT-1", "name": "ThinkPad"}),
+        ));
+        // a sibling shares the base's uniqueness, and its invariant
+        assert!(matches!(
+            req(
+                &mut s,
+                "receive",
+                OPERATOR,
+                ("Server", true),
+                json!({"key": "IT-1", "name": "db"})
+            ),
+            Verdict::InvariantViolated { .. }
+        ));
+        assert!(matches!(
+            req(
+                &mut s,
+                "receive",
+                OPERATOR,
+                ("Server", true),
+                json!({"key": "IT-2", "name": ""})
+            ),
+            Verdict::InvariantViolated { .. }
+        ));
+        created(&req(
+            &mut s,
+            "receive",
+            OPERATOR,
+            ("Server", true),
+            json!({"key": "IT-2", "name": "db"}),
+        ));
+        // a reference to the base takes any of the family
+        created(&req(
+            &mut s,
+            "raise",
+            OPERATOR,
+            ("Ticket", true),
+            json!({"about": &laptop}),
+        ));
+        // and a scan of the base reads the family
+        let w = s.snapshot().unwrap();
+        let n = Evaluator::new(&w, None, None)
+            .eval(&crate::expr::parse("count(a in Asset: a)").unwrap())
+            .unwrap();
+        assert_eq!(n, Value::Int(2));
     }
 }

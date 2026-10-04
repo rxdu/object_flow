@@ -253,6 +253,13 @@ pub struct Type {
     /// The shared machine it binds, whose states, conditions and
     /// transitions the library merges into it (`flow-format.md` §4.10).
     pub state_machine: Option<String>,
+    /// The base it extends, whose attributes, derived attributes and
+    /// invariants it inherits (`declaration-syntax.md` §2).
+    pub extends: Option<String>,
+    /// A base with no objects of its own.
+    pub abstract_: bool,
+    /// Each inherited attribute, and the base that declares it.
+    pub inherited: BTreeMap<String, String>,
     /// The type as its description writes it, which `declaration` returns.
     pub source: serde_json::Value,
 }
@@ -670,8 +677,6 @@ impl Reader<'_> {
         let mut beyond = Vec::new();
         let at_outcome = Vec::new();
         for (key, what) in [
-            ("extends", "a family, the type extending a base"),
-            ("abstract", "an abstract type"),
             ("mirror", "a mirror type, owned elsewhere"),
             ("inherited_parts", "parts a family inherits"),
         ] {
@@ -781,6 +786,9 @@ impl Reader<'_> {
                 .get("state_machine")
                 .and_then(Node::text)
                 .map(str::to_string),
+            extends: node.get("extends").and_then(Node::text).map(str::to_string),
+            abstract_: self.flag(node, "abstract")?,
+            inherited: BTreeMap::new(),
             source: node.to_json(),
         })
     }
@@ -937,6 +945,9 @@ impl Reader<'_> {
             observations: Vec::new(),
             observation_on: Some(subject.to_string()),
             state_machine: None,
+            extends: None,
+            abstract_: false,
+            inherited: BTreeMap::new(),
             source,
         })
     }
@@ -1016,6 +1027,85 @@ pub struct Library {
     pub evaluators: Vec<String>,
     /// The modules loaded, in import order.
     pub modules: Vec<String>,
+}
+
+/// The bases a type extends, nearest first; the walk stops at an unknown
+/// name or where it would come back to a type it has passed.
+fn bases(name: &str, types: &BTreeMap<String, Type>) -> Vec<String> {
+    let mut chain = Vec::new();
+    let mut seen = BTreeSet::from([name.to_string()]);
+    let mut base = types.get(name).and_then(|t| t.extends.clone());
+    while let Some(b) = base {
+        if !seen.insert(b.clone()) || !types.contains_key(&b) {
+            break;
+        }
+        base = types.get(&b).and_then(|t| t.extends.clone());
+        chain.push(b);
+    }
+    chain
+}
+
+/// A subtype with what its bases give it: their attributes, derived
+/// attributes and invariants, the farthest base's first and its own last,
+/// its own replacing one of the same name in place; its own invariants are
+/// checked before the inherited ones (`declaration-syntax.md` §2,
+/// `flow-format.md` §4.8).
+fn inherit(t: &mut Type, chain: &[String], types: &BTreeMap<String, Type>) {
+    fn upsert<V: Clone>(into: &mut Vec<(String, V)>, n: &str, v: &V) {
+        match into.iter_mut().find(|(k, _)| k == n) {
+            Some(slot) => slot.1 = v.clone(),
+            None => into.push((n.to_string(), v.clone())),
+        }
+    }
+    let ancestors: Vec<&Type> = chain.iter().rev().filter_map(|b| types.get(b)).collect();
+    let mut attributes = Vec::new();
+    let mut derived = Vec::new();
+    let mut invariants = Vec::new();
+    for b in &ancestors {
+        for (n, a) in &b.attributes {
+            upsert(&mut attributes, n, a);
+            t.inherited.insert(n.clone(), b.name.clone());
+        }
+        for (n, e) in &b.derived {
+            upsert(&mut derived, n, e);
+        }
+        for (n, e) in &b.invariants {
+            upsert(&mut invariants, n, e);
+        }
+    }
+    for (n, a) in &t.attributes {
+        upsert(&mut attributes, n, a);
+        t.inherited.remove(n);
+    }
+    for (n, e) in &t.derived {
+        upsert(&mut derived, n, e);
+    }
+    let own: Vec<String> = t.invariants.iter().map(|(n, _)| n.clone()).collect();
+    for (n, e) in &t.invariants {
+        upsert(&mut invariants, n, e);
+    }
+    let (mine, theirs): (Vec<_>, Vec<_>) =
+        invariants.into_iter().partition(|(n, _)| own.contains(n));
+    t.attributes = attributes;
+    t.derived = derived;
+    t.invariants = mine.into_iter().chain(theirs).collect();
+    // the declaration as the reference runner serves a subtype's
+    for key in ["attributes", "derived_attributes", "invariants"] {
+        let mut merged = serde_json::Map::new();
+        for b in &ancestors {
+            if let Some(m) = b.source.get(key).and_then(|v| v.as_object()) {
+                merged.extend(m.clone());
+            }
+        }
+        if let Some(m) = t.source.get(key).and_then(|v| v.as_object()) {
+            merged.extend(m.clone());
+        }
+        if let Some(src) = t.source.as_object_mut()
+            && !merged.is_empty()
+        {
+            src.insert(key.into(), serde_json::Value::Object(merged));
+        }
+    }
 }
 
 /// A binder with its machine merged in: the machine's states; its
@@ -1135,6 +1225,9 @@ fn operator_type() -> Type {
         observations: Vec::new(),
         observation_on: None,
         state_machine: None,
+        extends: None,
+        abstract_: false,
+        inherited: BTreeMap::new(),
         source: serde_json::json!({
             "description": "The store's operator, its first actor (ADR-0126).",
             "attributes": { "identity": { "type": "identity", "actor_kind": "human" } },
@@ -1177,7 +1270,29 @@ impl Library {
                 }
             }
         }
+        // each subtype with what its bases give it, each base as declared
+        let declared = lib.types.clone();
+        for t in lib.types.values_mut() {
+            let chain = bases(&t.name, &declared);
+            if !chain.is_empty() {
+                inherit(t, &chain, &declared);
+            }
+        }
         Ok(lib)
+    }
+
+    /// The type whose family a uniqueness of an attribute spans: the one
+    /// declaring it, so a base's spans every subtype, siblings included
+    /// (`flow-format.md` §4.14, D519).
+    pub fn unique_scope<'t>(&'t self, t: &'t Type, attribute: &str) -> &'t str {
+        t.inherited
+            .get(attribute)
+            .map_or(t.name.as_str(), String::as_str)
+    }
+
+    /// Whether a type is the one wanted, or extends it.
+    pub fn is_a(&self, type_: &str, want: &str) -> bool {
+        type_ == want || bases(type_, &self.types).iter().any(|b| b == want)
     }
 
     pub fn type_(&self, name: &str) -> Option<&Type> {
@@ -1243,11 +1358,11 @@ types:
     fn what_the_slice_does_not_run_is_named_not_dropped() {
         let text = JOBS.replace(
             "    description: A job.\n",
-            "    description: A job.\n    extends: Base\n",
+            "    description: A job.\n    mirror: true\n",
         );
         let m = load_module("jobs.yaml", &text).unwrap();
         assert_eq!(m.types[0].beyond.len(), 1);
-        assert!(m.types[0].beyond[0].contains("Job.extends"));
+        assert!(m.types[0].beyond[0].contains("Job.mirror"));
     }
 
     #[test]

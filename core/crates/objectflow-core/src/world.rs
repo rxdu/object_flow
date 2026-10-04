@@ -92,7 +92,7 @@ impl<'l> World<'l> {
     pub fn of_type(&self, type_: &str) -> Vec<&Object> {
         self.in_order()
             .into_iter()
-            .filter(|o| o.type_ == type_)
+            .filter(|o| self.lib.is_a(&o.type_, type_))
             .collect()
     }
 

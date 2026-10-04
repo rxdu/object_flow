@@ -126,6 +126,7 @@ servicedesk.yaml a_request_resolved_past_its_goal
 servicedesk.yaml a_request_resolved_within_its_goal
 servicedesk.yaml a_resolved_incident_is_reviewed
 servicedesk.yaml a_resolved_request_closes_after_three_days
+servicedesk.yaml assets_share_one_key_sequence
 servicedesk.yaml a_standard_change_skips_review
 servicedesk.yaml a_stock_is_withdrawn_only_when_empty
 servicedesk.yaml a_stock_opens_empty
