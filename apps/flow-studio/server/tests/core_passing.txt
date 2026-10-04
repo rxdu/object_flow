@@ -1,6 +1,8 @@
 # The examples the core passes with the reference runner's outcome (ADR-0153
 # decision 6), one "<module file> <example>" a line: a ratchet, so none may
 # stop passing. tests/test_core_replay.py prints any newly passing.
+customers.yaml a_correction_replaces_a_mis_keyed_email
+customers.yaml a_customer_merged_into_itself_is_refused
 delivery.yaml an_item_not_reserved_is_not_delivered
 delivery.yaml an_open_checklist_item_holds_the_delivery
 delivery.yaml an_unapproved_delivery_is_not_handed_over
@@ -31,18 +33,37 @@ inventory.yaml a_sold_item_is_not_retired
 inventory.yaml grading_records_the_condition
 inventory.yaml releasing_frees_the_item
 inventory.yaml reserving_holds_the_item
+issues.yaml a_due_date_past_the_window
+issues.yaml an_unchanged_estimate_is_refused
+issues.yaml an_unestimated_item_is_not_reviewed
+issues.yaml completing_into_the_next_sprint
 issues.yaml one_active_sprint_per_space
+issues.yaml one_component_at_most
+issues.yaml work_is_planned_into_an_open_sprint
 reimbursement.yaml agent_cannot_confirm_nature
 reimbursement.yaml agent_suggests_nature
+reimbursement.yaml a_line_dated_a_day_ahead_of_utc_is_accepted
+reimbursement.yaml an_unanswered_xero_can_be_asked_again
+reimbursement.yaml approval_with_over_policy_line_is_flagged
+reimbursement.yaml correct_bill_id_then_verify
+reimbursement.yaml line_within_policy_is_not_flagged
+reimbursement.yaml over_policy_line_is_flagged
+reimbursement.yaml pay_verified_claim
 reimbursement.yaml person_overrides_agent
 reimbursement.yaml refuse_amend_under_review
 reimbursement.yaml refuse_amount_spent_abroad_without_its_currency
 reimbursement.yaml refuse_approval_before_review
 reimbursement.yaml refuse_empty_submission
 reimbursement.yaml refuse_line_dated_in_the_future
+reimbursement.yaml refuse_mismatched_xero_record
+reimbursement.yaml refuse_payment_not_yet_made
 reimbursement.yaml refuse_review_with_unclassified_line
 reimbursement.yaml refuse_suggestion_after_confirmation
 reimbursement.yaml refuse_zero_amount_line
+reimbursement.yaml reject_as_procurement
+reimbursement.yaml return_amend_resubmit
+reimbursement.yaml submit_claim
+reimbursement.yaml withdraw_draft
 servicedesk.yaml an_alert_is_snoozed_for_a_week_at_most
 servicedesk.yaml an_approval_asks_someone
 servicedesk.yaml a_negative_receipt_is_refused

@@ -75,6 +75,14 @@ pub struct Evaluator<'a> {
     filter_mode: bool,
     /// The position of the event an effect belongs to, `this_event`.
     event: Option<i64>,
+    /// The answers the store's evaluators give, `<evaluator>.<function>` to
+    /// `satisfied`, `unsatisfied` or `unanswered`: a sandbox's, which its
+    /// caller sets (ADR-0150). None for an offer, which asks no evaluator,
+    /// every call left unanswered (ADR-0048).
+    answers: Option<&'a BTreeMap<String, String>>,
+    /// Whether an evaluator it asked did not answer, which makes a refusing
+    /// guard's remedy temporal (ADR-0138).
+    pub unanswered: std::cell::Cell<bool>,
 }
 
 /// The truth of a value, three-valued: `None` for unknown.
@@ -105,7 +113,14 @@ impl<'a> Evaluator<'a> {
             actor: None,
             filter_mode: false,
             event: None,
+            answers: None,
+            unanswered: std::cell::Cell::new(false),
         }
+    }
+
+    pub fn with_answers(mut self, answers: &'a BTreeMap<String, String>) -> Evaluator<'a> {
+        self.answers = Some(answers);
+        self
     }
 
     pub fn with_event(mut self, position: i64) -> Evaluator<'a> {
@@ -583,9 +598,14 @@ impl<'a> Evaluator<'a> {
                     values.push(v);
                 }
                 if kind == "sum" {
-                    let mut total = Value::Int(0);
-                    for v in &values {
-                        total = combine(BinOp::Add, &total, v)?;
+                    // over no elements, 0; over some, their total, of their
+                    // type, so a sum of amounts is an amount (§8.3)
+                    let mut iter = values.into_iter();
+                    let Some(mut total) = iter.next() else {
+                        return Ok(Value::Int(0));
+                    };
+                    for v in iter {
+                        total = combine(BinOp::Add, &total, &v)?;
                     }
                     return Ok(total);
                 }
@@ -625,7 +645,7 @@ impl<'a> Evaluator<'a> {
                     Expr::Name(b)
                         if !env.contains_key(b) && b != "this" && !self.attribute_of_this(b) =>
                     {
-                        not_run(format!("the evaluator function {b}.{member}"))
+                        self.ask(b, member, args, env)
                     }
                     _ => not_run(format!("the member function `{member}`")),
                 };
@@ -649,6 +669,41 @@ impl<'a> Evaluator<'a> {
                 not_run(format!("`{name}`, which reads an object's intervals"))
             }
             _ => not_run(format!("the function `{name}`")),
+        }
+    }
+
+    /// An evaluator's verdict, as the store's evaluators answer it: asked
+    /// nothing where an argument is absent, the guard then unknown with its
+    /// own remedy (ADR-0146); `unanswered` leaves it unknown and temporal
+    /// (ADR-0138).
+    fn ask(
+        &self,
+        evaluator: &str,
+        function: &str,
+        args: &[Expr],
+        env: &BTreeMap<String, Value>,
+    ) -> Result<Value, NotRun> {
+        let key = format!("{evaluator}.{function}");
+        for a in args {
+            if self.value(a, env)?.is_absent() {
+                return Ok(Value::Absent);
+            }
+        }
+        // an offer asks no evaluator: the call is left unanswered (ADR-0048)
+        let Some(answers) = self.answers else {
+            self.unanswered.set(true);
+            return Ok(Value::Absent);
+        };
+        match answers.get(&key).map(String::as_str) {
+            Some("satisfied") => Ok(Value::Bool(true)),
+            Some("unsatisfied") => Ok(Value::Bool(false)),
+            Some("unanswered") => {
+                self.unanswered.set(true);
+                Ok(Value::Absent)
+            }
+            _ => not_run(format!(
+                "the evaluator function {key}, which the sandbox gives no answer for"
+            )),
         }
     }
 
@@ -856,6 +911,7 @@ types:
             created_at: 0,
             created_by_kind: "human".into(),
             order,
+            superseded_by: None,
         }
     }
 
@@ -1011,17 +1067,47 @@ types:
     }
 
     #[test]
+    fn an_evaluator_answers_as_the_sandbox_says() {
+        let lib = lib();
+        let mut w = World::new(&lib, 0);
+        w.objects.insert(
+            "job-1".into(),
+            job("job-1", 1, "OPEN", &[("title", Value::Text("Fix".into()))]),
+        );
+        let t = w.lib.type_("Job");
+        let call = parse("xero.bill_paid(title)").unwrap();
+        let answers: BTreeMap<String, String> =
+            [("xero.bill_paid".to_string(), "satisfied".to_string())].into();
+        let asking = Evaluator::new(&w, t, Some("job-1")).with_answers(&answers);
+        assert_eq!(asking.eval(&call), Ok(Value::Bool(true)));
+        assert!(!asking.unanswered.get());
+        // unanswered leaves it unknown, and says so
+        let answers: BTreeMap<String, String> =
+            [("xero.bill_paid".to_string(), "unanswered".to_string())].into();
+        let asking = Evaluator::new(&w, t, Some("job-1")).with_answers(&answers);
+        assert_eq!(asking.eval(&call), Ok(Value::Absent));
+        assert!(asking.unanswered.get());
+        // an absent argument asks nothing: unknown, but not unanswered (ADR-0146)
+        let absent = parse("xero.bill_paid(hours)").unwrap();
+        let asking = Evaluator::new(&w, t, Some("job-1")).with_answers(&answers);
+        assert_eq!(asking.eval(&absent), Ok(Value::Absent));
+        assert!(!asking.unanswered.get());
+        // an offer asks no evaluator (ADR-0048)
+        let offering = Evaluator::new(&w, t, Some("job-1"));
+        assert_eq!(offering.eval(&call), Ok(Value::Absent));
+        assert!(offering.unanswered.get());
+        // and a sandbox that gives no answer is not guessed
+        let none = BTreeMap::new();
+        let asking = Evaluator::new(&w, t, Some("job-1")).with_answers(&none);
+        assert!(asking.eval(&call).unwrap_err().0.contains("xero.bill_paid"));
+    }
+
+    #[test]
     fn what_the_slice_does_not_run_is_named() {
         let lib = lib();
         let mut w = World::new(&lib, 0);
         w.objects
             .insert("job-1".into(), job("job-1", 1, "OPEN", &[]));
-        assert!(
-            eval(&w, "job-1", "xero.bill_paid(title)")
-                .unwrap_err()
-                .0
-                .contains("evaluator")
-        );
         assert!(
             eval(&w, "job-1", "time_in(OPEN) > 1 h")
                 .unwrap_err()

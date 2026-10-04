@@ -21,6 +21,8 @@ pub struct Object {
     pub created_by_kind: String,
     /// Its place in creation order, which ascending id order is (ADR-0038).
     pub order: i64,
+    /// The object that supersedes it, once a `supersede` step names one.
+    pub superseded_by: Option<String>,
 }
 
 impl Object {

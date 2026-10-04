@@ -286,6 +286,13 @@ async fn evaluators(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
     if let Some(answers) = body.get("answers").and_then(J::as_object) {
         sandbox.answers.extend(answers.clone());
     }
+    // the store asks its evaluators through these answers (PRD F13)
+    let given = sandbox
+        .answers
+        .iter()
+        .filter_map(|(k, v)| v.as_str().map(|a| (k.clone(), a.to_string())))
+        .collect();
+    store(&mut sandbox)?.answers = given;
     Ok(Json(json!({ "answers": sandbox.answers })))
 }
 

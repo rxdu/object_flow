@@ -244,6 +244,9 @@ pub struct Store {
     /// The store's clock, in seconds since 1970: a sandbox's caller holds it
     /// (PRD F13).
     pub now: i64,
+    /// What its evaluators answer, `<evaluator>.<function>` to `satisfied`,
+    /// `unsatisfied` or `unanswered`: a sandbox's caller sets them (PRD F13).
+    pub answers: BTreeMap<String, String>,
 }
 
 impl Store {
@@ -253,7 +256,12 @@ impl Store {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         conn.execute_batch(SCHEMA)?;
-        let store = Store { conn, lib, now };
+        let store = Store {
+            conn,
+            lib,
+            now,
+            answers: BTreeMap::new(),
+        };
         for t in store.lib.types.values() {
             store.conn.execute_batch(&store.type_ddl(t))?;
         }
@@ -278,6 +286,13 @@ impl Store {
             "last_event INTEGER NOT NULL REFERENCES of_event(position)".to_string(),
             "state_source TEXT NOT NULL DEFAULT 'observed'".to_string(),
         ];
+        // present only on a type with a superseding state (§3)
+        if t.states.iter().any(|(_, s)| s.superseding) {
+            cols.push(
+                "superseded_by TEXT REFERENCES of_object(id) DEFERRABLE INITIALLY DEFERRED"
+                    .to_string(),
+            );
+        }
         let mut constraints = vec![
             format!(
                 "CONSTRAINT {} CHECK (state IN ({states}))",
@@ -657,6 +672,15 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
             world.objects.insert(
                 id.clone(),
                 Object {
+                    superseded_by: if t.states.iter().any(|(_, s)| s.superseding) {
+                        conn.query_row(
+                            &format!("SELECT superseded_by FROM {name} WHERE id = ?1"),
+                            params![id],
+                            |r| r.get::<_, Option<String>>(0),
+                        )?
+                    } else {
+                        None
+                    },
                     id,
                     type_: type_.clone(),
                     state,
@@ -725,6 +749,10 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
             Sql::Integer(1),
             Sql::Integer(event.position),
         ];
+        if t.states.iter().any(|(_, s)| s.superseding) {
+            cols.push("superseded_by".to_string());
+            vals.push(o.superseded_by.clone().map_or(Sql::Null, Sql::Text));
+        }
         for (n, a) in &scalars {
             cols.push(quote(&column(n, a)));
             vals.push(to_sql(&o.attr(n))?);

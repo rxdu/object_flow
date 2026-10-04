@@ -191,19 +191,15 @@ pub fn availability(
                 needs = true; // decided when the inputs are given
                 continue;
             }
-            let ok = match Evaluator::new(world, Some(t), Some(id))
+            let asking = Evaluator::new(world, Some(t), Some(id))
                 .with_inputs(&no_inputs)
-                .with_actor(who)
-                .eval(&c.expression)
-            {
-                Ok(v) => truth(&v)?,
-                // an evaluator is never asked by an offer (ADR-0048)
-                Err(NotRun(what)) if what.starts_with("the evaluator function") => {
-                    unevaluated.push(g.clone());
-                    continue;
-                }
-                Err(e) => return Err(e),
-            };
+                .with_actor(who);
+            let ok = truth(&asking.eval(&c.expression)?)?;
+            // an evaluator is never asked by an offer (ADR-0048)
+            if asking.unanswered.get() {
+                unevaluated.push(g.clone());
+                continue;
+            }
             if ok != Some(true) {
                 match mode {
                     Enforce::Deny => {

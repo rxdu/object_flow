@@ -162,6 +162,7 @@ struct Ctx<'w> {
     /// The requested transition's type, whose own clauses go unqualified.
     requested: String,
     occurred: Option<i64>,
+    answers: BTreeMap<String, String>,
     flags: Vec<Flag>,
     /// Every event, in the order recorded.
     events: Vec<Event>,
@@ -173,8 +174,9 @@ pub fn decide(
     world: &World<'_>,
     alloc: &mut Allocator,
     req: &Request,
+    answers: &BTreeMap<String, String>,
 ) -> Result<(Verdict, Option<Change>), NotRun> {
-    match decide_or_stop(world, alloc, req) {
+    match decide_or_stop(world, alloc, req, answers) {
         Ok(answer) => Ok(answer),
         Err(Stop::Refused(v)) => Ok((v, None)),
         Err(Stop::NotRun(e)) => Err(e),
@@ -185,6 +187,7 @@ fn decide_or_stop(
     world: &World<'_>,
     alloc: &mut Allocator,
     req: &Request,
+    answers: &BTreeMap<String, String>,
 ) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
     // 1. the actor
@@ -281,6 +284,7 @@ fn decide_or_stop(
         who,
         requested: tn.clone(),
         occurred: req.occurred_at,
+        answers: answers.clone(),
         flags: Vec::new(),
         events: Vec::new(),
         created: BTreeSet::new(),
@@ -454,6 +458,26 @@ fn take(
     if depth == 0 && ctx.occurred.is_some() {
         return stop_not_run("a request's occurred time, which the core does not yet date");
     }
+    // a successor an input names is neither this object nor one already
+    // superseded, so no supersession chain closes on itself (ADR-0144)
+    for step in &x.effect {
+        if let Step::Supersede(Expr::Path(base, k)) = step
+            && matches!(&**base, Expr::Name(n) if n == "inputs")
+            && let Some(Value::Object(successor)) = inputs.get(k)
+        {
+            let superseded = ctx.work.get(successor).is_some_and(|s| {
+                lib.type_(&s.type_)
+                    .and_then(|st| st.state(&s.state))
+                    .is_some_and(|state| state.superseding)
+            });
+            if Some(successor.as_str()) == oid.as_deref() || superseded {
+                return refused(Verdict::Unsatisfied {
+                    clause: "successor_not_superseded".into(),
+                    remedy: Some(Remedy::SelfServiceable),
+                });
+            }
+        }
+    }
     for k in &x.required_inputs {
         if !inputs.contains_key(k) {
             return refused(Verdict::Unsatisfied {
@@ -466,18 +490,23 @@ fn take(
         let Some(c) = t.condition(g) else {
             return stop_not_run(format!("the guard {g}, which {tn} does not declare"));
         };
-        let ok = truth(
-            &Evaluator::new(&ctx.work, Some(t), oid.as_deref())
-                .with_inputs(&inputs)
-                .with_actor(&ctx.who)
-                .eval(&c.expression)?,
-        )?;
+        let asking = Evaluator::new(&ctx.work, Some(t), oid.as_deref())
+            .with_inputs(&inputs)
+            .with_actor(&ctx.who)
+            .with_answers(&ctx.answers);
+        let ok = truth(&asking.eval(&c.expression)?)?;
         if ok != Some(true) {
             match mode {
                 Enforce::Deny => {
+                    // an evaluator that did not answer leaves the guard
+                    // unknown, and the caller may try again (ADR-0138)
                     return refused(Verdict::Unsatisfied {
                         clause: g.clone(),
-                        remedy: c.remedy,
+                        remedy: if asking.unanswered.get() {
+                            Some(Remedy::Temporal)
+                        } else {
+                            c.remedy
+                        },
                     });
                 }
                 Enforce::Warn => {
@@ -517,6 +546,7 @@ fn take(
                 created_at: ctx.work.now,
                 created_by_kind: ctx.who.kind.clone(),
                 order: ctx.work.next_order(),
+                superseded_by: None,
             };
             for (a, spec) in &t.attributes {
                 // a set is never absent: created empty unless given, a derived
@@ -628,6 +658,7 @@ fn effect_value(
     let ev = Evaluator::new(&ctx.work, Some(t), Some(id))
         .with_inputs(inputs)
         .with_actor(&ctx.who)
+        .with_answers(&ctx.answers)
         .with_event(position);
     if filtering {
         ev.filtering().eval_in(e, env)
@@ -832,8 +863,15 @@ fn effects(
                     effects(ctx, alloc, t, id, steps, inputs, &inner, depth, position)?;
                 }
             }
-            Step::Supersede(_) => {
-                return stop_not_run(format!("supersession ({}.{})", t.name, "supersede"));
+            Step::Supersede(expr) => {
+                match effect_value(ctx, t, id, inputs, &env, position, expr, false)? {
+                    Value::Object(successor) => {
+                        if let Some(o) = ctx.work.objects.get_mut(id) {
+                            o.superseded_by = Some(successor);
+                        }
+                    }
+                    _ => return stop_not_run("a supersession naming no successor"),
+                }
             }
         }
     }
@@ -1311,7 +1349,8 @@ pub fn request(
     store: &mut crate::store::Store,
     req: &Request,
 ) -> Result<Result<Verdict, NotRun>, crate::store::StoreError> {
-    store.transact(|world, alloc| decide(world, alloc, req))
+    let answers = store.answers.clone();
+    store.transact(|world, alloc| decide(world, alloc, req, &answers))
 }
 
 #[cfg(test)]
@@ -1726,11 +1765,15 @@ types:
     }
 
     #[test]
-    fn an_effect_writes_and_what_is_not_run_is_reached_late() {
+    fn an_effect_writes_and_a_supersession_records_its_successor() {
         let text = JOBS.replace(
             "      finish: { kind: external, from: [WORKING], to: DONE }",
             "      finish: { kind: external, from: [WORKING], to: DONE, effect: [ { assign: { location: note, expr: '\"done\"' } }, { clear: [hours] } ] }\n      \
-             retire: { kind: external, from: [DONE], to: DONE, effect: [ { supersede: engineer } ] }",
+             retire: { kind: external, from: [DONE], to: RETIRED, effect: [ { supersede: engineer } ] }",
+        );
+        let text = text.replace(
+            "      DONE: { category: closed, final: true }",
+            "      DONE: { category: closed }\n      RETIRED: { category: closed, final: true, superseding: true }",
         );
         let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
         let mut s = Store::sandbox(lib, 0).unwrap();
@@ -1769,23 +1812,12 @@ types:
         assert_eq!(j.state, "DONE");
         assert_eq!(j.attr("note"), Value::Text("done".into()));
         assert_eq!(j.attr("hours"), Value::Absent);
-        // supersession, which the core does not yet run, is reached late
+        // a supersession records its successor
+        created(&req(&mut s, "retire", OPERATOR, (&job, false), json!({})));
+        let w = s.snapshot().unwrap();
         assert_eq!(
-            req(&mut s, "retire", "nobody", (&job, false), json!({})),
-            Verdict::Unsatisfied {
-                clause: "actor_known".into(),
-                remedy: Some(Remedy::Dependent)
-            }
+            w.get(&job).unwrap().superseded_by.as_deref(),
+            Some(ana.as_str())
         );
-        let r = Request {
-            transition: "retire".into(),
-            actor: OPERATOR.into(),
-            object_id: Some(job.clone()),
-            type_: None,
-            inputs: BTreeMap::new(),
-            occurred_at: None,
-        };
-        let not = request(&mut s, &r).unwrap().unwrap_err();
-        assert!(not.0.contains("supersession"), "{not}");
     }
 }

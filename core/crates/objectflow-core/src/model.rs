@@ -180,6 +180,8 @@ pub struct State {
     pub category: String,
     pub is_final: bool,
     pub required_attributes: Vec<String>,
+    /// An object in it is superseded: another stands in its place (ADR-0028).
+    pub superseding: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -628,7 +630,7 @@ impl Reader<'_> {
 
     fn type_(&self, module: &str, name: &str, node: &Node) -> Loaded<Type> {
         let mut beyond = Vec::new();
-        let mut at_outcome = Vec::new();
+        let at_outcome = Vec::new();
         for (key, what) in [
             ("state_machine", "a machine the type binds"),
             ("extends", "a family, the type extending a base"),
@@ -662,9 +664,6 @@ impl Reader<'_> {
         }
         let mut states = Vec::new();
         for (n, spec) in node.get("states").map(Node::entries).unwrap_or_default() {
-            if spec.get("superseding").is_some() {
-                at_outcome.push(format!("supersession ({name}.{n})"));
-            }
             states.push((
                 n.clone(),
                 State {
@@ -675,6 +674,7 @@ impl Reader<'_> {
                         .to_string(),
                     is_final: self.flag(spec, "final")?,
                     required_attributes: self.names(spec.get("required_attributes"))?,
+                    superseding: self.flag(spec, "superseding")?,
                 },
             ));
         }
@@ -839,6 +839,7 @@ fn operator_type() -> Type {
                     category: "live".to_string(),
                     is_final: false,
                     required_attributes: Vec::new(),
+                    superseding: false,
                 },
             ),
             (
@@ -847,6 +848,7 @@ fn operator_type() -> Type {
                     category: "closed".to_string(),
                     is_final: true,
                     required_attributes: Vec::new(),
+                    superseding: false,
                 },
             ),
         ],
