@@ -248,6 +248,32 @@ pub struct Type {
     pub source: serde_json::Value,
 }
 
+impl Library {
+    /// The members whose every value is timed: the state, each enumeration
+    /// attribute, and each singular reference the object stores (PRD D11,
+    /// `DESIGN.md` §7).
+    pub fn tracked(&self, t: &Type) -> Vec<String> {
+        let mut out = vec!["state".to_string()];
+        for (n, a) in &t.attributes {
+            if a.many {
+                continue;
+            }
+            let tracked = match &a.declared {
+                Declared::Scalar(s) => self.enumerations.contains_key(s.as_str()),
+                Declared::Reference(target) => a.opposite.as_ref().is_none_or(|o| {
+                    self.type_(target)
+                        .and_then(|tt| tt.attribute(o))
+                        .is_some_and(|back| back.many)
+                }),
+            };
+            if tracked {
+                out.push(n.clone());
+            }
+        }
+        out
+    }
+}
+
 impl Attribute {
     /// Whether the object stores it as a set: a set of values, or of
     /// references with no opposite end to compute it from (§3.3).

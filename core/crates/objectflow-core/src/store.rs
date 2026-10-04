@@ -19,7 +19,7 @@ use crate::model::{Attribute, Declared, Library, OPERATOR, Type};
 use crate::value::{
     Decimal, Value, date_text, minor_unit, parse_date, parse_timestamp, timestamp_text,
 };
-use crate::world::{Object, World};
+use crate::world::{Object, Span, World};
 
 /// A fault of the store: the database, or a row that does not read back.
 #[derive(Debug)]
@@ -112,6 +112,7 @@ fn to_sql(v: &Value) -> Stored<Sql> {
         Value::State { name, .. } => Sql::Text(name.clone()),
         Value::Member { member, .. } => Sql::Text(member.clone()),
         Value::Set(_) => return Err(StoreError("a set in a column".to_string())),
+        Value::Row(_) => return Err(StoreError("a row of flow data in a column".to_string())),
     })
 }
 
@@ -228,6 +229,24 @@ CREATE TABLE of_counter (
   value  INTEGER NOT NULL
 );
 INSERT INTO of_counter (name, value) VALUES ('position', 0), ('txn', 0), ('object', 0);
+CREATE TABLE of_interval (
+  object_id           TEXT    NOT NULL REFERENCES of_object(id),
+  dimension           TEXT    NOT NULL,
+  value               TEXT,
+  entered_position    INTEGER NOT NULL,
+  left_position       INTEGER,
+  entered_at          TEXT    NOT NULL,
+  left_at             TEXT,
+  entered_by          TEXT,
+  entered_by_kind     TEXT    NOT NULL,
+  declaration_version INTEGER NOT NULL,
+  legacy              INTEGER NOT NULL DEFAULT 0,
+  migrated            INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (object_id, dimension, entered_position, entered_at)
+);
+CREATE INDEX of_interval_current ON of_interval (dimension, value) WHERE left_position IS NULL;
+CREATE INDEX of_interval_entered ON of_interval (dimension, entered_at) WHERE left_position IS NULL;
+CREATE INDEX of_interval_by_object ON of_interval (object_id, dimension, left_position);
 CREATE TABLE of_sequence (
   sequence TEXT    NOT NULL,
   scope    TEXT    NOT NULL,                        -- '' for a sequence with no scope
@@ -689,11 +708,74 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
                     created_at,
                     created_by_kind: kind,
                     order,
+                    spans: BTreeMap::new(),
                 },
             );
         }
     }
+    spans(conn, lib, &mut world)?;
     Ok(world)
+}
+
+/// Every object's flow data, from the interval index, in each dimension's
+/// order.
+fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> {
+    let mut stmt = conn.prepare(
+        "SELECT object_id, dimension, value, entered_position, left_position, entered_at, left_at, \
+         entered_by, entered_by_kind FROM of_interval ORDER BY object_id, dimension, entered_position, entered_at",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Sql>(2)?,
+            r.get::<_, i64>(3)?,
+            r.get::<_, Option<i64>>(4)?,
+            r.get::<_, String>(5)?,
+            r.get::<_, Option<String>>(6)?,
+            r.get::<_, Option<String>>(7)?,
+            r.get::<_, String>(8)?,
+        ))
+    })?;
+    for row in rows {
+        let (id, dimension, value, entered_position, left_position, entered_at, left_at, by, kind) =
+            row?;
+        let Some(o) = world.objects.get_mut(&id) else {
+            return Err(StoreError(format!(
+                "an interval of {id}, which the directory lacks"
+            )));
+        };
+        let value = if dimension == "state" {
+            match value {
+                Sql::Text(name) => Value::State {
+                    type_: o.type_.clone(),
+                    name,
+                },
+                other => return Err(StoreError(format!("{id}'s state interval holds {other:?}"))),
+            }
+        } else {
+            let Some(a) = lib.type_(&o.type_).and_then(|t| t.attribute(&dimension)) else {
+                return Err(StoreError(format!(
+                    "an interval of {id}.{dimension}, which is not an attribute"
+                )));
+            };
+            from_sql(value, &a.declared, lib)?
+        };
+        let at = |text: &str| {
+            parse_timestamp(text).ok_or_else(|| StoreError(format!("an interval time {text}")))
+        };
+        let span = Span {
+            value,
+            entered_position,
+            left_position,
+            entered_at: at(&entered_at)?,
+            left_at: left_at.as_deref().map(at).transpose()?,
+            entered_by: by,
+            entered_by_kind: kind,
+        };
+        o.spans.entry(dimension).or_default().push(span);
+    }
+    Ok(())
 }
 
 fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
@@ -780,6 +862,32 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
                 &format!("UPDATE {name} SET {} WHERE id = ?1", sets.join(", ")),
                 rusqlite::params_from_iter(vals.iter()),
             )?;
+        }
+        // the spans this event opened or ended, written with it, in the same
+        // transaction (storage-schema.md, of_interval)
+        for (dimension, spans) in &o.spans {
+            for sp in spans.iter().filter(|sp| {
+                sp.entered_position == event.position || sp.left_position == Some(event.position)
+            }) {
+                tx.execute(
+                    "INSERT INTO of_interval (object_id, dimension, value, entered_position, left_position, \
+                     entered_at, left_at, entered_by, entered_by_kind, declaration_version) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1) \
+                     ON CONFLICT (object_id, dimension, entered_position, entered_at) DO UPDATE SET \
+                     value = excluded.value, left_position = excluded.left_position, left_at = excluded.left_at",
+                    params![
+                        o.id,
+                        dimension,
+                        to_sql(&sp.value)?,
+                        sp.entered_position,
+                        sp.left_position,
+                        timestamp_text(sp.entered_at),
+                        sp.left_at.map(timestamp_text),
+                        sp.entered_by,
+                        sp.entered_by_kind,
+                    ],
+                )?;
+            }
         }
         for (n, _) in t.attributes.iter().filter(|(_, a)| a.stored_set()) {
             let side = quote(&format!("{name}__{n}"));

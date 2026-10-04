@@ -23,6 +23,25 @@ pub struct Object {
     pub order: i64,
     /// The object that supersedes it, once a `supersede` step names one.
     pub superseded_by: Option<String>,
+    /// Its flow data: for the state and each tracked member, the spans it
+    /// held each value for, in order (`storage-schema.md`, `of_interval`).
+    pub spans: BTreeMap<String, Vec<Span>>,
+}
+
+/// How long an object held a state, or a value of a tracked member, as one
+/// row of the interval index holds it (ADR-0083, ADR-0101).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Span {
+    /// The state, or the member's value; absent where it had none.
+    pub value: Value,
+    /// The event that set it, and the one that ended it, while it is not
+    /// the current value.
+    pub entered_position: i64,
+    pub left_position: Option<i64>,
+    pub entered_at: i64,
+    pub left_at: Option<i64>,
+    pub entered_by: Option<String>,
+    pub entered_by_kind: String,
 }
 
 impl Object {

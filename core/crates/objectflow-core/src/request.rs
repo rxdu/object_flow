@@ -30,7 +30,7 @@ use crate::store::{Allocator, Change, Event};
 use crate::value::Value;
 use crate::verdict::{Flag, InvariantFailure, Verdict};
 use crate::wire;
-use crate::world::{Object, World};
+use crate::world::{Object, Span, World};
 
 /// A request, as the library takes it (`library-api.md` §3).
 #[derive(Clone, Debug, PartialEq)]
@@ -527,6 +527,11 @@ fn take(
     if let Some(what) = t.at_outcome.first() {
         return stop_not_run(what.clone());
     }
+    // the tracked values as the transition finds them, its spans' baseline
+    let before = oid
+        .as_deref()
+        .and_then(|id| ctx.work.get(id))
+        .map(|o| tracked_values(lib, t, o));
     // 6. the outcome, its position allocated as it begins applying
     let position = alloc.position();
     alloc.txn();
@@ -547,6 +552,7 @@ fn take(
                 created_by_kind: ctx.who.kind.clone(),
                 order: ctx.work.next_order(),
                 superseded_by: None,
+                spans: BTreeMap::new(),
             };
             for (a, spec) in &t.attributes {
                 // a set is never absent: created empty unless given, a derived
@@ -603,10 +609,11 @@ fn take(
         position,
     )?;
     cascades(ctx, alloc, t, xn, &id, &inputs, depth)?;
-    // the event, recorded as the transition ends
+    // the event, recorded as the transition ends, with the spans it opens
     let Some(o) = ctx.work.objects.get_mut(&id) else {
         return stop_not_run(format!("the object {id}, which its own effect removed"));
     };
+    record_spans(lib, t, o, before.as_ref(), position, ctx.work.now, &ctx.who);
     o.version += 1;
     let event = Event {
         position,
@@ -627,6 +634,61 @@ fn take(
     };
     ctx.events.push(event);
     Ok(id)
+}
+
+/// The value of the state and of each tracked member (`DESIGN.md` §7).
+fn tracked_values(lib: &Library, t: &Type, o: &Object) -> Vec<(String, Value)> {
+    lib.tracked(t)
+        .into_iter()
+        .map(|m| {
+            let v = if m == "state" {
+                Value::State {
+                    type_: o.type_.clone(),
+                    name: o.state.clone(),
+                }
+            } else {
+                o.attr(&m)
+            };
+            (m, v)
+        })
+        .collect()
+}
+
+/// The spans a transition opens: on a creation, one for the state and for
+/// every tracked member, absent ones included; otherwise one for each whose
+/// value it changed, ending the current one. A write that leaves a value as
+/// it was opens nothing (`storage-schema.md`, ADR-0101, ADR-0106).
+fn record_spans(
+    lib: &Library,
+    t: &Type,
+    o: &mut Object,
+    before: Option<&Vec<(String, Value)>>,
+    position: i64,
+    now: i64,
+    who: &Who,
+) {
+    for (m, v) in tracked_values(lib, t, o) {
+        let was = before.and_then(|b| b.iter().find(|(n, _)| *n == m).map(|(_, w)| w));
+        let spans = o.spans.entry(m).or_default();
+        if before.is_some() && !spans.is_empty() && was == Some(&v) {
+            continue;
+        }
+        if let Some(last) = spans.last_mut()
+            && last.left_position.is_none()
+        {
+            last.left_position = Some(position);
+            last.left_at = Some(now);
+        }
+        spans.push(Span {
+            value: v,
+            entered_position: position,
+            left_position: None,
+            entered_at: now,
+            left_at: None,
+            entered_by: Some(who.id.clone()),
+            entered_by_kind: who.kind.clone(),
+        });
+    }
 }
 
 /// A write whose right-hand side is an unsupplied optional input is skipped
@@ -1818,6 +1880,89 @@ types:
         assert_eq!(
             w.get(&job).unwrap().superseded_by.as_deref(),
             Some(ana.as_str())
+        );
+    }
+
+    #[test]
+    fn intervals_are_opened_ended_and_read_back() {
+        let mut s = store();
+        let t0 = s.now;
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fix", "priority": "LOW"}),
+        ));
+        s.now += 3600;
+        let ana = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        created(&req(
+            &mut s,
+            "start",
+            OPERATOR,
+            (&job, false),
+            json!({"engineer": &ana}),
+        ));
+        // a write that changes no tracked value opens nothing
+        created(&req(
+            &mut s,
+            "estimate",
+            OPERATOR,
+            (&job, false),
+            json!({"hours": 3}),
+        ));
+        s.now += 7200;
+        created(&req(&mut s, "finish", OPERATOR, (&job, false), json!({})));
+        s.now += 600;
+        // read back from the store, as the next request reads them
+        let w = s.snapshot().unwrap();
+        let o = w.get(&job).unwrap();
+        let counts: Vec<(&str, usize)> =
+            o.spans.iter().map(|(m, v)| (m.as_str(), v.len())).collect();
+        assert_eq!(counts, vec![("engineer", 2), ("priority", 1), ("state", 3)]);
+        let t = w.lib.type_("Job");
+        let at = |e: &str| {
+            Evaluator::new(&w, t, Some(&job))
+                .eval(&crate::expr::parse(e).unwrap())
+                .unwrap()
+        };
+        assert_eq!(
+            at("count(i in this.intervals where i.state == Job.WORKING)"),
+            Value::Int(1)
+        );
+        assert_eq!(at("time_in(WORKING)"), Value::Duration(7200));
+        assert_eq!(at("time_in(OPEN)"), Value::Duration(3600));
+        assert_eq!(at("entered_at(DONE)"), Value::Timestamp(t0 + 10_800));
+        assert_eq!(at("entered_at(priority)"), Value::Timestamp(t0));
+        assert_eq!(at("entered_at(WORKING) is not null"), Value::Bool(true));
+        // the current span of a closed state has no duration (ADR-0146)
+        assert_eq!(
+            at("count(i in this.intervals where i.duration is null)"),
+            Value::Int(1)
+        );
+        // a member's span counts only its object's open time (ADR-0148):
+        // unassigned an hour, then assigned two hours and ten minutes, the
+        // last ten closed
+        assert_eq!(
+            at("sum(i in this.intervals(engineer) where i.value is not null: i.duration)"),
+            Value::Duration(7200)
+        );
+        assert_eq!(
+            at("sum(i in this.intervals(engineer) where i.value is null: i.duration)"),
+            Value::Duration(3600)
+        );
+        assert!(
+            Evaluator::new(&w, t, Some(&job))
+                .eval(&crate::expr::parse("count(i in this.intervals(title): i)").unwrap())
+                .unwrap_err()
+                .0
+                .contains("not tracked")
         );
     }
 }

@@ -8,6 +8,7 @@
 //! cannot be held is unknown rather than wrong.
 
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::fmt;
 
 /// A decimal number, `units / 10^scale`, exact. Two decimals are equal when
@@ -394,6 +395,8 @@ pub enum Value {
     Object(String),
     /// A set, in the order its elements were added.
     Set(Vec<Value>),
+    /// A row of an object's own flow data: a span of `intervals` (§6.9).
+    Row(BTreeMap<String, Value>),
 }
 
 impl Value {

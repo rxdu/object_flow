@@ -161,6 +161,9 @@ pub fn encode(v: &Value) -> Json {
         Value::State { name, .. } => json!(name),
         Value::Member { member, .. } => json!(member),
         Value::Set(items) => Json::Array(items.iter().map(encode).collect()),
+        Value::Row(fields) => {
+            Json::Object(fields.iter().map(|(k, v)| (k.clone(), encode(v))).collect())
+        }
     }
 }
 

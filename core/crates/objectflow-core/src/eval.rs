@@ -371,6 +371,16 @@ impl<'a> Evaluator<'a> {
                     .unwrap_or_default();
                 return Ok(Term::Category(category));
             }
+            Term::Value(Value::Row(fields)) => {
+                return match fields.get(m) {
+                    Some(v) => Ok(Term::Value(v.clone())),
+                    // a span no correction relabelled (ADR-0146)
+                    None if m == "corrected_by" => Ok(Term::absent()),
+                    None => not_run(format!(
+                        "the member `{m}` of a row of an object's flow data"
+                    )),
+                };
+            }
             Term::Value(Value::Object(id)) => id,
             other => return not_run(format!("a member `{m}` of {other:?}")),
         };
@@ -397,7 +407,8 @@ impl<'a> Evaluator<'a> {
                 Some((attr, _)) => o.attr(attr),
                 None => Value::Absent,
             },
-            "intervals" | "transitions" | "attempts" | "labels" => {
+            "intervals" => self.intervals(o, t, "state")?,
+            "transitions" | "attempts" | "labels" => {
                 return not_run(format!("an object's `{m}`, its flow data"));
             }
             _ => {
@@ -412,7 +423,10 @@ impl<'a> Evaluator<'a> {
                         Value::Absent
                     }
                 } else if let Some((_, e)) = t.derived.iter().find(|(d, _)| d == m) {
-                    Evaluator::new(self.world, Some(t), Some(&o.id)).eval(e)?
+                    // asked with the same answers, as the runner asks it
+                    let mut derived = Evaluator::new(self.world, Some(t), Some(&o.id));
+                    derived.answers = self.answers;
+                    derived.eval(e)?
                 } else {
                     return not_run(format!("the member `{}.{m}`", o.type_));
                 }
@@ -641,11 +655,23 @@ impl<'a> Evaluator<'a> {
         let name = match function {
             Expr::Name(n) => n.as_str(),
             Expr::Path(base, member) => {
-                return match &**base {
-                    Expr::Name(b)
-                        if !env.contains_key(b) && b != "this" && !self.attribute_of_this(b) =>
-                    {
-                        self.ask(b, member, args, env)
+                if let Expr::Name(b) = &**base
+                    && !env.contains_key(b)
+                    && b != "this"
+                    && !self.attribute_of_this(b)
+                {
+                    return self.ask(b, member, args, env);
+                }
+                return match (member.as_str(), args) {
+                    ("intervals" | "entered_at" | "time_in", [Expr::Name(arg)]) => {
+                        match self.value(base, env)? {
+                            Value::Absent => Ok(Value::Absent),
+                            Value::Object(id) => self.flow_function(&id, member, arg),
+                            other => not_run(format!("`{member}` of {other:?}")),
+                        }
+                    }
+                    ("held", [Expr::Name(_)]) => {
+                        not_run("a row's `held`, the values held as it began")
                     }
                     _ => not_run(format!("the member function `{member}`")),
                 };
@@ -665,11 +691,103 @@ impl<'a> Evaluator<'a> {
                 Value::Timestamp(t) => Value::Date(t.div_euclid(86_400)),
                 other => return not_run(format!("the date of {other:?}")),
             }),
-            ("entered_at" | "time_in", _) => {
-                not_run(format!("`{name}`, which reads an object's intervals"))
-            }
+            ("entered_at" | "time_in", [Expr::Name(arg)]) => match self.this {
+                Some(id) => self.flow_function(id, name, arg),
+                None => Ok(Value::Absent),
+            },
             _ => not_run(format!("the function `{name}`")),
         }
+    }
+
+    /// An object's `intervals(<member>)`, `entered_at(<STATE or member>)` or
+    /// `time_in(<STATE>)`, read from its flow data (`declaration-syntax.md`
+    /// §8.3).
+    fn flow_function(&self, id: &str, function: &str, arg: &str) -> Result<Value, NotRun> {
+        let Some(o) = self.world.get(id) else {
+            return not_run(format!("`{function}` of an object the store does not hold"));
+        };
+        let Some(t) = self.type_named(&o.type_) else {
+            return not_run(format!("the type {}", o.type_));
+        };
+        let state_spans = || {
+            o.spans
+                .get("state")
+                .into_iter()
+                .flatten()
+                .filter(move |sp| matches!(&sp.value, Value::State { name, .. } if name == arg))
+        };
+        match function {
+            "intervals" => self.intervals(o, t, arg),
+            // when it most recently entered the state, or took the member's
+            // current value; unknown if it never has
+            "entered_at" if t.state(arg).is_some() => Ok(state_spans()
+                .next_back()
+                .map_or(Value::Absent, |sp| Value::Timestamp(sp.entered_at))),
+            "entered_at" => match o.spans.get(arg).and_then(|spans| spans.last()) {
+                Some(sp) => Ok(Value::Timestamp(sp.entered_at)),
+                None => not_run(format!(
+                    "`entered_at({arg})`, which names neither a state nor a tracked member"
+                )),
+            },
+            // real elapsed time in the state, a current span up to now,
+            // whatever state the object is in (ADR-0147)
+            "time_in" => Ok(Value::Duration(
+                state_spans()
+                    .map(|sp| sp.left_at.unwrap_or(self.world.now) - sp.entered_at)
+                    .sum(),
+            )),
+            _ => not_run(format!("the member function `{function}`")),
+        }
+    }
+
+    /// An object's spans in each state, or each value of a tracked member, as
+    /// rows (§6.9).
+    fn intervals(&self, o: &Object, t: &Type, member: &str) -> Result<Value, NotRun> {
+        let Some(spans) = o.spans.get(member) else {
+            return not_run(format!(
+                "the intervals of {}.{member}, which is not tracked",
+                o.type_
+            ));
+        };
+        let now = self.world.now;
+        // the stretches it spent in a closed or terminal state
+        let closed: Vec<(i64, i64)> = o
+            .spans
+            .get("state")
+            .into_iter()
+            .flatten()
+            .filter(|sp| matches!(&sp.value, Value::State { name, .. } if t.finished(name)))
+            .map(|sp| (sp.entered_at, sp.left_at.unwrap_or(now)))
+            .collect();
+        let rows = spans
+            .iter()
+            .map(|sp| {
+                let mut row = BTreeMap::new();
+                row.insert("object".to_string(), Value::Object(o.id.clone()));
+                row.insert(
+                    if member == "state" { "state" } else { "value" }.to_string(),
+                    sp.value.clone(),
+                );
+                row.insert("entered_at".to_string(), Value::Timestamp(sp.entered_at));
+                row.insert(
+                    "left_at".to_string(),
+                    sp.left_at.map_or(Value::Absent, Value::Timestamp),
+                );
+                row.insert(
+                    "entered_by_kind".to_string(),
+                    Value::Text(sp.entered_by_kind.clone()),
+                );
+                row.insert("declaration_version".to_string(), Value::Int(1));
+                row.insert("legacy".to_string(), Value::Bool(false));
+                row.insert("migrated".to_string(), Value::Bool(false));
+                row.insert(
+                    "duration".to_string(),
+                    span_duration(t, o, member, sp, &closed, now),
+                );
+                Value::Row(row)
+            })
+            .collect();
+        Ok(Value::Set(rows))
     }
 
     /// An evaluator's verdict, as the store's evaluators answer it: asked
@@ -865,6 +983,60 @@ pub fn combine(op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
     })
 }
 
+/// A span's duration. A state's span is its exit less its entry, a current
+/// one running to now, but a span within the unbroken stretch of closed or
+/// terminal states the object is in now has none. A member's span counts
+/// only the time its object was open, and has none where it had no open time
+/// (§6.9, ADR-0101, ADR-0146, ADR-0148).
+fn span_duration(
+    t: &Type,
+    o: &Object,
+    member: &str,
+    sp: &crate::world::Span,
+    closed: &[(i64, i64)],
+    now: i64,
+) -> Value {
+    let end = sp.left_at.unwrap_or(now);
+    if member != "state" {
+        let length = end - sp.entered_at;
+        let shut: i64 = closed
+            .iter()
+            .map(|(a, b)| (end.min(*b) - sp.entered_at.max(*a)).max(0))
+            .sum();
+        return if length - shut > 0 || length == 0 {
+            Value::Duration(length - shut)
+        } else {
+            Value::Absent
+        };
+    }
+    if sp.left_at.is_some() || !t.finished(&o.state) {
+        return Value::Duration(end - sp.entered_at);
+    }
+    // the stretch begins where it entered its current state, which is now
+    // while the transition into it is being taken and its span not yet
+    // recorded, and runs back over the closed spans before
+    let spans = o.spans.get("state").map_or(&[][..], Vec::as_slice);
+    let name = |sp: &crate::world::Span| match &sp.value {
+        Value::State { name, .. } => name.clone(),
+        _ => String::new(),
+    };
+    let mut entry = match spans.last() {
+        Some(last) if name(last) == o.state => last.entered_at,
+        _ => now,
+    };
+    for past in spans.iter().rev() {
+        if !t.finished(&name(past)) {
+            break;
+        }
+        entry = past.entered_at;
+    }
+    if sp.entered_at < entry {
+        Value::Duration(entry - sp.entered_at)
+    } else {
+        Value::Absent
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -912,6 +1084,7 @@ types:
             created_by_kind: "human".into(),
             order,
             superseded_by: None,
+            spans: BTreeMap::new(),
         }
     }
 
@@ -1108,12 +1281,6 @@ types:
         let mut w = World::new(&lib, 0);
         w.objects
             .insert("job-1".into(), job("job-1", 1, "OPEN", &[]));
-        assert!(
-            eval(&w, "job-1", "time_in(OPEN) > 1 h")
-                .unwrap_err()
-                .0
-                .contains("intervals")
-        );
         assert!(
             eval(&w, "job-1", "metric(x) > 1")
                 .unwrap_err()
