@@ -27,7 +27,7 @@ use crate::model::{
     Declared, Enforce, From, Kind, Library, Remedy, Step, Transition, Type, Unique,
 };
 use crate::store::{Allocator, Change, Event};
-use crate::value::Value;
+use crate::value::{Value, parse_duration};
 use crate::verdict::{Flag, InvariantFailure, Verdict};
 use crate::wire;
 use crate::world::{Object, Span, World};
@@ -164,6 +164,9 @@ struct Ctx<'w> {
     /// The requested transition's type, whose own clauses go unqualified.
     requested: String,
     occurred: Option<i64>,
+    /// The occurred time every transition the request takes records: the
+    /// request's own, or now (`DESIGN.md` §6).
+    at: i64,
     answers: BTreeMap<String, String>,
     flags: Vec<Flag>,
     /// Every event, in the order recorded.
@@ -284,6 +287,7 @@ fn decide_or_stop(
         who,
         requested: tn.clone(),
         occurred: req.occurred_at,
+        at: req.occurred_at.unwrap_or(world.now),
         answers: answers.clone(),
         flags: Vec::new(),
         events: Vec::new(),
@@ -451,9 +455,75 @@ fn take(
     if !missing.is_empty() {
         return refused(Verdict::InvalidInput { inputs: missing });
     }
-    // 5. the generated guards, then the transition's own
-    if depth == 0 && ctx.occurred.is_some() {
-        return stop_not_run("a request's occurred time, which the core does not yet date");
+    // 5. the generated guards, in the order flow-format.md §4.8 states,
+    // then the transition's own. occurred_within: the requested transition's
+    // bound, its backdating_limit or its kind's max_recording_delay, takes an
+    // occurred time no further back than the bound and not after now; one
+    // with no bound, or a correction, which keeps the corrected fact's, takes
+    // none (§4.4)
+    let occurred_within = || Verdict::Unsatisfied {
+        clause: "occurred_within".into(),
+        remedy: Some(Remedy::SelfServiceable),
+    };
+    if depth == 0
+        && let Some(occurred) = ctx.occurred
+    {
+        let now = ctx.work.now;
+        let within = x
+            .backdating_limit
+            .as_deref()
+            .and_then(parse_duration)
+            .is_some_and(|limit| now - limit <= occurred && occurred <= now);
+        if inputs.contains_key("corrects") || !within {
+            return refused(occurred_within());
+        }
+    }
+    // and no transition the request takes precedes the current interval of
+    // what it changes on its object
+    if let Some(o) = oid.as_deref().and_then(|id| ctx.work.get(id)) {
+        let mut changing: Vec<String> = lib
+            .tracked(t)
+            .into_iter()
+            .filter(|m| inputs.get(m).is_some_and(|v| *v != o.attr(m)))
+            .collect();
+        if x.kind == Kind::External {
+            changing.push("state".into());
+        }
+        if changing.iter().any(|m| {
+            o.spans
+                .get(m)
+                .and_then(|s| s.last())
+                .is_some_and(|last| ctx.at < last.entered_at)
+        }) {
+            return refused(occurred_within());
+        }
+    }
+    // whole_open: a part is not moved into a whole that is finished
+    if let Some(o) = oid.as_deref().and_then(|id| ctx.work.get(id)) {
+        for k in x.required_inputs.iter().chain(&x.optional_inputs) {
+            let (Some(Value::Object(whole)), Some(a)) = (inputs.get(k), t.attribute(k)) else {
+                continue;
+            };
+            let owner = match (&a.declared, &a.opposite) {
+                (Declared::Reference(target), Some(back)) => lib
+                    .type_(target)
+                    .and_then(|tt| tt.attribute(back))
+                    .is_some_and(|b| b.composite),
+                _ => false,
+            };
+            let moved = o.attr(k) != Value::Object(whole.clone());
+            let finished = ctx.work.get(whole).is_some_and(|w| {
+                lib.type_(&w.type_)
+                    .and_then(|wt| wt.state(&w.state))
+                    .is_some_and(|s| s.is_final)
+            });
+            if owner && moved && finished {
+                return refused(Verdict::Unsatisfied {
+                    clause: "whole_open".into(),
+                    remedy: Some(Remedy::SelfServiceable),
+                });
+            }
+        }
     }
     // a successor an input names is neither this object nor one already
     // superseded, so no supersession chain closes on itself (ADR-0144)
@@ -584,7 +654,7 @@ fn take(
                 state: to.clone(),
                 version: 0,
                 attrs: BTreeMap::new(),
-                created_at: ctx.work.now,
+                created_at: ctx.at,
                 created_by_kind: ctx.who.kind.clone(),
                 order: ctx.work.next_order(),
                 superseded_by: None,
@@ -641,7 +711,7 @@ fn take(
                 .work
                 .get(c)
                 .map_or(Value::Timestamp(now), |c| c.attr("occurred_at")),
-            _ => Value::Timestamp(now),
+            _ => Value::Timestamp(ctx.at),
         };
         o.attrs.insert("occurred_at".into(), occurred);
     }
@@ -663,7 +733,11 @@ fn take(
     let Some(o) = ctx.work.objects.get_mut(&id) else {
         return stop_not_run(format!("the object {id}, which its own effect removed"));
     };
-    record_spans(lib, t, o, before.as_ref(), position, ctx.work.now, &ctx.who);
+    if !record_spans(lib, t, o, before.as_ref(), position, ctx.at, &ctx.who) {
+        // what an effect changed, which no guard could see, precedes its
+        // current interval
+        return refused(occurred_within());
+    }
     o.version += 1;
     let event = Event {
         position,
@@ -678,7 +752,7 @@ fn take(
         actor_kind: ctx.who.kind.clone(),
         declaration_version: 1,
         recorded_at: ctx.work.now,
-        occurred_at: Some(ctx.work.now),
+        occurred_at: Some(ctx.at),
         imported: false,
         payload: json!({ "inputs": written }),
     };
@@ -704,10 +778,12 @@ fn tracked_values(lib: &Library, t: &Type, o: &Object) -> Vec<(String, Value)> {
         .collect()
 }
 
-/// The spans a transition opens: on a creation, one for the state and for
-/// every tracked member, absent ones included; otherwise one for each whose
-/// value it changed, ending the current one. A write that leaves a value as
-/// it was opens nothing (`storage-schema.md`, ADR-0101, ADR-0106).
+/// The spans a transition opens at its occurred time: on a creation, one for
+/// the state and for every tracked member, absent ones included; otherwise
+/// one for each whose value it changed, ending the current one. A write that
+/// leaves a value as it was opens nothing (`storage-schema.md`, ADR-0101,
+/// ADR-0106). False, and nothing opened, where a change would precede the
+/// current interval it ends (§4.4).
 fn record_spans(
     lib: &Library,
     t: &Type,
@@ -716,13 +792,27 @@ fn record_spans(
     position: i64,
     now: i64,
     who: &Who,
-) {
-    for (m, v) in tracked_values(lib, t, o) {
-        let was = before.and_then(|b| b.iter().find(|(n, _)| *n == m).map(|(_, w)| w));
+) -> bool {
+    let changed: Vec<(String, Value)> = tracked_values(lib, t, o)
+        .into_iter()
+        .filter(|(m, v)| {
+            let was = before.and_then(|b| b.iter().find(|(n, _)| n == m).map(|(_, w)| w));
+            let spans = o.spans.get(m).map_or(0, Vec::len);
+            before.is_none() || spans == 0 || was != Some(v)
+        })
+        .collect();
+    if before.is_some()
+        && changed.iter().any(|(m, _)| {
+            o.spans
+                .get(m)
+                .and_then(|s| s.last())
+                .is_some_and(|last| now < last.entered_at)
+        })
+    {
+        return false;
+    }
+    for (m, v) in changed {
         let spans = o.spans.entry(m).or_default();
-        if before.is_some() && !spans.is_empty() && was == Some(&v) {
-            continue;
-        }
         if let Some(last) = spans.last_mut()
             && last.left_position.is_none()
         {
@@ -739,6 +829,7 @@ fn record_spans(
             entered_by_kind: who.kind.clone(),
         });
     }
+    true
 }
 
 /// A write whose right-hand side is an unsupplied optional input is skipped
@@ -2152,5 +2243,168 @@ types:
             })
         );
         assert!(record.inputs.iter().all(|(n, _)| n != "subject"));
+    }
+
+    #[test]
+    fn a_backdated_request_is_held_to_its_bound_and_its_object_s_intervals() {
+        let text = JOBS.replace(
+            "to: WORKING, optional_inputs: [engineer]",
+            "to: WORKING, backdating_limit: 2 days, optional_inputs: [engineer]",
+        );
+        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let day = 86_400;
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fix", "priority": "LOW"}),
+        ));
+        s.now += 3 * day;
+        let fresh = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "New", "priority": "LOW"}),
+        ));
+        let ana = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        let at = |s: &mut Store, xn: &str, id: &str, when: i64| {
+            let mut inputs = BTreeMap::new();
+            if xn == "start" {
+                inputs.insert("engineer".to_string(), json!(ana));
+            }
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: Some(id.into()),
+                type_: None,
+                inputs,
+                occurred_at: Some(when),
+            };
+            request(s, &r).unwrap().unwrap()
+        };
+        let refused = Verdict::Unsatisfied {
+            clause: "occurred_within".into(),
+            remedy: Some(Remedy::SelfServiceable),
+        };
+        let now = s.now;
+        // past its bound, ahead of now, or on a transition with none
+        assert_eq!(at(&mut s, "start", &job, now - 2 * day - 1), refused);
+        assert_eq!(at(&mut s, "start", &job, now + 1), refused);
+        // before the interval it would end, though within its bound
+        assert_eq!(at(&mut s, "start", &fresh, now - day), refused);
+        // within it, dated by when it happened
+        let v = at(&mut s, "start", &job, now - day);
+        assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+        let w = s.snapshot().unwrap();
+        let o = w.get(&job).unwrap();
+        let working = o.spans["state"].last().unwrap();
+        assert_eq!(working.entered_at, now - day);
+        assert_eq!(o.spans["state"][0].left_at, Some(now - day));
+        let events = s.history(&job).unwrap();
+        assert_eq!(events.last().unwrap().occurred_at, Some(now - day));
+        assert_eq!(events.last().unwrap().recorded_at, now);
+        assert_eq!(at(&mut s, "finish", &job, now), refused);
+    }
+
+    #[test]
+    fn a_part_is_not_moved_into_a_finished_whole() {
+        let text = r#"
+module: orders
+categories: [open, closed]
+types:
+  Order:
+    attributes:
+      ref: { type: string }
+      lines: { reference: "Line[]", opposite: order, aggregation: composite }
+    states:
+      OPEN: { category: open }
+      CLOSED: { category: closed, final: true }
+    transitions:
+      place: { kind: initial, to: OPEN, required_inputs: [ref] }
+      close: { kind: external, from: [OPEN], to: CLOSED }
+  Line:
+    attributes:
+      order: { reference: Order, opposite: lines }
+    states:
+      ACTIVE: { category: open }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [order] }
+      move: { kind: internal, from: [ACTIVE], required_inputs: [order] }
+"#;
+        let lib = Library::load(&[("orders.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let a = created(&req(
+            &mut s,
+            "place",
+            OPERATOR,
+            ("Order", true),
+            json!({"ref": "A"}),
+        ));
+        let b = created(&req(
+            &mut s,
+            "place",
+            OPERATOR,
+            ("Order", true),
+            json!({"ref": "B"}),
+        ));
+        let c = created(&req(
+            &mut s,
+            "place",
+            OPERATOR,
+            ("Order", true),
+            json!({"ref": "C"}),
+        ));
+        created(&req(&mut s, "close", OPERATOR, (&b, false), json!({})));
+        let line = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"order": &a}),
+        ));
+        assert_eq!(
+            req(
+                &mut s,
+                "move",
+                OPERATOR,
+                (&line, false),
+                json!({"order": &b})
+            ),
+            Verdict::Unsatisfied {
+                clause: "whole_open".into(),
+                remedy: Some(Remedy::SelfServiceable)
+            }
+        );
+        created(&req(
+            &mut s,
+            "move",
+            OPERATOR,
+            (&line, false),
+            json!({"order": &c}),
+        ));
+        // a part left where it is moves nowhere, whatever its whole's state
+        created(&req(&mut s, "close", OPERATOR, (&c, false), json!({})));
+        assert_ne!(
+            req(
+                &mut s,
+                "move",
+                OPERATOR,
+                (&line, false),
+                json!({"order": &c})
+            ),
+            Verdict::Unsatisfied {
+                clause: "whole_open".into(),
+                remedy: Some(Remedy::SelfServiceable)
+            }
+        );
     }
 }
