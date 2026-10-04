@@ -228,6 +228,12 @@ CREATE TABLE of_counter (
   value  INTEGER NOT NULL
 );
 INSERT INTO of_counter (name, value) VALUES ('position', 0), ('txn', 0), ('object', 0);
+CREATE TABLE of_sequence (
+  sequence TEXT    NOT NULL,
+  scope    TEXT    NOT NULL,                        -- '' for a sequence with no scope
+  value    INTEGER NOT NULL,
+  PRIMARY KEY (sequence, scope)
+);
 ";
 
 /// A store and the library its rules come from.
@@ -396,12 +402,20 @@ impl Store {
         match decided {
             Ok((answer, Some(change))) => {
                 alloc.write(&tx)?;
+                alloc.write_sequences(&tx)?;
                 write(&tx, &self.lib, &change)?;
                 tx.commit()?;
                 Ok(Ok(answer))
             }
             Ok((answer, None)) => {
+                // a refused request writes nothing but the numbers it drew,
+                // which are not reused (flow-format.md §4.12)
                 tx.rollback()?;
+                if !alloc.drawn.is_empty() {
+                    let tx = self.conn.transaction()?;
+                    alloc.write_sequences(&tx)?;
+                    tx.commit()?;
+                }
                 Ok(Ok(answer))
             }
             Err(e) => {
@@ -443,6 +457,10 @@ pub struct Allocator {
     txn: i64,
     object: i64,
     txn_taken: bool,
+    /// Each sequence's last number, per scope, and the ones this request drew,
+    /// which stay drawn though it is refused (`flow-format.md` §4.12).
+    sequences: BTreeMap<(String, String), i64>,
+    drawn: std::collections::BTreeSet<(String, String)>,
 }
 
 impl Allocator {
@@ -454,12 +472,43 @@ impl Allocator {
                 |r| r.get(0),
             )?)
         };
+        let mut sequences = BTreeMap::new();
+        let mut stmt = tx.prepare("SELECT sequence, scope, value FROM of_sequence")?;
+        let rows = stmt.query_map([], |r| Ok(((r.get(0)?, r.get(1)?), r.get(2)?)))?;
+        for row in rows {
+            let (key, value): ((String, String), i64) = row?;
+            sequences.insert(key, value);
+        }
         Ok(Allocator {
             position: get("position")?,
             txn: get("txn")?,
             object: get("object")?,
             txn_taken: false,
+            sequences,
+            drawn: std::collections::BTreeSet::new(),
         })
+    }
+
+    /// The next number of a sequence in a scope, numbered from 1.
+    pub fn draw(&mut self, sequence: &str, scope: &str) -> i64 {
+        let key = (sequence.to_string(), scope.to_string());
+        let n = self.sequences.get(&key).copied().unwrap_or(0) + 1;
+        self.sequences.insert(key.clone(), n);
+        self.drawn.insert(key);
+        n
+    }
+
+    /// The numbers drawn, written whatever became of the request.
+    fn write_sequences(&self, tx: &Transaction<'_>) -> Stored<()> {
+        for key in &self.drawn {
+            let value = self.sequences.get(key).copied().unwrap_or(0);
+            tx.execute(
+                "INSERT INTO of_sequence (sequence, scope, value) VALUES (?1, ?2, ?3) \
+                 ON CONFLICT (sequence, scope) DO UPDATE SET value = excluded.value",
+                params![key.0, key.1, value],
+            )?;
+        }
+        Ok(())
     }
 
     /// The next event's position, allocated as its transition begins.

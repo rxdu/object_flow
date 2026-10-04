@@ -3,8 +3,7 @@
 //!
 //! The model keeps everything the first slice runs, each expression parsed
 //! once, and names everything it does not (ADR-0153 decision 3): a type that
-//! binds a machine or extends a base, a transition with an effect, an
-//! identifier minted from a sequence. A request that reaches one is answered
+//! binds a machine or extends a base, a transition with an effect. A request that reaches one is answered
 //! as not run, naming it, and never guessed. Whether a module is well formed
 //! is the flow checker's to say, in this slice (ADR-0153 decision 5); the
 //! loader refuses only what it cannot read.
@@ -84,6 +83,19 @@ pub enum Unique {
     Where(Expr),
 }
 
+/// An identifier minted from a sequence (`flow-format.md` §4.12).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Identifier {
+    pub sequence: String,
+    /// The reference or attribute whose every value the sequence numbers
+    /// separately.
+    pub scope: Option<String>,
+    /// The text minted: `{n}` the number, `{n:6}` zero-padded, `{a.b}` a
+    /// value of the object, `[ … ]` a segment left out whole when a value in
+    /// it is absent.
+    pub format: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attribute {
     pub declared: Declared,
@@ -96,9 +108,9 @@ pub struct Attribute {
     pub personal: bool,
     /// The kind of actor whose identity it holds, for an actor's type.
     pub actor_kind: Option<String>,
-    /// An identifier minted from a sequence, which the first slice does not
-    /// run.
-    pub minted: bool,
+    /// The identifier minted for it from a sequence, when its object is
+    /// created (`flow-format.md` §4.12).
+    pub identifier: Option<Identifier>,
     /// A stored relationship end the other side owns or derives.
     pub opposite: Option<String>,
 }
@@ -360,7 +372,21 @@ impl Reader<'_> {
                 .get("actor_kind")
                 .map(|k| self.text(k, "a kind of actor"))
                 .transpose()?,
-            minted: node.get("identifier").is_some(),
+            identifier: match node.get("identifier") {
+                None => None,
+                Some(i) => Some(Identifier {
+                    sequence: match i.get("sequence").and_then(Node::text) {
+                        Some(s) => s.to_string(),
+                        None => return self.error(i, "an identifier names its sequence"),
+                    },
+                    scope: i.get("scope").and_then(Node::text).map(str::to_string),
+                    format: i
+                        .get("format")
+                        .and_then(Node::text)
+                        .unwrap_or("{n}")
+                        .to_string(),
+                }),
+            },
             opposite: node
                 .get("opposite")
                 .map(|o| self.text(o, "an opposite end"))
@@ -455,9 +481,6 @@ impl Reader<'_> {
             let a = self.attribute(spec)?;
             if spec.get("cascade").is_some() {
                 at_outcome.push(format!("a cascade to the parts ({name}.{n})"));
-            }
-            if a.minted {
-                at_outcome.push(format!("an identifier minted from a sequence ({name}.{n})"));
             }
             attributes.push((n.clone(), a));
         }
@@ -637,7 +660,7 @@ fn operator_type() -> Type {
                 assignee: false,
                 personal: false,
                 actor_kind: Some("human".to_string()),
-                minted: false,
+                identifier: None,
                 opposite: None,
             },
         )],

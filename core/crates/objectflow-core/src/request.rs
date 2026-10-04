@@ -349,6 +349,9 @@ pub fn decide(
             written.insert(k.clone(), wire::encode(v));
         }
     }
+    if created {
+        mint(&mut after, alloc, t, &mut o)?;
+    }
     o.version += 1;
     after.objects.insert(o.id.clone(), o.clone());
     // 7. the invariants, on every object, in ascending id order
@@ -401,6 +404,110 @@ pub fn decide(
     ))
 }
 
+/// A value as an identifier's format writes it, as text.
+fn text_of(v: &Value) -> String {
+    match v {
+        Value::Text(s) | Value::Object(s) => s.clone(),
+        Value::State { name, .. } => name.clone(),
+        Value::Member { member, .. } => member.clone(),
+        other => match wire::encode(other) {
+            Json::String(s) => s,
+            j => j.to_string(),
+        },
+    }
+}
+
+/// Each identifier of a new object, numbered from 1 per sequence and scope,
+/// as its format writes it (`flow-format.md` §4.12): `{n}` the number, `{n:6}`
+/// zero-padded, `{a.b}` a value of the object, and `[ … ]` a segment left out
+/// whole when a value in it is absent.
+fn mint(
+    after: &mut World<'_>,
+    alloc: &mut Allocator,
+    t: &Type,
+    o: &mut Object,
+) -> Result<(), NotRun> {
+    for (a, spec) in &t.attributes {
+        let Some(ident) = &spec.identifier else {
+            continue;
+        };
+        let scope = match &ident.scope {
+            None => String::new(),
+            Some(attr) => match o.attr(attr) {
+                Value::Absent => {
+                    return not_run(format!("minting {}.{a} with its scope absent", t.name));
+                }
+                v => text_of(&v),
+            },
+        };
+        let n = alloc.draw(&ident.sequence, &scope);
+        after.objects.insert(o.id.clone(), o.clone());
+        let field = |name: &str| -> Result<Value, NotRun> {
+            let e = crate::expr::parse(name)
+                .map_err(|e| NotRun(format!("a format field {name}: {e}")))?;
+            Evaluator::new(after, Some(t), Some(&o.id)).eval(&e)
+        };
+        // a field's text: the number, padded, or a value of the object
+        let render = |body: &str| -> Result<Option<String>, NotRun> {
+            let mut out = String::new();
+            let mut rest = body;
+            while let Some(start) = rest.find('{') {
+                out.push_str(&rest[..start]);
+                let Some(len) = rest[start..].find('}') else {
+                    return not_run(format!("the format {}", ident.format));
+                };
+                let inner = &rest[start + 1..start + len];
+                let (name, width) = inner.split_once(':').unwrap_or((inner, ""));
+                if name == "n" {
+                    let w: usize = width.parse().unwrap_or(0);
+                    out.push_str(&format!("{n:0w$}"));
+                } else {
+                    match field(name)? {
+                        Value::Absent => return Ok(None),
+                        v => out.push_str(&text_of(&v)),
+                    }
+                }
+                rest = &rest[start + len + 1..];
+            }
+            out.push_str(rest);
+            Ok(Some(out))
+        };
+        let mut text = String::new();
+        let mut rest = ident.format.as_str();
+        while let Some(open) = rest.find('[') {
+            let Some(close) = rest[open..].find(']') else {
+                return not_run(format!("the format {}", ident.format));
+            };
+            match render(&rest[..open])? {
+                Some(t) => text.push_str(&t),
+                None => {
+                    return not_run(format!(
+                        "a format field of {}.{a} that is absent outside `[ … ]`",
+                        t.name
+                    ));
+                }
+            }
+            // a segment whose value is absent is left out whole
+            if let Some(seg) = render(&rest[open + 1..open + close])? {
+                text.push_str(&seg);
+            }
+            rest = &rest[open + close + 1..];
+        }
+        match render(rest)? {
+            Some(t) => text.push_str(&t),
+            None => {
+                return not_run(format!(
+                    "a format field of {}.{a} that is absent outside `[ … ]`",
+                    t.name
+                ));
+            }
+        }
+        o.attrs.insert(a.clone(), Value::Text(text));
+    }
+    after.objects.insert(o.id.clone(), o.clone());
+    Ok(())
+}
+
 /// An object's failing invariants in the order its type declares them: its
 /// declared invariants as written, then its state's required attributes, then
 /// each attribute's uniqueness by attribute (`flow-format.md` §4.8,
@@ -446,7 +553,13 @@ pub fn failing_invariants(world: &World<'_>, o: &Object) -> Result<Vec<String>, 
                 None,
             ),
             Unique::Where(e) => (vec![a.clone()], Some(e)),
-            Unique::InScope => return not_run(format!("uniqueness in a scope ({}.{a})", t.name)),
+            // unique within the scope its identifier numbers by
+            Unique::InScope => (
+                std::iter::once(a.clone())
+                    .chain(spec.identifier.as_ref().and_then(|i| i.scope.clone()))
+                    .collect(),
+                None,
+            ),
         };
         let key = |obj: &Object| -> Result<Option<Vec<Value>>, NotRun> {
             let values: Vec<Value> = with.iter().map(|w| obj.attr(w)).collect();
@@ -909,6 +1022,106 @@ types:
             json!({"login": "ben"}),
         ));
         assert_eq!(next, "user-2");
+    }
+
+    const ORDERS: &str = r#"
+module: orders
+categories: [live, closed]
+sequences:
+  order_number: { description: Orders. }
+  line_number: { description: Lines, per order. }
+types:
+  Order:
+    attributes:
+      number: { type: string, identifier: { sequence: order_number, format: "ORD-{n:4}" }, unique: true }
+      region: { type: string, optional: true }
+      code: { type: string, identifier: { sequence: line_number, format: "{number}[-{region}]" } }
+      cap: { type: int, optional: true }
+    states: { OPEN: { category: live } }
+    invariants:
+      capped: { expression: cap is null or cap < 5 }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [region, cap] }
+  Line:
+    attributes:
+      order: { reference: Order }
+      position: { type: string, identifier: { sequence: line_number, scope: order, format: "{order.number}-{n:2}" }, unique: in_scope }
+    states: { LIVE: { category: live } }
+    transitions:
+      add: { kind: initial, to: LIVE, required_inputs: [order] }
+"#;
+
+    #[test]
+    fn an_identifier_is_minted_as_its_format_writes_it() {
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let a = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Order", true),
+            json!({"region": "EU"}),
+        ));
+        let b = created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.get(&a).unwrap().attr("number"),
+            Value::Text("ORD-0001".into())
+        );
+        // a field read from the object, and a segment left out whole where
+        // its value is absent
+        assert_eq!(
+            w.get(&a).unwrap().attr("code"),
+            Value::Text("ORD-0001-EU".into())
+        );
+        assert_eq!(
+            w.get(&b).unwrap().attr("code"),
+            Value::Text("ORD-0002".into())
+        );
+        // a sequence numbered per scope
+        let l1 = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"order": &a}),
+        ));
+        let l2 = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"order": &a}),
+        ));
+        let l3 = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"order": &b}),
+        ));
+        let w = s.snapshot().unwrap();
+        let pos = |id: &str| w.get(id).unwrap().attr("position");
+        assert_eq!(pos(&l1), Value::Text("ORD-0001-01".into()));
+        assert_eq!(pos(&l2), Value::Text("ORD-0001-02".into()));
+        assert_eq!(pos(&l3), Value::Text("ORD-0002-01".into()));
+    }
+
+    #[test]
+    fn a_number_drawn_by_a_refused_request_is_not_reused() {
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        assert!(matches!(
+            req(&mut s, "open", OPERATOR, ("Order", true), json!({"cap": 9})),
+            Verdict::InvariantViolated { .. }
+        ));
+        let c = created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.get(&c).unwrap().attr("number"),
+            Value::Text("ORD-0003".into())
+        );
     }
 
     #[test]
