@@ -169,6 +169,11 @@ struct Ctx<'w> {
     at: i64,
     answers: BTreeMap<String, String>,
     flags: Vec<Flag>,
+    /// For each object, what its current transition wrote by an input or an
+    /// effect, whatever the value.
+    wrote: BTreeMap<String, BTreeSet<String>>,
+    /// The write index's rows the request sets, in the order set.
+    index: Vec<(String, String, i64)>,
     /// Every event, in the order recorded.
     events: Vec<Event>,
     created: BTreeSet<String>,
@@ -290,6 +295,8 @@ fn decide_or_stop(
         at: req.occurred_at.unwrap_or(world.now),
         answers: answers.clone(),
         flags: Vec::new(),
+        wrote: BTreeMap::new(),
+        index: Vec::new(),
         events: Vec::new(),
         created: BTreeSet::new(),
     };
@@ -338,7 +345,10 @@ fn decide_or_stop(
             events: positions,
             flags: ctx.flags,
         },
-        Some(Change { writes }),
+        Some(Change {
+            writes,
+            index: ctx.index,
+        }),
     ))
 }
 
@@ -633,6 +643,13 @@ fn take(
     if let Some(what) = t.at_outcome.first() {
         return stop_not_run(what.clone());
     }
+    // the attributes as the transition finds them, what it changed measured
+    // against them
+    let before_attrs = oid
+        .as_deref()
+        .and_then(|id| ctx.work.get(id))
+        .map(|o| o.attrs.clone())
+        .unwrap_or_default();
     // the tracked values as the transition finds them, its spans' baseline
     let before = oid
         .as_deref()
@@ -659,6 +676,7 @@ fn take(
                 order: ctx.work.next_order(),
                 superseded_by: None,
                 spans: BTreeMap::new(),
+                writes: BTreeMap::new(),
             };
             for (a, spec) in &t.attributes {
                 // a set is never absent: created empty unless given, a derived
@@ -698,6 +716,15 @@ fn take(
         }
     }
     let id = o.id.clone();
+    ctx.wrote.insert(
+        id.clone(),
+        x.required_inputs
+            .iter()
+            .chain(&x.optional_inputs)
+            .filter(|k| inputs.contains_key(*k))
+            .cloned()
+            .collect(),
+    );
     if from_state.is_none() {
         mint(&mut ctx.work, alloc, t, &mut o)?;
     }
@@ -739,6 +766,53 @@ fn take(
         return refused(occurred_within());
     }
     o.version += 1;
+    // what it wrote, by an input or an effect or by changing a value, in the
+    // write index; a part's transition writes its whole's part relationship,
+    // and a recording its subject's collection (storage-schema.md §2)
+    let mut touched = ctx.wrote.remove(&id).unwrap_or_default();
+    for (a, v) in &o.attrs {
+        if before_attrs.get(a) != Some(v) {
+            touched.insert(a.clone());
+        }
+    }
+    touched.extend(
+        before_attrs
+            .keys()
+            .filter(|a| !o.attrs.contains_key(*a))
+            .cloned(),
+    );
+    let mut index: Vec<(String, String)> = touched.into_iter().map(|a| (id.clone(), a)).collect();
+    for (a, spec) in &t.attributes {
+        if let (Declared::Reference(target), Some(back), Value::Object(whole)) =
+            (&spec.declared, &spec.opposite, o.attr(a))
+            && lib
+                .type_(target)
+                .and_then(|tt| tt.attribute(back))
+                .is_some_and(|b| b.composite)
+        {
+            index.push((whole, back.clone()));
+        }
+    }
+    if t.observation_on.is_some()
+        && xn == "record"
+        && let Value::Object(subject) = o.attr("subject")
+        && let Some(st) = ctx.work.get(&subject).and_then(|s| lib.type_(&s.type_))
+    {
+        for (collection, kind) in &st.observations {
+            if *kind == t.name {
+                index.push((subject.clone(), collection.clone()));
+            }
+        }
+    }
+    for (object, attribute) in index {
+        if let Some(target) = ctx.work.objects.get_mut(&object) {
+            target.writes.insert(attribute.clone(), position);
+        }
+        ctx.index.push((object, attribute, position));
+    }
+    let Some(o) = ctx.work.objects.get(&id) else {
+        return stop_not_run(format!("the object {id}, which its own effect removed"));
+    };
     let event = Event {
         position,
         object_id: id.clone(),
@@ -930,6 +1004,10 @@ fn effects(
                 if let Some(o) = ctx.work.objects.get_mut(id) {
                     o.attrs.insert(location.clone(), v);
                 }
+                ctx.wrote
+                    .entry(id.to_string())
+                    .or_default()
+                    .insert(location.clone());
             }
             Step::Clear(names) => {
                 if let Some(o) = ctx.work.objects.get_mut(id) {
@@ -937,6 +1015,10 @@ fn effects(
                         o.attrs.remove(n);
                     }
                 }
+                ctx.wrote
+                    .entry(id.to_string())
+                    .or_default()
+                    .extend(names.iter().cloned());
             }
             Step::Add { location, expr } | Step::Remove { location, expr } => {
                 if unsupplied(expr, inputs) {
@@ -946,6 +1028,10 @@ fn effects(
                 if v.is_absent() {
                     return stop_not_run("adding or removing an absent value");
                 }
+                ctx.wrote
+                    .entry(id.to_string())
+                    .or_default()
+                    .insert(location.clone());
                 if let Some(o) = ctx.work.objects.get_mut(id) {
                     let mut items = match o.attr(location) {
                         Value::Set(items) => items,
@@ -2406,5 +2492,70 @@ types:
                 remedy: Some(Remedy::SelfServiceable)
             }
         );
+    }
+
+    #[test]
+    fn a_sign_off_goes_stale_when_what_it_read_is_written_after_it() {
+        let text = JOBS
+            .replace(
+                "      note: { type: string, optional: true }",
+                "      note: { type: string, optional: true }\n      signed: { type: event, optional: true }",
+            )
+            .replace(
+                "      prioritised: { expression: priority is not null, remedy: self_serviceable }",
+                "      prioritised: { expression: priority is not null, remedy: self_serviceable }\n      \
+                 fresh: { expression: \"signed is not null and not changed_since([note], signed)\", remedy: delegable }",
+            )
+            .replace(
+                "      finish: { kind: external, from: [WORKING], to: DONE }",
+                "      finish: { kind: external, from: [WORKING], to: DONE, guards: { fresh: deny } }\n      \
+                 sign: { kind: internal, from: any, effect: [ { assign: { location: signed, expr: this_event } } ] }\n      \
+                 renote: { kind: internal, from: any, required_inputs: [note] }",
+            );
+        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fix", "note": "a"}),
+        ));
+        let ana = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        created(&req(
+            &mut s,
+            "start",
+            OPERATOR,
+            (&job, false),
+            json!({"engineer": &ana}),
+        ));
+        let stale = Verdict::Unsatisfied {
+            clause: "fresh".into(),
+            remedy: Some(Remedy::Delegable),
+        };
+        created(&req(&mut s, "sign", OPERATOR, (&job, false), json!({})));
+        created(&req(
+            &mut s,
+            "renote",
+            OPERATOR,
+            (&job, false),
+            json!({"note": "b"}),
+        ));
+        assert_eq!(
+            req(&mut s, "finish", OPERATOR, (&job, false), json!({})),
+            stale
+        );
+        // the index is the store's: it holds across requests
+        let w = s.snapshot().unwrap();
+        let o = w.get(&job).unwrap();
+        assert!(o.writes["note"] > o.writes["signed"]);
+        created(&req(&mut s, "sign", OPERATOR, (&job, false), json!({})));
+        created(&req(&mut s, "finish", OPERATOR, (&job, false), json!({})));
     }
 }

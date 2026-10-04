@@ -266,8 +266,21 @@ impl<'a> Evaluator<'a> {
                 env,
             )?),
             Expr::Call(function, args) => Term::Value(self.call(function, args, env)?),
-            Expr::Changed(..) => {
-                return not_run("changed_since, which reads the attribute write index");
+            // whether any of them was written after the event (§8.3)
+            Expr::Changed(names, event) => {
+                let since = self.value(event, env)?;
+                let o = self.this.and_then(|id| self.world.get(id));
+                Term::Value(match (o, since) {
+                    (Some(o), Value::Int(p)) => Value::Bool(
+                        names
+                            .iter()
+                            .any(|n| o.writes.get(n).is_some_and(|w| *w > p)),
+                    ),
+                    (_, Value::Absent) | (None, _) => Value::Absent,
+                    (_, other) => {
+                        return not_run(format!("changed_since an event that is {other:?}"));
+                    }
+                })
             }
             Expr::Metric { .. } => return not_run("a metric read in a guard"),
         })
@@ -1122,6 +1135,7 @@ types:
             order,
             superseded_by: None,
             spans: BTreeMap::new(),
+            writes: BTreeMap::new(),
         }
     }
 

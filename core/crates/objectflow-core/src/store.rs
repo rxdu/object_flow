@@ -66,6 +66,9 @@ pub struct Event {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Change {
     pub writes: Vec<(Object, bool, Event)>,
+    /// The write index's rows the request sets: an object, what it wrote,
+    /// and the event's position, written once every event is.
+    pub index: Vec<(String, String, i64)>,
 }
 
 fn table(type_: &str) -> String {
@@ -229,6 +232,12 @@ CREATE TABLE of_counter (
   value  INTEGER NOT NULL
 );
 INSERT INTO of_counter (name, value) VALUES ('position', 0), ('txn', 0), ('object', 0);
+CREATE TABLE of_attribute_write (
+  object_id  TEXT    NOT NULL REFERENCES of_object(id),
+  attribute  TEXT    NOT NULL,
+  position   INTEGER NOT NULL REFERENCES of_event(position),
+  PRIMARY KEY (object_id, attribute)
+);
 CREATE TABLE of_interval (
   object_id           TEXT    NOT NULL REFERENCES of_object(id),
   dimension           TEXT    NOT NULL,
@@ -709,11 +718,27 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
                     created_by_kind: kind,
                     order,
                     spans: BTreeMap::new(),
+                    writes: BTreeMap::new(),
                 },
             );
         }
     }
     spans(conn, lib, &mut world)?;
+    let mut index =
+        conn.prepare("SELECT object_id, attribute, position FROM of_attribute_write")?;
+    let rows = index.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, i64>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (id, attribute, position) = row?;
+        if let Some(o) = world.objects.get_mut(&id) {
+            o.writes.insert(attribute, position);
+        }
+    }
     Ok(world)
 }
 
@@ -908,6 +933,14 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
                 }
             }
         }
+    }
+    // the write index, once every event it names is in the log
+    for (id, attribute, position) in &change.index {
+        tx.execute(
+            "INSERT INTO of_attribute_write (object_id, attribute, position) VALUES (?1, ?2, ?3) \
+             ON CONFLICT (object_id, attribute) DO UPDATE SET position = excluded.position",
+            params![id, attribute, position],
+        )?;
     }
     Ok(())
 }

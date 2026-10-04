@@ -26,6 +26,10 @@ pub struct Object {
     /// Its flow data: for the state and each tracked member, the spans it
     /// held each value for, in order (`storage-schema.md`, `of_interval`).
     pub spans: BTreeMap<String, Vec<Span>>,
+    /// The attribute write index: for each attribute, part relationship or
+    /// collection, the position of the event that last wrote it
+    /// (`storage-schema.md`, `of_attribute_write`).
+    pub writes: BTreeMap<String, i64>,
 }
 
 /// How long an object held a state, or a value of a tracked member, as one
