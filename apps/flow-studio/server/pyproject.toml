@@ -1,0 +1,9 @@
+[project]
+name = "flowstudio-server"
+version = "0.1.0"
+description = "The Flow Studio's server: the engine's wire over the reference runner, sandbox control and the studio's tooling"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted, 2026-10-04, by the author ("go with your recommendations on all five"), given the five recommendations below as the answers to five questions; the PRD's wording of decision 1 is revision 21, drafted for the author's review, and the studio's design is `design/flow-studio.md`, proposed for review before any code.
 - **Date:** 2026-10-04
+- **Refined by:** ADR-0150 — the wire, the studio's stack, and the PRD's revision 21 and proposals accepted.
 - **Refines:** ADR-0015 (the operations platform is no longer the first application built on the engine, and no rebuild of it is planned here), ADR-0132 (the studio drives the engine through the service's interface, and is how the Rust core's first slices are compared with the Python reference)
 - **Relates to:** PRD revision 21 and §12; `design/flow-studio.md`; `DESIGN.md` §4; TODO "Run the same flows through the Rust core and the Python checkers"
 

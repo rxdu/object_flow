@@ -68,9 +68,14 @@ class ExampleError(Exception):
 
 
 class Refused(Exception):
-    def __init__(self, verdict, clause=None, remedy=None, detail=""):
+    """A refusal as an expectation reads it, its verdict, clause and remedy, and what a caller of the library is told
+    beside them where the runner knows it: the object an invariant fails on, and a refused call's step, target and own
+    refusal (library-api.md §4), which the Flow Studio's server reports (ADR-0150)."""
+
+    def __init__(self, verdict, clause=None, remedy=None, detail="", object_id=None, step=None, inner=None):
         super().__init__(f"{verdict} {clause or ''} {remedy or ''} {detail}".strip())
         self.verdict, self.clause, self.remedy, self.detail = verdict, clause, remedy, detail
+        self.object_id, self.step, self.inner = object_id, step, inner
 
 
 def seconds(duration):
@@ -1288,7 +1293,7 @@ class Runner:
                 if refused:
                     first = refused[0].rpartition(".")[2]
                     raise Refused("invariant_violated", refused[0], self.invariant_remedy(work, x, obj, first, requested),
-                                  detail=", ".join(refused[1:]) and "and " + ", ".join(refused[1:]))
+                                  detail=", ".join(refused[1:]) and "and " + ", ".join(refused[1:]), object_id=obj.id)
         except Refused:
             store.sequences = work.sequences    # a number minted by a refused request stays used: the gap
             raise
@@ -1709,7 +1714,8 @@ class Runner:
         """A refused call or creation refuses the request, naming the step, the object it targeted and its own
         refusal (ADR-0122 decision 35); an expectation reads that refusal's clause and remedy."""
         inner_clause = r.clause if r.verdict == "call_refused" else qualified(r.clause, target_type)
-        return Refused("call_refused", inner_clause, r.remedy, detail=f"{step} on {target or 'a new object'}: {r.verdict}")
+        return Refused("call_refused", inner_clause, r.remedy, detail=f"{step} on {target or 'a new object'}: {r.verdict}",
+                       object_id=target, step=step, inner=r)
 
     def cascades(self, ctx, t, tn, xn, o, inputs, depth):
         """The parts each composite end drives on this transition, in ascending id order, those already in a

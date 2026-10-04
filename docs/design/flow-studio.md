@@ -1,6 +1,6 @@
 # The Flow Studio
 
-**Status: proposed, 2026-10-04, for the author's review before any code** (ADR-0149). It is the first application built on the engine: a place to write a flow, see it, and run it under triggers you choose, built in this repository as the test case that follows the implementation and as the sample an evaluator of ObjectFlow can run.
+**Status: accepted, 2026-10-04** (ADR-0149, ADR-0150): the author reviewed it and took every recommendation of §9, and approved §8's dependencies. It is the first application built on the engine: a place to write a flow, see it, and run it under triggers you choose, built in this repository as the test case that follows the implementation and as the sample an evaluator of ObjectFlow can run.
 
 ## 1. What it is for
 
@@ -21,7 +21,7 @@ The studio has two parts, a web front end and a server, and the server offers th
 | Surface | What it is | Examples | Whose |
 |---|---|---|---|
 | **Engine operations** | The library's operations as the service exposes them, one to one (`library-api.md` §6, ADR-0132) | `request`, `get`, `history`, `availability`, `declaration`, `metric` | the engine's |
-| **Sandbox control** | What a sandbox store needs and a deployment's store never offers: loading a sandbox's modules, the clock, the evaluators' answers, resetting | `sandbox/load`, `sandbox/clock`, `sandbox/evaluators`, `sandbox/reset` | the engine's, proposed (PRD §12) |
+| **Sandbox control** | What a sandbox store needs and a deployment's store never offers: loading a sandbox's modules, the clock, the evaluators' answers, resetting | `sandbox/load`, `sandbox/clock`, `sandbox/evaluators`, `sandbox/reset` | the engine's, accepted as F13 (PRD §12) |
 | **Studio tooling** | What the studio does with descriptions and examples files, through this repository's scripts | the diagram, the checker's findings, reading and writing an examples file | the studio's |
 
 Anything the studio needs that fits none of the three is a finding against the engine's interface, recorded in `TODO.md`, and is never met by reaching into a backend.
@@ -62,7 +62,7 @@ A session is a setup and a sequence of steps, and is saved as an examples file's
 
 ## 6. Slices
 
-1. **Load and step.** Choose one of the eleven example modules in `docs/design/flow-format/examples/` and its examples file, see each type's diagram and the rule set, and step through one example a step at a time, seeing after each step the verdict, every object's state and the history. The server offers `request`, `get`, `history` and `declaration` over the runner, and sandbox load, clock, evaluators and reset. **Done when** every example in the ten examples files, 163 on 2026-10-04, replays through the studio's wire with the verdict the flow checker gives it, an example the runner cannot run being "not run" in both, checked by a test that drives the wire, not the runner.
+1. **Load and step.** Choose one of the eleven example modules in `docs/design/flow-format/examples/` and its examples file, see each type's diagram and the rule set, and step through one example a step at a time, seeing after each step the verdict, every object's state and the history. The server offers `request`, `get`, `history` and `declaration` over the runner, and sandbox load, clock, evaluators and reset. **Done when** every example in the ten examples files, 163 on 2026-10-04, replays through the studio's wire with the verdict the flow checker gives it, an example the runner cannot run being "not run" in both, checked by a test that drives the wire, not the runner. The 42 that name an object a request created, or expect the transitions it caused, need an event read the interface does not yet offer, and one needs the type of an object an invariant failure names; each is reported as waiting until the author decides (ADR-0150, Consequences). **Done, 2026-10-04**, but for the 45 that wait: `apps/flow-studio/server/` and `apps/flow-studio/web/`. The server's replay test passes 118 examples through the wire with the reference runner's verdicts and fails none, the other 45 waiting on the two findings and on importing. The page's own player, run against the real server by the front end's test, gives the same 118 and 45.
 2. **Free simulation.** Fire any transition on any object as any actor, with the live offer and refusals in full. It needs `availability`, which the runner does not yet offer and which is written into the runner first, as the library states it, since the runner is the oracle the core is compared with. A metrics strip.
 3. **Edit.** The editor of §3.1, with live findings and diagram, reloading the sandbox from the edited module, and saving a session as examples (§5).
 4. **The Rust backend.** The same sessions against the core's service as its slices land, and a report of where the two backends' verdicts differ.
@@ -78,12 +78,12 @@ apps/flow-studio/
 ```
 
 - **The server** is Python's standard library HTTP server over the runner, the checker and the diagram script, which it imports from `scripts/`. It adds no Python dependency: PyYAML and jsonschema are already the checkers'. It listens on `127.0.0.1` only, on a port set explicitly in one configuration file, and the front end's development server's port likewise, never a default. It serves one user and holds only a sandbox store, so it has no authentication.
-- **The wire** carries JSON. Its shape is a decision for the service as much as for the studio (question 1 of §9).
+- **The wire** carries JSON, one `POST /v1/<operation>` per library operation, values in JSON where it keeps them exactly and otherwise in the model's notation, sandbox control under `/sandbox/` and the studio's tooling under `/studio/` (ADR-0150).
 - **Tests.** The front end's with Vitest. The server's with pytest, the slice 1 replay test among them. A single `check` script for each part runs typecheck, lint and tests, as the author's web conventions ask.
 
-## 8. Dependencies awaiting approval
+## 8. Dependencies
 
-None is added before the author approves it.
+Approved by the author on 2026-10-04 (ADR-0150 decision 4), each pinned exactly in `apps/flow-studio/web/package.json` and `server/requirements-dev.txt`, with `@types/node` for the build's configuration. pnpm runs through Node's `corepack`, pinned at 11.28.2, since pnpm 12 ships a native binary the installed corepack 0.33 cannot start. TypeScript is pinned at 6.0.3, the newest typescript-eslint accepts. pytest runs in a virtual environment that sees the system interpreter's PyYAML and jsonschema, which the checkers use.
 
 | Dependency | For | Slice |
 |---|---|---|
@@ -93,7 +93,9 @@ None is added before the author approves it.
 | `@codemirror/*` | the YAML editor, with findings against lines | 3 |
 | `pytest` | the server's tests, in a virtual environment | 1 |
 
-## 9. Questions for the author
+## 9. Questions the author decided
+
+All three on 2026-10-04, as recommended (ADR-0150). Two more, from slice 1, wait on the author: how a caller reads the events a request appended, and the type of the object an invariant failure names (ADR-0150, Consequences).
 
 1. **The wire's shape.** ADR-0132 says the service exposes the library one to one, and no OpenAPI description exists yet. I recommend the literal reading: one `POST /v1/<operation>` per library operation, its arguments a JSON object with the library's names, its result the library's shape as JSON, a refusal a 200 with the verdict, since a refusal is a value (`library-api.md` §2), and sandbox control under `/sandbox/`, which a deployment's service does not route. The slice 1 operations would be the first entries of the OpenAPI description. The alternative is resource paths (`GET /objects/{id}`, `POST /objects/{id}/transitions/{name}`), more conventional for HTTP, but a second naming of the same operations to keep in step with the library.
 2. **The user interface library.** I recommend React: the sample is meant to be read by people building on ObjectFlow, and React is the one most of them read. The alternative with the fewest dependencies is plain TypeScript with no framework, which is lighter but makes the three panes' state harder to follow.
