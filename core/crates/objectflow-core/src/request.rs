@@ -177,6 +177,8 @@ struct Ctx<'w> {
     /// The object an assertion set, and the invariants it admits (§4.13).
     asserted: Option<String>,
     admits: BTreeSet<String>,
+    /// For each object this request erased, the personal attributes it erased.
+    erased: BTreeMap<String, BTreeSet<String>>,
     /// Every event, in the order recorded.
     events: Vec<Event>,
     created: BTreeSet<String>,
@@ -241,21 +243,18 @@ fn decide_or_stop(
             });
         }
     };
-    if x.kind == Kind::Erasure {
-        return stop_not_run(format!("an erasure ({tn}.{})", req.transition));
-    }
     // 3. not requestable, and unavailable
     if !x.only_via.is_empty() {
         return refused(Verdict::NotRequestable {
             parents: x.only_via.clone(),
         });
     }
-    // an assertion runs from any state but a final one
+    // an assertion runs from any state but a final one, an erasure at any
     if let Some(o) = oid.as_deref().and_then(|id| world.get(id))
-        && !(if x.kind == Kind::Assertion {
-            t.state(&o.state).is_some_and(|s| !s.is_final)
-        } else {
-            takes_from(t, x, &o.state)
+        && !(match x.kind {
+            Kind::Assertion => t.state(&o.state).is_some_and(|s| !s.is_final),
+            Kind::Erasure => true,
+            _ => takes_from(t, x, &o.state),
         })
     {
         return refused(Verdict::Unavailable {
@@ -319,6 +318,7 @@ fn decide_or_stop(
         index: Vec::new(),
         asserted: None,
         admits: BTreeSet::new(),
+        erased: BTreeMap::new(),
         events: Vec::new(),
         created: BTreeSet::new(),
     };
@@ -349,8 +349,11 @@ fn decide_or_stop(
             if obj.admissions.contains(&n) {
                 continue;
             }
+            // an assertion admits what it names; an erasure what it leaves
+            // violated, on that object (§4.13)
             let named = (ctx.asserted.as_deref() == Some(id.as_str()) && ctx.admits.contains(&n))
-                || ctx.admits.contains(&format!("{}.{n}", obj.type_));
+                || ctx.admits.contains(&format!("{}.{n}", obj.type_))
+                || erasure_broke(&ctx, obj, &n);
             if named { &mut admit } else { &mut refusing }.push(n);
         }
         if !refusing.is_empty() {
@@ -408,6 +411,11 @@ fn decide_or_stop(
             index: ctx.index,
             admitted,
             discharged,
+            redacted: ctx
+                .erased
+                .iter()
+                .map(|(id, attrs)| (id.clone(), attrs.iter().cloned().collect()))
+                .collect(),
         }),
     ))
 }
@@ -459,14 +467,12 @@ fn take(
             });
         }
     };
-    if x.kind == Kind::Erasure {
-        return stop_not_run(format!("an erasure ({tn}.{xn})"));
-    }
     if x.kind == Kind::Assertion && depth > 0 {
         return stop_not_run(format!("a caused assertion ({tn}.{xn})"));
     }
     if depth > 0 {
         if let Some(o) = oid.as_deref().and_then(|id| ctx.work.get(id))
+            && x.kind != Kind::Erasure
             && !takes_from(t, x, &o.state)
         {
             return refused(Verdict::Unavailable {
@@ -629,6 +635,32 @@ fn take(
             }
         }
     }
+    // not_erased: an erased object's personal attributes are not written
+    // again, by an input or by a step that assigns or adds; a clear writes
+    // absence and passes (ADR-0147)
+    if x.kind != Kind::Erasure
+        && let Some(o) = oid.as_deref().and_then(|id| ctx.work.get(id))
+        && o.erased
+    {
+        let by_input = x
+            .required_inputs
+            .iter()
+            .chain(&x.optional_inputs)
+            .filter(|k| inputs.contains_key(*k));
+        let by_step = x.effect.iter().filter_map(|st| match st {
+            Step::Assign { location, .. } | Step::Add { location, .. } => Some(location),
+            _ => None,
+        });
+        if by_input
+            .chain(by_step)
+            .any(|a| t.attribute(a).is_some_and(|spec| spec.personal))
+        {
+            return refused(Verdict::Unsatisfied {
+                clause: "not_erased".into(),
+                remedy: Some(Remedy::UnreachableFromHere),
+            });
+        }
+    }
     // a successor an input names is neither this object nor one already
     // superseded, so no supersession chain closes on itself (ADR-0144)
     for step in &x.effect {
@@ -772,6 +804,7 @@ fn take(
                 spans: BTreeMap::new(),
                 writes: BTreeMap::new(),
                 admissions: BTreeSet::new(),
+                erased: false,
             };
             for (a, spec) in &t.attributes {
                 // a set is never absent: created empty unless given, a derived
@@ -802,6 +835,33 @@ fn take(
         && let Some(to) = x.to.first()
     {
         o.state = to.clone();
+    }
+    // an erasure makes every personal attribute absent, a personal set
+    // empty, and its values leave the interval index (DESIGN.md §8)
+    if x.kind == Kind::Erasure {
+        let mut erased = BTreeSet::new();
+        for (a, spec) in &t.attributes {
+            if !spec.personal || !o.attrs.contains_key(a) {
+                continue;
+            }
+            if spec.stored_set() {
+                o.attrs.insert(a.clone(), Value::Set(Vec::new()));
+            } else {
+                o.attrs.remove(a);
+            }
+            erased.insert(a.clone());
+        }
+        for (a, spec) in &t.attributes {
+            if spec.personal
+                && let Some(spans) = o.spans.get_mut(a)
+            {
+                for sp in spans {
+                    sp.value = Value::Absent;
+                }
+            }
+        }
+        o.erased = true;
+        ctx.erased.entry(o.id.clone()).or_default().extend(erased);
     }
     // an assertion puts the object into the state the request names
     if x.kind == Kind::Assertion
@@ -857,6 +917,13 @@ fn take(
         position,
     )?;
     cascades(ctx, alloc, t, xn, &id, &inputs, depth)?;
+    // an erasure reaches its observations through each one's forget, then
+    // every member of its supersession chain, after its own steps and
+    // cascades (DESIGN.md §8, ADR-0087, ADR-0147)
+    if x.kind == Kind::Erasure {
+        forget_observations(ctx, alloc, t, &id, &inputs, depth)?;
+        erase_chain(ctx, alloc, &id, &inputs, depth)?;
+    }
     // the event, recorded as the transition ends, with the spans it opens
     let Some(o) = ctx.work.objects.get_mut(&id) else {
         return stop_not_run(format!("the object {id}, which its own effect removed"));
@@ -922,10 +989,10 @@ fn take(
         from_state: from_state.clone(),
         to_state: o.state.clone(),
         changes_state: from_state.as_deref() != Some(o.state.as_str()),
-        source: if x.kind == Kind::Assertion {
-            "asserted"
-        } else {
-            "observed"
+        source: match x.kind {
+            Kind::Assertion => "asserted",
+            Kind::Erasure => "erased",
+            _ => "observed",
         }
         .into(),
         actor_id: ctx.who.id.clone(),
@@ -934,7 +1001,12 @@ fn take(
         recorded_at: ctx.work.now,
         occurred_at: Some(ctx.at),
         imported: false,
-        payload: json!({ "inputs": written }),
+        // an erasure names what it erased, and never the values
+        payload: if x.kind == Kind::Erasure {
+            json!({ "erased": ctx.erased.get(&id).cloned().unwrap_or_default() })
+        } else {
+            json!({ "inputs": written })
+        },
     };
     ctx.events.push(event);
     Ok(id)
@@ -1010,6 +1082,167 @@ fn record_spans(
         });
     }
     true
+}
+
+/// Each observation in the subject's collections whose kind has a personal
+/// field, corrected ones included, forgotten in ascending id order, passing
+/// the erasure's reason (`declaration-syntax.md` §6.8).
+fn forget_observations(
+    ctx: &mut Ctx<'_>,
+    alloc: &mut Allocator,
+    t: &Type,
+    id: &str,
+    inputs: &BTreeMap<String, Value>,
+    depth: usize,
+) -> Result<(), Stop> {
+    for (_, kind) in &t.observations {
+        if ctx
+            .work
+            .lib
+            .type_(kind)
+            .and_then(|k| k.transition("forget"))
+            .is_none()
+        {
+            continue; // a kind with no personal field has nothing to forget
+        }
+        let subject = Value::Object(id.to_string());
+        let ids: Vec<String> = ctx
+            .work
+            .of_type(kind)
+            .iter()
+            .filter(|x| x.attr("subject") == subject)
+            .map(|x| x.id.clone())
+            .collect();
+        let reason = inputs
+            .get("reason")
+            .cloned()
+            .unwrap_or_else(|| Value::Text("erasure".into()));
+        for x in ids {
+            take(
+                ctx,
+                alloc,
+                kind,
+                "forget",
+                Some(x),
+                [("reason".to_string(), reason.clone())].into(),
+                depth + 1,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Every other member of the object's supersession chain, predecessors and
+/// successors, each through its own type's erasure, given the inputs it
+/// takes of the requested erasure's; a member with nothing personal declares
+/// no erasure and is passed over, and a member's refusal refuses the request
+/// as a group erasure (ADR-0087, ADR-0146, ADR-0147).
+fn erase_chain(
+    ctx: &mut Ctx<'_>,
+    alloc: &mut Allocator,
+    id: &str,
+    inputs: &BTreeMap<String, Value>,
+    depth: usize,
+) -> Result<(), Stop> {
+    let mut chain = BTreeSet::new();
+    let mut todo = vec![id.to_string()];
+    while let Some(cur) = todo.pop() {
+        if !chain.insert(cur.clone()) {
+            continue;
+        }
+        if let Some(next) = ctx.work.get(&cur).and_then(|o| o.superseded_by.clone()) {
+            todo.push(next);
+        }
+        todo.extend(
+            ctx.work
+                .objects
+                .values()
+                .filter(|p| p.superseded_by.as_deref() == Some(cur.as_str()))
+                .map(|p| p.id.clone()),
+        );
+    }
+    let mut members: Vec<(i64, String, String)> = chain
+        .iter()
+        .filter(|m| m.as_str() != id)
+        .filter_map(|m| {
+            ctx.work
+                .get(m)
+                .map(|o| (o.order, o.id.clone(), o.type_.clone()))
+        })
+        .collect();
+    members.sort();
+    for (_, member, type_) in members {
+        if ctx.erased.contains_key(&member) && ctx.work.get(&member).is_some_and(|o| o.erased) {
+            continue;
+        }
+        let Some((xn, x)) = ctx
+            .work
+            .lib
+            .type_(&type_)
+            .and_then(|mt| mt.transitions.iter().find(|(_, x)| x.kind == Kind::Erasure))
+        else {
+            continue;
+        };
+        let (xn, given) = (
+            xn.clone(),
+            inputs
+                .iter()
+                .filter(|(k, _)| x.inputs.iter().any(|(n, _)| n == *k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        );
+        take(
+            ctx,
+            alloc,
+            &type_,
+            &xn,
+            Some(member.clone()),
+            given,
+            depth + 1,
+        )
+        .map_err(|s| call_refused(s, "group erasure".into(), &type_, Some(member.clone())))?;
+    }
+    Ok(())
+}
+
+/// Whether an invariant fails on an object because this request erased what
+/// it reads: the object's own attribute, or, one hop away, an object a
+/// reference it reads names (§4.13, ADR-0147).
+fn erasure_broke(ctx: &Ctx<'_>, obj: &Object, n: &str) -> bool {
+    let Some(t) = ctx.work.lib.type_(&obj.type_) else {
+        return false;
+    };
+    let read = invariant_reads(t, n);
+    if ctx
+        .erased
+        .get(&obj.id)
+        .is_some_and(|e| e.iter().any(|a| read.contains(a)))
+    {
+        return true;
+    }
+    read.iter()
+        .any(|r| matches!(obj.attr(r), Value::Object(other) if ctx.erased.contains_key(&other)))
+}
+
+/// The attributes an invariant reads, generated ones included: an
+/// attribute's uniqueness, a state's requirement.
+fn invariant_reads(t: &Type, n: &str) -> BTreeSet<String> {
+    if let Some(a) = n.strip_suffix("_unique") {
+        return [a.to_string()].into();
+    }
+    if let Some(s) = n.strip_suffix("_invariant") {
+        return t
+            .states
+            .iter()
+            .find(|(name, _)| name.to_lowercase() == s)
+            .map(|(_, st)| st.required_attributes.iter().cloned().collect())
+            .unwrap_or_default();
+    }
+    let mut read = BTreeSet::new();
+    if let Some((_, e)) = t.invariants.iter().find(|(name, _)| name == n) {
+        names_read(e, &mut read);
+    }
+    read
 }
 
 /// A write whose right-hand side is an unsupplied optional input is skipped
@@ -2769,5 +3002,112 @@ types:
                 state: "DONE".into()
             }
         );
+    }
+
+    #[test]
+    fn an_erasure_redacts_its_history_reaches_its_observations_and_stays() {
+        let text = JOBS
+            .replace(
+                "      note: { type: string, optional: true }",
+                "      note: { type: string, optional: true, personal: true }",
+            )
+            .replace(
+                "      bounded: { expression: hours is null or hours >= 0 }",
+                "      bounded: { expression: hours is null or hours >= 0 }\n      \
+                 noted: { expression: \"state != Job.WORKING or note is not null\" }",
+            )
+            .replace(
+                "      finish: { kind: external, from: [WORKING], to: DONE }",
+                "      finish: { kind: external, from: [WORKING], to: DONE }\n      \
+                 forget: { kind: erasure, inputs: { reason: { type: string } } }\n      \
+                 renote: { kind: internal, from: any, required_inputs: [note] }\n      \
+                 stamp: { kind: internal, from: any, effect: [ { assign: { location: note, expr: '\"x\"' } } ] }",
+            )
+            .replace(
+                "    states:\n      OPEN: { category: inbound }",
+                "    observations:\n      checks:\n        kind: Check\n        attributes:\n          \
+                 remark: { type: string, optional: true, personal: true }\n    states:\n      OPEN: { category: inbound }",
+            );
+        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fix", "note": "secret"}),
+        ));
+        let ana = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        created(&req(
+            &mut s,
+            "start",
+            OPERATOR,
+            (&job, false),
+            json!({"engineer": &ana}),
+        ));
+        let check = created(&req(
+            &mut s,
+            "record",
+            OPERATOR,
+            ("Check", true),
+            json!({"subject": &job, "remark": "ana said"}),
+        ));
+        // the erasure admits the invariant it breaks, and forgets the check
+        let v = req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&job, false),
+            json!({"reason": "asked"}),
+        );
+        let Verdict::Satisfied { events, .. } = &v else {
+            panic!("{v:?}");
+        };
+        assert_eq!(events.len(), 2);
+        let w = s.snapshot().unwrap();
+        let o = w.get(&job).unwrap();
+        assert_eq!(o.attr("note"), Value::Absent);
+        assert!(o.erased && o.admissions.contains("noted"));
+        assert_eq!(w.get(&check).unwrap().attr("remark"), Value::Absent);
+        // the past event keeps its place and shape, and loses the value
+        let history = s.history(&job).unwrap();
+        assert_eq!(history[0].payload["inputs"]["note"], Json::Null);
+        assert_eq!(history[0].payload["inputs"]["title"], json!("Fix"));
+        assert_eq!(history.last().unwrap().source, "erased");
+        assert_eq!(history.last().unwrap().payload, json!({"erased": ["note"]}));
+        // what was erased stays erased, and the rest is still written
+        let not_erased = Verdict::Unsatisfied {
+            clause: "not_erased".into(),
+            remedy: Some(Remedy::UnreachableFromHere),
+        };
+        assert_eq!(
+            req(
+                &mut s,
+                "renote",
+                OPERATOR,
+                (&job, false),
+                json!({"note": "again"})
+            ),
+            not_erased
+        );
+        created(&req(
+            &mut s,
+            "estimate",
+            OPERATOR,
+            (&job, false),
+            json!({"hours": 3}),
+        ));
+        let w = s.snapshot().unwrap();
+        let offers = crate::reads::availability(&w, OPERATOR, &job)
+            .unwrap()
+            .unwrap();
+        let stamp = offers.iter().find(|o| o.transition == "stamp").unwrap();
+        assert_eq!(stamp.verdict, Some(not_erased));
     }
 }

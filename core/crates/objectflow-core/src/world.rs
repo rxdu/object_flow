@@ -33,6 +33,9 @@ pub struct Object {
     /// The invariants whose violation an admission lets stand on it, until
     /// they hold again (ADR-0054, `of_admission`).
     pub admissions: std::collections::BTreeSet<String>,
+    /// Its own erasure is recorded, so a later write of a personal attribute
+    /// is refused (`DESIGN.md` §8).
+    pub erased: bool,
 }
 
 /// How long an object held a state, or a value of a tracked member, as one

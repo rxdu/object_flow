@@ -1137,6 +1137,7 @@ types:
             spans: BTreeMap::new(),
             writes: BTreeMap::new(),
             admissions: std::collections::BTreeSet::new(),
+            erased: false,
         }
     }
 

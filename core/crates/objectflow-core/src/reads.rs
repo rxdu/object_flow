@@ -172,6 +172,28 @@ pub fn availability(
             ));
             continue;
         }
+        // decided on what its effect writes; what its inputs would write waits
+        // for them (ADR-0147)
+        if x.kind != Kind::Erasure && o.erased {
+            let writes_personal = x.effect.iter().any(|st| match st {
+                crate::model::Step::Assign { location, .. }
+                | crate::model::Step::Add { location, .. } => {
+                    t.attribute(location).is_some_and(|a| a.personal)
+                }
+                _ => false,
+            });
+            if writes_personal {
+                offers.push(refused(
+                    Verdict::Unsatisfied {
+                        clause: "not_erased".into(),
+                        remedy: Some(Remedy::UnreachableFromHere),
+                    },
+                    inputs,
+                    unevaluated,
+                ));
+                continue;
+            }
+        }
         let mut denied = None;
         for (g, mode) in &x.guards {
             let Some(c) = t.condition(g) else {

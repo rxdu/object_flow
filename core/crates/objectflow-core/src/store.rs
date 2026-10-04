@@ -75,6 +75,10 @@ pub struct Change {
     /// The admissions it discharges, the invariant holding again: an
     /// object, the invariant, and the event that discharged it.
     pub discharged: Vec<(String, String, i64)>,
+    /// What an erasure redacts beyond the object's row: for an object, its
+    /// erased attributes in every past event's payload, and its personal
+    /// attributes' values in the interval index (§9, steps 2 and 9).
+    pub redacted: Vec<(String, Vec<String>)>,
 }
 
 fn table(type_: &str) -> String {
@@ -735,6 +739,7 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
                     spans: BTreeMap::new(),
                     writes: BTreeMap::new(),
                     admissions: std::collections::BTreeSet::new(),
+                    erased: false,
                 },
             );
         }
@@ -753,6 +758,15 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
         let (id, attribute, position) = row?;
         if let Some(o) = world.objects.get_mut(&id) {
             o.writes.insert(attribute, position);
+        }
+    }
+    // an object whose own erasure is recorded
+    let mut erasures =
+        conn.prepare("SELECT DISTINCT object_id FROM of_event WHERE source = 'erased'")?;
+    let rows = erasures.query_map([], |r| r.get::<_, String>(0))?;
+    for row in rows {
+        if let Some(o) = world.objects.get_mut(&row?) {
+            o.erased = true;
         }
     }
     // the admissions that stand
@@ -974,6 +988,22 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
             "INSERT INTO of_admission (object_id, invariant, position, reason) VALUES (?1, ?2, ?3, ?4)",
             params![id, invariant, position, reason],
         )?;
+    }
+    // personal values leave the log and the interval index, the events and
+    // their shape kept (§9, steps 2 and 9)
+    for (id, attributes) in &change.redacted {
+        for a in attributes {
+            let path = format!("$.inputs.\"{}\"", a.replace('"', ""));
+            tx.execute(
+                "UPDATE of_event SET payload = json_set(payload, ?2, json('null')) \
+                 WHERE object_id = ?1 AND json_type(payload, ?2) IS NOT NULL",
+                params![id, path],
+            )?;
+            tx.execute(
+                "UPDATE of_interval SET value = NULL WHERE object_id = ?1 AND dimension = ?2",
+                params![id, a],
+            )?;
+        }
     }
     for (id, invariant, position) in &change.discharged {
         tx.execute(
