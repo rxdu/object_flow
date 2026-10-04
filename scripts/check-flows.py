@@ -2913,8 +2913,10 @@ def example_errors(doc, kinds, modules):
         for tn, t in (m.get("types") or {}).items():
             for ob in (t.get("observations") or {}).values():
                 fields = ob.get("attributes") or {}
+                # its occurred and recorded times are read, as an expectation's values, and never given as inputs
                 kinds[ob["kind"]] = {
-                    "attributes": dict(fields, subject={"reference": tn}, corrects={"reference": ob["kind"], "optional": True}),
+                    "attributes": dict(fields, subject={"reference": tn}, corrects={"reference": ob["kind"], "optional": True},
+                                       occurred_at={"type": "timestamp"}, recorded_at={"type": "timestamp"}),
                     "states": {"RECORDED": {"final": True}},
                     "invariants": ob.get("invariants") or {},
                     "transitions": {"record": {"kind": "initial", "to": "RECORDED",
@@ -2953,7 +2955,8 @@ def example_errors(doc, kinds, modules):
         elif typ == "int" and (isinstance(v, bool) or not isinstance(v, int)):
             return [(path, "names", f"'{name}' is an int")]
         elif typ == "timestamp" and not (isinstance(v, str) and TIMESTAMP.match(v)):
-            return [(path, "names", f"'{name}' is a timestamp, written in UTC as 2026-01-01T09:00Z, or as now, or now + <duration>")]
+            return [(path, "names", f"'{name}' is a timestamp, written in UTC as 2026-01-01T09:00Z, or as now, now + <duration> "
+                                    "or now - <duration>")]
         elif typ == "date" and not (isinstance(v, str) and DATE.match(v)):
             return [(path, "names", f"'{name}' is a date, written as 2026-03-01")]
         elif typ == "actor_kind" and v not in ACTOR_KINDS:
@@ -2981,6 +2984,8 @@ def example_errors(doc, kinds, modules):
         if applies and x.get("only_via"):
             errs.append((path + ("transition",), "names", f"a setup's step must apply, and {tn}.{r['transition']} is only via "
                                                           f"{', '.join(x['only_via'])}, so a direct request is not requestable"))
+        if "occurred_at" in r:
+            errs += value_errors(r["occurred_at"], {"type": "timestamp"}, env, path + ("occurred_at",), "occurred_at")
         actor = r.get("actor", "operator")
         if actor != "operator" and not (actor in env and marks_actor(env[actor], kinds)):
             errs.append((path + ("actor",), "names", f"names the actor '{actor}', which is neither `operator` nor an alias of an "
@@ -3744,6 +3749,8 @@ def examples_self_test(people, service, examples):
          "inputs: { engineer: ben, reason: ReassignmentReason.WORKLOAD }", "inputs: { engineer: ben, why: ReassignmentReason.WORKLOAD }"),
         ("an enumeration value written unqualified", "names", "written qualified",
          "inputs: { engineer: ben, reason: ReassignmentReason.WORKLOAD }", "inputs: { engineer: ben, reason: WORKLOAD }"),
+        ("an occurred time not written as a timestamp", "names", "'occurred_at' is a timestamp",
+         "after: 25 h, occurred_at: now - 1 day }", "after: 25 h, occurred_at: yesterday }"),
         ("a state the transition does not leave its object in", "names", "does not leave an object in",
          "expect: { verdict: applied, state: OPEN }", "expect: { verdict: applied, state: WORKING }"),
         ("a setup that is not declared", "names", "which this file does not declare",

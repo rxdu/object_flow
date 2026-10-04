@@ -73,6 +73,12 @@ class Refused(Exception):
         self.verdict, self.clause, self.remedy, self.detail = verdict, clause, remedy, detail
 
 
+def seconds(duration):
+    """A duration written as a count and a unit, `2 days`, in seconds."""
+    n, unit = str(duration).split()
+    return Fraction(int(n)) * SECONDS[unit]
+
+
 def timestamp(text):
     t = datetime.datetime.strptime(text.replace("Z", "+0000"), "%Y-%m-%dT%H:%M%z" if text.count(":") == 1 else "%Y-%m-%dT%H:%M:%S%z")
     return Fraction(int((t - EPOCH).total_seconds()))
@@ -1144,6 +1150,8 @@ class Ctx:
         self.before = None          # the store as the request found it
         self.created = []           # the objects it creates other than its own, in the order it creates them
         self.attr_writes = {}       # object id -> the attributes its current transition's effect wrote
+        self.occurred = None        # the time the request says the change happened, where it gives one
+        self.at = work.now          # the occurred time every transition the request takes records (DESIGN.md §6)
 
     def wrote(self, oid):
         if oid not in self.written:
@@ -1201,9 +1209,9 @@ class Runner:
         return back.get("aggregation") == "composite"
 
     # ── a request ─────────────────────────────────────────────────────────────
-    def attempt(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs):
+    def attempt(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred=None):
         """The request's result, ("applied", object id, flags, the transitions it caused), or a Refused.
-        The store changes only if the request applies."""
+        The store changes only if the request applies. `occurred` is the time the request says the change happened."""
         work = copy.deepcopy(store)
         # 1. the actor: an object of a type that marks an actor identity (DESIGN.md §6 step 1)
         if actor not in work.objects or work.actor_attr(work.type_of(actor)) is None:
@@ -1211,6 +1219,8 @@ class Runner:
         attr, akind = work.actor_attr(work.type_of(actor))
         ctx = Ctx(work, {"id": work.objects[actor].attrs.get(attr, ABSENT), "kind": akind}, stubs, tn)
         ctx.before = store
+        if occurred is not None:
+            ctx.occurred = ctx.at = occurred
         t = self.kinds.get(tn) or {}
         x = (t.get("transitions") or {}).get(xn)
         # 3. not found, and unknown transition; 4. not requestable, unavailable, invalid input, in that order
@@ -1354,7 +1364,19 @@ class Runner:
                 raise Refused("invalid_input", remedy="self_serviceable", detail="an admission it does not list in may_admit")
             ctx.asserted, ctx.admits = oid, set(inputs.get("admits", ()))
         # the generated guards, in the order flow-format.md §4.8 states, then the <attribute>_provided ones, then the
-        # transition's own; occurred_within is never reached, since no request here is backdated
+        # transition's own. occurred_within: the requested transition's bound, its backdating_limit or its kind's
+        # max_recording_delay, takes an occurred time no further back than the bound and not after the recorded time,
+        # and one with no bound, or a correction, which takes the corrected's, takes none; and every transition the
+        # request takes keeps the time from preceding the current interval of what it changes on its own object (§4.4)
+        if depth == 0 and ctx.occurred is not None:
+            limit = x.get("backdating_limit")
+            if "corrects" in inputs or limit is None or not work.now - seconds(limit) <= ctx.occurred <= work.now:
+                raise Refused("unsatisfied", "occurred_within", GENERATED_REMEDY["occurred_within"])
+        if oid is not None:
+            changing = {m for m in set(self.tracked(tn)) & set(inputs) if work.objects[oid].attrs.get(m, ABSENT) != inputs[m]}
+            if x["kind"] == "external" or (x["kind"] == "assertion" and inputs.get("to") != work.objects[oid].state):
+                changing.add("state")
+            self.check_interval(ctx, work.objects[oid], changing)
         wholes = []
         for k in set(x.get("required_inputs", []) + x.get("optional_inputs", [])) & set(inputs):
             if self.owner_end(attrs.get(k)):
@@ -1410,7 +1432,7 @@ class Runner:
         pos = work.position
         before = (work.objects[oid].state, dict(work.objects[oid].attrs), self.tracked_values(work.objects[oid])) if oid else (None, {}, {})
         if oid is None:
-            o = Obj(work.new_id(tn), tn, x["to"], work.now)
+            o = Obj(work.new_id(tn), tn, x["to"], ctx.at)
             o.id_order = work.counter
             o.created_by_kind = ctx.who["kind"]
             if depth:
@@ -1427,15 +1449,15 @@ class Runner:
                 o.attrs["recorded_at"] = work.now
                 # a correction replaces the fact it corrects, so it keeps that fact's occurred time (ADR-0146)
                 corrected = work.objects.get(inputs["corrects"]) if "corrects" in inputs else None
-                o.attrs["occurred_at"] = corrected.attrs.get("occurred_at", work.now) if corrected else work.now
+                o.attrs["occurred_at"] = corrected.attrs.get("occurred_at", work.now) if corrected else ctx.at
         else:
             o = work.objects[oid]
             if x["kind"] == "external":
                 o.state = x["to"]
-                o.entered[o.state] = work.now
+                o.entered[o.state] = ctx.at
             elif x["kind"] == "assertion":
                 o.state = inputs["to"]
-                o.entered[o.state] = work.now
+                o.entered[o.state] = ctx.at
             elif x["kind"] == "erasure":
                 self.erase(ctx, o)
         for k in x.get("required_inputs", []) + x.get("optional_inputs", []):
@@ -1466,6 +1488,14 @@ class Runner:
     def tracked_values(self, o):
         return {m: (("state", o.type, o.state) if m == "state" else o.attrs.get(m, ABSENT)) for m in self.tracked(o.type)}
 
+    @staticmethod
+    def check_interval(ctx, o, members):
+        """A backdated change does not precede the current interval of a state or tracked value it changes (§4.8)."""
+        for m in members:
+            spans = o.spans.get(m) or []
+            if spans and ctx.at < spans[-1]["entered_at"]:
+                raise Refused("unsatisfied", "occurred_within", GENERATED_REMEDY["occurred_within"])
+
     def record(self, ctx, o, x, xn, pos, before, inputs, created):
         work = ctx.work
         before_state, before_attrs, held = before
@@ -1487,10 +1517,12 @@ class Runner:
                         ev["held"][m] = v
                 continue
             if created or not spans or held.get(m, ABSENT) != v:
+                if not created:
+                    self.check_interval(ctx, o, {m})     # what an effect changed, which no guard could see
                 if spans and spans[-1]["left_at"] is ABSENT:
-                    spans[-1]["left_at"] = work.now
+                    spans[-1]["left_at"] = ctx.at
                 key = "state" if m == "state" else "value"
-                spans.append(Row({"object": o.id, key: v, "entered_at": work.now, "left_at": ABSENT,
+                spans.append(Row({"object": o.id, key: v, "entered_at": ctx.at, "left_at": ABSENT,
                                   "entered_by_kind": ctx.who["kind"], "declaration_version": 1, "legacy": False,
                                   "migrated": False, "held": dict(now_values)}))
         written = ctx.attr_writes.get(o.id, set()) | ctx.erased.get(o.id, set())
@@ -1518,7 +1550,7 @@ class Runner:
             "from_state": ("state", o.type, before_state) if before_state else ABSENT, "to_state": ("state", o.type, o.state),
             "completes": bool(before_state) and is_open(before_state) and not is_open(o.state),
             "returns": bool(before_state) and before_state != o.state and o.state in visited,
-            "occurred_at": work.now, "recorded_at": work.now, "actor_id": ctx.who["id"], "actor_kind": ctx.who["kind"],
+            "occurred_at": ctx.at, "recorded_at": work.now, "actor_id": ctx.who["id"], "actor_kind": ctx.who["kind"],
             # an erasure is an override only where it leaves an invariant violated, which it admits (ADR-0146)
             "asserted": x["kind"] == "assertion",
             "overrides": x["kind"] == "assertion" or (x["kind"] == "erasure" and bool(self.failing_invariants(work, o))),
@@ -1833,6 +1865,9 @@ def observation_kinds(modules):
                     "transitions": {"record": {"kind": "initial", "to": "RECORDED",
                                                "required_inputs": ["subject"] + [a for a, f in fields.items() if not f.get("optional")],
                                                "optional_inputs": ["corrects"] + [a for a, f in fields.items() if f.get("optional")]}}}
+                if ob.get("max_recording_delay"):
+                    # the model's `occurred within`, the bound a recording's occurred time is held to (flow-format.md §4.4)
+                    kinds[ob["kind"]]["transitions"]["record"]["backdating_limit"] = ob["max_recording_delay"]
     return kinds
 
 
@@ -1992,8 +2027,9 @@ def step(runner, store, st, aliases, stubs, under_test=False):
     else:
         oid = aliases[r["object"]]
         tn = store.type_of(oid)
+    occurred = runner.value_of(store, {"type": "timestamp"}, r["occurred_at"], aliases) if "occurred_at" in r else None
     try:
-        result = runner.attempt(store, tn, r["transition"], oid, actor, r.get("inputs"), aliases, stubs)
+        result = runner.attempt(store, tn, r["transition"], oid, actor, r.get("inputs"), aliases, stubs, occurred)
     except Refused as refusal:
         if under_test:
             return ("refused", refusal)
@@ -2270,6 +2306,30 @@ def self_test():
             return e.clause
     check("whole_open before not_erased", first_refusal("move", {}), "whole_open")
     check("not_erased before successor_not_superseded", first_refusal("merged_into", {}), "not_erased")
+    # a request dated when the change happened: the requested transition's bound, and each transition it takes kept
+    # from preceding the current interval of what it changes, a call's included (flow-format.md §4.8, ADR-0146)
+    k = copy.deepcopy(kinds)
+    k["Order"]["transitions"]["ship"]["backdating_limit"] = "2 days"
+    r, s = Runner(k, {}), Store(k, {})
+    order = r.attempt(s, "Order", "open", None, OPERATOR, {}, {}, {})[1]
+    s.now += 4 * 86400                  # the order open longer than the bound, so only the bound refuses a date past it
+    r.attempt(s, "Order", "add_line", order, OPERATOR, {"qty": 1}, {}, {})
+    s.now += 3600
+
+    def dated(xn, back):
+        w = copy.deepcopy(s)
+        try:
+            r.attempt(w, "Order", xn, order, OPERATOR, {}, {}, {}, occurred=w.now - back)
+            return "applied", w.objects[order].entered.get("DONE"), w.events[-1]["occurred_at"], w.events[-1]["recorded_at"]
+        except Refused as e:
+            return e.verdict, e.clause
+    check("a change dated within its bound, recorded when it was told", dated("ship", 1800),
+          ("applied", s.now - 1800, s.now - 1800, s.now))
+    check("a change dated past its bound", dated("ship", 3 * 86400), ("unsatisfied", "occurred_within"))
+    check("a change dated after it was told", dated("ship", -3600), ("unsatisfied", "occurred_within"))
+    check("a call dated before the current interval of what it changes", dated("ship", 2 * 3600),
+          ("call_refused", "Line.occurred_within"))
+    check("a transition with no bound, dated", dated("cancel", 60), ("unsatisfied", "occurred_within"))
     ok &= metrics_self_test(kinds["Operator"])
     print(f"runner: a small order and its lines, a document over its history, and jobs read by their metrics, each thing "
           f"slices 1 to 4 execute: {'yes' if ok else 'NO'}")

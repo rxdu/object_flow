@@ -104,3 +104,76 @@ examples:
       actor: ana
       inputs: { subject: job, check: battery, outcome: CheckOutcome.NOT_APPLICABLE, corrects: mistake }
     expect: { verdict: unsatisfied, clause: corrects_current, remedy: self_serviceable }
+
+  a_late_start_is_dated_when_it_happened:
+    description: Ana started the job an hour after opening it and records the start a day later; it is dated when it happened, since a start may reach back two days.
+    given: two_engineers
+    steps:
+      - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
+    request: { object: job, transition: start, actor: ana, after: 25 h, occurred_at: now - 1 day }
+    expect: { verdict: applied, state: WORKING }
+
+  a_start_is_not_dated_further_back_than_two_days:
+    description: A start recorded three days after it happened is refused, and the caller can record it with a time within two days, or undated.
+    given: two_engineers
+    steps:
+      - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
+    request: { object: job, transition: start, actor: ana, after: 4 days, occurred_at: now - 3 days }
+    expect: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable }
+
+  a_start_is_not_dated_before_the_job_opened:
+    description: A start dated before the job was opened would begin its time working before its time open ended, so it is refused, though it is within two days.
+    given: two_engineers
+    steps:
+      - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
+    request: { object: job, transition: start, actor: ana, after: 1 h, occurred_at: now - 2 h }
+    expect: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable }
+
+  a_finish_says_no_time_of_its_own:
+    description: Finishing declares no backdating limit, so a finish that says when it happened is refused; it is dated when it is recorded.
+    given: job_in_progress
+    request: { object: job, transition: finish, actor: ana, after: 1 h, occurred_at: now - 10 min, inputs: { signed_off_by: ana } }
+    expect: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable }
+
+  an_inspection_is_dated_when_it_was_done:
+    description: An inspection done two days ago and recorded now is dated when it was done, since a result may be recorded up to a week late.
+    given: job_in_progress
+    request:
+      type: InspectionResult
+      transition: record
+      actor: ana
+      after: 3 days
+      occurred_at: now - 2 days
+      inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+    expect: { verdict: applied, state: RECORDED, values: { occurred_at: now - 2 days } }
+
+  an_inspection_more_than_a_week_late_is_refused:
+    description: A result recorded eight days after the inspection is past the week a result may be late, so it is refused.
+    given: job_in_progress
+    request:
+      type: InspectionResult
+      transition: record
+      actor: ana
+      after: 9 days
+      occurred_at: now - 8 days
+      inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+    expect: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable }
+
+  a_correction_takes_the_time_of_what_it_corrects:
+    description: A correction replaces a fact, so it keeps the corrected result's time and says none of its own; one that does is refused.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          as: mistake
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.FAIL }
+    request:
+      type: InspectionResult
+      transition: record
+      actor: ana
+      after: 1 h
+      occurred_at: now - 30 min
+      inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS, corrects: mistake }
+    expect: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable }

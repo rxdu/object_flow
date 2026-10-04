@@ -101,6 +101,10 @@
         },
         "actor": { "$ref": "#/definitions/alias" },
         "after": { "$ref": "#/definitions/duration" },
+        "occurred_at": {
+          "description": "When the request says the change happened: a timestamp, such as now - 1 day, held to the transition's backdating_limit or the kind's max_recording_delay.",
+          "type": "string"
+        },
         "inputs": { "type": "object" }
       }
     },

@@ -116,7 +116,7 @@ Every transition of the whole into a final state, an assertion whose `to` lists 
 
 ### 4.4 Observations
 
-An observation is a datapoint recorded about an object and never changed afterwards (`declaration-syntax.md` §6.8). Each has a `kind` (a type name), a `description`, its `attributes` (§4.3), and MAY have a `max_recording_delay`, a duration such as `7 days`, and `invariants` (§4.6). `max_recording_delay` is the model's `occurred within`: a recording's supplied occurred time is no further back than the bound and not after the recorded time, and on a kind without it the occurred time is the recorded time, a request supplying one being refused by `occurred_within`. A recording takes `subject`, its fields and optionally `corrects`, the observation it replaces, whose subject and occurred time it takes, exempt from `occurred_within` and `subject_open`; a correction naming another subject is refused as `invalid input`. Conditions MAY read a type's observations by the observation's name; an invariant MUST NOT, directly or through a derived attribute, since a recorded fact matters to the flow only through a guard (step 3, `names`; ADR-0146).
+An observation is a datapoint recorded about an object and never changed afterwards (`declaration-syntax.md` §6.8). Each has a `kind` (a type name), a `description`, its `attributes` (§4.3), and MAY have a `max_recording_delay`, a duration such as `7 days`, and `invariants` (§4.6). `max_recording_delay` is the model's `occurred within`: a recording's supplied occurred time is no further back than the bound and not after the recorded time, and on a kind without it the occurred time is the recorded time, a request supplying one being refused by `occurred_within`. A recording takes `subject`, its fields and optionally `corrects`, the observation it replaces, whose subject and occurred time it takes, so a correction supplying an occurred time of its own is refused by `occurred_within`, and it is exempt from that guard's bound and from `subject_open`; a correction naming another subject is refused as `invalid input`. Conditions MAY read a type's observations by the observation's name; an invariant MUST NOT, directly or through a derived attribute, since a recorded fact matters to the flow only through a guard (step 3, `names`; ADR-0146).
 
 ### 4.5 States
 
@@ -748,7 +748,7 @@ These words are reserved by the format. `scripts/check-flow-format-doc.py` holds
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
 
-**Example keys:** `examples_for`, `setups`, `examples`, `description`, `given`, `evaluators`, `steps`, `request`, `import`, `type`, `object`, `transition`, `as`, `creates`, `actor`, `after`, `inputs`, `state`, `values`, `expect`, `verdict`, `clause`, `remedy`, `cascaded`, `warned`, `approve`, `proposal`, `propose`, `reject`, `withdraw`.
+**Example keys:** `examples_for`, `setups`, `examples`, `description`, `given`, `evaluators`, `steps`, `request`, `import`, `type`, `object`, `transition`, `as`, `creates`, `actor`, `after`, `occurred_at`, `inputs`, `state`, `values`, `expect`, `verdict`, `clause`, `remedy`, `cascaded`, `warned`, `approve`, `proposal`, `propose`, `reject`, `withdraw`.
 
 **Example values:** `operator`, `now`, `satisfied`, `unsatisfied`, `unanswered`, `applied`, `unavailable`, `invalid_input`, `not_requestable`, `over_limit`, `invariant_violated`, `call_refused`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `executed`, `pending`, `rejected`, `withdrawn`.
 
@@ -792,6 +792,7 @@ A step is a `request`, an `import`, a `propose` or a decision on a proposal, `ap
 | `creates` | no | aliases for the objects the request's effect creates, other than its own, in the order it creates them, depth-first as the effect runs: a part created only through its whole, such as a checklist item or a subtask, is named so. They MUST be of one type, and the transition's effect MUST create that type (step 3, `names`); naming more than the request creates fails the example, and the request an example tests names none (ADR-0141) |
 | `actor` | no | who makes the request: `operator`, the default, or the alias of an object whose type marks an actor identity (§4.3) |
 | `after` | no | a duration the clock advances before the step, such as `1 h` |
+| `occurred_at` | no | when the request says the change happened, a timestamp, such as `now - 1 day`, which every transition it takes records; held by `occurred_within` to the requested transition's `backdating_limit` or the recorded kind's `max_recording_delay`, and refused where it has neither or the recording is a correction (§4.4, §4.8, ADR-0146) |
 | `inputs` | no | the request's inputs, each one the transition takes (§4.8) |
 
 An `import` writes one object of a `mirror` type, which only the import writes (§4.15), so an example can start from what a legacy system held: its `type`, the `as` alias, the `state` it arrives in, its attribute `values` and an optional `after`.
@@ -801,7 +802,7 @@ A `propose` files a request for approval instead of executing it, as a caller do
 **Values.** An input or value is written as the attribute or input it fills declares:
 - a reference, by the alias of an object of that type or a subtype, and a set of references as a list of aliases;
 - an enumeration value, qualified, as `ReassignmentReason.WORKLOAD`;
-- a timestamp, in UTC, as `2026-01-01T09:00Z`, or as `now` or `now + <duration>`, the clock at that step;
+- a timestamp, in UTC, as `2026-01-01T09:00Z`, or as `now`, `now + <duration>` or `now - <duration>`, the clock at that step;
 - a file, by a file name, for which the example supplies a file whose content is that name;
 - an `identity`, by the identity itself, such as `ana` or `acct-dev`, which the store compares as a string;
 - an `actor_kind`, bare, as `agent`;
