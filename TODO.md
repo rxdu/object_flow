@@ -208,9 +208,11 @@ The engine in Rust (ADR-0132), built slice by slice and judged by replaying the 
 - [x] **Shared state machines.** Done 2026-10-05 (`src/model.rs`): a binder takes its machine's states, conditions and transitions at load, its own initial replacing the machine's, once every module is read. 138 pass.
 - [x] **A request's occurred time.** Done 2026-10-05 (`src/request.rs`): every transition a request takes dated by its occurred time, held by `occurred_within` and the interval check; and `whole_open`, which the core had not evaluated, now refusing a part moved into a finished whole, held by a test since no example reaches it. 145 pass.
 - [x] **The attribute write index.** Done 2026-10-05 (`src/request.rs`, `src/store.rs`, `src/eval.rs`): `of_attribute_write` set by inputs, effects and changed values, a part's transition on its whole's part relationship and a recording on its subject's collection; `changed_since` read from it. 149 pass.
-- [ ] **The core's next slices, by what the replay finds not run.** Each raises the examples the core passes, and adds them to the ratchet. As of 2026-10-05, 12 examples are not run, reaching:
-  - erasure (4), assertion (3), filing a proposal (3);
-  - a family, a type extending a base (1), `referrers` (1).
+- [x] **Assertions.** Done 2026-10-05 (`src/request.rs`, `src/store.rs`): a requested assertion's `to` and `admits` checked, its state set and its event `asserted`; admissions kept in `of_admission`, a standing one skipped, an admitted one recorded with its reason, and one whose invariant holds again discharged. A caused assertion is still not run. 152 pass.
+- [x] **Erasure.** Done 2026-10-05 (`src/request.rs`, `src/store.rs`, `src/reads.rs`): personal attributes cleared, observations forgotten, the supersession chain erased, past payloads and interval values redacted, an invariant it breaks admitted, and `not_erased` refusing a later write in a request and an offer. 156 pass. Not yet: the taint walk into callers' and caused events (`storage-schema.md` §9, steps 3 and 12), and files, legacy entries, proposals, external ids and labels, which the core does not hold.
+- [x] **`referrers`.** Done 2026-10-05 (`src/eval.rs`): every object holding a stored reference to this one, its parts excepted. 157 pass.
+- [x] **Families.** Done 2026-10-05 (`src/model.rs`, `src/world.rs`, `src/request.rs`, `src/store.rs`): a subtype inherits its bases' attributes, derived attributes and invariants; scans, references and uniqueness count the family. The slice found D519 in the reference runner and D520 in the storage design. 158 pass.
+- [ ] **The core's next slices, by what the replay finds not run.** Each raises the examples the core passes, and adds them to the ratchet. As of 2026-10-05, 3 examples are not run, all filing a proposal.
 
 ## Toward implementation
 

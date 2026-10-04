@@ -76,8 +76,12 @@ Each later slice is recorded here with the replay's figures when it was committe
 | 2026-10-05 | Shared state machines, bound into their types at load | 138 | 23 |
 | 2026-10-05 | A request dated by when it happened, and `whole_open` | 145 | 16 |
 | 2026-10-05 | The attribute write index, and `changed_since` read from it | 149 | 12 |
+| 2026-10-05 | Assertions, and the admissions they record | 152 | 9 |
+| 2026-10-05 | Erasure, its reach and what it redacts | 156 | 5 |
+| 2026-10-05 | `referrers`, for a deletion guard | 157 | 4 |
+| 2026-10-05 | Families, a type extending a base | 158 | 3 |
 
-Minting raised no count: the examples that had stopped at minting went on to stop at an effect. The not-run examples now reach erasure (4), assertion (3), proposals (3), a family (1) and `referrers` (1). `TODO.md`'s list of the core's next slices keeps those counts.
+Minting raised no count: the examples that had stopped at minting went on to stop at an effect. The three examples not run all file a proposal. `TODO.md`'s list of the core's next slices keeps those counts.
 
 ## Alternatives rejected
 
