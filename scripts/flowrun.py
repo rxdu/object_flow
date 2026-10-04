@@ -1925,7 +1925,7 @@ class Runner:
         family reads the requested one through its scan. None where the runner cannot tell: any other invariant on
         another object, which may read the requested one through a relationship, or one reading `this`."""
         mine = work.objects[requested].type
-        if obj.id != requested and not (n.endswith("_unique") and (work.is_a(mine, obj.type) or work.is_a(obj.type, mine))):
+        if obj.id != requested and not (n.endswith("_unique") and work.is_a(mine, self.unique_scope(obj.type, n[:-len("_unique")]))):
             return None
         t = self.kinds.get(obj.type) or {}
         attrs = t.get("attributes") or {}
@@ -2025,10 +2025,16 @@ class Runner:
                     return None
                 return values
             mine = key(o)
-            if mine is not None and any(x.id != o.id and (store.is_a(x.type, o.type) or store.is_a(o.type, x.type)) and key(x) == mine
+            scope = self.unique_scope(o.type, a)
+            if mine is not None and any(x.id != o.id and store.is_a(x.type, scope) and key(x) == mine
                                         for x in store.objects.values()):
                 out.append(f"{a}_unique")
         return out
+
+    def unique_scope(self, tn, a):
+        """The type whose family a uniqueness spans: the one declaring the attribute, so a base's spans every subtype,
+        siblings included (flow-format.md §4.14, D519)."""
+        return ((self.kinds.get(tn) or {}).get("_from") or {}).get(("attributes", a), tn)
 
 
 def observation_kinds(modules):
@@ -2572,6 +2578,22 @@ def self_test():
     person = r.attempt(s, "Person", "add", None, OPERATOR, {"name": "Ana"}, {}, {})[1]
     note = r.attempt(s, "Note", "record", None, OPERATOR, {"subject": person, "body": "rang"}, {person: person}, {})[1]
     erased = r.attempt(s, "Person", "forget", person, OPERATOR, {"reason": "asked"}, {}, {})
+    # a base's uniqueness spans the whole family, siblings included (flow-format.md §4.14, D519)
+    key = {"key": {"type": "string", "unique": True}, "name": {"type": "string"}}
+    fam = {"Operator": kinds["Operator"], "Asset": {"abstract": True, "attributes": dict(key)}}
+    for sub, st in (("Laptop", "IN_USE"), ("Server", "RACKED")):
+        fam[sub] = {"extends": "Asset", "attributes": dict(key), "_from": {("attributes", "key"): "Asset", ("attributes", "name"): "Asset"},
+                  "states": {st: {"category": "live"}},
+                  "transitions": {"receive": {"kind": "initial", "to": st, "required_inputs": ["key", "name"]}}}
+    fr, fs = Runner(fam, {}), Store(fam, {})
+    fr.attempt(fs, "Laptop", "receive", None, OPERATOR, {"key": "IT-1", "name": "ThinkPad"}, {}, {})
+    try:
+        fr.attempt(fs, "Server", "receive", None, OPERATOR, {"key": "IT-1", "name": "db"}, {}, {})
+        sibling = ("applied",)
+    except Refused as refusal:
+        sibling = (refusal.verdict, refusal.clause)
+    # named on the laptop, the first object in ascending id order it fails on
+    check("a sibling taking a base's unique key is refused", sibling, ("invariant_violated", "Laptop.key_unique"))
     check("an erasure takes each observation's forget, a transition it causes",
           (erased[3], s.objects[note].attrs.get("body", ABSENT)), (["Note.forget"], ABSENT))
     # erasure (ADR-0147): its admission on the object the invariant fails on, one hop away; not_erased refusing an

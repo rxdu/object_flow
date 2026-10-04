@@ -530,6 +530,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D516](#d516) | The third cold reading's other findings are edges a builder reaches, recorded as open questions | Open — deferred to the core by ADR-0148 |
 | [D517](#d517) | The flow checker read a left-out input as deciding a request a state refuses first | Resolved |
 | [D518](#d518) | The flow checker accepted an external transition from a state to itself | Resolved |
+| [D519](#d519) | The reference runner held a base's uniqueness along one line of its family | Resolved |
+| [D520](#d520) | The storage design gave a reference into a family no table to name | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3401,3 +3403,13 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **The flow checker accepted an external transition from a state to itself, which the format forbids.** `flow-format.md` §4.8 states it: "No transition leaves a state for itself: an external transition always changes the state, and a change that keeps it is an internal transition" (ADR-0122). No step tested it: `restart: { kind: external, from: [WORK_IN_PROGRESS], to: WORK_IN_PROGRESS }`, added to a copy of `servicedesk.yaml`, gave 0 fatal from `scripts/check-flows.py`. It matters because the reference runner and the Rust core would read `entered_at` differently after one. The runner sets a state's entry time on every external transition (`o.entered[o.state] = ctx.at`). The core reads it from `of_interval`, which opens nothing for a value left as it was (ADR-0106). Found 2026-10-05 building the core's interval slice.
 
 **Resolved** 2026-10-05: step 3, `names`, refuses an external transition whose target is among its sources, which §7's list of what the step refuses now names. A plant in `scripts/check-flows.py` holds it, the service example's `start` given `from: [OPEN, WORKING]`, and the probe above is refused. The core's own unit tests declared one, `archive`, now an internal transition.
+
+### D519
+**The reference runner held a base's uniqueness along one line of its family.** `flow-format.md` §4.14: "a `unique` declared on the base spanning the whole family, since the type scan it expands to ranges over every subtype" (ADR-0146). The runner compared an object only with objects of a type it is, or that is it (`scripts/flowrun.py`, the uniqueness in `failing_invariants`), so two siblings could share a base's unique value. A probe on 2026-10-05, a `Laptop` and a `Server` both extending an abstract `Asset` whose `key` is unique: the server took the laptop's key, `applied`, and only a second laptop was refused. Found writing the Rust core's family slice, whose test expected the server refused. No example has two siblings collide, so the replay could not show it.
+
+**Resolved** 2026-10-05: a uniqueness spans the family of the type that declares the attribute, read from where the checker's `inherit` records it was declared, in the runner's check and in its remedy alike, and a self-test holds the sibling case. The core does the same.
+
+### D520
+**The storage design gave a reference into a family no table to name.** `storage-schema.md` puts each type's objects in its own table and declares a stored end's foreign key on its target, but the objects of a type with subtypes are in the subtypes' tables, so a key to the base's table refuses every one of them. Found 2026-10-05 by the Rust core's family slice: a reference to an abstract `Asset` naming a laptop failed with `FOREIGN KEY constraint failed`.
+
+**Resolved** 2026-10-05: a reference whose target has subtypes takes its foreign key to the directory, `of_object`, which holds every object; the runtime checks the type, as it checks every reference, and the constraint stays the backstop that the object exists. `storage-schema.md` §3 states it, and the core does it.
