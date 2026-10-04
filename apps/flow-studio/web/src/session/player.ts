@@ -234,6 +234,8 @@ export class Player {
       );
     }
     if (typ === "timestamp") return resolveInstant(String(v), this.now);
+    // a decimal is a string on the wire, never a binary float (ADR-0150)
+    if (typ.startsWith("decimal") && typeof v === "number") return String(v);
     if (typeof v === "string" && /^[A-Z]/.test(typ) && v.includes(".")) {
       return v.slice(v.indexOf(".") + 1); // an enumeration member, by its name
     }

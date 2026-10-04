@@ -113,6 +113,58 @@ pub struct Attribute {
     pub identifier: Option<Identifier>,
     /// A stored relationship end the other side owns or derives.
     pub opposite: Option<String>,
+    /// `composite`: its objects are parts of this one, for no longer.
+    pub composite: bool,
+    /// On a composite end, the transitions its parts take when this object
+    /// takes one of those listed.
+    pub cascade: Vec<CascadeClause>,
+}
+
+/// The transition each part takes when its whole takes one of `on`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CascadeClause {
+    pub on: Vec<String>,
+    pub transition: String,
+    pub inputs: Vec<(String, Expr)>,
+    pub limit: Option<i64>,
+}
+
+/// One write of an effect (`flow.schema.json`, `step`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Step {
+    Assign {
+        location: String,
+        expr: Expr,
+    },
+    Clear(Vec<String>),
+    Add {
+        location: String,
+        expr: Expr,
+    },
+    Remove {
+        location: String,
+        expr: Expr,
+    },
+    Create {
+        type_: String,
+        transition: String,
+        inputs: Vec<(String, Expr)>,
+        result: Option<String>,
+    },
+    Call {
+        target: Expr,
+        transition: String,
+        inputs: Vec<(String, Expr)>,
+    },
+    Foreach {
+        item: String,
+        array: Option<Expr>,
+        range: Option<Expr>,
+        filter: Option<Expr>,
+        limit: i64,
+        steps: Vec<Step>,
+    },
+    Supersede(Expr),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -166,8 +218,8 @@ pub struct Transition {
     pub optional_inputs: Vec<String>,
     pub inputs: Vec<(String, Input)>,
     pub guards: Vec<(String, Enforce)>,
-    /// It declares an effect, which the first slice does not run.
-    pub has_effect: bool,
+    /// The writes it makes, in order (`flow-format.md` §4.8).
+    pub effect: Vec<Step>,
     pub backdating_limit: Option<String>,
 }
 
@@ -192,6 +244,20 @@ pub struct Type {
     pub observes: Vec<String>,
     /// The type as its description writes it, which `declaration` returns.
     pub source: serde_json::Value,
+}
+
+impl Attribute {
+    /// Whether the object stores it as a set: a set of values, or of
+    /// references with no opposite end to compute it from (§3.3).
+    pub fn stored_set(&self) -> bool {
+        self.many && !(matches!(self.declared, Declared::Reference(_)) && self.opposite.is_some())
+    }
+
+    /// Whether it has no column and no table: a set of references computed
+    /// from the opposite end that stores them (§3.1, the derived end).
+    pub fn derived_end(&self) -> bool {
+        self.many && matches!(self.declared, Declared::Reference(_)) && self.opposite.is_some()
+    }
 }
 
 impl Type {
@@ -391,6 +457,25 @@ impl Reader<'_> {
                 .get("opposite")
                 .map(|o| self.text(o, "an opposite end"))
                 .transpose()?,
+            composite: node.get("aggregation").and_then(Node::text) == Some("composite"),
+            cascade: {
+                let mut clauses = Vec::new();
+                for c in node.get("cascade").map(Node::items).unwrap_or_default() {
+                    clauses.push(CascadeClause {
+                        on: self.names(c.get("on"))?,
+                        transition: match c.get("transition").and_then(Node::text) {
+                            Some(t) => t.to_string(),
+                            None => {
+                                return self
+                                    .error(c, "a cascade names the transition its parts take");
+                            }
+                        },
+                        inputs: self.bindings(c.get("inputs"))?,
+                        limit: c.get("limit").and_then(Node::integer),
+                    });
+                }
+                clauses
+            },
         })
     }
 
@@ -405,6 +490,89 @@ impl Reader<'_> {
                 .map(|d| self.expression(d))
                 .transpose()?,
         })
+    }
+
+    /// Named expressions: a call's, a creation's or a cascade's inputs.
+    fn bindings(&self, node: Option<&Node>) -> Loaded<Vec<(String, Expr)>> {
+        let mut out = Vec::new();
+        for (k, e) in node.map(Node::entries).unwrap_or_default() {
+            out.push((k.clone(), self.expression(e)?));
+        }
+        Ok(out)
+    }
+
+    fn located(&self, node: &Node) -> Loaded<(String, Expr)> {
+        match (node.get("location").and_then(Node::text), node.get("expr")) {
+            (Some(l), Some(e)) => Ok((l.to_string(), self.expression(e)?)),
+            _ => self.error(node, "a write names its location and its expr"),
+        }
+    }
+
+    fn steps(&self, node: Option<&Node>) -> Loaded<Vec<Step>> {
+        let mut out = Vec::new();
+        for st in node.map(Node::items).unwrap_or_default() {
+            let Some((kind, spec)) = st.entries().first() else {
+                return self.error(
+                    st,
+                    "a step is one of assign, clear, add, remove, create, call, foreach, supersede",
+                );
+            };
+            out.push(match kind.as_str() {
+                "assign" => {
+                    let (location, expr) = self.located(spec)?;
+                    Step::Assign { location, expr }
+                }
+                "add" => {
+                    let (location, expr) = self.located(spec)?;
+                    Step::Add { location, expr }
+                }
+                "remove" => {
+                    let (location, expr) = self.located(spec)?;
+                    Step::Remove { location, expr }
+                }
+                "clear" => Step::Clear(self.names(Some(spec))?),
+                "create" => Step::Create {
+                    type_: match spec.get("type").and_then(Node::text) {
+                        Some(t) => t.to_string(),
+                        None => return self.error(spec, "a creation names its type"),
+                    },
+                    transition: spec
+                        .get("transition")
+                        .and_then(Node::text)
+                        .unwrap_or_default()
+                        .to_string(),
+                    inputs: self.bindings(spec.get("inputs"))?,
+                    result: spec.get("result").and_then(Node::text).map(str::to_string),
+                },
+                "call" => Step::Call {
+                    target: match spec.get("target") {
+                        Some(t) => self.expression(t)?,
+                        None => return self.error(spec, "a call names its target"),
+                    },
+                    transition: spec
+                        .get("transition")
+                        .and_then(Node::text)
+                        .unwrap_or_default()
+                        .to_string(),
+                    inputs: self.bindings(spec.get("inputs"))?,
+                },
+                "foreach" => Step::Foreach {
+                    item: spec
+                        .get("item")
+                        .and_then(Node::text)
+                        .unwrap_or_default()
+                        .to_string(),
+                    array: spec.get("array").map(|e| self.expression(e)).transpose()?,
+                    range: spec.get("range").map(|e| self.expression(e)).transpose()?,
+                    filter: spec.get("where").map(|e| self.expression(e)).transpose()?,
+                    limit: spec.get("limit").and_then(Node::integer).unwrap_or(0),
+                    steps: self.steps(spec.get("steps"))?,
+                },
+                "supersede" => Step::Supersede(self.expression(spec)?),
+                other => return self.error(st, format!("the effect step `{other}`")),
+            });
+        }
+        Ok(out)
     }
 
     fn transition(&self, node: &Node) -> Loaded<Transition> {
@@ -450,7 +618,7 @@ impl Reader<'_> {
             optional_inputs: self.names(node.get("optional_inputs"))?,
             inputs,
             guards,
-            has_effect: node.get("effect").is_some_and(|e| !e.items().is_empty()),
+            effect: self.steps(node.get("effect"))?,
             backdating_limit: node
                 .get("backdating_limit")
                 .map(|b| self.text(b, "a duration"))
@@ -479,9 +647,6 @@ impl Reader<'_> {
             .unwrap_or_default()
         {
             let a = self.attribute(spec)?;
-            if spec.get("cascade").is_some() {
-                at_outcome.push(format!("a cascade to the parts ({name}.{n})"));
-            }
             attributes.push((n.clone(), a));
         }
         let mut derived = Vec::new();
@@ -662,6 +827,8 @@ fn operator_type() -> Type {
                 actor_kind: Some("human".to_string()),
                 identifier: None,
                 opposite: None,
+                composite: false,
+                cascade: Vec::new(),
             },
         )],
         derived: Vec::new(),

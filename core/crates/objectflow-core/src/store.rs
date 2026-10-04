@@ -290,6 +290,9 @@ impl Store {
         ];
         let mut after = Vec::new();
         for (n, a) in &t.attributes {
+            if a.derived_end() {
+                continue;
+            }
             if a.many {
                 let target = match &a.declared {
                     Declared::Reference(target) if self.lib.types.contains_key(target) => {
@@ -639,7 +642,7 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
                     attrs.insert(n.clone(), v);
                 }
             }
-            for (n, a) in t.attributes.iter().filter(|(_, a)| a.many) {
+            for (n, a) in t.attributes.iter().filter(|(_, a)| a.stored_set()) {
                 let mut set = conn.prepare(&format!(
                     "SELECT value FROM {} WHERE object_id = ?1 ORDER BY ordinal",
                     quote(&format!("{name}__{n}"))
@@ -750,7 +753,7 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
                 rusqlite::params_from_iter(vals.iter()),
             )?;
         }
-        for (n, _) in t.attributes.iter().filter(|(_, a)| a.many) {
+        for (n, _) in t.attributes.iter().filter(|(_, a)| a.stored_set()) {
             let side = quote(&format!("{name}__{n}"));
             tx.execute(
                 &format!("DELETE FROM {side} WHERE object_id = ?1"),

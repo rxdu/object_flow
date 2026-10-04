@@ -128,6 +128,19 @@ fn verdict(v: &Verdict) -> J {
         Verdict::UnknownTransition { transition } => json!({ "transition": transition }),
         Verdict::InvalidInput { inputs } => json!({ "inputs": inputs }),
         Verdict::NotRequestable { parents } => json!({ "parents": parents }),
+        Verdict::CallRefused {
+            step,
+            object_id,
+            verdict: inner,
+            clause,
+        } => json!({
+            "step": step, "object_id": object_id,
+            // the call's own refusal, its clause qualified by the type it
+            // targeted, as an expectation names it (flow-format.md §11.4)
+            "verdict": {"kind": inner.kind(), "clause": clause, "remedy": remedy(inner.remedy())},
+            "not_computed": ["the call's verdict beyond its clause"],
+        }),
+        Verdict::OverLimit { loop_, bound } => json!({ "loop": loop_, "bound": bound }),
         Verdict::InvariantViolated { failures, .. } => json!({
             "failures": failures.iter().map(|f| json!({"object_id": f.object_id, "type": f.type_,
                 "invariant": f.invariant, "remedy": remedy(f.remedy)})).collect::<Vec<_>>(),

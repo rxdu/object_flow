@@ -119,6 +119,9 @@ class Player:
             return [self.wire_value(x, dict(spec, type=typ[:-2])) for x in v]
         if typ == "timestamp":
             return self.instant(v)
+        if typ.startswith("decimal") and isinstance(v, (int, float)) \
+                and not isinstance(v, bool):
+            return str(v)               # a decimal is a string on the wire
         if isinstance(v, str) and "." in v and typ and typ[0].isupper():
             return v.split(".", 1)[1]           # an enumeration member
         return v

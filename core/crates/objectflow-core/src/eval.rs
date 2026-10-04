@@ -73,6 +73,8 @@ pub struct Evaluator<'a> {
     actor: Option<&'a Who>,
     /// In a filter, an element whose filter is unknown is left out (§8.2).
     filter_mode: bool,
+    /// The position of the event an effect belongs to, `this_event`.
+    event: Option<i64>,
 }
 
 /// The truth of a value, three-valued: `None` for unknown.
@@ -102,7 +104,19 @@ impl<'a> Evaluator<'a> {
             inputs: &NO_INPUTS,
             actor: None,
             filter_mode: false,
+            event: None,
         }
+    }
+
+    pub fn with_event(mut self, position: i64) -> Evaluator<'a> {
+        self.event = Some(position);
+        self
+    }
+
+    /// An expression's value with names bound: a loop's item, a creation's
+    /// result.
+    pub fn eval_in(&self, e: &Expr, env: &BTreeMap<String, Value>) -> Result<Value, NotRun> {
+        self.value(e, env)
     }
 
     pub fn with_inputs(mut self, inputs: &'a BTreeMap<String, Value>) -> Evaluator<'a> {
@@ -260,7 +274,12 @@ impl<'a> Evaluator<'a> {
             "inputs" => return Ok(Term::Inputs),
             "actor" => return Ok(Term::Actor),
             "referrers" => return not_run("referrers"),
-            "this_event" => return not_run("`this_event` outside an effect"),
+            "this_event" => {
+                return match self.event {
+                    Some(p) => Ok(Term::Value(Value::Int(p))),
+                    None => not_run("`this_event` outside an effect"),
+                };
+            }
             _ => {}
         }
         if let Some(t) = self.type_ {

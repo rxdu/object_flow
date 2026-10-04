@@ -51,6 +51,25 @@ pub enum Verdict {
         failures: Vec<InvariantFailure>,
         remedy: Option<Remedy>,
     },
+    /// A call or a creation an effect made was refused, which refuses the
+    /// request (ADR-0122 decision 35).
+    CallRefused {
+        /// The effect step: `call <target>.<transition>` or `create
+        /// <Type>.<transition>`.
+        step: String,
+        /// The object it targeted; none for a creation.
+        object_id: Option<String>,
+        /// That call's own refusal.
+        verdict: Box<Verdict>,
+        /// Its clause, qualified by the type it targeted, as an expectation
+        /// names it (`flow-format.md` §11.4).
+        clause: Option<String>,
+    },
+    /// A loop or a cascade would take more than its declared limit.
+    OverLimit {
+        loop_: String,
+        bound: i64,
+    },
 }
 
 impl Verdict {
@@ -64,6 +83,20 @@ impl Verdict {
             Verdict::InvalidInput { .. } => "invalid_input",
             Verdict::NotRequestable { .. } => "not_requestable",
             Verdict::InvariantViolated { .. } => "invariant_violated",
+            Verdict::CallRefused { .. } => "call_refused",
+            Verdict::OverLimit { .. } => "over_limit",
+        }
+    }
+
+    /// The clause a refusal names, where it names one.
+    pub fn clause(&self) -> Option<String> {
+        match self {
+            Verdict::Unsatisfied { clause, .. } => Some(clause.clone()),
+            Verdict::InvariantViolated { failures, .. } => {
+                failures.first().map(|f| f.invariant.clone())
+            }
+            Verdict::CallRefused { clause, .. } => clause.clone(),
+            _ => None,
         }
     }
 
@@ -74,9 +107,11 @@ impl Verdict {
             Verdict::Unsatisfied { remedy, .. } | Verdict::InvariantViolated { remedy, .. } => {
                 *remedy
             }
-            Verdict::NotFound | Verdict::Unavailable { .. } | Verdict::NotRequestable { .. } => {
-                Some(Remedy::UnreachableFromHere)
-            }
+            Verdict::CallRefused { verdict, .. } => verdict.remedy(),
+            Verdict::NotFound
+            | Verdict::Unavailable { .. }
+            | Verdict::NotRequestable { .. }
+            | Verdict::OverLimit { .. } => Some(Remedy::UnreachableFromHere),
             Verdict::UnknownTransition { .. } | Verdict::InvalidInput { .. } => {
                 Some(Remedy::SelfServiceable)
             }

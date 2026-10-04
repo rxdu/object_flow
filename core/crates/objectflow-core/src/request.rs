@@ -23,7 +23,9 @@ use serde_json::{Value as Json, json};
 
 use crate::eval::{Evaluator, NotRun, Who, truth};
 use crate::expr::Expr;
-use crate::model::{Declared, Enforce, From, Kind, Library, Remedy, Transition, Type, Unique};
+use crate::model::{
+    Declared, Enforce, From, Kind, Library, Remedy, Step, Transition, Type, Unique,
+};
 use crate::store::{Allocator, Change, Event};
 use crate::value::Value;
 use crate::verdict::{Flag, InvariantFailure, Verdict};
@@ -88,17 +90,106 @@ pub(crate) fn takes_from(t: &Type, x: &Transition, state: &str) -> bool {
     }
 }
 
+/// Why a request stops before it applies: a refusal, or a construct the
+/// slice does not run.
+enum Stop {
+    Refused(Verdict),
+    NotRun(NotRun),
+}
+
+impl std::convert::From<NotRun> for Stop {
+    fn from(e: NotRun) -> Stop {
+        Stop::NotRun(e)
+    }
+}
+
+fn refused<T>(v: Verdict) -> Result<T, Stop> {
+    Err(Stop::Refused(v))
+}
+
+fn stop_not_run<T>(what: impl Into<String>) -> Result<T, Stop> {
+    Err(Stop::NotRun(NotRun(what.into())))
+}
+
+/// A clause qualified by the type it is of, unless it names one already.
+fn qualified(clause: &str, type_: &str) -> String {
+    if clause.contains('.') {
+        clause.to_string()
+    } else {
+        format!("{type_}.{clause}")
+    }
+}
+
+/// A refused call or creation refuses the request, naming the step, the
+/// object it targeted and its own refusal, whose clause is qualified by the
+/// type it targeted (ADR-0122 decision 35).
+fn call_refused(stop: Stop, step: String, type_: &str, target: Option<String>) -> Stop {
+    match stop {
+        Stop::Refused(v) => {
+            let clause = match &v {
+                Verdict::CallRefused { clause, .. } => clause.clone(),
+                other => other.clause().map(|c| qualified(&c, type_)),
+            };
+            Stop::Refused(Verdict::CallRefused {
+                step,
+                object_id: target,
+                verdict: Box::new(v),
+                clause,
+            })
+        }
+        other => other,
+    }
+}
+
+/// A refusal of a part a cascade drives, its clause qualified by the part's
+/// type (`flow-format.md` §11.4).
+fn as_part(stop: Stop, type_: &str) -> Stop {
+    match stop {
+        Stop::Refused(Verdict::Unsatisfied { clause, remedy }) => {
+            Stop::Refused(Verdict::Unsatisfied {
+                clause: qualified(&clause, type_),
+                remedy,
+            })
+        }
+        other => other,
+    }
+}
+
+/// One request's working copy of the store, and what it has done so far.
+struct Ctx<'w> {
+    work: World<'w>,
+    who: Who,
+    /// The requested transition's type, whose own clauses go unqualified.
+    requested: String,
+    occurred: Option<i64>,
+    flags: Vec<Flag>,
+    /// Every event, in the order recorded.
+    events: Vec<Event>,
+    created: BTreeSet<String>,
+}
+
 /// What the request answers: its verdict, and what it writes if it applies.
 pub fn decide(
     world: &World<'_>,
     alloc: &mut Allocator,
     req: &Request,
 ) -> Result<(Verdict, Option<Change>), NotRun> {
+    match decide_or_stop(world, alloc, req) {
+        Ok(answer) => Ok(answer),
+        Err(Stop::Refused(v)) => Ok((v, None)),
+        Err(Stop::NotRun(e)) => Err(e),
+    }
+}
+
+fn decide_or_stop(
+    world: &World<'_>,
+    alloc: &mut Allocator,
+    req: &Request,
+) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
-    let refuse = |v: Verdict| Ok((v, None));
     // 1. the actor
     let Some(who) = resolve_actor(world, &req.actor) else {
-        return refuse(Verdict::Unsatisfied {
+        return refused(Verdict::Unsatisfied {
             clause: "actor_known".into(),
             remedy: Some(Remedy::Dependent),
         });
@@ -106,114 +197,227 @@ pub fn decide(
     // 2. the object and the transition
     let (tn, oid) = match &req.object_id {
         Some(id) => match world.get(id) {
-            None => return refuse(Verdict::NotFound),
-            Some(o) => (o.type_.clone(), Some(id.as_str())),
+            None => return refused(Verdict::NotFound),
+            Some(o) => (o.type_.clone(), Some(id.clone())),
         },
         None => match &req.type_ {
             Some(t) => (t.clone(), None),
             None => {
-                return refuse(Verdict::UnknownTransition {
+                return refused(Verdict::UnknownTransition {
                     transition: req.transition.clone(),
                 });
             }
         },
     };
     if lib.observation_kinds.contains(&tn) {
-        return not_run(format!("recording an observation of {tn}"));
+        return stop_not_run(format!("recording an observation of {tn}"));
     }
     let Some(t) = lib.type_(&tn) else {
-        return refuse(Verdict::UnknownTransition {
+        return refused(Verdict::UnknownTransition {
             transition: req.transition.clone(),
         });
     };
     if let Some(what) = t.beyond.first() {
-        return not_run(what.clone());
+        return stop_not_run(what.clone());
     }
     let x = match t.transition(&req.transition) {
         Some(x) if (x.kind == Kind::Initial) == oid.is_none() => x,
         _ => {
-            return refuse(Verdict::UnknownTransition {
+            return refused(Verdict::UnknownTransition {
                 transition: req.transition.clone(),
             });
         }
     };
     if matches!(x.kind, Kind::Assertion | Kind::Erasure) {
-        return not_run(format!(
-            "an {} ({tn}.{})",
-            if x.kind == Kind::Assertion {
-                "assertion"
-            } else {
-                "erasure"
-            },
-            req.transition
-        ));
+        let what = if x.kind == Kind::Assertion {
+            "assertion"
+        } else {
+            "erasure"
+        };
+        return stop_not_run(format!("an {what} ({tn}.{})", req.transition));
     }
     // 3. not requestable, and unavailable
     if !x.only_via.is_empty() {
-        return refuse(Verdict::NotRequestable {
+        return refused(Verdict::NotRequestable {
             parents: x.only_via.clone(),
         });
     }
-    if let Some(o) = oid.and_then(|id| world.get(id))
+    if let Some(o) = oid.as_deref().and_then(|id| world.get(id))
         && !takes_from(t, x, &o.state)
     {
-        return refuse(Verdict::Unavailable {
+        return refused(Verdict::Unavailable {
             state: o.state.clone(),
         });
     }
-    // 4. the inputs
-    let taken: BTreeSet<&str> = x
-        .required_inputs
-        .iter()
-        .chain(&x.optional_inputs)
-        .map(String::as_str)
-        .chain(x.inputs.iter().map(|(n, _)| n.as_str()))
-        .collect();
-    let invalid = |names: Vec<String>| Ok((Verdict::InvalidInput { inputs: names }, None));
-    let unknown_names: Vec<String> = req
+    // 4. the inputs it does not take, and those not of their type
+    let unknown: Vec<String> = req
         .inputs
         .keys()
-        .filter(|k| !taken.contains(k.as_str()))
+        .filter(|k| !takes(t, x, k))
         .cloned()
         .collect();
-    if !unknown_names.is_empty() {
-        return invalid(unknown_names);
+    if !unknown.is_empty() {
+        return refused(Verdict::InvalidInput { inputs: unknown });
     }
     let mut inputs: BTreeMap<String, Value> = BTreeMap::new();
     let mut wrong = Vec::new();
     for (k, raw) in &req.inputs {
-        let (declared, many) = match x.inputs.iter().find(|(n, _)| n == k) {
-            Some((_, spec)) => (&spec.declared, spec.many),
-            None => match t.attribute(k) {
-                Some(a) => (&a.declared, a.many),
-                None => return not_run(format!("the input {k}, which names no attribute of {tn}")),
-            },
+        let Some((declared, many)) = input_type(t, x, k) else {
+            return stop_not_run(format!("the input {k}, which names no attribute of {tn}"));
         };
-        let Ok(v) = wire::decode(raw, declared, many, lib) else {
-            wrong.push(k.clone());
+        match wire::decode(raw, declared, many, lib) {
+            Ok(Value::Absent) => {}
+            Ok(v) => {
+                inputs.insert(k.clone(), v);
+            }
+            Err(_) => wrong.push(k.clone()),
+        }
+    }
+    if !wrong.is_empty() {
+        return refused(Verdict::InvalidInput { inputs: wrong });
+    }
+    let mut ctx = Ctx {
+        work: world.clone(),
+        who,
+        requested: tn.clone(),
+        occurred: req.occurred_at,
+        flags: Vec::new(),
+        events: Vec::new(),
+        created: BTreeSet::new(),
+    };
+    let root = take(&mut ctx, alloc, &tn, &req.transition, oid, inputs, 0)?;
+    // 7. the invariants, on every object, in ascending id order
+    for obj in ctx.work.in_order() {
+        let failing = failing_invariants(&ctx.work, obj)?;
+        if failing.is_empty() {
             continue;
+        }
+        let failures: Vec<InvariantFailure> = failing
+            .iter()
+            .map(|n| InvariantFailure {
+                object_id: obj.id.clone(),
+                type_: obj.type_.clone(),
+                invariant: n.clone(),
+                remedy: invariant_remedy(&ctx.work, x, obj, n, &root),
+            })
+            .collect();
+        let remedy = failures.first().and_then(|f| f.remedy);
+        return refused(Verdict::InvariantViolated { failures, remedy });
+    }
+    let mut seen = BTreeSet::new();
+    let mut writes = Vec::new();
+    for e in &ctx.events {
+        let Some(o) = ctx.work.get(&e.object_id) else {
+            return stop_not_run(format!(
+                "an event on {}, which the request did not keep",
+                e.object_id
+            ));
         };
-        if let Declared::Reference(target) = declared {
-            let ids: Vec<&Value> = match &v {
+        let first = seen.insert(e.object_id.clone());
+        writes.push((
+            o.clone(),
+            first && ctx.created.contains(&e.object_id),
+            e.clone(),
+        ));
+    }
+    let mut positions: Vec<i64> = ctx.events.iter().map(|e| e.position).collect();
+    positions.sort_unstable();
+    let version = ctx.work.get(&root).map_or(0, |o| o.version);
+    Ok((
+        Verdict::Satisfied {
+            object_id: root,
+            version,
+            events: positions,
+            flags: ctx.flags,
+        },
+        Some(Change { writes }),
+    ))
+}
+
+/// Whether a transition takes an input of a name.
+fn takes(t: &Type, x: &Transition, k: &str) -> bool {
+    let _ = t;
+    x.required_inputs
+        .iter()
+        .chain(&x.optional_inputs)
+        .any(|n| n == k)
+        || x.inputs.iter().any(|(n, _)| n == k)
+}
+
+/// The type an input is declared of: the transition's own input, or the
+/// attribute it writes.
+fn input_type<'t>(t: &'t Type, x: &'t Transition, k: &str) -> Option<(&'t Declared, bool)> {
+    match x.inputs.iter().find(|(n, _)| n == k) {
+        Some((_, spec)) => Some((&spec.declared, spec.many)),
+        None => t.attribute(k).map(|a| (&a.declared, a.many)),
+    }
+}
+
+/// One transition, the requested one or one it causes: its checks, its
+/// guards, its outcome, its effect and its cascades, depth-first, and its
+/// event (`DESIGN.md` §6). Returns the object's id.
+fn take(
+    ctx: &mut Ctx<'_>,
+    alloc: &mut Allocator,
+    tn: &str,
+    xn: &str,
+    oid: Option<String>,
+    mut inputs: BTreeMap<String, Value>,
+    depth: usize,
+) -> Result<String, Stop> {
+    let lib = ctx.work.lib;
+    if lib.observation_kinds.contains(tn) {
+        return stop_not_run(format!("recording an observation of {tn}"));
+    }
+    let Some(t) = lib.type_(tn) else {
+        return stop_not_run(format!("the type {tn}"));
+    };
+    if let Some(what) = t.beyond.first() {
+        return stop_not_run(what.clone());
+    }
+    let x = match t.transition(xn) {
+        Some(x) if (x.kind == Kind::Initial) == oid.is_none() => x,
+        _ => {
+            return refused(Verdict::UnknownTransition {
+                transition: xn.to_string(),
+            });
+        }
+    };
+    if matches!(x.kind, Kind::Assertion | Kind::Erasure) {
+        return stop_not_run(format!("a caused assertion or erasure ({tn}.{xn})"));
+    }
+    if depth > 0 {
+        if let Some(o) = oid.as_deref().and_then(|id| ctx.work.get(id))
+            && !takes_from(t, x, &o.state)
+        {
+            return refused(Verdict::Unavailable {
+                state: o.state.clone(),
+            });
+        }
+        let unknown: Vec<String> = inputs.keys().filter(|k| !takes(t, x, k)).cloned().collect();
+        if !unknown.is_empty() {
+            return refused(Verdict::InvalidInput { inputs: unknown });
+        }
+    }
+    // a reference names an object of its type
+    let mut wrong = Vec::new();
+    for (k, v) in &inputs {
+        if let Some((Declared::Reference(target), _)) = input_type(t, x, k) {
+            let ids: Vec<&Value> = match v {
                 Value::Set(items) => items.iter().collect(),
-                Value::Absent => Vec::new(),
                 one => vec![one],
             };
             let fits = ids.iter().all(|i| match i {
-                Value::Object(id) => world.get(id).is_some_and(|o| &o.type_ == target),
+                Value::Object(id) => ctx.work.get(id).is_some_and(|o| &o.type_ == target),
                 _ => false,
             });
             if !fits {
                 wrong.push(k.clone());
-                continue;
             }
-        }
-        if !v.is_absent() {
-            inputs.insert(k.clone(), v);
         }
     }
     if !wrong.is_empty() {
-        return invalid(wrong);
+        return refused(Verdict::InvalidInput { inputs: wrong });
     }
     let left_out: Vec<String> = x
         .required_inputs
@@ -226,7 +430,7 @@ pub fn decide(
         .cloned()
         .collect();
     if !left_out.is_empty() {
-        return invalid(left_out);
+        return refused(Verdict::InvalidInput { inputs: left_out });
     }
     let mut missing = Vec::new();
     for (k, spec) in &x.inputs {
@@ -234,9 +438,9 @@ pub fn decide(
             continue;
         }
         if let Some(d) = &spec.default {
-            let v = Evaluator::new(world, Some(t), oid)
+            let v = Evaluator::new(&ctx.work, Some(t), oid.as_deref())
                 .with_inputs(&inputs)
-                .with_actor(&who)
+                .with_actor(&ctx.who)
                 .eval(d)?;
             inputs.insert(k.clone(), v);
         } else if !spec.optional {
@@ -244,97 +448,99 @@ pub fn decide(
         }
     }
     if !missing.is_empty() {
-        return invalid(missing);
+        return refused(Verdict::InvalidInput { inputs: missing });
     }
     // 5. the generated guards, then the transition's own
-    if req.occurred_at.is_some() {
-        return not_run("a request's occurred time, which the first slice does not date");
+    if depth == 0 && ctx.occurred.is_some() {
+        return stop_not_run("a request's occurred time, which the core does not yet date");
     }
     for k in &x.required_inputs {
         if !inputs.contains_key(k) {
-            return refuse(Verdict::Unsatisfied {
+            return refused(Verdict::Unsatisfied {
                 clause: format!("{k}_provided"),
                 remedy: Some(Remedy::SelfServiceable),
             });
         }
     }
-    let mut flags = Vec::new();
     for (g, mode) in &x.guards {
         let Some(c) = t.condition(g) else {
-            return not_run(format!("the guard {g}, which {tn} does not declare"));
+            return stop_not_run(format!("the guard {g}, which {tn} does not declare"));
         };
         let ok = truth(
-            &Evaluator::new(world, Some(t), oid)
+            &Evaluator::new(&ctx.work, Some(t), oid.as_deref())
                 .with_inputs(&inputs)
-                .with_actor(&who)
+                .with_actor(&ctx.who)
                 .eval(&c.expression)?,
         )?;
         if ok != Some(true) {
             match mode {
                 Enforce::Deny => {
-                    return refuse(Verdict::Unsatisfied {
+                    return refused(Verdict::Unsatisfied {
                         clause: g.clone(),
                         remedy: c.remedy,
                     });
                 }
-                Enforce::Warn => flags.push(Flag {
-                    clause: g.clone(),
-                    remedy: c.remedy,
-                }),
+                Enforce::Warn => {
+                    let clause = if tn == ctx.requested {
+                        g.clone()
+                    } else {
+                        qualified(g, tn)
+                    };
+                    ctx.flags.push(Flag {
+                        clause,
+                        remedy: c.remedy,
+                    });
+                }
                 Enforce::Audit => {}
             }
         }
     }
-    // 6. the outcome
-    if x.has_effect {
-        return not_run(format!("an effect ({tn}.{})", req.transition));
-    }
     if let Some(what) = t.at_outcome.first() {
-        return not_run(what.clone());
+        return stop_not_run(what.clone());
     }
-    let mut after = world.clone();
+    // 6. the outcome, its position allocated as it begins applying
     let position = alloc.position();
     alloc.txn();
-    let (mut o, created, from_state) = match oid.and_then(|id| world.get(id)) {
-        Some(o) => (o.clone(), false, Some(o.state.clone())),
+    let (mut o, from_state) = match oid.as_deref().and_then(|id| ctx.work.get(id)) {
+        Some(o) => (o.clone(), Some(o.state.clone())),
         None => {
             let Some(to) = x.to.first() else {
-                return not_run(format!(
-                    "an initial transition with no target ({tn}.{})",
-                    req.transition
-                ));
+                return stop_not_run(format!("an initial transition with no target ({tn}.{xn})"));
             };
-            let id = alloc.object_id(&tn);
+            let id = alloc.object_id(tn);
             let mut o = Object {
                 id: id.clone(),
-                type_: tn.clone(),
+                type_: tn.to_string(),
                 state: to.clone(),
                 version: 0,
                 attrs: BTreeMap::new(),
-                created_at: world.now,
-                created_by_kind: who.kind.clone(),
-                order: world.next_order(),
+                created_at: ctx.work.now,
+                created_by_kind: ctx.who.kind.clone(),
+                order: ctx.work.next_order(),
             };
             for (a, spec) in &t.attributes {
-                if spec.many {
+                // a set is never absent: created empty unless given, a derived
+                // end excepted, which its opposite computes (flow-format.md §4.3)
+                if spec.stored_set() {
                     o.attrs.insert(a.clone(), Value::Set(Vec::new()));
                 } else if matches!(&spec.declared, Declared::Scalar(s) if s == "counter") {
                     o.attrs.insert(a.clone(), Value::Int(0));
                 }
             }
-            after.objects.insert(id.clone(), o.clone());
+            ctx.work.objects.insert(id.clone(), o.clone());
             for (a, spec) in &t.attributes {
                 if let Some(d) = &spec.default {
-                    let v = Evaluator::new(&after, Some(t), Some(&id))
+                    let v = Evaluator::new(&ctx.work, Some(t), Some(&id))
                         .with_inputs(&inputs)
-                        .with_actor(&who)
+                        .with_actor(&ctx.who)
                         .eval(d)?;
                     if !v.is_absent() {
                         o.attrs.insert(a.clone(), v);
                     }
                 }
             }
-            (o, true, None)
+            ctx.created.insert(id);
+            (o, None)
         }
     };
     if x.kind == Kind::External
@@ -349,59 +555,404 @@ pub fn decide(
             written.insert(k.clone(), wire::encode(v));
         }
     }
-    if created {
-        mint(&mut after, alloc, t, &mut o)?;
+    let id = o.id.clone();
+    if from_state.is_none() {
+        mint(&mut ctx.work, alloc, t, &mut o)?;
     }
+    ctx.work.objects.insert(id.clone(), o);
+    // the effect, then the cascades to the parts, depth-first (ADR-0038)
+    effects(
+        ctx,
+        alloc,
+        t,
+        &id,
+        &x.effect,
+        &inputs,
+        &BTreeMap::new(),
+        depth,
+        position,
+    )?;
+    cascades(ctx, alloc, t, xn, &id, &inputs, depth)?;
+    // the event, recorded as the transition ends
+    let Some(o) = ctx.work.objects.get_mut(&id) else {
+        return stop_not_run(format!("the object {id}, which its own effect removed"));
+    };
     o.version += 1;
-    after.objects.insert(o.id.clone(), o.clone());
-    // 7. the invariants, on every object, in ascending id order
-    let requested = o.id.clone();
-    for obj in after.in_order() {
-        let failing = failing_invariants(&after, obj)?;
-        if failing.is_empty() {
-            continue;
-        }
-        let failures: Vec<InvariantFailure> = failing
-            .iter()
-            .map(|n| InvariantFailure {
-                object_id: obj.id.clone(),
-                type_: obj.type_.clone(),
-                invariant: n.clone(),
-                remedy: invariant_remedy(&after, x, obj, n, &requested),
-            })
-            .collect();
-        let remedy = failures.first().and_then(|f| f.remedy);
-        return refuse(Verdict::InvariantViolated { failures, remedy });
-    }
     let event = Event {
         position,
-        object_id: o.id.clone(),
+        object_id: id.clone(),
         object_seq: o.version,
-        transition: req.transition.clone(),
+        transition: xn.to_string(),
         from_state: from_state.clone(),
         to_state: o.state.clone(),
         changes_state: from_state.as_deref() != Some(o.state.as_str()),
         source: "observed".into(),
-        actor_id: who.id.clone(),
-        actor_kind: who.kind.clone(),
+        actor_id: ctx.who.id.clone(),
+        actor_kind: ctx.who.kind.clone(),
         declaration_version: 1,
-        recorded_at: world.now,
-        occurred_at: Some(world.now),
+        recorded_at: ctx.work.now,
+        occurred_at: Some(ctx.work.now),
         imported: false,
         payload: json!({ "inputs": written }),
     };
-    let verdict = Verdict::Satisfied {
-        object_id: o.id.clone(),
-        version: o.version,
-        events: vec![position],
-        flags,
+    ctx.events.push(event);
+    Ok(id)
+}
+
+/// A write whose right-hand side is an unsupplied optional input is skipped
+/// (`DESIGN.md` §5.4).
+fn unsupplied(e: &Expr, inputs: &BTreeMap<String, Value>) -> bool {
+    matches!(e, Expr::Path(base, k) if matches!(&**base, Expr::Name(n) if n == "inputs") && !inputs.contains_key(k))
+}
+
+/// An expression as a step writes it, for naming a call.
+fn dotted(e: &Expr) -> String {
+    match e {
+        Expr::Name(n) => n.clone(),
+        Expr::Path(b, m) => format!("{}.{m}", dotted(b)),
+        _ => "…".to_string(),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn effect_value(
+    ctx: &Ctx<'_>,
+    t: &Type,
+    id: &str,
+    inputs: &BTreeMap<String, Value>,
+    env: &BTreeMap<String, Value>,
+    position: i64,
+    e: &Expr,
+    filtering: bool,
+) -> Result<Value, NotRun> {
+    let ev = Evaluator::new(&ctx.work, Some(t), Some(id))
+        .with_inputs(inputs)
+        .with_actor(&ctx.who)
+        .with_event(position);
+    if filtering {
+        ev.filtering().eval_in(e, env)
+    } else {
+        ev.eval_in(e, env)
+    }
+}
+
+/// The order a loop takes its items in: objects by ascending id, enumeration
+/// members in declaration order, other values ascending (`DESIGN.md` §6,
+/// ADR-0147).
+fn loop_order(world: &World<'_>, a: &Value, b: &Value) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let rank = |v: &Value| -> (u8, i64) {
+        match v {
+            Value::Object(id) => (0, world.get(id).map_or(i64::MAX, |o| o.order)),
+            Value::Member {
+                enumeration,
+                member,
+            } => (
+                1,
+                world
+                    .lib
+                    .enumerations
+                    .get(enumeration)
+                    .and_then(|ms| ms.iter().position(|m| m == member))
+                    .and_then(|p| i64::try_from(p).ok())
+                    .unwrap_or(i64::MAX),
+            ),
+            _ => (2, 0),
+        }
     };
-    Ok((
-        verdict,
-        Some(Change {
-            writes: vec![(o, created, event)],
-        }),
-    ))
+    let (ra, rb) = (rank(a), rank(b));
+    if ra.0 != 2 || rb.0 != 2 {
+        return ra.cmp(&rb);
+    }
+    a.compare(b).unwrap_or(Ordering::Equal)
+}
+
+/// An effect's steps, in order (`DESIGN.md` §6 step 6).
+#[allow(clippy::too_many_arguments)]
+fn effects(
+    ctx: &mut Ctx<'_>,
+    alloc: &mut Allocator,
+    t: &Type,
+    id: &str,
+    steps: &[Step],
+    inputs: &BTreeMap<String, Value>,
+    env: &BTreeMap<String, Value>,
+    depth: usize,
+    position: i64,
+) -> Result<(), Stop> {
+    let mut env = env.clone();
+    for step in steps {
+        match step {
+            Step::Assign { location, expr } => {
+                if unsupplied(expr, inputs) {
+                    continue;
+                }
+                let v = effect_value(ctx, t, id, inputs, &env, position, expr, false)?;
+                if v.is_absent() {
+                    return stop_not_run(
+                        "an assignment of an absent value, which only an unsupplied optional input may be",
+                    );
+                }
+                if let Some(o) = ctx.work.objects.get_mut(id) {
+                    o.attrs.insert(location.clone(), v);
+                }
+            }
+            Step::Clear(names) => {
+                if let Some(o) = ctx.work.objects.get_mut(id) {
+                    for n in names {
+                        o.attrs.remove(n);
+                    }
+                }
+            }
+            Step::Add { location, expr } | Step::Remove { location, expr } => {
+                if unsupplied(expr, inputs) {
+                    continue;
+                }
+                let v = effect_value(ctx, t, id, inputs, &env, position, expr, false)?;
+                if v.is_absent() {
+                    return stop_not_run("adding or removing an absent value");
+                }
+                if let Some(o) = ctx.work.objects.get_mut(id) {
+                    let mut items = match o.attr(location) {
+                        Value::Set(items) => items,
+                        _ => Vec::new(),
+                    };
+                    let present = items.iter().any(|i| i.equals(&v));
+                    match step {
+                        Step::Add { .. } if !present => items.push(v),
+                        Step::Remove { .. } if present => items.retain(|i| !i.equals(&v)),
+                        _ => {}
+                    }
+                    o.attrs.insert(location.clone(), Value::Set(items));
+                }
+            }
+            Step::Create {
+                type_,
+                transition,
+                inputs: binds,
+                result,
+            } => {
+                let values = arguments(ctx, t, id, inputs, &env, position, binds)?;
+                let new =
+                    take(ctx, alloc, type_, transition, None, values, depth + 1).map_err(|s| {
+                        call_refused(s, format!("create {type_}.{transition}"), type_, None)
+                    })?;
+                if let Some(r) = result {
+                    env.insert(r.clone(), Value::Object(new));
+                }
+            }
+            Step::Call {
+                target,
+                transition,
+                inputs: binds,
+            } => {
+                let target_id =
+                    match effect_value(ctx, t, id, inputs, &env, position, target, false)? {
+                        // a call through an absent optional end reaches nothing (DESIGN.md §5.4)
+                        Value::Absent => continue,
+                        Value::Object(tid) if ctx.work.get(&tid).is_some() => tid,
+                        _ => return stop_not_run("a call whose target is not one object"),
+                    };
+                let values = arguments(ctx, t, id, inputs, &env, position, binds)?;
+                let ttype = ctx
+                    .work
+                    .get(&target_id)
+                    .map(|o| o.type_.clone())
+                    .unwrap_or_default();
+                take(
+                    ctx,
+                    alloc,
+                    &ttype,
+                    transition,
+                    Some(target_id.clone()),
+                    values,
+                    depth + 1,
+                )
+                .map_err(|s| {
+                    call_refused(
+                        s,
+                        format!("call {}.{transition}", dotted(target)),
+                        &ttype,
+                        Some(target_id.clone()),
+                    )
+                })?;
+            }
+            Step::Foreach {
+                item,
+                array,
+                range,
+                filter,
+                limit,
+                steps,
+            } => {
+                let mut items: Vec<Value> = if let Some(r) = range {
+                    match effect_value(ctx, t, id, inputs, &env, position, r, false)? {
+                        Value::Int(n) => (1..=n).map(Value::Int).collect(),
+                        // absent or not positive: no step (ADR-0146)
+                        _ => Vec::new(),
+                    }
+                } else if let Some(a) = array {
+                    match effect_value(ctx, t, id, inputs, &env, position, a, false)? {
+                        Value::Set(items) => items,
+                        _ => return stop_not_run("a loop over what is not a collection"),
+                    }
+                } else {
+                    Vec::new()
+                };
+                items.sort_by(|a, b| loop_order(&ctx.work, a, b));
+                if let Some(f) = filter {
+                    let mut kept = Vec::new();
+                    for i in items {
+                        let mut inner = env.clone();
+                        inner.insert(item.clone(), i.clone());
+                        if truth(&effect_value(
+                            ctx, t, id, inputs, &inner, position, f, true,
+                        )?)? == Some(true)
+                        {
+                            kept.push(i);
+                        }
+                    }
+                    items = kept;
+                }
+                if i64::try_from(items.len()).unwrap_or(i64::MAX) > *limit {
+                    return refused(Verdict::OverLimit {
+                        loop_: format!(
+                            "the loop over {}",
+                            array
+                                .as_ref()
+                                .or(range.as_ref())
+                                .map_or_else(String::new, dotted)
+                        ),
+                        bound: *limit,
+                    });
+                }
+                for i in items {
+                    let mut inner = env.clone();
+                    inner.insert(item.clone(), i);
+                    effects(ctx, alloc, t, id, steps, inputs, &inner, depth, position)?;
+                }
+            }
+            Step::Supersede(_) => {
+                return stop_not_run(format!("supersession ({}.{})", t.name, "supersede"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A call's or a creation's inputs, each evaluated in the calling object's
+/// context; an unsupplied optional input, or an absent value, is not passed.
+fn arguments(
+    ctx: &Ctx<'_>,
+    t: &Type,
+    id: &str,
+    inputs: &BTreeMap<String, Value>,
+    env: &BTreeMap<String, Value>,
+    position: i64,
+    binds: &[(String, Expr)],
+) -> Result<BTreeMap<String, Value>, NotRun> {
+    let mut out = BTreeMap::new();
+    for (k, e) in binds {
+        if unsupplied(e, inputs) {
+            continue;
+        }
+        let v = effect_value(ctx, t, id, inputs, env, position, e, false)?;
+        if !v.is_absent() {
+            out.insert(k.clone(), v);
+        }
+    }
+    Ok(out)
+}
+
+/// The parts each composite end drives on this transition, in ascending id
+/// order, those already in a final state skipped (`DESIGN.md` §6 step 6).
+fn cascades(
+    ctx: &mut Ctx<'_>,
+    alloc: &mut Allocator,
+    t: &Type,
+    xn: &str,
+    id: &str,
+    inputs: &BTreeMap<String, Value>,
+    depth: usize,
+) -> Result<(), Stop> {
+    for (an, a) in &t.attributes {
+        if !a.composite {
+            continue;
+        }
+        for clause in &a.cascade {
+            if !clause.on.iter().any(|o| o == xn) {
+                continue;
+            }
+            let parts = Evaluator::new(&ctx.work, Some(t), Some(id))
+                .with_inputs(inputs)
+                .with_actor(&ctx.who)
+                .eval(&Expr::Name(an.clone()))?;
+            let ids: Vec<String> = match parts {
+                Value::Set(items) => items
+                    .into_iter()
+                    .filter_map(|v| {
+                        if let Value::Object(p) = v {
+                            Some(p)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+                Value::Object(p) => vec![p],
+                _ => Vec::new(),
+            };
+            let mut driven: Vec<&Object> = ids
+                .iter()
+                .filter_map(|p| ctx.work.get(p))
+                .filter(|p| {
+                    ctx.work
+                        .lib
+                        .type_(&p.type_)
+                        .and_then(|pt| pt.state(&p.state))
+                        .is_none_or(|s| !s.is_final)
+                })
+                .collect();
+            driven.sort_by_key(|p| p.order);
+            let driven: Vec<(String, String)> = driven
+                .iter()
+                .map(|p| (p.id.clone(), p.type_.clone()))
+                .collect();
+            if driven.is_empty() {
+                continue;
+            }
+            if let Some(limit) = clause.limit
+                && i64::try_from(driven.len()).unwrap_or(i64::MAX) > limit
+            {
+                return refused(Verdict::OverLimit {
+                    loop_: format!("the cascade on {an}"),
+                    bound: limit,
+                });
+            }
+            for (p, ptype) in driven {
+                let mut values = BTreeMap::new();
+                for (k, e) in &clause.inputs {
+                    let v = Evaluator::new(&ctx.work, Some(t), Some(id))
+                        .with_inputs(inputs)
+                        .with_actor(&ctx.who)
+                        .eval(e)?;
+                    if !v.is_absent() {
+                        values.insert(k.clone(), v);
+                    }
+                }
+                take(
+                    ctx,
+                    alloc,
+                    &ptype,
+                    &clause.transition,
+                    Some(p),
+                    values,
+                    depth + 1,
+                )
+                .map_err(|s| as_part(s, &ptype))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A value as an identifier's format writes it, as text.
@@ -719,7 +1270,32 @@ fn invariant_remedy(
         }
         (reads, other)
     };
-    let writes: BTreeSet<&String> = x.required_inputs.iter().chain(&x.optional_inputs).collect();
+    let mut writes: BTreeSet<String> = x
+        .required_inputs
+        .iter()
+        .chain(&x.optional_inputs)
+        .cloned()
+        .collect();
+    // an effect's step that writes a value computed from an input writes
+    // that input to it (ADR-0122 decisions 33 and 36, DESIGN.md §5.5)
+    fn from_inputs(steps: &[Step], writes: &mut BTreeSet<String>) {
+        for st in steps {
+            match st {
+                Step::Assign { location, expr }
+                | Step::Add { location, expr }
+                | Step::Remove { location, expr } => {
+                    let mut read = BTreeSet::new();
+                    names_read(expr, &mut read);
+                    if read.contains("inputs") {
+                        writes.insert(location.clone());
+                    }
+                }
+                Step::Foreach { steps, .. } => from_inputs(steps, writes),
+                _ => {}
+            }
+        }
+    }
+    from_inputs(&x.effect, &mut writes);
     if reads.iter().any(|r| writes.contains(r)) {
         Some(Remedy::SelfServiceable)
     } else if other {
@@ -1150,10 +1726,11 @@ types:
     }
 
     #[test]
-    fn what_the_slice_does_not_run_is_reached_late() {
+    fn an_effect_writes_and_what_is_not_run_is_reached_late() {
         let text = JOBS.replace(
             "      finish: { kind: external, from: [WORKING], to: DONE }",
-            "      finish: { kind: external, from: [WORKING], to: DONE, effect: [ { assign: { location: note, expr: '\"done\"' } } ] }",
+            "      finish: { kind: external, from: [WORKING], to: DONE, effect: [ { assign: { location: note, expr: '\"done\"' } }, { clear: [hours] } ] }\n      \
+             retire: { kind: external, from: [DONE], to: DONE, effect: [ { supersede: engineer } ] }",
         );
         let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
         let mut s = Store::sandbox(lib, 0).unwrap();
@@ -1162,7 +1739,7 @@ types:
             "open",
             OPERATOR,
             ("Job", true),
-            json!({"title": "Fix"}),
+            json!({"title": "Fix", "hours": 3}),
         ));
         // a refusal before the effect is still decided
         assert_eq!(
@@ -1171,7 +1748,6 @@ types:
                 state: "OPEN".into()
             }
         );
-        // and an applying request reaches the effect, which is not run
         let ana = created(&req(
             &mut s,
             "add",
@@ -1186,8 +1762,23 @@ types:
             (&job, false),
             json!({"engineer": &ana}),
         ));
+        // an effect's writes, in order
+        created(&req(&mut s, "finish", OPERATOR, (&job, false), json!({})));
+        let w = s.snapshot().unwrap();
+        let j = w.get(&job).unwrap();
+        assert_eq!(j.state, "DONE");
+        assert_eq!(j.attr("note"), Value::Text("done".into()));
+        assert_eq!(j.attr("hours"), Value::Absent);
+        // supersession, which the core does not yet run, is reached late
+        assert_eq!(
+            req(&mut s, "retire", "nobody", (&job, false), json!({})),
+            Verdict::Unsatisfied {
+                clause: "actor_known".into(),
+                remedy: Some(Remedy::Dependent)
+            }
+        );
         let r = Request {
-            transition: "finish".into(),
+            transition: "retire".into(),
             actor: OPERATOR.into(),
             object_id: Some(job.clone()),
             type_: None,
@@ -1195,7 +1786,6 @@ types:
             occurred_at: None,
         };
         let not = request(&mut s, &r).unwrap().unwrap_err();
-        assert!(not.0.contains("an effect (Job.finish)"), "{not}");
-        assert_eq!(s.snapshot().unwrap().get(&job).unwrap().state, "WORKING");
+        assert!(not.0.contains("supersession"), "{not}");
     }
 }
