@@ -301,6 +301,7 @@ fn opened(
         entered_by_kind: who.kind.clone(),
         migrated: true,
         declaration_version: version,
+        legacy: false,
     }
 }
 
@@ -350,6 +351,7 @@ fn event_of(
                 entered_by_kind: who.kind.clone(),
                 migrated: source == "migrated",
                 declaration_version: opened_under,
+                legacy: false,
             });
         }
     }
@@ -377,8 +379,8 @@ fn event_of(
 fn upsert_span(tx: &Transaction<'_>, id: &str, dimension: &str, sp: &Span) -> Stored<()> {
     tx.execute(
         "INSERT INTO of_interval (object_id, dimension, value, entered_position, left_position, \
-         entered_at, left_at, entered_by, entered_by_kind, declaration_version, migrated) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?11, ?10) \
+         entered_at, left_at, entered_by, entered_by_kind, declaration_version, migrated, legacy) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?11, ?10, ?12) \
          ON CONFLICT (object_id, dimension, entered_position, entered_at) DO UPDATE SET \
          value = excluded.value, left_position = excluded.left_position, left_at = excluded.left_at",
         params![
@@ -393,6 +395,7 @@ fn upsert_span(tx: &Transaction<'_>, id: &str, dimension: &str, sp: &Span) -> St
             sp.entered_by_kind,
             i64::from(sp.migrated),
             sp.declaration_version,
+            i64::from(sp.legacy),
         ],
     )?;
     Ok(())
@@ -1630,6 +1633,12 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
     let mut log = conn.prepare(&format!("{EVENT_SELECT} ORDER BY position"))?;
     let rows = log.query_map([], event_row)?;
     world.events = rows.collect::<Result<Vec<_>, _>>()?;
+    world.imported = world
+        .events
+        .iter()
+        .filter(|e| e.imported)
+        .map(|e| e.position)
+        .collect();
     let mut admitting = conn.prepare("SELECT DISTINCT position FROM of_admission")?;
     let rows = admitting.query_map([], |r| r.get::<_, i64>(0))?;
     for row in rows {
@@ -1654,7 +1663,7 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
 fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> {
     let mut stmt = conn.prepare(
         "SELECT object_id, dimension, value, entered_position, left_position, entered_at, left_at, \
-         entered_by, entered_by_kind, migrated, declaration_version FROM of_interval \
+         entered_by, entered_by_kind, migrated, declaration_version, legacy FROM of_interval \
          ORDER BY object_id, dimension, entered_position, entered_at",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -1670,6 +1679,7 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
             r.get::<_, String>(8)?,
             r.get::<_, i64>(9)? != 0,
             r.get::<_, i64>(10)?,
+            r.get::<_, i64>(11)? != 0,
         ))
     })?;
     for row in rows {
@@ -1685,6 +1695,7 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
             kind,
             migrated,
             declaration_version,
+            legacy,
         ) = row?;
         let Some(o) = world.objects.get_mut(&id) else {
             return Err(StoreError(format!(
@@ -1720,6 +1731,7 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
             entered_by_kind: kind,
             migrated,
             declaration_version,
+            legacy,
         };
         o.spans.entry(dimension).or_default().push(span);
     }

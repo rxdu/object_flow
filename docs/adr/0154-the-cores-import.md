@@ -47,7 +47,7 @@ And it reaches thirteen of the third cold reading's open questions, which ADR-01
    - each sequence raised;
    - a dry run, which writes nothing and reports every class with its count, a sample of legacy keys and the file's decision for it.
 
-   A batch that reaches anything else is not run, naming it: legacy entries, legacy intervals, silent spans, a refresh's intermediate values, observations and labels on a mirror's objects, and files.
+   A batch that reaches anything else is not run, naming it: legacy entries, legacy intervals, silent spans, a refresh's intermediate values, observations and labels on a mirror's objects, and files. *Narrowed 2026-10-05:* legacy intervals and silent spans on a first import are imported since (`TODO.md`, the scenarios' first slice); a refresh's legacy intervals, its intermediate values, are still not run.
 7. **A mirror's objects are written only by the import, their erasure and a publish's migration** (`flow-format.md` §4.15). A mirror declares no transition but its erasure (`declaration-syntax.md` §2, check 53), which the core runs as any erasure, and recording an observation on a mirror's object is refused as `subject_owned`.
 8. **Both of the studio's backends serve the route**, so the replay plays an `import` step against either. The reference runner's backend imports new objects with an empty disposition, which is all an example's step is, and answers anything else as not run.
 

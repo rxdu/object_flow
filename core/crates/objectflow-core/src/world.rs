@@ -65,6 +65,9 @@ pub struct Span {
     /// was recorded, and a publish's new one for a span the publish opened
     /// (`declaration-syntax.md` §6.9, `of_interval.declaration_version`).
     pub declaration_version: i64,
+    /// Supplied by the import's mapping: an earlier value the legacy record
+    /// gives, at position 0 (ADR-0086, `of_interval.legacy`).
+    pub legacy: bool,
 }
 
 impl Object {
@@ -88,6 +91,9 @@ pub struct World<'l> {
     /// The position of each event that recorded an admission, which is an
     /// override (`declaration-syntax.md` §6.9, `of_admission`).
     pub admitting: BTreeSet<i64>,
+    /// The position of each event the import recorded, whose spans may begin
+    /// before it, at the legacy time of the change (ADR-0106).
+    pub imported: BTreeSet<i64>,
 }
 
 impl<'l> World<'l> {
@@ -99,6 +105,7 @@ impl<'l> World<'l> {
             external: BTreeMap::new(),
             events: Vec::new(),
             admitting: BTreeSet::new(),
+            imported: BTreeSet::new(),
         }
     }
 

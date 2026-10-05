@@ -38,8 +38,28 @@ pub struct ImportedObject {
     pub entered: BTreeMap<String, EnteredAt>,
     pub created_at: Option<i64>,
     pub created_by_kind: Option<String>,
+    /// Earlier values of the state and of tracked members, which the legacy
+    /// record gives (ADR-0086, ADR-0106).
+    pub legacy_intervals: Vec<LegacyInterval>,
+    /// Where the legacy record is silent, each from its start to its end; no
+    /// legacy interval may overlap one (ADR-0106, ADR-0147).
+    pub silent_spans: Vec<(i64, i64)>,
     /// What the object carries that the core does not yet import, by name.
     pub beyond: Vec<String>,
+}
+
+/// A span the legacy record gives, of a value an object held before its
+/// current one (`library-api.md` §5, ADR-0106): its value in the wire's
+/// notation, a reference by legacy key; its end, where the record gives
+/// none, the next value's entry.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LegacyInterval {
+    pub dimension: String,
+    pub value: Json,
+    pub entered_at: i64,
+    pub left_at: Option<i64>,
+    pub entered_by: Option<String>,
+    pub entered_by_kind: Option<String>,
 }
 
 /// The last value the legacy system minted from a sequence in a scope, the
@@ -720,7 +740,30 @@ fn decide(
             return refused(report, refusal(o, r));
         }
         if p.held.is_none() {
+            // the earlier values the legacy record gives, at position 0, and
+            // the times the record supplies held to its creation and its
+            // silent spans (publish-and-import.md §4)
+            let resolve = |key: &str, target: &str| {
+                let k = legacy(lib, target, key);
+                ids.get(&k).or_else(|| world.external.get(&k)).cloned()
+            };
+            match legacy_spans(lib, t, &obj, o, &resolve) {
+                Ok(spans) => {
+                    for (d, sp) in spans {
+                        let row = obj.spans.entry(d.clone()).or_default();
+                        let at = row.iter().position(|x| !x.legacy).unwrap_or(row.len());
+                        row.insert(at, sp.clone());
+                        change.spans.push((obj.id.clone(), d, sp));
+                    }
+                }
+                Err(r) => return refused(report, refusal(o, r)),
+            }
             created(lib, t, &mut obj, o, port);
+        } else if !o.legacy_intervals.is_empty() {
+            return Err(NotRun(format!(
+                "a refresh's intermediate values, on {} {}",
+                o.type_, o.legacy_key
+            )));
         }
         // admissions: what an ADMIT class holds, with its reason; one that
         // holds again is discharged (ADR-0054, C14)
@@ -798,29 +841,192 @@ fn decide(
 }
 
 /// A new object's creation time and kind, whether it is dated, and its
-/// `recorded_from` (`publish-and-import.md` §4, ADR-0154, C24, C37).
+/// `recorded_from` (`publish-and-import.md` §4, ADR-0154, C24, C37): its
+/// legacy creation where its state's intervals run unbroken from it, the end
+/// of its last silent span, and the port where its state's current interval
+/// begins there, the latest of those that apply; for an object none
+/// describes, the earliest entry its state's intervals and those supplied
+/// for a tracked member give.
 fn created(lib: &Library, t: &Type, obj: &mut Object, o: &ImportedObject, port: i64) {
-    let earliest = o.entered.values().map(|e| e.at).min();
+    let tracked = lib.tracked(t);
+    let entries: Vec<i64> = obj
+        .spans
+        .iter()
+        .filter(|(m, _)| tracked.contains(*m))
+        .flat_map(|(m, spans)| {
+            spans
+                .iter()
+                .filter(move |sp| m == "state" || sp.legacy || o.entered.contains_key(m))
+                .map(|sp| sp.entered_at)
+        })
+        .collect();
+    let earliest = entries.iter().copied().min();
     obj.created_dated = o.created_at.is_some();
     obj.created_at = o.created_at.or(earliest).unwrap_or(port).min(port);
     obj.created_by_kind = o
         .created_by_kind
         .clone()
         .unwrap_or_else(|| "unknown".into());
+    let state = obj.spans.get("state").map_or(&[][..], Vec::as_slice);
+    let whole = o.created_at.is_some_and(|c| {
+        state.first().is_some_and(|first| first.entered_at == c)
+            && state
+                .windows(2)
+                .all(|w| w[0].left_at == Some(w[1].entered_at))
+    });
+    let mut apply = Vec::new();
+    if whole {
+        apply.extend(o.created_at);
+    }
+    apply.extend(o.silent_spans.iter().map(|(_, end)| *end).max());
+    if !o.entered.contains_key("state") {
+        apply.push(port);
+    }
+    obj.recorded_from = apply.into_iter().max().or(earliest).unwrap_or(port);
+}
+
+/// The earlier values the legacy record gives, as spans marked legacy at
+/// position 0 (`storage-schema.md`, `of_interval`), or why they are refused:
+/// a dimension that is not tracked, a value the declaration does not hold, a
+/// span that ends before it begins, overlaps another of its dimension, or
+/// reaches into the current one, and any span or entry time earlier than a
+/// creation time the mapping supplies or overlapping a silent span
+/// (publish-and-import.md §4, ADR-0106, ADR-0147).
+fn legacy_spans(
+    lib: &Library,
+    t: &Type,
+    obj: &Object,
+    o: &ImportedObject,
+    resolve: &dyn Fn(&str, &str) -> Option<String>,
+) -> Result<Vec<(String, Span)>, String> {
+    for (start, end) in &o.silent_spans {
+        if end <= start {
+            return Err("a silent span that ends before it begins".into());
+        }
+    }
+    if let Some(c) = o.created_at
+        && let Some((m, _)) = o.entered.iter().find(|(_, e)| e.at < c)
+    {
+        return Err(format!(
+            "its {m} entered before the creation time it is given"
+        ));
+    }
     let tracked = lib.tracked(t);
-    let supplied: Vec<i64> = o
-        .entered
-        .iter()
-        .filter(|(m, _)| tracked.contains(*m))
-        .map(|(_, e)| e.at)
-        .collect();
-    obj.recorded_from = match o.entered.get("state") {
-        // the state's interval begins at the port
-        None => port,
-        // whole: unbroken from the legacy creation
-        Some(e) if o.created_at == Some(e.at) => e.at,
-        Some(_) => supplied.into_iter().min().unwrap_or(port),
-    };
+    let mut by_dimension: BTreeMap<&str, Vec<&LegacyInterval>> = BTreeMap::new();
+    for l in &o.legacy_intervals {
+        by_dimension
+            .entry(l.dimension.as_str())
+            .or_default()
+            .push(l);
+    }
+    let mut out = Vec::new();
+    for (d, mut intervals) in by_dimension {
+        if !tracked.iter().any(|m| m == d) {
+            return Err(format!(
+                "a legacy interval of {d}, which {} does not track",
+                t.name
+            ));
+        }
+        intervals.sort_by_key(|l| l.entered_at);
+        // the current interval opens at its entry, which no earlier one may
+        // reach past
+        let current = obj
+            .spans
+            .get(d)
+            .and_then(|spans| spans.iter().find(|sp| !sp.legacy))
+            .map(|sp| sp.entered_at);
+        for (i, l) in intervals.iter().enumerate() {
+            let next = intervals.get(i + 1).map(|n| n.entered_at).or(current);
+            let left = match l.left_at.or(next) {
+                Some(left) => left,
+                None => return Err(format!("a legacy interval of {d} with no end")),
+            };
+            if left < l.entered_at {
+                return Err(format!(
+                    "a legacy interval of {d} that ends before it begins"
+                ));
+            }
+            if next.is_some_and(|n| left > n) {
+                return Err(format!(
+                    "a legacy interval of {d} that overlaps the one after it"
+                ));
+            }
+            if o.created_at.is_some_and(|c| l.entered_at < c) {
+                return Err(format!(
+                    "a legacy interval of {d} earlier than the creation time it is given"
+                ));
+            }
+            if o.silent_spans
+                .iter()
+                .any(|(start, end)| l.entered_at < *end && *start < left)
+            {
+                return Err(format!(
+                    "a legacy interval of {d} that overlaps a silent span"
+                ));
+            }
+            let value = if d == "state" {
+                match l.value.as_str() {
+                    Some(s) if t.state(s).is_some() => Value::State {
+                        type_: t.name.clone(),
+                        name: s.to_string(),
+                    },
+                    _ => {
+                        return Err(format!(
+                            "a legacy interval in a state {} does not declare",
+                            t.name
+                        ));
+                    }
+                }
+            } else {
+                let Some(a) = t.attribute(d) else {
+                    return Err(format!(
+                        "a legacy interval of {d}, which {} does not declare",
+                        t.name
+                    ));
+                };
+                match (&a.declared, &l.value) {
+                    (_, Json::Null) => Value::Absent,
+                    (Declared::Reference(target), Json::String(key)) => {
+                        match resolve(key, target) {
+                            Some(id) => Value::Object(id),
+                            None => {
+                                return Err(format!(
+                                    "a legacy interval of {d} naming {key}, which no object of the batch or the store has as its legacy key"
+                                ));
+                            }
+                        }
+                    }
+                    (declared, raw) => match wire::decode(raw, declared, false, lib) {
+                        Ok(v) => v,
+                        Err(_) => {
+                            return Err(format!(
+                                "a legacy interval of {d} holding a value it cannot"
+                            ));
+                        }
+                    },
+                }
+            };
+            out.push((
+                d.to_string(),
+                Span {
+                    value,
+                    entered_position: 0,
+                    left_position: Some(0),
+                    entered_at: l.entered_at,
+                    left_at: Some(left),
+                    entered_by: l.entered_by.clone(),
+                    entered_by_kind: l
+                        .entered_by_kind
+                        .clone()
+                        .unwrap_or_else(|| "unknown".into()),
+                    migrated: false,
+                    declaration_version: lib.version,
+                    legacy: true,
+                },
+            ));
+        }
+    }
+    Ok(out)
 }
 
 /// The intervals an import opens: for a new object, one for the state and
@@ -886,6 +1092,7 @@ fn open_spans(
                 .unwrap_or_else(|| "unknown".into()),
             migrated: false,
             declaration_version: lib.version,
+            legacy: false,
         });
     }
     None
@@ -1321,5 +1528,355 @@ types:
             (o.attr("name"), o.attr("department")),
             (Value::Absent, Value::Text("Ops".into()))
         );
+    }
+
+    fn entered_at(at: i64) -> EnteredAt {
+        EnteredAt {
+            at,
+            by: None,
+            by_kind: Some("human".into()),
+        }
+    }
+
+    fn earlier(dimension: &str, value: Json, from: i64, to: Option<i64>) -> LegacyInterval {
+        LegacyInterval {
+            dimension: dimension.into(),
+            value,
+            entered_at: from,
+            left_at: to,
+            entered_by: None,
+            entered_by_kind: None,
+        }
+    }
+
+    /// Legacy intervals and silent spans (`publish-and-import.md` §4): each
+    /// earlier value a span marked legacy at position 0, and `recorded_from`
+    /// from each source the rule names; a ported span's `.held` read by time
+    /// from the index, legacy intervals included; and a span reaching back
+    /// before its record a gap in a metric.
+    #[test]
+    fn legacy_intervals_reach_back_and_silent_spans_bound_the_record() {
+        let mut s = store();
+        let port = s.now;
+        let day = 86_400;
+        // whole from its legacy creation: rehired after a stretch away
+        let mut e1 = employee("E-1", "EMPLOYED", json!({"employee_id": "1"}));
+        e1.created_at = Some(port - 100 * day);
+        e1.entered
+            .insert("state".into(), entered_at(port - 60 * day));
+        e1.legacy_intervals = vec![earlier(
+            "state",
+            json!("LEFT"),
+            port - 100 * day,
+            Some(port - 60 * day),
+        )];
+        // undated, its earliest entry a legacy one, with a stretch the record
+        // leaves unexplained
+        let mut e2 = employee("E-2", "EMPLOYED", json!({"employee_id": "2"}));
+        e2.entered
+            .insert("state".into(), entered_at(port - 40 * day));
+        e2.legacy_intervals = vec![earlier(
+            "state",
+            json!("LEFT"),
+            port - 90 * day,
+            Some(port - 50 * day),
+        )];
+        // silent from 20 to 15 days before the port
+        let mut e3 = employee("E-3", "EMPLOYED", json!({"employee_id": "3"}));
+        e3.entered
+            .insert("state".into(), entered_at(port - 30 * day));
+        e3.silent_spans = vec![(port - 20 * day, port - 15 * day)];
+        // nothing said: from the port
+        let e4 = employee("E-4", "EMPLOYED", json!({"employee_id": "4"}));
+        // a team led by E-2, then by nobody, now by E-1
+        let mut team = employee("T-1", "ACTIVE", json!({"code": "T1", "lead": "E-1"}));
+        team.type_ = "Team".into();
+        team.entered
+            .insert("state".into(), entered_at(port - 50 * day));
+        team.entered
+            .insert("lead".into(), entered_at(port - 10 * day));
+        team.legacy_intervals = vec![
+            earlier("lead", json!("E-2"), port - 80 * day, Some(port - 30 * day)),
+            earlier("lead", Json::Null, port - 30 * day, None),
+        ];
+        // a team whose lead's earlier values are given, its current lead and
+        // state from the port: dated by the legacy lead, recorded from the
+        // port
+        let mut quiet = employee("T-2", "ACTIVE", json!({"code": "T2"}));
+        quiet.type_ = "Team".into();
+        quiet.legacy_intervals = vec![earlier(
+            "lead",
+            json!("E-1"),
+            port - 70 * day,
+            Some(port - 5 * day),
+        )];
+        let r = run(&mut s, vec![e1, e2, e3, e4, team, quiet], &[], false);
+        assert!(r.refusal.is_none(), "{r:?}");
+        let w = s.snapshot().unwrap();
+        let (e1, e2, e3, e4) = (
+            id_of(&s, "E-1"),
+            id_of(&s, "E-2"),
+            id_of(&s, "E-3"),
+            id_of(&s, "E-4"),
+        );
+        let t1 = w.external[&("legacy".to_string(), "Team:T-1".to_string())].clone();
+        let o1 = w.get(&e1).unwrap();
+        let first = &o1.spans["state"][0];
+        assert!(first.legacy && first.entered_position == 0 && first.left_position == Some(0));
+        assert_eq!(
+            (first.entered_at, first.left_at),
+            (port - 100 * day, Some(port - 60 * day))
+        );
+        assert_eq!(o1.spans["state"].len(), 2);
+        assert!(o1.created_dated);
+        assert_eq!(
+            (o1.created_at, o1.recorded_from),
+            (port - 100 * day, port - 100 * day)
+        );
+        let ev = |id: &str, text: &str| {
+            let t = w.lib.type_(&w.get(id).unwrap().type_);
+            crate::eval::Evaluator::new(&w, t, Some(id))
+                .eval(&crate::expr::parse(text).unwrap())
+                .unwrap()
+        };
+        assert_eq!(ev(&e1, "time_in(LEFT)"), Value::Duration(40 * day));
+        let o2 = w.get(&e2).unwrap();
+        assert!(!o2.created_dated);
+        assert_eq!(
+            (o2.created_at, o2.recorded_from),
+            (port - 90 * day, port - 90 * day)
+        );
+        assert_eq!(w.get(&e3).unwrap().recorded_from, port - 15 * day);
+        assert_eq!(w.get(&e4).unwrap().recorded_from, port);
+        let t2 = w
+            .get(&w.external[&("legacy".to_string(), "Team:T-2".to_string())])
+            .unwrap();
+        assert!(!t2.created_dated);
+        assert_eq!((t2.created_at, t2.recorded_from), (port - 70 * day, port));
+        // the team's assignee, earlier values resolved by legacy key
+        let lead: Vec<Value> = w.get(&t1).unwrap().spans["lead"]
+            .iter()
+            .map(|sp| sp.value.clone())
+            .collect();
+        assert_eq!(
+            lead,
+            vec![
+                Value::Object(e2.clone()),
+                Value::Absent,
+                Value::Object(e1.clone())
+            ]
+        );
+        // its state's span, opened by the import fifty days back, held E-2
+        let Value::Set(rows) = ev(&t1, "this.intervals") else {
+            panic!()
+        };
+        let Value::Row(row) = &rows[0] else { panic!() };
+        assert_eq!(
+            row["held"],
+            Value::Row(BTreeMap::from([
+                ("lead".to_string(), Value::Object(e2.clone())),
+                (
+                    "state".to_string(),
+                    Value::State {
+                        type_: "Team".into(),
+                        name: "ACTIVE".into()
+                    }
+                ),
+            ]))
+        );
+        // E-3's span entered before the end of its silent span: a gap
+        let page = crate::metric::page(
+            &w,
+            None,
+            "Employee.time_in_state",
+            &BTreeMap::new(),
+            Some(&["state".to_string()]),
+            None,
+            None,
+        )
+        .unwrap();
+        let gaps: Vec<(Value, Vec<String>)> = page
+            .rows
+            .iter()
+            .map(|r| (r.dimensions[0].1.clone(), r.gaps.clone()))
+            .collect();
+        assert_eq!(
+            gaps,
+            vec![
+                (
+                    Value::State {
+                        type_: "Employee".into(),
+                        name: "EMPLOYED".into()
+                    },
+                    vec![e3.clone()]
+                ),
+                (
+                    Value::State {
+                        type_: "Employee".into(),
+                        name: "LEFT".into()
+                    },
+                    vec![]
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_legacy_record_that_does_not_hold_together_is_refused() {
+        let day = 86_400;
+        type Planted = Box<dyn Fn(i64) -> ImportedObject>;
+        let cases: Vec<(&str, Planted)> = vec![
+            (
+                "overlaps a silent span",
+                Box::new(move |port| {
+                    let mut e = employee("E-1", "EMPLOYED", json!({"employee_id": "1"}));
+                    e.entered
+                        .insert("state".into(), entered_at(port - 10 * day));
+                    e.legacy_intervals = vec![earlier(
+                        "state",
+                        json!("LEFT"),
+                        port - 30 * day,
+                        Some(port - 20 * day),
+                    )];
+                    e.silent_spans = vec![(port - 25 * day, port - 22 * day)];
+                    e
+                }),
+            ),
+            (
+                "overlaps the one after it",
+                Box::new(move |port| {
+                    let mut e = employee("E-1", "EMPLOYED", json!({"employee_id": "1"}));
+                    e.entered
+                        .insert("state".into(), entered_at(port - 10 * day));
+                    e.legacy_intervals = vec![
+                        earlier(
+                            "state",
+                            json!("LEFT"),
+                            port - 40 * day,
+                            Some(port - 25 * day),
+                        ),
+                        earlier(
+                            "state",
+                            json!("EMPLOYED"),
+                            port - 30 * day,
+                            Some(port - 20 * day),
+                        ),
+                    ];
+                    e
+                }),
+            ),
+            (
+                "overlaps the one after it",
+                Box::new(move |port| {
+                    let mut e = employee("E-1", "EMPLOYED", json!({"employee_id": "1"}));
+                    e.entered
+                        .insert("state".into(), entered_at(port - 30 * day));
+                    e.legacy_intervals = vec![earlier(
+                        "state",
+                        json!("LEFT"),
+                        port - 40 * day,
+                        Some(port - 20 * day),
+                    )];
+                    e
+                }),
+            ),
+            (
+                "earlier than the creation time",
+                Box::new(move |port| {
+                    let mut e = employee("E-1", "EMPLOYED", json!({"employee_id": "1"}));
+                    e.created_at = Some(port - 30 * day);
+                    e.entered
+                        .insert("state".into(), entered_at(port - 10 * day));
+                    e.legacy_intervals = vec![earlier(
+                        "state",
+                        json!("LEFT"),
+                        port - 40 * day,
+                        Some(port - 10 * day),
+                    )];
+                    e
+                }),
+            ),
+            (
+                "entered before the creation time",
+                Box::new(move |port| {
+                    let mut e = employee("E-1", "EMPLOYED", json!({"employee_id": "1"}));
+                    e.created_at = Some(port - 30 * day);
+                    e.entered
+                        .insert("state".into(), entered_at(port - 40 * day));
+                    e
+                }),
+            ),
+            (
+                "does not track",
+                Box::new(move |port| {
+                    let mut e = employee("E-1", "EMPLOYED", json!({"employee_id": "1"}));
+                    e.legacy_intervals = vec![earlier(
+                        "department",
+                        json!("Sales"),
+                        port - 40 * day,
+                        Some(port - 20 * day),
+                    )];
+                    e
+                }),
+            ),
+            (
+                "does not declare",
+                Box::new(move |port| {
+                    let mut e = employee("E-1", "EMPLOYED", json!({"employee_id": "1"}));
+                    e.legacy_intervals = vec![earlier(
+                        "state",
+                        json!("RETIRED"),
+                        port - 40 * day,
+                        Some(port - 20 * day),
+                    )];
+                    e
+                }),
+            ),
+            (
+                "no object of the batch or the store",
+                Box::new(move |port| {
+                    let mut t = employee("T-1", "ACTIVE", json!({"code": "T1"}));
+                    t.type_ = "Team".into();
+                    t.legacy_intervals = vec![earlier(
+                        "lead",
+                        json!("E-404"),
+                        port - 40 * day,
+                        Some(port - 20 * day),
+                    )];
+                    t
+                }),
+            ),
+        ];
+        for (words, object) in cases {
+            let mut s = store();
+            let port = s.now;
+            let r = run(&mut s, vec![object(port)], &[], false);
+            let reason = r.refusal.map(|f| f.reason).unwrap_or_default();
+            assert!(reason.contains(words), "{words}: {reason}");
+            assert_eq!(r.written, 0);
+            assert!(
+                s.snapshot().unwrap().external.is_empty(),
+                "{words}: something was written"
+            );
+        }
+        // a refresh's intermediate values are not yet run
+        let mut s = store();
+        let port = s.now;
+        run(
+            &mut s,
+            vec![employee("E-1", "EMPLOYED", json!({"employee_id": "1"}))],
+            &[],
+            false,
+        );
+        let mut again = employee("E-1", "LEFT", json!({"employee_id": "1"}));
+        again.legacy_intervals = vec![earlier("state", json!("EMPLOYED"), port, Some(port))];
+        let batch = ImportBatch {
+            objects: vec![again],
+            sequences: Vec::new(),
+        };
+        let not_run = import_batch(&mut s, OPERATOR, &batch, &[], false)
+            .unwrap()
+            .unwrap_err();
+        assert!(not_run.0.contains("intermediate values"), "{}", not_run.0);
     }
 }

@@ -1139,6 +1139,7 @@ fn record_spans(
             entered_by_kind: who.kind.clone(),
             migrated: false,
             declaration_version: lib.version,
+            legacy: false,
         });
     }
     true

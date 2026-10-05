@@ -20,8 +20,8 @@ use axum::routing::post;
 use axum::{Json, Router};
 use objectflow_core::eval::NotRun;
 use objectflow_core::import::{
-    self, Disposition, EnteredAt, ImportBatch, ImportReport, ImportedObject, Raise, ViolationClass,
-    ViolationKind,
+    self, Disposition, EnteredAt, ImportBatch, ImportReport, ImportedObject, LegacyInterval, Raise,
+    ViolationClass, ViolationKind,
 };
 use objectflow_core::model::{Declared, Library};
 use objectflow_core::reads::{self, Offer};
@@ -419,24 +419,63 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
     }
     // what the core does not yet import, named (ADR-0154 decision 6)
     let mut beyond = Vec::new();
-    for (k, what) in [
-        ("legacy_entries", "legacy entries"),
-        ("legacy_intervals", "legacy intervals"),
-        ("silent_spans", "silent spans"),
-    ] {
-        if o.get(k)
-            .and_then(J::as_array)
-            .is_some_and(|a| !a.is_empty())
-        {
-            beyond.push(format!("{what}, on {type_} {legacy_key}"));
-        }
+    if o.get("legacy_entries")
+        .and_then(J::as_array)
+        .is_some_and(|a| !a.is_empty())
+    {
+        beyond.push(format!("legacy entries, on {type_} {legacy_key}"));
     }
     if o.get("occurred_at").is_some_and(|v| !v.is_null()) {
         beyond.push(format!(
             "an observation's occurred time, on {type_} {legacy_key}"
         ));
     }
+    // the earlier values the legacy record gives, and where it is silent
+    let mut legacy_intervals = Vec::new();
+    for l in o
+        .get("legacy_intervals")
+        .and_then(J::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let (Some(dimension), Some(entered_at)) = (
+            text(l, "dimension"),
+            instant(l.get("entered_at"), "legacy_intervals.entered_at")?,
+        ) else {
+            return Err(Fault::Bad(
+                "a legacy interval names its dimension and when it was entered".to_string(),
+            ));
+        };
+        legacy_intervals.push(LegacyInterval {
+            dimension: dimension.to_string(),
+            value: l.get("value").cloned().unwrap_or(J::Null),
+            entered_at,
+            left_at: instant(l.get("left_at"), "legacy_intervals.left_at")?,
+            entered_by: text(l, "entered_by").map(str::to_string),
+            entered_by_kind: text(l, "entered_by_kind").map(str::to_string),
+        });
+    }
+    let mut silent_spans = Vec::new();
+    for span in o
+        .get("silent_spans")
+        .and_then(J::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let ends = span.as_array().map(|a| a.as_slice()).unwrap_or_default();
+        let (Some(start), Some(end)) = (
+            instant(ends.first(), "silent_spans")?,
+            instant(ends.get(1), "silent_spans")?,
+        ) else {
+            return Err(Fault::Bad(
+                "a silent span is a pair of times, its start and its end".to_string(),
+            ));
+        };
+        silent_spans.push((start, end));
+    }
     Ok(ImportedObject {
+        legacy_intervals,
+        silent_spans,
         type_,
         legacy_key,
         state,

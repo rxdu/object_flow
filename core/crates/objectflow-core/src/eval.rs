@@ -958,17 +958,25 @@ pub(crate) fn interval_rows(
                     "declaration_version".to_string(),
                     Value::Int(sp.declaration_version),
                 );
-                row.insert("legacy".to_string(), Value::Bool(false));
+                row.insert("legacy".to_string(), Value::Bool(sp.legacy));
                 row.insert("migrated".to_string(), Value::Bool(sp.migrated));
                 row.insert(
                     "duration".to_string(),
                     span_duration(t, o, member, sp, &closed, now),
                 );
                 // the values held when it began, after the writes of the
-                // transition that began it (§6.9, ADR-0146)
+                // transition that began it; on a span whose entry precedes
+                // the event that opened it, a port's, the values the index
+                // holds at its entry, legacy intervals included (§6.9,
+                // ADR-0146, ADR-0147)
+                let by_time = sp.legacy || world.imported.contains(&sp.entered_position);
                 row.insert(
                     "held".to_string(),
-                    held(world.lib, t, o, sp.entered_position, true),
+                    if by_time {
+                        held_at(world.lib, t, o, sp.entered_at)
+                    } else {
+                        held(world.lib, t, o, sp.entered_position, true)
+                    },
                 );
                 Value::Row(row)
             })
@@ -1221,6 +1229,26 @@ pub(crate) fn held(
                 sp.entered_position < position && sp.left_position.is_none_or(|l| l >= position)
             }
         });
+        if let Some(sp) = covering {
+            out.insert(m, sp.value.clone());
+        }
+    }
+    Value::Row(out)
+}
+
+/// The value each tracked member held at a time, by the interval index,
+/// legacy intervals included: absent where no span covers it (§6.9,
+/// ADR-0147).
+pub(crate) fn held_at(lib: &crate::model::Library, t: &Type, o: &Object, at: i64) -> Value {
+    let mut out = BTreeMap::new();
+    for m in lib.tracked(t) {
+        let covering = o
+            .spans
+            .get(&m)
+            .into_iter()
+            .flatten()
+            .filter(|sp| sp.entered_at <= at && sp.left_at.is_none_or(|l| l > at))
+            .max_by_key(|sp| sp.entered_at);
         if let Some(sp) = covering {
             out.insert(m, sp.value.clone());
         }
