@@ -538,6 +538,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D524](#d524) | `import_batch` took a disposition file no document defined | Resolved by ADR-0154 |
 | [D525](#d525) | A refused import batch had nowhere to say why | Resolved by ADR-0154 |
 | [D526](#d526) | An example's import admitted whatever it violated | Resolved by ADR-0154 |
+| [D527](#d527) | A publish's redaction could break an invariant after the invariants were checked | Resolved by ADR-0155 |
+| [D528](#d528) | A type-changed attribute's intervals had nowhere to go | Resolved by ADR-0155 |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3451,3 +3453,13 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **An example's import admitted whatever it violated.** An example's `import` step (`flow-format.md` §11.3) takes no disposition, and the reference runner admitted every invariant the imported object failed, with no decision and no reason; no example imports a violating object, so nothing showed it. Found 2026-10-05 with D524.
 
 **Resolved** by ADR-0154 decision 4: an example's import is a one-object batch with an empty disposition file, so it admits nothing, and an object that leaves a required attribute out or violates an invariant refuses the step; §11.3 says so, and the runner's `import_object` refuses it, held by a self-test.
+
+### D527
+**A publish's redaction could break an invariant after the invariants were checked.** `publish-and-import.md` §1 step 5 checks every invariant once after the mappings, then redacts, on every object already erased, an attribute the version newly marks personal; writing that absence can violate an invariant that reads the attribute, and nothing said what then holds. Found 2026-10-05 building the Rust core's approval.
+
+**Resolved** by ADR-0155 decision 6: the `redact` event admits every invariant the absence leaves violated, as the erasure it completes would have (`declaration-syntax.md` §6.4). §1 step 5 says so, and the core does it.
+
+### D528
+**A type-changed attribute's intervals had nowhere to go.** `storage-schema.md` §10 sets a type-changed attribute's column aside as `<name>__v<version>`, keeping its values readable, and said nothing of a tracked attribute's `of_interval` rows, which would otherwise be read under the new type. Found 2026-10-05 with D527.
+
+**Resolved** by ADR-0155 decision 6: they are set aside under the same name, the open one closed at the publish event, and the attribute of the new type opens its own as a newly tracked member does. §10's table says so, and the core does it.

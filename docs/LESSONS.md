@@ -329,3 +329,19 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Building the core's import, I listed four gaps in the interface as new register entries. Three of them, two channels for an import's admissions, a class's identity and an owned type in a batch, were already the third cold reading's open questions C31 to C33, which ADR-0148 deferred to whoever built the import. Entered again, each question would have had two records and two answers.
 - **Correction:** Before recording a gap, search the register's open entries and the questions they defer (D516's list, the cold readings' sections) for it. A gap already recorded is answered where it is, in the rule's home citing the record; only a gap no record holds becomes a new entry.
 - **Context:** ObjectFlow's defect register and cold readings; ADR-0154, 2026-10-05.
+
+### Validate the names a derived value is computed over
+- **Pattern:** The core's `draft` took a source as a map from each module's name to its text and computed the digest over those names, without checking that each name was the one its file declares. A file under the wrong key was accepted, and its digest could never match `check-flows.py --digest` over the same files. A test of the next slice drafted a module under another module's key and passed, which is how it showed.
+- **Correction:** Where a value is computed over labels a caller supplies, check each label against the content it labels at the boundary, and refuse a mismatch as invalid input; a label that only names is still part of the value.
+- **Context:** Boundary validation in the Rust core's `change_source` (`src/request.rs`), ADR-0135 and ADR-0155; found 2026-10-05.
+
+### A rule harmless at one version can become reachable at two
+- **Pattern:** The core's erasure read only the installed version's `personal` marks, which matched ADR-0146's "personal under any version" while a store had one version. Building publishing made a second version possible, and with it an attribute dropped or unmarked before an erasure, which would have left its values behind with nothing reporting it.
+- **Correction:** When a slice makes a new state of the store reachable, such as a second version, search the rules that quantify over it ("any version", "every event") for ones an earlier slice met only trivially, and either build them or answer the newly reachable case as not run.
+- **Context:** The Rust core's publishing and erasure; ADR-0146 decision 2, ADR-0155 decision 6; found 2026-10-05.
+
+### `$?` after a command substitution reports the substitution
+- **Pattern:** A loop ran the ten design checks and printed each status as `echo "$(basename $c) rc=$?"`. The command substitution runs before `$?` expands, and resets it, so every check printed `rc=0` whatever it returned. The corpus check had failed on three missing back-links, its saved output said so, and the docs commit went in on the false report.
+- **Correction:** Capture the status first, `rc=$?`, before any other expansion on the line, and print a name with no substitution in it. Read each check's verdict line from its output too, never the loop's summary alone.
+- **Context:** Shell loops over `scripts/check-*.py` in ObjectFlow; commit `7ba2fcf` (ADR-0155's first docs), found and repaired 2026-10-05.
+

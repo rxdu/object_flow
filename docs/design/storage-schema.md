@@ -746,7 +746,7 @@ A publish is a declaration version and a set of DDL statements derived from it, 
 | a new indexed attribute | `ADD COLUMN` then `CREATE INDEX` |
 | a removed attribute | **nothing**, but that a required one's `NOT NULL` is dropped, by a table rebuild on SQLite. A dropped attribute hides; its recorded values stay in history (ADR-0027, ADR-0148) |
 | an attribute made optional | its `NOT NULL` dropped, by a table rebuild on SQLite (ADR-0148) |
-| an attribute whose type changed | before the mappings, its column renamed aside, to `<name>__v<version>` of the last version that declared it, keeping its values readable for history, and a new column of the name added, nullable, every object's value starting absent (ADR-0148) |
+| an attribute whose type changed | before the mappings, its column renamed aside, to `<name>__v<version>` of the last version that declared it, keeping its values readable for history, and a new column of the name added, nullable, every object's value starting absent (ADR-0148); a tracked attribute's intervals set aside under the same name, the open one closed at the publish event (ADR-0155, D528) |
 | a renamed attribute | `RENAME COLUMN`, carrying the mapping |
 | a removed state | no DDL; the `CHECK` is widened to the union of both versions' states before the mappings, which move every object out of it, a mirror's included, and replaced by the new version's after (ADR-0147) |
 | a removed enum member | the `CHECK` is widened to the union of both versions' members before the mappings, and replaced after a `removed member` mapping has moved every row off it by recorded migration transitions (ADR-0099, ADR-0147); a retired type's table keeps its `CHECK` |
@@ -759,6 +759,8 @@ A publish is a declaration version and a set of DDL statements derived from it, 
 **A migration reaches every row the change affects, terminal ones included, and no observation's** (ADR-0101): it is the publish's recorded change, not a transition the object takes, and an observation is born final, so a publish removing an enum member an observation holds is refused. **A request or an import never writes a personal column of an object whose erasure is recorded**, so neither a refresh of a mirror nor an externally owned type's sync can restore an erased value (ADR-0101, ADR-0105).
 
 A removed attribute leaving its column in place is deliberate: the column is how history stays readable, and dropping it would make a fold of the log fail on an event the store still holds.
+
+**On SQLite, the DDL around the mappings is a table rebuild before them and another after**, since `ALTER TABLE` cannot change a constraint: each made with foreign keys off, as SQLite's documented procedure requires, and every key checked by `PRAGMA foreign_key_check` before the transaction commits, a dangling one failing the transaction, so the publish installs nothing. With foreign keys on, rebuilding a table another references fails, deferred or not (observed 2026-10-05). The core's rebuild before the mappings drops the state and enumeration `CHECK`s for the mappings' span rather than widening them to the union, which nothing outside the transaction can tell apart (ADR-0155).
 
 ## 11. Decided since the first draft, and still open
 
