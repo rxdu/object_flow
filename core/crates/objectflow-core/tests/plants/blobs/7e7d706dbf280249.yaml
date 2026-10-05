@@ -1,0 +1,25 @@
+module: desk
+categories: [live, closed]
+types:
+  Agent:
+    description: An agent.
+    tracking: record
+    attributes:
+      login: { type: identity }
+    states:
+      ON:  { category: live }
+      OFF: { category: closed, final: true }
+    transitions:
+      join:  { kind: initial, to: ON, required_inputs: [login] }
+      leave: { kind: external, from: [ON], to: OFF }
+  Ticket:
+    description: A ticket.
+    tracking: record
+    attributes:
+      agent: { reference: Agent, optional: true, assignee: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      open:   { kind: initial, to: OPEN, optional_inputs: [agent] }
+      finish: { kind: external, from: [OPEN], to: DONE }

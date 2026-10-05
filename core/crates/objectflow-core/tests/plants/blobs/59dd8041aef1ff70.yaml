@@ -1,0 +1,25 @@
+module: pair
+categories: [live, closed]
+types:
+  Desk:
+    description: A desk.
+    tracking: record
+    attributes:
+      seat: { reference: Seat, optional: true, opposite: desk, stored: true }
+    states:
+      FREE: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      place:  { kind: initial, to: FREE }
+      remove: { kind: external, from: [FREE], to: GONE }
+  Seat:
+    description: A seat.
+    tracking: record
+    attributes:
+      desk: { reference: Desk, optional: true, opposite: seat }
+    states:
+      FREE: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      place:  { kind: initial, to: FREE }
+      remove: { kind: external, from: [FREE], to: GONE }

@@ -6529,5 +6529,674 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ]
+ },
+ {
+  "label": "syntax_plants",
+  "files": [
+   [
+    "plant.yaml",
+    "3e22a4a4d4703ad4"
+   ]
+  ],
+  "previous": {},
+  "findings": []
+ },
+ {
+  "label": "syntax_plants",
+  "files": [
+   [
+    "plant.yaml",
+    "21bb64554669a731"
+   ]
+  ],
+  "previous": {},
+  "findings": []
+ },
+ {
+  "label": "syntax_plants",
+  "files": [
+   [
+    "plant.yaml",
+    "59dd8041aef1ff70"
+   ]
+  ],
+  "previous": {},
+  "findings": []
+ },
+ {
+  "label": "syntax_plants",
+  "files": [
+   [
+    "plant.yaml",
+    "5338c46116f7459b"
+   ]
+  ],
+  "previous": {},
+  "findings": []
+ },
+ {
+  "label": "syntax_plants",
+  "files": [
+   [
+    "plant.yaml",
+    "27b0b9dbe21658c1"
+   ]
+  ],
+  "previous": {},
+  "findings": []
+ },
+ {
+  "label": "syntax_plants",
+  "files": [
+   [
+    "plant.yaml",
+    "8df039a2249c17b4"
+   ]
+  ],
+  "previous": {},
+  "findings": []
+ },
+ {
+  "label": "syntax_plants: a creation that never writes a required attribute",
+  "files": [
+   [
+    "plant.yaml",
+    "a151ac439e1e4581"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    19,
+    "fatal",
+    "check 8",
+    "Job.open never writes required attribute 'owner'"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a state with no way out",
+  "files": [
+   [
+    "plant.yaml",
+    "01fbaadf06d6697a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    15,
+    "fatal",
+    "check 15",
+    "Job.STUCK is non-terminal with no outgoing transition"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a state nothing reaches",
+  "files": [
+   [
+    "plant.yaml",
+    "ea9ceaa1cecb067f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    15,
+    "fatal",
+    "check 15",
+    "Job.LOST is reachable by nothing"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a type with no final state",
+  "files": [
+   [
+    "plant.yaml",
+    "8e78a0a14ac2ed1a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    6,
+    "fatal",
+    "check 15",
+    "Job has no terminal state"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a transition leaving a final state",
+  "files": [
+   [
+    "plant.yaml",
+    "35ef8da234aa7c5f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    20,
+    "fatal",
+    "check 15",
+    "Job.reopen is a do leaving terminal state DONE"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a type with no creation",
+  "files": [
+   [
+    "plant.yaml",
+    "e10c65557d30d4a0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    6,
+    "fatal",
+    "check 34",
+    "Job has no creation transition"
+   ],
+   [
+    "plant.yaml",
+    13,
+    "fatal",
+    "check 15",
+    "Job.OPEN is reachable by nothing"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: an internal transition at a final state",
+  "files": [
+   [
+    "plant.yaml",
+    "b3e24253c63d9da2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    20,
+    "fatal",
+    "check 40",
+    "Job.annotate is an act at terminal state DONE"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a clear of a required attribute",
+  "files": [
+   [
+    "plant.yaml",
+    "0eeb8413dcc44a13"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    19,
+    "fatal",
+    "check 17",
+    "Job.finish clears required attribute 'title'"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a default on an optional input",
+  "files": [
+   [
+    "plant.yaml",
+    "5e71df55f67c9e3f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    19,
+    "fatal",
+    "check 20",
+    "Job.finish gives a default to optional input 'why'"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a counter on a type tracked by record",
+  "files": [
+   [
+    "plant.yaml",
+    "0247bd533807a439"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    6,
+    "fatal",
+    "check 31",
+    "Job is tracking record with a counter"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a type tracked by quantity with no counter",
+  "files": [
+   [
+    "plant.yaml",
+    "46e84eb72af0192f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    6,
+    "fatal",
+    "check 31",
+    "Job is tracking quantity with no counter"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: an audited guard on an assertion",
+  "files": [
+   [
+    "plant.yaml",
+    "c25909523d9f4398"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    20,
+    "fatal",
+    "check 57",
+    "Job.force is an assert with an observing or flag clause"
+   ],
+   [
+    "plant.yaml",
+    20,
+    "notice",
+    "audit",
+    "titled is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a backdatable assertion",
+  "files": [
+   [
+    "plant.yaml",
+    "fc1310c229e8b479"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    20,
+    "fatal",
+    "check 58",
+    "Job.force is backdatable and is an assert"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: entered_at of a member that is not tracked",
+  "files": [
+   [
+    "plant.yaml",
+    "615951366c04c667"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    19,
+    "fatal",
+    "check 58",
+    "Job.finish: entered_at(note) names neither a state nor a tracked member"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: an actor kind on a string",
+  "files": [
+   [
+    "plant.yaml",
+    "a47e2112b5b7d330"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    10,
+    "fatal",
+    "check 59",
+    "Job.title is marked actor and is not an identity"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: two actor identities on one type",
+  "files": [
+   [
+    "plant.yaml",
+    "b4bccdf418a616f3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    6,
+    "fatal",
+    "check 62",
+    "Job marks 2 actor identities; a type holds one kind of actor, named once"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: the actor read in a condition",
+  "files": [
+   [
+    "plant.yaml",
+    "b4c375f97b7d206a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    19,
+    "fatal",
+    "check 64",
+    "reads the actor outside an outcome value: require titled: actor.id is not null because dependent"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a part created not only via its whole",
+  "files": [
+   [
+    "plant.yaml",
+    "8329b3ec0bb8f1a6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    25,
+    "fatal",
+    "check 11",
+    "Line.start creates a part but is not 'only via' its whole"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: an only via whose parent never reaches it",
+  "files": [
+   [
+    "plant.yaml",
+    "7d705905ea681c7d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    25,
+    "fatal",
+    "check 13",
+    "Line.start names parent Order.finish, which never reaches it"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a part created without its owner",
+  "files": [
+   [
+    "plant.yaml",
+    "3139a811444225b6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    25,
+    "fatal",
+    "check 18",
+    "Line.start creates a part without writing owner 'order'"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: two singular ends, neither stored",
+  "files": [
+   [
+    "plant.yaml",
+    "8306703edc792341"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    8,
+    "fatal",
+    "check 41",
+    "Desk.seat and Seat.desk are both singular; exactly one must be marked 'stored' (0 are)"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: an observation's field named like a member every observation has",
+  "files": [
+   [
+    "plant.yaml",
+    "f2cdb4fcf7652f64"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    17,
+    "fatal",
+    "check 54",
+    "JobNote.subject is named as a member every observation already has"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a unit on an observation's string field",
+  "files": [
+   [
+    "plant.yaml",
+    "d6973f9516807d21"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    17,
+    "fatal",
+    "check 54",
+    "JobNote.text declares a unit and is not int or decimal"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a metric's dimension three hops away",
+  "files": [
+   [
+    "plant.yaml",
+    "64dd0897bab7b0f8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    26,
+    "fatal",
+    "check 56",
+    "metric finished: dimension 'far = t.object.a.b.c' is 3 hops"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: over last on a metric with no window",
+  "files": [
+   [
+    "plant.yaml",
+    "dbcd3a8c8cddb25f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    19,
+    "fatal",
+    "check 56",
+    "Job.finish: 'over last' on metric finished, which declares no 'window on', nor combines inputs that each do"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a guard binding what is no dimension of a metric",
+  "files": [
+   [
+    "plant.yaml",
+    "1e95c28c69b1f906"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    19,
+    "fatal",
+    "check 56",
+    "Job.finish binds 'colour', not a dimension of metric finished"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: metric() outside a guard",
+  "files": [
+   [
+    "plant.yaml",
+    "25ac920302e710a9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "check 56",
+    "metric(…) outside a guard: value     metric(finished)"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a metric-only function in a condition",
+  "files": [
+   [
+    "plant.yaml",
+    "3c041d8139269315"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    19,
+    "fatal",
+    "check 56",
+    "a metric-only function outside a metric: require titled: median(title) > 0 because depend"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: an assignee that does not store its value",
+  "files": [
+   [
+    "plant.yaml",
+    "a65481d78348ee46"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    20,
+    "fatal",
+    "check 59",
+    "Ticket.agent is an assignee and is not a singular stored ref"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: an assignee to a type marking no actor identity",
+  "files": [
+   [
+    "plant.yaml",
+    "7e7d706dbf280249"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    19,
+    "fatal",
+    "check 59",
+    "Ticket.agent is an assignee; Agent marks 0 actor identities, not one"
+   ]
+  ]
+ },
+ {
+  "label": "syntax_plants: a create binding an argument from what its outcome writes, read by an evaluator guard",
+  "files": [
+   [
+    "plant.yaml",
+    "f774f8447984564e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    19,
+    "fatal",
+    "check 61",
+    "Job.prep binds Crew.start's 'n' from a value its outcome writes, which an evaluator or metric guard reads"
+   ]
+  ]
  }
 ]

@@ -3817,6 +3817,259 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     return ok
 
 
+SYNTAX_MINI = (
+    'module: mini\n'
+    'categories: [live, closed]\n'
+    'enumerations:\n'
+    '  Reason: [ASKED]\n'
+    'types:\n'
+    '  Job:\n'
+    '    description: A job.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      title: { type: string }\n'
+    '      note:  { type: string, optional: true }\n'
+    '    states:\n'
+    '      OPEN: { category: live }\n'
+    '      DONE: { category: closed, final: true }\n'
+    '    conditions:\n'
+    '      titled: { description: The job has a title., expression: title is not null, remedy: dependent }\n'
+    '    transitions:\n'
+    '      open:   { kind: initial, to: OPEN, required_inputs: [title], optional_inputs: [note] }\n'
+    '      finish: { kind: external, from: [OPEN], to: DONE, guards: { titled: deny } }\n'
+)
+SYNTAX_PARTS = (
+    'module: shop\n'
+    'categories: [live, closed]\n'
+    'types:\n'
+    '  Order:\n'
+    '    description: An order.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      lines: { reference: "Line[]", opposite: order, aggregation: composite, survives: true }\n'
+    '    states:\n'
+    '      OPEN: { category: live }\n'
+    '      DONE: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      open:     { kind: initial, to: OPEN }\n'
+    '      add_line: { kind: internal, from: [OPEN], effect: [ { create: { type: Line, transition: start, inputs: { order: this } } } ] }\n'
+    '      finish:   { kind: external, from: [OPEN], to: DONE }\n'
+    '  Line:\n'
+    '    description: A line of an order.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      order: { reference: Order, opposite: lines }\n'
+    '    states:\n'
+    '      ACTIVE: { category: live }\n'
+    '      GONE:   { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      start: { kind: initial, to: ACTIVE, required_inputs: [order], only_via: [Order.add_line] }\n'
+    '      drop:  { kind: external, from: [ACTIVE], to: GONE }\n'
+)
+SYNTAX_PAIR = (
+    'module: pair\n'
+    'categories: [live, closed]\n'
+    'types:\n'
+    '  Desk:\n'
+    '    description: A desk.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      seat: { reference: Seat, optional: true, opposite: desk, stored: true }\n'
+    '    states:\n'
+    '      FREE: { category: live }\n'
+    '      GONE: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      place:  { kind: initial, to: FREE }\n'
+    '      remove: { kind: external, from: [FREE], to: GONE }\n'
+    '  Seat:\n'
+    '    description: A seat.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      desk: { reference: Desk, optional: true, opposite: seat }\n'
+    '    states:\n'
+    '      FREE: { category: live }\n'
+    '      GONE: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      place:  { kind: initial, to: FREE }\n'
+    '      remove: { kind: external, from: [FREE], to: GONE }\n'
+)
+SYNTAX_METRIC = (
+    'module: mini\n'
+    'categories: [live, closed]\n'
+    'enumerations:\n'
+    '  Reason: [ASKED]\n'
+    'types:\n'
+    '  Job:\n'
+    '    description: A job.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      title: { type: string }\n'
+    '      note:  { type: string, optional: true }\n'
+    '    states:\n'
+    '      OPEN: { category: live }\n'
+    '      DONE: { category: closed, final: true }\n'
+    '    conditions:\n'
+    '      titled: { description: The job has a title., expression: title is not null, remedy: dependent }\n'
+    '    transitions:\n'
+    '      open:   { kind: initial, to: OPEN, required_inputs: [title], optional_inputs: [note] }\n'
+    '      finish: { kind: external, from: [OPEN], to: DONE, guards: { titled: deny } }\n'
+    '    metrics:\n'
+    '      finished:\n'
+    '        description: Jobs finished.\n'
+    '        source: transitions\n'
+    '        item: t\n'
+    '        filter: t.to_state == Job.DONE\n'
+    '        dimensions:\n'
+    '          month: month(t.occurred_at)\n'
+    '        time_dimension: t.occurred_at\n'
+    '        expression: count()\n'
+)
+SYNTAX_ASSIGN = (
+    'module: desk\n'
+    'categories: [live, closed]\n'
+    'types:\n'
+    '  Agent:\n'
+    '    description: An agent.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      login: { type: identity, actor_kind: human }\n'
+    '    states:\n'
+    '      ON:  { category: live }\n'
+    '      OFF: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      join:  { kind: initial, to: ON, required_inputs: [login] }\n'
+    '      leave: { kind: external, from: [ON], to: OFF }\n'
+    '  Ticket:\n'
+    '    description: A ticket.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      agent: { reference: Agent, optional: true, assignee: true }\n'
+    '    states:\n'
+    '      OPEN: { category: live }\n'
+    '      DONE: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      open:   { kind: initial, to: OPEN, optional_inputs: [agent] }\n'
+    '      finish: { kind: external, from: [OPEN], to: DONE }\n'
+)
+SYNTAX_CREW = (
+    'module: crew\n'
+    'categories: [live, closed]\n'
+    'evaluators:\n'
+    '  risk:\n'
+    '    description: A risk service.\n'
+    '    functions:\n'
+    '      ok: { description: Whether the crew may start., arguments: { n: { type: string } } }\n'
+    'types:\n'
+    '  Job:\n'
+    '    description: A job.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      note: { type: string, optional: true }\n'
+    '    states:\n'
+    '      OPEN: { category: live }\n'
+    '      DONE: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      open:   { kind: initial, to: OPEN }\n'
+    '      prep:   { kind: internal, from: [OPEN], effect: [ { assign: { location: note, expr: \'"x"\' } }, { create: { type: Crew, transition: start, inputs: { n: inputs.n } } } ], inputs: { n: { type: string } } }\n'
+    '      finish: { kind: external, from: [OPEN], to: DONE }\n'
+    '  Crew:\n'
+    '    description: A crew.\n'
+    '    tracking: record\n'
+    '    states:\n'
+    '      UP:   { category: live }\n'
+    '      DOWN: { category: closed, final: true }\n'
+    '    conditions:\n'
+    '      safe: { description: The service says it is safe., expression: risk.ok(inputs.n), remedy: dependent }\n'
+    '    transitions:\n'
+    '      start: { kind: initial, to: UP, inputs: { n: { type: string } }, guards: { safe: deny } }\n'
+    '      stop:  { kind: external, from: [UP], to: DOWN }\n'
+)
+
+def syntax_plants():
+    """A YAML plant for each of the sixty-four checks the text checker enforces and step 3 does not, so each
+    reaches step 4 from a flow description; the core's checker is held to them (ADR-0156 decision 4,
+    docs/design/core-checker.md §3). Each changes one thing in a small module clean under every step."""
+    def p(text, old, new):
+        assert text.count(old) == 1, old
+        return text.replace(old, new, 1)
+    MINI, PARTS, PAIR, METRIC, ASSIGN, CREW = (SYNTAX_MINI, SYNTAX_PARTS, SYNTAX_PAIR, SYNTAX_METRIC, SYNTAX_ASSIGN,
+                                               SYNTAX_CREW)
+    FINISH = "      finish: { kind: external, from: [OPEN], to: DONE, guards: { titled: deny } }\n"
+    OPEN = "      open:   { kind: initial, to: OPEN, required_inputs: [title], optional_inputs: [note] }\n"
+    NOTE = "      note:  { type: string, optional: true }\n"
+    DONE = "      DONE: { category: closed, final: true }\n"
+    COND = "expression: title is not null"
+    START = "      start: { kind: initial, to: ACTIVE, required_inputs: [order], only_via: [Order.add_line] }\n"
+    OBSERVED = "    observations:\n      notes:\n        description: Notes on a job.\n        kind: JobNote\n        attributes:\n"
+    STATES = "    states:\n      OPEN: { category: live }\n"
+    LOGIN = "      login: { type: identity, actor_kind: human }\n"
+    AGENT = "      agent: { reference: Agent, optional: true, assignee: true }\n"
+    planted = [
+        ("a creation that never writes a required attribute", "check 8", p(MINI, NOTE, NOTE + "      owner: { type: string }\n")),
+        ("a state with no way out", "check 15", p(p(MINI, DONE, DONE + "      STUCK: { category: live }\n"), FINISH,
+                                                  FINISH + "      stick: { kind: external, from: [OPEN], to: STUCK }\n")),
+        ("a state nothing reaches", "check 15", p(p(MINI, DONE, DONE + "      LOST: { category: live }\n"), FINISH,
+                                                  FINISH + "      leave: { kind: external, from: [LOST], to: DONE }\n")),
+        ("a type with no final state", "check 15", p(MINI, DONE, "      DONE: { category: closed }\n")),
+        ("a transition leaving a final state", "check 15", p(MINI, FINISH, FINISH + "      reopen: { kind: external, from: [DONE], to: OPEN }\n")),
+        ("a type with no creation", "check 34", p(MINI, OPEN, "")),
+        ("an internal transition at a final state", "check 40",
+         p(MINI, FINISH, FINISH + "      annotate: { kind: internal, from: [DONE], optional_inputs: [note] }\n")),
+        ("a clear of a required attribute", "check 17",
+         p(MINI, FINISH, "      finish: { kind: external, from: [OPEN], to: DONE, guards: { titled: deny }, effect: [ { clear: [title] } ] }\n")),
+        ("a default on an optional input", "check 20",
+         p(MINI, FINISH, "      finish: { kind: external, from: [OPEN], to: DONE, guards: { titled: deny }, "
+                         "inputs: { why: { type: string, optional: true, default: '\"none\"' } } }\n")),
+        ("a counter on a type tracked by record", "check 31", p(MINI, NOTE, NOTE + "      count: { type: counter }\n")),
+        ("a type tracked by quantity with no counter", "check 31", p(MINI, "    tracking: record\n", "    tracking: quantity\n")),
+        ("an audited guard on an assertion", "check 57",
+         p(MINI, FINISH, FINISH + "      force: { kind: assertion, to: [OPEN, DONE], guards: { titled: audit }, inputs: { reason: { type: Reason } } }\n")),
+        ("a backdatable assertion", "check 58",
+         p(MINI, FINISH, FINISH + "      force: { kind: assertion, to: [OPEN, DONE], backdating_limit: 2 days, inputs: { reason: { type: Reason } } }\n")),
+        ("entered_at of a member that is not tracked", "check 58", p(MINI, COND, "expression: entered_at(note) < now")),
+        ("an actor kind on a string", "check 59", p(MINI, "      title: { type: string }\n", "      title: { type: string, actor_kind: human }\n")),
+        ("two actor identities on one type", "check 62",
+         p(MINI, NOTE, NOTE + "      who:   { type: identity, actor_kind: human, optional: true }\n"
+                              "      also:  { type: identity, actor_kind: agent, optional: true }\n")),
+        ("the actor read in a condition", "check 64", p(MINI, COND, "expression: actor.id is not null")),
+        ("a part created not only via its whole", "check 11",
+         p(PARTS, START, "      start: { kind: initial, to: ACTIVE, required_inputs: [order] }\n")),
+        ("an only via whose parent never reaches it", "check 13",
+         p(PARTS, START, "      start: { kind: initial, to: ACTIVE, required_inputs: [order], only_via: [Order.finish] }\n")),
+        ("a part created without its owner", "check 18",
+         p(p(PARTS, START, "      start: { kind: initial, to: ACTIVE, only_via: [Order.add_line] }\n"), "inputs: { order: this }", "inputs: {}")),
+        ("two singular ends, neither stored", "check 41", p(PAIR, "opposite: desk, stored: true }", "opposite: desk }")),
+        ("an observation's field named like a member every observation has", "check 54",
+         p(MINI, STATES, OBSERVED + "          subject: { type: string }\n" + STATES)),
+        ("a unit on an observation's string field", "check 54",
+         p(MINI, STATES, OBSERVED + "          text: { type: string, unit: words }\n" + STATES)),
+        ("a metric's dimension three hops away", "check 56",
+         p(METRIC, "          month: month(t.occurred_at)\n", "          month: month(t.occurred_at)\n          far: t.object.a.b.c\n")),
+        ("over last on a metric with no window", "check 56",
+         p(p(METRIC, "        time_dimension: t.occurred_at\n", ""), COND, "expression: \"metric(finished, over last 30 days) > 0\"")),
+        ("a guard binding what is no dimension of a metric", "check 56", p(METRIC, COND, "expression: \"metric(finished, colour := 1) > 0\"")),
+        ("metric() outside a guard", "check 56", p(METRIC, "expression: count()", "expression: metric(finished)")),
+        ("a metric-only function in a condition", "check 56", p(MINI, COND, "expression: median(title) > 0")),
+        ("an assignee that does not store its value", "check 59",
+         p(p(ASSIGN, AGENT, "      agent: { reference: Agent, optional: true, assignee: true, opposite: ticket }\n"), LOGIN,
+           LOGIN + "      ticket: { reference: Ticket, optional: true, opposite: agent, stored: true }\n")),
+        ("an assignee to a type marking no actor identity", "check 59", p(ASSIGN, LOGIN, "      login: { type: identity }\n")),
+        ("a create binding an argument from what its outcome writes, read by an evaluator guard", "check 61",
+         p(CREW, "inputs: { n: inputs.n }", "inputs: { n: note }")),
+    ]
+    ok = True
+    for base, text in (("the plants' modules", MINI), ("parts", PARTS), ("a pair", PAIR), ("a metric", METRIC), ("an assignee", ASSIGN), ("an evaluator", CREW)):
+        found, _notes = check([("plant.yaml", text)])
+        ok &= not found
+        if found:
+            print(f"  the plants' base module of {base} is not clean: {found[0][3]} {found[0][4]}")
+    for name, expect, text in planted:
+        found, _notes = check([("plant.yaml", text)])
+        hit = [x for x in found if x[3] == expect]
+        ok &= bool(hit)
+        print(f"  planted {name}: {'caught' if hit else 'missed'} by {expect}" + (f", at plant.yaml:{hit[0][1]}" if hit else f" ({found[:1]})"))
+    return ok
+
 def source_digest(modules):
     """The digest a flow change records beside its source reference (ADR-0135): over the modules of the
     change's source, in ascending order of their names' UTF-8 bytes, each as its name, a line feed, its
@@ -4631,6 +4884,7 @@ def main():
     ok &= metric_more_plants(people)
     ok &= cluster3_plants(people)
     ok &= refusal_order_plant(people)
+    ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:
         plants_written(cases, blobs)
