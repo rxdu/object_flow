@@ -1,0 +1,25 @@
+module: m
+categories: [live]
+types:
+  A:
+    description: One end.
+    tracking: record
+    attributes:
+      b: { reference: B, optional: true, opposite: as_ }
+    states:
+      S: { category: live, description: Open. }
+      E: { category: live, final: true, description: Done. }
+    derived_attributes:
+      x: { description: Reads B's y., expression: b.y + 1 }
+    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }
+  B:
+    description: The other end.
+    tracking: record
+    attributes:
+      as_: { reference: "A[]", opposite: b }
+    states:
+      S: { category: live, description: Open. }
+      E: { category: live, final: true, description: Done. }
+    derived_attributes:
+      y: { description: Reads A's x., expression: count(a in as_ where a.x > 0) }
+    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }

@@ -1,0 +1,322 @@
+# yaml-language-server: $schema=../examples.schema.json
+# What the reimbursement flow does, as examples the engine runs at every publish (flow-format.md §11); written with
+# the module by the drafting agent (reimbursement-cold-draft.md).
+examples_for: reimbursement
+
+setups:
+  company:
+    description: The people, the classifying agent, an approving function and two expense categories every example needs.
+    steps:
+      - request: { type: Employee, transition: onboard, as: alice, inputs: { user_id: alice } }
+      - request: { type: Employee, transition: onboard, as: rev, inputs: { user_id: rev } }
+      - request: { type: Employee, transition: onboard, as: fin, inputs: { user_id: fin } }
+      - request: { type: AssistantAgent, transition: register, as: classifier, inputs: { agent_id: classifier, name: Spend classifier } }
+      - request: { type: BusinessFunction, transition: establish, as: approvers, inputs: { name: Finance approvers } }
+      - request: { type: ExpenseCategory, transition: define, as: meals, inputs: { name: Meals, policy_amount: USD 60.00 } }
+      - request: { type: ExpenseCategory, transition: define, as: equipment, inputs: { name: Equipment, policy_amount: USD 500.00 } }
+
+  drafted:
+    description: Alice has drafted a claim with one meals line within policy.
+    given: company
+    steps:
+      - request:
+          type: Claim
+          transition: draft
+          as: claim
+          actor: alice
+          inputs: { claimant: alice, title: Customer visit to the Acme plant }
+      - request:
+          object: claim
+          transition: add_line
+          actor: alice
+          creates: [lunch]
+          inputs:
+            amount: USD 45.00
+            category: meals
+            expense_date: 2025-12-30
+            receipt: lunch-receipt.pdf
+            merchant: Harbour Cafe
+
+  submitted:
+    description: Alice has submitted the claim, and it is under review.
+    given: drafted
+    steps:
+      - request: { object: claim, transition: submit, actor: alice }
+
+  reviewed:
+    description: The agent suggested the lunch is an expense, the reviewer confirmed it and finished the review.
+    given: submitted
+    steps:
+      - request: { object: lunch, transition: suggest_nature, actor: classifier, inputs: { suggested_nature: SpendNature.EXPENSE } }
+      - request: { object: lunch, transition: confirm_nature, actor: rev, inputs: { nature: SpendNature.EXPENSE } }
+      - request: { object: claim, transition: complete_review, actor: rev }
+
+  approved:
+    description: The claim was approved under the authority of the finance approvers.
+    given: reviewed
+    steps:
+      - request: { object: claim, transition: approve, actor: rev, inputs: { approving_function: approvers } }
+
+  recorded:
+    description: A person in finance recorded the claim in Xero as a bill.
+    given: approved
+    steps:
+      - request: { object: claim, transition: record_in_xero, actor: fin, inputs: { xero_bill_id: BILL-0042 } }
+
+  verified:
+    description: The Xero bill was read back and matched the claim.
+    given: recorded
+    evaluators:
+      xero.bill_matches: satisfied
+    steps:
+      - request: { object: claim, transition: verify_xero_record, actor: fin }
+
+examples:
+  submit_claim:
+    description: A draft with a line submits, and goes to review.
+    given: drafted
+    request: { object: claim, transition: submit, actor: alice }
+    expect: { verdict: applied, state: SUBMITTED }
+
+  agent_suggests_nature:
+    description: The agent suggests the lunch is an expense; the suggestion is recorded and commits nothing, so the line's confirmed nature stays empty.
+    given: submitted
+    request:
+      object: lunch
+      transition: suggest_nature
+      actor: classifier
+      inputs: { suggested_nature: SpendNature.EXPENSE, suggestion_rationale: Meal at a cafe on a customer visit day. }
+    expect:
+      verdict: applied
+      state: LISTED
+      values: { suggested_nature: SpendNature.EXPENSE }
+
+  person_overrides_agent:
+    description: The agent suggests the line is a purchase; the reviewer overrides it and confirms an expense, and both stay on the record.
+    given: submitted
+    steps:
+      - request: { object: lunch, transition: suggest_nature, actor: classifier, inputs: { suggested_nature: SpendNature.PURCHASE } }
+    request: { object: lunch, transition: confirm_nature, actor: rev, inputs: { nature: SpendNature.EXPENSE } }
+    expect:
+      verdict: applied
+      state: LISTED
+      values: { suggested_nature: SpendNature.PURCHASE, nature: SpendNature.EXPENSE, nature_confirmed_by: human }
+
+  agent_cannot_confirm_nature:
+    description: The agent may suggest a line's nature and may not confirm it, so its confirmation is refused, and the agent never commits a financial write (ADR-0145).
+    given: submitted
+    request: { object: lunch, transition: confirm_nature, actor: classifier, inputs: { nature: SpendNature.EXPENSE } }
+    expect: { verdict: invariant_violated, clause: confirmed_by_a_person }
+
+  refuse_suggestion_after_confirmation:
+    description: Once a person has confirmed the line's nature, the agent's later suggestion is refused, so it cannot overwrite a person's decision.
+    given: reviewed
+    request: { object: lunch, transition: suggest_nature, actor: classifier, inputs: { suggested_nature: SpendNature.PURCHASE } }
+    expect: { verdict: unsatisfied, clause: nature_unconfirmed, remedy: unreachable_from_here }
+
+  over_policy_line_is_flagged:
+    description: A meals line above the meals policy amount is added, and the claimant is told; nothing is refused.
+    given: drafted
+    request:
+      object: claim
+      transition: add_line
+      actor: alice
+      inputs: { amount: USD 95.00, category: meals, expense_date: 2025-12-31, receipt: dinner-receipt.pdf }
+    expect:
+      verdict: applied
+      state: DRAFT
+      warned: [ClaimLine.within_policy]
+
+  line_within_policy_is_not_flagged:
+    description: A line within policy raises no warning.
+    given: drafted
+    request:
+      object: claim
+      transition: add_line
+      actor: alice
+      inputs: { amount: USD 300.00, category: equipment, expense_date: 2025-12-31, receipt: cable-receipt.pdf }
+    expect:
+      verdict: applied
+      state: DRAFT
+      warned: []
+
+  approval_with_over_policy_line_is_flagged:
+    description: A claim with a line above policy is approved, and the approver is told.
+    given: company
+    steps:
+      - request: { type: Claim, transition: draft, as: claim, actor: alice, inputs: { claimant: alice, title: Team dinner after the demo } }
+      - request:
+          object: claim
+          transition: add_line
+          actor: alice
+          creates: [dinner]
+          inputs: { amount: USD 95.00, category: meals, expense_date: 2025-12-31, receipt: dinner-receipt.pdf }
+      - request: { object: claim, transition: submit, actor: alice }
+      - request: { object: dinner, transition: confirm_nature, actor: rev, inputs: { nature: SpendNature.EXPENSE } }
+      - request: { object: claim, transition: complete_review, actor: rev }
+    request: { object: claim, transition: approve, actor: rev, inputs: { approving_function: approvers } }
+    expect:
+      verdict: applied
+      state: APPROVED
+      warned: [lines_within_policy]
+
+  refuse_empty_submission:
+    description: A claim with no lines cannot be submitted; a line must be added first.
+    given: company
+    steps:
+      - request: { type: Claim, transition: draft, as: claim, actor: alice, inputs: { claimant: alice, title: Nothing yet } }
+    request: { object: claim, transition: submit, actor: alice }
+    expect: { verdict: unsatisfied, clause: has_lines, remedy: unreachable_from_here }
+
+  refuse_zero_amount_line:
+    description: A line of zero is refused by the line's own rule, which the claim's request reports as its refused creation.
+    given: drafted
+    request:
+      object: claim
+      transition: add_line
+      actor: alice
+      inputs: { amount: USD 0.00, category: meals, expense_date: 2025-12-31T00:00Z, receipt: blank.pdf }
+    expect: { verdict: call_refused, clause: ClaimLine.amount_positive, remedy: self_serviceable }
+
+  a_line_dated_a_day_ahead_of_utc_is_accepted:
+    description: At midnight UTC on 1 January it is already 2 January east of UTC, so a line dated 2 January is not in the future (ADR-0145).
+    given: drafted
+    request:
+      object: claim
+      transition: add_line
+      actor: alice
+      inputs: { amount: USD 20.00, category: meals, expense_date: 2026-01-02, receipt: taxi.pdf }
+    expect: { verdict: applied, state: DRAFT }
+
+  refuse_line_dated_in_the_future:
+    description: A line dated two days after the UTC day is in the future wherever the claimant is, and is refused by the line's own rule.
+    given: drafted
+    request:
+      object: claim
+      transition: add_line
+      actor: alice
+      inputs: { amount: USD 20.00, category: meals, expense_date: 2026-01-03, receipt: taxi.pdf }
+    expect: { verdict: call_refused, clause: ClaimLine.spent_in_past, remedy: self_serviceable }
+
+  refuse_amount_spent_abroad_without_its_currency:
+    description: A line spent in another currency records the amount spent and names its currency; the amount alone is refused, since no one could read it (ADR-0145).
+    given: drafted
+    request:
+      object: claim
+      transition: add_line
+      actor: alice
+      inputs: { amount: USD 70.00, original_amount: 95.00, category: meals, expense_date: 2025-12-31, receipt: dinner-sgd.pdf }
+    expect: { verdict: invariant_violated, clause: ClaimLine.spent_amount_has_its_currency }
+
+  refuse_review_with_unclassified_line:
+    description: The review cannot finish while a line's nature is unconfirmed, whatever the agent suggested.
+    given: submitted
+    steps:
+      - request: { object: lunch, transition: suggest_nature, actor: classifier, inputs: { suggested_nature: SpendNature.EXPENSE } }
+    request: { object: claim, transition: complete_review, actor: rev }
+    expect: { verdict: unsatisfied, clause: lines_classified, remedy: dependent }
+
+  refuse_approval_before_review:
+    description: A claim under review cannot be approved.
+    given: submitted
+    request: { object: claim, transition: approve, actor: rev, inputs: { approving_function: approvers } }
+    expect: { verdict: unavailable }
+
+  refuse_mismatched_xero_record:
+    description: When the Xero bill read back does not match the claim, the claim is not verified, and whoever recorded it must fix it.
+    given: recorded
+    evaluators:
+      xero.bill_matches: unsatisfied
+    request: { object: claim, transition: verify_xero_record, actor: fin }
+    expect: { verdict: unsatisfied, clause: bill_matches_xero, remedy: delegable }
+
+  an_unanswered_xero_can_be_asked_again:
+    description: When Xero does not answer, the claim is not verified, and the remedy is to try again, whatever the condition declares.
+    given: recorded
+    evaluators:
+      xero.bill_matches: unanswered
+    request: { object: claim, transition: verify_xero_record, actor: fin }
+    expect: { verdict: unsatisfied, clause: bill_matches_xero, remedy: temporal }
+
+  correct_bill_id_then_verify:
+    description: A wrong bill id is corrected, and the read-back then matches.
+    given: recorded
+    evaluators:
+      xero.bill_matches: satisfied
+    steps:
+      - request: { object: claim, transition: correct_xero_bill_id, actor: fin, inputs: { xero_bill_id: BILL-0043, reason: CorrectionReason.TYPING_ERROR } }
+    request: { object: claim, transition: verify_xero_record, actor: fin }
+    expect:
+      verdict: applied
+      state: VERIFIED
+      values: { xero_bill_id: BILL-0043 }
+
+  pay_verified_claim:
+    description: The end of the happy path; Xero shows the bill paid, the claim is paid and its lines close with it.
+    given: verified
+    evaluators:
+      xero.bill_paid: satisfied
+    request: { object: claim, transition: pay, actor: fin, inputs: { paid_at: now } }
+    expect:
+      verdict: applied
+      state: PAID
+      cascaded: [ClaimLine.close]
+
+  refuse_payment_not_yet_made:
+    description: A claim is not marked paid until Xero shows the bill paid.
+    given: verified
+    evaluators:
+      xero.bill_paid: unsatisfied
+    request: { object: claim, transition: pay, actor: fin, inputs: { paid_at: now } }
+    expect: { verdict: unsatisfied, clause: bill_paid_in_xero, remedy: delegable }
+
+  return_amend_resubmit:
+    description: A claim sent back for a wrong amount is amended, which undoes the line's confirmed nature, and resubmitted.
+    given: reviewed
+    steps:
+      - request: { object: claim, transition: return_for_changes, actor: rev, inputs: { return_reason: ReturnReason.WRONG_AMOUNT, note: The receipt shows 42.50. } }
+      - request:
+          object: lunch
+          transition: amend
+          actor: alice
+          inputs: { amount: USD 42.50, category: meals, expense_date: 2025-12-30, receipt: lunch-receipt.pdf }
+    request: { object: claim, transition: resubmit, actor: alice }
+    expect: { verdict: applied, state: SUBMITTED }
+
+  refuse_amend_under_review:
+    description: A line cannot be changed while its claim is under review.
+    given: submitted
+    request:
+      object: lunch
+      transition: amend
+      actor: alice
+      inputs: { amount: USD 40.00, category: meals, expense_date: 2025-12-30, receipt: lunch-receipt.pdf }
+    expect: { verdict: unsatisfied, clause: claim_editable, remedy: dependent }
+
+  withdraw_draft:
+    description: The claimant withdraws a draft, and its lines close with it.
+    given: drafted
+    request: { object: claim, transition: withdraw, actor: alice }
+    expect:
+      verdict: applied
+      state: WITHDRAWN
+      cascaded: [ClaimLine.close]
+
+  erase_paid_claim:
+    description: A paid claim's personal data, its title and its lines' purposes, is erased, and the claim stays paid.
+    given: verified
+    evaluators:
+      xero.bill_paid: satisfied
+    steps:
+      - request: { object: claim, transition: pay, actor: fin, inputs: { paid_at: now } }
+    request: { object: claim, transition: erase_personal_data, inputs: { reason: The former employee asked for erasure. } }
+    expect: { verdict: applied, state: PAID }
+
+  reject_as_procurement:
+    description: A claim that should have gone through procurement is rejected.
+    given: submitted
+    request: { object: claim, transition: reject, actor: rev, inputs: { rejection_reason: RejectionReason.SHOULD_BE_PROCUREMENT } }
+    expect:
+      verdict: applied
+      state: REJECTED
+      cascaded: [ClaimLine.close]

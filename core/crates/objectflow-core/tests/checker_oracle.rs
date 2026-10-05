@@ -1,0 +1,106 @@
+//! The core's checker held to the flow checker (ADR-0156 decision 4): every
+//! check `scripts/check-flows.py`'s run makes, over the design's modules and
+//! every plant of its self-test, exported to `tests/plants` with what it
+//! found, run again through the core and compared by file, line and code,
+//! for the codes the core's checker covers so far.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
+
+use objectflow_core::check::{Severity, check};
+use serde_json::Value;
+
+/// The codes of the steps the core runs: the load, the schema, the
+/// expressions and the imports (C1, its first part).
+const COVERED: &[&str] = &["yaml", "schema", "syntax", "imports"];
+
+fn plants() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/plants")
+}
+
+#[test]
+fn the_core_finds_what_the_flow_checker_finds() {
+    let dir = plants();
+    let cases: Vec<Value> = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("cases.json")).expect("the exported plants"),
+    )
+    .expect("cases.json");
+    let blob = |key: &str| {
+        std::fs::read_to_string(dir.join("blobs").join(format!("{key}.yaml"))).expect("a blob")
+    };
+    let mut wrong = Vec::new();
+    let mut compared = 0;
+    for case in &cases {
+        let label = case["label"].as_str().unwrap_or_default();
+        let files: Vec<(String, String)> = case["files"]
+            .as_array()
+            .expect("files")
+            .iter()
+            .map(|f| {
+                (
+                    f[0].as_str().unwrap_or_default().to_string(),
+                    blob(f[1].as_str().unwrap_or_default()),
+                )
+            })
+            .collect();
+        let previous: BTreeMap<String, String> = case["previous"]
+            .as_object()
+            .expect("previous")
+            .iter()
+            .map(|(n, k)| (n.clone(), blob(k.as_str().unwrap_or_default())))
+            .collect();
+        let want: BTreeMap<(String, u64, String), String> = case["findings"]
+            .as_array()
+            .expect("findings")
+            .iter()
+            .filter(|f| COVERED.contains(&f[3].as_str().unwrap_or_default()))
+            .map(|f| {
+                (
+                    (
+                        f[0].as_str().unwrap_or_default().to_string(),
+                        f[1].as_u64().unwrap_or_default(),
+                        format!(
+                            "{} {}",
+                            f[2].as_str().unwrap_or_default(),
+                            f[3].as_str().unwrap_or_default()
+                        ),
+                    ),
+                    f[4].as_str().unwrap_or_default().to_string(),
+                )
+            })
+            .collect();
+        let got: BTreeMap<(String, u64, String), String> = check(&files, &previous)
+            .into_iter()
+            .filter(|f| COVERED.contains(&f.code.as_str()))
+            .map(|f| {
+                let sev = if f.severity == Severity::Fatal {
+                    "fatal"
+                } else {
+                    "notice"
+                };
+                (
+                    (f.file, f.line as u64, format!("{sev} {}", f.code)),
+                    f.message,
+                )
+            })
+            .collect();
+        compared += want.len();
+        let w: BTreeSet<_> = want.keys().collect();
+        let g: BTreeSet<_> = got.keys().collect();
+        for k in w.difference(&g) {
+            wrong.push(format!("{label}: missed {k:?}: {}", want[*k]));
+        }
+        for k in g.difference(&w) {
+            wrong.push(format!("{label}: extra {k:?}: {}", got[*k]));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} differences over {} cases ({compared} findings of the covered codes expected):\n{}",
+        wrong.len(),
+        cases.len(),
+        wrong.join("\n")
+    );
+}

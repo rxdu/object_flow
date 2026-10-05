@@ -1,0 +1,56 @@
+module: notes
+categories: [live, closed]
+
+types:
+  Carrier:
+    description: The base of anything that carries notes; it has no objects of its own.
+    abstract: true
+    tracking: record
+    attributes:
+      notes:
+        reference: "Note[]"
+        aggregation: composite
+        opposite: subject
+        survives: true
+
+  Ticket:
+    description: A ticket, whose notes are filed when it is closed.
+    extends: Carrier
+    inherited_parts:
+      notes:
+        cascade:
+          - { on: [close], transition: file, limit: 100 }
+    states:
+      OPEN:   { category: live }
+      CLOSED: { category: closed, final: true }
+    transitions:
+      raise: { kind: initial, to: OPEN }
+      annotate:
+        kind: internal
+        from: OPEN
+        inputs:
+          text: { type: string }
+        effect:
+          - create: { type: Note, transition: add, inputs: { for_subject: this, body: inputs.text } }
+      close: { kind: external, from: OPEN, to: CLOSED }
+
+  Note:
+    description: A note on a ticket, or on anything else that carries notes.
+    tracking: record
+    attributes:
+      subject: { reference: Carrier, opposite: notes }
+      body:    { type: string }
+    states:
+      ACTIVE: { category: live }
+      FILED:  { category: closed, final: true }
+    transitions:
+      add:
+        kind: initial
+        to: ACTIVE
+        only_via: [Ticket.annotate]
+        required_inputs: [body]
+        inputs:
+          for_subject: { reference: Carrier }
+        effect:
+          - assign: { location: subject, expr: inputs.for_subject }
+      file: { kind: external, from: ACTIVE, to: FILED }

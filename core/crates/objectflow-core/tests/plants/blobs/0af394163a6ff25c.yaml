@@ -1,0 +1,211 @@
+# yaml-language-server: $schema=../flow.schema.json
+# Delivery flow: handing one reserved inventory item over to its customer.
+module: delivery
+imports: { inventory: [InventoryItem] }
+categories: [live, closed]
+
+sequences:
+  delivery_number:
+    description: Numbers deliveries, in one series.
+  checklist_position:
+    description: Numbers the items of each delivery's checklist, a series per delivery.
+
+types:
+  Delivery:
+    description: The delivery of one reserved inventory item to the customer it is reserved for.
+    tracking: record
+
+    attributes:
+      number:
+        type: string
+        identifier: { sequence: delivery_number, format: "DLV-{n:6}" }
+        unique: true
+        description: The delivery's number, minted when it is opened.
+      unit:         { reference: InventoryItem }
+      price:        { type: money(SGD) }
+      delivered_at: { type: timestamp, optional: true }
+      courier:
+        reference: Courier
+        optional: true
+        opposite: deliveries
+        description: The courier who hands the item over.
+      checklist_items:
+        reference: "ChecklistItem[]"
+        aggregation: composite
+        opposite: delivery
+        description: What must be checked before the hand-over; kept with a completed delivery.
+        cascade:
+          - { on: [cancel], transition: discard, limit: 50 }
+      approvals:
+        reference: "Approval[]"
+        aggregation: composite
+        opposite: delivery
+        description: The delivery's sign-offs, each recorded at the event it was given at.
+        cascade:
+          - { on: [cancel], transition: discard, limit: 50 }
+        survives: [complete]
+
+    states:
+      PREPARING:
+        description: Being prepared; its checklist is worked through.
+        category: live
+      DELIVERED:
+        description: Handed over; the item is delivered externally.
+        category: closed
+        final: true
+        required_attributes: [delivered_at]
+      CANCELLED:
+        description: Called off before the hand-over.
+        category: closed
+        final: true
+
+    conditions:
+      unit_reserved:
+        description: The item to deliver is reserved.
+        expression: inputs.unit.state == InventoryItem.RESERVED
+        remedy: dependent
+      checklist_complete:
+        description: No checklist item is still open.
+        expression: none(c in checklist_items where c.state == ChecklistItem.OPEN)
+        remedy: dependent
+      courier_assigned:
+        description: A courier is assigned.
+        expression: courier is not null
+        remedy: unreachable_from_here
+      signed_off:
+        description: Someone has signed the delivery off, and neither its price nor its checklist has changed since.
+        expression: >-
+          any(a in approvals where a.state == Approval.GIVEN
+              and not changed_since([price, checklist_items], a.at_event))
+        remedy: delegable
+
+    transitions:
+      open:
+        kind: initial
+        to: PREPARING
+        description: Opens a delivery of a reserved item, with one checklist item for each label given.
+        required_inputs: [unit, price]
+        inputs:
+          checklist: { type: "string[]", description: The labels of the checklist items to create. }
+        guards:
+          unit_reserved: deny
+        effect:
+          - foreach:
+              item: label
+              array: inputs.checklist
+              limit: 50
+              steps:
+                - create: { type: ChecklistItem, transition: add, inputs: { delivery: this, label: label } }
+      assign_courier:
+        kind: internal
+        from: PREPARING
+        description: Names the courier who hands the item over.
+        required_inputs: [courier]
+      complete:
+        kind: external
+        from: PREPARING
+        to: DELIVERED
+        description: Hands the item over, which delivers it externally at the delivery's price; an agent may propose it for a person to approve.
+        proposable: true
+        guards:
+          checklist_complete: deny
+          courier_assigned: deny
+          signed_off: deny
+        effect:
+          - assign: { location: delivered_at, expr: now }
+          - call: { target: unit, transition: deliver_externally, inputs: { sale_price: price } }
+      approve:
+        kind: internal
+        from: PREPARING
+        description: Signs the delivery off as it stands, recording the event the sign-off was given at.
+        effect:
+          - create: { type: Approval, transition: record, inputs: { delivery: this, approver: actor.id, at_event: this_event } }
+      cancel:
+        kind: external
+        from: PREPARING
+        to: CANCELLED
+        description: Calls the delivery off; its open checklist items are discarded.
+
+  ChecklistItem:
+    description: One thing a delivery checks before the item is handed over.
+    tracking: record
+
+    attributes:
+      delivery: { reference: Delivery, opposite: checklist_items }
+      label:    { type: string }
+      position:
+        type: string
+        identifier: { sequence: checklist_position, scope: delivery, format: "{delivery.number}-{n:2}" }
+        unique: in_scope
+        description: The item's place on its delivery's checklist, such as DLV-000123-01.
+
+    states:
+      OPEN:      { category: live }
+      CHECKED:   { category: closed, final: true }
+      DISCARDED: { category: closed, final: true }
+
+    transitions:
+      add:
+        kind: initial
+        to: OPEN
+        description: Adds an item to a delivery's checklist, as the delivery is opened.
+        only_via: [Delivery.open]
+        required_inputs: [delivery, label]
+      check:
+        kind: external
+        from: OPEN
+        to: CHECKED
+        description: Marks the item as checked.
+      discard:
+        kind: external
+        from: OPEN
+        to: DISCARDED
+        description: Removes an item whose delivery is called off.
+        only_via: [Delivery.cancel]
+
+  Approval:
+    description: A sign-off of a delivery, which a later change to its price or checklist makes stale.
+    tracking: record
+
+    attributes:
+      delivery: { reference: Delivery, opposite: approvals }
+      approver: { type: identity }
+      at_event: { type: event, description: The event the sign-off was recorded by. }
+
+    states:
+      GIVEN:     { category: closed }
+      DISCARDED: { category: closed, final: true }
+
+    transitions:
+      record:
+        kind: initial
+        to: GIVEN
+        only_via: [Delivery.approve]
+        required_inputs: [delivery, approver, at_event]
+      discard:
+        kind: external
+        from: GIVEN
+        to: DISCARDED
+        only_via: [Delivery.cancel]
+
+  Courier:
+    description: A person or company that hands deliveries over.
+    tracking: record
+
+    attributes:
+      name:       { type: string }
+      deliveries: { reference: "Delivery[]", opposite: courier }
+
+    states:
+      ACTIVE:  { category: live }
+      RETIRED: { category: closed, final: true }
+
+    transitions:
+      register:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [name]
+      retire:
+        kind: external
+        from: ACTIVE
+        to: RETIRED

@@ -417,9 +417,11 @@ def schema_errors(doc):
                             "a median_time_in_state metric names a `state`, and a transition_count names a `transition`"))
             else:
                 best = jsonschema.exceptions.best_match(plain or e.context)
-                out.append((tuple(e.absolute_path) + tuple(best.absolute_path), "schema", best.message))
+                out.append((tuple(best.absolute_path), "schema", best.message))
         elif e.validator == "oneOf" and e.context:
-            # for a step, report the error of the branch its own key names
+            # for a step, report the error of the branch its own key names, at its
+            # own path: a context error's absolute path already begins with the
+            # oneOf's (jsonschema 3.2.0)
             branch = None
             if isinstance(e.instance, dict) and len(e.instance) == 1:
                 for n, alt in enumerate(e.validator_value):
@@ -427,7 +429,7 @@ def schema_errors(doc):
                         branch = n
             within = [c for c in e.context if branch is None or c.schema_path[0] == branch]
             best = jsonschema.exceptions.best_match(within or e.context)
-            out.append((tuple(e.absolute_path) + tuple(best.absolute_path), "schema", best.message))
+            out.append((tuple(best.absolute_path), "schema", best.message))
         else:
             out.append((tuple(e.absolute_path), "schema", e.message))
     return [(p, c, cut_value(m)) for p, c, m in out]
@@ -3725,6 +3727,9 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
                "      start:\n        kind: external\n        from: [OPEN, WORKING]\n")),
         ("a `?` inside an inline mapping", "yaml", "service.yaml",
          plant(service, "      photo:    { type: file, optional: true }", "      photo:    { type: file? }")),
+        ("a step's expression written as a mapping, reported at its own line", "schema", "service.yaml",
+         plant(service, "          - assign: { location: signed_off_by_user, expr: inputs.signed_off_by }\n",
+               "          - assign:\n              location: signed_off_by_user\n              expr: { value: inputs.signed_off_by }\n")),
     ]
     ok = True
     for name, expect, f, text in planted:
@@ -4473,13 +4478,73 @@ def digest_self_test():
     return ok
 
 
+# ── the checks the self-test makes, exported for the core (ADR-0156 decision 4) ──
+PLANTS = ROOT / "core/crates/objectflow-core/tests/plants"
+RECORDED = []      # each check the run makes: its label, files, previous versions and findings
+
+
+def recording(check):
+    """`check`, recording each call with what it found, labelled by its caller and,
+    where the caller names it, the plant (ADR-0156 decision 4)."""
+    def recorded(files, previous=None, analysed=None):
+        found, notes = check(files, previous, analysed)
+        caller = sys._getframe(1)
+        name = caller.f_locals.get("name")
+        label = caller.f_code.co_name + (f": {name}" if isinstance(name, str) else "")
+        RECORDED.append((label, list(files), dict(previous or {}), found, notes))
+        return found, notes
+    return recorded
+
+
+def plants_export(recorded):
+    """The recorded checks as the core's fixtures: each file's text once, under the
+    start of its SHA-256, and per check its files in order, the previous versions,
+    and every finding and notice by file, line, severity, code and message."""
+    blobs, cases = {}, []
+
+    def blob(text):
+        key = hashlib.sha256(text.encode()).hexdigest()[:16]
+        blobs[key] = text
+        return key
+    for label, files, previous, found, notes in recorded:
+        cases.append({
+            "label": label,
+            "files": [[n, blob(t)] for n, t in files],
+            "previous": {n: blob(t) for n, t in sorted(previous.items())},
+            "findings": sorted([list(x) for x in found + notes]),
+        })
+    return json.dumps(cases, indent=1, ensure_ascii=False) + "\n", blobs
+
+
+def plants_written(cases, blobs):
+    PLANTS.mkdir(parents=True, exist_ok=True)
+    (PLANTS / "blobs").mkdir(exist_ok=True)
+    for old in (PLANTS / "blobs").glob("*.yaml"):
+        if old.stem not in blobs:
+            old.unlink()
+    for key, text in blobs.items():
+        (PLANTS / "blobs" / f"{key}.yaml").write_text(text)
+    (PLANTS / "cases.json").write_text(cases)
+
+
+def plants_current(cases, blobs):
+    """Whether the committed fixtures are what this run records."""
+    here = PLANTS / "cases.json"
+    if not here.exists() or here.read_text() != cases:
+        return False
+    held = {p.stem for p in (PLANTS / "blobs").glob("*.yaml")}
+    return held == set(blobs) and all((PLANTS / "blobs" / f"{k}.yaml").read_text() == t for k, t in blobs.items())
+
+
 USAGE = """usage: check-flows.py [--previous=<file>] <module.yaml> [<module.examples.yaml> ...]
        check-flows.py --digest <module.yaml> ...
-       check-flows.py
+       check-flows.py [--export-plants]
 
 Checks flow descriptions as docs/design/flow-format.md §7 states: the named files, a module's examples with it, and
 with --previous=<file> the last file against the version before it. With no file, it checks the design's own modules
-and runs its self-tests. Exits 1 on a fatal finding, 0 otherwise; notices never fail it."""
+and runs its self-tests, failing if the core's fixtures, every check those make with what it found, are not current;
+--export-plants writes them, to core/crates/objectflow-core/tests/plants (ADR-0156). Exits 1 on a fatal finding, 0
+otherwise; notices never fail it."""
 
 
 def main():
@@ -4509,6 +4574,8 @@ def main():
                 print(f"{module}: step 5 decided {whole} of {total} guard conditions in full; the rest read something outside "
                       "the type, such as another object, a metric or an evaluator, which it leaves open")
         sys.exit(1 if found else 0)
+    # every function of this module calls check through the module's namespace
+    globals()["check"] = recording(check)
     people = (EXAMPLES / "people.yaml").read_text()
     clean = True
     needs = {"delivery.yaml": ["inventory.yaml"]}
@@ -4564,6 +4631,15 @@ def main():
     ok &= metric_more_plants(people)
     ok &= cluster3_plants(people)
     ok &= refusal_order_plant(people)
+    cases, blobs = plants_export(RECORDED)
+    if "--export-plants" in sys.argv[1:]:
+        plants_written(cases, blobs)
+        print(f"exported {len(RECORDED)} checks and {len(blobs)} files to {PLANTS.relative_to(ROOT)}")
+    else:
+        current = plants_current(cases, blobs)
+        ok &= current
+        print(f"the core's fixtures, {len(RECORDED)} checks and what each found: "
+              f"{'current' if current else 'NOT current; run check-flows.py --export-plants'}")
     sys.exit(0 if clean and ok else 1)
 
 

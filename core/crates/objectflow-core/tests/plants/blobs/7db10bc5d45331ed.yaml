@@ -1,0 +1,262 @@
+# yaml-language-server: $schema=../examples.schema.json
+# What the issues flow's rules do, as examples the engine runs at every publish (flow-format.md §11, ADR-0136).
+examples_for: issues
+
+setups:
+  a_space:
+    description: The web team's space, led by Ana, with Ben on the team.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { login: ana, name: Ana } }
+      - request: { type: User, transition: add, as: ben, inputs: { login: ben, name: Ben } }
+      - request: { type: Space, transition: create, as: web, inputs: { key: WEB, name: Website, lead: ana } }
+  a_story_in_progress:
+    description: A three-point story Ana reported, started.
+    given: a_space
+    steps:
+      - request:
+          type: WorkItem
+          transition: create
+          as: story
+          inputs: { space: web, work_type: WorkType.STORY, summary: Log in with a passkey, reporter: ana, story_points: 3 }
+      - request: { object: story, transition: start }
+  a_story_in_review:
+    description: The story, sent for review a day later.
+    given: a_story_in_progress
+    steps:
+      - request: { object: story, transition: review, after: 1 day }
+
+examples:
+  work_items_are_numbered_in_their_space:
+    description: The first work item of a space is numbered after its key.
+    given: a_space
+    request:
+      type: WorkItem
+      transition: create
+      inputs: { space: web, work_type: WorkType.TASK, summary: Renew the certificate, reporter: ben }
+    expect: { verdict: applied, state: TO_DO, values: { number: WEB-1, labels: [], components: [] } }
+
+  an_epic_shares_the_space_numbering:
+    description: Epics and work items draw on one sequence per space, so an epic after a story is the second number.
+    given: a_story_in_progress
+    request: { type: Epic, transition: create, inputs: { space: web, summary: Sign-in } }
+    expect: { verdict: applied, state: TO_DO, values: { number: WEB-2 } }
+
+  an_unestimated_item_is_not_reviewed:
+    description: A work item with no estimate is not sent for review until it is estimated, another transition.
+    given: a_space
+    steps:
+      - request: { type: WorkItem, transition: create, as: task, inputs: { space: web, work_type: WorkType.TASK, summary: Tidy the logs, reporter: ben } }
+      - request: { object: task, transition: start }
+    request: { object: task, transition: review }
+    expect: { verdict: unsatisfied, clause: estimated, remedy: unreachable_from_here }
+
+  a_first_estimate_is_a_change:
+    description: An item never estimated is given its first estimate (D481).
+    given: a_space
+    steps:
+      - request: { type: WorkItem, transition: create, as: task, inputs: { space: web, work_type: WorkType.TASK, summary: Tidy the logs, reporter: ben } }
+    request: { object: task, transition: re_estimate, inputs: { story_points: 2 } }
+    expect: { verdict: applied, state: TO_DO, values: { story_points: 2 } }
+
+  an_unchanged_estimate_is_refused:
+    description: Re-estimating with the same points is refused, and the caller gives a different number.
+    given: a_story_in_progress
+    request: { object: story, transition: re_estimate, inputs: { story_points: 3 } }
+    expect: { verdict: unsatisfied, clause: points_changed, remedy: self_serviceable }
+
+  unreviewed_work_is_not_done:
+    description: A story that was never in review is not done.
+    given: a_story_in_progress
+    request: { object: story, transition: done, inputs: { resolution: Resolution.DONE } }
+    expect: { verdict: unsatisfied, clause: been_in_review, remedy: unreachable_from_here }
+
+  a_reviewed_story_is_done_with_a_warning:
+    description: A story reviewed once is done, warned that it was not reviewed twice.
+    given: a_story_in_review
+    request: { object: story, transition: done, after: 2 h, inputs: { resolution: Resolution.DONE } }
+    expect:
+      verdict: applied
+      state: DONE
+      values: { resolution: Resolution.DONE, resolved_at: now }
+      warned: [reviewed_twice]
+
+  a_story_reviewed_twice_is_done_without_one:
+    description: Sent back and reviewed again, the story is done with no warning.
+    given: a_story_in_review
+    steps:
+      - request: { object: story, transition: start }
+      - request: { object: story, transition: review, after: 1 day }
+    request: { object: story, transition: done, inputs: { resolution: Resolution.DONE } }
+    expect: { verdict: applied, state: DONE, warned: [] }
+
+  a_duplicate_is_not_a_resolution_for_done:
+    description: Done takes only a resolution of done or won't do, and the caller gives one of them.
+    given: a_story_in_review
+    request: { object: story, transition: done, inputs: { resolution: Resolution.DUPLICATE } }
+    expect: { verdict: unsatisfied, clause: resolution_allowed, remedy: self_serviceable }
+
+  an_open_subtask_holds_the_story:
+    description: A story whose subtask is not closed is not done until someone finishes it.
+    given: a_story_in_review
+    steps:
+      - request: { object: story, transition: add_subtask, creates: [tests], inputs: { title: Write the tests } }
+    request: { object: story, transition: done, inputs: { resolution: Resolution.DONE } }
+    expect: { verdict: unsatisfied, clause: subtasks_done, remedy: dependent }
+
+  a_subtask_begins_while_its_parent_is_in_progress:
+    description: A subtask is begun only while the story it belongs to is in progress, and is numbered in the space.
+    given: a_story_in_progress
+    steps:
+      - request: { object: story, transition: add_subtask, creates: [tests], inputs: { title: Write the tests } }
+    request: { object: tests, transition: begin }
+    expect: { verdict: applied, state: TO_DO, values: { number: WEB-2 } }
+
+  a_subtask_waits_for_its_parent:
+    description: A subtask of a story in review is not begun until the story is back in progress.
+    given: a_story_in_review
+    steps:
+      - request: { object: story, transition: add_subtask, creates: [tests], inputs: { title: Write the tests } }
+    request: { object: tests, transition: begin }
+    expect: { verdict: unsatisfied, clause: parent_in_progress, remedy: dependent }
+
+  starting_blocked_work_warns:
+    description: Starting a story that an open bug blocks is allowed, and warned of.
+    given: a_space
+    steps:
+      - request: { type: WorkItem, transition: create, as: story, inputs: { space: web, work_type: WorkType.STORY, summary: Checkout, reporter: ana } }
+      - request: { type: WorkItem, transition: create, as: bug, inputs: { space: web, work_type: WorkType.BUG, summary: Cart is empty, reporter: ben } }
+      - request: { type: WorkItemLink, transition: link, inputs: { source: bug, target: story, link_type: LinkType.BLOCKS } }
+    request: { object: story, transition: start }
+    expect: { verdict: applied, state: IN_PROGRESS, warned: [not_blocked] }
+
+  starting_work_a_closed_bug_blocked:
+    description: Once the blocking bug is done, starting the story is not warned of.
+    given: a_space
+    steps:
+      - request: { type: WorkItem, transition: create, as: story, inputs: { space: web, work_type: WorkType.STORY, summary: Checkout, reporter: ana } }
+      - request: { type: WorkItem, transition: create, as: bug, inputs: { space: web, work_type: WorkType.BUG, summary: Cart is empty, reporter: ben, story_points: 1 } }
+      - request: { type: WorkItemLink, transition: link, inputs: { source: bug, target: story, link_type: LinkType.BLOCKS } }
+      - request: { object: bug, transition: start }
+      - request: { object: bug, transition: review }
+      - request: { object: bug, transition: done, inputs: { resolution: Resolution.DONE } }
+    request: { object: story, transition: start }
+    expect: { verdict: applied, state: IN_PROGRESS, warned: [] }
+
+  moving_supersedes_the_item:
+    description: Moving a story to another space creates its successor there, numbered in that space, and the story is moved.
+    given: a_story_in_progress
+    steps:
+      - request: { type: Space, transition: create, as: ops, inputs: { key: OPS, name: Operations, lead: ben } }
+    request: { object: story, transition: move, inputs: { to_space: ops } }
+    expect: { verdict: applied, state: MOVED, cascaded: [WorkItem.create] }
+
+  archiving_archives_the_subtasks:
+    description: Archiving a story archives its subtask with it.
+    given: a_story_in_progress
+    steps:
+      - request: { object: story, transition: add_subtask, inputs: { title: Write the tests } }
+    request: { object: story, transition: archive }
+    expect: { verdict: applied, state: ARCHIVED, cascaded: [Subtask.archive] }
+
+  cloning_links_the_copy:
+    description: Cloning a story creates its copy, reported by whoever cloned it, and links the copy to it.
+    given: a_story_in_progress
+    request: { object: story, transition: clone, inputs: { cloned_by: ben } }
+    expect: { verdict: applied, state: IN_PROGRESS, cascaded: [WorkItem.create, WorkItemLink.link] }
+
+  a_label_is_added_once:
+    description: Adding a label the story has does not add it twice.
+    given: a_story_in_progress
+    steps:
+      - request: { object: story, transition: add_label, inputs: { label: ux } }
+    request: { object: story, transition: add_label, inputs: { label: ux } }
+    expect: { verdict: applied, state: IN_PROGRESS, values: { labels: [ux] } }
+
+  one_component_at_most:
+    description: A work item takes at most one component, and the caller names one.
+    given: a_space
+    steps:
+      - request: { type: WorkItem, transition: create, as: task, inputs: { space: web, work_type: WorkType.TASK, summary: Tidy the logs, reporter: ben } }
+    request: { object: task, transition: set_components, inputs: { components: [api, web] } }
+    expect: { verdict: unsatisfied, clause: one_component, remedy: self_serviceable }
+
+  a_due_date_within_the_window:
+    description: A work item is scheduled to be due within three days of its start (D482).
+    given: a_space
+    steps:
+      - request: { type: WorkItem, transition: create, as: task, inputs: { space: web, work_type: WorkType.TASK, summary: Tidy the logs, reporter: ben } }
+    request: { object: task, transition: schedule, inputs: { start_date: now + 1 day, due_date: now + 4 days } }
+    expect: { verdict: applied, state: TO_DO, values: { start_date: now + 1 day, due_date: now + 4 days } }
+
+  a_due_date_past_the_window:
+    description: A due date later than three days after the start is refused, and the caller gives an earlier one.
+    given: a_space
+    steps:
+      - request: { type: WorkItem, transition: create, as: task, inputs: { space: web, work_type: WorkType.TASK, summary: Tidy the logs, reporter: ben } }
+    request: { object: task, transition: schedule, inputs: { start_date: now + 1 day, due_date: now + 5 days } }
+    expect: { verdict: unsatisfied, clause: due_within_window, remedy: self_serviceable }
+
+  work_is_planned_into_an_open_sprint:
+    description: A story is planned into a sprint not yet completed, and not into one that is.
+    given: a_story_in_progress
+    steps:
+      - request: { type: Sprint, transition: create, as: sprint, inputs: { name: Sprint 1, space: web } }
+      - request: { object: sprint, transition: start }
+      - request: { object: sprint, transition: complete_to_backlog }
+    request: { object: story, transition: plan, inputs: { sprint: sprint } }
+    expect: { verdict: unsatisfied, clause: sprint_open, remedy: self_serviceable }
+
+  one_active_sprint_per_space:
+    description: A space has one active sprint at a time, so starting a second is refused until the first is completed.
+    given: a_space
+    steps:
+      - request: { type: Sprint, transition: create, as: first, inputs: { name: Sprint 1, space: web } }
+      - request: { type: Sprint, transition: create, as: second, inputs: { name: Sprint 2, space: web } }
+      - request: { object: first, transition: start }
+    request: { object: second, transition: start }
+    expect: { verdict: invariant_violated, clause: space_unique }
+
+  completing_into_the_next_sprint:
+    description: Completing a sprint into the next plans its unfinished story there.
+    given: a_story_in_progress
+    steps:
+      - request: { type: Sprint, transition: create, as: first, inputs: { name: Sprint 1, space: web } }
+      - request: { type: Sprint, transition: create, as: second, inputs: { name: Sprint 2, space: web } }
+      - request: { object: story, transition: plan, inputs: { sprint: first } }
+      - request: { object: first, transition: start }
+    request: { object: first, transition: complete_to_sprint, inputs: { next: second } }
+    expect: { verdict: applied, state: CLOSED, cascaded: [WorkItem.plan] }
+
+  a_document_needs_every_approver:
+    description: A document two people must approve is not approved on one approval.
+    given: a_space
+    steps:
+      - request: { type: Document, transition: create, as: spec, inputs: { title: Sign-in design, space: web } }
+      - request: { object: spec, transition: submit, inputs: { approvers: [ana, ben] } }
+      - request: { type: ApprovalDecision, transition: record, inputs: { subject: spec, approver: ana, decision: Decision.APPROVE } }
+    request: { object: spec, transition: approve }
+    expect: { verdict: unsatisfied, clause: all_approved, remedy: dependent }
+
+  a_document_every_approver_approved:
+    description: Once both approvers approve, the document is approved.
+    given: a_space
+    steps:
+      - request: { type: Document, transition: create, as: spec, inputs: { title: Sign-in design, space: web } }
+      - request: { object: spec, transition: submit, inputs: { approvers: [ana, ben] } }
+      - request: { type: ApprovalDecision, transition: record, after: 1 h, inputs: { subject: spec, approver: ana, decision: Decision.APPROVE } }
+      - request: { type: ApprovalDecision, transition: record, after: 1 h, inputs: { subject: spec, approver: ben, decision: Decision.APPROVE } }
+    request: { object: spec, transition: approve }
+    expect: { verdict: applied, state: APPROVED }
+
+  a_decline_before_resubmission_does_not_count:
+    description: A decline recorded before the document went back to review does not decline it now.
+    given: a_space
+    steps:
+      - request: { type: Document, transition: create, as: spec, inputs: { title: Sign-in design, space: web } }
+      - request: { object: spec, transition: submit, inputs: { approvers: [ana] } }
+      - request: { type: ApprovalDecision, transition: record, after: 1 h, inputs: { subject: spec, approver: ana, decision: Decision.DECLINE } }
+      - request: { object: spec, transition: decline }
+      - request: { object: spec, transition: revise }
+      - request: { object: spec, transition: submit, after: 1 day, inputs: { approvers: [ana] } }
+    request: { object: spec, transition: decline }
+    expect: { verdict: unsatisfied, clause: one_declined, remedy: dependent }

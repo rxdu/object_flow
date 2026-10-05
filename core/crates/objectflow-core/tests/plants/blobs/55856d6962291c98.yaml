@@ -1,0 +1,12 @@
+module: m
+categories: [live, closed]
+types:
+  T:
+    description: A planted type.
+    tracking: record
+    attributes:
+      p: { type: string, optional: true }
+    states:
+      A: { category: live }
+    transitions:
+      add: { kind: initial, to: A, description: A planted step. }

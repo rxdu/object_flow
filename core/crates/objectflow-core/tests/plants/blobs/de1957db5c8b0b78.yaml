@@ -1,0 +1,17 @@
+module: m
+categories: [live, closed]
+types:
+  T:
+    description: A job.
+    tracking: record
+    states: { A: { category: live }, C: { category: closed, final: true } }
+    transitions: { t: { kind: initial, to: A }, go: { kind: external, from: A, to: C } }
+    metrics:
+      done:
+        description: Jobs finished from A.
+        source: transitions
+        item: x
+        filter: x.from_state == T.A and x.to_state == T.C
+        dimensions:
+          month: month(x.occurred_at)
+        expression: count()

@@ -1,0 +1,6533 @@
+[
+ {
+  "label": "main",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ]
+  ],
+  "previous": {},
+  "findings": []
+ },
+ {
+  "label": "main",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "inventory.examples.yaml",
+    "4180d9600f10ba66"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "main",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory-v2.yaml",
+    "68700ad2974c2617"
+   ],
+   [
+    "inventory-v2.examples.yaml",
+    "afc2b3826126b4b2"
+   ]
+  ],
+  "previous": {
+   "inventory-v2.yaml": "65ecd13f6aa3d6a8"
+  },
+  "findings": [
+   [
+    "inventory-v2.examples.yaml",
+    17,
+    "notice",
+    "coverage",
+    "no example requests 9 transitions of inventory: InventoryItem.accept_return, InventoryItem.add, InventoryItem.cancel_delivery, InventoryItem.deliver_internally, InventoryItem.regrade, InventoryItem.release, InventoryItem.reserve, InventoryItem.retire, InventoryItem.return_to_stock"
+   ],
+   [
+    "inventory-v2.yaml",
+    108,
+    "notice",
+    "warn",
+    "not_below_list_price warns: a failure is reported with the result and refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "main",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "d68d6e59acaa7989"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "main",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service-v2.yaml",
+    "518220b4397faa50"
+   ],
+   [
+    "service-v2.examples.yaml",
+    "1b6e0d85533e07da"
+   ]
+  ],
+  "previous": {
+   "service-v2.yaml": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service-v2.examples.yaml",
+    20,
+    "notice",
+    "coverage",
+    "no example requests 4 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget, ServiceJob.start"
+   ],
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ]
+ },
+ {
+  "label": "main",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "1841ab5c17e6f077"
+   ],
+   [
+    "delivery.examples.yaml",
+    "017f9fc5af32ae89"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.examples.yaml",
+    43,
+    "notice",
+    "coverage",
+    "no example requests 9 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.add, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "main",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "approvals.yaml",
+    "cd210742b23c0f68"
+   ],
+   [
+    "approvals.examples.yaml",
+    "94d5cfbde9bfbe12"
+   ]
+  ],
+  "previous": {},
+  "findings": []
+ },
+ {
+  "label": "main",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "03ff7e8dd386a6be"
+   ],
+   [
+    "customers.examples.yaml",
+    "bde62328f243983e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.examples.yaml",
+    18,
+    "notice",
+    "coverage",
+    "no example requests 13 transitions of customers: Contact.add, Contact.discard, Contact.forget, Customer.activate, Customer.add_contact, Customer.lapse, Customer.link_xero, Customer.merged_into, Customer.register, Order.cancel, Order.fulfil, Order.invoice, Order.place"
+   ]
+  ]
+ },
+ {
+  "label": "main",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "issues.yaml",
+    "421d357341a99dc0"
+   ],
+   [
+    "issues.examples.yaml",
+    "7db10bc5d45331ed"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "issues.examples.yaml",
+    28,
+    "notice",
+    "coverage",
+    "no example requests 37 transitions of issues: Document.archive, Document.create, Document.revise, Document.submit, Epic.archive, Epic.done, Epic.start, Epic.to_do, Space.archive, Space.create, Sprint.complete_to_backlog, Sprint.create, Sprint.delete, Sprint.reopen, Subtask.archive, Subtask.create, Subtask.done, Subtask.start, Subtask.to_do, Version.archive, Version.create, Version.delete, Version.release, Version.release_moving_unresolved, Version.unarchive, Version.unrelease, WorkItem.add_subtask, WorkItem.assign_to_lead, WorkItem.assign_to_reporter, WorkItem.auto_resolve, WorkItem.edit, WorkItem.remove_label, WorkItem.set_fix_version, WorkItem.to_do, WorkItem.unplan, WorkItemLink.link, WorkItemLink.unlink"
+   ],
+   [
+    "issues.yaml",
+    236,
+    "notice",
+    "warn",
+    "under_wip_limit warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "issues.yaml",
+    237,
+    "notice",
+    "warn",
+    "not_blocked warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "issues.yaml",
+    256,
+    "notice",
+    "warn",
+    "reviewed_twice warns: a failure is reported with the result and refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "main",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "99ac20951a5add57"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    "ba320fb65877d10f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.examples.yaml",
+    59,
+    "notice",
+    "coverage",
+    "no example requests 60 transitions of servicedesk: Alert.acknowledge, Alert.close, Alert.delete, Alert.link_incident, Alert.reopen, Alert.unacknowledge, Change.approve_peer, Change.archive, Change.cancel, Change.complete, Change.decline, Change.implement, Change.request, Change.roll_back, Change.submit_to_cab, ChangeWindow.schedule, ChangeWindow.withdraw, Incident.cancel, Incident.close, Incident.escalate, Incident.investigate, Incident.link_problem, Incident.open, Incident.pend, Incident.reopen, Incident.resolve, Incident.resume, Laptop.deploy, Laptop.dispose, Laptop.receive, Laptop.retire, Organization.archive, Organization.create, PartStock.release, PartStock.set_reorder_level, PostIncidentReview.archive, PostIncidentReview.draft, PostIncidentReview.publish, Problem.archive, Problem.cancel, Problem.complete, Problem.investigate, Problem.open, Problem.review, Request.cancel, Request.customer_replies, Request.escalate, Request.pend, Request.prioritise, Request.reopen, Request.respond_to_customer, Request.resume, Request.share, Request.start, Server.deploy, Server.dispose, Server.name_host, Server.retire, Service.register, Service.retire"
+   ]
+  ]
+ },
+ {
+  "label": "main",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "reimbursement.yaml",
+    "d174506d9b5bf43a"
+   ],
+   [
+    "reimbursement.examples.yaml",
+    "932516ddcabd9097"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "reimbursement.examples.yaml",
+    74,
+    "notice",
+    "coverage",
+    "no example requests 19 transitions of reimbursement: AssistantAgent.register, AssistantAgent.retire, BusinessFunction.dissolve, BusinessFunction.establish, Claim.correct_xero_bill_id, Claim.draft, Claim.record_in_xero, Claim.return_for_changes, ClaimLine.add, ClaimLine.close, ClaimLine.discard, ClaimLine.erase, Employee.forget, Employee.leave, Employee.link_xero_contact, Employee.onboard, ExpenseCategory.change_policy_amount, ExpenseCategory.define, ExpenseCategory.retire"
+   ],
+   [
+    "reimbursement.yaml",
+    358,
+    "notice",
+    "warn",
+    "lines_within_policy warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "reimbursement.yaml",
+    572,
+    "notice",
+    "warn",
+    "within_policy warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "reimbursement.yaml",
+    584,
+    "notice",
+    "warn",
+    "within_policy warns: a failure is reported with the result and refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a misspelt key",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "510d2118a5be8ec8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    92,
+    "fatal",
+    "schema",
+    "Additional properties are not allowed ('guard' was unexpected)"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a guard on no declared condition",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "6210d3307e8866fb"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    97,
+    "fatal",
+    "names",
+    "ServiceJob.open guards on 'engineer_is_active', which is not a condition of ServiceJob"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a guard listed twice",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "e9eadc09837f33f6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    124,
+    "fatal",
+    "yaml",
+    "the key 'photo_attached' appears twice in one mapping"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an enforcement that is not one of the three",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "ae634f40c0e15959"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "fatal",
+    "schema",
+    "'enforce' is not one of ['deny', 'audit', 'warn']"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an initial transition that names a source state",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "4a96e64024b23ff5"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    92,
+    "fatal",
+    "schema",
+    "an initial transition declares `to` and no `from`"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a guard that reads an input its transition does not take",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "fb5de0792f0be11a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    114,
+    "fatal",
+    "names",
+    "ServiceJob.start guards on 'engineer_active', which reads inputs.engineer, and start takes no input 'engineer'"
+   ],
+   [
+    "service.yaml",
+    114,
+    "notice",
+    "self_serviceable",
+    "engineer_active's remedy is self_serviceable, 'supply it', and start takes no input a caller could supply"
+   ],
+   [
+    "service.yaml",
+    125,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a call to a transition its target does not have",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "4bc65ed43fadd366"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    117,
+    "fatal",
+    "names",
+    "Delivery.complete calls InventoryItem.deliver_outside, which is not a transition of InventoryItem"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a create without an input its transition requires",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "affa832f9fdbb8fd"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    99,
+    "fatal",
+    "names",
+    "Delivery.open creates a ChecklistItem without the input 'label', which ChecklistItem.add requires"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a final transition of a whole that its parts neither cascade on nor survive",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "0af394163a6ff25c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    32,
+    "fatal",
+    "names",
+    "Delivery.complete enters the final state DELIVERED, and Delivery.checklist_items neither cascades on it nor survives it"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a relationship end whose opposite does not name it back",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "fdac44c36ef61a49"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    35,
+    "fatal",
+    "names",
+    "Delivery.checklist_items's opposite ChecklistItem.delivery does not name Delivery.checklist_items back"
+   ],
+   [
+    "delivery.yaml",
+    135,
+    "fatal",
+    "names",
+    "ChecklistItem.delivery's opposite Delivery.items does not name ChecklistItem.delivery back"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an only_via that names a missing transition",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "6bb54dbebc3b94bc"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    165,
+    "fatal",
+    "names",
+    "ChecklistItem.discard is only via Delivery.abort, which is not a transition of Delivery"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a condition that reads an attribute the type does not declare",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "eb7a5002628798e2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    55,
+    "fatal",
+    "names",
+    "not_damaged reads 'grade', which InventoryItem does not declare"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a machine condition that reads an attribute the machine does not require",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "approvals.yaml",
+    "4a9611a0292cd413"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "approvals.yaml",
+    20,
+    "fatal",
+    "names",
+    "submitted reads 'decided_at', which ApprovalFlow does not require"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an observation invariant that reads what is not a field of its kind",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "e62e1e2944988ddc"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    55,
+    "fatal",
+    "names",
+    "value_in_range reads 'voltage', which is not a field of the observation inspections"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a derived attribute that reads one declared after it",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "3773ef5d361152de"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    68,
+    "fatal",
+    "order",
+    "derived attribute 'signed_off' reads 'handoffs', which is declared after it; a derived attribute reads only those above it"
+   ],
+   [
+    "service.yaml",
+    69,
+    "fatal",
+    "names",
+    "derived attribute 'signed_off' is indexed and reads 'handoffs', which is not a stored attribute"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a transition that writes a derived attribute",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "0c54db696d56a0f4"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "service.yaml",
+    126,
+    "fatal",
+    "names",
+    "ServiceJob.finish writes 'handoffs', a derived attribute, whose value is its expression"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an indexed derived attribute that reads an attribute that is not indexed",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "81b956485fcde1e3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    69,
+    "fatal",
+    "names",
+    "derived attribute 'signed_off' is indexed and reads 'photo', which is not indexed"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an indexed derived attribute that reads the clock",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "7676c162e16b41bf"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    69,
+    "fatal",
+    "names",
+    "derived attribute 'signed_off' is indexed and reads now, the clock"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an identifier minted from a sequence nobody declares",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "c07e2dab2fc35f40"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    21,
+    "fatal",
+    "names",
+    "Delivery.number is minted from delivery_serial, which is neither a sequence of this module nor imported"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an identifier scoped by what not every creation writes",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "e7ef3128b30ff641"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    21,
+    "fatal",
+    "names",
+    "Delivery.number is scoped by 'courier', which not every creation of Delivery writes"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an identifier whose format has no number",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "f2e01b0742b7a156"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    21,
+    "fatal",
+    "names",
+    "Delivery.number's format has no {n} or {n:<width>}, so it would mint one value only"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an identifier whose format reads an optional attribute outside brackets",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "bed005a2eed3ab38"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    139,
+    "fatal",
+    "names",
+    "ChecklistItem.position's format reads label, which is optional, outside [ … ]; a segment that may be absent goes in brackets"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a uniqueness in scope on an attribute with no scope",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "83b7b7c5e65f5200"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    22,
+    "fatal",
+    "names",
+    "Delivery.number is unique in scope, and has no identifier with a scope"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a uniqueness that is none of its four forms",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "2378179f1629573d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    22,
+    "fatal",
+    "schema",
+    "unique is true, in_scope, { with: [<attribute>, …] } or { where: <expression> }, one of them"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a metric that reads a member its rows do not have",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "acf04f3610db0901"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "service.yaml",
+    143,
+    "fatal",
+    "names",
+    "metric inspection_pass_rate reads r.outcom, and a row of inspections has no member 'outcom'"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a metric that reads a name other than its item",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "3b6ed38b415af981"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "service.yaml",
+    143,
+    "fatal",
+    "names",
+    "metric inspection_pass_rate reads 'engineer'; a metric reads its rows through 'r'"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a flag that reads neither the value nor a dimension",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "770e8788dd1e4f8d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "service.yaml",
+    148,
+    "fatal",
+    "names",
+    "metric inspection_pass_rate's flag low reads 'threshold', which is neither value nor a dimension the metric declares"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a metric over a source its type does not have",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "82c6ff4fd80c3301"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "service.yaml",
+    141,
+    "fatal",
+    "names",
+    "metric inspection_pass_rate reads 'comments', which is not objects, intervals, intervals(<member>), transitions, attempts, attempt_counts, labels or an observation kind of ServiceJob"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a metric whose item is declared after its filter",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "77f373c522edaa06"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "service.yaml",
+    146,
+    "fatal",
+    "order",
+    "in the metric inspection_pass_rate, 'item' comes after 'time_dimension'; declare description, source, item, filter, dimensions, time_dimension, expression, flag_when in that order"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an assertion whose reason is free text",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "92868feeeae7446c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    151,
+    "fatal",
+    "names",
+    "Customer.correct_state's reason is not an enumeration; an assertion's reasons are counted, so they are declared values"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an assertion that may admit an invariant nobody declares",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "9d223b4ac008e34d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    153,
+    "fatal",
+    "names",
+    "Customer.correct_state may admit 'active_rule', which is not an invariant of Customer"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an erasure that does not reach parts holding personal data",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "39182287e41defff"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    154,
+    "fatal",
+    "names",
+    "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a correction that writes what it does not list",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "7695be0ae1212921"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    142,
+    "fatal",
+    "names",
+    "Customer.correct_email writes 'name', which it does not list in corrects; a correction writes exactly what it corrects"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a personal attribute that is required",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "7a04a9d08308c97f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    38,
+    "fatal",
+    "names",
+    "Customer.name is personal and required; erasure writes absence, so a personal attribute is optional"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an erasure that names a target state",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "b7fa8bed7b647514"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    154,
+    "fatal",
+    "schema",
+    "an erasure declares neither `from` nor `to`: it runs at any state"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an indexed marking on a stored reference, which the conversion must carry to step 4",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "34e20e1401c1d63e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    24,
+    "fatal",
+    "check 7",
+    "Delivery.unit is a stored relationship end and is marked indexed, which it already is"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a source list that mixes any with a state",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "dd05682df13198d6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    99,
+    "fatal",
+    "schema",
+    "`from` is a state, a list of states, or any, alone"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an aggregate's body written in a plain value",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "07ce62973dc19ee9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    72,
+    "fatal",
+    "yaml",
+    "mapping values are not allowed here; a value containing a colon and a space, such as an aggregate's body, is quoted or written after >-"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a type that extends one that is not abstract",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "cfcbcdb83b3fb7df"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    716,
+    "fatal",
+    "names",
+    "Laptop extends Alert, which is not abstract; a base has no objects of its own"
+   ],
+   [
+    "servicedesk.yaml",
+    717,
+    "fatal",
+    "names",
+    "Laptop binds AssetLifecycle, which requires the attribute 'name', and Laptop does not declare it"
+   ],
+   [
+    "servicedesk.yaml",
+    717,
+    "fatal",
+    "names",
+    "Laptop binds AssetLifecycle, which requires the attribute 'service', and Laptop does not declare it"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a subtype that redeclares what it inherits",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "fe35d28df86af928"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    720,
+    "fatal",
+    "names",
+    "Laptop declares 'name', which it inherits from Asset; a member has one declaration"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: two abstract types that extend each other",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "56cde14b20bf1987"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    704,
+    "fatal",
+    "names",
+    "Asset extends Hardware, and following its bases comes back to Asset"
+   ],
+   [
+    "servicedesk.yaml",
+    718,
+    "fatal",
+    "names",
+    "Hardware extends Asset, and following its bases comes back to Hardware"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an inherited identifier whose scope a subtype's creation does not write",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "e0d77fc492d17462"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    714,
+    "fatal",
+    "names",
+    "Laptop.key is scoped by 'service', which not every creation of Laptop writes"
+   ],
+   [
+    "servicedesk.yaml",
+    726,
+    "fatal",
+    "names",
+    "Server.key is scoped by 'service', which not every creation of Server writes"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a mirror that declares no external identifier",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "3a38b1a5f6b41c35"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    738,
+    "fatal",
+    "names",
+    "Employee is a mirror and declares no external identifier, by which the import matches its objects"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an external identifier on a reference",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "4f3d6418a7f90c6a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    719,
+    "fatal",
+    "names",
+    "Laptop.assigned_to is a reference; an external identifier is a value the other system gives"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a mirror with a transition of its own",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "b22040950abf0dcf"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    738,
+    "fatal",
+    "check 53",
+    "Employee is a mirror and declares 1 transition(s) other than erase"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a state the new version removes, mapped nowhere",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service-v2.yaml",
+    "bdc8d78f0a777feb"
+   ]
+  ],
+  "previous": {
+   "service-v2.yaml": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service-v2.yaml",
+    36,
+    "fatal",
+    "names",
+    "ServiceJob no longer has the state WORKING, and the migration maps it nowhere; its objects need a state to move to"
+   ],
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a new required attribute that no backfill fills",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service-v2.yaml",
+    "6e379820ed390f4b"
+   ]
+  ],
+  "previous": {
+   "service-v2.yaml": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service-v2.yaml",
+    43,
+    "notice",
+    "migration",
+    "ServiceJob.site is new and required: a publish over live objects of ServiceJob needs a backfill for it"
+   ],
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    182,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a backfill that reads the clock",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service-v2.yaml",
+    "cf152bbe3e37868d"
+   ]
+  ],
+  "previous": {
+   "service-v2.yaml": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    182,
+    "fatal",
+    "names",
+    "the backfill of ServiceJob.site reads 'now'; a backfill reads the object's own members and literals"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a migration that admits no invariant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service-v2.yaml",
+    "cabd669b0309b8c5"
+   ]
+  ],
+  "previous": {
+   "service-v2.yaml": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "fatal",
+    "names",
+    "the migration admits ServiceJob.photo_required, which is not an invariant of ServiceJob"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a required field added to an observation kind",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service-v2.yaml",
+    "dc5f37ae64a14a0c"
+   ]
+  ],
+  "previous": {
+   "service-v2.yaml": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service-v2.yaml",
+    55,
+    "fatal",
+    "names",
+    "inspections.probe is added to an observation kind and is required; an observation is born final, so nothing could fill it"
+   ],
+   [
+    "service-v2.yaml",
+    138,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    185,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a metric that reads a label's personal note",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "ee9aa0b9b3e6d5f9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    293,
+    "fatal",
+    "names",
+    "metric labels_by_state reads l.note, a label's note, which is personal and not readable"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a guard that reads labels",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "9ba3b69410a14dc4"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    181,
+    "fatal",
+    "names",
+    "resolved_three_days reads labels, which are read only as a metric's source, source: labels (check 55)"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a counter that may be absent",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "1de15db7390c70b3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    761,
+    "fatal",
+    "names",
+    "PartStock.on_hand is a counter, which is never absent, so it is not optional"
+   ],
+   [
+    "servicedesk.yaml",
+    814,
+    "notice",
+    "unknown",
+    "enough_available can be unknown when reserve is requested, through on_hand (PartStock.on_hand is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ],
+   [
+    "servicedesk.yaml",
+    842,
+    "notice",
+    "unknown",
+    "empty can be unknown when withdraw is requested, through on_hand (PartStock.on_hand is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a default that reads an attribute",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "d8775619da7dd0a2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    763,
+    "fatal",
+    "names",
+    "PartStock.reorder_level's default reads 'on_hand'; a default is written before anything else, so it is a literal, a qualified value or now"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a counter on a type tracked by record",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "0cfae4ea70332c20"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    756,
+    "fatal",
+    "check 31",
+    "PartStock is tracking record with a counter"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a counter on an observation",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "35b0b58b2d2295fd"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    113,
+    "fatal",
+    "names",
+    "ratings.score is a counter, which an observation, born final, cannot have; a counter belongs to a type tracked by quantity"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a call to a function the evaluator does not declare",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "6ce530539b21d5f3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    75,
+    "fatal",
+    "names",
+    "condition contact_in_xero calls xero.contact_known, which xero does not declare"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an evaluator's verdict inside a larger expression",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "b2893b5d695e93a7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    75,
+    "fatal",
+    "names",
+    "condition contact_in_xero calls an evaluator inside a larger expression; a verdict is the whole condition or its negation (check 24)"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an evaluator called by a derived attribute",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "49cb29624e41d268"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    75,
+    "fatal",
+    "names",
+    "in_xero calls xero.contact_exists; only a guard asks an evaluator"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a superseding state entered with no successor",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "9725b9b9f51cd12d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    115,
+    "fatal",
+    "names",
+    "Customer.merged_into enters the superseding state MERGED and names no successor with supersede"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an object that supersedes itself",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "07ffd57b33f1da2a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    121,
+    "fatal",
+    "names",
+    "Customer.merged_into supersedes the object with itself"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a misspelt transition compared in a metric's filter",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "0b6570b25195360d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    172,
+    "fatal",
+    "names",
+    "metric overrides compares t.transition with \"corect_state\", which is not a transition of Customer"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an enumeration's member written to a string",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "19ce8707560fd2a8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    103,
+    "fatal",
+    "names",
+    "Customer.close writes OverrideReason.MIS_KEYED, enumeration OverrideReason, to note_kind, which holds string: a write's value must fit its target (the model's check 17)"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a type no module declares",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "c18746ad7a657340"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    34,
+    "fatal",
+    "names",
+    "note_kind is of the type frobnicate, which is neither built in, nor an enumeration this module declares, nor a name it imports"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: the kind of actor written to a string",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "b73974446bd26b08"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    103,
+    "fatal",
+    "names",
+    "Customer.close writes actor.kind, actor_kind, to note_kind, which holds string: a write's value must fit its target (the model's check 17)"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an invariant reading an observation collection",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "643c7ddfe9765d4a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    75,
+    "fatal",
+    "names",
+    "invariant few_failures reads the observations inspections; a recorded fact matters to the flow only through a guard, so no invariant reads one"
+   ],
+   [
+    "service.yaml",
+    128,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an override into a final state its parts neither cascade on nor survive",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "597c91a9aff4ec4c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    45,
+    "fatal",
+    "names",
+    "Customer.correct_state enters the final state CLOSED, and Customer.contacts neither cascades on it nor survives it"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a condition named as a generated guard",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "23b120b71345564b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    77,
+    "fatal",
+    "names",
+    "'not_erased' is the name of a guard the engine generates, so a refusal naming it would not say which it was; choose another name"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a successor a request may leave out",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "7a38fb94363635e6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    121,
+    "fatal",
+    "names",
+    "Customer.merged_into supersedes with inputs.successor, which is optional, so a request leaving it out would name no successor"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a supersede inside a foreach",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "76e49526c18cce85"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    121,
+    "fatal",
+    "names",
+    "Customer.merged_into supersedes inside a foreach, which may name no successor or several"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: two supersede steps",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "9ca71a321abe4dd9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    122,
+    "fatal",
+    "names",
+    "Customer.merged_into names more than one successor, and an object has one"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a successor that is neither an input nor a created object",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "f805f60ae647b5cb"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    121,
+    "fatal",
+    "names",
+    "Customer.merged_into supersedes with survivor, which is neither an input nor a name a create at the top level of the effect binds (check 49)"
+   ],
+   [
+    "customers.yaml",
+    121,
+    "fatal",
+    "names",
+    "merged_into reads 'survivor', which Customer does not declare"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a supersede in a transition that does not end superseded",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "1ca9fce784133794"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    99,
+    "fatal",
+    "names",
+    "Customer.lapse supersedes, and does not enter a superseding state"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: personal data in supersession with no erasure",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "7eaf76ed90f2901a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    29,
+    "fatal",
+    "names",
+    "Customer holds personal data and declares no erasure, and takes part in supersession, through which a superseded chain is erased (check 60)"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a proposable transition that only other transitions may take",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "1714f19a98611335"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    166,
+    "fatal",
+    "names",
+    "ChecklistItem.discard is proposable and only via other transitions; no one may request it, so no proposal of it could be approved (check 14)"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an event input given something other than this_event",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "baa43150b0f6bcf7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    123,
+    "fatal",
+    "names",
+    "Delivery.approve passes now to Approval.record's event input 'at_event', which accepts only this_event (check 25)"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a metric name two types declare",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "d86d4a3f7a595cf9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    482,
+    "fatal",
+    "names",
+    "the metric incidents_opened is declared by both Incident and Problem; a module's metrics share one namespace"
+   ],
+   [
+    "servicedesk.yaml",
+    848,
+    "fatal",
+    "names",
+    "metric problems_per_incident combines Problem.problems_opened, which is not a metric of Problem"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a combined metric that combines itself",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "6844ae11ae9102a9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    848,
+    "fatal",
+    "order",
+    "metric problems_per_incident combines problems_per_incident, which is itself or declared after it; a combined metric combines those above it"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a combined metric grouped by a dimension none of its inputs has",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "f364faa01464b541"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    850,
+    "fatal",
+    "names",
+    "metric problems_per_incident groups by 'week', which none of the metrics it combines has as a dimension"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a combined metric that aggregates",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "ae147d035db8c93a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    851,
+    "fatal",
+    "names",
+    "metric problems_per_incident aggregates, and a combined metric has no rows: its value combines the values of the metrics it names"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a summary naming no member",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "eabeb3f614dbac98"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    161,
+    "fatal",
+    "names",
+    "Request's summary names 'request_kind', which is neither state nor a member of Request"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a binder that lacks an attribute its machine requires",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "approvals.yaml",
+    "434ea2d5b1cbd1f5"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "approvals.yaml",
+    51,
+    "fatal",
+    "names",
+    "PurchaseRequest binds ApprovalFlow, which requires the attribute 'submitted_at', and PurchaseRequest does not declare it"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a binder whose attribute differs in type from what its machine requires",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "approvals.yaml",
+    "5aa309f7da3c1f26"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "approvals.yaml",
+    54,
+    "fatal",
+    "names",
+    "PurchaseRequest declares 'submitted_at' as attr submitted_at date?, and its machine ApprovalFlow requires attr submitted_at timestamp?"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a binder that redeclares a transition of its machine",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "approvals.yaml",
+    "6a81e70dfd14e872"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "approvals.yaml",
+    73,
+    "fatal",
+    "names",
+    "ExpenseClaim declares the transition 'reject', which its machine ApprovalFlow also declares"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a condition that reads who is asking",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "6ea7e6ab44fc1fa2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    127,
+    "fatal",
+    "check 64",
+    "reads the actor outside an outcome value: require assigned_engineer_only: engineer.login == actor.id …"
+   ],
+   [
+    "service.yaml",
+    128,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: attributes declared after the states that use them",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "a1ab0c51075fb910"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    87,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "inventory.yaml",
+    156,
+    "fatal",
+    "order",
+    "in InventoryItem, 'attributes' comes after 'metrics'; declare description, tracking, attributes, states, conditions, transitions, metrics in that order"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a misspelt enumeration value",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "7cf3dfe1c94a5a40"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    55,
+    "fatal",
+    "names",
+    "not_damaged names Condition.DAMAGD, and the enumeration Condition has no DAMAGD"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a transition into a state that does not set what the state requires",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "20075d69ef3c312e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "inventory.yaml",
+    116,
+    "fatal",
+    "required",
+    "InventoryItem.cancel_delivery enters RESERVED without setting 'reserved_until', which RESERVED requires: make it a required input, assign it a value that is provably present, or require it in state SOLD, DEVELOPMENT"
+   ],
+   [
+    "inventory.yaml",
+    120,
+    "notice",
+    "unknown",
+    "reservation_ends_in_future can be unknown when cancel_delivery is requested, through inputs.reserved_until (the input reserved_until is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an attribute named after an expression built-in",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "7814205d69d73ba4"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    18,
+    "fatal",
+    "names",
+    "'state' cannot name an attribute: in an expression it means something else first"
+   ],
+   [
+    "inventory.yaml",
+    103,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an invariant named like a generated one",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "9622214e3e816f48"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    53,
+    "fatal",
+    "names",
+    "'reserved_invariant' is the name of the invariant generated for a state's required_attributes; choose another name"
+   ],
+   [
+    "inventory.yaml",
+    107,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a unit on an attribute that is not an observation's",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "43ae7650802b69f9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    18,
+    "fatal",
+    "names",
+    "'unit' applies only to an observation's attribute, not to InventoryItem.list_price"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an import of a name its module does not declare",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "a0d797a0bd4b0325"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    4,
+    "fatal",
+    "names",
+    "imports 'Robot' from people, which does not declare it"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an import from a module not among the files checked",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "bb4021f07f1fa6a6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    4,
+    "notice",
+    "imports",
+    "staff is not among the files checked, so steps 2 and 3 cannot check what is imported from it"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an invariant named like a generated uniqueness invariant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "d408bada7bc2d57c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    53,
+    "fatal",
+    "names",
+    "'serial_unique' is the name of the invariant a unique attribute or a one-to-one end generates; choose another name"
+   ],
+   [
+    "inventory.yaml",
+    107,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a name a module in the closure also declares",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "c21ac51e53ba5e0b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    8,
+    "fatal",
+    "names",
+    "Service is also declared by people, which is in this module's closure; a name is declared once across the closure (the model's check 33)"
+   ],
+   [
+    "service.yaml",
+    124,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a set of references with no opposite",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "f4893224c9cd140a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    26,
+    "fatal",
+    "names",
+    "Delivery.helpers is a set of references with no opposite, which has nowhere to be stored; an end with no opposite is single (§4.3; the model's check 41)"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a step made conditional on an optional input",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "41c18e42ed2ee0db"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    109,
+    "fatal",
+    "names",
+    "ServiceJob.reassign reads the optional input 'note' inside a larger expression of a step, which makes the step conditional; declare one transition per case, each taking the input it needs (DESIGN.md §5.4; the model's check 48)"
+   ],
+   [
+    "service.yaml",
+    125,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an optional input on an attribute neither optional nor defaulted",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "32abe76d4c380b76"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    72,
+    "fatal",
+    "names",
+    "InventoryItem.add lists 'model' as an optional input, but the attribute is neither optional nor defaulted, so the input is required"
+   ],
+   [
+    "inventory.yaml",
+    103,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an attribute named like a member every object has",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "0267561f983b5390"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    18,
+    "fatal",
+    "names",
+    "'created_at' cannot name a member: every object has one of that name, which it would shadow (the model's check 33)"
+   ],
+   [
+    "inventory.yaml",
+    103,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an attribute named like the version every object records",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "4a845e9fdfcab336"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    18,
+    "fatal",
+    "names",
+    "'declaration_version' cannot name a member: every object has one of that name, which it would shadow (the model's check 33)"
+   ],
+   [
+    "inventory.yaml",
+    103,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a personal input on a type with no erasure",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "8d5d6b4d1f98a96b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    33,
+    "fatal",
+    "names",
+    "ServiceJob holds the personal input reassign.note and declares no erasure (check 60)"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: an external transition from a state to itself",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "35dc26c8663c508f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    110,
+    "fatal",
+    "names",
+    "ServiceJob.start leaves WORKING for itself; an external transition changes the state, and a change that keeps it is an internal transition"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a `?` inside an inline mapping",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "60337056c780603b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    39,
+    "fatal",
+    "yaml",
+    "expected ',' or '}', but got '?'"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "65322e8ce20cd499"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    127,
+    "fatal",
+    "schema",
+    "{'value': 'inputs.signed_off_by'} is not of type 'string'"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "files": [
+   [
+    "notes.yaml",
+    "9d5c2ef183add63d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    15,
+    "fatal",
+    "names",
+    "Ticket.close enters the final state CLOSED, and Ticket.notes neither cascades on it nor survives it"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "files": [
+   [
+    "notes.yaml",
+    "48938421de986df3"
+   ]
+  ],
+  "previous": {},
+  "findings": []
+ },
+ {
+  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "files": [
+   [
+    "notes.yaml",
+    "f1bea85178e2410b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    10,
+    "fatal",
+    "names",
+    "Carrier.notes is declared on the abstract Carrier, which has no transitions to cascade on or survive; each concrete subtype gives its cascade and survives in inherited_parts (§4.14)"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "files": [
+   [
+    "m.yaml",
+    "28f14bce7b93bd37"
+   ]
+  ],
+  "previous": {
+   "m.yaml": "de1957db5c8b0b78"
+  },
+  "findings": [
+   [
+    "m.yaml",
+    10,
+    "notice",
+    "metric",
+    "done's filter counts transitions out of T.A, and this version changes which transitions those are, so what the metric counts changes from this version on"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "files": [
+   [
+    "cut.yaml",
+    "626cc5d3fca88c41"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cut.yaml",
+    7,
+    "fatal",
+    "schema",
+    "'two.' is not a key but the rest of a value cut at a comma: inside { … }, a value containing a comma is quoted, as in { description: \"One, two.\" } (§2 rule 4)"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "files": [
+   [
+    "bare.yaml",
+    "e35c061e30228552"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bare.yaml",
+    9,
+    "notice",
+    "self_serviceable",
+    "ready's remedy is self_serviceable, 'supply it', and e takes no input a caller could supply"
+   ]
+  ]
+ },
+ {
+  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "files": [
+   [
+    "ring.yaml",
+    "395ce32f40c0529f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ring.yaml",
+    13,
+    "fatal",
+    "order",
+    "derived attributes read each other in a cycle: A.x → B.y → A.x"
+   ]
+  ]
+ },
+ {
+  "label": "logic_plants: an expression the grammar refuses",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "7a6171a472fe6739"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    88,
+    "fatal",
+    "syntax",
+    "a comparison does not chain, found 'is', at 26 of 'inputs.photo is not null is null': not an expression of declaration-syntax.md §8"
+   ]
+  ]
+ },
+ {
+  "label": "logic_plants: guards of one transition that cannot hold together",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "533da284096f3e95"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    117,
+    "fatal",
+    "contradiction",
+    "ServiceJob.finish can never be taken: guard photo_attached and guard no_photo cannot both hold"
+   ]
+  ]
+ },
+ {
+  "label": "logic_plants: a warning that fails whenever the transition is taken",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "a7e728ecb3519e83"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    128,
+    "notice",
+    "neverpasses",
+    "ServiceJob.finish's warn guard no_photo can never pass when the transition is taken, so it is raised on every request that applies"
+   ],
+   [
+    "service.yaml",
+    128,
+    "notice",
+    "warn",
+    "no_photo warns: a failure is reported with the result and refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "runner_plants: a repeated check that fails again, expected to let the job finish",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "287d4f8e01fef016"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "service.examples.yaml",
+    50,
+    "fatal",
+    "example",
+    "a_repeated_check_lets_the_job_finish: expected the request to apply, and it is refused as unsatisfied no_unresolved_failure dependent"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "runner_plants: a signer the request does not write",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "d6e929f941895d72"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "service.examples.yaml",
+    50,
+    "fatal",
+    "example",
+    "a_repeated_check_lets_the_job_finish: expected signed_off_by_user to hold ben, and it holds ana"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "runner_plants: a setup whose second engineer reuses a unique login",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "7b84c635cbf9546f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "service.examples.yaml",
+    20,
+    "fatal",
+    "example",
+    "a_job_opens_for_an_active_engineer: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    26,
+    "fatal",
+    "example",
+    "a_job_is_not_given_to_an_engineer_who_left: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    38,
+    "fatal",
+    "example",
+    "a_failed_check_holds_the_job_open: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    50,
+    "fatal",
+    "example",
+    "a_repeated_check_lets_the_job_finish: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    68,
+    "fatal",
+    "example",
+    "a_corrected_result_replaces_the_mistake: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    86,
+    "fatal",
+    "example",
+    "a_result_is_corrected_once: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    108,
+    "fatal",
+    "example",
+    "a_late_start_is_dated_when_it_happened: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    116,
+    "fatal",
+    "example",
+    "a_start_is_not_dated_further_back_than_two_days: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    124,
+    "fatal",
+    "example",
+    "a_start_is_not_dated_before_the_job_opened: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    132,
+    "fatal",
+    "example",
+    "a_finish_says_no_time_of_its_own: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    138,
+    "fatal",
+    "example",
+    "an_inspection_is_dated_when_it_was_done: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    150,
+    "fatal",
+    "example",
+    "an_inspection_more_than_a_week_late_is_refused: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    162,
+    "fatal",
+    "example",
+    "a_correction_takes_the_time_of_what_it_corrects: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "runner_plants: the pass-rate guard on finish, which a failure inspected again keeps below its threshold",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "fd16a4889af708bd"
+   ],
+   [
+    "service.examples.yaml",
+    "d68d6e59acaa7989"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "service.examples.yaml",
+    50,
+    "fatal",
+    "example",
+    "a_repeated_check_lets_the_job_finish: expected the request to apply, and it is refused as unsatisfied pass_rate dependent"
+   ],
+   [
+    "service.yaml",
+    127,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "runner_plants: a guard reading a metric that has no rows yet, and so is unknown",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9117a747b02aa7fd"
+   ],
+   [
+    "service.examples.yaml",
+    "d68d6e59acaa7989"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "service.examples.yaml",
+    26,
+    "fatal",
+    "example",
+    "a_job_is_not_given_to_an_engineer_who_left: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
+   ],
+   [
+    "service.examples.yaml",
+    38,
+    "fatal",
+    "example",
+    "a_failed_check_holds_the_job_open: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
+   ],
+   [
+    "service.examples.yaml",
+    50,
+    "fatal",
+    "example",
+    "a_repeated_check_lets_the_job_finish: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
+   ],
+   [
+    "service.examples.yaml",
+    68,
+    "fatal",
+    "example",
+    "a_corrected_result_replaces_the_mistake: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
+   ],
+   [
+    "service.examples.yaml",
+    86,
+    "fatal",
+    "example",
+    "a_result_is_corrected_once: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
+   ],
+   [
+    "service.examples.yaml",
+    108,
+    "fatal",
+    "example",
+    "a_late_start_is_dated_when_it_happened: expected the request to apply, and it is refused as unsatisfied quick dependent"
+   ],
+   [
+    "service.examples.yaml",
+    132,
+    "fatal",
+    "example",
+    "a_finish_says_no_time_of_its_own: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
+   ],
+   [
+    "service.examples.yaml",
+    138,
+    "fatal",
+    "example",
+    "an_inspection_is_dated_when_it_was_done: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
+   ],
+   [
+    "service.examples.yaml",
+    150,
+    "fatal",
+    "example",
+    "an_inspection_more_than_a_week_late_is_refused: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
+   ],
+   [
+    "service.examples.yaml",
+    162,
+    "fatal",
+    "example",
+    "a_correction_takes_the_time_of_what_it_corrects: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
+   ],
+   [
+    "service.yaml",
+    129,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "runner_plants: an example the runner cannot yet run",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "5213e2552ec991ab"
+   ],
+   [
+    "service.examples.yaml",
+    "d68d6e59acaa7989"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "service.examples.yaml",
+    26,
+    "notice",
+    "notrun",
+    "a_job_is_not_given_to_an_engineer_who_left is not run: it reaches a metric over `attempt_counts`, the attempt log the runner does not keep, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    38,
+    "notice",
+    "notrun",
+    "a_failed_check_holds_the_job_open is not run: it reaches a metric over `attempt_counts`, the attempt log the runner does not keep, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    50,
+    "notice",
+    "notrun",
+    "a_repeated_check_lets_the_job_finish is not run: it reaches a metric over `attempt_counts`, the attempt log the runner does not keep, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    68,
+    "notice",
+    "notrun",
+    "a_corrected_result_replaces_the_mistake is not run: it reaches a metric over `attempt_counts`, the attempt log the runner does not keep, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    86,
+    "notice",
+    "notrun",
+    "a_result_is_corrected_once is not run: it reaches a metric over `attempt_counts`, the attempt log the runner does not keep, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    108,
+    "notice",
+    "notrun",
+    "a_late_start_is_dated_when_it_happened is not run: it reaches a metric over `attempt_counts`, the attempt log the runner does not keep, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    132,
+    "notice",
+    "notrun",
+    "a_finish_says_no_time_of_its_own is not run: it reaches a metric over `attempt_counts`, the attempt log the runner does not keep, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    138,
+    "notice",
+    "notrun",
+    "an_inspection_is_dated_when_it_was_done is not run: it reaches a metric over `attempt_counts`, the attempt log the runner does not keep, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    150,
+    "notice",
+    "notrun",
+    "an_inspection_more_than_a_week_late_is_refused is not run: it reaches a metric over `attempt_counts`, the attempt log the runner does not keep, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    162,
+    "notice",
+    "notrun",
+    "a_correction_takes_the_time_of_what_it_corrects is not run: it reaches a metric over `attempt_counts`, the attempt log the runner does not keep, which the runner does not yet execute"
+   ],
+   [
+    "service.yaml",
+    129,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "examples_self_test: a remedy the condition does not declare",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "bcc0e9141ab74a3a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    36,
+    "fatal",
+    "names",
+    "ServiceJob.engineer_active declares the remedy self_serviceable, not dependent"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "examples_self_test: an alias no earlier step gave",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "61e38f813c567ad7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    30,
+    "fatal",
+    "names",
+    "acts on 'bob', which no earlier step gave as an alias"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "examples_self_test: an input the transition does not take",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "0fb3175872d56c77"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    35,
+    "fatal",
+    "names",
+    "ServiceJob.reassign takes no input 'why'"
+   ],
+   [
+    "service.examples.yaml",
+    36,
+    "fatal",
+    "names",
+    "the request leaves out reason, which is refused as invalid_input, and the example expects unsatisfied"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "examples_self_test: an enumeration value written unqualified",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "978625825addcba1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    35,
+    "fatal",
+    "names",
+    "'reason' is a ReassignmentReason, written qualified as ReassignmentReason.<MEMBER> with a member it declares"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "examples_self_test: an occurred time not written as a timestamp",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "ad960b39545bd2c7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    113,
+    "fatal",
+    "names",
+    "'occurred_at' is a timestamp, written in UTC as 2026-01-01T09:00Z, or as now, now + <duration> or now - <duration>"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "examples_self_test: a state the transition does not leave its object in",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "9b4526bdcdf4a127"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    24,
+    "fatal",
+    "names",
+    "ServiceJob.open does not leave an object in WORKING"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "examples_self_test: a setup that is not declared",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "b4db567214821cf9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    22,
+    "fatal",
+    "names",
+    "is given the setup three_engineers, which this file does not declare"
+   ],
+   [
+    "service.examples.yaml",
+    23,
+    "fatal",
+    "names",
+    "'engineer' is a reference to User, and 'ana' is not an alias an earlier step gave one"
+   ],
+   [
+    "service.examples.yaml",
+    23,
+    "fatal",
+    "names",
+    "names the actor 'ana', which is neither `operator` nor an alias of an object whose type marks an actor identity"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "examples_self_test: an actor whose type marks no actor identity",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "7513da2c15645a88"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    47,
+    "fatal",
+    "names",
+    "names the actor 'battery', which is neither `operator` nor an alias of an object whose type marks an actor identity"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "examples_self_test: a clause that is not a guard of the transition",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "ebd3e3529451b9a7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    48,
+    "fatal",
+    "names",
+    "photo_missing is not a guard of ServiceJob.finish, a generated guard, or a condition of a type its effect reaches"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "examples_self_test: a request naming both a type and an object",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "a7f658080881d639"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    30,
+    "fatal",
+    "schema",
+    "a request names the `type` of a creation, with `as` for the alias it gives the object, or the `object` it acts on by its alias, not both"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "examples_self_test: a setup step that leaves out a required input",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "55fb4a12d82b23c4"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    10,
+    "fatal",
+    "names",
+    "a setup's step must apply, and it leaves out the required input name"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a warning the example leaves out",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "68700ad2974c2617"
+   ],
+   [
+    "module.examples.yaml",
+    "ba9a080dd94a03d2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    17,
+    "notice",
+    "coverage",
+    "no example requests 9 transitions of inventory: InventoryItem.accept_return, InventoryItem.add, InventoryItem.cancel_delivery, InventoryItem.deliver_internally, InventoryItem.regrade, InventoryItem.release, InventoryItem.reserve, InventoryItem.retire, InventoryItem.return_to_stock"
+   ],
+   [
+    "module.examples.yaml",
+    30,
+    "fatal",
+    "example",
+    "a_sale_below_the_list_price_is_warned_of: expected the request to warn of nothing, and it warns of ['not_below_list_price']"
+   ],
+   [
+    "module.yaml",
+    108,
+    "notice",
+    "warn",
+    "not_below_list_price warns: a failure is reported with the result and refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a warning the request does not raise",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "68700ad2974c2617"
+   ],
+   [
+    "module.examples.yaml",
+    "bbbd4f1dfd884731"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    17,
+    "notice",
+    "coverage",
+    "no example requests 9 transitions of inventory: InventoryItem.accept_return, InventoryItem.add, InventoryItem.cancel_delivery, InventoryItem.deliver_internally, InventoryItem.regrade, InventoryItem.release, InventoryItem.reserve, InventoryItem.retire, InventoryItem.return_to_stock"
+   ],
+   [
+    "module.examples.yaml",
+    24,
+    "fatal",
+    "example",
+    "a_sale_with_its_photo_is_made: expected the request to warn of ['not_below_list_price'], and it warns of nothing"
+   ],
+   [
+    "module.yaml",
+    108,
+    "notice",
+    "warn",
+    "not_below_list_price warns: a failure is reported with the result and refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a guard that denies, named as warning",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "68700ad2974c2617"
+   ],
+   [
+    "module.examples.yaml",
+    "e4e84ca1a434d754"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    34,
+    "fatal",
+    "names",
+    "not_damaged is not a guard InventoryItem.deliver_externally warns by"
+   ],
+   [
+    "module.yaml",
+    108,
+    "notice",
+    "warn",
+    "not_below_list_price warns: a failure is reported with the result and refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: an invariant's remedy the rule does not give",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "module.examples.yaml",
+    "b68469c5364d3f05"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    40,
+    "fatal",
+    "example",
+    "a_serial_is_in_stock_once: expected the remedy dependent, and it is refused as invariant_violated serial_unique self_serviceable"
+   ],
+   [
+    "module.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a left-out input of an optional attribute, expected to apply",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "module.examples.yaml",
+    "cb993ab81e01f375"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    65,
+    "fatal",
+    "names",
+    "the request leaves out recipient, which is refused by recipient_provided, and the example expects it to apply"
+   ],
+   [
+    "module.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a sign-off expected to hold after the checklist it signed changed",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "module.yaml",
+    "1841ab5c17e6f077"
+   ],
+   [
+    "module.examples.yaml",
+    "3dcab55140ddf6dd"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "module.examples.yaml",
+    43,
+    "notice",
+    "coverage",
+    "no example requests 9 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.add, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+   ],
+   [
+    "module.examples.yaml",
+    138,
+    "fatal",
+    "example",
+    "ticking_after_the_sign_off_makes_it_stale: expected the request to apply, and it is refused as unsatisfied signed_off delegable"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a step naming more objects than its request creates",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "module.yaml",
+    "1841ab5c17e6f077"
+   ],
+   [
+    "module.examples.yaml",
+    "151b206928bb36b1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "module.examples.yaml",
+    43,
+    "notice",
+    "coverage",
+    "no example requests 9 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.add, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+   ],
+   [
+    "module.examples.yaml",
+    66,
+    "fatal",
+    "example",
+    "cancelling_discards_the_open_checklist: a step names 3 objects its request creates, and it creates 2"
+   ],
+   [
+    "module.examples.yaml",
+    119,
+    "fatal",
+    "example",
+    "a_ticked_and_signed_off_delivery_is_handed_over: a step names 3 objects its request creates, and it creates 2"
+   ],
+   [
+    "module.examples.yaml",
+    127,
+    "fatal",
+    "example",
+    "an_open_checklist_item_holds_the_delivery: a step names 3 objects its request creates, and it creates 2"
+   ],
+   [
+    "module.examples.yaml",
+    138,
+    "fatal",
+    "example",
+    "ticking_after_the_sign_off_makes_it_stale: a step names 3 objects its request creates, and it creates 2"
+   ],
+   [
+    "module.examples.yaml",
+    150,
+    "fatal",
+    "example",
+    "a_sign_off_after_the_ticks_is_current: a step names 3 objects its request creates, and it creates 2"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a step naming objects a transition that creates none creates",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "module.yaml",
+    "1841ab5c17e6f077"
+   ],
+   [
+    "module.examples.yaml",
+    "f684f96df142bcce"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "module.examples.yaml",
+    32,
+    "fatal",
+    "names",
+    "names objects Delivery.assign_courier creates, and its effect creates none"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a wrong expectation in the approvals examples",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "cd210742b23c0f68"
+   ],
+   [
+    "module.examples.yaml",
+    "87647a6e88af2b6b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    49,
+    "fatal",
+    "example",
+    "a_receipt_is_attached_to_a_draft: expected receipt to hold other.pdf, and it holds taxi.pdf"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a wrong expectation in the issues examples",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "421d357341a99dc0"
+   ],
+   [
+    "module.examples.yaml",
+    "aae2994e934dcf99"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    28,
+    "notice",
+    "coverage",
+    "no example requests 37 transitions of issues: Document.archive, Document.create, Document.revise, Document.submit, Epic.archive, Epic.done, Epic.start, Epic.to_do, Space.archive, Space.create, Sprint.complete_to_backlog, Sprint.create, Sprint.delete, Sprint.reopen, Subtask.archive, Subtask.create, Subtask.done, Subtask.start, Subtask.to_do, Version.archive, Version.create, Version.delete, Version.release, Version.release_moving_unresolved, Version.unarchive, Version.unrelease, WorkItem.add_subtask, WorkItem.assign_to_lead, WorkItem.assign_to_reporter, WorkItem.auto_resolve, WorkItem.edit, WorkItem.remove_label, WorkItem.set_fix_version, WorkItem.to_do, WorkItem.unplan, WorkItemLink.link, WorkItemLink.unlink"
+   ],
+   [
+    "module.examples.yaml",
+    122,
+    "fatal",
+    "example",
+    "starting_blocked_work_warns: expected the request to warn of nothing, and it warns of ['not_blocked']"
+   ],
+   [
+    "module.yaml",
+    236,
+    "notice",
+    "warn",
+    "under_wip_limit warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    237,
+    "notice",
+    "warn",
+    "not_blocked warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    256,
+    "notice",
+    "warn",
+    "reviewed_twice warns: a failure is reported with the result and refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a wrong expectation in the servicedesk examples",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "99ac20951a5add57"
+   ],
+   [
+    "module.examples.yaml",
+    "84010c989c1a8be2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    59,
+    "notice",
+    "coverage",
+    "no example requests 60 transitions of servicedesk: Alert.acknowledge, Alert.close, Alert.delete, Alert.link_incident, Alert.reopen, Alert.unacknowledge, Change.approve_peer, Change.archive, Change.cancel, Change.complete, Change.decline, Change.implement, Change.request, Change.roll_back, Change.submit_to_cab, ChangeWindow.schedule, ChangeWindow.withdraw, Incident.cancel, Incident.close, Incident.escalate, Incident.investigate, Incident.link_problem, Incident.open, Incident.pend, Incident.reopen, Incident.resolve, Incident.resume, Laptop.deploy, Laptop.dispose, Laptop.receive, Laptop.retire, Organization.archive, Organization.create, PartStock.release, PartStock.set_reorder_level, PostIncidentReview.archive, PostIncidentReview.draft, PostIncidentReview.publish, Problem.archive, Problem.cancel, Problem.complete, Problem.investigate, Problem.open, Problem.review, Request.cancel, Request.customer_replies, Request.escalate, Request.pend, Request.prioritise, Request.reopen, Request.respond_to_customer, Request.resume, Request.share, Request.start, Server.deploy, Server.dispose, Server.name_host, Server.retire, Service.register, Service.retire"
+   ],
+   [
+    "module.examples.yaml",
+    324,
+    "fatal",
+    "example",
+    "a_negative_receipt_is_refused: expected the remedy unreachable_from_here, and it is refused as invariant_violated reserved_bounded self_serviceable"
+   ]
+  ]
+ },
+ {
+  "label": "unknown",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "0b1b937f33c61210"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.yaml",
+    236,
+    "notice",
+    "warn",
+    "under_wip_limit warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    237,
+    "notice",
+    "warn",
+    "not_blocked warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    256,
+    "notice",
+    "warn",
+    "reviewed_twice warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    294,
+    "notice",
+    "unknown",
+    "points_changed can be unknown when re_estimate is requested, through story_points (WorkItem.story_points is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ]
+ },
+ {
+  "label": "unknown",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "cccdee07da9e5e28"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.yaml",
+    236,
+    "notice",
+    "warn",
+    "under_wip_limit warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    237,
+    "notice",
+    "warn",
+    "not_blocked warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    256,
+    "notice",
+    "warn",
+    "reviewed_twice warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    306,
+    "notice",
+    "before",
+    "due_within_window reads start_date, which schedule takes as an input: a guard runs before the transition writes it, so it reads the value start_date had before the request; inputs.start_date is the value supplied"
+   ],
+   [
+    "module.yaml",
+    306,
+    "notice",
+    "unknown",
+    "due_within_window can be unknown when schedule is requested, through start_date (WorkItem.start_date is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ]
+ },
+ {
+  "label": "unknown",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "f17e98be567ca1e9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.yaml",
+    106,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "module.yaml",
+    125,
+    "notice",
+    "unknown",
+    "priced can be unknown when cancel_delivery is requested, through sale_price (InventoryItem.sale_price is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ]
+ },
+ {
+  "label": "unknown",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "ee908489931823f2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.yaml",
+    106,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "reference_plants: a state of a type nothing declares or imports",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "07b16cfc84c1f6c7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.yaml",
+    77,
+    "fatal",
+    "names",
+    "engineer_active names Usr.ACTIVE, and no enumeration or type Usr is declared in this module or imported"
+   ],
+   [
+    "module.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "reference_plants: a guard reading the engineer its transition assigns",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "0afd7b4437a28ddc"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.yaml",
+    97,
+    "notice",
+    "before",
+    "engineer_active reads engineer, which open takes as an input: a guard runs before the transition writes it, so the object it creates has none yet; inputs.engineer is the value supplied"
+   ],
+   [
+    "module.yaml",
+    107,
+    "notice",
+    "before",
+    "engineer_active reads engineer, which reassign takes as an input: a guard runs before the transition writes it, so it reads the value engineer had before the request; inputs.engineer is the value supplied"
+   ],
+   [
+    "module.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "reference_plants: a call on a loop's item without the input its transition requires",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "e9a54187f5023bdf"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.yaml",
+    236,
+    "notice",
+    "warn",
+    "under_wip_limit warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    237,
+    "notice",
+    "warn",
+    "not_blocked warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    256,
+    "notice",
+    "warn",
+    "reviewed_twice warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    501,
+    "fatal",
+    "names",
+    "Sprint.complete_to_sprint calls WorkItem.plan without the input 'sprint', which it requires"
+   ]
+  ]
+ },
+ {
+  "label": "reference_plants: a call on a path from a loop's item to a transition its type lacks",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "a0e4fa10e9597c76"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.yaml",
+    236,
+    "notice",
+    "warn",
+    "under_wip_limit warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    237,
+    "notice",
+    "warn",
+    "not_blocked warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    256,
+    "notice",
+    "warn",
+    "reviewed_twice warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "module.yaml",
+    501,
+    "fatal",
+    "names",
+    "Sprint.complete_to_sprint calls Epic.plan, which is not a transition of Epic"
+   ]
+  ]
+ },
+ {
+  "label": "reference_plants: a call on a path from a loop's item to a transition its type lacks",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "98e3be638deb6335"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "split_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "b061104680aeee70"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "split_plants: a split metric that declares a time dimension",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "eb1d17145e69d7db"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "service.yaml",
+    147,
+    "fatal",
+    "names",
+    "metric working_by_month splits its spans, so its time is its pieces', and it declares no time_dimension; a window clips the pieces"
+   ]
+  ]
+ },
+ {
+  "label": "split_plants: a piece's period read without a split",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "76a7ea64bcc2116d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "service.yaml",
+    145,
+    "fatal",
+    "names",
+    "metric working_by_month reads i.period, and a row of intervals has no member 'period'"
+   ]
+  ]
+ },
+ {
+  "label": "split_plants: a split of objects",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "90581adbacf7e728"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "service.yaml",
+    153,
+    "fatal",
+    "names",
+    "metric handoffs_per_job splits objects by month, and only a type's spans, intervals or intervals(<member>), are split"
+   ],
+   [
+    "service.yaml",
+    156,
+    "fatal",
+    "names",
+    "metric handoffs_per_job splits its spans, so its time is its pieces', and it declares no time_dimension; a window clips the pieces"
+   ]
+  ]
+ },
+ {
+  "label": "decimal_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "564145a9d833846a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    103,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "decimal_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "b1bf7016e93eeedf"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    26,
+    "fatal",
+    "names",
+    "margin is a decimal(19,4); a decimal holds 1 to 18 digits, and its scale is within them"
+   ],
+   [
+    "inventory.yaml",
+    103,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "cutover_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "b97870555d383238"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    746,
+    "fatal",
+    "names",
+    "Employee.team is a mirror's reference to Service, which this store owns: a type is cut over only after every type that references it (ADR-0075), so a mirror references only mirrors"
+   ]
+  ]
+ },
+ {
+  "label": "cutover_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "99ac20951a5add57"
+   ]
+  ],
+  "previous": {},
+  "findings": []
+ },
+ {
+  "label": "supersession_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "c75bb2f16a3575b5"
+   ],
+   [
+    "customers.examples.yaml",
+    "45f77d08a12279b6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.examples.yaml",
+    18,
+    "notice",
+    "coverage",
+    "no example requests 12 transitions of customers: Contact.add, Contact.discard, Contact.forget, Customer.activate, Customer.add_contact, Customer.lapse, Customer.link_xero, Customer.register, Order.cancel, Order.fulfil, Order.invoice, Order.place"
+   ]
+  ]
+ },
+ {
+  "label": "proposal_plants: a proposal of a transition that is not proposable",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "1841ab5c17e6f077"
+   ],
+   [
+    "delivery.examples.yaml",
+    "8859e97a4b49a8e8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.examples.yaml",
+    83,
+    "fatal",
+    "names",
+    "Delivery.approve is not proposable, so no proposal of it can be filed"
+   ],
+   [
+    "delivery.examples.yaml",
+    85,
+    "fatal",
+    "names",
+    "Delivery.approve does not leave an object in DELIVERED"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "proposal_plants: an approval of a proposal no step filed",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "1841ab5c17e6f077"
+   ],
+   [
+    "delivery.examples.yaml",
+    "16dbb5757c597ab2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.examples.yaml",
+    84,
+    "fatal",
+    "names",
+    "decides 'handoff', which no earlier step filed as a proposal"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "proposal_plants: a proposal left pending by an approval that applies",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "1841ab5c17e6f077"
+   ],
+   [
+    "delivery.examples.yaml",
+    "0e445283adcde15f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.examples.yaml",
+    85,
+    "fatal",
+    "names",
+    "an approval that applies leaves its proposal executed, not pending"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "proposal_plants: an approval before the sign-off, expected to apply",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "1841ab5c17e6f077"
+   ],
+   [
+    "delivery.examples.yaml",
+    "927a31f12783ea13"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.examples.yaml",
+    43,
+    "notice",
+    "coverage",
+    "no example requests 9 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.add, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+   ],
+   [
+    "delivery.examples.yaml",
+    87,
+    "fatal",
+    "example",
+    "a_proposal_approved_too_soon_stays_pending: expected the request to apply, and it is refused as unsatisfied signed_off delegable"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "date_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "reimbursement.yaml",
+    "d174506d9b5bf43a"
+   ],
+   [
+    "reimbursement.examples.yaml",
+    "625bb2a4615a0f18"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "reimbursement.examples.yaml",
+    178,
+    "fatal",
+    "names",
+    "'expense_date' is a date, written as 2026-03-01"
+   ],
+   [
+    "reimbursement.yaml",
+    358,
+    "notice",
+    "warn",
+    "lines_within_policy warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "reimbursement.yaml",
+    572,
+    "notice",
+    "warn",
+    "within_policy warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "reimbursement.yaml",
+    584,
+    "notice",
+    "warn",
+    "within_policy warns: a failure is reported with the result and refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "scan_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "7d402a1db77228c0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    560,
+    "fatal",
+    "names",
+    "condition outside_freeze scans every ChangeWindow and reads w.kind, which is not indexed: a type scan reads only indexed or unique attributes, references, the state and indexed derived attributes (the model's check 7)"
+   ]
+  ]
+ },
+ {
+  "label": "scan_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "99ac20951a5add57"
+   ]
+  ],
+  "previous": {},
+  "findings": []
+ },
+ {
+  "label": "group_erasure_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "c5deef78e304d27d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    121,
+    "fatal",
+    "names",
+    "Customer.merged_into supersedes with a Contact, whose erasure takes reason, ticket where Customer's takes reason; a group's erasures receive one request's inputs, so they require the same, by name, type and optionality"
+   ],
+   [
+    "customers.yaml",
+    165,
+    "fatal",
+    "names",
+    "Customer.forget calls Contact.forget without the input 'ticket', which it requires"
+   ]
+  ]
+ },
+ {
+  "label": "group_erasure_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "09e6f71611d48377"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    121,
+    "fatal",
+    "names",
+    "Customer.merged_into supersedes with a Contact, whose erasure takes reason where Customer's takes reason; a group's erasures receive one request's inputs, so they require the same, by name, type and optionality"
+   ]
+  ]
+ },
+ {
+  "label": "binder_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "a566d80acfc90a61"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    154,
+    "fatal",
+    "names",
+    "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
+   ],
+   [
+    "customers.yaml",
+    160,
+    "fatal",
+    "names",
+    "Customer.forget binds 'email', which is a member of Customer; a bound name shares no name with a member"
+   ],
+   [
+    "customers.yaml",
+    165,
+    "fatal",
+    "names",
+    "forget reads 'c', which Customer does not declare"
+   ]
+  ]
+ },
+ {
+  "label": "abstract_summary_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "59f3779ee95611d7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    701,
+    "fatal",
+    "schema",
+    "a type declares its own states and transitions, binds a state_machine, is abstract, or is a mirror with states, and only one of them; an abstract type has no lifecycle, conditions, observations or metrics"
+   ]
+  ]
+ },
+ {
+  "label": "abstract_summary_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "99ac20951a5add57"
+   ]
+  ],
+  "previous": {},
+  "findings": []
+ },
+ {
+  "label": "migration_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service-v2.yaml",
+    "d131b2901d8b33f8"
+   ]
+  ],
+  "previous": {
+   "service-v2.yaml": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    180,
+    "fatal",
+    "names",
+    "the migration renames ServiceJob.photo to completion_photo, which changes its type or whether it is optional; a rename carries the values and their history unchanged (ADR-0146)"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ]
+ },
+ {
+  "label": "migration_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "a34eb80041e8a46e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    258,
+    "fatal",
+    "names",
+    "the migration moves Customer.LAPSED to MERGED, a superseding state, which would leave its objects superseded by nothing (ADR-0146)"
+   ]
+  ]
+ },
+ {
+  "label": "metric_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "2d853873b2b0b586"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "service.yaml",
+    137,
+    "fatal",
+    "names",
+    "metric slowest takes the percentile 1.5, and a percentile's p is in (0, 1] (ADR-0146)"
+   ]
+  ]
+ },
+ {
+  "label": "metric_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "315612ceb997de3b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "range_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "delivery.yaml",
+    "4e5801379ea6d670"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    4,
+    "notice",
+    "imports",
+    "inventory is not among the files checked, so steps 2 and 3 cannot check what is imported from it"
+   ],
+   [
+    "delivery.yaml",
+    96,
+    "fatal",
+    "names",
+    "Delivery.open loops over a range of set, and a range is an int"
+   ]
+  ]
+ },
+ {
+  "label": "range_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "delivery.yaml",
+    "3c46359f78181234"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    4,
+    "notice",
+    "imports",
+    "inventory is not among the files checked, so steps 2 and 3 cannot check what is imported from it"
+   ],
+   [
+    "delivery.yaml",
+    96,
+    "fatal",
+    "names",
+    "Delivery.open loops over a range of decimal, and a range is an int"
+   ]
+  ]
+ },
+ {
+  "label": "range_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "delivery.yaml",
+    "37a8a0ca38133bc5"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    4,
+    "notice",
+    "imports",
+    "inventory is not among the files checked, so steps 2 and 3 cannot check what is imported from it"
+   ]
+  ]
+ },
+ {
+  "label": "erasure_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "e4f6fab93ca85cc1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    154,
+    "fatal",
+    "names",
+    "Customer.purge erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
+   ],
+   [
+    "customers.yaml",
+    154,
+    "fatal",
+    "names",
+    "Customer.purge is an erasure, and declares no input 'reason'"
+   ],
+   [
+    "customers.yaml",
+    157,
+    "fatal",
+    "names",
+    "Customer declares the erasures purge, forget; a type declares at most one, which a group's erasure takes (ADR-0147)"
+   ]
+  ]
+ },
+ {
+  "label": "erasure_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "f02ac03ceb154ad2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    45,
+    "fatal",
+    "names",
+    "Customer.correct_state enters the final state MERGED, and Customer.contacts neither cascades on it nor survives it"
+   ],
+   [
+    "customers.yaml",
+    148,
+    "fatal",
+    "names",
+    "Customer.correct_state asserts a superseding state, which would name no successor; a merge is a declared transition (the model's check 26, ADR-0147)"
+   ]
+  ]
+ },
+ {
+  "label": "erasure_plants",
+  "files": [
+   [
+    "m.yaml",
+    "55856d6962291c98"
+   ]
+  ],
+  "previous": {
+   "m.yaml": "f7809d4656a4daeb"
+  },
+  "findings": [
+   [
+    "m.yaml",
+    4,
+    "fatal",
+    "names",
+    "T held personal data in the version before and now declares no erasure; a type keeps its erasure once it has needed one, so the values written then can be erased (the model's check 60, ADR-0147)"
+   ]
+  ]
+ },
+ {
+  "label": "binder_more_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "e2d5c733ca2d2326"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    154,
+    "fatal",
+    "names",
+    "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
+   ],
+   [
+    "customers.yaml",
+    160,
+    "fatal",
+    "names",
+    "Customer.forget binds 'now', a word an expression resolves first or every object has (ADR-0147)"
+   ],
+   [
+    "customers.yaml",
+    165,
+    "fatal",
+    "names",
+    "forget reads 'c', which Customer does not declare"
+   ]
+  ]
+ },
+ {
+  "label": "binder_more_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "delivery.yaml",
+    "7b5ecd8ef1434b75"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    4,
+    "notice",
+    "imports",
+    "inventory is not among the files checked, so steps 2 and 3 cannot check what is imported from it"
+   ],
+   [
+    "delivery.yaml",
+    99,
+    "fatal",
+    "names",
+    "Delivery.open binds 'label' in a loop inside one that binds it already (ADR-0147)"
+   ]
+  ]
+ },
+ {
+  "label": "run",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service-v2.yaml",
+    "9ec6f7bbc7b30d72"
+   ]
+  ],
+  "previous": {
+   "service-v2.yaml": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service-v2.yaml",
+    44,
+    "notice",
+    "migration",
+    "ServiceJob.signed_off_by_user changed its type: that is a drop and an add of the same name, every object's value starting absent (ADR-0147)"
+   ],
+   [
+    "service-v2.yaml",
+    73,
+    "fatal",
+    "names",
+    "derived attribute 'signed_off' is indexed and reads 'signed_off_by_user', which is not indexed"
+   ],
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    139,
+    "fatal",
+    "names",
+    "ServiceJob.finish writes inputs.signed_off_by, reference User, to signed_off_by_user, which holds string: a write's value must fit its target (the model's check 17)"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ]
+ },
+ {
+  "label": "run",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service-v2.yaml",
+    "0300a23225714003"
+   ]
+  ],
+  "previous": {
+   "service-v2.yaml": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service-v2.yaml",
+    44,
+    "notice",
+    "migration",
+    "ServiceJob.signed_off_by_user is now required, which counts as a new required attribute: a publish over objects lacking it needs a backfill (ADR-0147)"
+   ],
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ]
+ },
+ {
+  "label": "run",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service-v2.yaml",
+    "21eb4e886e742cf4"
+   ]
+  ],
+  "previous": {
+   "service-v2.yaml": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ],
+   [
+    "service-v2.yaml",
+    185,
+    "fatal",
+    "names",
+    "the migration admits ServiceJob.photo_when_done twice; one change admits an invariant once (ADR-0147)"
+   ],
+   [
+    "service-v2.yaml",
+    185,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ]
+ },
+ {
+  "label": "run",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service-v2.yaml",
+    "ec2f33c88e9bdddd"
+   ]
+  ],
+  "previous": {
+   "service-v2.yaml": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ],
+   [
+    "service-v2.yaml",
+    185,
+    "fatal",
+    "names",
+    "the migration admits InspectionResult.value_in_range, an observation kind's invariant, which no migration reaches; its recorded observations are reported as a notice (ADR-0147)"
+   ]
+  ]
+ },
+ {
+  "label": "run",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service-v2.yaml",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "service-v2.yaml": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ]
+ },
+ {
+  "label": "metric_more_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "6a7e79d4e6bac840"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "service.yaml",
+    148,
+    "fatal",
+    "names",
+    "metric inspection_pass_rate's flag low reads 'actor_kind', which is neither value nor a dimension the metric declares"
+   ]
+  ]
+ },
+ {
+  "label": "metric_more_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "d821ee12bc2dcf7b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "service.yaml",
+    137,
+    "fatal",
+    "names",
+    "metric slowest takes the percentile 0.5 * 1, and a percentile's p is a literal (ADR-0147)"
+   ]
+  ]
+ },
+ {
+  "label": "metric_more_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "9eaafc63ff0be28f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    852,
+    "fatal",
+    "names",
+    "metric problems_per_incident groups by day, year, which no one of the metrics it combines has all of; one input has every dimension the combination names (the model's check 56, ADR-0147)"
+   ]
+  ]
+ },
+ {
+  "label": "cluster3_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "a98cb788d541c6bc"
+   ]
+  ],
+  "previous": {},
+  "findings": []
+ },
+ {
+  "label": "cluster3_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "6e0babd94e7a6b02"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    138,
+    "fatal",
+    "names",
+    "'redact' cannot name a transition: the engine's own events carry that name (ADR-0148)"
+   ]
+  ]
+ },
+ {
+  "label": "cluster3_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "0d459d92c00bd85e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    712,
+    "fatal",
+    "names",
+    "Asset.service is a mirror's reference to Service, which this store owns: a type is cut over only after every type that references it (ADR-0075), so a mirror references only mirrors"
+   ],
+   [
+    "servicedesk.yaml",
+    715,
+    "fatal",
+    "names",
+    "Laptop is not a mirror and extends Asset, which is; a family is ported together, every type of it a mirror or none (ADR-0148)"
+   ],
+   [
+    "servicedesk.yaml",
+    727,
+    "fatal",
+    "names",
+    "Server is not a mirror and extends Asset, which is; a family is ported together, every type of it a mirror or none (ADR-0148)"
+   ]
+  ]
+ },
+ {
+  "label": "refusal_order_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "b2bf6b05066d5620"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "refusal_order_plant",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "38cedb3406af4665"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    187,
+    "fatal",
+    "names",
+    "the request leaves out signed_off_by, which is refused as invalid_input, and the example expects unsatisfied"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ }
+]

@@ -1,0 +1,13 @@
+module: m
+categories: [live, closed]
+types:
+  T:
+    description: A planted type.
+    tracking: record
+    attributes:
+      p: { type: string, optional: true, personal: true }
+    states:
+      A: { category: live }
+    transitions:
+      add: { kind: initial, to: A, description: A planted step. }
+      forget: { kind: erasure, description: A planted erasure, inputs: { reason: { type: string } } }

@@ -1,0 +1,9 @@
+module: m
+categories: [live]
+types:
+  T:
+    description: A type with two states.
+    tracking: record
+    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
+    conditions: { ready: { description: Ready., expression: 'true', remedy: self_serviceable } }
+    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E, guards: { ready: deny } } }

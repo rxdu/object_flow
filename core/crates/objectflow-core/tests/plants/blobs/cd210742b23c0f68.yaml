@@ -1,0 +1,77 @@
+# yaml-language-server: $schema=../flow.schema.json
+# Approvals: one approval lifecycle, shared by two kinds of request.
+module: approvals
+categories: [live, closed]
+
+machines:
+  ApprovalFlow:
+    description: A request that is drafted, submitted, and then approved or rejected.
+    requires:
+      attributes:
+        submitted_at: { type: timestamp, optional: true }
+    states:
+      DRAFT:     { category: live }
+      SUBMITTED: { category: live }
+      APPROVED:  { category: closed, final: true }
+      REJECTED:  { category: closed, final: true }
+    conditions:
+      submitted:
+        description: The request has been submitted.
+        expression: submitted_at is not null
+        remedy: unreachable_from_here
+    transitions:
+      start:
+        kind: initial
+        to: DRAFT
+        description: Starts a request as a draft.
+      submit:
+        kind: external
+        from: DRAFT
+        to: SUBMITTED
+        description: Submits the request for a decision.
+        effect:
+          - assign: { location: submitted_at, expr: now }
+      approve:
+        kind: external
+        from: SUBMITTED
+        to: APPROVED
+        description: Approves the request.
+        guards:
+          submitted: deny
+      reject:
+        kind: external
+        from: SUBMITTED
+        to: REJECTED
+        description: Rejects the request.
+
+types:
+  PurchaseRequest:
+    description: A request to buy something, approved before it is ordered.
+    tracking: record
+    state_machine: ApprovalFlow
+
+    attributes:
+      submitted_at: { type: timestamp, optional: true }
+      item:         { type: string, optional: true }
+
+  ExpenseClaim:
+    description: A claim for an expense already paid, approved before it is reimbursed.
+    tracking: record
+    state_machine: ApprovalFlow
+
+    attributes:
+      submitted_at: { type: timestamp, optional: true }
+      amount:       { type: money(SGD) }
+      receipt:      { type: file, optional: true }
+
+    transitions:
+      file_claim:
+        kind: initial
+        to: DRAFT
+        description: Files a claim for an amount; it replaces the machine's start, since a claim has an amount from the first.
+        required_inputs: [amount]
+      attach_receipt:
+        kind: internal
+        from: DRAFT
+        description: Attaches the receipt to a draft claim.
+        required_inputs: [receipt]

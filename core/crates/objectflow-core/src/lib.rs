@@ -29,3 +29,5 @@ pub mod import;
 pub mod publish;
 pub mod reads;
 pub mod source;
+// the publish checks, held to the flow checker (ADR-0156)
+pub mod check;

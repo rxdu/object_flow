@@ -8,6 +8,9 @@
 //!   flow format's own rule, `flow-format.md` §2).
 //! - A timestamp stays text, as the strict loader leaves it.
 //! - An alias or anchor is refused: a flow description writes each thing once.
+//! - Inside `{ … }` or `[ … ]`, a plain scalar holding `?` is refused, as
+//!   PyYAML's scanner ends a plain scalar there and refuses what follows,
+//!   where YAML 1.2 reads `file?` as one scalar.
 
 use std::fmt;
 
@@ -26,11 +29,21 @@ pub enum Node {
         items: Vec<Node>,
         line: usize,
     },
-    /// A mapping, its entries in the order written, every key a scalar.
+    /// A mapping, its entries in the order written, every key a scalar, and
+    /// the line each key is on.
     Map {
         entries: Vec<(String, Node)>,
+        key_lines: Vec<usize>,
         line: usize,
     },
+}
+
+/// A step of a path from a document's root: a mapping's key or a sequence's
+/// index, as the flow checker's `line_index` keys them.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Seg {
+    Key(String),
+    Index(usize),
 }
 
 /// Why a document does not load, and where.
@@ -84,6 +97,36 @@ impl Node {
             } => text.replace('_', "").parse().ok(),
             _ => None,
         }
+    }
+
+    /// The line a finding at a path is reported on: the line of the path's
+    /// last key or item, or of the deepest one of its prefixes the document
+    /// holds, and the first line where it holds none, as the flow checker's
+    /// `line_of` reports it.
+    pub fn line_at(&self, path: &[Seg]) -> usize {
+        let (mut node, mut line) = (self, 1);
+        for seg in path {
+            match (node, seg) {
+                (
+                    Node::Map {
+                        entries, key_lines, ..
+                    },
+                    Seg::Key(k),
+                ) => match entries.iter().position(|(n, _)| n == k) {
+                    Some(i) => {
+                        line = key_lines.get(i).copied().unwrap_or(line);
+                        node = &entries[i].1;
+                    }
+                    None => break,
+                },
+                (Node::Seq { items, .. }, Seg::Index(i)) if *i < items.len() => {
+                    line = items[*i].line();
+                    node = &items[*i];
+                }
+                _ => break,
+            }
+        }
+        line
     }
 
     /// A mapping's value for a key.
@@ -146,7 +189,12 @@ impl Node {
 
 enum Open {
     Seq(Vec<Node>, usize),
-    Map(Vec<(String, Node)>, Option<String>, usize),
+    Map(
+        Vec<(String, Node)>,
+        Option<(String, usize)>,
+        usize,
+        Vec<usize>,
+    ),
 }
 
 fn line_of(span: &Span) -> usize {
@@ -156,6 +204,9 @@ fn line_of(span: &Span) -> usize {
 /// The document a text holds, as a tree; an empty text is a null scalar.
 pub fn load(text: &str) -> Result<Node, YamlError> {
     let mut parser = Parser::new_from_str(text);
+    let chars: Vec<char> = text.chars().collect();
+    // for each open collection, whether it is written in flow style
+    let mut flows: Vec<bool> = Vec::new();
     let mut stack: Vec<Open> = Vec::new();
     let mut root: Option<Node> = None;
     let mut documents = 0;
@@ -170,7 +221,7 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
                 items.push(node);
                 Ok(())
             }
-            Some(Open::Map(entries, key, _)) => match key.take() {
+            Some(Open::Map(entries, key, _, key_lines)) => match key.take() {
                 None => match node {
                     Node::Scalar { text, line, .. } => {
                         if entries.iter().any(|(k, _)| *k == text) {
@@ -179,7 +230,7 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
                                 message: format!("the key '{text}' appears twice in one mapping"),
                             });
                         }
-                        *key = Some(text);
+                        *key = Some((text, line));
                         Ok(())
                     }
                     other => Err(YamlError {
@@ -187,8 +238,9 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
                         message: "a mapping's key is a scalar".to_string(),
                     }),
                 },
-                Some(k) => {
+                Some((k, line)) => {
                     entries.push((k, node));
+                    key_lines.push(line);
                     Ok(())
                 }
             },
@@ -226,6 +278,13 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
                         message: "an anchor is refused".to_string(),
                     });
                 }
+                if style == ScalarStyle::Plain && flows.last() == Some(&true) && value.contains('?')
+                {
+                    return Err(YamlError {
+                        line,
+                        message: "expected ',' or the collection's end, but got '?'".to_string(),
+                    });
+                }
                 let node = Node::Scalar {
                     text: value.into_owned(),
                     plain: style == ScalarStyle::Plain,
@@ -239,12 +298,23 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
                     message: "an anchor is refused".to_string(),
                 });
             }
-            Event::SequenceStart(..) => stack.push(Open::Seq(Vec::new(), line)),
-            Event::MappingStart(..) => stack.push(Open::Map(Vec::new(), None, line)),
+            Event::SequenceStart(..) => {
+                flows.push(chars.get(span.start.index()) == Some(&'['));
+                stack.push(Open::Seq(Vec::new(), line));
+            }
+            Event::MappingStart(..) => {
+                flows.push(chars.get(span.start.index()) == Some(&'{'));
+                stack.push(Open::Map(Vec::new(), None, line, Vec::new()));
+            }
             Event::SequenceEnd | Event::MappingEnd => {
+                flows.pop();
                 let node = match stack.pop() {
                     Some(Open::Seq(items, line)) => Node::Seq { items, line },
-                    Some(Open::Map(entries, _, line)) => Node::Map { entries, line },
+                    Some(Open::Map(entries, _, line, key_lines)) => Node::Map {
+                        entries,
+                        key_lines,
+                        line,
+                    },
                     None => {
                         return Err(YamlError {
                             line,
@@ -292,6 +362,40 @@ mod tests {
             assert_eq!(doc.get(k).unwrap().boolean(), None, "{k}");
         }
         assert_eq!(doc.get("b").and_then(Node::text), Some("NO"));
+    }
+
+    #[test]
+    fn a_path_is_reported_at_its_key_or_its_deepest_prefix() {
+        let doc = load("module: m\ntypes:\n  Job:\n    states:\n      - A\n      - B\n").unwrap();
+        let at = |p: &[&str]| {
+            let path: Vec<Seg> = p
+                .iter()
+                .map(|s| {
+                    s.parse()
+                        .map_or_else(|_| Seg::Key(s.to_string()), Seg::Index)
+                })
+                .collect();
+            doc.line_at(&path)
+        };
+        assert_eq!(at(&["types", "Job"]), 3);
+        assert_eq!(at(&["types", "Job", "states", "1"]), 6);
+        assert_eq!(at(&["types", "Job", "nothing", "here"]), 3);
+        assert_eq!(at(&["absent"]), 1);
+    }
+
+    #[test]
+    fn a_question_mark_inside_a_flow_collection_is_refused() {
+        let err = load("a: 1\nphoto: { type: file? }\n").unwrap_err();
+        assert_eq!(err.line, 2);
+        assert!(load("photo: [ok, why?]\n").is_err());
+        // in block style, and quoted, it is text
+        assert_eq!(
+            load("q: why?\n").unwrap().get("q").and_then(Node::text),
+            Some("why?")
+        );
+        assert!(load("p: { q: 'why?' }\n").is_ok());
+        // a multi-byte character before the collection leaves it found
+        assert!(load("é: { type: file? }\n").is_err());
     }
 
     #[test]

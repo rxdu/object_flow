@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=../examples.schema.json
+# What the inventory flow's second version changes, as examples the engine runs at every publish (flow-format.md
+# §11, ADR-0136): a sale needs its photo, and a sale below the list price is warned of, not refused.
+examples_for: inventory
+
+setups:
+  an_item_reserved_for_acme:
+    description: A new Scout robot listed at SGD 12,000, held for Acme for a week.
+    steps:
+      - request:
+          type: InventoryItem
+          transition: add
+          as: robot
+          inputs: { serial: WR-0001, model: Scout, list_price: SGD 12000.00, condition: Condition.NEW }
+      - request: { object: robot, transition: reserve, inputs: { recipient: Acme, reserved_until: now + 7 days } }
+
+examples:
+  a_sale_without_a_photo_is_refused:
+    description: A sale now needs a photo of the robot handed over, which the caller attaches.
+    given: an_item_reserved_for_acme
+    request: { object: robot, transition: deliver_externally, inputs: { sale_price: SGD 12000.00 } }
+    expect: { verdict: unsatisfied, clause: photo_attached, remedy: self_serviceable }
+
+  a_sale_with_its_photo_is_made:
+    description: With its photo, the robot is sold at its list price.
+    given: an_item_reserved_for_acme
+    request: { object: robot, transition: deliver_externally, inputs: { sale_price: SGD 12000.00, photo: handover.jpg } }
+    expect: { verdict: applied, state: SOLD, values: { sale_price: SGD 12000.00 }, warned: [] }
+
+  a_sale_below_the_list_price_is_warned_of:
+    description: A sale below the list price is made, the warning reported with it rather than refusing it.
+    given: an_item_reserved_for_acme
+    request: { object: robot, transition: deliver_externally, inputs: { sale_price: SGD 11500.00, photo: handover.jpg } }
+    expect: { verdict: applied, state: SOLD, values: { sale_price: SGD 11500.00 }, warned: [not_below_list_price] }
+
+  a_damaged_item_is_refused_before_its_photo:
+    description: The guards are checked in their order, so a damaged robot is refused as damaged even without a photo.
+    given: an_item_reserved_for_acme
+    steps:
+      - request: { object: robot, transition: regrade, inputs: { condition: Condition.DAMAGED } }
+    request: { object: robot, transition: deliver_externally, inputs: { sale_price: SGD 12000.00 } }
+    expect: { verdict: unsatisfied, clause: not_damaged, remedy: unreachable_from_here }
