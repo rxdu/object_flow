@@ -660,9 +660,6 @@ pub struct Store {
     /// What its evaluators answer, `<evaluator>.<function>` to `satisfied`,
     /// `unsatisfied` or `unanswered`: a sandbox's caller sets them (PRD F13).
     pub answers: BTreeMap<String, String>,
-    /// A sandbox, whose caller checks a source before it reaches the store
-    /// (ADR-0155 decision 1).
-    pub sandbox: bool,
 }
 
 /// The built-in module a version was published with: this engine release.
@@ -680,7 +677,6 @@ impl Store {
             lib,
             now,
             answers: BTreeMap::new(),
-            sandbox: true,
         };
         for t in store.lib.types.values() {
             store.conn.execute_batch(&store.type_ddl(t))?;
@@ -748,9 +744,7 @@ impl Store {
 
     /// Every object, as a request reads them.
     pub fn snapshot(&self) -> Stored<World<'_>> {
-        let mut world = snapshot(&self.conn, &self.lib, self.now)?;
-        world.sandbox = self.sandbox;
-        Ok(world)
+        snapshot(&self.conn, &self.lib, self.now)
     }
 
     /// Decide on a snapshot and write what the decision changed, in one
@@ -760,8 +754,7 @@ impl Store {
         decide: impl FnOnce(&World<'_>, &mut Allocator) -> Result<(T, Option<Change>), E>,
     ) -> Result<Result<T, E>, StoreError> {
         let tx = self.conn.transaction()?;
-        let mut world = snapshot(&tx, &self.lib, self.now)?;
-        world.sandbox = self.sandbox;
+        let world = snapshot(&tx, &self.lib, self.now)?;
         let mut alloc = Allocator::read(&tx)?;
         let decided = decide(&world, &mut alloc);
         match decided {
@@ -803,11 +796,6 @@ impl Store {
         expected_version: i64,
     ) -> Stored<Result<(Verdict, Option<PublishReport>), NotRun>> {
         let world = self.snapshot()?;
-        if !world.sandbox {
-            return Ok(Err(NotRun(
-                "the publish checks, which the core runs only in a sandbox (ADR-0155)".into(),
-            )));
-        }
         let refusal = |v: Verdict| Ok(Ok((v, None)));
         let unreachable = |clause: &str| Verdict::Unsatisfied {
             clause: clause.into(),

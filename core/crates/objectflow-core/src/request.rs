@@ -1601,11 +1601,6 @@ fn decide_change(
             payload = json!({ "source_ref": reference, "source_digest": digest });
         }
         "submit" | "refresh" => {
-            if !world.sandbox {
-                return stop_not_run(
-                    "the publish checks, which the core runs only in a sandbox, whose caller checks (ADR-0155)",
-                );
-            }
             let text = |a: &str| match o.attr(a) {
                 Value::Text(t) => t,
                 _ => String::new(),

@@ -31,7 +31,7 @@ type Decided<T> = Result<T, TooLarge>;
 
 /// An exact rational, as `fractions.Fraction`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct Rat {
+pub(super) struct Rat {
     n: i128,
     d: i128,
 }
@@ -56,7 +56,7 @@ impl Rat {
     }
 
     /// A decimal's text, as `Fraction(str)` reads it.
-    fn parse(text: &str) -> Option<Rat> {
+    pub(super) fn parse(text: &str) -> Option<Rat> {
         let t = text.trim();
         let (mantissa, exp) = match t.split_once(['e', 'E']) {
             Some((m, e)) => (m, e.parse::<i32>().ok()?),

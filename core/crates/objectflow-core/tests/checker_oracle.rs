@@ -71,10 +71,36 @@ const COVERED: &[&str] = &[
     "check 42",
     "check 43",
 ];
-/// In an examples file, its load, its shape, and what its setups and
-/// examples name, with the transitions no example requests (C4); running the
-/// examples follows.
-const COVERED_IN_EXAMPLES: &[&str] = &["yaml", "schema", "names", "order", "coverage"];
+/// In an examples file, its load, its shape, what its setups and examples
+/// name, with the transitions no example requests, and each example run (C4).
+const COVERED_IN_EXAMPLES: &[&str] = &[
+    "yaml", "schema", "names", "order", "coverage", "example", "notrun",
+];
+
+/// The codes compared without their messages: an example's failure, which
+/// the core's engine and the reference runner each explain in their own
+/// words, and what each does not yet run (ADR-0156 decision 4).
+const UNWORDED: &[&str] = &["example", "notrun"];
+
+/// What the core does not yet run, by the words its notice names it with:
+/// where an example reaches one, the core reports it not run and the
+/// reference runner decides it, and the oracle leaves that example's outcome
+/// uncompared (ADR-0156 decision 3). Each is a capability to build, not a
+/// difference to keep.
+const NOT_YET_RUN: &[&str] = &["it reaches a metric read in a guard,"];
+
+/// The examples, across every case, that reach what the core does not yet
+/// run: the three runner plants whose guards read a metric.
+const NOT_YET_RUN_EXAMPLES: usize = 22;
+
+/// A finding's message as the oracle compares it.
+fn worded(code: &str, message: &str) -> String {
+    if UNWORDED.contains(&code) {
+        String::new()
+    } else {
+        message.to_string()
+    }
+}
 
 fn covered(file: &str, code: &str) -> bool {
     if file.ends_with(".examples.yaml") {
@@ -100,6 +126,7 @@ fn the_core_finds_what_the_flow_checker_finds() {
     };
     let mut wrong = Vec::new();
     let mut compared = 0;
+    let mut allowed = 0;
     for case in &cases {
         let label = case["label"].as_str().unwrap_or_default();
         let files: Vec<(String, String)> = case["files"]
@@ -122,15 +149,26 @@ fn the_core_finds_what_the_flow_checker_finds() {
         // each finding by its file, line, severity, code and message, so
         // findings sharing a line are told apart and a message the core words
         // differently is a difference
+        let found = check(&files, &previous);
+        // the examples the core does not yet run, by file and line
+        let unrun: BTreeSet<(String, u64)> = found
+            .iter()
+            .filter(|f| f.code == "notrun" && NOT_YET_RUN.iter().any(|w| f.message.contains(w)))
+            .map(|f| (f.file.clone(), f.line as u64))
+            .collect();
+        let outcome = |code: &str| UNWORDED.contains(&code);
         let want: BTreeSet<(String, u64, String, String)> = case["findings"]
             .as_array()
             .expect("findings")
             .iter()
             .filter(|f| {
-                covered(
+                let (file, code) = (
                     f[0].as_str().unwrap_or_default(),
                     f[3].as_str().unwrap_or_default(),
-                )
+                );
+                covered(file, code)
+                    && !(outcome(code)
+                        && unrun.contains(&(file.to_string(), f[1].as_u64().unwrap_or_default())))
             })
             .map(|f| {
                 (
@@ -141,25 +179,28 @@ fn the_core_finds_what_the_flow_checker_finds() {
                         f[2].as_str().unwrap_or_default(),
                         f[3].as_str().unwrap_or_default()
                     ),
-                    f[4].as_str().unwrap_or_default().to_string(),
+                    worded(
+                        f[3].as_str().unwrap_or_default(),
+                        f[4].as_str().unwrap_or_default(),
+                    ),
                 )
             })
             .collect();
-        let got: BTreeSet<(String, u64, String, String)> = check(&files, &previous)
+        allowed += unrun.len();
+        let got: BTreeSet<(String, u64, String, String)> = found
             .into_iter()
-            .filter(|f| covered(&f.file, &f.code))
+            .filter(|f| {
+                covered(&f.file, &f.code)
+                    && !(outcome(&f.code) && unrun.contains(&(f.file.clone(), f.line as u64)))
+            })
             .map(|f| {
                 let sev = if f.severity == Severity::Fatal {
                     "fatal"
                 } else {
                     "notice"
                 };
-                (
-                    f.file,
-                    f.line as u64,
-                    format!("{sev} {}", f.code),
-                    f.message,
-                )
+                let message = worded(&f.code, &f.message);
+                (f.file, f.line as u64, format!("{sev} {}", f.code), message)
             })
             .collect();
         compared += want.len();
@@ -170,6 +211,12 @@ fn the_core_finds_what_the_flow_checker_finds() {
             wrong.push(format!("{label}: extra {k:?}"));
         }
     }
+    // how many examples the core does not yet run, fixed, so that one more
+    // or one fewer is a change someone made on purpose
+    assert_eq!(
+        allowed, NOT_YET_RUN_EXAMPLES,
+        "the examples the core does not yet run, across every case"
+    );
     assert!(
         wrong.is_empty(),
         "{} differences over {} cases ({compared} findings of the covered codes expected):\n{}",

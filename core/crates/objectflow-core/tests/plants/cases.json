@@ -4728,6 +4728,362 @@
   ]
  },
  {
+  "label": "inventory_plants: a refusal expected as another verdict",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "module.examples.yaml",
+    "dbf7ea4c9012dabb"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "module.examples.yaml",
+    26,
+    "fatal",
+    "example",
+    "a_job_is_not_given_to_an_engineer_who_left: expected unavailable, and it is refused as unsatisfied engineer_active self_serviceable"
+   ],
+   [
+    "module.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a cascade expected to reach fewer objects than it does",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "module.yaml",
+    "1841ab5c17e6f077"
+   ],
+   [
+    "module.examples.yaml",
+    "e2bec97312df04b2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "module.examples.yaml",
+    43,
+    "notice",
+    "coverage",
+    "no example requests 8 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+   ],
+   [
+    "module.examples.yaml",
+    66,
+    "fatal",
+    "example",
+    "cancelling_discards_the_open_checklist: expected the request to cause ['ChecklistItem.discard'], and it causes ['ChecklistItem.discard', 'ChecklistItem.discard']"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a rejected proposal expected withdrawn",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "module.yaml",
+    "1841ab5c17e6f077"
+   ],
+   [
+    "module.examples.yaml",
+    "5b56c6aacd450db9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "module.examples.yaml",
+    43,
+    "notice",
+    "coverage",
+    "no example requests 8 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+   ],
+   [
+    "module.examples.yaml",
+    105,
+    "fatal",
+    "example",
+    "a_rejected_proposal_is_not_approved: expected the proposal withdrawn, and it is rejected"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: an amount expected other than the one recorded",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "cd210742b23c0f68"
+   ],
+   [
+    "module.examples.yaml",
+    "a556b54147e4ae1a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    44,
+    "fatal",
+    "example",
+    "a_claim_is_filed_with_its_amount: expected amount to hold SGD 42.05, and it holds 85/2"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a start expected dated a day earlier than it is",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "module.examples.yaml",
+    "49712e0b30c03116"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "module.examples.yaml",
+    108,
+    "fatal",
+    "example",
+    "a_late_start_is_dated_when_it_happened: expected the request to record the occurred time now - 2 days, and it records 1767229200"
+   ],
+   [
+    "module.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a recorded time expected a day earlier than it is",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "module.examples.yaml",
+    "be5f2c63e8abbb76"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "module.examples.yaml",
+    138,
+    "fatal",
+    "example",
+    "an_inspection_is_dated_when_it_was_done: expected occurred_at to hold now - 3 days, and it holds 1767315600"
+   ],
+   [
+    "module.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a derived flag expected false of a job signed off",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "module.examples.yaml",
+    "b8c9548a1d50686f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "module.examples.yaml",
+    50,
+    "fatal",
+    "example",
+    "a_repeated_check_lets_the_job_finish: expected signed_off to hold False, and it holds True"
+   ],
+   [
+    "module.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a derived count expected of a job never handed off",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "module.examples.yaml",
+    "cb03cce0a37a04da"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "module.examples.yaml",
+    20,
+    "fatal",
+    "example",
+    "a_job_opens_for_an_active_engineer: expected handoffs to hold 1, and it holds 0"
+   ],
+   [
+    "module.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: an override expected to leave its object in another of its targets",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "03ff7e8dd386a6be"
+   ],
+   [
+    "module.examples.yaml",
+    "a90e25024c7b2357"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    18,
+    "notice",
+    "coverage",
+    "no example requests 13 transitions of customers: Contact.add, Contact.discard, Contact.forget, Customer.activate, Customer.add_contact, Customer.lapse, Customer.link_xero, Customer.merged_into, Customer.register, Order.cancel, Order.fulfil, Order.invoice, Order.place"
+   ],
+   [
+    "module.examples.yaml",
+    19,
+    "fatal",
+    "example",
+    "an_override_admits_what_it_breaks: expected the object in DORMANT, and it is in ACTIVE"
+   ]
+  ]
+ },
+ {
   "label": "inventory_plants: a wrong expectation in the approvals examples",
   "files": [
    [

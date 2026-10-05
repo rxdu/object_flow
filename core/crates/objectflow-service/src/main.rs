@@ -628,11 +628,6 @@ async fn publish(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     else {
         return Err(Fault::Missing(format!("no change {change}")));
     };
-    if !world.sandbox {
-        return Err(Fault::NotRun(
-            "the publish checks, outside a sandbox (ADR-0155)".to_string(),
-        ));
-    }
     let attr = |a: &str| match c.attr(a) {
         objectflow_core::value::Value::Text(t) => t,
         _ => String::new(),

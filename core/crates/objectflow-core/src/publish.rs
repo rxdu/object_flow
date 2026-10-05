@@ -169,17 +169,27 @@ pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRu
         source_digest: draft.source_digest.map(str::to_string),
         proposals_invalidated: 0,
     };
-    // step 1, the checks the core runs so far (ADR-0156 decision 5), each
-    // module against the installed version of it
+    // step 1, the checks and the examples (ADR-0156), each module against
+    // the installed version of it
     let previous: BTreeMap<String, String> = old.source.iter().cloned().collect();
     for f in crate::check::check(draft.source, &previous) {
         let severity = match f.severity {
             crate::check::Severity::Fatal => Severity::Fatal,
             crate::check::Severity::Notice => Severity::Notice,
         };
+        let (severity, code) = match f.code.as_str() {
+            // an example's failure by the name the design gives it (ADR-0136
+            // decision 5, publish-and-import.md §1 step 1)
+            "example" => (Severity::Fatal, "example_failed".to_string()),
+            // an example the core does not yet run has not passed, and
+            // nothing unchecked is installed (ADR-0155 decision 1, ADR-0156
+            // decision 3)
+            "notrun" => (Severity::Fatal, "example_not_run".to_string()),
+            other => (severity, format!("check:{other}")),
+        };
         found.add(
             severity,
-            format!("check:{}", f.code),
+            code,
             format!("{}:{}: {}", f.file, f.line, f.message),
             None,
         );
@@ -1117,6 +1127,97 @@ types:
     }
 
     #[test]
+    fn a_dry_run_runs_the_examples_and_refuses_one_that_fails() {
+        let (mut s, _, _, _) = fleet();
+        let text = v2(true, true, true);
+        let change = draft(&mut s, &text);
+        let examples = |verdict: &str| {
+            format!(
+                "examples_for: fleet\nexamples:\n  a_graded_robot_is_retired:\n    description: A graded robot is retired.\n    \
+                 steps:\n      - request: {{ type: Robot, transition: add, as: r, inputs: {{ serial: R1, site: north, grade: Grade.A }} }}\n    \
+                 request: {{ object: r, transition: retire }}\n    expect: {verdict}\n"
+            )
+        };
+        let with = |ex: &str| {
+            let w = s.snapshot().unwrap();
+            dry_run(
+                &w,
+                &Draft {
+                    change_id: Some(&change),
+                    source: &[
+                        ("fleet".to_string(), text.clone()),
+                        ("fleet.examples".to_string(), ex.to_string()),
+                    ],
+                    source_ref: Some("git:fleet@1"),
+                    source_digest: None,
+                    actor: OPERATOR,
+                },
+            )
+            .unwrap()
+        };
+        let r = with(&examples("{ verdict: applied, state: RETIRED }"));
+        assert!(
+            r.findings.iter().all(|f| f.code != "example_failed"),
+            "{:#?}",
+            r.findings
+        );
+        assert!(r.accepted, "{:#?}", r.findings);
+        let r = with(&examples(
+            "{ verdict: unsatisfied, clause: graded, remedy: self_serviceable }",
+        ));
+        let failed = r
+            .findings
+            .iter()
+            .find(|f| f.code == "example_failed")
+            .expect("the example's failure");
+        assert_eq!(failed.severity, Severity::Fatal);
+        assert!(
+            failed.message.contains("a_graded_robot_is_retired: "),
+            "{}",
+            failed.message
+        );
+        assert!(r.fatal() && !r.accepted);
+        // an example reaching what the core does not yet run refuses the
+        // publish, which cannot say it passed
+        let metered = text
+            .replace(
+                "migration:\n",
+                "    metrics:\n      time_ready: { description: Median time robots spend ready., measure: median_time_in_state, state: READY }\nmigration:\n",
+            )
+            .replace(
+                "remedy: self_serviceable }\n",
+                "remedy: self_serviceable }\n      settled: { description: Robots settle quickly., expression: \"metric(time_ready) < 30 days\", remedy: dependent }\n",
+            )
+            .replace("guards: { graded: deny }", "guards: { graded: deny, settled: deny }");
+        assert!(metered.contains("metric(time_ready)") && metered.contains("settled: deny"));
+        let w = s.snapshot().unwrap();
+        let r = dry_run(
+            &w,
+            &Draft {
+                change_id: Some(&change),
+                source: &[
+                    ("fleet".to_string(), metered),
+                    (
+                        "fleet.examples".to_string(),
+                        examples("{ verdict: applied, state: RETIRED }"),
+                    ),
+                ],
+                source_ref: Some("git:fleet@1"),
+                source_digest: None,
+                actor: OPERATOR,
+            },
+        )
+        .unwrap();
+        let unrun = r
+            .findings
+            .iter()
+            .find(|f| f.code == "example_not_run")
+            .unwrap_or_else(|| panic!("{:#?}", r.findings));
+        assert_eq!(unrun.severity, Severity::Fatal);
+        assert!(r.fatal() && !r.accepted);
+    }
+
+    #[test]
     fn what_no_mapping_covers_is_fatal_and_an_unadmitted_violation_a_decision() {
         let (mut s, [_, held, bare], _, _) = fleet();
         let text = v2(false, false, false);
@@ -1197,9 +1298,9 @@ types:
                 state: "REJECTED".into()
             }
         );
-        // outside a sandbox, the dry run waits for the core's own checks
+        // a submit is decided by the core's own checks, in any store
+        // (ADR-0156 decision 5)
         let other = draft(&mut s, &text);
-        s.sandbox = false;
         let r = Request {
             transition: "submit".into(),
             actor: OPERATOR.into(),
@@ -1210,13 +1311,10 @@ types:
             propose: false,
             expires_at: None,
         };
-        assert!(
-            request(&mut s, &r)
-                .unwrap()
-                .unwrap_err()
-                .0
-                .contains("publish checks")
-        );
+        assert!(matches!(
+            request(&mut s, &r).unwrap().unwrap(),
+            Verdict::Satisfied { .. }
+        ));
     }
 
     fn approve(s: &mut Store, change: &str, version: i64) -> (Verdict, Option<PublishReport>) {

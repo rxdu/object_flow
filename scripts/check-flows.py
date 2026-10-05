@@ -4332,6 +4332,32 @@ def inventory_plants(people):
          "      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier } }\n\n  an_approved",
          "      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier }, creates: [slip] }\n\n  an_approved"),
     ]
+    # each way an expectation can be wrong that the plants above leave unreached, each refused by the runner
+    service, sex = (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text()
+    customers, cex = (EXAMPLES / "customers.yaml").read_text(), (EXAMPLES / "customers.examples.yaml").read_text()
+    approvals, aex = (EXAMPLES / "approvals.yaml").read_text(), (EXAMPLES / "approvals.examples.yaml").read_text()
+    plants += [
+        ("a refusal expected as another verdict", "example", service, sex,
+         "    expect: { verdict: unsatisfied, clause: engineer_active, remedy: self_serviceable }", "    expect: { verdict: unavailable }"),
+        ("a cascade expected to reach fewer objects than it does", "example", delivery, dex,
+         "cascaded: [ChecklistItem.discard, ChecklistItem.discard] }", "cascaded: [ChecklistItem.discard] }"),
+        ("a rejected proposal expected withdrawn", "example", delivery, dex,
+         "    expect: { verdict: unavailable, proposal: rejected }", "    expect: { verdict: unavailable, proposal: withdrawn }"),
+        ("an amount expected other than the one recorded", "example", approvals, aex,
+         "values: { amount: SGD 42.50 } }", "values: { amount: SGD 42.05 } }"),
+        ("a start expected dated a day earlier than it is", "example", service, sex,
+         "state: WORKING, occurred_at: now - 1 day }", "state: WORKING, occurred_at: now - 2 days }"),
+        ("a recorded time expected a day earlier than it is", "example", service, sex,
+         "values: { occurred_at: now - 2 days } }", "values: { occurred_at: now - 3 days } }"),
+        ("a derived flag expected false of a job signed off", "example", service, sex,
+         "values: { signed_off_by_user: ana } }", "values: { signed_off_by_user: ana, signed_off: false } }"),
+        ("a derived count expected of a job never handed off", "example", service, sex,
+         "inputs: { engineer: ana } }\n    expect: { verdict: applied, state: OPEN }",
+         "inputs: { engineer: ana } }\n    expect: { verdict: applied, state: OPEN, values: { handoffs: 1 } }"),
+        ("an override expected to leave its object in another of its targets", "example", customers, cex,
+         "admits: [active_invariant] }\n    expect: { verdict: applied, state: ACTIVE }",
+         "admits: [active_invariant] }\n    expect: { verdict: applied, state: DORMANT }"),
+    ]
     # one planted mistake in each of the other examples files, each refused by the runner
     for mod, old, new in [("approvals", "values: { receipt: taxi.pdf } }", "values: { receipt: other.pdf } }"),
                           ("issues", "expect: { verdict: applied, state: IN_PROGRESS, warned: [not_blocked] }",

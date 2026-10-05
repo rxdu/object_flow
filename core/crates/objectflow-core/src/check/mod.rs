@@ -22,6 +22,7 @@ mod names;
 mod notices;
 mod optional;
 mod raw;
+mod run;
 pub mod schema;
 mod steps;
 mod view;
@@ -420,6 +421,57 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
                         code: code.to_string(),
                         message,
                     });
+                }
+            }
+        }
+    }
+    // step 6, each example run by the core against the modules checked,
+    // once nothing before it is fatal (flow-format.md §11.5, ADR-0156
+    // decision 3)
+    if all_parsed
+        && !examples_files.is_empty()
+        && !found.iter().any(|f| f.severity == Severity::Fatal)
+    {
+        let lib = crate::model::Library::load(files);
+        for (file, node, doc) in &examples_files {
+            let ran = match &lib {
+                Ok(lib) => run::run_examples(lib, doc),
+                Err(e) => doc::obj(doc, "examples")
+                    .keys()
+                    .map(|n| {
+                        (
+                            n.clone(),
+                            run::Outcome::NotRun(format!(
+                                "the modules, which the core cannot load: {}:{}: {}",
+                                e.file, e.line, e.message
+                            )),
+                        )
+                    })
+                    .collect(),
+            };
+            for (name, outcome) in ran {
+                let line = node.line_at(&[
+                    crate::yaml::Seg::Key("examples".into()),
+                    crate::yaml::Seg::Key(name.clone()),
+                ]);
+                match outcome {
+                    run::Outcome::Passed => {}
+                    run::Outcome::Failed(why) => found.push(Finding {
+                        file: file.clone(),
+                        line,
+                        severity: Severity::Fatal,
+                        code: "example".into(),
+                        message: format!("{name}: {why}"),
+                    }),
+                    run::Outcome::NotRun(what) => found.push(Finding {
+                        file: file.clone(),
+                        line,
+                        severity: Severity::Notice,
+                        code: "notrun".into(),
+                        message: format!(
+                            "{name} is not run: it reaches {what}, which the core does not yet run"
+                        ),
+                    }),
                 }
             }
         }
