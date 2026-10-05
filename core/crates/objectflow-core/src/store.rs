@@ -276,7 +276,14 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
 
 /// A span a publish opens on a member it newly tracks, holding its current
 /// value, marked migrated (ADR-0146).
-fn opened(o: &Object, dimension: &str, position: i64, now: i64, who: &crate::eval::Who) -> Span {
+fn opened(
+    o: &Object,
+    dimension: &str,
+    position: i64,
+    now: i64,
+    who: &crate::eval::Who,
+    version: i64,
+) -> Span {
     Span {
         value: if dimension == "state" {
             Value::State {
@@ -293,6 +300,7 @@ fn opened(o: &Object, dimension: &str, position: i64, now: i64, who: &crate::eva
         entered_by: Some(who.id.clone()),
         entered_by_kind: who.kind.clone(),
         migrated: true,
+        declaration_version: version,
     }
 }
 
@@ -309,6 +317,7 @@ fn event_of(
     who: &crate::eval::Who,
     source: &str,
     declaration_version: i64,
+    opened_under: i64,
     payload: serde_json::Value,
 ) -> Event {
     if let Some(before) = before {
@@ -340,6 +349,7 @@ fn event_of(
                 entered_by: Some(who.id.clone()),
                 entered_by_kind: who.kind.clone(),
                 migrated: source == "migrated",
+                declaration_version: opened_under,
             });
         }
     }
@@ -368,7 +378,7 @@ fn upsert_span(tx: &Transaction<'_>, id: &str, dimension: &str, sp: &Span) -> St
     tx.execute(
         "INSERT INTO of_interval (object_id, dimension, value, entered_position, left_position, \
          entered_at, left_at, entered_by, entered_by_kind, declaration_version, migrated) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?11, ?10) \
          ON CONFLICT (object_id, dimension, entered_position, entered_at) DO UPDATE SET \
          value = excluded.value, left_position = excluded.left_position, left_at = excluded.left_at",
         params![
@@ -382,6 +392,7 @@ fn upsert_span(tx: &Transaction<'_>, id: &str, dimension: &str, sp: &Span) -> St
             sp.entered_by,
             sp.entered_by_kind,
             i64::from(sp.migrated),
+            sp.declaration_version,
         ],
     )?;
     Ok(())
@@ -1037,6 +1048,7 @@ impl Store {
             who,
             "observed",
             new.version,
+            new.version,
             serde_json::json!({ "version": new.version }),
         );
         let mut change_set = Change::default();
@@ -1130,7 +1142,7 @@ impl Store {
                     } else {
                         publish_position
                     };
-                    let sp = opened(&x, d, at, now, who);
+                    let sp = opened(&x, d, at, now, who, new.version);
                     x.spans.entry(d.clone()).or_default().push(sp.clone());
                     if !migrates || at == publish_position {
                         extra.push((d.clone(), sp));
@@ -1158,6 +1170,7 @@ impl Store {
                     who,
                     "migrated",
                     old.version,
+                    new.version,
                     serde_json::json!({ "mappings": codes, "admits": admits.iter().map(|(n, _)| n).collect::<Vec<_>>() }),
                 );
                 change_set.writes.push((x.clone(), false, event));
@@ -1211,6 +1224,7 @@ impl Store {
                     who,
                     "erased",
                     new.version,
+                    new.version,
                     serde_json::json!({ "redacted": newly }),
                 );
                 change_set.redacted.push((x.id.clone(), newly));
@@ -1247,6 +1261,7 @@ impl Store {
                     now,
                     who,
                     "observed",
+                    new.version,
                     new.version,
                     serde_json::json!({ "by": change.id }),
                 );
@@ -1611,6 +1626,15 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
             o.erased = true;
         }
     }
+    // the log, and the events that recorded an admission
+    let mut log = conn.prepare(&format!("{EVENT_SELECT} ORDER BY position"))?;
+    let rows = log.query_map([], event_row)?;
+    world.events = rows.collect::<Result<Vec<_>, _>>()?;
+    let mut admitting = conn.prepare("SELECT DISTINCT position FROM of_admission")?;
+    let rows = admitting.query_map([], |r| r.get::<_, i64>(0))?;
+    for row in rows {
+        world.admitting.insert(row?);
+    }
     // the admissions that stand
     let mut standing = conn.prepare(
         "SELECT object_id, invariant FROM of_admission WHERE discharged_position IS NULL",
@@ -1630,7 +1654,8 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
 fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> {
     let mut stmt = conn.prepare(
         "SELECT object_id, dimension, value, entered_position, left_position, entered_at, left_at, \
-         entered_by, entered_by_kind, migrated FROM of_interval ORDER BY object_id, dimension, entered_position, entered_at",
+         entered_by, entered_by_kind, migrated, declaration_version FROM of_interval \
+         ORDER BY object_id, dimension, entered_position, entered_at",
     )?;
     let rows = stmt.query_map([], |r| {
         Ok((
@@ -1644,6 +1669,7 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
             r.get::<_, Option<String>>(7)?,
             r.get::<_, String>(8)?,
             r.get::<_, i64>(9)? != 0,
+            r.get::<_, i64>(10)?,
         ))
     })?;
     for row in rows {
@@ -1658,6 +1684,7 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
             by,
             kind,
             migrated,
+            declaration_version,
         ) = row?;
         let Some(o) = world.objects.get_mut(&id) else {
             return Err(StoreError(format!(
@@ -1692,6 +1719,7 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
             entered_by: by,
             entered_by_kind: kind,
             migrated,
+            declaration_version,
         };
         o.spans.entry(dimension).or_default().push(span);
     }

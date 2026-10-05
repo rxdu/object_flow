@@ -1201,17 +1201,14 @@ types:
         assert!(r.fatal() && !r.accepted);
         // an example reaching what the core does not yet run refuses the
         // publish, which cannot say it passed
+        // a guard reading the attempt log, which the core does not keep
         let metered = text
             .replace(
-                "migration:\n",
-                "    metrics:\n      time_ready: { description: Median time robots spend ready., measure: median_time_in_state, state: READY }\nmigration:\n",
-            )
-            .replace(
                 "remedy: self_serviceable }\n",
-                "remedy: self_serviceable }\n      settled: { description: Robots settle quickly., expression: \"metric(time_ready) < 30 days\", remedy: dependent }\n",
+                "remedy: self_serviceable }\n      settled: { description: Robots are seldom refused., expression: \"metric(Robot.refusals) < 3\", remedy: dependent }\n",
             )
             .replace("guards: { graded: deny }", "guards: { graded: deny, settled: deny }");
-        assert!(metered.contains("metric(time_ready)") && metered.contains("settled: deny"));
+        assert!(metered.contains("metric(Robot.refusals)") && metered.contains("settled: deny"));
         let w = s.snapshot().unwrap();
         let r = dry_run(
             &w,

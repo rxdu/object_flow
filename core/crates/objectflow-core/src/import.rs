@@ -885,6 +885,7 @@ fn open_spans(
                 .and_then(|e| e.by_kind.clone())
                 .unwrap_or_else(|| "unknown".into()),
             migrated: false,
+            declaration_version: lib.version,
         });
     }
     None

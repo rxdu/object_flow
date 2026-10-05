@@ -83,6 +83,9 @@ pub struct Evaluator<'a> {
     /// Whether an evaluator it asked did not answer, which makes a refusing
     /// guard's remedy temporal (ADR-0138).
     pub unanswered: std::cell::Cell<bool>,
+    /// The store as the request found it, which a metric guard reads
+    /// (ADR-0084 §6); none where it is the world itself.
+    committed: Option<&'a World<'a>>,
 }
 
 /// The truth of a value, three-valued: `None` for unknown.
@@ -115,7 +118,15 @@ impl<'a> Evaluator<'a> {
             event: None,
             answers: None,
             unanswered: std::cell::Cell::new(false),
+            committed: None,
         }
+    }
+
+    /// The store as the request found it, which a metric guard reads while
+    /// the request's working copy changes (ADR-0084 §6).
+    pub fn with_committed(mut self, committed: &'a World<'a>) -> Evaluator<'a> {
+        self.committed = Some(committed);
+        self
     }
 
     pub fn with_answers(mut self, answers: &'a BTreeMap<String, String>) -> Evaluator<'a> {
@@ -282,7 +293,12 @@ impl<'a> Evaluator<'a> {
                     }
                 })
             }
-            Expr::Metric { .. } => return not_run("a metric read in a guard"),
+            Expr::Metric {
+                name,
+                binds,
+                over,
+                fresh: _,
+            } => Term::Value(self.metric(name, binds, over.as_deref(), env)?),
         })
     }
 
@@ -416,14 +432,22 @@ impl<'a> Evaluator<'a> {
             "created_at" => Value::Timestamp(o.created_at),
             "recorded_from" => Value::Timestamp(o.recorded_from),
             "created_by_kind" | "recorded_by_kind" => Value::Text(o.created_by_kind.clone()),
-            "declaration_version" => Value::Int(1),
+            "declaration_version" => Value::Int(self.world.version_of(&o.id)),
             "open" => Value::Bool(!t.finished(&o.state)),
             "actor_id" => match t.actor_identity() {
                 Some((attr, _)) => o.attr(attr),
                 None => Value::Absent,
             },
             "intervals" => self.intervals(o, t, "state")?,
-            "transitions" | "attempts" | "labels" => {
+            "transitions" => Value::Set(
+                self.world
+                    .events
+                    .iter()
+                    .filter(|e| e.object_id == o.id)
+                    .map(|e| transition_row(self.world, o, t, e))
+                    .collect(),
+            ),
+            "attempts" | "labels" => {
                 return not_run(format!("an object's `{m}`, its flow data"));
             }
             _ => {
@@ -687,9 +711,18 @@ impl<'a> Evaluator<'a> {
                             other => not_run(format!("`{member}` of {other:?}")),
                         }
                     }
-                    ("held", [Expr::Name(_)]) => {
-                        not_run("a row's `held`, the values held as it began")
-                    }
+                    // the value a tracked member held as a row began
+                    // (declaration-syntax.md §6.9)
+                    ("held", [Expr::Name(m)]) => match self.value(base, env)? {
+                        Value::Absent => Ok(Value::Absent),
+                        Value::Row(fields) => Ok(match fields.get("held") {
+                            Some(Value::Row(held)) => {
+                                held.get(m.as_str()).cloned().unwrap_or(Value::Absent)
+                            }
+                            _ => Value::Absent,
+                        }),
+                        other => not_run(format!("`held` of {other:?}")),
+                    },
                     _ => not_run(format!("the member function `{member}`")),
                 };
             }
@@ -712,6 +745,15 @@ impl<'a> Evaluator<'a> {
                 Some(id) => self.flow_function(id, name, arg),
                 None => Ok(Value::Absent),
             },
+            // a time's UTC calendar bucket, which a metric groups by (§6.9)
+            ("day" | "week" | "month" | "quarter" | "year", [a]) => {
+                Ok(match self.value(a, env)? {
+                    Value::Absent => Value::Absent,
+                    Value::Timestamp(t) => Value::Text(bucket(name, t)),
+                    Value::Date(d) => Value::Text(bucket(name, d.saturating_mul(86_400))),
+                    other => return not_run(format!("the {name} of {other:?}")),
+                })
+            }
             _ => not_run(format!("the function `{name}`")),
         }
     }
@@ -816,22 +858,84 @@ impl<'a> Evaluator<'a> {
     /// An object's spans in each state, or each value of a tracked member, as
     /// rows (§6.9).
     fn intervals(&self, o: &Object, t: &Type, member: &str) -> Result<Value, NotRun> {
+        interval_rows(self.world, o, t, member).map(Value::Set)
+    }
+
+    /// A metric read, as a guard reads it: the dimensions it binds, each
+    /// resolved against the store as the request found it and again in the
+    /// request, which differ only where the request wrote what the argument
+    /// reads, and the metric read from the store as the request found it
+    /// (`declaration-syntax.md` §6.9, ADR-0084 §6, ADR-0139). `fresh` holds by
+    /// construction, since the value is computed as the request is decided.
+    fn metric(
+        &self,
+        name: &Expr,
+        binds: &[(String, Expr)],
+        over: Option<&Expr>,
+        env: &BTreeMap<String, Value>,
+    ) -> Result<Value, NotRun> {
+        let committed = self.committed.unwrap_or(self.world);
+        let found = crate::metric::find(
+            committed.lib,
+            name,
+            self.type_.map(|t| t.name.as_str()),
+            None,
+        )?;
+        let separate = !std::ptr::eq(committed, self.world);
+        let mut bound = BTreeMap::new();
+        for (d, x) in binds {
+            let v = self.value(x, env)?;
+            if separate {
+                if self.this.is_some_and(|id| committed.get(id).is_none()) {
+                    return not_run(
+                        "a metric guard of an object the request itself creates, whose arguments no consultation before it can resolve",
+                    );
+                }
+                let mut before = Evaluator::new(committed, self.type_, self.this);
+                before.inputs = self.inputs;
+                before.actor = self.actor;
+                before.answers = self.answers;
+                if before.value(x, env)? != v {
+                    return not_run(
+                        "a metric guard's argument the request itself writes, which check 61 refuses at publish",
+                    );
+                }
+            }
+            // a dimension bound to an unknown value leaves the metric
+            // unknown (ADR-0139)
+            if v.is_absent() {
+                return Ok(Value::Absent);
+            }
+            bound.insert(d.clone(), v);
+        }
+        let window = match over {
+            None => None,
+            Some(o) => match self.value(o, env)? {
+                Value::Duration(s) => Some(s),
+                other => return not_run(format!("a window of {other:?}")),
+            },
+        };
+        crate::metric::read(committed, self.answers, &found, &bound, window)
+    }
+}
+
+/// An object's spans in each state, or each value of a tracked member, as
+/// rows (§6.9).
+pub(crate) fn interval_rows(
+    world: &World<'_>,
+    o: &Object,
+    t: &Type,
+    member: &str,
+) -> Result<Vec<Value>, NotRun> {
+    {
         let Some(spans) = o.spans.get(member) else {
             return not_run(format!(
                 "the intervals of {}.{member}, which is not tracked",
                 o.type_
             ));
         };
-        let now = self.world.now;
-        // the stretches it spent in a closed or terminal state
-        let closed: Vec<(i64, i64)> = o
-            .spans
-            .get("state")
-            .into_iter()
-            .flatten()
-            .filter(|sp| matches!(&sp.value, Value::State { name, .. } if t.finished(name)))
-            .map(|sp| (sp.entered_at, sp.left_at.unwrap_or(now)))
-            .collect();
+        let now = world.now;
+        let closed = closed_periods(o, t, now);
         let rows = spans
             .iter()
             .map(|sp| {
@@ -850,19 +954,30 @@ impl<'a> Evaluator<'a> {
                     "entered_by_kind".to_string(),
                     Value::Text(sp.entered_by_kind.clone()),
                 );
-                row.insert("declaration_version".to_string(), Value::Int(1));
+                row.insert(
+                    "declaration_version".to_string(),
+                    Value::Int(sp.declaration_version),
+                );
                 row.insert("legacy".to_string(), Value::Bool(false));
-                row.insert("migrated".to_string(), Value::Bool(false));
+                row.insert("migrated".to_string(), Value::Bool(sp.migrated));
                 row.insert(
                     "duration".to_string(),
                     span_duration(t, o, member, sp, &closed, now),
                 );
+                // the values held when it began, after the writes of the
+                // transition that began it (§6.9, ADR-0146)
+                row.insert(
+                    "held".to_string(),
+                    held(world.lib, t, o, sp.entered_position, true),
+                );
                 Value::Row(row)
             })
             .collect();
-        Ok(Value::Set(rows))
+        Ok(rows)
     }
+}
 
+impl Evaluator<'_> {
     /// An evaluator's verdict, as the store's evaluators answer it: asked
     /// nothing where an argument is absent, the guard then unknown with its
     /// own remedy (ADR-0146); `unanswered` leaves it unknown and temporal
@@ -1072,6 +1187,163 @@ pub fn combine(op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
         }
         _ => return not_run(format!("{a:?} {} {b:?}", op.text())),
     })
+}
+
+/// The stretches, by occurred time, an object spent in a closed or terminal
+/// state.
+pub(crate) fn closed_periods(o: &Object, t: &Type, now: i64) -> Vec<(i64, i64)> {
+    o.spans
+        .get("state")
+        .into_iter()
+        .flatten()
+        .filter(|sp| matches!(&sp.value, Value::State { name, .. } if t.finished(name)))
+        .map(|sp| (sp.entered_at, sp.left_at.unwrap_or(now)))
+        .collect()
+}
+
+/// The value each tracked member held at an event's position: after its
+/// writes on a span it began, before them on the event's own row, read from
+/// the interval index (`declaration-syntax.md` §6.9, ADR-0146). A member no
+/// span covers there is absent, as on a creation's row.
+pub(crate) fn held(
+    lib: &crate::model::Library,
+    t: &Type,
+    o: &Object,
+    position: i64,
+    after: bool,
+) -> Value {
+    let mut out = BTreeMap::new();
+    for m in lib.tracked(t) {
+        let covering = o.spans.get(&m).into_iter().flatten().find(|sp| {
+            if after {
+                sp.entered_position <= position && sp.left_position.is_none_or(|l| l > position)
+            } else {
+                sp.entered_position < position && sp.left_position.is_none_or(|l| l >= position)
+            }
+        });
+        if let Some(sp) = covering {
+            out.insert(m, sp.value.clone());
+        }
+    }
+    Value::Row(out)
+}
+
+/// An event as a row of `transitions` (`declaration-syntax.md` §6.9): what
+/// it records, and what the declaration and the index say of it.
+pub(crate) fn transition_row(
+    world: &World<'_>,
+    o: &Object,
+    t: &Type,
+    e: &crate::store::Event,
+) -> Value {
+    let state = |name: &str| Value::State {
+        type_: o.type_.clone(),
+        name: name.to_string(),
+    };
+    let open = |name: &str| !t.finished(name);
+    // a transition into a state the object held before, read over every
+    // span the index held when it was recorded (§6.9, ADR-0147)
+    let visited = o
+        .spans
+        .get("state")
+        .into_iter()
+        .flatten()
+        .filter(|sp| sp.entered_position < e.position)
+        .any(|sp| matches!(&sp.value, Value::State { name, .. } if *name == e.to_state));
+    let from = e.from_state.as_deref();
+    let asserted = e.source == "asserted";
+    let erased = e.source == "erased";
+    // an assertion's reason input, its declared enumeration's member; an
+    // erasure's the fixed value `erasure` (§6.9)
+    let reason = if erased {
+        Value::Text("erasure".into())
+    } else if asserted && !e.imported {
+        match e.payload["inputs"]["reason"].as_str() {
+            Some(member) => match t
+                .transition(&e.transition)
+                .and_then(|x| x.inputs.iter().find(|(n, _)| n == "reason"))
+                .map(|(_, i)| &i.declared)
+            {
+                Some(Declared::Scalar(enumeration))
+                    if world
+                        .lib
+                        .enumerations
+                        .get(enumeration)
+                        .is_some_and(|ms| ms.iter().any(|m| m == member)) =>
+                {
+                    Value::Member {
+                        enumeration: enumeration.clone(),
+                        member: member.to_string(),
+                    }
+                }
+                _ => Value::Text(member.to_string()),
+            },
+            None => Value::Absent,
+        }
+    } else {
+        Value::Absent
+    };
+    let mut row = BTreeMap::new();
+    row.insert("object".to_string(), Value::Object(o.id.clone()));
+    row.insert("transition".to_string(), Value::Text(e.transition.clone()));
+    row.insert("from_state".to_string(), from.map_or(Value::Absent, state));
+    row.insert("to_state".to_string(), state(&e.to_state));
+    row.insert(
+        "completes".to_string(),
+        Value::Bool(from.is_some_and(|f| open(f) && !open(&e.to_state))),
+    );
+    row.insert(
+        "returns".to_string(),
+        Value::Bool(from.is_some_and(|f| f != e.to_state) && visited),
+    );
+    row.insert(
+        "occurred_at".to_string(),
+        Value::Timestamp(e.occurred_at.unwrap_or(e.recorded_at)),
+    );
+    row.insert("recorded_at".to_string(), Value::Timestamp(e.recorded_at));
+    row.insert("actor_id".to_string(), Value::Text(e.actor_id.clone()));
+    row.insert("actor_kind".to_string(), Value::Text(e.actor_kind.clone()));
+    row.insert("asserted".to_string(), Value::Bool(asserted));
+    // an assertion's event, and any that recorded an admission (§6.9)
+    row.insert(
+        "overrides".to_string(),
+        Value::Bool((asserted && !e.imported) || world.admitting.contains(&e.position)),
+    );
+    row.insert("imported".to_string(), Value::Bool(e.imported));
+    row.insert("migrated".to_string(), Value::Bool(e.source == "migrated"));
+    row.insert(
+        "redacted".to_string(),
+        Value::Bool(e.transition == "redact"),
+    );
+    row.insert("reason".to_string(), reason);
+    row.insert(
+        "declaration_version".to_string(),
+        Value::Int(e.declaration_version),
+    );
+    row.insert("held".to_string(), held(world.lib, t, o, e.position, false));
+    Value::Row(row)
+}
+
+/// A time's UTC calendar bucket, as a metric's dimension writes it:
+/// `YYYY-MM-DD`, the ISO 8601 week `YYYY-Www` that begins on Monday,
+/// `YYYY-MM`, `YYYY-Qn` or `YYYY` (`declaration-syntax.md` §6.9, ADR-0106).
+pub(crate) fn bucket(unit: &str, seconds: i64) -> String {
+    let days = seconds.div_euclid(86_400);
+    let (y, m, d) = crate::value::civil_from_days(days);
+    match unit {
+        "day" => format!("{y:04}-{m:02}-{d:02}"),
+        "week" => {
+            // the week's Thursday names its ISO year
+            let weekday = (days + 3).rem_euclid(7);
+            let thursday = days - weekday + 3;
+            let (year, _, _) = crate::value::civil_from_days(thursday);
+            let week = (thursday - crate::value::days_from_civil(year, 1, 1)) / 7 + 1;
+            format!("{year:04}-W{week:02}")
+        }
+        "month" => format!("{y:04}-{m:02}"),
+        "quarter" => format!("{y:04}-Q{}", (m - 1) / 3 + 1),
+        _ => format!("{y:04}"),
+    }
 }
 
 /// A span's duration. A state's span is its exit less its entry, a current

@@ -550,6 +550,7 @@ fn take(
         }
         if let Some(d) = &spec.default {
             let v = Evaluator::new(&ctx.work, Some(t), oid.as_deref())
+                .with_committed(&ctx.before)
                 .with_inputs(&inputs)
                 .with_actor(&ctx.who)
                 .eval(d)?;
@@ -771,6 +772,7 @@ fn take(
             return stop_not_run(format!("the guard {g}, which {tn} does not declare"));
         };
         let asking = Evaluator::new(&ctx.work, Some(t), oid.as_deref())
+            .with_committed(&ctx.before)
             .with_inputs(&inputs)
             .with_actor(&ctx.who)
             .with_answers(&ctx.answers);
@@ -859,6 +861,7 @@ fn take(
             for (a, spec) in &t.attributes {
                 if let Some(d) = &spec.default {
                     let v = Evaluator::new(&ctx.work, Some(t), Some(&id))
+                        .with_committed(&ctx.before)
                         .with_inputs(&inputs)
                         .with_actor(&ctx.who)
                         .eval(d)?;
@@ -1062,6 +1065,7 @@ fn take(
             json!({ "inputs": written })
         },
     };
+    ctx.work.events.push(event.clone());
     ctx.events.push(event);
     Ok(id)
 }
@@ -1134,6 +1138,7 @@ fn record_spans(
             entered_by: Some(who.id.clone()),
             entered_by_kind: who.kind.clone(),
             migrated: false,
+            declaration_version: lib.version,
         });
     }
     true
@@ -1175,7 +1180,7 @@ fn invalidate_proposals(
         p.attrs.insert("inputs".into(), Value::Text("{}".into()));
         record_spans(lib, pt, &mut p, Some(&before), position, ctx.at, &ctx.who);
         p.version += 1;
-        ctx.events.push(Event {
+        let invalidated = Event {
             position,
             object_id: id.clone(),
             object_seq: p.version,
@@ -1191,7 +1196,9 @@ fn invalidate_proposals(
             occurred_at: Some(ctx.at),
             imported: false,
             payload: json!({ "redacted": ["inputs"] }),
-        });
+        };
+        ctx.work.events.push(invalidated.clone());
+        ctx.events.push(invalidated);
         // the inputs leave the proposal's own creation event too
         ctx.erased.entry(id.clone()).or_default().extend(names);
         ctx.work.objects.insert(id, p);
@@ -2019,6 +2026,7 @@ fn effect_value(
     filtering: bool,
 ) -> Result<Value, NotRun> {
     let ev = Evaluator::new(&ctx.work, Some(t), Some(id))
+        .with_committed(&ctx.before)
         .with_inputs(inputs)
         .with_actor(&ctx.who)
         .with_answers(&ctx.answers)
@@ -2297,6 +2305,7 @@ fn cascades(
                 continue;
             }
             let parts = Evaluator::new(&ctx.work, Some(t), Some(id))
+                .with_committed(&ctx.before)
                 .with_inputs(inputs)
                 .with_actor(&ctx.who)
                 .eval(&Expr::Name(an.clone()))?;
@@ -2345,6 +2354,7 @@ fn cascades(
                 let mut values = BTreeMap::new();
                 for (k, e) in &clause.inputs {
                     let v = Evaluator::new(&ctx.work, Some(t), Some(id))
+                        .with_committed(&ctx.before)
                         .with_inputs(inputs)
                         .with_actor(&ctx.who)
                         .eval(e)?;

@@ -2,9 +2,10 @@
 //! request's transaction, which the evaluator reads and the request changes
 //! before writing what changed back (`DESIGN.md` §6).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::model::Library;
+use crate::store::Event;
 use crate::value::Value;
 
 /// One object, as its type's row and the directory hold it.
@@ -60,6 +61,10 @@ pub struct Span {
     /// Opened by a publish's migration, for a member newly tracked
     /// (ADR-0146, `of_interval.migrated`).
     pub migrated: bool,
+    /// The version it was entered under: the one installed when the change
+    /// was recorded, and a publish's new one for a span the publish opened
+    /// (`declaration-syntax.md` §6.9, `of_interval.declaration_version`).
+    pub declaration_version: i64,
 }
 
 impl Object {
@@ -77,6 +82,12 @@ pub struct World<'l> {
     /// Each external identifier, by source and value, and the object that
     /// holds it, a legacy key among them (`storage-schema.md`, `of_external_id`).
     pub external: BTreeMap<(String, String), String>,
+    /// The log, in position order: every event recorded, which a metric over
+    /// transitions reads (`storage-schema.md`, `of_event`).
+    pub events: Vec<Event>,
+    /// The position of each event that recorded an admission, which is an
+    /// override (`declaration-syntax.md` §6.9, `of_admission`).
+    pub admitting: BTreeSet<i64>,
 }
 
 impl<'l> World<'l> {
@@ -86,6 +97,8 @@ impl<'l> World<'l> {
             objects: BTreeMap::new(),
             now,
             external: BTreeMap::new(),
+            events: Vec::new(),
+            admitting: BTreeSet::new(),
         }
     }
 
@@ -106,6 +119,16 @@ impl<'l> World<'l> {
             .into_iter()
             .filter(|o| self.lib.is_a(&o.type_, type_))
             .collect()
+    }
+
+    /// The version an object's last event was recorded under, the
+    /// installed one for an object with none.
+    pub fn version_of(&self, id: &str) -> i64 {
+        self.events
+            .iter()
+            .rev()
+            .find(|e| e.object_id == id)
+            .map_or(self.lib.version, |e| e.declaration_version)
     }
 
     /// The next place in creation order.

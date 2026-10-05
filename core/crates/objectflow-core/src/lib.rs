@@ -18,6 +18,10 @@ pub mod model;
 pub mod eval;
 pub mod world;
 
+// a metric read, as a guard reads it (declaration-syntax.md §6.9)
+pub mod metric;
+mod rat;
+
 pub mod verdict;
 pub mod wire;
 

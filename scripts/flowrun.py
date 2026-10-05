@@ -2752,6 +2752,7 @@ def metrics_self_test(operator):
             "assign": {"kind": "internal", "from": ["OPEN", "WORKING", "SHELVED"], "required_inputs": ["engineer"], "guards": {"not_busy": "deny"}},
             "resume": {"kind": "external", "from": ["SHELVED"], "to": "WORKING"},
             "start": {"kind": "external", "from": ["OPEN"], "to": "WORKING"},
+            "take": {"kind": "external", "from": ["OPEN"], "to": "WORKING", "required_inputs": ["engineer"]},
             "back": {"kind": "external", "from": ["WORKING"], "to": "OPEN"},
             "pause": {"kind": "external", "from": ["WORKING"], "to": "OPEN"},
             "shelve": {"kind": "external", "from": ["WORKING"], "to": "SHELVED"},
@@ -2778,13 +2779,20 @@ def metrics_self_test(operator):
             "working_by_month": {"source": "intervals", "item": "i", "split_by": "month", "filter": "i.state == WORKING",
                                  "dimensions": {"month": "i.period"}, "expression": "sum(i.duration)"},
             "jobs_working_by_month": {"source": "intervals", "item": "i", "split_by": "month", "filter": "i.state == WORKING",
-                                      "dimensions": {"month": "i.period"}, "expression": "count()"}}}
+                                      "dimensions": {"month": "i.period"}, "expression": "count()"},
+            "takes": {"measure": "transition_count", "transition": "take", "group_by": ["engineer"]},
+            "jobs_total": {"source": "objects", "item": "o", "expression": "count()"},
+            "engineers_checked": {"source": "checks", "item": "r", "expression": "count(distinct r.subject.engineer)"},
+            "anas_jobs": {"source": "objects", "item": "o", "filter": 'o.engineer.login == "ana"', "expression": "count()"},
+            "third_of_checks": {"source": "checks", "item": "r", "expression": "count() / 3"}}}
     module = {"enumerations": {"Outcome": ["PASS", "FAIL", "NA"]},
               "types": {"User": {"attributes": {"login": {"type": "identity", "actor_kind": "human"}},
                                  "states": {"ACTIVE": {"category": "live"}},
                                  "transitions": {"add": {"kind": "initial", "to": "ACTIVE", "required_inputs": ["login"]}}},
                         "Job": job},
-              "metrics": {"passes_per_job": {"input_metrics": {"passes": "Job.passes", "jobs": "Job.jobs_opened"},
+              "metrics": {"passes_of_all": {"input_metrics": {"passes": "Job.passes", "all": "Job.jobs_total"},
+                                            "group_by": ["engineer"], "expression": "passes * 1.000 / all"},
+                          "passes_per_job": {"input_metrics": {"passes": "Job.passes", "jobs": "Job.jobs_opened"},
                                              "group_by": ["engineer"], "expression": "passes * 1.000 / jobs"}}}
     kinds = {"Operator": operator, **module["types"], **observation_kinds({"jobs": module})}
     enums = module["enumerations"]
@@ -2826,6 +2834,24 @@ def metrics_self_test(operator):
     check("a guard over a rate at its threshold", req(r, s, "Job", "finish", j1), j1)
     check("a rate over no rows is unknown", read(s, j2, rate30), ABSENT)
     check("a dimension bound to an absent value is unknown", read(s, j0, rate30), ABSENT)
+    # an input without a dimension the read binds contributes its whole value (ADR-0124, ADR-0147)
+    check("a combined metric whose input lacks the bound dimension", read(s, j1, "metric(passes_of_all, engineer := engineer)"),
+          Fraction(667, 1000))
+    check("a distinct count leaves out an absent value", read(s, j1, "metric(engineers_checked)"), 1)
+    check("a filter unknown for a row selects it not", read(s, j1, "metric(anas_jobs)"), 1)
+    check("int / int truncates in a metric's value, before the rounding", read(s, j1, "metric(third_of_checks)"), 1)
+    # a span holds what the transition that began it wrote, and an event what was held before it (§6.9, ADR-0146)
+    r, s = world()
+    ana, ben = req(r, s, "User", "add", login="ana"), req(r, s, "User", "add", login="ben")
+    jt = req(r, s, "Job", "open", engineer=ana)
+    req(r, s, "Job", "take", jt, engineer=ben)
+    s.now += 2 * 3600
+    req(r, s, "Job", "back", jt)
+    check("a span begun by a transition that assigns it holds the new assignee",
+          (read(s, jt, "metric(time_working, engineer := who)", who=ben), read(s, jt, "metric(time_working, engineer := who)", who=ana)),
+          (2 * 3600, ABSENT))
+    check("an event holds the assignee before its own writes",
+          (read(s, jt, "metric(takes, engineer := who)", who=ana), read(s, jt, "metric(takes, engineer := who)", who=ben)), (1, 0))
     # rounding half to even, down to an even digit and up from an odd one
     r, s = world()
     cara, dan = req(r, s, "User", "add", login="cara"), req(r, s, "User", "add", login="dan")
@@ -2938,7 +2964,7 @@ def metrics_self_test(operator):
     o = offered(jo)
     check("an offer for each requestable transition, the initial left out, and the recording of each kind on it",
           sorted(o), sorted([("assign", None), ("resume", None), ("start", None), ("back", None), ("pause", None),
-                             ("shelve", None), ("close", None), ("finish", None), ("record", "Check")]))
+                             ("shelve", None), ("close", None), ("finish", None), ("take", None), ("record", "Check")]))
     check("a transition its state allows, taking no input, is available", o[("start", None)], ("available", None, [], []))
     check("one taking a required input is available with input, its guard on that input left for the input",
           o[("assign", None)], ("available_with_input", None, [], []))

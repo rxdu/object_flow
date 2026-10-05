@@ -372,6 +372,10 @@ pub struct Module {
     pub machines: Vec<Type>,
     /// Its evaluators' functions, as `<evaluator>.<function>`.
     pub evaluators: Vec<String>,
+    /// Its metrics, its types' and its own, which share one namespace: each
+    /// by name, with the type declaring it, none for a combined one, and its
+    /// declaration (`flow-format.md` §4.9).
+    pub metrics: Vec<(String, Option<String>, serde_json::Value)>,
 }
 
 /// Why a module does not load.
@@ -994,8 +998,12 @@ impl Reader<'_> {
         let mut types = Vec::new();
         let mut observation_kinds = Vec::new();
         let mut kinds = Vec::new();
+        let mut metrics = Vec::new();
         for (n, spec) in doc.get("types").map(Node::entries).unwrap_or_default() {
             types.push(self.type_(name, n, spec)?);
+            for (m, declared) in spec.get("metrics").map(Node::entries).unwrap_or_default() {
+                metrics.push((m.clone(), Some(n.clone()), declared.to_json()));
+            }
             for (_, ob) in spec
                 .get("observations")
                 .map(Node::entries)
@@ -1021,6 +1029,9 @@ impl Reader<'_> {
                 evaluators.push(format!("{e}.{f}"));
             }
         }
+        for (m, declared) in doc.get("metrics").map(Node::entries).unwrap_or_default() {
+            metrics.push((m.clone(), None, declared.to_json()));
+        }
         Ok(Module {
             name: name.to_string(),
             migration: self.migration(doc.get("migration"))?,
@@ -1029,6 +1040,7 @@ impl Reader<'_> {
             observation_kinds,
             machines,
             evaluators,
+            metrics,
         })
     }
 }
@@ -1139,6 +1151,10 @@ pub struct Library {
     pub source: Vec<(String, String)>,
     /// The migrations its modules carry, which a publish of it applies.
     pub migration: Migration,
+    /// Each module's metrics, its types' and its own, by name: the type
+    /// declaring one, none for a combined one, and its declaration
+    /// (`flow-format.md` §4.9).
+    pub metrics: BTreeMap<String, BTreeMap<String, (Option<String>, serde_json::Value)>>,
 }
 
 /// The bases a type extends, nearest first; the walk stops at an unknown
@@ -1556,6 +1572,10 @@ impl Library {
                 machines.insert(machine.name.clone(), machine);
             }
             lib.evaluators.extend(m.evaluators);
+            let declared = lib.metrics.entry(m.name.clone()).or_default();
+            for (n, owner, spec) in m.metrics {
+                declared.insert(n, (owner, spec));
+            }
             lib.modules.push(m.name);
         }
         // each binder with its machine merged in, once every module, and so
