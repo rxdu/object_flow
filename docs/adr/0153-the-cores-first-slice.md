@@ -2,7 +2,7 @@
 
 - **Status:** Accepted, 2026-10-04, at the author's direction ("go with your recommendations"), given the recommendation of a first slice for the Rust core: a SQLite store, the expression language, a request on one object with its guards and invariants, the reads, and the service's `/v1` and `/sandbox` routes, judged by replaying the design's examples through the Flow Studio.
 - **Date:** 2026-10-04
-- **Refined by:** ADR-0154 — the import, after which every example passes against the core.
+- **Refined by:** ADR-0154 — the import, after which every example passes against the core. ADR-0155 — decision 5's checks: a sandbox's publish takes its caller's, and a deployment's waits for the core's own checker.
 - **Refines:** ADR-0132 (the core in Rust, behind an HTTP service), ADR-0143 (its YAML parser and decimal type), ADR-0150 (the wire it serves)
 - **Relates to:** `design/storage-schema.md` §2, §3; `DESIGN.md` §6, §10; `design/declaration-syntax.md` §8; `design/flow-studio.md` §6, slice 4
 

@@ -156,3 +156,4 @@
 | [0152](0152-what-an-offer-decides.md) | What an offer decides, before its inputs are given | Accepted by the author |
 | [0153](0153-the-cores-first-slice.md) | The core's first slice | At the author's direction |
 | [0154](0154-the-cores-import.md) | The core's import | At the author's direction |
+| [0155](0155-the-cores-publishing.md) | The core's publishing, and its first slice | Accepted by the author |
