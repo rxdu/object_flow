@@ -339,10 +339,13 @@ def self_test(texts):
         ("an example whose expectation the runner contradicts", "example: publishing_dates_the_document",
          {**base, trial: plain + examples.replace("state: PUBLISHED, values: { published_at: now }",
                                                   "state: PUBLISHED, values: { published_at: now - 1 h }")}),
+        # a guard reading a metric over labels, which neither the runner nor the core keeps yet
         ("an example the runner does not run", "notrun:",
-         {**base, trial: plain.replace("    transitions:\n", "    conditions:\n      calm:\n        description: Few refusals.\n"
-                                       "        expression: metric(Document.refusals) < 3\n        remedy: dependent\n\n    transitions:\n", 1)
-                              .replace("        to: PUBLISHED\n", "        to: PUBLISHED\n        guards:\n          calm: deny\n", 1) + examples}),
+         {**base, trial: plain.replace("    transitions:\n", "    conditions:\n      calm:\n        description: Few labels.\n"
+                                       "        expression: metric(labelled) < 3\n        remedy: dependent\n\n    transitions:\n", 1)
+                              .replace("        to: PUBLISHED\n", "        to: PUBLISHED\n        guards:\n          calm: deny\n", 1)
+                              .replace("expr: now }\n```\n", "expr: now }\n\n    metrics:\n      labelled:\n        description: Labels applied.\n"
+                                       "        source: labels\n        item: l\n        expression: count()\n```\n", 1) + examples}),
     ]
     ok = True
     for name, expect, docs in plants:

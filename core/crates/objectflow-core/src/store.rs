@@ -92,6 +92,103 @@ pub struct Change {
     /// Sequences it raises past a value, never lowering one: sequence, scope
     /// and value (ADR-0154).
     pub raised: Vec<(String, String, i64)>,
+    /// The attempt log's rows written with the events they are linked to: a
+    /// raised flag and an observing clause's would-be refusal (`DESIGN.md`
+    /// §7, `storage-schema.md` §6).
+    pub attempts: Vec<Attempt>,
+}
+
+/// A row of the attempt log (`library-api.md` §5, `of_attempt`): a request
+/// that did not apply, an observing clause's would-be refusal, or a raised
+/// flag. It holds no personal value: a personal input is named in
+/// `withheld` and its value left out (ADR-0105).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Attempt {
+    pub at: i64,
+    /// As the request named it where the store holds no such actor.
+    pub actor_id: String,
+    pub actor_kind: String,
+    /// None where the request named an unknown id.
+    pub type_: Option<String>,
+    /// None for a refused creation, and for an unknown id.
+    pub object_id: Option<String>,
+    pub transition: Option<String>,
+    pub verdict: String,
+    pub clause: Option<String>,
+    /// Empty where the core cannot tell it, as for an invariant's whose
+    /// object is another than the one requested (ADR-0151).
+    pub remedy: String,
+    pub unknown: bool,
+    pub enforced: bool,
+    pub flagged: bool,
+    pub applied_position: Option<i64>,
+    /// The request's non-personal inputs and its occurred time, and for an
+    /// approval its request refused, the proposal it executed.
+    pub request_values: serde_json::Value,
+    pub withheld: Vec<String>,
+    pub declaration_version: i64,
+}
+
+fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
+    let values = serde_json::json!({ "values": a.request_values, "withheld": a.withheld });
+    tx.execute(
+        &format!(
+            "INSERT INTO of_attempt (at, actor_id, actor_kind, txn, type, object_id, transition, verdict, clause, remedy, \
+             unknown, enforced, flagged, applied_position, request_values, declaration_version) \
+             VALUES (?1, ?2, ?3, {txn}, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"
+        ),
+        params![
+            timestamp_text(a.at),
+            a.actor_id,
+            a.actor_kind,
+            a.type_,
+            a.object_id,
+            a.transition,
+            a.verdict,
+            a.clause,
+            a.remedy,
+            i64::from(a.unknown),
+            i64::from(a.enforced),
+            i64::from(a.flagged),
+            a.applied_position,
+            values.to_string(),
+            a.declaration_version,
+        ],
+    )?;
+    Ok(())
+}
+
+fn attempt_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Attempt> {
+    let at: String = r.get(0)?;
+    let values: Option<String> = r.get(13)?;
+    let values: serde_json::Value = values
+        .and_then(|v| serde_json::from_str(&v).ok())
+        .unwrap_or(serde_json::Value::Null);
+    Ok(Attempt {
+        at: parse_timestamp(&at).unwrap_or(0),
+        actor_id: r.get(1)?,
+        actor_kind: r.get(2)?,
+        type_: r.get(3)?,
+        object_id: r.get(4)?,
+        transition: r.get(5)?,
+        verdict: r.get(6)?,
+        clause: r.get(7)?,
+        remedy: r.get(8)?,
+        unknown: r.get::<_, i64>(9)? != 0,
+        enforced: r.get::<_, i64>(10)? != 0,
+        flagged: r.get::<_, i64>(11)? != 0,
+        applied_position: r.get(12)?,
+        request_values: values["values"].clone(),
+        withheld: values["withheld"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|w| w.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        declaration_version: r.get(14)?,
+    })
 }
 
 fn table(type_: &str) -> String {
@@ -601,6 +698,35 @@ CREATE TABLE of_counter (
   value  INTEGER NOT NULL
 );
 INSERT INTO of_counter (name, value) VALUES ('position', 0), ('txn', 0), ('object', 0);
+-- The attempt log: every request that did not apply, every observing
+-- clause's would-be refusal, and every raised flag. No personal value
+-- (storage-schema.md §6; the rollup a prune fills is not kept, since
+-- nothing prunes).
+CREATE TABLE of_attempt (
+  id                  INTEGER PRIMARY KEY,
+  at                  TEXT    NOT NULL,
+  actor_id            TEXT    NOT NULL,
+  actor_kind          TEXT    NOT NULL,
+  actor_principal     TEXT,
+  context             TEXT,
+  txn                 INTEGER NOT NULL,
+  type                TEXT,
+  object_id           TEXT,
+  transition          TEXT,
+  verdict             TEXT    NOT NULL,
+  clause              TEXT,
+  remedy              TEXT    NOT NULL,
+  unknown             INTEGER NOT NULL DEFAULT 0,
+  enforced            INTEGER NOT NULL DEFAULT 1,
+  flagged             INTEGER NOT NULL DEFAULT 0,
+  applied_position    INTEGER,
+  reads               TEXT,
+  consulted           TEXT,
+  request_values      TEXT,
+  declaration_version INTEGER NOT NULL
+);
+CREATE INDEX of_attempt_by_rule ON of_attempt (type, transition, clause, at);
+CREATE INDEX of_attempt_by_actor ON of_attempt (actor_id, at);
 CREATE TABLE of_declaration (
   version       INTEGER PRIMARY KEY,
   module        TEXT    NOT NULL,
@@ -752,6 +878,17 @@ impl Store {
             "INSERT INTO t_operator (id, state, version, declaration_version, last_event, identity) VALUES (?1, 'ACTIVE', 1, 1, ?2, ?1)",
             params![OPERATOR, position],
         )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// A refused request's row of the attempt log, in a short transaction of
+    /// its own after the request's rolled back (`DESIGN.md` §6,
+    /// `storage-schema.md` §6).
+    pub fn record_attempt(&mut self, a: &Attempt) -> Stored<()> {
+        let tx = self.conn.transaction()?;
+        next(&tx, "txn")?;
+        insert_attempt(&tx, a, "(SELECT value FROM of_counter WHERE name = 'txn')")?;
         tx.commit()?;
         Ok(())
     }
@@ -1629,6 +1766,13 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
             o.erased = true;
         }
     }
+    // the attempt log, in the order written
+    let mut attempts = conn.prepare(
+        "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
+         flagged, applied_position, request_values, declaration_version FROM of_attempt ORDER BY id",
+    )?;
+    let rows = attempts.query_map([], attempt_row)?;
+    world.attempts = rows.collect::<Result<Vec<_>, _>>()?;
     // the log, and the events that recorded an admission
     let mut log = conn.prepare(&format!("{EVENT_SELECT} ORDER BY position"))?;
     let rows = log.query_map([], event_row)?;
@@ -1890,6 +2034,11 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
     }
     for (id, dimension, sp) in &change.spans {
         upsert_span(tx, id, dimension, sp)?;
+    }
+    // a raised flag and an observing clause's would-be refusal, written with
+    // the event each is linked to (storage-schema.md §6)
+    for a in &change.attempts {
+        insert_attempt(tx, a, "(SELECT value FROM of_counter WHERE name = 'txn')")?;
     }
     // personal values leave the log and the interval index, the events and
     // their shape kept (§9, steps 2 and 9)

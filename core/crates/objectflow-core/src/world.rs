@@ -94,6 +94,9 @@ pub struct World<'l> {
     /// The position of each event the import recorded, whose spans may begin
     /// before it, at the legacy time of the change (ADR-0106).
     pub imported: BTreeSet<i64>,
+    /// The attempt log, in the order written, which a metric over
+    /// `attempts` or `attempt_counts` reads (`storage-schema.md` §6).
+    pub attempts: Vec<crate::store::Attempt>,
 }
 
 impl<'l> World<'l> {
@@ -106,6 +109,7 @@ impl<'l> World<'l> {
             events: Vec::new(),
             admitting: BTreeSet::new(),
             imported: BTreeSet::new(),
+            attempts: Vec::new(),
         }
     }
 

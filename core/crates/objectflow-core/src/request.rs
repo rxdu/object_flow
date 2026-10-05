@@ -95,10 +95,21 @@ pub(crate) fn takes_from(t: &Type, x: &Transition, state: &str) -> bool {
     }
 }
 
+/// What a refusal tells the attempt log beyond its verdict (`DESIGN.md`
+/// §6, §9).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Refusal {
+    /// Its clause was unknown rather than false (§8.2).
+    pub unknown: bool,
+    /// For an approval its request refused, the proposal and the request it
+    /// held, whose transition the row is of.
+    pub approving: Option<Box<(String, Request)>>,
+}
+
 /// Why a request stops before it applies: a refusal, or a construct the
 /// slice does not run.
 enum Stop {
-    Refused(Verdict),
+    Refused(Verdict, Refusal),
     NotRun(NotRun),
 }
 
@@ -109,7 +120,7 @@ impl std::convert::From<NotRun> for Stop {
 }
 
 fn refused<T>(v: Verdict) -> Result<T, Stop> {
-    Err(Stop::Refused(v))
+    Err(Stop::Refused(v, Refusal::default()))
 }
 
 fn stop_not_run<T>(what: impl Into<String>) -> Result<T, Stop> {
@@ -130,17 +141,20 @@ fn qualified(clause: &str, type_: &str) -> String {
 /// type it targeted (ADR-0122 decision 35).
 fn call_refused(stop: Stop, step: String, type_: &str, target: Option<String>) -> Stop {
     match stop {
-        Stop::Refused(v) => {
+        Stop::Refused(v, r) => {
             let clause = match &v {
                 Verdict::CallRefused { clause, .. } => clause.clone(),
                 other => other.clause().map(|c| qualified(&c, type_)),
             };
-            Stop::Refused(Verdict::CallRefused {
-                step,
-                object_id: target,
-                verdict: Box::new(v),
-                clause,
-            })
+            Stop::Refused(
+                Verdict::CallRefused {
+                    step,
+                    object_id: target,
+                    verdict: Box::new(v),
+                    clause,
+                },
+                r,
+            )
         }
         other => other,
     }
@@ -150,12 +164,13 @@ fn call_refused(stop: Stop, step: String, type_: &str, target: Option<String>) -
 /// type (`flow-format.md` §11.4).
 fn as_part(stop: Stop, type_: &str) -> Stop {
     match stop {
-        Stop::Refused(Verdict::Unsatisfied { clause, remedy }) => {
-            Stop::Refused(Verdict::Unsatisfied {
+        Stop::Refused(Verdict::Unsatisfied { clause, remedy }, r) => Stop::Refused(
+            Verdict::Unsatisfied {
                 clause: qualified(&clause, type_),
                 remedy,
-            })
-        }
+            },
+            r,
+        ),
         other => other,
     }
 }
@@ -177,6 +192,12 @@ struct Ctx<'w> {
     at: i64,
     answers: BTreeMap<String, String>,
     flags: Vec<Flag>,
+    /// The `warn` and `audit` guards of the transition being taken that
+    /// failed: each clause, whether it raises a flag, its remedy and whether
+    /// it was unknown, linked to its event once its position is allocated.
+    failed: Vec<(String, bool, Option<Remedy>, bool)>,
+    /// Their rows of the attempt log, written with the events (§7).
+    observed: Vec<crate::store::Attempt>,
     /// For each object, what its current transition wrote by an input or an
     /// effect, whatever the value.
     wrote: BTreeMap<String, BTreeSet<String>>,
@@ -198,7 +219,7 @@ pub fn decide(
     alloc: &mut Allocator,
     req: &Request,
     answers: &BTreeMap<String, String>,
-) -> Result<(Verdict, Option<Change>), NotRun> {
+) -> Result<(Verdict, Option<Change>, Refusal), NotRun> {
     // a request filed for approval, and one deciding a proposal, are the
     // store's own (DESIGN.md §9)
     let target = req.object_id.as_deref().and_then(|id| world.get(id));
@@ -215,8 +236,8 @@ pub fn decide(
         decide_or_stop(world, alloc, req, answers, None)
     };
     match answer {
-        Ok(answer) => Ok(answer),
-        Err(Stop::Refused(v)) => Ok((v, None)),
+        Ok((v, change)) => Ok((v, change, Refusal::default())),
+        Err(Stop::Refused(v, r)) => Ok((v, None, r)),
         Err(Stop::NotRun(e)) => Err(e),
     }
 }
@@ -339,6 +360,8 @@ fn decide_or_stop(
         at: req.occurred_at.unwrap_or(world.now),
         answers: answers.clone(),
         flags: Vec::new(),
+        failed: Vec::new(),
+        observed: Vec::new(),
         wrote: BTreeMap::new(),
         index: Vec::new(),
         asserted: None,
@@ -424,6 +447,17 @@ fn decide_or_stop(
     let mut positions: Vec<i64> = ctx.events.iter().map(|e| e.position).collect();
     positions.sort_unstable();
     let version = ctx.work.get(&root).map_or(0, |o| o.version);
+    // a row of a creation names the object its event made
+    let mut observed = std::mem::take(&mut ctx.observed);
+    for a in &mut observed {
+        if a.object_id.is_none() {
+            a.object_id = ctx
+                .events
+                .iter()
+                .find(|e| Some(e.position) == a.applied_position)
+                .map(|e| e.object_id.clone());
+        }
+    }
     Ok((
         Verdict::Satisfied {
             object_id: root,
@@ -441,6 +475,7 @@ fn decide_or_stop(
                 .iter()
                 .map(|(id, attrs)| (id.clone(), attrs.iter().cloned().collect()))
                 .collect(),
+            attempts: observed,
             ..Change::default()
         }),
     ))
@@ -782,14 +817,20 @@ fn take(
                 Enforce::Deny => {
                     // an evaluator that did not answer leaves the guard
                     // unknown, and the caller may try again (ADR-0138)
-                    return refused(Verdict::Unsatisfied {
-                        clause: g.clone(),
-                        remedy: if asking.unanswered.get() {
-                            Some(Remedy::Temporal)
-                        } else {
-                            c.remedy
+                    return Err(Stop::Refused(
+                        Verdict::Unsatisfied {
+                            clause: g.clone(),
+                            remedy: if asking.unanswered.get() {
+                                Some(Remedy::Temporal)
+                            } else {
+                                c.remedy
+                            },
                         },
-                    });
+                        Refusal {
+                            unknown: ok.is_none(),
+                            approving: None,
+                        },
+                    ));
                 }
                 Enforce::Warn => {
                     let clause = if tn == ctx.requested {
@@ -801,8 +842,11 @@ fn take(
                         clause,
                         remedy: c.remedy,
                     });
+                    ctx.failed.push((g.clone(), true, c.remedy, ok.is_none()));
                 }
-                Enforce::Audit => {}
+                // an observing clause's would-be refusal is recorded, and
+                // refuses nothing (DESIGN.md §5.5)
+                Enforce::Audit => ctx.failed.push((g.clone(), false, c.remedy, ok.is_none())),
             }
         }
     }
@@ -823,6 +867,28 @@ fn take(
         .map(|o| tracked_values(lib, t, o));
     // 6. the outcome, its position allocated as it begins applying
     let position = alloc.position();
+    // each flag raised, and each audit's would-be refusal, a row of the type
+    // whose clause failed, linked to this event (DESIGN.md §5.5, §7)
+    for (clause, flagged, remedy, unknown) in std::mem::take(&mut ctx.failed) {
+        ctx.observed.push(crate::store::Attempt {
+            at: ctx.work.now,
+            actor_id: ctx.who.id.clone(),
+            actor_kind: ctx.who.kind.clone(),
+            type_: Some(tn.to_string()),
+            object_id: oid.clone(),
+            transition: Some(xn.to_string()),
+            verdict: "unsatisfied".into(),
+            clause: Some(clause),
+            remedy: remedy.map_or_else(String::new, |r| r.text().to_string()),
+            unknown,
+            enforced: false,
+            flagged,
+            applied_position: Some(position),
+            request_values: Json::Null,
+            withheld: Vec::new(),
+            declaration_version: lib.version,
+        });
+    }
     alloc.txn();
     let (mut o, from_state) = match oid.as_deref().and_then(|id| ctx.work.get(id)) {
         Some(o) => (o.clone(), Some(o.state.clone())),
@@ -1811,7 +1877,14 @@ fn decide_proposal(
         Value::Timestamp(t) => Some(t),
         _ => None,
     };
-    let (verdict, change) = decide_or_stop(world, alloc, &held, answers, filed_at)?;
+    let (verdict, change) =
+        decide_or_stop(world, alloc, &held, answers, filed_at).map_err(|stop| match stop {
+            Stop::Refused(v, mut r) => {
+                r.approving = Some(Box::new((p.id.clone(), held.clone())));
+                Stop::Refused(v, r)
+            }
+            other => other,
+        })?;
     let Some(mut change) = change else {
         return Ok((verdict, None));
     };
@@ -2738,7 +2811,111 @@ pub fn request(
     req: &Request,
 ) -> Result<Result<Verdict, NotRun>, crate::store::StoreError> {
     let answers = store.answers.clone();
-    store.transact(|world, alloc| decide(world, alloc, req, &answers))
+    let decided = store.transact(|world, alloc| {
+        decide(world, alloc, req, &answers).map(|(v, change, r)| ((v, r), change))
+    })?;
+    let (verdict, refusal) = match decided {
+        Ok(decided) => decided,
+        Err(e) => return Ok(Err(e)),
+    };
+    // a request that did not apply is a row of the attempt log, written in
+    // its own short transaction after the rollback (DESIGN.md §6)
+    if !matches!(verdict, Verdict::Satisfied { .. }) {
+        let attempt = {
+            let world = store.snapshot()?;
+            refused_attempt(&world, req, &verdict, &refusal)
+        };
+        store.record_attempt(&attempt)?;
+    }
+    Ok(Ok(verdict))
+}
+
+/// A refused request's row of the attempt log (`DESIGN.md` §6, §9): who
+/// asked, as the request named them where the store holds no such actor,
+/// and their kind, `unknown` then; the type, none for an unknown id; the
+/// object, none for a refused creation or an unknown id; the transition; the
+/// verdict, its clause, the first invariant for violated invariants, and its
+/// remedy; whether the clause was unknown; and the request's values, a
+/// personal input named and withheld (ADR-0105). An approval its request
+/// refused is a row of the proposed transition, on its object, naming the
+/// proposal.
+fn refused_attempt(
+    world: &World<'_>,
+    req: &Request,
+    verdict: &Verdict,
+    refusal: &Refusal,
+) -> crate::store::Attempt {
+    let lib = world.lib;
+    let (asked, proposal) = match refusal.approving.as_deref() {
+        Some((p, held)) => (held, Some(p.clone())),
+        None => (req, None),
+    };
+    let (type_, object_id) = match &asked.object_id {
+        Some(id) => match world.get(id) {
+            Some(o) => (Some(o.type_.clone()), Some(id.clone())),
+            None => (None, None),
+        },
+        None => (asked.type_.clone(), None),
+    };
+    let clause = match verdict {
+        Verdict::Unsatisfied { clause, .. } => Some(clause.clone()),
+        Verdict::InvariantViolated { failures, .. } => failures.first().map(|f| {
+            if type_.as_deref() == Some(f.type_.as_str()) {
+                f.invariant.clone()
+            } else {
+                format!("{}.{}", f.type_, f.invariant)
+            }
+        }),
+        Verdict::CallRefused { clause, .. } => clause.clone(),
+        _ => None,
+    };
+    let t = type_.as_deref().and_then(|n| lib.type_(n));
+    let x = t.and_then(|t| t.transition(&asked.transition));
+    let personal = |k: &str| {
+        x.and_then(|x| x.inputs.iter().find(|(n, _)| n == k))
+            .map(|(_, i)| i.personal)
+            .or_else(|| t.and_then(|t| t.attribute(k)).map(|a| a.personal))
+            .unwrap_or(false)
+    };
+    let mut values = serde_json::Map::new();
+    let mut withheld = Vec::new();
+    for (k, v) in &asked.inputs {
+        if personal(k) {
+            withheld.push(k.clone());
+        } else {
+            values.insert(k.clone(), v.clone());
+        }
+    }
+    let mut request_values = json!({ "inputs": values });
+    if let Some(at) = asked.occurred_at {
+        request_values["occurred_at"] = json!(crate::value::timestamp_text(at));
+    }
+    if let Some(p) = proposal {
+        request_values["proposal"] = json!(p);
+    }
+    let who = resolve_actor(world, &req.actor);
+    crate::store::Attempt {
+        at: world.now,
+        actor_id: who
+            .as_ref()
+            .map_or_else(|| req.actor.clone(), |w| w.id.clone()),
+        actor_kind: who.map_or_else(|| "unknown".to_string(), |w| w.kind),
+        type_,
+        object_id,
+        transition: Some(asked.transition.clone()),
+        verdict: verdict.kind().to_string(),
+        clause,
+        remedy: verdict
+            .remedy()
+            .map_or_else(String::new, |r| r.text().to_string()),
+        unknown: refusal.unknown,
+        enforced: true,
+        flagged: false,
+        applied_position: None,
+        request_values,
+        withheld,
+        declaration_version: lib.version,
+    }
 }
 
 #[cfg(test)]

@@ -178,6 +178,9 @@ pub struct Input {
     pub many: bool,
     pub optional: bool,
     pub default: Option<Expr>,
+    /// A personal value, which the attempt log names and withholds
+    /// (ADR-0105).
+    pub personal: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -559,6 +562,7 @@ impl Reader<'_> {
                 .get("default")
                 .map(|d| self.expression(d))
                 .transpose()?,
+            personal: self.flag(node, "personal")?,
         })
     }
 
@@ -913,6 +917,7 @@ impl Reader<'_> {
                 many: false,
                 optional: false,
                 default: None,
+                personal: false,
             };
             transitions.push((
                 "forget".into(),

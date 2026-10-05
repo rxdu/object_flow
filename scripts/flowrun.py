@@ -73,10 +73,11 @@ class Refused(Exception):
     refusal (library-api.md §4), which the Flow Studio's server reports (ADR-0150)."""
 
     def __init__(self, verdict, clause=None, remedy=None, detail="", object_id=None, object_type=None, step=None,
-                 inner=None):
+                 inner=None, unknown=False):
         super().__init__(f"{verdict} {clause or ''} {remedy or ''} {detail}".strip())
         self.verdict, self.clause, self.remedy, self.detail = verdict, clause, remedy, detail
         self.object_id, self.object_type, self.step, self.inner = object_id, object_type, step, inner
+        self.unknown = unknown      # its clause was unknown rather than false (§8.2), as the attempt log records
 
 
 def seconds(duration):
@@ -92,6 +93,20 @@ def timestamp(text):
 
 class Row(dict):
     """A row of an object's own flow data: a span of `intervals` or an event of `transitions` (§6.9)."""
+
+
+def attempt_row(store, tn, oid, xn, actor, r, proposal=None):
+    """A refusal's row of the attempt log (DESIGN.md §6, library-api.md §5): who asked, as the request named them where
+    the store holds no such actor, and their kind, `unknown` then; the type, none where the request named an unknown id;
+    the object, none for a refused creation or an unknown id; the transition; the verdict, its clause, the first
+    invariant for violated invariants, and its remedy; whether the clause was unknown; and the proposal an approval
+    executed, which the row names."""
+    marked = store.actor_attr(store.type_of(actor)) if actor in store.objects else None
+    return {"type": tn, "object": oid, "transition": xn, "verdict": r.verdict, "clause": r.clause, "remedy": r.remedy,
+            "unknown": r.unknown, "enforced": True, "flagged": False,
+            "actor_id": store.objects[actor].attrs.get(marked[0], actor) if marked else actor,
+            "actor_kind": marked[1] if marked else "unknown", "at": store.now, "declaration_version": 1,
+            "applied_position": None, "proposal": proposal}
 
 
 class Shared:
@@ -202,6 +217,11 @@ def instant(v):
     """A date placed at the start of its day, UTC, where a window or a bucket compares it with an instant (ADR-0145);
     any other value as it is."""
     return Fraction((v - EPOCH.date()).days * 86400) if is_date(v) else v
+
+
+def day_of(ts):
+    """The UTC calendar day a time falls on, as a date (ADR-0145)."""
+    return (EPOCH + datetime.timedelta(seconds=math.floor(ts))).date()
 
 
 def bucket(unit, ts):
@@ -431,6 +451,8 @@ class Store:
         self.sequences = {}                     # (sequence, scope value) -> the last number minted
         self.events, self.position = [], 0      # the log, and the last position allocated (DESIGN.md §7)
         self.proposals = {}                     # proposal id -> the request it holds, its proposer and its state (§9)
+        self.attempts = []                      # the attempt log: each request that did not apply, each audit's
+                                                # would-be refusal and each raised flag (DESIGN.md §6, §7)
         op = Obj(OPERATOR, "Operator", "ACTIVE", self.now)
         op.attrs["identity"] = OPERATOR
         self.objects[OPERATOR] = op
@@ -579,7 +601,9 @@ class Evaluator:
         if m == "actor_id":
             marked = self.s.actor_attr(o.type)
             return o.attrs.get(marked[0], ABSENT) if marked else ABSENT
-        if m in ("attempts", "labels"):
+        if m == "attempts":
+            return tuple(Row(a) for a in self.s.attempts if a["object"] == o.id)
+        if m == "labels":
             raise NotRunnable(f"an object's `{m}`")
         if m == "state":
             return ("state", o.type, o.state)
@@ -1195,7 +1219,19 @@ class Evaluator:
                      if x.type == kind and x.attrs.get("subject") in ids and x.id not in corrected],
                     ("object", kind), "recorded_by_kind")
         if source in ("attempts", "attempt_counts"):
-            raise NotRunnable(f"a metric over `{source}`, the attempt log the runner does not keep")
+            # the rows of the family's types; a row of no type, an unknown id's, is none of them (DESIGN.md §7)
+            mine = [a for a in s.attempts if a["type"] and s.is_a(a["type"], owner)]
+            if source == "attempts":
+                return [Row(a) for a in mine], ("attempt", owner), "actor_kind"
+            # each UTC day, object and combination of the members, counted; nothing is pruned, so the rollup is empty
+            counts = {}
+            members = ("object", "transition", "verdict", "clause", "remedy", "actor_kind", "enforced", "flagged",
+                       "declaration_version")
+            for a in mine:
+                key = (day_of(a["at"]),) + tuple(a[m] for m in members)
+                counts[key] = counts.get(key, 0) + 1
+            return ([Row(dict(zip(("day",) + members, key), count=n)) for key, n in counts.items()],
+                    ("attempt_count", owner), "actor_kind")
         raise NotRunnable(f"a metric over `{source}`")
 
     def reach(self, e, env):
@@ -1333,6 +1369,10 @@ class Evaluator:
                     "piece_start": ("timestamp",), "piece_end": ("timestamp",), "object": ("object", base[1])}.get(m, ("other",))
         if base[0] == "transition":
             return {"occurred_at": ("timestamp",), "recorded_at": ("timestamp",), "object": ("object", base[1])}.get(m, ("other",))
+        if base[0] == "attempt":
+            return {"at": ("timestamp",), "object": ("object", base[1])}.get(m, ("other",))
+        if base[0] == "attempt_count":
+            return {"day": ("date",), "count": ("int",), "object": ("object", base[1])}.get(m, ("other",))
         if base[0] != "object":
             return ("other",)
         t = self.s.kinds.get(base[1]) or {}
@@ -1378,6 +1418,7 @@ class Ctx:
         self.written = []           # object ids, in the order first written
         self.taken = []             # "Type.transition" of every transition taken, the requested one first
         self.flags = []             # the audit and warn guards that failed, at any depth
+        self.observed = []          # their attempt rows, each linked to the event of the transition whose clause failed
         self.asserted, self.admits = None, set()    # the object an assertion set, and what it admits
         self.erased = {}            # object id -> the personal attributes this request erased on it
         self.position_of = {}       # object id -> the position of the event its current transition records
@@ -1444,9 +1485,19 @@ class Runner:
         return back.get("aggregation") == "composite"
 
     # ── a request ─────────────────────────────────────────────────────────────
-    def attempt(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred=None, filed_at=None):
-        """The request's result, ("applied", object id, flags, the transitions it caused), or a Refused.
-        The store changes only if the request applies. `occurred` is the time the request says the change happened."""
+    def attempt(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred=None, filed_at=None, proposal=None):
+        """The request's result, ("applied", object id, flags, the transitions it caused), or a Refused, which the
+        attempt log records: one row of the requested transition, or for an approval of the proposed one on its
+        object naming the proposal (DESIGN.md §6, §9). The store changes only if the request applies. `occurred` is the
+        time the request says the change happened."""
+        try:
+            return self.attempted(store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred, filed_at)
+        except Refused as r:
+            store.attempts.append(attempt_row(store, tn if oid is None or oid in store.objects else None,
+                                              oid if oid in store.objects else None, xn, actor, r, proposal=proposal))
+            raise
+
+    def attempted(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred=None, filed_at=None):
         work = copy.deepcopy(store)
         # 1. the actor: an object of a type that marks an actor identity (DESIGN.md §6 step 1)
         if actor not in work.objects or work.actor_attr(work.type_of(actor)) is None:
@@ -1506,6 +1557,7 @@ class Runner:
         except Refused:
             store.sequences = work.sequences    # a number minted by a refused request stays used: the gap
             raise
+        work.attempts.extend(ctx.observed)
         store.__dict__.update(work.__dict__)
         return ("applied", root, ctx.flags, ctx.taken[1:], ctx.created, ctx.at)
 
@@ -1750,14 +1802,17 @@ class Runner:
             if k not in inputs and (spec.get("optional") or "default" in spec):
                 raise Refused("unsatisfied", f"{k}_provided", "self_serviceable")
         conditions = t.get("conditions") or {}
+        failed = []
         for g, mode in (x.get("guards") or {}).items():
             asking = Evaluator(work, tn, oid, inputs, ctx.who, ctx.stubs, committed=ctx.before)
             ok = truth(asking.value(flowexpr.parse(conditions[g]["expression"]), {}))
             if ok is not True:
+                remedy = "temporal" if asking.unanswered else conditions[g].get("remedy")
                 if mode == "deny":
                     # an evaluator that did not answer leaves the guard unknown, and the caller may try again (ADR-0138)
-                    raise Refused("unsatisfied", g, "temporal" if asking.unanswered else conditions[g].get("remedy"))
+                    raise Refused("unsatisfied", g, remedy, unknown=ok is ABSENT)
                 ctx.flags.append((f"{tn}.{g}", mode))
+                failed.append((g, mode, remedy, ok is ABSENT))
         # 5. the outcome: its event's position allocated as it begins applying, so this_event is known to it (§7)
         work.position += 1
         pos = work.position
@@ -1798,6 +1853,13 @@ class Runner:
             self.mint(ctx, o, attrs)
         ctx.wrote(o.id)
         ctx.position_of[o.id] = pos
+        # a flag raised, or an audit's would-be refusal, is a row of the type whose clause failed, linked to this event
+        # and written with it (DESIGN.md §5.5, §7, ADR-0111)
+        for g, mode, remedy, unknown in failed:
+            ctx.observed.append({"type": tn, "object": o.id, "transition": xn, "verdict": "unsatisfied", "clause": g,
+                                 "remedy": remedy, "unknown": unknown, "enforced": False, "flagged": mode == "warn",
+                                 "actor_id": ctx.who["id"], "actor_kind": ctx.who["kind"], "at": work.now,
+                                 "declaration_version": 1, "applied_position": pos, "proposal": None})
         ctx.attr_writes[o.id] = set(inputs) & set(x.get("required_inputs", []) + x.get("optional_inputs", []))
         for w in wholes:
             if w is not None:
@@ -2378,7 +2440,20 @@ def step(runner, store, st, aliases, stubs, under_test=False):
         aliases[im["as"]] = import_object(runner, store, im["type"], im["state"], given)
         return None
     if "propose" in st:
-        # a request filed for approval instead of executed, held as it was asked (DESIGN.md §9, ADR-0036)
+        r = st["propose"]
+        oid = aliases[r["object"]] if "object" in r else None
+        tn = store.type_of(oid) if oid else r["type"]
+        try:
+            return file_proposal(runner, store, st, aliases)
+        except Refused as refusal:
+            store.attempts.append(attempt_row(store, tn, oid, r["transition"], aliases.get(r.get("actor", OPERATOR), r.get("actor")), refusal))
+            raise
+    return decide_or_request(runner, store, st, aliases, stubs, under_test)
+
+
+def file_proposal(runner, store, st, aliases):
+    """A request filed for approval instead of executed, held as it was asked (DESIGN.md §9, ADR-0036)."""
+    if True:
         r = st["propose"]
         advance(store, r)
         oid = aliases[r["object"]] if "object" in r else None
@@ -2415,6 +2490,10 @@ def step(runner, store, st, aliases, stubs, under_test=False):
                                 "state": "pending", "verdict": None, "occurred": occurred, "filed_at": store.now}
         aliases[r["proposal"]] = ("proposal", key)
         return None
+
+
+def decide_or_request(runner, store, st, aliases, stubs, under_test):
+    """A decision on a proposal, or a request (DESIGN.md §6, §9)."""
     for verb in ("approve", "reject", "withdraw"):
         if verb not in st:
             continue
@@ -2423,17 +2502,21 @@ def step(runner, store, st, aliases, stubs, under_test=False):
         key = aliases[d["proposal"]][1]
         actor = aliases.get(d.get("actor", OPERATOR), d.get("actor"))
         try:
-            if actor not in store.objects or store.actor_attr(store.type_of(actor)) is None:
-                raise Refused("unsatisfied", "actor_known", "dependent")
-            if store.proposals[key]["state"] != "pending":
-                raise Refused("unavailable", remedy="unreachable_from_here", detail=f"the proposal is {store.proposals[key]['state']}")
+            try:
+                if actor not in store.objects or store.actor_attr(store.type_of(actor)) is None:
+                    raise Refused("unsatisfied", "actor_known", "dependent")
+                if store.proposals[key]["state"] != "pending":
+                    raise Refused("unavailable", remedy="unreachable_from_here", detail=f"the proposal is {store.proposals[key]['state']}")
+            except Refused as decision:
+                store.attempts.append(attempt_row(store, "Proposal", key, verb, actor, decision))
+                raise
             if verb != "approve":
                 store.proposals[key]["state"] = "rejected" if verb == "reject" else "withdrawn"
                 return None
             # approving executes the request as the approver, every guard evaluated now; a refusal leaves it pending
             held = store.proposals[key]
             result = runner.attempt(store, held["type"], held["transition"], held["object"], actor, held["inputs"],
-                                    held["aliases"], stubs, held.get("occurred"), held.get("filed_at"))
+                                    held["aliases"], stubs, held.get("occurred"), held.get("filed_at"), proposal=key)
         except Refused as refusal:
             if key in store.proposals and store.proposals[key]["state"] == "pending":
                 store.proposals[key]["verdict"] = refusal
@@ -2939,7 +3022,8 @@ def metrics_self_test(operator):
                    "DONE": {"category": "closed", "final": True}},
         "conditions": {
             "good": {"expression": "metric(pass_rate, engineer := engineer, over last 30 days) >= 0.900", "remedy": "dependent"},
-            "not_busy": {"expression": "metric(Job.open_work.engineer, assignee := inputs.engineer) < 2", "remedy": "dependent"}},
+            "not_busy": {"expression": "metric(Job.open_work.engineer, assignee := inputs.engineer) < 2", "remedy": "dependent"},
+            "checked": {"expression": "count(c in checks) > 0", "remedy": "self_serviceable"}},
         "transitions": {
             "open": {"kind": "initial", "to": "OPEN", "optional_inputs": ["engineer", "tags"]},
             "assign": {"kind": "internal", "from": ["OPEN", "WORKING", "SHELVED"], "required_inputs": ["engineer"], "guards": {"not_busy": "deny"}},
@@ -2950,7 +3034,9 @@ def metrics_self_test(operator):
             "pause": {"kind": "external", "from": ["WORKING"], "to": "OPEN"},
             "shelve": {"kind": "external", "from": ["WORKING"], "to": "SHELVED"},
             "close": {"kind": "external", "from": ["SHELVED"], "to": "DONE"},
-            "finish": {"kind": "external", "from": ["WORKING"], "to": "DONE", "guards": {"good": "deny"}}},
+            "finish": {"kind": "external", "from": ["WORKING"], "to": "DONE", "guards": {"good": "deny"}, "proposable": True},
+            "review": {"kind": "internal", "from": ["WORKING"], "guards": {"checked": "warn"}},
+            "inspect": {"kind": "internal", "from": ["WORKING"], "guards": {"checked": "audit"}}},
         "metrics": {
             "pass_rate": {"source": "checks", "item": "r", "filter": "r.outcome != Outcome.NA", "dimensions": {"engineer": "r.subject.engineer"},
                           "time_dimension": "r.occurred_at", "expression": rate.format("1.000"), "flag_when": {"low": "value < 0.900"}},
@@ -3074,6 +3160,41 @@ def metrics_self_test(operator):
         (("nonesuch",), {}), (("Job.pass_rate",), {"keep": ["nobody"]}), (("passes_per_job",), {"filt": "true"}),
         (("Job.tagged",), {"over": 7 * day}), (("Job.jobs_opened",), {"filt": 'o.memo == "x"'})]],
           ["unknown_metric", "unknown_dimension", "filter_on_combined", "no_window", "personal"])
+    # the attempt log: a refusal, a flag and an audit, each a row, read as its rows and its daily counts (DESIGN.md §6, §7)
+    r, s = world()
+    ana = req(r, s, "User", "add", login="ana")
+    jr = req(r, s, "Job", "open", engineer=ana)
+    req(r, s, "Job", "start", jr)
+    req(r, s, "Job", "review", jr)                          # its warn guard fails: a flag
+    req(r, s, "Job", "inspect", jr)                         # its audit guard fails: a would-be refusal
+    req(r, s, "Job", "finish", jr)                          # no checks: the pass rate unknown, refused
+    req(r, s, "Job", "nonesuch", jr)                        # no such transition
+    try:
+        r.attempt(s, "Job", "review", jr, "nobody", {}, {}, {})     # an actor the store does not hold
+    except Refused:
+        pass
+    aliases, stubs = {"ana": ana, "jr": jr, OPERATOR: OPERATOR}, {}
+    step(r, s, {"propose": {"object": "jr", "transition": "finish", "proposal": "p"}}, aliases, stubs)
+    try:
+        step(r, s, {"approve": {"proposal": "p"}}, aliases, stubs)
+    except Refused:
+        pass
+    check("each refusal, flag and audit a row of the attempt log",
+          [(a["type"], a["object"], a["transition"], a["verdict"], a["clause"], a["unknown"], a["enforced"], a["flagged"],
+            a["actor_kind"], a["proposal"] is not None) for a in s.attempts],
+          [("Job", jr, "review", "unsatisfied", "checked", False, False, True, "human", False),
+           ("Job", jr, "inspect", "unsatisfied", "checked", False, False, False, "human", False),
+           ("Job", jr, "finish", "unsatisfied", "good", True, True, False, "human", False),
+           ("Job", jr, "nonesuch", "unknown_transition", None, False, True, False, "human", False),
+           ("Job", jr, "review", "unsatisfied", "actor_known", False, True, False, "unknown", False),
+           ("Job", jr, "finish", "unsatisfied", "good", True, True, False, "human", True)])
+    check("the standard refusals, each enforced refusal of a transition",
+          (read(s, jr, 'metric(Job.refusals, transition := "finish")'), read(s, jr, "metric(Job.refusals)")), (2, 4))
+    check("the standard flags raised, and the audits counted by neither",
+          read(s, jr, 'metric(Job.flags_raised, clause := "checked")'), 1)
+    check("the standard refusal rate, a transition never applied refused every time",
+          read(s, jr, 'metric(Job.refusal_rate, transition := "finish", clause := "good")'), 1)
+    check("an object's own attempts", read(s, jr, "count(a in this.attempts where a.enforced)"), 4)
     # a span holds what the transition that began it wrote, and an event what was held before it (§6.9, ADR-0146)
     r, s = world()
     ana, ben = req(r, s, "User", "add", login="ana"), req(r, s, "User", "add", login="ben")
@@ -3201,7 +3322,8 @@ def metrics_self_test(operator):
     o = offered(jo)
     check("an offer for each requestable transition, the initial left out, and the recording of each kind on it",
           sorted(o), sorted([("assign", None), ("resume", None), ("start", None), ("back", None), ("pause", None),
-                             ("shelve", None), ("close", None), ("finish", None), ("take", None), ("record", "Check")]))
+                             ("shelve", None), ("close", None), ("finish", None), ("take", None),
+                             ("review", None), ("inspect", None), ("record", "Check")]))
     check("a transition its state allows, taking no input, is available", o[("start", None)], ("available", None, [], []))
     check("one taking a required input is available with input, its guard on that input left for the input",
           o[("assign", None)], ("available_with_input", None, [], []))

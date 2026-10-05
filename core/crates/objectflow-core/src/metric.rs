@@ -13,7 +13,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value as Json, json};
 
-use crate::eval::{Evaluator, NotRun, closed_periods, interval_rows, transition_row, truth};
+use crate::eval::{
+    Evaluator, NotRun, attempt_row, closed_periods, interval_rows, transition_row, truth,
+};
 use crate::expr::{BinOp, Expr, Number, parse};
 use crate::model::{Declared, Library, Type};
 use crate::rat::Rat;
@@ -347,6 +349,8 @@ enum Kind {
     Intervals(String),
     Transition(String),
     Transitions(String),
+    Attempt(String),
+    AttemptCount(String),
     Other,
 }
 
@@ -757,9 +761,69 @@ impl<'w> Reader<'w> {
             });
         }
         if source == "attempts" || source == "attempt_counts" {
-            return not_run(format!(
-                "a metric over `{source}`, the attempt log the core does not keep"
-            ));
+            // the rows of the family's types; a row of no type, an unknown
+            // id's, is none of them (DESIGN.md §7)
+            let mine: Vec<Value> = world
+                .attempts
+                .iter()
+                .filter(|a| a.type_.as_deref().is_some_and(|t| world.lib.is_a(t, owner)))
+                .map(attempt_row)
+                .collect();
+            if source == "attempts" {
+                return Ok(Rows {
+                    rows: mine,
+                    kind: Kind::Attempt(owner.to_string()),
+                    by_kind: "actor_kind",
+                });
+            }
+            // each UTC day, object and combination of the members, counted;
+            // nothing is pruned, so the rollup holds nothing
+            const MEMBERS: [&str; 9] = [
+                "object",
+                "transition",
+                "verdict",
+                "clause",
+                "remedy",
+                "actor_kind",
+                "enforced",
+                "flagged",
+                "declaration_version",
+            ];
+            let mut counts: Vec<(Vec<Value>, i64)> = Vec::new();
+            for row in &mine {
+                let Value::Row(f) = row else { continue };
+                let day = match f.get("at") {
+                    Some(Value::Timestamp(t)) => Value::Date(t.div_euclid(86_400)),
+                    _ => Value::Absent,
+                };
+                let key: Vec<Value> = std::iter::once(day)
+                    .chain(
+                        MEMBERS
+                            .iter()
+                            .map(|m| f.get(*m).cloned().unwrap_or(Value::Absent)),
+                    )
+                    .collect();
+                match counts.iter_mut().find(|(k, _)| *k == key) {
+                    Some((_, n)) => *n += 1,
+                    None => counts.push((key, 1)),
+                }
+            }
+            return Ok(Rows {
+                rows: counts
+                    .into_iter()
+                    .map(|(key, n)| {
+                        let mut f: BTreeMap<String, Value> = std::iter::once("day")
+                            .chain(MEMBERS)
+                            .map(str::to_string)
+                            .zip(key)
+                            .collect();
+                        f.insert("count".into(), Value::Int(n));
+                        Value::Row(f)
+                    })
+                    .collect(),
+                kind: Kind::AttemptCount(owner.to_string()),
+                by_kind: "actor_kind",
+            });
         }
         not_run(format!("a metric over `{source}`"))
     }
@@ -1122,6 +1186,16 @@ impl<'w> Reader<'w> {
             },
             Kind::Transition(t) => match m {
                 "occurred_at" | "recorded_at" => Kind::Timestamp,
+                "object" => Kind::Object(t.clone()),
+                _ => Kind::Other,
+            },
+            Kind::Attempt(t) => match m {
+                "at" => Kind::Timestamp,
+                "object" => Kind::Object(t.clone()),
+                _ => Kind::Other,
+            },
+            Kind::AttemptCount(t) => match m {
+                "count" => Kind::Int,
                 "object" => Kind::Object(t.clone()),
                 _ => Kind::Other,
             },
@@ -2087,6 +2161,7 @@ types:
     conditions:
       good: { description: Good work., expression: "metric(pass_rate, engineer := engineer, over last 30 days) >= 0.900", remedy: dependent }
       not_busy: { description: Not busy., expression: "metric(Job.open_work.engineer, assignee := inputs.engineer) < 2", remedy: dependent }
+      checked: { description: Checked., expression: count(c in checks) > 0, remedy: self_serviceable }
     transitions:
       open: { kind: initial, to: OPEN, optional_inputs: [engineer, tags] }
       assign: { kind: internal, from: [OPEN, WORKING, SHELVED], required_inputs: [engineer], guards: { not_busy: deny } }
@@ -2097,7 +2172,9 @@ types:
       pause: { kind: external, from: [WORKING], to: OPEN }
       shelve: { kind: external, from: [WORKING], to: SHELVED }
       close: { kind: external, from: [SHELVED], to: DONE }
-      finish: { kind: external, from: [WORKING], to: DONE, guards: { good: deny } }
+      finish: { kind: external, from: [WORKING], to: DONE, guards: { good: deny }, proposable: true }
+      review: { kind: internal, from: [WORKING], guards: { checked: warn } }
+      inspect: { kind: internal, from: [WORKING], guards: { checked: audit } }
     metrics:
       pass_rate: { description: x, source: checks, item: r, filter: r.outcome != Outcome.NA, dimensions: { engineer: r.subject.engineer }, time_dimension: r.occurred_at, expression: count(where r.outcome == Outcome.PASS) * 1.000 / count(), flag_when: { low: "value < 0.900" } }
       pass_share: { description: x, source: checks, item: r, dimensions: { engineer: r.subject.engineer }, expression: count(where r.outcome == Outcome.PASS) * 1.00 / count() }
@@ -2869,5 +2946,187 @@ types:
         // spans that begin where their record does carry none
         let spans = page_of(&s, "Unit.in_state", &[], None, None, None);
         assert!(spans.history_complete, "{spans:?}");
+    }
+
+    /// The reference runner's attempt-log cases (`flowrun.py`,
+    /// `metrics_self_test`, "the attempt log"): a refusal, a flag and an
+    /// audit each a row, read as rows and as daily counts.
+    #[test]
+    fn the_attempt_log_holds_each_refusal_flag_and_audit() {
+        let mut s = world();
+        let ana = user(&mut s, "ana");
+        let jr = job(&mut s, json!({ "engineer": ana }));
+        take(&mut s, "start", &jr);
+        take(&mut s, "review", &jr); // its warn guard fails: a flag
+        take(&mut s, "inspect", &jr); // its audit guard fails: a would-be refusal
+        let _ = req(&mut s, "Job", "finish", Some(&jr), json!({})); // the pass rate unknown
+        let _ = req(&mut s, "Job", "nonesuch", Some(&jr), json!({}));
+        let ask = |transition: &str, actor: &str, object: &str, propose: bool| Request {
+            transition: transition.into(),
+            actor: actor.into(),
+            object_id: Some(object.to_string()),
+            type_: None,
+            inputs: BTreeMap::new(),
+            occurred_at: None,
+            propose,
+            expires_at: None,
+        };
+        // an actor the store does not hold
+        request(&mut s, &ask("review", "nobody", &jr, false))
+            .unwrap()
+            .unwrap();
+        // a proposal of the finish, its approval refused
+        let Verdict::Satisfied { object_id: p, .. } =
+            request(&mut s, &ask("finish", OPERATOR, &jr, true))
+                .unwrap()
+                .unwrap()
+        else {
+            panic!("the proposal is filed")
+        };
+        request(&mut s, &ask("approve", OPERATOR, &p, false))
+            .unwrap()
+            .unwrap();
+        let w = s.snapshot().unwrap();
+        let rows: Vec<_> = w
+            .attempts
+            .iter()
+            .map(|a| {
+                (
+                    a.type_.clone().unwrap_or_default(),
+                    a.object_id.clone().unwrap_or_default(),
+                    a.transition.clone().unwrap_or_default(),
+                    a.verdict.clone(),
+                    a.clause.clone(),
+                    a.unknown,
+                    a.enforced,
+                    a.flagged,
+                    a.actor_kind.clone(),
+                    a.request_values.get("proposal").is_some(),
+                )
+            })
+            .collect();
+        let row = |x: &str,
+                   verdict: &str,
+                   clause: Option<&str>,
+                   unknown,
+                   enforced,
+                   flagged,
+                   kind: &str,
+                   named| {
+            (
+                "Job".to_string(),
+                jr.clone(),
+                x.to_string(),
+                verdict.to_string(),
+                clause.map(str::to_string),
+                unknown,
+                enforced,
+                flagged,
+                kind.to_string(),
+                named,
+            )
+        };
+        assert_eq!(
+            rows,
+            vec![
+                row(
+                    "review",
+                    "unsatisfied",
+                    Some("checked"),
+                    false,
+                    false,
+                    true,
+                    "human",
+                    false
+                ),
+                row(
+                    "inspect",
+                    "unsatisfied",
+                    Some("checked"),
+                    false,
+                    false,
+                    false,
+                    "human",
+                    false
+                ),
+                row(
+                    "finish",
+                    "unsatisfied",
+                    Some("good"),
+                    true,
+                    true,
+                    false,
+                    "human",
+                    false
+                ),
+                row(
+                    "nonesuch",
+                    "unknown_transition",
+                    None,
+                    false,
+                    true,
+                    false,
+                    "human",
+                    false
+                ),
+                row(
+                    "review",
+                    "unsatisfied",
+                    Some("actor_known"),
+                    false,
+                    true,
+                    false,
+                    "unknown",
+                    false
+                ),
+                row(
+                    "finish",
+                    "unsatisfied",
+                    Some("good"),
+                    true,
+                    true,
+                    false,
+                    "human",
+                    true
+                ),
+            ]
+        );
+        // a flag and an audit name the event they were raised on
+        assert!(w.attempts[..2].iter().all(|a| a.applied_position.is_some()));
+        drop(w);
+        // the standard refusals, flags raised and refusal rate, and an
+        // object's own attempts
+        assert_eq!(
+            read(
+                &s,
+                &jr,
+                r#"metric(Job.refusals, transition := "finish")"#,
+                &[]
+            ),
+            Value::Int(2)
+        );
+        assert_eq!(read(&s, &jr, "metric(Job.refusals)", &[]), Value::Int(4));
+        assert_eq!(
+            read(
+                &s,
+                &jr,
+                r#"metric(Job.flags_raised, clause := "checked")"#,
+                &[]
+            ),
+            Value::Int(1)
+        );
+        assert_eq!(
+            num(&read(
+                &s,
+                &jr,
+                r#"metric(Job.refusal_rate, transition := "finish", clause := "good")"#,
+                &[]
+            )),
+            rat(1, 1)
+        );
+        assert_eq!(
+            read(&s, &jr, "count(a in this.attempts where a.enforced)", &[]),
+            Value::Int(4)
+        );
     }
 }

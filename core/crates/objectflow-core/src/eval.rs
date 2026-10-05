@@ -447,7 +447,15 @@ impl<'a> Evaluator<'a> {
                     .map(|e| transition_row(self.world, o, t, e))
                     .collect(),
             ),
-            "attempts" | "labels" => {
+            "attempts" => Value::Set(
+                self.world
+                    .attempts
+                    .iter()
+                    .filter(|a| a.object_id.as_deref() == Some(o.id.as_str()))
+                    .map(attempt_row)
+                    .collect(),
+            ),
+            "labels" => {
                 return not_run(format!("an object's `{m}`, its flow data"));
             }
             _ => {
@@ -1349,6 +1357,39 @@ pub(crate) fn transition_row(
         Value::Int(e.declaration_version),
     );
     row.insert("held".to_string(), held(world.lib, t, o, e.position, false));
+    Value::Row(row)
+}
+
+/// A row of the attempt log as a row of `attempts` (`declaration-syntax.md`
+/// §6.9): what the log holds of it, a remedy the core could not tell absent.
+pub(crate) fn attempt_row(a: &crate::store::Attempt) -> Value {
+    let text = |t: &Option<String>| t.clone().map_or(Value::Absent, Value::Text);
+    let mut row = BTreeMap::new();
+    row.insert(
+        "object".to_string(),
+        a.object_id.clone().map_or(Value::Absent, Value::Object),
+    );
+    row.insert("transition".to_string(), text(&a.transition));
+    row.insert("verdict".to_string(), Value::Text(a.verdict.clone()));
+    row.insert("clause".to_string(), text(&a.clause));
+    row.insert(
+        "remedy".to_string(),
+        if a.remedy.is_empty() {
+            Value::Absent
+        } else {
+            Value::Text(a.remedy.clone())
+        },
+    );
+    row.insert("unknown".to_string(), Value::Bool(a.unknown));
+    row.insert("enforced".to_string(), Value::Bool(a.enforced));
+    row.insert("flagged".to_string(), Value::Bool(a.flagged));
+    row.insert("actor_id".to_string(), Value::Text(a.actor_id.clone()));
+    row.insert("actor_kind".to_string(), Value::Text(a.actor_kind.clone()));
+    row.insert("at".to_string(), Value::Timestamp(a.at));
+    row.insert(
+        "declaration_version".to_string(),
+        Value::Int(a.declaration_version),
+    );
     Value::Row(row)
 }
 

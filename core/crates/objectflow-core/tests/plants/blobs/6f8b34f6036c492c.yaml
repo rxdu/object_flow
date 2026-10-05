@@ -85,7 +85,7 @@ types:
         remedy: dependent
       calm:
         description: A planted guard.
-        expression: metric(ServiceJob.refusals) < 3
+        expression: metric(labelled) < 3
         remedy: dependent
       photo_attached:
         description: A photo is attached.
@@ -136,6 +136,11 @@ types:
           reason: { type: string }
 
     metrics:
+      labelled:
+        description: Labels applied to jobs.
+        source: labels
+        item: l
+        expression: count()
       time_working:
         description: Median time jobs spend in WORKING.
         measure: median_time_in_state

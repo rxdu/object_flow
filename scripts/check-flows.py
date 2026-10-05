@@ -4280,8 +4280,11 @@ def runner_plants(people, service, examples):
                  "metric(inspection_pass_rate, engineer := engineer, over last 30 days) >= 0.900", "dependent"), None),
         ("a guard reading a metric that has no rows yet, and so is unknown", "example",
          guarded("        backdating_limit: 2 days\n", "quick", "metric(time_working) < 30 days", "dependent"), None),
+        # a guard reading a metric over labels, which neither the runner nor the core keeps yet
         ("an example the runner cannot yet run", "notrun",
-         guarded("        backdating_limit: 2 days\n", "calm", "metric(ServiceJob.refusals) < 3", "dependent"), None),
+         guarded("        backdating_limit: 2 days\n", "calm", "metric(labelled) < 3", "dependent").replace(
+             "    metrics:\n", "    metrics:\n      labelled:\n        description: Labels applied to jobs.\n"
+                           "        source: labels\n        item: l\n        expression: count()\n", 1), None),
     ]
     for name, code, module, edit in plants:
         found, notes = check([("people.yaml", people), ("service.yaml", module or service),
