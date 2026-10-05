@@ -144,6 +144,19 @@ pub fn report_json(r: &PublishReport) -> serde_json::Value {
 
 /// The dry run over a sandbox's objects.
 pub fn dry_run(world: &World<'_>, draft: &Draft<'_>) -> Result<PublishReport, NotRun> {
+    simulate(world, draft).map(|s| s.report)
+}
+
+/// A dry run, and what an approval would install from it: the next
+/// version's library and every object as its mappings leave it, so the
+/// publish does what its dry run reported (`publish-and-import.md` §1).
+#[derive(Debug)]
+pub struct Simulated {
+    pub report: PublishReport,
+    pub install: Option<(Library, BTreeMap<String, Object>)>,
+}
+
+pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRun> {
     let old = world.lib;
     let mut found = Found::default();
     let mut report = PublishReport {
@@ -166,10 +179,52 @@ pub fn dry_run(world: &World<'_>, draft: &Draft<'_>) -> Result<PublishReport, No
                 None,
             );
             report.findings = found.0;
-            return Ok(report);
+            return Ok(Simulated {
+                report,
+                install: None,
+            });
         }
     };
     new.version = old.version + 1;
+    // erasure reaches every value personal under any version an object's
+    // history was written under (ADR-0146 decision 2), and the core's reaches
+    // only what the installed version marks personal: a version that would
+    // leave one behind, dropped, retyped or no longer personal, is not run
+    for (tn, ot) in &old.types {
+        if builtin(tn) || ot.retired {
+            continue;
+        }
+        for (a, spec) in ot.attributes.iter().filter(|(_, s)| s.personal) {
+            let to = new
+                .migration
+                .renamed_attributes
+                .iter()
+                .find(|(t, from, _)| t == tn && from == a)
+                .map_or(a, |(_, _, to)| to);
+            let kept = new
+                .type_(tn)
+                .and_then(|t| t.attribute(to))
+                .is_some_and(|na| {
+                    na.personal && na.declared == spec.declared && na.many == spec.many
+                });
+            if !kept {
+                return Err(NotRun(format!(
+                    "erasure of {tn}.{a}, personal under version {}, once a version no longer holds it so (ADR-0146 decision 2)",
+                    old.version
+                )));
+            }
+        }
+    }
+    // a type the version drops is retired: its objects and history stay
+    // readable, and nothing creates or changes one (storage-schema.md §10)
+    for (tn, t) in &old.types {
+        if !new.types.contains_key(tn) {
+            let mut retired = t.clone();
+            retired.transitions.clear();
+            retired.retired = true;
+            new.types.insert(tn.clone(), retired);
+        }
+    }
     let m = new.migration.clone();
     // the objects as the mappings leave them, read under the new version
     let mut mapped: BTreeMap<String, Object> = BTreeMap::new();
@@ -180,17 +235,43 @@ pub fn dry_run(world: &World<'_>, draft: &Draft<'_>) -> Result<PublishReport, No
             mapped.insert(o.id.clone(), o.clone());
             continue;
         }
-        let Some(nt) = new.type_(&o.type_) else {
-            continue; // a retired type's objects are read for nothing
+        let Some(nt) = new.type_(&o.type_).filter(|t| !t.retired) else {
+            // a retired type's objects are read for nothing
+            mapped.insert(o.id.clone(), o.clone());
+            continue;
         };
         let mut x = o.clone();
         // renames first, which write nothing of their own
         for (tn, from, to) in &m.renamed_attributes {
-            if new.is_a(&o.type_, tn)
-                && let Some(v) = x.attrs.remove(from)
-            {
-                x.attrs.insert(to.clone(), v);
+            if new.is_a(&o.type_, tn) {
+                if let Some(v) = x.attrs.remove(from) {
+                    x.attrs.insert(to.clone(), v);
+                }
+                // a rename carries the attribute's history, its intervals
+                // included (publish-and-import.md §3)
+                if let Some(spans) = x.spans.remove(from) {
+                    x.spans.insert(to.clone(), spans);
+                }
             }
+        }
+        // an attribute whose type changed starts absent, its values set aside
+        // with their history (storage-schema.md §10)
+        if let Some(ot) = old.type_(&o.type_) {
+            for (a, spec) in &ot.attributes {
+                if nt
+                    .attribute(a)
+                    .is_some_and(|na| na.declared != spec.declared || na.many != spec.many)
+                {
+                    x.attrs.remove(a);
+                    x.spans.remove(a);
+                }
+            }
+        }
+        // an observation is born final, and no migration reaches one: a
+        // removed member it holds is fatal below (storage-schema.md §10)
+        if nt.observation_on.is_some() {
+            mapped.insert(x.id.clone(), x);
+            continue;
         }
         // then removed enumeration members, a set keeping the target once
         for (en, from, to) in &m.removed_members {
@@ -271,7 +352,7 @@ pub fn dry_run(world: &World<'_>, draft: &Draft<'_>) -> Result<PublishReport, No
         let ids: Vec<String> = sim.of_type(tn).iter().map(|o| o.id.clone()).collect();
         for id in ids {
             let Some(o) = sim.get(&id) else { continue };
-            let Some(t) = new.type_(&o.type_) else {
+            let Some(t) = new.type_(&o.type_).filter(|t| t.observation_on.is_none()) else {
                 continue;
             };
             if o.erased && t.attribute(attr).is_some_and(|a| a.personal) {
@@ -311,7 +392,7 @@ pub fn dry_run(world: &World<'_>, draft: &Draft<'_>) -> Result<PublishReport, No
         if builtin(&o.type_) {
             continue;
         }
-        let Some(t) = new.type_(&o.type_) else {
+        let Some(t) = new.type_(&o.type_).filter(|t| !t.retired) else {
             continue;
         };
         for (a, spec) in &t.attributes {
@@ -408,6 +489,18 @@ pub fn dry_run(world: &World<'_>, draft: &Draft<'_>) -> Result<PublishReport, No
             if o.admissions.contains(&n) {
                 continue;
             }
+            // a kind's new invariant applies to recordings after the publish,
+            // and nothing can change the observations that violate it
+            // (ADR-0146)
+            if t.observation_on.is_some() {
+                found.add(
+                    Severity::Notice,
+                    format!("observation_invariant:{}.{n}", o.type_),
+                    format!("observations already recorded violate {}.{n}, which applies to later recordings", o.type_),
+                    Some(&o.id),
+                );
+                continue;
+            }
             let qualified = format!("{}.{n}", o.type_);
             let admitted = m.admit.iter().any(|(inv, _)| {
                 inv.rsplit_once('.')
@@ -463,11 +556,15 @@ pub fn dry_run(world: &World<'_>, draft: &Draft<'_>) -> Result<PublishReport, No
                 })
             }
         });
-    Ok(report)
+    let objects = std::mem::take(&mut sim.objects);
+    Ok(Simulated {
+        report,
+        install: Some((new, objects)),
+    })
 }
 
 /// Whether a type is one of the store's own, which no change declares.
-fn builtin(type_: &str) -> bool {
+pub(crate) fn builtin(type_: &str) -> bool {
     [
         crate::model::OPERATOR_TYPE,
         PROPOSAL,
@@ -510,7 +607,10 @@ fn clauses_and_offers(
         if builtin(&o.type_) {
             continue;
         }
-        let (Some(nt), Some(before)) = (new.lib.type_(&o.type_), old.get(&o.id)) else {
+        let (Some(nt), Some(before)) = (
+            new.lib.type_(&o.type_).filter(|t| !t.retired),
+            old.get(&o.id),
+        ) else {
             continue;
         };
         let ot = old.lib.type_(&o.type_);
@@ -865,6 +965,21 @@ types:
         .unwrap()
     }
 
+    fn run_on(s: &Store, change: &str, module: &str, text: &str) -> PublishReport {
+        let w = s.snapshot().unwrap();
+        dry_run(
+            &w,
+            &Draft {
+                change_id: Some(change),
+                source: &[(module.to_string(), text.to_string())],
+                source_ref: Some("git:lab@1"),
+                source_digest: None,
+                actor: OPERATOR,
+            },
+        )
+        .unwrap()
+    }
+
     fn ids(r: &PublishReport, code: &str) -> Vec<String> {
         r.affected().get(code).cloned().unwrap_or_default()
     }
@@ -951,6 +1066,18 @@ types:
                 inputs: vec!["source_ref".into()]
             }
         );
+        // a file under a name it does not declare
+        assert_eq!(
+            req(
+                &mut s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"lab": V1}, "source_ref": "git:fleet@1"})
+            ),
+            Verdict::InvalidInput {
+                inputs: vec!["source".into()]
+            }
+        );
         let text = v2(true, true, true);
         let change = draft(&mut s, &text);
         let w = s.snapshot().unwrap();
@@ -1001,5 +1128,414 @@ types:
                 .0
                 .contains("publish checks")
         );
+    }
+
+    fn approve(s: &mut Store, change: &str, version: i64) -> (Verdict, Option<PublishReport>) {
+        s.publish(OPERATOR, change, version).unwrap().unwrap()
+    }
+
+    fn submitted(s: &mut Store, text: &str) -> (String, i64) {
+        let change = draft(s, text);
+        created(&req(s, "submit", (&change, false), json!({})));
+        let version = s.snapshot().unwrap().get(&change).unwrap().version;
+        (change, version)
+    }
+
+    fn refused(clause: &str) -> Verdict {
+        Verdict::Unsatisfied {
+            clause: clause.into(),
+            remedy: Some(Remedy::UnreachableFromHere),
+        }
+    }
+
+    #[test]
+    fn an_approval_installs_what_its_dry_run_reported() {
+        let (mut s, [ready, held, bare], proposal, other) = fleet();
+        let (change, v) = submitted(&mut s, &v2(true, true, true));
+        // the approver read an earlier version of the change
+        assert_eq!(
+            approve(&mut s, &change, v - 1).0,
+            Verdict::Stale {
+                expected: v - 1,
+                actual: v
+            }
+        );
+        let (verdict, report) = approve(&mut s, &change, v);
+        let Verdict::Satisfied { events, .. } = verdict else {
+            panic!("{verdict:?}")
+        };
+        // the publish event, three migrations, a supersession, an invalidation
+        assert_eq!(events.len(), 6);
+        assert!(report.unwrap().accepted);
+        assert_eq!(s.lib.version, 2);
+        // every object as the mappings left it, read back under version 2
+        let w = s.snapshot().unwrap();
+        let h = w.get(&held).unwrap();
+        assert_eq!(h.state, "READY");
+        let member = |m: &str| Value::Member {
+            enumeration: "Grade".into(),
+            member: m.into(),
+        };
+        assert_eq!(h.attr("grade"), member("B"));
+        for id in [&ready, &held, &bare] {
+            assert_eq!(w.get(id).unwrap().attr("site"), Value::Text("north".into()));
+        }
+        assert!(
+            w.get(&bare)
+                .unwrap()
+                .admissions
+                .contains("graded_when_ready")
+        );
+        assert_eq!(w.get(&other).unwrap().state, "SUPERSEDED");
+        assert_eq!(w.get(&proposal).unwrap().state, "INVALIDATED");
+        let c = w.get(&change).unwrap();
+        assert_eq!(c.state, "PUBLISHED");
+        assert_eq!(c.attr("approved_by"), Value::Text(OPERATOR.into()));
+        // the held robot's intervals: HOLD and OLD closed at its migration,
+        // READY and B opened there, marked migrated
+        for (d, was, now) in [
+            (
+                "state",
+                Value::State {
+                    type_: "Robot".into(),
+                    name: "HOLD".into(),
+                },
+                Value::State {
+                    type_: "Robot".into(),
+                    name: "READY".into(),
+                },
+            ),
+            ("grade", member("OLD"), member("B")),
+        ] {
+            let spans = &h.spans[d];
+            let (before, last) = (&spans[spans.len() - 2], &spans[spans.len() - 1]);
+            assert_eq!((&before.value, &last.value), (&was, &now), "{d}");
+            assert_eq!(before.left_position, Some(last.entered_position));
+            assert!(last.migrated && !before.migrated, "{d}");
+        }
+        // each migration recorded under the version it migrated from, its
+        // state's source left as it was
+        let history = s.history(&held).unwrap();
+        let migrate = history.last().unwrap();
+        assert_eq!(
+            (migrate.transition.as_str(), migrate.source.as_str()),
+            ("migrate", "migrated")
+        );
+        assert_eq!(migrate.declaration_version, 1);
+        let published = s.history(&change).unwrap();
+        assert_eq!(published.last().unwrap().declaration_version, 2);
+        let (source, versions): (String, i64) = s
+            .conn()
+            .query_row(
+                "SELECT (SELECT state_source FROM t_robot WHERE id = ?1), \
+                 (SELECT count(*) FROM of_declaration)",
+                [&held],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((source.as_str(), versions), ("observed", 3));
+        // the table holds the version's shape: HOLD refused, site required
+        for broken in [
+            "UPDATE t_robot SET state = 'HOLD'",
+            "UPDATE t_robot SET site = NULL",
+            "UPDATE t_robot SET grade = 'OLD'",
+        ] {
+            assert!(s.conn().execute(broken, []).is_err(), "{broken}");
+        }
+        // and the store runs version 2's requests
+        assert!(matches!(
+            req(&mut s, "add", ("Robot", true), json!({"serial": "R4"})),
+            Verdict::InvalidInput { .. }
+        ));
+        created(&req(
+            &mut s,
+            "add",
+            ("Robot", true),
+            json!({"serial": "R4", "grade": "A", "site": "south"}),
+        ));
+        created(&req(&mut s, "retire", (&held, false), json!({})));
+        assert_eq!(
+            req(&mut s, "retire", (&bare, false), json!({})),
+            Verdict::Unsatisfied {
+                clause: "graded".into(),
+                remedy: Some(Remedy::SelfServiceable)
+            }
+        );
+    }
+
+    #[test]
+    fn an_approval_is_refused_on_anything_its_approver_did_not_see() {
+        let (mut s, _, _, _) = fleet();
+        // a decision no admit resolves
+        let (change, v) = submitted(&mut s, &v2(true, true, false));
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert_eq!(verdict, refused("decision_unresolved"));
+        assert!(!report.unwrap().accepted);
+        created(&req(&mut s, "withdraw", (&change, false), json!({})));
+        // an object the attached report did not name
+        let (change, v) = submitted(&mut s, &v2(true, true, true));
+        created(&req(
+            &mut s,
+            "add",
+            ("Robot", true),
+            json!({"serial": "R4", "grade": "A"}),
+        ));
+        assert_eq!(approve(&mut s, &change, v).0, refused("impact_unchanged"));
+        assert_eq!(s.lib.version, 1);
+        // a refresh attaches the report again, and the approval of it installs
+        created(&req(&mut s, "refresh", (&change, false), json!({})));
+        let v = s.snapshot().unwrap().get(&change).unwrap().version;
+        assert!(matches!(
+            approve(&mut s, &change, v).0,
+            Verdict::Satisfied { .. }
+        ));
+        assert_eq!(s.lib.version, 2);
+        // a change drafted on version 2 that changes nothing installs version
+        // 3, with no migration
+        let (change, v) = submitted(&mut s, &v2(true, true, true));
+        let (verdict, _) = approve(&mut s, &change, v);
+        let Verdict::Satisfied { events, .. } = verdict else {
+            panic!("{verdict:?}")
+        };
+        assert_eq!((events.len(), s.lib.version), (1, 3));
+    }
+
+    const SHOP_V1: &str = r#"
+module: shop
+categories: [live, closed]
+enumerations:
+  Tier: [GOLD, SILVER]
+  Size: [S, L]
+types:
+  Customer:
+    attributes:
+      name: { type: string, optional: true, personal: true }
+      nick: { type: string, optional: true }
+      tier: { type: Tier, optional: true }
+      size: { type: Size, optional: true }
+    states:
+      ACTIVE: { category: live }
+    transitions:
+      join: { kind: initial, to: ACTIVE, optional_inputs: [name, nick, tier, size] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Coupon:
+    attributes:
+      code: { type: string }
+    states:
+      ISSUED: { category: live }
+    transitions:
+      issue: { kind: initial, to: ISSUED, required_inputs: [code] }
+"#;
+
+    /// `tier` renamed, `size` an enumeration no more, `nick` personal and
+    /// required by an invariant, `band` newly tracked, and `Coupon` dropped.
+    const SHOP_V2: &str = r#"
+module: shop
+categories: [live, closed]
+enumerations:
+  Tier: [GOLD, SILVER]
+  Band: [LOW, HIGH]
+types:
+  Customer:
+    attributes:
+      name: { type: string, optional: true, personal: true }
+      nick: { type: string, optional: true, personal: true }
+      level: { type: Tier, optional: true }
+      size: { type: string, optional: true }
+      band: { type: Band, optional: true }
+    invariants:
+      nicknamed: { expression: nick is not null }
+    states:
+      ACTIVE: { category: live }
+    transitions:
+      join: { kind: initial, to: ACTIVE, optional_inputs: [name, nick, level, size, band] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+migration:
+  renamed_attributes:
+    Customer: { tier: level }
+"#;
+
+    const LAB: &str = r#"
+module: lab
+categories: [live, closed]
+enumerations:
+  Grade: [A, B, OLD]
+types:
+  Sample:
+    attributes:
+      label: { type: string }
+    observations:
+      checks:
+        kind: Check
+        attributes:
+          grade: { type: Grade }
+    states:
+      OPEN: { category: live }
+    transitions:
+      take: { kind: initial, to: OPEN, required_inputs: [label] }
+"#;
+
+    #[test]
+    fn a_version_leaving_a_personal_value_unerasable_is_not_run() {
+        let lib = Library::load(&[("shop.yaml".into(), SHOP_V1.into())]).unwrap();
+        let s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let unmarked = SHOP_V1.replace(
+            "name: { type: string, optional: true, personal: true }",
+            "name: { type: string, optional: true }",
+        );
+        let dropped = SHOP_V1.replace(
+            "      name: { type: string, optional: true, personal: true }\n",
+            "",
+        );
+        for text in [unmarked, dropped] {
+            let w = s.snapshot().unwrap();
+            let r = dry_run(
+                &w,
+                &Draft {
+                    change_id: None,
+                    source: &[("shop".to_string(), text)],
+                    source_ref: None,
+                    source_digest: None,
+                    actor: OPERATOR,
+                },
+            );
+            assert!(r.unwrap_err().0.contains("Customer.name"));
+        }
+    }
+
+    #[test]
+    fn no_migration_reaches_an_observation() {
+        let lib = Library::load(&[("lab.yaml".into(), LAB.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let sample = created(&req(
+            &mut s,
+            "take",
+            ("Sample", true),
+            json!({"label": "S1"}),
+        ));
+        let check = created(&req(
+            &mut s,
+            "record",
+            ("Check", true),
+            json!({"subject": &sample, "grade": "OLD"}),
+        ));
+        let lab = |members: &str, migration: &str| {
+            LAB.replace("Grade: [A, B, OLD]", members).replace(
+                "          grade: { type: Grade }\n",
+                "          grade: { type: Grade }\n        invariants:\n          graded_a: { expression: grade == Grade.A }\n",
+            ) + migration
+        };
+        // a removed member an observation holds is fatal, a mapping or not
+        let text = lab(
+            "Grade: [A, B]",
+            "migration:\n  removed_members:\n    Grade: { OLD: B }\n",
+        );
+        let change = created(&req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"lab": &text}, "source_ref": "git:lab@1"}),
+        ));
+        let r = run_on(&s, &change, "lab", &text);
+        assert_eq!(ids(&r, "removed_member:Grade.OLD"), vec![check.clone()]);
+        assert!(ids(&r, "mapping:removed_members:Grade.OLD").is_empty());
+        // a kind's new invariant the observation violates is a notice
+        let text = lab("Grade: [A, B, OLD]", "");
+        let r = run_on(&s, &change, "lab", &text);
+        assert!(r.accepted, "{:#?}", r.findings);
+        assert_eq!(ids(&r, "observation_invariant:Check.graded_a"), vec![check]);
+    }
+
+    #[test]
+    fn an_approval_keeps_what_a_version_drops_as_history() {
+        let lib = Library::load(&[("shop.yaml".into(), SHOP_V1.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let join =
+            |s: &mut Store, inputs: Json| created(&req(s, "join", ("Customer", true), inputs));
+        let erased = join(
+            &mut s,
+            json!({"name": "N", "nick": "a", "tier": "GOLD", "size": "S"}),
+        );
+        let kept = join(&mut s, json!({"nick": "b", "tier": "SILVER", "size": "L"}));
+        let coupon = created(&req(
+            &mut s,
+            "issue",
+            ("Coupon", true),
+            json!({"code": "C1"}),
+        ));
+        created(&req(
+            &mut s,
+            "forget",
+            (&erased, false),
+            json!({"reason": "asked"}),
+        ));
+        let change = created(&req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"shop": SHOP_V2}, "source_ref": "git:shop@1"}),
+        ));
+        created(&req(&mut s, "submit", (&change, false), json!({})));
+        let v = s.snapshot().unwrap().get(&change).unwrap().version;
+        let (verdict, report) = approve(&mut s, &change, v);
+        let Verdict::Satisfied { events, .. } = verdict else {
+            panic!("{verdict:?} {report:#?}")
+        };
+        // the publish, and the erased customer's redaction; a rename and a
+        // type change write no event
+        assert_eq!(events.len(), 2);
+        let w = s.snapshot().unwrap();
+        let k = w.get(&kept).unwrap();
+        let tier = |m: &str| Value::Member {
+            enumeration: "Tier".into(),
+            member: m.into(),
+        };
+        assert_eq!(k.attr("level"), tier("SILVER"));
+        assert_eq!(k.attr("size"), Value::Absent);
+        assert_eq!(k.attr("nick"), Value::Text("b".into()));
+        // the renamed attribute's intervals carried, the newly tracked one
+        // opened at the publish event, marked migrated
+        assert_eq!(k.spans["level"][0].value, tier("SILVER"));
+        assert!(!k.spans.contains_key("tier") && !k.spans.contains_key("size"));
+        let band = &k.spans["band"][0];
+        assert!(band.migrated && band.value == Value::Absent);
+        assert_eq!(band.entered_position, events[0]);
+        // the newly personal nick redacted on the erased customer, its
+        // history included, and the invariant its absence breaks admitted
+        let e = w.get(&erased).unwrap();
+        assert_eq!(e.attr("nick"), Value::Absent);
+        assert!(e.admissions.contains("nicknamed"));
+        let history = s.history(&erased).unwrap();
+        assert_eq!(history[0].payload["inputs"]["nick"], Json::Null);
+        let redact = history.last().unwrap();
+        assert_eq!(
+            (redact.transition.as_str(), &redact.payload),
+            ("redact", &json!({"redacted": ["nick"]}))
+        );
+        // the dropped type's object stays readable, and nothing creates one
+        assert_eq!(w.get(&coupon).unwrap().state, "ISSUED");
+        drop(w);
+        assert!(!matches!(
+            req(&mut s, "issue", ("Coupon", true), json!({"code": "C2"})),
+            Verdict::Satisfied { .. }
+        ));
+        // the type-changed column and its intervals set aside, closed
+        let (aside, open): (String, i64) = s
+            .conn()
+            .query_row(
+                "SELECT (SELECT size__v1 FROM t_customer WHERE id = ?1), \
+                 (SELECT count(*) FROM of_interval WHERE dimension = 'size__v1' AND left_position IS NULL)",
+                [&kept],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((aside.as_str(), open), ("L", 0));
+        // and the version's requests run over it
+        created(&req(
+            &mut s,
+            "join",
+            ("Customer", true),
+            json!({"nick": "c", "level": "GOLD", "size": "XL", "band": "LOW"}),
+        ));
     }
 }

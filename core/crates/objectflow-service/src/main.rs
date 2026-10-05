@@ -128,6 +128,9 @@ fn verdict(v: &Verdict) -> J {
             json!({"clause": clause, "not_computed": ["unknown", "objects", "proposable", "consulted"]})
         }
         Verdict::NotFound => json!({}),
+        Verdict::Stale { expected, actual } => {
+            json!({ "cause": "expected_version", "expected": expected, "actual": actual })
+        }
         Verdict::Unavailable { state } => json!({ "state": state }),
         Verdict::UnknownTransition { transition } => json!({ "transition": transition }),
         Verdict::InvalidInput { inputs } => json!({ "inputs": inputs }),
@@ -565,6 +568,12 @@ fn object_json(s: &Store, id: &str) -> Answer {
     let Some(t) = s.lib.type_(&o.type_) else {
         return Err(Fault::Internal(format!("the type {}", o.type_)));
     };
+    // the version its row was last written under, which its last event
+    // carries (storage-schema.md §3)
+    let declaration_version = s
+        .history(&o.id)?
+        .last()
+        .map_or(s.lib.version, |e| e.declaration_version);
     let mut attributes = Map::new();
     for (n, _) in &t.attributes {
         attributes.insert(n.clone(), encode(&o.attr(n)));
@@ -573,7 +582,7 @@ fn object_json(s: &Store, id: &str) -> Answer {
         attributes.insert(n.clone(), encode(v));
     }
     Ok(Json(json!({
-        "id": o.id, "type": o.type_, "state": o.state, "version": o.version, "declaration_version": 1,
+        "id": o.id, "type": o.type_, "state": o.state, "version": o.version, "declaration_version": declaration_version,
         "created_at": timestamp_text(o.created_at), "created_by_kind": o.created_by_kind,
         "created_dated": o.created_dated, "attributes": attributes,
         "recorded_from": timestamp_text(o.recorded_from), "open": view.open,
@@ -586,9 +595,8 @@ async fn get(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     object_json(s, text(&body, "id").unwrap_or_default())
 }
 
-/// A change's dry run, its report the impact a publish would have; the
-/// approval, which installs it, is the next slice's (`library-api.md` §6,
-/// ADR-0155).
+/// A change's dry run, its report the impact a publish would have, or its
+/// approval, which installs it (`library-api.md` §6, ADR-0155).
 async fn publish(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     let (Some(actor), Some(change)) = (
         body.get("actor").and_then(|a| text(a, "id")),
@@ -598,13 +606,21 @@ async fn publish(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
             "publish names its actor and the change".to_string(),
         ));
     };
-    if body.get("dry_run").and_then(J::as_bool) != Some(true) {
-        return Err(Fault::NotRun(
-            "the approval, which installs a version, the next slice (ADR-0155)".to_string(),
-        ));
-    }
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
+    if body.get("dry_run").and_then(J::as_bool) != Some(true) {
+        // the version of the change the approver read, required (ADR-0101)
+        let Some(expected) = body.get("expected_version").and_then(J::as_i64) else {
+            return Err(Fault::Bad(
+                "a publish names the expected_version of the change it approves".to_string(),
+            ));
+        };
+        let (v, report) = s.publish(actor, change, expected)??;
+        return Ok(Json(json!({
+            "verdict": verdict(&v),
+            "report": report.as_ref().map(objectflow_core::publish::report_json),
+        })));
+    }
     let world = s.snapshot()?;
     let Some(c) = world
         .get(change)

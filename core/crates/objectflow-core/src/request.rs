@@ -1133,6 +1133,7 @@ fn record_spans(
             left_at: None,
             entered_by: Some(who.id.clone()),
             entered_by_kind: who.kind.clone(),
+            migrated: false,
         });
     }
     true
@@ -1438,7 +1439,17 @@ struct ChangeSource {
 fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
     let mut wrong = Vec::new();
     let source: Vec<(String, String)> = match req.inputs.get("source") {
-        Some(Json::Object(files)) if !files.is_empty() && files.values().all(Json::is_string) => {
+        // each file under the name it declares, a module's or its examples',
+        // which the digest is computed over (ADR-0135, ADR-0155); a file that
+        // does not parse is the dry run's to report
+        Some(Json::Object(files))
+            if !files.is_empty()
+                && files.iter().all(|(n, t)| {
+                    t.as_str().is_some_and(|t| {
+                        crate::source::name_of(t).is_none_or(|declared| declared == *n)
+                    })
+                }) =>
+        {
             files
                 .iter()
                 .map(|(n, t)| (n.clone(), t.as_str().unwrap_or_default().to_string()))
@@ -1967,7 +1978,7 @@ fn erasure_broke(ctx: &Ctx<'_>, obj: &Object, n: &str) -> bool {
 
 /// The attributes an invariant reads, generated ones included: an
 /// attribute's uniqueness, a state's requirement.
-fn invariant_reads(t: &Type, n: &str) -> BTreeSet<String> {
+pub(crate) fn invariant_reads(t: &Type, n: &str) -> BTreeSet<String> {
     if let Some(a) = n.strip_suffix("_unique") {
         return [a.to_string()].into();
     }

@@ -884,6 +884,7 @@ fn open_spans(
             entered_by_kind: entered
                 .and_then(|e| e.by_kind.clone())
                 .unwrap_or_else(|| "unknown".into()),
+            migrated: false,
         });
     }
     None

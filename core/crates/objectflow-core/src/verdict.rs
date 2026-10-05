@@ -30,6 +30,12 @@ pub enum Verdict {
         events: Vec<i64>,
         flags: Vec<Flag>,
     },
+    /// The object moved since the caller read it: the version expected, and
+    /// the one it is at (`library-api.md` §4, cause `expected_version`).
+    Stale {
+        expected: i64,
+        actual: i64,
+    },
     Unsatisfied {
         clause: String,
         remedy: Option<Remedy>,
@@ -76,6 +82,7 @@ impl Verdict {
     pub fn kind(&self) -> &'static str {
         match self {
             Verdict::Satisfied { .. } => "satisfied",
+            Verdict::Stale { .. } => "stale",
             Verdict::Unsatisfied { .. } => "unsatisfied",
             Verdict::NotFound => "not_found",
             Verdict::Unavailable { .. } => "unavailable",
@@ -112,9 +119,10 @@ impl Verdict {
             | Verdict::Unavailable { .. }
             | Verdict::NotRequestable { .. }
             | Verdict::OverLimit { .. } => Some(Remedy::UnreachableFromHere),
-            Verdict::UnknownTransition { .. } | Verdict::InvalidInput { .. } => {
-                Some(Remedy::SelfServiceable)
-            }
+            // a moved version: re-read and send again (ADR-0105)
+            Verdict::UnknownTransition { .. }
+            | Verdict::InvalidInput { .. }
+            | Verdict::Stale { .. } => Some(Remedy::SelfServiceable),
         }
     }
 }

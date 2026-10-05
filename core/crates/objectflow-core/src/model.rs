@@ -268,6 +268,9 @@ pub struct Type {
     pub mirror: bool,
     /// A base with no objects of its own.
     pub abstract_: bool,
+    /// Dropped by a later version: its objects and history stay readable,
+    /// and nothing creates or changes one (`storage-schema.md` §10).
+    pub retired: bool,
     /// Each inherited attribute, and the base that declares it.
     pub inherited: BTreeMap<String, String>,
     /// The type as its description writes it, which `declaration` returns.
@@ -805,6 +808,7 @@ impl Reader<'_> {
             extends: node.get("extends").and_then(Node::text).map(str::to_string),
             mirror: self.flag(node, "mirror")?,
             abstract_: self.flag(node, "abstract")?,
+            retired: false,
             inherited: BTreeMap::new(),
             source: node.to_json(),
         })
@@ -969,6 +973,7 @@ impl Reader<'_> {
             extends: None,
             mirror: false,
             abstract_: false,
+            retired: false,
             inherited: BTreeMap::new(),
             source,
         })
@@ -1340,6 +1345,7 @@ fn operator_type() -> Type {
         extends: None,
         mirror: false,
         abstract_: false,
+        retired: false,
         inherited: BTreeMap::new(),
         source: serde_json::json!({
             "description": "The store's operator, its first actor (ADR-0126).",
@@ -1413,6 +1419,7 @@ fn proposal_type() -> Type {
         extends: None,
         mirror: false,
         abstract_: false,
+        retired: false,
         inherited: BTreeMap::new(),
         source: serde_json::json!({
             "description": "A request filed for approval instead of executed (DESIGN.md §9).",

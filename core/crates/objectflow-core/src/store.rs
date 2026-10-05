@@ -15,10 +15,14 @@ use std::fmt;
 use rusqlite::types::Value as Sql;
 use rusqlite::{Connection, Transaction, params};
 
-use crate::model::{Attribute, Declared, Library, OPERATOR, Type};
+use crate::eval::NotRun;
+use crate::model::{Attribute, DECLARATION_CHANGE, Declared, Library, OPERATOR, Remedy, Type};
+use crate::publish::PublishReport;
+use crate::request::{failing_invariants, invariant_reads, resolve_actor};
 use crate::value::{
     Decimal, Value, date_text, minor_unit, parse_date, parse_timestamp, timestamp_text,
 };
+use crate::verdict::Verdict;
 use crate::world::{Object, Span, World};
 
 /// A fault of the store: the database, or a row that does not read back.
@@ -79,6 +83,9 @@ pub struct Change {
     /// erased attributes in every past event's payload, and its personal
     /// attributes' values in the interval index (§9, steps 2 and 9).
     pub redacted: Vec<(String, Vec<String>)>,
+    /// Spans written beside any event: an object, a dimension and the span,
+    /// such as a publish opens on a member it newly tracks (ADR-0155).
+    pub spans: Vec<(String, String, Span)>,
     /// External identifiers it keeps: source, value, object and attribute,
     /// a legacy key's attribute empty (ADR-0154).
     pub external: Vec<(String, String, String, String)>,
@@ -101,6 +108,326 @@ fn referenced(lib: &Library, target: &str) -> String {
     } else {
         table(target)
     }
+}
+
+/// A type's table as a version declares it: its columns, its constraints,
+/// its set tables and its indexes (§3). Relaxed, it has no `NOT NULL` on an
+/// attribute and no `CHECK` but `state_source`'s, the shape a publish's
+/// mappings write through between two versions (ADR-0155).
+struct TableParts {
+    name: String,
+    columns: Vec<(String, String)>,
+    constraints: Vec<String>,
+    sets: Vec<(String, String)>,
+    indexes: Vec<String>,
+}
+
+impl TableParts {
+    /// The DDL creating it under a name, with extra columns beside its own.
+    fn create(&self, under: &str, extra: &[(String, String)]) -> String {
+        let mut cols: Vec<String> = self
+            .columns
+            .iter()
+            .chain(extra)
+            .map(|(_, def)| def.clone())
+            .collect();
+        cols.extend(self.constraints.iter().cloned());
+        let mut ddl = format!("CREATE TABLE {under} (\n  {}\n);\n", cols.join(",\n  "));
+        if under == self.name {
+            for i in &self.indexes {
+                ddl.push_str(i);
+                ddl.push('\n');
+            }
+            for (_, set) in &self.sets {
+                ddl.push_str(set);
+                ddl.push('\n');
+            }
+        }
+        ddl
+    }
+}
+
+fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
+    let name = table(&t.name);
+    let states = t
+        .states
+        .iter()
+        .map(|(s, _)| literal(s))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut columns: Vec<(String, String)> = [
+        ("id", "id TEXT PRIMARY KEY REFERENCES of_object(id)"),
+        ("state", "state TEXT NOT NULL"),
+        ("version", "version INTEGER NOT NULL"),
+        (
+            "declaration_version",
+            "declaration_version INTEGER NOT NULL",
+        ),
+        (
+            "last_event",
+            "last_event INTEGER NOT NULL REFERENCES of_event(position)",
+        ),
+        (
+            "state_source",
+            "state_source TEXT NOT NULL DEFAULT 'observed'",
+        ),
+    ]
+    .iter()
+    .map(|(n, d)| (n.to_string(), d.to_string()))
+    .collect();
+    // present only on a type with a superseding state (§3)
+    if t.states.iter().any(|(_, s)| s.superseding) {
+        columns.push((
+            "superseded_by".into(),
+            "superseded_by TEXT REFERENCES of_object(id) DEFERRABLE INITIALLY DEFERRED".into(),
+        ));
+    }
+    let mut constraints = vec![format!(
+        "CONSTRAINT {} CHECK (state_source IN ('observed','asserted','imported'))",
+        quote(&format!("{name}_state_source"))
+    )];
+    if !relaxed {
+        constraints.insert(
+            0,
+            format!(
+                "CONSTRAINT {} CHECK (state IN ({states}))",
+                quote(&format!("{name}_state"))
+            ),
+        );
+    }
+    let mut sets = Vec::new();
+    let mut indexes = vec![format!(
+        "CREATE INDEX {} ON {name} (state);",
+        quote(&format!("{name}_state_ix"))
+    )];
+    for (n, a) in &t.attributes {
+        if a.derived_end() {
+            continue;
+        }
+        if a.many {
+            let target = match &a.declared {
+                Declared::Reference(target) if lib.types.contains_key(target) => format!(
+                    " REFERENCES {}(id) DEFERRABLE INITIALLY DEFERRED",
+                    referenced(lib, target)
+                ),
+                _ => String::new(),
+            };
+            let set = format!("{name}__{n}");
+            sets.push((
+                set.clone(),
+                format!(
+                    "CREATE TABLE IF NOT EXISTS {} (object_id TEXT NOT NULL REFERENCES {name}(id), ordinal INTEGER NOT NULL, \
+                     value {} NOT NULL{target}, PRIMARY KEY (object_id, ordinal));",
+                    quote(&set),
+                    sql_type(&a.declared)
+                ),
+            ));
+            continue;
+        }
+        let col = column(n, a);
+        let required = !a.optional && a.default.is_none() && base(&a.declared) != "counter";
+        let mut def = format!("{} {}", quote(&col), sql_type(&a.declared));
+        if base(&a.declared) == "counter" {
+            def.push_str(" NOT NULL DEFAULT 0");
+        } else if required && !relaxed {
+            def.push_str(" NOT NULL");
+        }
+        match &a.declared {
+            Declared::Reference(target) if lib.types.contains_key(target) => {
+                def.push_str(&format!(
+                    " REFERENCES {}(id) DEFERRABLE INITIALLY DEFERRED",
+                    referenced(lib, target)
+                ));
+                indexes.push(format!(
+                    "CREATE INDEX {} ON {name} ({});",
+                    quote(&format!("{name}_{col}_ix")),
+                    quote(&col)
+                ));
+            }
+            Declared::Scalar(e) => {
+                if let Some(members) = lib.enumerations.get(e)
+                    && !relaxed
+                {
+                    let ms = members
+                        .iter()
+                        .map(|m| literal(m))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    constraints.push(format!(
+                        "CONSTRAINT {} CHECK ({} IS NULL OR {} IN ({ms}))",
+                        quote(&format!("{name}_{n}")),
+                        quote(&col),
+                        quote(&col)
+                    ));
+                }
+            }
+            Declared::Reference(_) => {}
+        }
+        columns.push((col, def));
+    }
+    TableParts {
+        name,
+        columns,
+        constraints,
+        sets,
+        indexes,
+    }
+}
+
+/// A span a publish opens on a member it newly tracks, holding its current
+/// value, marked migrated (ADR-0146).
+fn opened(o: &Object, dimension: &str, position: i64, now: i64, who: &crate::eval::Who) -> Span {
+    Span {
+        value: if dimension == "state" {
+            Value::State {
+                type_: o.type_.clone(),
+                name: o.state.clone(),
+            }
+        } else {
+            o.attr(dimension)
+        },
+        entered_position: position,
+        left_position: None,
+        entered_at: now,
+        left_at: None,
+        entered_by: Some(who.id.clone()),
+        entered_by_kind: who.kind.clone(),
+        migrated: true,
+    }
+}
+
+/// An event a publish records on an object: its spans for what changed,
+/// marked migrated, its version, and the event (`publish-and-import.md` §3).
+#[allow(clippy::too_many_arguments)]
+fn event_of(
+    o: &mut Object,
+    before: Option<&Vec<(String, Value)>>,
+    from_state: Option<String>,
+    transition: &str,
+    position: i64,
+    now: i64,
+    who: &crate::eval::Who,
+    source: &str,
+    declaration_version: i64,
+    payload: serde_json::Value,
+) -> Event {
+    if let Some(before) = before {
+        for (d, was) in before {
+            let v = if d == "state" {
+                Value::State {
+                    type_: o.type_.clone(),
+                    name: o.state.clone(),
+                }
+            } else {
+                o.attr(d)
+            };
+            if *was == v {
+                continue;
+            }
+            let spans = o.spans.entry(d.clone()).or_default();
+            if let Some(last) = spans.last_mut()
+                && last.left_position.is_none()
+            {
+                last.left_position = Some(position);
+                last.left_at = Some(now);
+            }
+            spans.push(Span {
+                value: v,
+                entered_position: position,
+                left_position: None,
+                entered_at: now,
+                left_at: None,
+                entered_by: Some(who.id.clone()),
+                entered_by_kind: who.kind.clone(),
+                migrated: source == "migrated",
+            });
+        }
+    }
+    o.version += 1;
+    Event {
+        position,
+        object_id: o.id.clone(),
+        object_seq: o.version,
+        transition: transition.to_string(),
+        changes_state: from_state.as_deref() != Some(o.state.as_str()),
+        from_state,
+        to_state: o.state.clone(),
+        source: source.to_string(),
+        actor_id: who.id.clone(),
+        actor_kind: who.kind.clone(),
+        declaration_version,
+        recorded_at: now,
+        occurred_at: Some(now),
+        imported: false,
+        payload,
+    }
+}
+
+/// One span of the interval index, inserted or brought up to date.
+fn upsert_span(tx: &Transaction<'_>, id: &str, dimension: &str, sp: &Span) -> Stored<()> {
+    tx.execute(
+        "INSERT INTO of_interval (object_id, dimension, value, entered_position, left_position, \
+         entered_at, left_at, entered_by, entered_by_kind, declaration_version, migrated) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10) \
+         ON CONFLICT (object_id, dimension, entered_position, entered_at) DO UPDATE SET \
+         value = excluded.value, left_position = excluded.left_position, left_at = excluded.left_at",
+        params![
+            id,
+            dimension,
+            to_sql(&sp.value)?,
+            sp.entered_position,
+            sp.left_position,
+            timestamp_text(sp.entered_at),
+            sp.left_at.map(timestamp_text),
+            sp.entered_by,
+            sp.entered_by_kind,
+            i64::from(sp.migrated),
+        ],
+    )?;
+    Ok(())
+}
+
+/// A table brought to a version's shape (§10): a new copy of its columns,
+/// relaxed or exact, every column the old one held that the version does
+/// not, a dropped attribute's and a set-aside's, kept for history, the rows
+/// copied by column name, the old table dropped and the copy renamed. The
+/// caller holds foreign keys off, and checks them before committing.
+fn rebuild(tx: &Transaction<'_>, lib: &Library, t: &Type, relaxed: bool) -> Stored<()> {
+    let parts = table_parts(lib, t, relaxed);
+    let name = parts.name.clone();
+    let mut existing: Vec<(String, String)> = Vec::new();
+    {
+        let mut info = tx.prepare(&format!("PRAGMA table_info({})", quote(&name)))?;
+        let rows = info.query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, String>(2)?)))?;
+        for row in rows {
+            existing.push(row?);
+        }
+    }
+    let own: Vec<&String> = parts.columns.iter().map(|(c, _)| c).collect();
+    let kept: Vec<(String, String)> = existing
+        .iter()
+        .filter(|(c, _)| !own.contains(&c))
+        .map(|(c, ty)| (c.clone(), format!("{} {ty}", quote(c))))
+        .collect();
+    let copied: Vec<String> = existing
+        .iter()
+        .map(|(c, _)| c.clone())
+        .filter(|c| own.contains(&c) || kept.iter().any(|(k, _)| k == c))
+        .map(|c| quote(&c))
+        .collect();
+    let copy = format!("{name}__rebuild");
+    tx.execute_batch(&parts.create(&copy, &kept))?;
+    tx.execute_batch(&format!(
+        "INSERT INTO {copy} ({cols}) SELECT {cols} FROM {name}; DROP TABLE {name}; ALTER TABLE {copy} RENAME TO {name};",
+        cols = copied.join(", ")
+    ))?;
+    for i in &parts.indexes {
+        tx.execute_batch(i)?;
+    }
+    for (_, set) in &parts.sets {
+        tx.execute_batch(set)?;
+    }
+    Ok(())
 }
 
 fn quote(name: &str) -> String {
@@ -391,111 +718,8 @@ impl Store {
 
     /// The DDL of a type's table and its set tables (§3, §3.3).
     fn type_ddl(&self, t: &Type) -> String {
-        let name = table(&t.name);
-        let states = t
-            .states
-            .iter()
-            .map(|(s, _)| literal(s))
-            .collect::<Vec<_>>()
-            .join(",");
-        let mut cols = vec![
-            "id TEXT PRIMARY KEY REFERENCES of_object(id)".to_string(),
-            "state TEXT NOT NULL".to_string(),
-            "version INTEGER NOT NULL".to_string(),
-            "declaration_version INTEGER NOT NULL".to_string(),
-            "last_event INTEGER NOT NULL REFERENCES of_event(position)".to_string(),
-            "state_source TEXT NOT NULL DEFAULT 'observed'".to_string(),
-        ];
-        // present only on a type with a superseding state (§3)
-        if t.states.iter().any(|(_, s)| s.superseding) {
-            cols.push(
-                "superseded_by TEXT REFERENCES of_object(id) DEFERRABLE INITIALLY DEFERRED"
-                    .to_string(),
-            );
-        }
-        let mut constraints = vec![
-            format!(
-                "CONSTRAINT {} CHECK (state IN ({states}))",
-                quote(&format!("{name}_state"))
-            ),
-            format!(
-                "CONSTRAINT {} CHECK (state_source IN ('observed','asserted','imported'))",
-                quote(&format!("{name}_state_source"))
-            ),
-        ];
-        let mut after = Vec::new();
-        for (n, a) in &t.attributes {
-            if a.derived_end() {
-                continue;
-            }
-            if a.many {
-                let target = match &a.declared {
-                    Declared::Reference(target) if self.lib.types.contains_key(target) => {
-                        format!(
-                            " REFERENCES {}(id) DEFERRABLE INITIALLY DEFERRED",
-                            referenced(&self.lib, target)
-                        )
-                    }
-                    _ => String::new(),
-                };
-                after.push(format!(
-                    "CREATE TABLE {} (object_id TEXT NOT NULL REFERENCES {name}(id), ordinal INTEGER NOT NULL, \
-                     value {} NOT NULL{target}, PRIMARY KEY (object_id, ordinal));",
-                    quote(&format!("{name}__{n}")),
-                    sql_type(&a.declared)
-                ));
-                continue;
-            }
-            let col = column(n, a);
-            let required = !a.optional && a.default.is_none() && base(&a.declared) != "counter";
-            let mut def = format!("{} {}", quote(&col), sql_type(&a.declared));
-            if base(&a.declared) == "counter" {
-                def.push_str(" NOT NULL DEFAULT 0");
-            } else if required {
-                def.push_str(" NOT NULL");
-            }
-            match &a.declared {
-                Declared::Reference(target) if self.lib.types.contains_key(target) => {
-                    def.push_str(&format!(
-                        " REFERENCES {}(id) DEFERRABLE INITIALLY DEFERRED",
-                        referenced(&self.lib, target)
-                    ));
-                    after.push(format!(
-                        "CREATE INDEX {} ON {name} ({});",
-                        quote(&format!("{name}_{col}_ix")),
-                        quote(&col)
-                    ));
-                }
-                Declared::Scalar(e) => {
-                    if let Some(members) = self.lib.enumerations.get(e) {
-                        let ms = members
-                            .iter()
-                            .map(|m| literal(m))
-                            .collect::<Vec<_>>()
-                            .join(",");
-                        constraints.push(format!(
-                            "CONSTRAINT {} CHECK ({} IS NULL OR {} IN ({ms}))",
-                            quote(&format!("{name}_{n}")),
-                            quote(&col),
-                            quote(&col)
-                        ));
-                    }
-                }
-                Declared::Reference(_) => {}
-            }
-            cols.push(def);
-        }
-        cols.extend(constraints);
-        let mut ddl = format!("CREATE TABLE {name} (\n  {}\n);\n", cols.join(",\n  "));
-        ddl.push_str(&format!(
-            "CREATE INDEX {} ON {name} (state);\n",
-            quote(&format!("{name}_state_ix"))
-        ));
-        for a in after {
-            ddl.push_str(&a);
-            ddl.push('\n');
-        }
-        ddl
+        let parts = table_parts(&self.lib, t, false);
+        parts.create(&table(&t.name), &[])
     }
 
     /// The store's first actor, the operator (ADR-0126).
@@ -564,6 +788,529 @@ impl Store {
                 Ok(Err(e))
             }
         }
+    }
+
+    /// A change's approval (`publish-and-import.md` §1 step 5, ADR-0155):
+    /// refused as `stale` where the change moved since its approver read it,
+    /// and as `current`, `fatal`, `impact_unchanged` or `decision_unresolved`
+    /// where its dry run, recomputed at the attached report's `now`, says so;
+    /// otherwise the version installed in one transaction, with the report it
+    /// was decided on.
+    pub fn publish(
+        &mut self,
+        actor: &str,
+        change: &str,
+        expected_version: i64,
+    ) -> Stored<Result<(Verdict, Option<PublishReport>), NotRun>> {
+        let world = self.snapshot()?;
+        if !world.sandbox {
+            return Ok(Err(NotRun(
+                "the publish checks, which the core runs only in a sandbox (ADR-0155)".into(),
+            )));
+        }
+        let refusal = |v: Verdict| Ok(Ok((v, None)));
+        let unreachable = |clause: &str| Verdict::Unsatisfied {
+            clause: clause.into(),
+            remedy: Some(Remedy::UnreachableFromHere),
+        };
+        let Some(who) = resolve_actor(&world, actor) else {
+            return refusal(Verdict::Unsatisfied {
+                clause: "actor_known".into(),
+                remedy: Some(Remedy::Dependent),
+            });
+        };
+        let Some(c) = world.get(change).filter(|c| c.type_ == DECLARATION_CHANGE) else {
+            return refusal(Verdict::NotFound);
+        };
+        if c.state != "SUBMITTED" {
+            return refusal(Verdict::Unavailable {
+                state: c.state.clone(),
+            });
+        }
+        if c.version != expected_version {
+            return refusal(Verdict::Stale {
+                expected: expected_version,
+                actual: c.version,
+            });
+        }
+        if c.attr("base_version") != Value::Int(self.lib.version) {
+            return refusal(unreachable("current"));
+        }
+        let text = |a: &str| match c.attr(a) {
+            Value::Text(t) => t,
+            _ => String::new(),
+        };
+        let attached: serde_json::Value = serde_json::from_str(&text("report")).unwrap_or_default();
+        let mut at = world.clone();
+        if let Some(now) = attached["now"].as_str().and_then(parse_timestamp) {
+            at.now = now;
+        }
+        let source: Vec<(String, String)> =
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&text("source"))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(n, t)| (n, t.as_str().unwrap_or_default().to_string()))
+                .collect();
+        let (source_ref, digest) = (text("source_ref"), text("source_digest"));
+        let draft = crate::publish::Draft {
+            change_id: Some(change),
+            source: &source,
+            source_ref: Some(&source_ref),
+            source_digest: Some(&digest),
+            actor,
+        };
+        let simulated = match crate::publish::simulate(&at, &draft) {
+            Ok(s) => s,
+            Err(e) => return Ok(Err(e)),
+        };
+        let report = simulated.report.clone();
+        let refused_with = |clause: &str| Ok(Ok((unreachable(clause), Some(report.clone()))));
+        if report.fatal() {
+            return refused_with("fatal");
+        }
+        // nothing named in an impact the approver was not shown, the changes
+        // it supersedes reported and not compared (ADR-0147)
+        let shown = &attached["affected"];
+        for (category, ids) in report.affected() {
+            if category == "superseded" {
+                continue;
+            }
+            let was: Vec<&str> = shown[&category]
+                .as_array()
+                .map(|a| a.iter().filter_map(serde_json::Value::as_str).collect())
+                .unwrap_or_default();
+            if ids.iter().any(|id| !was.contains(&id.as_str())) {
+                return refused_with("impact_unchanged");
+            }
+        }
+        if !report.accepted {
+            return refused_with("decision_unresolved");
+        }
+        let Some((mut new, objects)) = simulated.install else {
+            return refused_with("fatal");
+        };
+        new.version = self.lib.version + 1;
+        let change_obj = c.clone();
+        let old_objects = world.objects.clone();
+        drop(world);
+        self.conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+        let installed = self.install(
+            &new,
+            &objects,
+            &old_objects,
+            &report,
+            &change_obj,
+            &who,
+            &source,
+        );
+        self.conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        let events = installed?;
+        let version = change_obj.version + 1;
+        self.lib = new;
+        Ok(Ok((
+            Verdict::Satisfied {
+                object_id: change.to_string(),
+                version,
+                events,
+                flags: Vec::new(),
+            },
+            Some(report),
+        )))
+    }
+
+    /// The version installed, in one transaction, foreign keys checked
+    /// before it commits (`publish-and-import.md` §1 step 5,
+    /// `storage-schema.md` §10). Returns the positions of its events, the
+    /// publish's first.
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    fn install(
+        &mut self,
+        new: &Library,
+        objects: &BTreeMap<String, Object>,
+        old_objects: &BTreeMap<String, Object>,
+        report: &PublishReport,
+        change: &Object,
+        who: &crate::eval::Who,
+        source: &[(String, String)],
+    ) -> Stored<Vec<i64>> {
+        let old = self.lib.clone();
+        let now = self.now;
+        let tx = self.conn.transaction()?;
+        let mut alloc = Allocator::read(&tx)?;
+        let publish_position = alloc.position();
+        alloc.txn();
+        // before the mappings: new tables, and each table the version
+        // changes relaxed, its renamed columns and set tables and its
+        // set-asides first; a table it leaves as it was is not rebuilt
+        let m = &new.migration;
+        let mut changed = Vec::new();
+        for (tn, t) in &new.types {
+            if t.retired || crate::publish::builtin(tn) {
+                continue;
+            }
+            let Some(ot) = old.type_(tn) else {
+                tx.execute_batch(&table_parts(new, t, false).create(&table(tn), &[]))?;
+                continue;
+            };
+            let name = table(tn);
+            if table_parts(&old, ot, false).create(&name, &[])
+                == table_parts(new, t, false).create(&name, &[])
+            {
+                continue;
+            }
+            changed.push(t);
+            for (owner, from, to) in &m.renamed_attributes {
+                if owner != tn {
+                    continue;
+                }
+                match ot.attribute(from) {
+                    Some(a) if a.stored_set() => tx.execute_batch(&format!(
+                        "ALTER TABLE {} RENAME TO {};",
+                        quote(&format!("{name}__{from}")),
+                        quote(&format!("{name}__{to}"))
+                    ))?,
+                    Some(a) => {
+                        let to_col = t
+                            .attribute(to)
+                            .map_or_else(|| to.clone(), |na| column(to, na));
+                        tx.execute_batch(&format!(
+                            "ALTER TABLE {name} RENAME COLUMN {} TO {};",
+                            quote(&column(from, a)),
+                            quote(&to_col)
+                        ))?;
+                        // its intervals carried under its new name (§3)
+                        tx.execute(
+                            &format!(
+                                "UPDATE of_interval SET dimension = ?2 WHERE dimension = ?1 \
+                                 AND object_id IN (SELECT id FROM {name})"
+                            ),
+                            params![from, to],
+                        )?;
+                    }
+                    None => {}
+                }
+            }
+            for (n, a) in &ot.attributes {
+                let Some(na) = t.attribute(n) else { continue };
+                if na.declared == a.declared && na.many == a.many {
+                    continue;
+                }
+                // its intervals set aside under the name its column takes,
+                // the open one closed at the publish event
+                tx.execute(
+                    &format!(
+                        "UPDATE of_interval SET dimension = ?2, \
+                         left_position = coalesce(left_position, ?3), left_at = coalesce(left_at, ?4) \
+                         WHERE dimension = ?1 AND object_id IN (SELECT id FROM {name})"
+                    ),
+                    params![n, format!("{n}__v{}", old.version), publish_position, timestamp_text(now)],
+                )?;
+                if a.stored_set() {
+                    tx.execute_batch(&format!(
+                        "ALTER TABLE {} RENAME TO {};",
+                        quote(&format!("{name}__{n}")),
+                        quote(&format!("{name}__{n}__v{}", old.version))
+                    ))?;
+                }
+                if !a.many && !a.derived_end() {
+                    tx.execute_batch(&format!(
+                        "ALTER TABLE {name} RENAME COLUMN {} TO {};",
+                        quote(&column(n, a)),
+                        quote(&format!("{}__v{}", column(n, a), old.version))
+                    ))?;
+                }
+            }
+            rebuild(&tx, new, t, true)?;
+        }
+        // the publish event, then one migration per object whose row the
+        // mappings change or an admission reaches, in ascending id order
+        let mut change_obj = change.clone();
+        let before = Some(vec![(
+            "state".to_string(),
+            Value::State {
+                type_: DECLARATION_CHANGE.into(),
+                name: change.state.clone(),
+            },
+        )]);
+        change_obj.state = "PUBLISHED".into();
+        change_obj
+            .attrs
+            .insert("approved_by".into(), Value::Text(who.id.clone()));
+        change_obj
+            .attrs
+            .insert("approved_by_kind".into(), Value::Text(who.kind.clone()));
+        let publish_event = event_of(
+            &mut change_obj,
+            before.as_ref(),
+            Some(change.state.clone()),
+            "publish",
+            publish_position,
+            now,
+            who,
+            "observed",
+            new.version,
+            serde_json::json!({ "version": new.version }),
+        );
+        let mut change_set = Change::default();
+        let mut positions = vec![publish_position];
+        change_set.writes.push((change_obj, false, publish_event));
+        let affected = report.affected();
+        let codes_of = |id: &str| -> Vec<String> {
+            affected
+                .iter()
+                .filter(|(code, ids)| code.starts_with("mapping:") && ids.iter().any(|i| i == id))
+                .map(|(code, _)| code.clone())
+                .collect()
+        };
+        let admitted_of = |id: &str| -> Vec<(String, String)> {
+            affected
+                .iter()
+                .filter(|(code, ids)| code.starts_with("invariant:") && ids.iter().any(|i| i == id))
+                .filter_map(|(code, _)| {
+                    let inv = code.trim_start_matches("invariant:");
+                    let (tn, name) = inv.rsplit_once('.')?;
+                    m.admit
+                        .iter()
+                        .find(|(a, _)| {
+                            a == inv
+                                || a.rsplit_once('.')
+                                    .is_some_and(|(at, an)| an == name && new.is_a(tn, at))
+                        })
+                        .map(|(_, reason)| (name.to_string(), reason.clone()))
+                })
+                .collect()
+        };
+        let mut in_order: Vec<&Object> = objects.values().collect();
+        in_order.sort_by_key(|o| o.order);
+        for o in in_order {
+            let Some(t) = new.type_(&o.type_) else {
+                continue;
+            };
+            if t.retired || crate::publish::builtin(&o.type_) {
+                continue;
+            }
+            let Some(was) = old_objects.get(&o.id) else {
+                continue;
+            };
+            let codes = codes_of(&o.id);
+            let admits = admitted_of(&o.id);
+            let mut x = o.clone();
+            // a member newly tracked opens at the migration where a backfill
+            // writes it, and else at the publish event; one no longer tracked
+            // closes at the publish event (ADR-0146, ADR-0147). A rename has
+            // carried its spans under the new name already.
+            let old_t = old.type_(&o.type_);
+            let tracked_now = new.tracked(t);
+            let backfilled = |d: &str| {
+                codes
+                    .iter()
+                    .any(|c| c.starts_with("mapping:backfill:") && c.ends_with(&format!(".{d}")))
+            };
+            let migrates = !codes.is_empty() || !admits.is_empty();
+            let position = if migrates {
+                alloc.position()
+            } else {
+                publish_position
+            };
+            let mut extra = Vec::new();
+            for (d, spans) in &mut x.spans {
+                if !tracked_now.contains(d)
+                    && let Some(last) = spans.last_mut()
+                    && last.left_position.is_none()
+                {
+                    last.left_position = Some(publish_position);
+                    last.left_at = Some(now);
+                    extra.push((d.clone(), last.clone()));
+                }
+            }
+            // what each tracked member held before the migration: its open
+            // span's value
+            let before: Vec<(String, Value)> = tracked_now
+                .iter()
+                .filter_map(|d| {
+                    x.spans
+                        .get(d)
+                        .and_then(|s| s.last())
+                        .filter(|sp| sp.left_position.is_none())
+                        .map(|sp| (d.clone(), sp.value.clone()))
+                })
+                .collect();
+            for d in &tracked_now {
+                if x.spans.get(d).is_none_or(Vec::is_empty) {
+                    let at = if migrates && backfilled(d) {
+                        position
+                    } else {
+                        publish_position
+                    };
+                    let sp = opened(&x, d, at, now, who);
+                    x.spans.entry(d.clone()).or_default().push(sp.clone());
+                    if !migrates || at == publish_position {
+                        extra.push((d.clone(), sp));
+                    }
+                }
+            }
+            for (d, sp) in extra {
+                change_set.spans.push((x.id.clone(), d, sp));
+            }
+            if migrates {
+                positions.push(position);
+                for (n, reason) in &admits {
+                    x.admissions.insert(n.clone());
+                    change_set
+                        .admitted
+                        .push((x.id.clone(), n.clone(), position, reason.clone()));
+                }
+                let event = event_of(
+                    &mut x,
+                    Some(&before),
+                    Some(was.state.clone()),
+                    "migrate",
+                    position,
+                    now,
+                    who,
+                    "migrated",
+                    old.version,
+                    serde_json::json!({ "mappings": codes, "admits": admits.iter().map(|(n, _)| n).collect::<Vec<_>>() }),
+                );
+                change_set.writes.push((x.clone(), false, event));
+            }
+            // an attribute the version newly marks personal, redacted on an
+            // object already erased, by a redact event (publish-and-import.md
+            // §1 step 5), which admits what the absence breaks, as the
+            // erasure it completes does (declaration-syntax.md §6.4)
+            let newly: Vec<String> = t
+                .attributes
+                .iter()
+                .filter(|(n, a)| {
+                    x.erased
+                        && a.personal
+                        && old_t
+                            .and_then(|ot| ot.attribute(n))
+                            .is_some_and(|oa| !oa.personal)
+                })
+                .map(|(n, _)| n.clone())
+                .collect();
+            if !newly.is_empty() {
+                let position = alloc.position();
+                positions.push(position);
+                for n in &newly {
+                    x.attrs.remove(n);
+                    for sp in x.spans.get_mut(n).into_iter().flatten() {
+                        sp.value = Value::Absent;
+                    }
+                }
+                let mut after = World::new(new, now);
+                after.objects = objects.clone();
+                after.objects.insert(x.id.clone(), x.clone());
+                for n in failing_invariants(&after, &x).map_err(|e| StoreError(e.0))? {
+                    if !x.admissions.contains(&n)
+                        && invariant_reads(t, &n).iter().any(|r| newly.contains(r))
+                    {
+                        x.admissions.insert(n.clone());
+                        change_set
+                            .admitted
+                            .push((x.id.clone(), n, position, String::new()));
+                    }
+                }
+                let state = x.state.clone();
+                let event = event_of(
+                    &mut x,
+                    None,
+                    Some(state),
+                    "redact",
+                    position,
+                    now,
+                    who,
+                    "erased",
+                    new.version,
+                    serde_json::json!({ "redacted": newly }),
+                );
+                change_set.redacted.push((x.id.clone(), newly));
+                change_set.writes.push((x, false, event));
+            }
+        }
+        // the other open changes, which the publish supersedes, and the
+        // pending proposals it invalidates
+        for (code, state, transition) in [
+            ("superseded", "SUPERSEDED", "supersede"),
+            ("proposals_invalidated", "INVALIDATED", "invalidate"),
+        ] {
+            for id in affected.get(code).into_iter().flatten() {
+                let Some(o) = old_objects.get(id) else {
+                    continue;
+                };
+                let mut x = o.clone();
+                let before = Some(vec![(
+                    "state".to_string(),
+                    Value::State {
+                        type_: o.type_.clone(),
+                        name: o.state.clone(),
+                    },
+                )]);
+                x.state = state.into();
+                let position = alloc.position();
+                positions.push(position);
+                let event = event_of(
+                    &mut x,
+                    before.as_ref(),
+                    Some(o.state.clone()),
+                    transition,
+                    position,
+                    now,
+                    who,
+                    "observed",
+                    new.version,
+                    serde_json::json!({ "by": change.id }),
+                );
+                change_set.writes.push((x, false, event));
+            }
+        }
+        alloc.write(&tx)?;
+        write(&tx, new, &change_set)?;
+        // after the mappings: every changed table brought to the version's
+        // exact shape, then every foreign key checked
+        for t in changed {
+            rebuild(&tx, new, t, false)?;
+        }
+        let dangling: Vec<String> = {
+            let mut check = tx.prepare("PRAGMA foreign_key_check")?;
+            let rows = check.query_map([], |r| r.get::<_, String>(0))?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        if let Some(table) = dangling.first() {
+            return Err(StoreError(format!(
+                "the publish left a reference in {table} that names nothing"
+            )));
+        }
+        let files: serde_json::Map<String, serde_json::Value> = source
+            .iter()
+            .map(|(n, t)| (n.clone(), serde_json::Value::String(t.clone())))
+            .collect();
+        tx.execute(
+            "INSERT INTO of_declaration (version, module, source, source_ref, source_digest, builtins, \
+             published_at, published_by, change_id, report) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                new.version,
+                new.modules.last().cloned().unwrap_or_default(),
+                serde_json::Value::Object(files).to_string(),
+                report.source_ref,
+                report.source_digest,
+                BUILTINS,
+                timestamp_text(now),
+                who.id,
+                change.id,
+                crate::publish::report_json(report).to_string(),
+            ],
+        )?;
+        tx.commit()?;
+        positions.sort_unstable();
+        Ok(positions)
+    }
+
+    /// The store's connection, for a test to read its schema.
+    #[cfg(test)]
+    pub(crate) fn conn(&self) -> &Connection {
+        &self.conn
     }
 
     /// An object's events, in its order.
@@ -895,7 +1642,7 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
 fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> {
     let mut stmt = conn.prepare(
         "SELECT object_id, dimension, value, entered_position, left_position, entered_at, left_at, \
-         entered_by, entered_by_kind FROM of_interval ORDER BY object_id, dimension, entered_position, entered_at",
+         entered_by, entered_by_kind, migrated FROM of_interval ORDER BY object_id, dimension, entered_position, entered_at",
     )?;
     let rows = stmt.query_map([], |r| {
         Ok((
@@ -908,11 +1655,22 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
             r.get::<_, Option<String>>(6)?,
             r.get::<_, Option<String>>(7)?,
             r.get::<_, String>(8)?,
+            r.get::<_, i64>(9)? != 0,
         ))
     })?;
     for row in rows {
-        let (id, dimension, value, entered_position, left_position, entered_at, left_at, by, kind) =
-            row?;
+        let (
+            id,
+            dimension,
+            value,
+            entered_position,
+            left_position,
+            entered_at,
+            left_at,
+            by,
+            kind,
+            migrated,
+        ) = row?;
         let Some(o) = world.objects.get_mut(&id) else {
             return Err(StoreError(format!(
                 "an interval of {id}, which the directory lacks"
@@ -927,10 +1685,10 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
                 other => return Err(StoreError(format!("{id}'s state interval holds {other:?}"))),
             }
         } else {
+            // a dropped attribute's intervals, and a set-aside's, stay as
+            // history, and nothing the version declares reads them (§10)
             let Some(a) = lib.type_(&o.type_).and_then(|t| t.attribute(&dimension)) else {
-                return Err(StoreError(format!(
-                    "an interval of {id}.{dimension}, which is not an attribute"
-                )));
+                continue;
             };
             from_sql(value, &a.declared, lib)?
         };
@@ -945,6 +1703,7 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
             left_at: left_at.as_deref().map(at).transpose()?,
             entered_by: by,
             entered_by_kind: kind,
+            migrated,
         };
         o.spans.entry(dimension).or_default().push(span);
     }
@@ -1018,7 +1777,8 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
             vals.push(o.superseded_by.clone().map_or(Sql::Null, Sql::Text));
         }
         // the source of the event that last changed the state (§3)
-        if *created || event.changes_state {
+        // a migration leaves it as it was (§3)
+        if (*created || event.changes_state) && event.source != "migrated" {
             cols.push("state_source".to_string());
             vals.push(Sql::Text(
                 match (event.source.as_str(), event.imported) {
@@ -1063,24 +1823,7 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
             for sp in spans.iter().filter(|sp| {
                 sp.entered_position == event.position || sp.left_position == Some(event.position)
             }) {
-                tx.execute(
-                    "INSERT INTO of_interval (object_id, dimension, value, entered_position, left_position, \
-                     entered_at, left_at, entered_by, entered_by_kind, declaration_version) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1) \
-                     ON CONFLICT (object_id, dimension, entered_position, entered_at) DO UPDATE SET \
-                     value = excluded.value, left_position = excluded.left_position, left_at = excluded.left_at",
-                    params![
-                        o.id,
-                        dimension,
-                        to_sql(&sp.value)?,
-                        sp.entered_position,
-                        sp.left_position,
-                        timestamp_text(sp.entered_at),
-                        sp.left_at.map(timestamp_text),
-                        sp.entered_by,
-                        sp.entered_by_kind,
-                    ],
-                )?;
+                upsert_span(tx, &o.id, dimension, sp)?;
             }
         }
         for (n, _) in t.attributes.iter().filter(|(_, a)| a.stored_set()) {
@@ -1116,6 +1859,9 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
             "INSERT INTO of_admission (object_id, invariant, position, reason) VALUES (?1, ?2, ?3, ?4)",
             params![id, invariant, position, reason],
         )?;
+    }
+    for (id, dimension, sp) in &change.spans {
+        upsert_span(tx, id, dimension, sp)?;
     }
     // personal values leave the log and the interval index, the events and
     // their shape kept (§9, steps 2 and 9)

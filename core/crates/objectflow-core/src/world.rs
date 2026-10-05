@@ -57,6 +57,9 @@ pub struct Span {
     pub left_at: Option<i64>,
     pub entered_by: Option<String>,
     pub entered_by_kind: String,
+    /// Opened by a publish's migration, for a member newly tracked
+    /// (ADR-0146, `of_interval.migrated`).
+    pub migrated: bool,
 }
 
 impl Object {
