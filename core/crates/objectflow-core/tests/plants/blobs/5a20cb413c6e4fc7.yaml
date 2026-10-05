@@ -85,7 +85,7 @@ types:
         remedy: dependent
       calm:
         description: A planted guard.
-        expression: metric(labelled) < 3
+        expression: metric(priced) < PHP 3.00
         remedy: dependent
       photo_attached:
         description: A photo is attached.
@@ -136,11 +136,11 @@ types:
           reason: { type: string }
 
     metrics:
-      labelled:
-        description: Labels applied to jobs.
-        source: labels
-        item: l
-        expression: count()
+      priced:
+        description: Jobs priced in pesos.
+        source: objects
+        item: o
+        expression: count() * PHP 1.00
       time_working:
         description: Median time jobs spend in WORKING.
         measure: median_time_in_state

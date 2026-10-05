@@ -554,7 +554,10 @@ fn take(
                 one => vec![one],
             };
             let fits = ids.iter().all(|i| match i {
-                Value::Object(id) => ctx.work.get(id).is_some_and(|o| lib.is_a(&o.type_, target)),
+                // a label's subject may be of any type (declaration-syntax.md §6.8)
+                Value::Object(id) => ctx.work.get(id).is_some_and(|o| {
+                    target == crate::model::ANY_TYPE || lib.is_a(&o.type_, target)
+                }),
                 _ => false,
             });
             if !fits {
@@ -802,6 +805,14 @@ fn take(
             });
         }
     }
+    // a label's name is vocabulary, normalised to lower case and trimmed
+    // (declaration-syntax.md §6.8)
+    if tn == crate::model::LABEL
+        && xn == "record"
+        && let Some(Value::Text(name)) = inputs.get_mut("name")
+    {
+        *name = name.trim().to_lowercase();
+    }
     for (g, mode) in &x.guards {
         let Some(c) = t.condition(g) else {
             return stop_not_run(format!("the guard {g}, which {tn} does not declare"));
@@ -1012,6 +1023,16 @@ fn take(
             _ => Value::Timestamp(ctx.at),
         };
         o.attrs.insert("occurred_at".into(), occurred);
+        // a label holds its subject's state when it was applied (DESIGN.md
+        // §5.11); a label is requested, never created by an outcome, so
+        // nothing has changed the subject in the request before it
+        if tn == crate::model::LABEL
+            && let Some(Value::Object(subject)) = inputs.get("subject")
+            && let Some(s) = ctx.work.get(subject)
+        {
+            o.attrs
+                .insert("subject_state".into(), Value::Text(s.state.clone()));
+        }
     }
     ctx.work.objects.insert(id.clone(), o);
     // the effect, then the cascades to the parts, depth-first (ADR-0038)
@@ -1092,6 +1113,9 @@ fn take(
             if *kind == t.name {
                 index.push((subject.clone(), collection.clone()));
             }
+        }
+        if t.name == crate::model::LABEL {
+            index.push((subject.clone(), "labels".into()));
         }
     }
     for (object, attribute) in index {
@@ -1956,6 +1980,22 @@ fn forget_observations(
                 depth + 1,
             )?;
         }
+    }
+    // and its labels' notes, corrected ones included, on its own event as
+    // no transition (declaration-syntax.md §6.8)
+    let subject = Value::Object(id.to_string());
+    let labels: Vec<String> = ctx
+        .work
+        .of_type(crate::model::LABEL)
+        .iter()
+        .filter(|l| l.attr("subject") == subject && l.attr("note") != Value::Absent)
+        .map(|l| l.id.clone())
+        .collect();
+    for l in labels {
+        if let Some(label) = ctx.work.objects.get_mut(&l) {
+            label.attrs.remove("note");
+        }
+        ctx.erased.entry(l).or_default().insert("note".into());
     }
     Ok(())
 }
@@ -3999,6 +4039,13 @@ types:
             ("Check", true),
             json!({"subject": &job, "remark": "ana said"}),
         ));
+        let tag = created(&req(
+            &mut s,
+            "record",
+            OPERATOR,
+            (crate::model::LABEL, true),
+            json!({"subject": &job, "name": "VIP", "note": "rang"}),
+        ));
         // the erasure admits the invariant it breaks, and forgets the check
         let v = req(
             &mut s,
@@ -4022,6 +4069,35 @@ types:
         assert_eq!(history[0].payload["inputs"]["title"], json!("Fix"));
         assert_eq!(history.last().unwrap().source, "erased");
         assert_eq!(history.last().unwrap().payload, json!({"erased": ["note"]}));
+        // its label's note leaves the label's row and its creation event, as
+        // no transition, the name kept (declaration-syntax.md §6.8)
+        let l = w.get(&tag).unwrap();
+        assert_eq!(
+            (l.attr("note"), l.attr("name"), l.erased),
+            (Value::Absent, Value::Text("vip".into()), false)
+        );
+        let labelled = s.history(&tag).unwrap();
+        assert_eq!(labelled.len(), 1);
+        assert_eq!(labelled[0].payload["inputs"]["note"], Json::Null);
+        assert_eq!(labelled[0].payload["inputs"]["name"], json!("vip"));
+        // and a label's own forget redacts its note
+        let own = created(&req(
+            &mut s,
+            "record",
+            OPERATOR,
+            (crate::model::LABEL, true),
+            json!({"subject": &ana, "name": "vip", "note": "rang"}),
+        ));
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&own, false),
+            json!({"reason": "asked"}),
+        ));
+        let w = s.snapshot().unwrap();
+        let l = w.get(&own).unwrap();
+        assert_eq!((l.attr("note"), l.erased), (Value::Absent, true));
         // what was erased stays erased, and the rest is still written
         let not_erased = Verdict::Unsatisfied {
             clause: "not_erased".into(),

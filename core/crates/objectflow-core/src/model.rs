@@ -1544,9 +1544,153 @@ fn declaration_change_type() -> Type {
     t
 }
 
+/// The built-in observation kind every type carries (`declaration-syntax.md`
+/// §6.8), and the type it is sugar for.
+pub const LABEL: &str = "label";
+
+/// The type a label's `subject` names: any, since every type carries labels.
+pub const ANY_TYPE: &str = "*";
+
+/// A label as the kind it is: a name, normalised to lower case and trimmed;
+/// an optional note, personal, which its `forget` redacts; and the subject's
+/// state when it was applied, which the recording writes, so it is no input.
+/// Its occurred time is its recorded time, so it has no recording bound.
+fn label_type() -> Type {
+    let attribute = |declared: Declared, optional: bool, personal: bool| Attribute {
+        declared,
+        many: false,
+        optional,
+        default: None,
+        unique: Unique::No,
+        assignee: false,
+        personal,
+        actor_kind: None,
+        identifier: None,
+        opposite: None,
+        composite: false,
+        cascade: Vec::new(),
+        external: None,
+        survives_always: false,
+    };
+    let text = || Declared::Scalar("string".into());
+    let time = || Declared::Scalar("timestamp".into());
+    let transition = |kind: Kind,
+                      to: Vec<String>,
+                      required: &[&str],
+                      optional: &[&str],
+                      inputs: Vec<(String, Input)>| {
+        Transition {
+            kind,
+            from: None,
+            to,
+            only_via: Vec::new(),
+            proposable: false,
+            required_inputs: required.iter().map(|s| s.to_string()).collect(),
+            optional_inputs: optional.iter().map(|s| s.to_string()).collect(),
+            inputs,
+            guards: Vec::new(),
+            effect: Vec::new(),
+            backdating_limit: None,
+            may_admit: Vec::new(),
+            corrects: Vec::new(),
+        }
+    };
+    let reason = Input {
+        declared: text(),
+        many: false,
+        optional: false,
+        default: None,
+        personal: false,
+    };
+    Type {
+        name: LABEL.to_string(),
+        module: String::new(),
+        attributes: vec![
+            ("name".into(), attribute(text(), false, false)),
+            ("note".into(), attribute(text(), true, true)),
+            ("subject_state".into(), attribute(text(), false, false)),
+            (
+                "subject".into(),
+                attribute(Declared::Reference(ANY_TYPE.into()), false, false),
+            ),
+            (
+                "corrects".into(),
+                attribute(Declared::Reference(LABEL.into()), true, false),
+            ),
+            ("recorded_at".into(), attribute(time(), false, false)),
+            ("occurred_at".into(), attribute(time(), false, false)),
+        ],
+        derived: Vec::new(),
+        states: vec![(
+            "RECORDED".into(),
+            State {
+                category: "closed".into(),
+                is_final: true,
+                required_attributes: Vec::new(),
+                superseding: false,
+            },
+        )],
+        conditions: Vec::new(),
+        invariants: Vec::new(),
+        transitions: vec![
+            (
+                "record".into(),
+                transition(
+                    Kind::Initial,
+                    vec!["RECORDED".into()],
+                    &["subject", "name"],
+                    &["corrects", "note"],
+                    Vec::new(),
+                ),
+            ),
+            (
+                "forget".into(),
+                transition(
+                    Kind::Erasure,
+                    Vec::new(),
+                    &[],
+                    &[],
+                    vec![("reason".into(), reason)],
+                ),
+            ),
+        ],
+        beyond: Vec::new(),
+        at_outcome: Vec::new(),
+        observations: Vec::new(),
+        observation_on: Some(ANY_TYPE.to_string()),
+        state_machine: None,
+        extends: None,
+        mirror: false,
+        abstract_: false,
+        retired: false,
+        inherited: BTreeMap::new(),
+        source: serde_json::json!({
+            "description": "A label: what nobody has modelled yet, on an object of any type (DESIGN.md §5.11).",
+            "attributes": {
+                "name": { "type": "string" },
+                "note": { "type": "string", "optional": true, "personal": true },
+                "subject_state": { "type": "string" },
+                "subject": { "reference": ANY_TYPE },
+                "corrects": { "reference": LABEL, "optional": true },
+                "recorded_at": { "type": "timestamp" },
+                "occurred_at": { "type": "timestamp" }
+            },
+            "states": { "RECORDED": { "category": "closed", "final": true } },
+            "transitions": {
+                "record": {
+                    "kind": "initial", "to": "RECORDED",
+                    "required_inputs": ["subject", "name"], "optional_inputs": ["corrects", "note"]
+                },
+                "forget": { "kind": "erasure", "inputs": { "reason": { "type": "string" } } }
+            }
+        }),
+    }
+}
+
 impl Library {
     /// The library of modules given as (file, text), in import order, with
-    /// the built-in Operator, Proposal and DeclarationChange types.
+    /// the built-in Operator, Proposal and DeclarationChange types and the
+    /// label kind.
     pub fn load(files: &[(String, String)]) -> Result<Library, LoadError> {
         let mut lib = Library::default();
         let mut machines: BTreeMap<String, Type> = BTreeMap::new();
@@ -1554,6 +1698,7 @@ impl Library {
         lib.types.insert(PROPOSAL.to_string(), proposal_type());
         lib.types
             .insert(DECLARATION_CHANGE.to_string(), declaration_change_type());
+        lib.types.insert(LABEL.to_string(), label_type());
         lib.version = 1;
         for (file, text) in files {
             // an examples file is part of the source, and no module of it

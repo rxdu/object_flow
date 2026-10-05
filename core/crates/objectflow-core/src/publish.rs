@@ -1201,18 +1201,19 @@ types:
         assert!(r.fatal() && !r.accepted);
         // an example reaching what the core does not yet run refuses the
         // publish, which cannot say it passed
-        // a guard reading a metric over labels, which the core does not keep
+        // a guard reading a metric whose value is an amount in a currency
+        // whose minor unit the core does not know, so it cannot round it
         let metered = text
             .replace(
                 "migration:\n",
-                "    metrics:\n      labelled: { description: Labels applied., source: labels, item: l, expression: count() }\nmigration:\n",
+                "    metrics:\n      priced: { description: Robots priced in pesos., source: objects, item: o, expression: count() * PHP 1.00 }\nmigration:\n",
             )
             .replace(
                 "remedy: self_serviceable }\n",
-                "remedy: self_serviceable }\n      settled: { description: Robots are seldom labelled., expression: \"metric(labelled) < 3\", remedy: dependent }\n",
+                "remedy: self_serviceable }\n      settled: { description: Few robots priced., expression: \"metric(priced) < PHP 3.00\", remedy: dependent }\n",
             )
             .replace("guards: { graded: deny }", "guards: { graded: deny, settled: deny }");
-        assert!(metered.contains("metric(labelled)") && metered.contains("settled: deny"));
+        assert!(metered.contains("metric(priced)") && metered.contains("settled: deny"));
         let w = s.snapshot().unwrap();
         let r = dry_run(
             &w,

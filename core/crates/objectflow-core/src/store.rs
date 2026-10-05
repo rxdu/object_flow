@@ -200,7 +200,8 @@ fn table(type_: &str) -> String {
 /// directory, which holds every object (§3.1, D520).
 fn referenced(lib: &Library, target: &str) -> String {
     let family = lib.types.keys().any(|n| n != target && lib.is_a(n, target));
-    if family {
+    // a label's subject may be of any type
+    if family || target == crate::model::ANY_TYPE {
         "of_object".to_string()
     } else {
         table(target)
@@ -330,7 +331,9 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
             def.push_str(" NOT NULL");
         }
         match &a.declared {
-            Declared::Reference(target) if lib.types.contains_key(target) => {
+            Declared::Reference(target)
+                if lib.types.contains_key(target) || target == crate::model::ANY_TYPE =>
+            {
                 def.push_str(&format!(
                     " REFERENCES {}(id) DEFERRABLE INITIALLY DEFERRED",
                     referenced(lib, target)
@@ -2059,6 +2062,34 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
                 "DELETE FROM of_external_id WHERE object_id = ?1 AND attribute = ?2",
                 params![id, a],
             )?;
+        }
+        // a row no event of the change writes, a label whose note its
+        // subject's erasure redacted as no transition, loses the value too
+        // (§9 step 14, declaration-syntax.md §6.8)
+        if !change.writes.iter().any(|(o, _, _)| &o.id == id) {
+            let type_: Option<String> = tx
+                .query_row("SELECT type FROM of_object WHERE id = ?1", [id], |r| {
+                    r.get(0)
+                })
+                .map(Some)
+                .or_else(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                    other => Err(other),
+                })?;
+            if let Some(t) = type_.as_deref().and_then(|n| lib.type_(n)) {
+                for a in attributes {
+                    if let Some(spec) = t.attribute(a).filter(|s| !s.many && s.personal) {
+                        tx.execute(
+                            &format!(
+                                "UPDATE {} SET {} = NULL WHERE id = ?1",
+                                table(&t.name),
+                                quote(&column(a, spec))
+                            ),
+                            [id],
+                        )?;
+                    }
+                }
+            }
         }
     }
     for (source, value, id, attribute) in &change.external {

@@ -351,6 +351,8 @@ enum Kind {
     Transitions(String),
     Attempt(String),
     AttemptCount(String),
+    /// A label on an object of the type.
+    Label(String),
     Other,
 }
 
@@ -757,6 +759,23 @@ impl<'w> Reader<'w> {
                     .map(|x| Value::Object(x.id.clone()))
                     .collect(),
                 kind: Kind::Object(kind.clone()),
+                by_kind: "recorded_by_kind",
+            });
+        }
+        if source == "labels" {
+            // each label on an object of the family that nothing has
+            // corrected (declaration-syntax.md §6.9)
+            let ids: Vec<Value> = family.iter().map(|o| Value::Object(o.id.clone())).collect();
+            let labels = world.of_type(crate::model::LABEL);
+            let corrected: Vec<Value> = labels.iter().map(|x| x.attr("corrects")).collect();
+            return Ok(Rows {
+                rows: labels
+                    .iter()
+                    .filter(|x| ids.contains(&x.attr("subject")))
+                    .filter(|x| !corrected.contains(&Value::Object(x.id.clone())))
+                    .map(|x| Value::Object(x.id.clone()))
+                    .collect(),
+                kind: Kind::Label(owner.to_string()),
                 by_kind: "recorded_by_kind",
             });
         }
@@ -1198,6 +1217,11 @@ impl<'w> Reader<'w> {
                 "count" => Kind::Int,
                 "object" => Kind::Object(t.clone()),
                 _ => Kind::Other,
+            },
+            // a label of the metric's type is on an object of it
+            Kind::Label(t) => match m {
+                "subject" => Kind::Object(t.clone()),
+                _ => return self.member_kind(&Kind::Object(crate::model::LABEL.into()), m),
             },
             Kind::Object(tn) => {
                 let Some(t) = self.world.lib.type_(tn) else {
@@ -1884,6 +1908,8 @@ impl<'w> Reader<'w> {
             Kind::Transition(owner.to_string())
         } else if let Some((_, kind)) = t.observations.iter().find(|(c, _)| c == source) {
             Kind::Object(kind.clone())
+        } else if source == "labels" {
+            Kind::Object(crate::model::LABEL.into())
         } else {
             Kind::Other
         };
@@ -2117,6 +2143,7 @@ pub fn page(
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+    use crate::model::LABEL;
     use crate::model::OPERATOR;
     use crate::request::{Request, request};
     use crate::store::Store;
@@ -2198,6 +2225,8 @@ types:
       third_of_checks: { description: x, source: checks, item: r, expression: count() / 3 }
       outcome_pairs: { description: x, source: objects, item: o, dimensions: { outcome: o.checks.outcome, again: o.checks.outcome }, expression: count() }
       done_spans: { description: x, source: intervals, item: i, filter: i.state == DONE, dimensions: { engineer: i.held(engineer) }, expression: max(i.duration), flag_when: { long: "value > 1 h" } }
+      labelled: { description: x, source: labels, item: l, dimensions: { name: l.name, state: l.subject_state, engineer: l.subject.engineer }, expression: count() }
+      labels_total: { description: x, source: labels, item: l, expression: count() }
 metrics:
   passes_of_all: { description: x, input_metrics: { passes: Job.passes, all: Job.jobs_total }, group_by: [engineer], expression: passes * 1.000 / all }
   passes_per_job: { description: x, input_metrics: { passes: Job.passes, jobs: Job.jobs_opened }, group_by: [engineer], expression: passes * 1.000 / jobs }
@@ -3150,6 +3179,197 @@ types:
         assert_eq!(
             read(&s, &jr, "count(a in this.attempts where a.enforced)", &[]),
             Value::Int(4)
+        );
+    }
+
+    /// The reference runner's label cases (`flowrun.py`,
+    /// `metrics_self_test`, "labels"): the built-in kind every type carries,
+    /// its name normalised, its subject's state stamped, dated when it is
+    /// recorded, and read only by metrics.
+    #[test]
+    fn labels_are_recorded_on_any_subject_and_read_by_metrics() {
+        let mut s = world();
+        let ana = user(&mut s, "ana");
+        let jl = job(&mut s, json!({ "engineer": ana }));
+        let jm = job(&mut s, json!({}));
+        let label = |s: &mut Store, inputs: Json| req(s, LABEL, "record", None, inputs);
+        let l1 = label(&mut s, json!({ "subject": jl, "name": "  Late-Risk " })).unwrap();
+        take(&mut s, "start", &jl);
+        s.now += 60;
+        let l2 = label(
+            &mut s,
+            json!({ "subject": jl, "name": "late-risk", "note": "rang twice" }),
+        )
+        .unwrap();
+        let l3 = label(&mut s, json!({ "subject": jm, "name": "Odd" })).unwrap();
+        let l4 = label(
+            &mut s,
+            json!({ "subject": jm, "name": "odd-one", "corrects": l3 }),
+        )
+        .unwrap();
+        let w = s.snapshot().unwrap();
+        let held = |id: &str| {
+            let o = w.get(id).unwrap();
+            (
+                o.attr("name"),
+                o.attr("subject_state"),
+                o.attr("occurred_at"),
+                o.created_by_kind.clone(),
+            )
+        };
+        let (now, text) = (s.now, |t: &str| Value::Text(t.into()));
+        assert_eq!(
+            [held(&l1), held(&l2), held(&l4)],
+            [
+                (
+                    text("late-risk"),
+                    text("OPEN"),
+                    Value::Timestamp(now - 60),
+                    "human".to_string()
+                ),
+                (
+                    text("late-risk"),
+                    text("WORKING"),
+                    Value::Timestamp(now),
+                    "human".to_string()
+                ),
+                (
+                    text("odd-one"),
+                    text("OPEN"),
+                    Value::Timestamp(now),
+                    "human".to_string()
+                ),
+            ]
+        );
+        // labelling stamps the subject's labels position
+        assert_eq!(
+            w.get(&jl).unwrap().writes.get("labels"),
+            w.get(&l2).unwrap().writes.get("name")
+        );
+        drop(w);
+        let backdated = {
+            let r = Request {
+                transition: "record".into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some(LABEL.into()),
+                inputs: [
+                    ("subject".to_string(), json!(jl)),
+                    ("name".to_string(), json!("x")),
+                ]
+                .into(),
+                occurred_at: Some(s.now - 60),
+                propose: false,
+                expires_at: None,
+            };
+            match request(&mut s, &r).unwrap().unwrap() {
+                Verdict::Unsatisfied { clause, .. } => Err(("unsatisfied".to_string(), clause)),
+                other => Err((other.kind().to_string(), String::new())),
+            }
+        };
+        for x in ["start", "shelve", "close"] {
+            take(&mut s, x, &jm);
+        }
+        let refusal = |verdict: &str, clause: &str| {
+            Err::<String, _>((verdict.to_string(), clause.to_string()))
+        };
+        assert_eq!(
+            [
+                backdated,
+                label(
+                    &mut s,
+                    json!({ "subject": jl, "name": "x", "subject_state": "DONE" })
+                ),
+                label(&mut s, json!({ "subject": "nothing", "name": "x" })),
+                label(
+                    &mut s,
+                    json!({ "subject": jm, "name": "x", "corrects": l3 })
+                ),
+                label(
+                    &mut s,
+                    json!({ "subject": jl, "name": "x", "corrects": l4 })
+                ),
+                label(&mut s, json!({ "subject": jm, "name": "x" })),
+            ],
+            [
+                refusal("unsatisfied", "occurred_within"),
+                refusal("invalid_input", ""),
+                refusal("invalid_input", ""),
+                refusal("unsatisfied", "corrects_current"),
+                refusal("invalid_input", ""),
+                refusal("unsatisfied", "subject_open"),
+            ]
+        );
+        // a correction on a finished subject applies, keeping the corrected
+        // one's occurred time
+        let l5 = label(
+            &mut s,
+            json!({ "subject": jm, "name": "odd-two", "corrects": l4 }),
+        )
+        .unwrap();
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            (
+                w.get(&l5).unwrap().attr("name"),
+                w.get(&l5).unwrap().attr("occurred_at")
+            ),
+            (text("odd-two"), w.get(&l4).unwrap().attr("occurred_at"))
+        );
+        // labelling offered on a finished subject is unavailable
+        let offered: Vec<_> = crate::reads::availability(&w, OPERATOR, &jm)
+            .unwrap()
+            .unwrap()
+            .into_iter()
+            .filter(|o| o.transition == "record" && o.creates.as_deref() == Some(LABEL))
+            .map(|o| (o.availability, o.verdict.and_then(|v| v.clause())))
+            .collect();
+        assert_eq!(
+            offered,
+            [(
+                crate::reads::Availability::Unavailable,
+                Some("subject_open".to_string())
+            )]
+        );
+        drop(w);
+        // a metric over labels counts each label nothing has corrected
+        assert_eq!(
+            [
+                read(&s, &jl, "metric(Job.labels_total)", &[]),
+                read(&s, &jl, r#"metric(Job.labelled, name := "late-risk")"#, &[]),
+                read(
+                    &s,
+                    &jl,
+                    r#"metric(Job.labelled, name := "late-risk", state := "OPEN")"#,
+                    &[]
+                ),
+                read(
+                    &s,
+                    &jl,
+                    "metric(Job.labelled, engineer := who)",
+                    &[("who", Value::Object(ana.clone()))]
+                ),
+                read(&s, &jl, r#"metric(Job.labelled, name := "odd-two")"#, &[]),
+            ],
+            [
+                Value::Int(3),
+                Value::Int(2),
+                Value::Int(1),
+                Value::Int(2),
+                Value::Int(1)
+            ]
+        );
+        // a reader's filter on a label's note, which is personal, is refused
+        assert_eq!(
+            page_of(
+                &s,
+                "Job.labelled",
+                &[],
+                None,
+                None,
+                Some(r#"l.note == "x""#)
+            )
+            .refused,
+            Some("personal")
         );
     }
 }

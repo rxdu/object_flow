@@ -281,9 +281,11 @@ pub fn availability(
             flags,
         });
     }
-    // and recording each kind on it, its generated guards decided on the
-    // subject and its fields waiting for the caller (ADR-0099)
-    for (_, kind) in &t.observations {
+    // and recording each kind on it, and labelling, which every type
+    // carries, its generated guards decided on the subject and its fields
+    // waiting for the caller (ADR-0099)
+    let label = crate::model::LABEL.to_string();
+    for kind in t.observations.iter().map(|(_, k)| k).chain([&label]) {
         let Some(k) = world.lib.type_(kind) else {
             return Err(NotRun(format!("the observation kind {kind}")));
         };

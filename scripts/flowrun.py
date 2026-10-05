@@ -439,11 +439,35 @@ class Obj:
         self.created_by_kind = "human"          # the kind of actor that created it; the operator's, until a request sets it
 
 
+# the built-in observation kind every type carries, and the reference end naming its subject, which may be of any type
+LABEL = "label"
+ANY_TYPE = "*"
+
+
+def label_kind():
+    """A label as the kind it is (declaration-syntax.md §6.8): a name, normalised to lower case and trimmed; an optional
+    note, personal, which its `forget` redacts; and the subject's state when it was applied, which the recording writes.
+    Its occurred time is its recorded time, so it has no recording bound, and a request supplying one is refused."""
+    return {"attributes": {"name": {"type": "string"}, "note": {"type": "string", "optional": True, "personal": True},
+                           "subject_state": {"type": "string"}, "subject": {"reference": ANY_TYPE},
+                           "corrects": {"reference": LABEL, "optional": True},
+                           "recorded_at": {"type": "timestamp"}, "occurred_at": {"type": "timestamp"}},
+            "states": {"RECORDED": {"category": "closed", "final": True}},
+            "transitions": {"record": {"kind": "initial", "to": "RECORDED", "required_inputs": ["subject", "name"],
+                                       "optional_inputs": ["corrects", "note"]},
+                            "forget": {"kind": "erasure", "inputs": {"reason": {"type": "string"}}}}}
+
+
+def with_labels(kinds):
+    """The types with the built-in label kind, as every store is created with it (ADR-0126)."""
+    return kinds if LABEL in kinds else {**kinds, LABEL: label_kind()}
+
+
 class Store:
     """The objects of one example, built from an empty store holding version 0 and its operator."""
 
     def __init__(self, kinds, enums, metrics=None, homes=None):
-        self.kinds, self.enums = kinds, enums
+        self.kinds, self.enums = with_labels(kinds), enums
         # module -> each metric its types and it declare, as (type or None, declaration); type -> its module
         self.decl = Shared(metrics=metrics or {}, homes=homes or {})
         self.now = timestamp(CLOCK_START)
@@ -1077,7 +1101,8 @@ class Evaluator:
         observed = (s.kinds.get(owner) or {}).get("observations") or {}
         rowkind = (("object", owner) if source == "objects" else ("interval", owner) if source.startswith("intervals")
                    else ("transition", owner) if source == "transitions"
-                   else ("object", observed[source]["kind"]) if source in observed else ("other",))
+                   else ("object", observed[source]["kind"]) if source in observed
+                   else ("object", LABEL) if source == "labels" else ("other",))
         env = {f["item"]: rowkind}
 
         def walk(e):
@@ -1218,6 +1243,13 @@ class Evaluator:
             return ([x.id for x in sorted(s.objects.values(), key=lambda x: x.id_order)
                      if x.type == kind and x.attrs.get("subject") in ids and x.id not in corrected],
                     ("object", kind), "recorded_by_kind")
+        if source == "labels":
+            # each label on an object of the family that nothing has corrected (declaration-syntax.md §6.9)
+            ids = {o.id for o in family}
+            corrected = {x.attrs.get("corrects") for x in s.objects.values() if x.type == LABEL}
+            return ([x.id for x in sorted(s.objects.values(), key=lambda x: x.id_order)
+                     if x.type == LABEL and x.attrs.get("subject") in ids and x.id not in corrected],
+                    ("label", owner), "recorded_by_kind")
         if source in ("attempts", "attempt_counts"):
             # the rows of the family's types; a row of no type, an unknown id's, is none of them (DESIGN.md §7)
             mine = [a for a in s.attempts if a["type"] and s.is_a(a["type"], owner)]
@@ -1373,6 +1405,9 @@ class Evaluator:
             return {"at": ("timestamp",), "object": ("object", base[1])}.get(m, ("other",))
         if base[0] == "attempt_count":
             return {"day": ("date",), "count": ("int",), "object": ("object", base[1])}.get(m, ("other",))
+        if base[0] == "label":
+            # a label of the metric's type is on an object of it
+            return ("object", base[1]) if m == "subject" else self.member_kind(("object", LABEL), m)
         if base[0] != "object":
             return ("other",)
         t = self.s.kinds.get(base[1]) or {}
@@ -1442,7 +1477,7 @@ class Runner:
     """Requests against a store, as DESIGN.md §6 executes them, within the slices built so far."""
 
     def __init__(self, kinds, enums):
-        self.kinds, self.enums = kinds, enums
+        self.kinds, self.enums = with_labels(kinds), enums
 
     def value_of(self, store, spec, v, aliases):
         """An example's written value as a value of the type its spec declares (flow-format.md §11.3)."""
@@ -1584,7 +1619,7 @@ class Runner:
             offers.append(self.offer(store, o, t, xn, x, who))
         for kn, k in self.kinds.items():
             ref = ((k.get("attributes") or {}).get("subject") or {}).get("reference")
-            if "record" in (k.get("transitions") or {}) and ref and store.is_a(o.type, ref):
+            if "record" in (k.get("transitions") or {}) and ref and (ref == ANY_TYPE or store.is_a(o.type, ref)):
                 offers.append(self.record_offer(store, o, kn, k, who))
         return offers
 
@@ -1726,7 +1761,7 @@ class Runner:
             if "reference" in (spec or {}):
                 want = spec["reference"].rstrip("[]")
                 for ref in (v if isinstance(v, tuple) else (v,)):
-                    if ref not in work.objects or not work.is_a(work.type_of(ref), want):
+                    if ref not in work.objects or not (want == ANY_TYPE or work.is_a(work.type_of(ref), want)):
                         raise Refused("invalid_input", remedy="self_serviceable", detail=f"{k} names no {want}")
         for k in x.get("required_inputs", []):
             spec = attrs.get(k) or {}
@@ -1801,6 +1836,9 @@ class Runner:
             spec = attrs.get(k) or {}
             if k not in inputs and (spec.get("optional") or "default" in spec):
                 raise Refused("unsatisfied", f"{k}_provided", "self_serviceable")
+        if tn == LABEL and xn == "record":
+            # a label's name is vocabulary, normalised to lower case and trimmed (declaration-syntax.md §6.8)
+            inputs = dict(inputs, name=inputs["name"].strip().lower())
         conditions = t.get("conditions") or {}
         failed = []
         for g, mode in (x.get("guards") or {}).items():
@@ -1836,6 +1874,10 @@ class Runner:
                 # a correction replaces the fact it corrects, so it keeps that fact's occurred time (ADR-0146)
                 corrected = work.objects.get(inputs["corrects"]) if "corrects" in inputs else None
                 o.attrs["occurred_at"] = corrected.attrs.get("occurred_at", work.now) if corrected else ctx.at
+                if tn == LABEL:
+                    # the subject's state when it was applied (DESIGN.md §5.11); a label is requested, never created by an
+                    # outcome, so nothing has changed the subject in the request before it
+                    o.attrs["subject_state"] = work.objects[inputs["subject"]].state
         else:
             o = work.objects[oid]
             if x["kind"] == "external":
@@ -1938,6 +1980,8 @@ class Runner:
             for name, ob in ((self.kinds.get(subject.type) or {}).get("observations") or {}).items():
                 if ob["kind"] == o.type:
                     subject.writes[name] = pos
+            if o.type == LABEL:
+                subject.writes["labels"] = pos
         states = (self.kinds.get(o.type) or {}).get("states") or {}
 
         def is_open(sn):
@@ -2141,6 +2185,11 @@ class Runner:
             for other in sorted((x for x in work.objects.values() if x.type == ob["kind"] and x.attrs.get("subject") == o.id),
                                 key=lambda x: x.id_order):
                 self.take(ctx, ob["kind"], "forget", other.id, {"reason": inputs.get("reason", "erasure")}, depth + 1)
+        # and its labels' notes, corrected ones included, on its own event as no transition (declaration-syntax.md §6.8)
+        for label in work.objects.values():
+            if label.type == LABEL and label.attrs.get("subject") == o.id and "note" in label.attrs:
+                del label.attrs["note"]
+                ctx.erased.setdefault(label.id, set()).add("note")
 
     def erase_chain(self, ctx, o, inputs, depth):
         """Every member of its supersession chain, predecessors and successors, each through its own type's erasure,
@@ -2880,7 +2929,11 @@ def self_test():
     r, s = Runner(k, {}), Store(k, {})
     person = r.attempt(s, "Person", "add", None, OPERATOR, {"name": "Ana"}, {}, {})[1]
     note = r.attempt(s, "Note", "record", None, OPERATOR, {"subject": person, "body": "rang"}, {person: person}, {})[1]
+    tag = r.attempt(s, LABEL, "record", None, OPERATOR, {"subject": person, "name": "VIP", "note": "rang"}, {person: person}, {})[1]
     erased = r.attempt(s, "Person", "forget", person, OPERATOR, {"reason": "asked"}, {}, {})
+    other = r.attempt(s, "Person", "add", None, OPERATOR, {"name": "Ben"}, {}, {})[1]
+    own = r.attempt(s, LABEL, "record", None, OPERATOR, {"subject": other, "name": "vip", "note": "rang"}, {other: other}, {})[1]
+    r.attempt(s, LABEL, "forget", own, OPERATOR, {"reason": "asked"}, {}, {})
     # an example's import admits nothing: a violation refuses it, leaving the store as it was (ADR-0154, D526)
     hr = {"Operator": kinds["Operator"],
           "Employee": {"mirror": True, "attributes": {"grade": {"type": "int"}},
@@ -2915,6 +2968,9 @@ def self_test():
     check("a sibling taking a base's unique key is refused", sibling, ("invariant_violated", "Laptop.key_unique"))
     check("an erasure takes each observation's forget, a transition it causes",
           (erased[3], s.objects[note].attrs.get("body", ABSENT)), (["Note.forget"], ABSENT))
+    check("an erasure redacts its labels' notes as no transition, and a label's own forget its note, the names kept",
+          [(s.objects[x].attrs.get("note", ABSENT), s.objects[x].attrs["name"], s.objects[x].erased) for x in (tag, own)],
+          [(ABSENT, "vip", False), (ABSENT, "vip", True)])
     # erasure (ADR-0147): its admission on the object the invariant fails on, one hop away; not_erased refusing an
     # assignment or an add to a personal attribute and passing a clear; a pending proposal on it invalidated
     k = {"Operator": kinds["Operator"],
@@ -3067,7 +3123,10 @@ def metrics_self_test(operator):
             "outcome_pairs": {"source": "objects", "item": "o", "dimensions": {"outcome": "o.checks.outcome", "again": "o.checks.outcome"},
                               "expression": "count()"},
             "done_spans": {"source": "intervals", "item": "i", "filter": "i.state == DONE", "dimensions": {"engineer": "i.held(engineer)"},
-                           "expression": "max(i.duration)", "flag_when": {"long": "value > 1 h"}}}}
+                           "expression": "max(i.duration)", "flag_when": {"long": "value > 1 h"}},
+            "labelled": {"source": "labels", "item": "l", "dimensions": {"name": "l.name", "state": "l.subject_state",
+                                                                         "engineer": "l.subject.engineer"}, "expression": "count()"},
+            "labels_total": {"source": "labels", "item": "l", "expression": "count()"}}}
     module = {"enumerations": {"Outcome": ["PASS", "FAIL", "NA"]},
               "types": {"User": {"attributes": {"login": {"type": "identity", "actor_kind": "human"}},
                                  "states": {"ACTIVE": {"category": "live"}},
@@ -3195,6 +3254,54 @@ def metrics_self_test(operator):
     check("the standard refusal rate, a transition never applied refused every time",
           read(s, jr, 'metric(Job.refusal_rate, transition := "finish", clause := "good")'), 1)
     check("an object's own attempts", read(s, jr, "count(a in this.attempts where a.enforced)"), 4)
+    # labels: the built-in kind every type carries, its name normalised, its subject's state stamped, dated when it is
+    # recorded, and read only by metrics (declaration-syntax.md §6.8, §6.9)
+    r, s = world()
+    ana = req(r, s, "User", "add", login="ana")
+    jl, jm = req(r, s, "Job", "open", engineer=ana), req(r, s, "Job", "open")
+    l1 = req(r, s, LABEL, "record", subject=jl, name="  Late-Risk ")
+    req(r, s, "Job", "start", jl)
+    s.now += 60
+    l2 = req(r, s, LABEL, "record", subject=jl, name="late-risk", note="rang twice")
+    l3 = req(r, s, LABEL, "record", subject=jm, name="Odd")
+    l4 = req(r, s, LABEL, "record", subject=jm, name="odd-one", corrects=l3)
+    check("a label's name normalised, its subject's state stamped, and its occurred time its recorded time",
+          [(s.objects[x].attrs["name"], s.objects[x].attrs["subject_state"], s.objects[x].attrs["occurred_at"],
+            s.objects[x].created_by_kind) for x in (l1, l2, l4)],
+          [("late-risk", "OPEN", s.now - 60, "human"), ("late-risk", "WORKING", s.now, "human"),
+           ("odd-one", "OPEN", s.now, "human")])
+    check("labelling stamps the subject's labels position", s.objects[jl].writes.get("labels"), s.objects[l2].writes.get("name"))
+    try:
+        r.attempt(s, LABEL, "record", None, OPERATOR, {"subject": jl, "name": "x"}, {jl: jl}, {}, occurred=s.now - 60)
+        backdated = "applied"
+    except Refused as e:
+        backdated = (e.verdict, e.clause)
+    for x in ("start", "shelve", "close"):
+        req(r, s, "Job", x, jm)
+    try:
+        r.attempt(s, LABEL, "record", None, OPERATOR, {"subject": "nothing", "name": "x"}, {"nothing": "nothing"}, {})
+        dangling = "applied"
+    except Refused as e:
+        dangling = (e.verdict, e.clause)
+    check("each refusal of a label: a backdated one, an input it does not take, a subject naming nothing, a correction of a "
+          "corrected one, one of another subject's, and a new fact on a finished subject",
+          [backdated, req(r, s, LABEL, "record", subject=jl, name="x", subject_state="DONE"),
+           dangling, req(r, s, LABEL, "record", subject=jm, name="x", corrects=l3),
+           req(r, s, LABEL, "record", subject=jl, name="x", corrects=l4), req(r, s, LABEL, "record", subject=jm, name="x")],
+          [("unsatisfied", "occurred_within"), ("invalid_input", None), ("invalid_input", None),
+           ("unsatisfied", "corrects_current"), ("invalid_input", None), ("unsatisfied", "subject_open")])
+    l5 = req(r, s, LABEL, "record", subject=jm, name="odd-two", corrects=l4)
+    check("a correction of a label on a finished subject applies, keeping the corrected one's occurred time",
+          (s.objects[l5].attrs["name"], s.objects[l5].attrs["occurred_at"]), ("odd-two", s.objects[l4].attrs["occurred_at"]))
+    check("labelling offered on a finished subject is unavailable, refused as subject_open",
+          [(x[2], x[3].clause) for x in r.availability(s, OPERATOR, jm) if x[:2] == ("record", LABEL)], [("unavailable", "subject_open")])
+    check("a metric over labels counts each label nothing has corrected",
+          (read(s, jl, "metric(Job.labels_total)"), read(s, jl, 'metric(Job.labelled, name := "late-risk")'),
+           read(s, jl, 'metric(Job.labelled, name := "late-risk", state := "OPEN")'),
+           read(s, jl, "metric(Job.labelled, engineer := who)", who=ana), read(s, jl, 'metric(Job.labelled, name := "odd-two")')),
+          (3, 2, 1, 2, 1))
+    check("a reader's filter on a label's note, which is personal, is refused",
+          page("Job.labelled", filt='l.note == "x"')["refused"], "personal")
     # a span holds what the transition that began it wrote, and an event what was held before it (§6.9, ADR-0146)
     r, s = world()
     ana, ben = req(r, s, "User", "add", login="ana"), req(r, s, "User", "add", login="ben")
@@ -3323,7 +3430,9 @@ def metrics_self_test(operator):
     check("an offer for each requestable transition, the initial left out, and the recording of each kind on it",
           sorted(o), sorted([("assign", None), ("resume", None), ("start", None), ("back", None), ("pause", None),
                              ("shelve", None), ("close", None), ("finish", None), ("take", None),
-                             ("review", None), ("inspect", None), ("record", "Check")]))
+                             ("review", None), ("inspect", None), ("record", "Check"), ("record", "label")]))
+    check("labelling is offered on every subject, its name waiting for the caller (ADR-0099)",
+          o[("record", "label")], ("available_with_input", None, [], []))
     check("a transition its state allows, taking no input, is available", o[("start", None)], ("available", None, [], []))
     check("one taking a required input is available with input, its guard on that input left for the input",
           o[("assign", None)], ("available_with_input", None, [], []))
