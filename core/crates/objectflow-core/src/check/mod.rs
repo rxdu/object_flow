@@ -2,18 +2,19 @@
 //! flow description, run by the engine, held to the Python checker's
 //! findings over every design module and every plant of its self-test.
 //!
-//! It runs the checker's steps 1 to 4: each file loaded strictly, checked
+//! It runs the checker's steps 1 to 5: each file loaded strictly, checked
 //! against the schema, its YAML literals given their expression text, every
 //! expression parsed, its imports and the names its closure declares, the
 //! names and relationships of the module, with its migration's rules and its
 //! checks against the previous version, and the sixty-four checks of
-//! `declaration-syntax.md` §10 on the core's reading of the modules. The
-//! contradictions within a type and the examples follow (`TODO.md`,
+//! `declaration-syntax.md` §10 on the core's reading of the modules, and the
+//! contradictions within each type. The examples follow (`TODO.md`,
 //! `docs/design/core-checker.md`).
 
 mod data;
 mod doc;
 mod lines;
+mod logic;
 mod migration;
 mod model;
 mod names;
@@ -344,6 +345,41 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
                     code: format!("check {check}"),
                     message,
                 });
+            }
+        }
+    }
+    // step 5, contradictions within one type, once step 4 found nothing
+    // fatal: each module's own types, as the view reads them (ADR-0137)
+    if all_parsed && !found.iter().any(|f| f.severity == Severity::Fatal) {
+        let mut enums: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (_, _, doc) in &modules {
+            for (n, members) in doc::obj(doc, "enumerations") {
+                let members = members
+                    .as_array()
+                    .map(|a| a.iter().map(doc::py_str).collect())
+                    .unwrap_or_default();
+                enums.insert(n.clone(), members);
+            }
+        }
+        for (index, node, doc) in &modules {
+            for tn in doc::obj(doc, "types").keys() {
+                let Some(t) = library.get(tn) else { continue };
+                if doc::flag(t, "abstract") {
+                    continue;
+                }
+                for (path, fatal, code, message) in logic::analyse_type(tn, t, &enums) {
+                    found.push(Finding {
+                        file: files[*index].0.clone(),
+                        line: node.line_at(&path),
+                        severity: if fatal {
+                            Severity::Fatal
+                        } else {
+                            Severity::Notice
+                        },
+                        code: code.to_string(),
+                        message,
+                    });
+                }
             }
         }
     }

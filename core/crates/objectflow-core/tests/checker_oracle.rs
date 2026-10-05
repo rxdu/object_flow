@@ -58,6 +58,10 @@ const COVERED: &[&str] = &[
     "check 61",
     "check 62",
     "check 64",
+    // step 5 (C3)
+    "contradiction",
+    "neverpasses",
+    "undecided",
     "check 16",
     "check 19",
     "check 31",

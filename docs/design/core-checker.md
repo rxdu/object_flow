@@ -10,7 +10,7 @@ Draft, 2026-10-05. How the Rust core checks a flow description before it publish
 | 3: imports, names and relationships, migrations, notices | each module through its view, machines and bases merged in | `imports`, `names`, `order`, `required`, `migration`, `metric`, `audit`, `warn`, `self_serviceable`, `unknown`, `before` | C1, done |
 | the names an examples file uses | each examples file against its module | `names`, `coverage` | C4 |
 | 4: the sixty-four checks | every module converted to the internal form, one text | `check <n>` | C2, done |
-| 5: contradictions within one type | each type of the view | `contradiction`, `neverpasses` | C3 |
+| 5: contradictions within one type | each type of the view | `contradiction`, `neverpasses` | C3, done |
 | 6: the examples | each examples file, run | `example`, `notrun` | C4 |
 
 Step 4 runs only when no file has a fatal finding from steps 1 to 3, and the core keeps that order. A check that step 3 and the text checker both enforce is therefore reported by step 3 wherever both would fire, and reaches step 4 only where step 3 misses it.
