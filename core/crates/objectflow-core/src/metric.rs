@@ -3093,6 +3093,29 @@ types:
         );
         // a flag and an audit name the event they were raised on
         assert!(w.attempts[..2].iter().all(|a| a.applied_position.is_some()));
+        // the proposal's read carries the verdict its refused approval left
+        // (ADR-0157)
+        let view = crate::reads::get(&w, &p).unwrap().unwrap();
+        let last = view
+            .derived
+            .iter()
+            .find(|(n, _)| n == "last_verdict")
+            .map(|(_, v)| v.clone());
+        let Some(Value::Row(last)) = last else {
+            panic!("a last verdict: {:?}", view.derived)
+        };
+        assert_eq!(
+            (
+                last["verdict"].clone(),
+                last["clause"].clone(),
+                last["remedy"].clone()
+            ),
+            (
+                Value::Text("unsatisfied".into()),
+                Value::Text("good".into()),
+                Value::Text("dependent".into())
+            )
+        );
         drop(w);
         // the standard refusals, flags raised and refusal rate, and an
         // object's own attempts

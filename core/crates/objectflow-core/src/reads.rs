@@ -34,6 +34,35 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
     for (n, e) in &t.derived {
         derived.push((n.clone(), Evaluator::new(world, Some(t), Some(id)).eval(e)?));
     }
+    // a proposal carries the verdict its latest refused approval left it
+    // with, read from that approval's attempt row and never stored, since
+    // the refusal records no event on it (DESIGN.md §9, ADR-0157)
+    if o.type_ == crate::model::PROPOSAL {
+        let refused = world
+            .attempts
+            .iter()
+            .rev()
+            .find(|a| a.request_values["proposal"].as_str() == Some(id));
+        derived.push((
+            "last_verdict".into(),
+            refused.map_or(Value::Absent, |a| {
+                let text = |t: &Option<String>| t.clone().map_or(Value::Absent, Value::Text);
+                Value::Row(std::collections::BTreeMap::from([
+                    ("verdict".to_string(), Value::Text(a.verdict.clone())),
+                    ("clause".to_string(), text(&a.clause)),
+                    (
+                        "remedy".to_string(),
+                        if a.remedy.is_empty() {
+                            Value::Absent
+                        } else {
+                            Value::Text(a.remedy.clone())
+                        },
+                    ),
+                    ("at".to_string(), Value::Timestamp(a.at)),
+                ]))
+            }),
+        ));
+    }
     Ok(Some(View {
         object: o.clone(),
         derived,

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D08, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0078 — an erasure invalidates a pending proposal whose inputs carried a value it removed, a fourth cause. ADR-0097 — execution re-evaluates actor guards too, correcting this ADR's summary of ADR-0036. *(Since ADR-0114 there are no actor guards: execution re-evaluates the flow's guards.)*
+- **Refined by:** ADR-0078 — an erasure invalidates a pending proposal whose inputs carried a value it removed, a fourth cause. ADR-0097 — execution re-evaluates actor guards too, correcting this ADR's summary of ADR-0036. *(Since ADR-0114 there are no actor guards: execution re-evaluates the flow's guards.)* ADR-0157 — the verdict a refused approval leaves attached is read as the proposal's `last_verdict`, derived from the attempt row and never stored.
 - **Refines:** ADR-0036
 
 ## Context

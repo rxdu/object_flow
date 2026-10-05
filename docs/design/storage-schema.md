@@ -498,7 +498,9 @@ CREATE TABLE t_proposal (
   inputs         TEXT    NOT NULL,
   proposer       TEXT    NOT NULL,
   submitted_under INTEGER NOT NULL REFERENCES of_declaration(version),
-  last_verdict   TEXT,          -- the verdict that left it pending (ADR-0044)
+  -- the verdict that left it pending is not stored: a read derives it from
+  -- the refused approval's of_attempt row, the proposal getting no event
+  -- (ADR-0044, ADR-0157)
   expires_at     TEXT,          -- expiry is derived from this, never a state
   CONSTRAINT t_proposal_state CHECK (state IN
     ('PENDING','EXECUTED','REJECTED','WITHDRAWN','INVALIDATED'))
