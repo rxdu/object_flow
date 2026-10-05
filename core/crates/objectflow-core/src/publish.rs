@@ -159,7 +159,7 @@ pub struct Simulated {
 pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRun> {
     let old = world.lib;
     let mut found = Found::default();
-    let mut report = PublishReport {
+    let report = PublishReport {
         version: old.version + 1,
         accepted: false,
         now: world.now,
@@ -169,6 +169,56 @@ pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRu
         source_digest: draft.source_digest.map(str::to_string),
         proposals_invalidated: 0,
     };
+    // step 1, the checks the core runs so far (ADR-0156 decision 5), each
+    // module against the installed version of it
+    let previous: BTreeMap<String, String> = old.source.iter().cloned().collect();
+    for f in crate::check::check(draft.source, &previous) {
+        let severity = match f.severity {
+            crate::check::Severity::Fatal => Severity::Fatal,
+            crate::check::Severity::Notice => Severity::Notice,
+        };
+        found.add(
+            severity,
+            format!("check:{}", f.code),
+            format!("{}:{}: {}", f.file, f.line, f.message),
+            None,
+        );
+    }
+    // the dry run goes on past what the checks refuse, reporting everything
+    // (publish-and-import.md §1 step 4), except where the rules they refuse
+    // cannot be run over the objects, which it says
+    let checked = found.0.clone();
+    let refused = checked.iter().any(|f| f.severity == Severity::Fatal);
+    match impact(world, draft, found, report.clone()) {
+        Err(e) if refused => {
+            let mut found = Found(checked);
+            found.add(
+                Severity::Notice,
+                "not_computed".into(),
+                format!("the impact past the checks' fatal findings, whose rules cannot be run over the objects: {}", e.0),
+                None,
+            );
+            let mut report = report;
+            report.findings = found.0;
+            Ok(Simulated {
+                report,
+                install: None,
+            })
+        }
+        other => other,
+    }
+}
+
+/// Steps 2 and 3 over the objects, after the checks: the source loaded,
+/// compared with the installed version, and every object it touches read
+/// into the report.
+fn impact(
+    world: &World<'_>,
+    draft: &Draft<'_>,
+    mut found: Found,
+    mut report: PublishReport,
+) -> Result<Simulated, NotRun> {
+    let old = world.lib;
     let mut new = match Library::load(draft.source) {
         Ok(lib) => lib,
         Err(e) => {
@@ -813,6 +863,8 @@ enumerations:
   OverrideReason: [LEGACY]
 types:
   Robot:
+    description: A robot of the fleet.
+    tracking: record
     attributes:
       serial: { type: string }
       grade: { type: Grade, optional: true }
@@ -821,7 +873,7 @@ types:
       HOLD: { category: live }
       RETIRED: { category: closed, final: true }
     conditions:
-      graded: { expression: grade is not null, remedy: self_serviceable }
+      graded: { description: The robot is graded., expression: grade is not null, remedy: self_serviceable }
     transitions:
       add: { kind: initial, to: READY, required_inputs: [serial], optional_inputs: [grade] }
       hold: { kind: external, from: [READY], to: HOLD, proposable: true }
@@ -833,7 +885,9 @@ types:
     /// invariant three robots meet differently, `graded` enforced, and no
     /// `hold`; each part of the migration switched on or off.
     fn v2(map_hold: bool, backfill: bool, admit: bool) -> String {
-        let mut migration = String::from("migration:\n  removed_members:\n    Grade: { OLD: B }\n");
+        let mut migration = String::from(
+            "migration:\n  description: The fleet without holds.\n  removed_members:\n    Grade: { OLD: B }\n",
+        );
         if map_hold {
             migration.push_str("  removed_states:\n    Robot: { HOLD: READY }\n");
         }
@@ -852,6 +906,8 @@ enumerations:
   OverrideReason: [LEGACY]
 types:
   Robot:
+    description: A robot of the fleet.
+    tracking: record
     attributes:
       serial: {{ type: string }}
       grade: {{ type: Grade, optional: true }}
@@ -860,9 +916,9 @@ types:
       READY: {{ category: live }}
       RETIRED: {{ category: closed, final: true }}
     invariants:
-      graded_when_ready: {{ expression: "state != Robot.READY or grade is not null" }}
+      graded_when_ready: {{ description: A ready robot is graded., expression: "state != Robot.READY or grade is not null" }}
     conditions:
-      graded: {{ expression: grade is not null, remedy: self_serviceable }}
+      graded: {{ description: The robot is graded., expression: grade is not null, remedy: self_serviceable }}
     transitions:
       add: {{ kind: initial, to: READY, required_inputs: [serial, site], optional_inputs: [grade] }}
       retire: {{ kind: external, from: [READY], to: RETIRED, guards: {{ graded: deny }} }}
@@ -1025,6 +1081,39 @@ types:
             .find(|f| f.severity == Severity::Decision)
             .unwrap();
         assert!(decision.message.contains("admits"));
+    }
+
+    #[test]
+    fn a_dry_run_reports_what_the_checks_find() {
+        let (mut s, _, _, _) = fleet();
+        // a guard on no declared condition, at the line of the guard
+        let text = v2(true, true, true)
+            .replace("guards: {{ graded: deny }}", "guards: {{ grade: deny }}")
+            .replace("guards: { graded: deny }", "guards: { grade: deny }");
+        let change = draft(&mut s, &text);
+        let r = run(&s, &change, &text);
+        let refused = r
+            .findings
+            .iter()
+            .find(|f| f.code == "check:names" && f.severity == Severity::Fatal)
+            .expect("the checks' finding");
+        assert!(
+            refused
+                .message
+                .starts_with("fleet:24: Robot.retire guards on 'grade'"),
+            "{}",
+            refused.message
+        );
+        assert!(r.fatal() && !r.accepted);
+        // a clean module's notices are reported, and refuse nothing
+        let clean = v2(true, true, true);
+        let r = run(&s, &change, &clean);
+        assert!(
+            r.findings
+                .iter()
+                .any(|f| f.code == "check:self_serviceable" && f.severity == Severity::Notice)
+        );
+        assert!(r.accepted, "{:#?}", r.findings);
     }
 
     #[test]
@@ -1291,8 +1380,11 @@ types:
         ));
         assert_eq!(s.lib.version, 2);
         // a change drafted on version 2 that changes nothing installs version
-        // 3, with no migration
-        let (change, v) = submitted(&mut s, &v2(true, true, true));
+        // 3, with no migration: version 2's text without its migration, which
+        // maps what version 2 no longer has and the checks refuse
+        let same = v2(true, true, true);
+        let same = same.split("migration:").next().unwrap().to_string();
+        let (change, v) = submitted(&mut s, &same);
         let (verdict, _) = approve(&mut s, &change, v);
         let Verdict::Satisfied { events, .. } = verdict else {
             panic!("{verdict:?}")
@@ -1308,6 +1400,8 @@ enumerations:
   Size: [S, L]
 types:
   Customer:
+    description: A customer.
+    tracking: record
     attributes:
       name: { type: string, optional: true, personal: true }
       nick: { type: string, optional: true }
@@ -1315,16 +1409,22 @@ types:
       size: { type: Size, optional: true }
     states:
       ACTIVE: { category: live }
+      GONE: { category: closed, final: true }
     transitions:
       join: { kind: initial, to: ACTIVE, optional_inputs: [name, nick, tier, size] }
+      leave: { kind: external, from: [ACTIVE], to: GONE }
       forget: { kind: erasure, inputs: { reason: { type: string } } }
   Coupon:
+    description: A coupon.
+    tracking: record
     attributes:
       code: { type: string }
     states:
       ISSUED: { category: live }
+      USED: { category: closed, final: true }
     transitions:
       issue: { kind: initial, to: ISSUED, required_inputs: [code] }
+      redeem: { kind: external, from: [ISSUED], to: USED }
 "#;
 
     /// `tier` renamed, `size` an enumeration no more, `nick` personal and
@@ -1337,20 +1437,25 @@ enumerations:
   Band: [LOW, HIGH]
 types:
   Customer:
+    description: A customer.
+    tracking: record
     attributes:
       name: { type: string, optional: true, personal: true }
       nick: { type: string, optional: true, personal: true }
       level: { type: Tier, optional: true }
       size: { type: string, optional: true }
       band: { type: Band, optional: true }
-    invariants:
-      nicknamed: { expression: nick is not null }
     states:
       ACTIVE: { category: live }
+      GONE: { category: closed, final: true }
+    invariants:
+      nicknamed: { description: A rule., expression: nick is not null }
     transitions:
       join: { kind: initial, to: ACTIVE, optional_inputs: [name, nick, level, size, band] }
+      leave: { kind: external, from: [ACTIVE], to: GONE }
       forget: { kind: erasure, inputs: { reason: { type: string } } }
 migration:
+  description: What the new version does to the objects of the old.
   renamed_attributes:
     Customer: { tier: level }
 "#;
@@ -1362,17 +1467,22 @@ enumerations:
   Grade: [A, B, OLD]
 types:
   Sample:
+    description: A sample.
+    tracking: record
     attributes:
       label: { type: string }
     observations:
       checks:
+        description: A check of a sample.
         kind: Check
         attributes:
           grade: { type: Grade }
     states:
       OPEN: { category: live }
+      DONE: { category: closed, final: true }
     transitions:
       take: { kind: initial, to: OPEN, required_inputs: [label] }
+      finish: { kind: external, from: [OPEN], to: DONE }
 "#;
 
     #[test]
@@ -1383,10 +1493,15 @@ types:
             "name: { type: string, optional: true, personal: true }",
             "name: { type: string, optional: true }",
         );
-        let dropped = SHOP_V1.replace(
-            "      name: { type: string, optional: true, personal: true }\n",
-            "",
-        );
+        let dropped = SHOP_V1
+            .replace(
+                "      name: { type: string, optional: true, personal: true }\n",
+                "",
+            )
+            .replace(
+                "optional_inputs: [name, nick, tier, size]",
+                "optional_inputs: [nick, tier, size]",
+            );
         for text in [unmarked, dropped] {
             let w = s.snapshot().unwrap();
             let r = dry_run(
@@ -1422,13 +1537,13 @@ types:
         let lab = |members: &str, migration: &str| {
             LAB.replace("Grade: [A, B, OLD]", members).replace(
                 "          grade: { type: Grade }\n",
-                "          grade: { type: Grade }\n        invariants:\n          graded_a: { expression: grade == Grade.A }\n",
+                "          grade: { type: Grade }\n        invariants:\n          graded_a: { description: A check grades A., expression: grade == Grade.A }\n",
             ) + migration
         };
         // a removed member an observation holds is fatal, a mapping or not
         let text = lab(
             "Grade: [A, B]",
-            "migration:\n  removed_members:\n    Grade: { OLD: B }\n",
+            "migration:\n  description: The lab without OLD.\n  removed_members:\n    Grade: { OLD: B }\n",
         );
         let change = created(&req(
             &mut s,

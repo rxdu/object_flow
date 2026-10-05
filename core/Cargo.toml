@@ -19,7 +19,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 sha2 = "0.11.0"
 # the schema's patterns, in the core's checker (ADR-0156 decision 2)
-regex = { version = "1.13.1", default-features = false, features = ["std"] }
+regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-perl"] }
 axum = "0.8.9"
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "sync"] }
 

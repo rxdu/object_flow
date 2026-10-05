@@ -1,0 +1,3499 @@
+//! The names and relationships of a module (`check-flows.py`'s
+//! `name_errors` and every check it calls), over the view of the module.
+//! Each function keeps the name of the one it ports, so the two can be read
+//! side by side.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::LazyLock;
+
+use regex::Regex;
+use serde_json::Value;
+
+use super::doc::{
+    ACTOR_KINDS, Found, KEYWORDS, Obj, Path, as_obj, bare_upper, dotted_calls, ext, finding, flag,
+    has, keys, kind_text, list, members_of, obj, optional, py_str, re, read_through, reads, segs,
+    squash, str_or, strings, text,
+};
+use super::optional::{Env, OptionalReads};
+use super::raw::{BUILT_IN_TYPES, imported};
+use super::steps::{
+    Step, assigns, body_text, cleared, input_reads, kind, required_input_names, sources,
+    step_expressions, step_kind, taken, targets, walk,
+};
+use super::view::{bases, inherited, types};
+use crate::expr::{BinOp, Expr, Number, parse};
+use crate::yaml::Seg;
+
+/// Every vocabulary has `closed` (`declaration-syntax.md` §1).
+const BUILT_IN_CATEGORIES: &[&str] = &["closed"];
+const NOT_A_CATEGORY: &[&str] = &["any", "terminal", "superseding"];
+const NOT_A_TRANSITION: &[&str] = &["any", "migrate", "import", "redact"];
+/// Names an expression resolves before an attribute (§9.2).
+pub const NOT_AN_ATTRIBUTE: &[&str] = &[
+    "state",
+    "inputs",
+    "actor",
+    "this",
+    "now",
+    "referrers",
+    "this_event",
+];
+pub const OBJECT_MEMBERS: &[&str] = &[
+    "id",
+    "open",
+    "created_at",
+    "created_by_kind",
+    "recorded_from",
+    "declaration_version",
+];
+const MIRROR_MEMBERS: &[&str] = &["imported_at"];
+const ONLY_ON_OBSERVATIONS: &[&str] = &["unit"];
+const ONLY_ON_TYPES: &[&str] = &[
+    "actor_kind",
+    "assignee",
+    "unique",
+    "indexed",
+    "identifier",
+    "external",
+    "default",
+    "opposite",
+    "stored",
+    "aggregation",
+    "cascade",
+    "survives",
+];
+const GENERATED_GUARDS: &[&str] = &[
+    "actor_known",
+    "occurred_within",
+    "whole_open",
+    "not_erased",
+    "subject_open",
+    "corrects_current",
+    "subject_owned",
+    "successor_not_superseded",
+];
+const SIMPLE_TYPES: &[&str] = &[
+    "string",
+    "int",
+    "bool",
+    "timestamp",
+    "duration",
+    "identity",
+    "file",
+    "date",
+    "actor_kind",
+];
+const REQUEST_ONLY: &[&str] = &["inputs", "this_event"];
+const OBSERVATION_MEMBERS: &[&str] = &[
+    "now",
+    "subject",
+    "corrects",
+    "occurred_at",
+    "recorded_at",
+    "recorded_by_kind",
+    "declaration_version",
+];
+const BINDER_RESERVED: &[&str] = &[
+    "state",
+    "inputs",
+    "actor",
+    "this",
+    "now",
+    "referrers",
+    "this_event",
+    "id",
+    "open",
+    "created_at",
+    "created_by_kind",
+    "recorded_from",
+    "declaration_version",
+];
+const OBJECT_ROW: &[&str] = &[
+    "id",
+    "state",
+    "open",
+    "created_at",
+    "created_by_kind",
+    "recorded_from",
+    "declaration_version",
+    "entered_at",
+    "time_in",
+    "intervals",
+    "transitions",
+    "attempts",
+];
+const KIND_ROW: &[&str] = &[
+    "subject",
+    "corrects",
+    "occurred_at",
+    "recorded_at",
+    "recorded_by_kind",
+    "declaration_version",
+];
+const PIECE_MEMBERS: &[&str] = &["period", "piece_start", "piece_end"];
+const TRANSITION_ROWS: &[&str] = &["transitions", "attempts", "attempt_counts"];
+const STANDARD_DIMENSIONS: &[&str] = &["version", "actor_kind"];
+
+fn set(names: &[&str]) -> BTreeSet<String> {
+    names.iter().map(|s| s.to_string()).collect()
+}
+
+fn dataset_rows(source: &str) -> Option<BTreeSet<String>> {
+    let names: &[&str] = match source {
+        "intervals" => &[
+            "object",
+            "state",
+            "entered_at",
+            "left_at",
+            "duration",
+            "entered_by_kind",
+            "declaration_version",
+            "legacy",
+            "held",
+            "migrated",
+            "corrected_by",
+        ],
+        "transitions" => &[
+            "object",
+            "transition",
+            "from_state",
+            "to_state",
+            "completes",
+            "returns",
+            "occurred_at",
+            "recorded_at",
+            "actor_id",
+            "actor_kind",
+            "asserted",
+            "overrides",
+            "imported",
+            "migrated",
+            "redacted",
+            "reason",
+            "declaration_version",
+            "held",
+        ],
+        "attempts" => &[
+            "object",
+            "transition",
+            "verdict",
+            "clause",
+            "remedy",
+            "unknown",
+            "enforced",
+            "flagged",
+            "actor_id",
+            "actor_kind",
+            "at",
+            "declaration_version",
+        ],
+        "attempt_counts" => &[
+            "day",
+            "object",
+            "transition",
+            "verdict",
+            "clause",
+            "remedy",
+            "actor_kind",
+            "enforced",
+            "flagged",
+            "declaration_version",
+            "count",
+        ],
+        "labels" => &[
+            "subject",
+            "name",
+            "subject_state",
+            "occurred_at",
+            "recorded_at",
+            "recorded_by_kind",
+            "declaration_version",
+        ],
+        _ => return None,
+    };
+    Some(set(names))
+}
+
+static INTERVALS_OF: LazyLock<Regex> = LazyLock::new(|| re(r"^intervals\(([a-z][a-z0-9_]*)\)$"));
+static QUALIFIED: LazyLock<Regex> =
+    LazyLock::new(|| re(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b"));
+
+/// The categories a module's states may name.
+fn categories(doc: &Value) -> BTreeSet<String> {
+    let mut out: BTreeSet<String> = list(doc, "categories").iter().map(py_str).collect();
+    out.extend(BUILT_IN_CATEGORIES.iter().map(|s| s.to_string()));
+    out
+}
+
+/// Every name and relationship of a module's view.
+pub fn name_errors(doc: &Value, library: &Obj) -> Found {
+    let mut library = library.clone();
+    for (tn, t) in types(doc) {
+        library.insert(tn, t.clone());
+    }
+    let mut out = reserved_name_errors(doc);
+    out.extend(relationship_errors(doc, &library));
+    out.extend(combined_errors(doc));
+    let cats = categories(doc);
+    let imported = imported(doc);
+    for (tn, t) in types(doc) {
+        let states = obj(t, "states");
+        let attrs = obj(t, "attributes");
+        let derived: BTreeSet<String> = keys(t, "derived_attributes").into_iter().collect();
+        let conds: BTreeSet<String> = keys(t, "conditions").into_iter().collect();
+        let required: BTreeMap<String, BTreeSet<String>> = states
+            .iter()
+            .map(|(s, v)| {
+                (
+                    s.clone(),
+                    strings(v, "required_attributes").into_iter().collect(),
+                )
+            })
+            .collect();
+        let always: BTreeSet<String> = attrs
+            .iter()
+            .filter(|(_, s)| !optional(s))
+            .map(|(a, _)| a.clone())
+            .collect();
+        let minted: BTreeSet<String> = attrs
+            .iter()
+            .filter(|(_, s)| {
+                flag(s, "identifier") || has(s, "default") || text(s, "type") == Some("counter")
+            })
+            .map(|(a, _)| a.clone())
+            .collect();
+        let mut used = BTreeSet::new();
+        for (s, v) in states {
+            let category = v.get("category").map(py_str).unwrap_or_default();
+            if !cats.contains(&category) {
+                out.push(finding(
+                    segs!["types", &tn, "states", s, "category"],
+                    "names",
+                    format!("state {s} has the category '{category}', which the module does not declare in categories"),
+                ));
+            }
+            for a in strings(v, "required_attributes") {
+                if derived.contains(&a) {
+                    out.push(finding(
+                        segs!["types", &tn, "states", s, "required_attributes"],
+                        "names",
+                        format!("state {s} requires the derived attribute '{a}'; a state requires stored attributes, and an invariant may read a derived one"),
+                    ));
+                } else if !attrs.contains_key(&a) {
+                    out.push(finding(
+                        segs!["types", &tn, "states", s, "required_attributes"],
+                        "names",
+                        format!(
+                            "state {s} requires the attribute '{a}', which {tn} does not declare"
+                        ),
+                    ));
+                }
+            }
+        }
+        let conditions = obj(t, "conditions");
+        for (xn, x) in obj(t, "transitions") {
+            let base = segs!["types", &tn, "transitions", xn];
+            let tg = targets(x);
+            for s in sources(x).into_iter().chain(tg.iter().cloned()) {
+                if !states.contains_key(&s) {
+                    let key = if tg.contains(&s) { "to" } else { "from" };
+                    out.push(finding(
+                        ext(&base, segs![key]),
+                        "names",
+                        format!("{tn}.{xn} names the state {s}, which {tn} does not declare"),
+                    ));
+                }
+            }
+            if kind(x) == "external"
+                && x.get("to")
+                    .is_some_and(|to| sources(x).contains(&py_str(to)))
+            {
+                out.push(finding(
+                    ext(&base, segs!["from"]),
+                    "names",
+                    format!(
+                        "{tn}.{xn} leaves {} for itself; an external transition changes the state, and a change that keeps it is an internal transition",
+                        x.get("to").map(py_str).unwrap_or_default()
+                    ),
+                ));
+            }
+            for g in keys(x, "guards") {
+                used.insert(g.clone());
+                let Some(c) = conditions.get(&g).filter(|_| conds.contains(&g)) else {
+                    out.push(finding(
+                        ext(&base, segs!["guards", &g]),
+                        "names",
+                        format!("{tn}.{xn} guards on '{g}', which is not a condition of {tn}"),
+                    ));
+                    continue;
+                };
+                let expr = c.get("expression").map(py_str).unwrap_or_default();
+                for i in input_reads(&expr).difference(&taken(x)) {
+                    out.push(finding(
+                        ext(&base, segs!["guards", &g]),
+                        "names",
+                        format!("{tn}.{xn} guards on '{g}', which reads inputs.{i}, and {xn} takes no input '{i}'"),
+                    ));
+                }
+            }
+            for step in walk(x.get("effect")) {
+                let where_ = ext(&base, ext(segs!["effect"], step.path.clone()));
+                for e in step_expressions(&step) {
+                    for i in input_reads(&e).difference(&taken(x)) {
+                        out.push(finding(
+                            where_.clone(),
+                            "names",
+                            format!(
+                                "{tn}.{xn}'s effect reads inputs.{i}, and {xn} takes no input '{i}'"
+                            ),
+                        ));
+                    }
+                }
+                let body = step.body();
+                if matches!(step.kind, "assign" | "add" | "remove") {
+                    let loc = body_text(body, "location");
+                    if derived.contains(&loc) {
+                        out.push(finding(
+                            where_.clone(),
+                            "names",
+                            format!("{tn}.{xn} writes '{loc}', a derived attribute, whose value is its expression"),
+                        ));
+                    } else if !attrs.contains_key(&loc) {
+                        out.push(finding(
+                            where_.clone(),
+                            "names",
+                            format!("{tn}.{xn} writes '{loc}', which {tn} does not declare"),
+                        ));
+                    }
+                    if matches!(step.kind, "add" | "remove")
+                        && let Some(spec) = attrs.get(&loc)
+                        && !str_or(spec, "type", "").ends_with("[]")
+                    {
+                        out.push(finding(
+                            where_.clone(),
+                            "names",
+                            format!("{tn}.{xn} {}s to '{loc}', which is not a set", step.kind),
+                        ));
+                    }
+                }
+                if step.kind == "clear" && step.path.len() > 1 {
+                    for a in list(step.st, "clear").iter().map(py_str) {
+                        if !attrs.contains_key(&a) && !derived.contains(&a) {
+                            out.push(finding(
+                                where_.clone(),
+                                "names",
+                                format!("{tn}.{xn} clears '{a}', which {tn} does not declare"),
+                            ));
+                        }
+                    }
+                }
+                if step.kind == "create" {
+                    out.extend(create_errors(doc, &library, &where_, &tn, xn, body));
+                }
+                if step.kind == "call" {
+                    let env = binders(&library, &tn, x, &step.path);
+                    out.extend(call_errors(&library, &where_, t, &tn, xn, x, body, &env));
+                }
+            }
+            if flag(x, "proposable") && flag(x, "only_via") {
+                out.push(finding(
+                    ext(&base, segs!["proposable"]),
+                    "names",
+                    format!("{tn}.{xn} is proposable and only via other transitions; no one may request it, so no proposal of it could be approved (check 14)"),
+                ));
+            }
+            for v in strings(x, "only_via") {
+                let (vt, vx) = v.split_once('.').unwrap_or((&v, ""));
+                if let Some(other) = library.get(vt) {
+                    if !obj(other, "transitions").contains_key(vx) {
+                        out.push(finding(
+                            ext(&base, segs!["only_via"]),
+                            "names",
+                            format!("{tn}.{xn} is only via {v}, which is not a transition of {vt}"),
+                        ));
+                    }
+                } else if !imported.contains(vt) {
+                    out.push(finding(
+                        ext(&base, segs!["only_via"]),
+                        "names",
+                        format!("{tn}.{xn} is only via {v}, and {vt} is neither declared in this module nor imported"),
+                    ));
+                }
+            }
+            let req_inputs = strings(x, "required_inputs");
+            let opt_inputs = strings(x, "optional_inputs");
+            for (i, spec) in obj(x, "inputs") {
+                if req_inputs.contains(i) || opt_inputs.contains(i) {
+                    out.push(finding(
+                        ext(&base, segs!["inputs", i]),
+                        "names",
+                        format!("{tn}.{xn} declares the input '{i}' and also takes the attribute '{i}' as an input"),
+                    ));
+                }
+                let k = spec
+                    .get("type")
+                    .filter(|t| super::doc::truthy(Some(t)))
+                    .or_else(|| spec.get("reference"))
+                    .map(py_str)
+                    .unwrap_or_default();
+                if k.ends_with("[]") && flag(spec, "optional") {
+                    out.push(finding(
+                        ext(&base, segs!["inputs", i]),
+                        "names",
+                        format!("{tn}.{xn}'s input '{i}' is a set, which is never optional: an empty set is supplied instead"),
+                    ));
+                }
+            }
+            let mut named: Vec<(&str, String)> = req_inputs
+                .iter()
+                .map(|a| ("required_inputs", a.clone()))
+                .collect();
+            named.extend(opt_inputs.iter().map(|a| ("optional_inputs", a.clone())));
+            named.extend(cleared(x).into_iter().map(|a| ("effect", a)));
+            for (k, a) in named {
+                if derived.contains(&a) {
+                    out.push(finding(
+                        ext(&base, segs![k]),
+                        "names",
+                        format!("{tn}.{xn} names the derived attribute '{a}' in {k}; its value is its expression, and nothing writes it"),
+                    ));
+                } else if !attrs.contains_key(&a) {
+                    out.push(finding(
+                        ext(&base, segs![k]),
+                        "names",
+                        format!("{tn}.{xn} names the attribute '{a}' in {k}, which {tn} does not declare"),
+                    ));
+                }
+            }
+            for a in req_inputs
+                .iter()
+                .filter(|a| opt_inputs.contains(a))
+                .collect::<BTreeSet<_>>()
+            {
+                out.push(finding(
+                    ext(&base, segs!["optional_inputs"]),
+                    "names",
+                    format!("{tn}.{xn} lists '{a}' as both a required and an optional input"),
+                ));
+            }
+            for a in &opt_inputs {
+                if always.contains(a) && !attrs.get(a).is_some_and(|s| has(s, "default")) {
+                    out.push(finding(
+                        ext(&base, segs!["optional_inputs"]),
+                        "names",
+                        format!("{tn}.{xn} lists '{a}' as an optional input, but the attribute is neither optional nor defaulted, so the input is required"),
+                    ));
+                }
+            }
+            let mut written: BTreeSet<String> = req_inputs
+                .iter()
+                .chain(opt_inputs.iter())
+                .cloned()
+                .collect();
+            written.extend(assigns(x).into_iter().map(|(_, loc)| loc));
+            let cl: BTreeSet<String> = cleared(x).into_iter().collect();
+            for a in written.intersection(&cl) {
+                out.push(finding(
+                    ext(&base, segs!["effect"]),
+                    "names",
+                    format!("{tn}.{xn} both writes and clears '{a}'"),
+                ));
+            }
+            let mut supplied = always.clone();
+            supplied.extend(minted.iter().cloned());
+            out.extend(required_errors(&tn, xn, x, &required, &supplied));
+        }
+        for c in conds.difference(&used) {
+            out.push(finding(
+                segs!["types", &tn, "conditions", c],
+                "names",
+                format!("condition '{c}' of {tn} is used by no transition"),
+            ));
+        }
+        out.extend(value_errors(doc, &tn, t));
+        out.extend(write_type_errors(doc, &tn, t, &library));
+        out.extend(conditional_step_errors(&tn, t));
+        let mut readable = cats.clone();
+        readable.extend(evaluator_names(doc));
+        out.extend(read_errors(&tn, t, &readable));
+        out.extend(indexed_errors(&tn, t, &library));
+        out.extend(scan_errors(&tn, t, &library));
+        out.extend(observation_read_errors(&tn, t));
+        out.extend(binder_errors(&tn, t));
+        out.extend(identifier_errors(doc, &tn, t, &library));
+        out.extend(evaluator_errors(doc, &tn, t));
+        out.extend(supersession_errors(doc, &tn, t, &library));
+        out.extend(override_errors(doc, &tn, t, &library));
+        for (mn, m) in obj(t, "metrics") {
+            out.extend(metric_errors(&tn, t, mn, m));
+        }
+    }
+    out
+}
+
+/// Names the format keeps for itself: the text language's and generated
+/// ones.
+fn reserved_name_errors(doc: &Value) -> Found {
+    let mut out = Found::new();
+    for (i, c) in list(doc, "categories").iter().enumerate() {
+        let c = py_str(c);
+        if NOT_A_CATEGORY.contains(&c.as_str()) {
+            out.push(finding(
+                segs!["categories", i],
+                "names",
+                format!(
+                    "'{c}' cannot name a category: the text language reserves it in that position"
+                ),
+            ));
+        }
+    }
+    for (tn, t) in types(doc) {
+        let attrs = obj(t, "attributes");
+        let states = obj(t, "states");
+        let mut owned: Vec<(Path, String)> = attrs
+            .keys()
+            .map(|a| (segs!["types", &tn, "attributes", a], a.clone()))
+            .collect();
+        for (o, ob) in obj(t, "observations") {
+            for a in keys(ob, "attributes") {
+                owned.push((segs!["types", &tn, "observations", o, "attributes", &a], a));
+            }
+        }
+        for d in keys(t, "derived_attributes") {
+            owned.push((segs!["types", &tn, "derived_attributes", &d], d));
+        }
+        let mut members: BTreeSet<String> = attrs.keys().cloned().collect();
+        members.extend(keys(t, "observations"));
+        for d in keys(t, "derived_attributes") {
+            if members.contains(&d) {
+                out.push(finding(
+                    segs!["types", &tn, "derived_attributes", &d],
+                    "names",
+                    format!("'{d}' names both a derived attribute and another member of {tn}; a member has one name"),
+                ));
+            }
+        }
+        for (p, a) in owned {
+            if NOT_AN_ATTRIBUTE.contains(&a.as_str()) {
+                out.push(finding(p, "names", format!("'{a}' cannot name an attribute: in an expression it means something else first")));
+            } else if OBJECT_MEMBERS.contains(&a.as_str()) || MIRROR_MEMBERS.contains(&a.as_str()) {
+                let who = if MIRROR_MEMBERS.contains(&a.as_str()) {
+                    " that is a mirror"
+                } else {
+                    ""
+                };
+                out.push(finding(
+                    p,
+                    "names",
+                    format!("'{a}' cannot name a member: every object{who} has one of that name, which it would shadow (the model's check 33)"),
+                ));
+            }
+        }
+        for (a, spec) in attrs {
+            for k in ONLY_ON_OBSERVATIONS.iter().filter(|k| has(spec, k)) {
+                out.push(finding(
+                    segs!["types", &tn, "attributes", a, *k],
+                    "names",
+                    format!("'{k}' applies only to an observation's attribute, not to {tn}.{a}"),
+                ));
+            }
+        }
+        for (o, ob) in obj(t, "observations") {
+            for (a, spec) in obj(ob, "attributes") {
+                if text(spec, "type") == Some("counter") {
+                    out.push(finding(
+                        segs!["types", &tn, "observations", o, "attributes", a],
+                        "names",
+                        format!("{o}.{a} is a counter, which an observation, born final, cannot have; a counter belongs to a type tracked by quantity"),
+                    ));
+                }
+                let mut only: Vec<&&str> = ONLY_ON_TYPES.iter().filter(|k| has(spec, k)).collect();
+                only.sort();
+                for k in only {
+                    out.push(finding(
+                        segs!["types", &tn, "observations", o, "attributes", a, *k],
+                        "names",
+                        format!("'{k}' applies only to a type's attribute, not to the observation attribute {o}.{a}"),
+                    ));
+                }
+            }
+        }
+        for xn in keys(t, "transitions") {
+            if NOT_A_TRANSITION.contains(&xn.as_str()) {
+                let why = if xn == "any" {
+                    "the text language reserves it"
+                } else {
+                    "the engine's own events carry that name (ADR-0148)"
+                };
+                out.push(finding(
+                    segs!["types", &tn, "transitions", &xn],
+                    "names",
+                    format!("'{xn}' cannot name a transition: {why}"),
+                ));
+            }
+        }
+        for c in keys(t, "conditions") {
+            if c.strip_suffix("_provided")
+                .is_some_and(|a| attrs.contains_key(a))
+            {
+                out.push(finding(
+                    segs!["types", &tn, "conditions", &c],
+                    "names",
+                    format!("'{c}' is the name of the guard generated for a required input; choose another name"),
+                ));
+            }
+            if GENERATED_GUARDS.contains(&c.as_str()) {
+                out.push(finding(
+                    segs!["types", &tn, "conditions", &c],
+                    "names",
+                    format!("'{c}' is the name of a guard the engine generates, so a refusal naming it would not say which it was; choose another name"),
+                ));
+            }
+        }
+        for i in keys(t, "invariants") {
+            if i.strip_suffix("_invariant")
+                .is_some_and(|s| states.contains_key(&s.to_uppercase()))
+            {
+                out.push(finding(
+                    segs!["types", &tn, "invariants", &i],
+                    "names",
+                    format!("'{i}' is the name of the invariant generated for a state's required_attributes; choose another name"),
+                ));
+            }
+            if i.strip_suffix("_unique")
+                .is_some_and(|a| attrs.contains_key(a))
+            {
+                out.push(finding(
+                    segs!["types", &tn, "invariants", &i],
+                    "names",
+                    format!("'{i}' is the name of the invariant a unique attribute or a one-to-one end generates; choose another name"),
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// Every type a type's attributes, observations and inputs name.
+fn references(t: &Value, tn: &str) -> Vec<(Path, String)> {
+    let strip = |s: &Value| py_str(s).trim_end_matches(['[', ']']).to_string();
+    let mut refs: Vec<(Path, String)> = obj(t, "attributes")
+        .iter()
+        .filter_map(|(a, s)| {
+            s.get("reference")
+                .map(|r| (segs!["types", tn, "attributes", a], strip(r)))
+        })
+        .collect();
+    for (o, ob) in obj(t, "observations") {
+        for (a, s) in obj(ob, "attributes") {
+            if let Some(r) = s.get("reference") {
+                refs.push((
+                    segs!["types", tn, "observations", o, "attributes", a],
+                    strip(r),
+                ));
+            }
+        }
+    }
+    for (xn, x) in obj(t, "transitions") {
+        for (i, s) in obj(x, "inputs") {
+            if let Some(r) = s.get("reference") {
+                refs.push((segs!["types", tn, "transitions", xn, "inputs", i], strip(r)));
+            }
+        }
+    }
+    refs
+}
+
+fn ref_of(spec: &Value) -> String {
+    spec.get("reference").map(py_str).unwrap_or_default()
+}
+
+fn target_of(spec: &Value) -> String {
+    ref_of(spec).trim_end_matches(['[', ']']).to_string()
+}
+
+/// The ends of a relationship name each other; a composite end's parts point
+/// back with a single, required end; a cascade names a transition of the
+/// part with its inputs; and every final transition of a whole is covered or
+/// survived, never both (`declaration-syntax.md` §3.2, §3.3).
+fn relationship_errors(doc: &Value, library: &Obj) -> Found {
+    let mut out = Found::new();
+    let module: Obj = types(doc)
+        .into_iter()
+        .map(|(n, t)| (n, t.clone()))
+        .collect();
+    let imported = imported(doc);
+    let machines = obj(doc, "machines");
+    for (tn, t) in types(doc) {
+        for (p, r) in references(t, &tn) {
+            if !module.contains_key(&r) && !imported.contains(&r) {
+                out.push(finding(
+                    p,
+                    "names",
+                    format!(
+                        "{tn} references {r}, which is neither declared in this module nor imported"
+                    ),
+                ));
+            }
+        }
+        let finals: BTreeSet<String> = obj(t, "states")
+            .iter()
+            .filter(|(_, v)| flag(v, "final"))
+            .map(|(s, _)| s.clone())
+            .collect();
+        for (an, spec) in obj(t, "attributes") {
+            let here = segs!["types", &tn, "attributes", an];
+            let k = ref_of(spec);
+            let (target, many) = (target_of(spec), k.ends_with("[]"));
+            if has(spec, "opposite") {
+                let opposite = spec.get("opposite").map(py_str).unwrap_or_default();
+                let Some(other) = module.get(&target) else {
+                    out.push(finding(
+                        ext(&here, segs!["opposite"]),
+                        "names",
+                        format!("{tn}.{an} names an opposite end in {target}, which this module does not declare; both ends of a relationship are in one module"),
+                    ));
+                    continue;
+                };
+                let back = obj(other, "attributes")
+                    .get(&opposite)
+                    .filter(|b| !b.is_null());
+                let names_back = back.is_some_and(|b| {
+                    target_of(b) == tn
+                        && b.get("opposite").map(py_str).as_deref() == Some(an.as_str())
+                });
+                if !names_back {
+                    out.push(finding(
+                        ext(&here, segs!["opposite"]),
+                        "names",
+                        format!(
+                            "{tn}.{an}'s opposite {target}.{opposite} does not name {tn}.{an} back"
+                        ),
+                    ));
+                    continue;
+                }
+                if flag(spec, "stored") && back.is_some_and(|b| flag(b, "stored")) {
+                    out.push(finding(
+                        ext(&here, segs!["stored"]),
+                        "names",
+                        format!("{tn}.{an} and {target}.{opposite} are both marked stored; one end holds the value"),
+                    ));
+                }
+            } else if many && !machines.contains_key(&tn) {
+                out.push(finding(
+                    here.clone(),
+                    "names",
+                    format!("{tn}.{an} is a set of references with no opposite, which has nowhere to be stored; an end with no opposite is single (§4.3; the model's check 41)"),
+                ));
+            }
+            let composite = text(spec, "aggregation") == Some("composite");
+            if composite && flag(t, "abstract") && (has(spec, "cascade") || has(spec, "survives")) {
+                out.push(finding(
+                    here.clone(),
+                    "names",
+                    format!("{tn}.{an} is declared on the abstract {tn}, which has no transitions to cascade on or survive; each concrete subtype gives its cascade and survives in inherited_parts (§4.14)"),
+                ));
+                continue;
+            }
+            if composite {
+                if !has(spec, "opposite") {
+                    out.push(finding(
+                        here.clone(),
+                        "names",
+                        format!(
+                            "{tn}.{an} is composite and names no opposite: a part names its whole"
+                        ),
+                    ));
+                    continue;
+                }
+                let opposite = spec.get("opposite").map(py_str).unwrap_or_default();
+                let part = module
+                    .get(&target)
+                    .cloned()
+                    .unwrap_or(Value::Object(Default::default()));
+                let owner = obj(&part, "attributes")
+                    .get(&opposite)
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                if ref_of(&owner).ends_with("[]") || flag(&owner, "optional") {
+                    out.push(finding(
+                        here.clone(),
+                        "names",
+                        format!("{target}.{opposite} MUST be single and required: a part of {tn}.{an} belongs to exactly one whole"),
+                    ));
+                }
+                out.extend(part_coverage(
+                    &tn,
+                    t,
+                    an,
+                    &target,
+                    &part,
+                    list(spec, "cascade"),
+                    spec.get("survives"),
+                    &here,
+                    &finals,
+                ));
+            } else if has(spec, "cascade") || has(spec, "survives") {
+                out.push(finding(
+                    here.clone(),
+                    "names",
+                    format!("{tn}.{an} has a cascade or survives, which only a composite end has"),
+                ));
+            }
+        }
+        let mut kinds = library.clone();
+        for (k, v) in &module {
+            kinds.insert(k.clone(), v.clone());
+        }
+        let mut inherited_parts: Obj = Default::default();
+        for b in bases(&tn, &kinds).iter().rev() {
+            for (an, spec) in obj(&kinds[b.as_str()], "attributes") {
+                if text(spec, "aggregation") == Some("composite") {
+                    inherited_parts.insert(an.clone(), spec.clone());
+                }
+            }
+        }
+        let given = obj(t, "inherited_parts");
+        for an in given.keys() {
+            if !inherited_parts.contains_key(an) {
+                out.push(finding(
+                    segs!["types", &tn, "inherited_parts", an],
+                    "names",
+                    format!(
+                        "{tn} gives '{an}' in inherited_parts, which is not a part it inherits"
+                    ),
+                ));
+            }
+        }
+        if flag(t, "abstract") {
+            if !given.is_empty() {
+                out.push(finding(
+                    segs!["types", &tn, "inherited_parts"],
+                    "names",
+                    format!("{tn} is abstract and has no transitions to cascade on; its concrete subtypes give its parts"),
+                ));
+            }
+            continue;
+        }
+        for (an, spec) in &inherited_parts {
+            let target = target_of(spec);
+            let ip = given.get(an).cloned().unwrap_or(Value::Null);
+            let part = kinds
+                .get(&target)
+                .cloned()
+                .unwrap_or(Value::Object(Default::default()));
+            out.extend(part_coverage(
+                &tn,
+                t,
+                an,
+                &target,
+                &part,
+                list(&ip, "cascade"),
+                ip.get("survives"),
+                &segs!["types", &tn, "inherited_parts", an],
+                &finals,
+            ));
+        }
+    }
+    out
+}
+
+/// A composite end's cascade clauses name transitions of the whole and of
+/// the part, with the part's inputs, and every final transition of the whole
+/// is covered by a clause or survived, never both (check 37).
+#[allow(clippy::too_many_arguments)]
+fn part_coverage(
+    tn: &str,
+    t: &Value,
+    an: &str,
+    target: &str,
+    part: &Value,
+    clauses: &[Value],
+    survives: Option<&Value>,
+    here: &Path,
+    finals: &BTreeSet<String>,
+) -> Found {
+    let mut out = Found::new();
+    let mut covered: BTreeSet<String> = BTreeSet::new();
+    let transitions = obj(t, "transitions");
+    for (i, c) in clauses.iter().enumerate() {
+        let where_ = ext(here, segs!["cascade", i]);
+        let on: Vec<String> = list(c, "on").iter().map(py_str).collect();
+        for w in &on {
+            if !transitions.contains_key(w) {
+                out.push(finding(
+                    where_.clone(),
+                    "names",
+                    format!("{tn}.{an} cascades on '{w}', which is not a transition of {tn}"),
+                ));
+            }
+        }
+        covered.extend(on);
+        let ct = c.get("transition").map(py_str).unwrap_or_default();
+        let called = obj(part, "transitions").get(&ct).filter(|x| !x.is_null());
+        let Some(called) = called.filter(|x| kind(x) != "initial") else {
+            out.push(finding(
+                where_.clone(),
+                "names",
+                format!("{tn}.{an} cascades to {target}.{ct}, which is not a transition of {target} that acts on a part"),
+            ));
+            continue;
+        };
+        let given: BTreeSet<String> = keys(c, "inputs").into_iter().collect();
+        for i in given.difference(&taken(called)) {
+            out.push(finding(
+                where_.clone(),
+                "names",
+                format!("{tn}.{an} passes '{i}' to {target}.{ct}, which takes no input '{i}'"),
+            ));
+        }
+        for i in required_input_names(called).difference(&given) {
+            if !obj(called, "inputs")
+                .get(i)
+                .is_some_and(|s| has(s, "default"))
+            {
+                out.push(finding(
+                    where_.clone(),
+                    "names",
+                    format!("{tn}.{an} cascades to {target}.{ct} without the input '{i}', which it requires"),
+                ));
+            }
+        }
+    }
+    let kept: BTreeSet<String> = match survives {
+        Some(Value::Bool(true)) => transitions.keys().cloned().collect(),
+        Some(Value::Array(a)) => a.iter().map(py_str).collect(),
+        _ => BTreeSet::new(),
+    };
+    for w in covered.intersection(&kept) {
+        out.push(finding(
+            here.clone(),
+            "names",
+            format!("{tn}.{an} both cascades on and survives '{w}'"),
+        ));
+    }
+    for (xn, x) in transitions {
+        let into: Vec<String> = match kind(x) {
+            "external" => vec![x.get("to").map(py_str).unwrap_or_default()],
+            "assertion" => match x.get("to") {
+                Some(Value::Array(a)) => a.iter().map(py_str).filter(|s| !s.is_empty()).collect(),
+                Some(Value::Null) | None => Vec::new(),
+                Some(v) => vec![py_str(v)]
+                    .into_iter()
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+            },
+            _ => Vec::new(),
+        };
+        if let Some(f) = into.iter().find(|s| finals.contains(*s))
+            && !covered.contains(xn)
+            && !kept.contains(xn)
+        {
+            out.push(finding(
+                here.clone(),
+                "names",
+                format!("{tn}.{xn} enters the final state {f}, and {tn}.{an} neither cascades on it nor survives it"),
+            ));
+        }
+    }
+    out
+}
+
+/// The inputs of a transition that take an event.
+fn event_inputs(target: &Value, x: &Value) -> BTreeSet<String> {
+    let attrs = obj(target, "attributes");
+    let mut named: BTreeSet<String> = obj(x, "inputs")
+        .iter()
+        .filter(|(_, s)| text(s, "type") == Some("event"))
+        .map(|(i, _)| i.clone())
+        .collect();
+    for a in strings(x, "required_inputs")
+        .into_iter()
+        .chain(strings(x, "optional_inputs"))
+    {
+        if attrs
+            .get(&a)
+            .is_some_and(|s| text(s, "type") == Some("event"))
+        {
+            named.insert(a);
+        }
+    }
+    named
+}
+
+/// An event-typed input accepts only `this_event` (check 25).
+fn event_errors(
+    where_: &Path,
+    tn: &str,
+    xn: &str,
+    target_name: &str,
+    x: &Value,
+    given: &Value,
+    target: &Value,
+) -> Found {
+    let given_obj = as_obj(given);
+    event_inputs(target, x)
+        .into_iter()
+        .filter(|i| given_obj.contains_key(i))
+        .filter_map(|i| {
+            let value = squash(&py_str(&given_obj[&i]));
+            (value != "this_event").then(|| {
+                finding(
+                    where_.clone(),
+                    "names",
+                    format!("{tn}.{xn} passes {value} to {target_name}'s event input '{i}', which accepts only this_event (check 25)"),
+                )
+            })
+        })
+        .collect()
+}
+
+/// A create names a type of the module, or an imported one, and an initial
+/// transition of it, and supplies that transition's required inputs.
+fn create_errors(
+    doc: &Value,
+    library: &Obj,
+    where_: &Path,
+    tn: &str,
+    xn: &str,
+    c: &Value,
+) -> Found {
+    let ty = c.get("type").map(py_str).unwrap_or_default();
+    if !obj(doc, "types").contains_key(&ty) && !imported(doc).contains(&ty) {
+        return vec![finding(
+            where_.clone(),
+            "names",
+            format!(
+                "{tn}.{xn} creates a {ty}, which is neither declared in this module nor imported"
+            ),
+        )];
+    }
+    let Some(target) = library.get(&ty) else {
+        return Found::new();
+    };
+    let xt = c.get("transition").map(py_str).unwrap_or_default();
+    let Some(t) = obj(target, "transitions")
+        .get(&xt)
+        .filter(|x| !x.is_null() && kind(x) == "initial")
+    else {
+        return vec![finding(
+            where_.clone(),
+            "names",
+            format!(
+                "{tn}.{xn} creates a {ty} by '{xt}', which is not an initial transition of {ty}"
+            ),
+        )];
+    };
+    let given: BTreeSet<String> = keys(c, "inputs").into_iter().collect();
+    let mut out: Found = given
+        .difference(&taken(t))
+        .map(|i| {
+            finding(
+                where_.clone(),
+                "names",
+                format!("{tn}.{xn} passes '{i}' to {ty}.{xt}, which takes no input '{i}'"),
+            )
+        })
+        .collect();
+    out.extend(event_errors(
+        where_,
+        tn,
+        xn,
+        &format!("{ty}.{xt}"),
+        t,
+        c.get("inputs").unwrap_or(&Value::Null),
+        target,
+    ));
+    for i in required_input_names(t).difference(&given) {
+        if !obj(t, "inputs").get(i).is_some_and(|s| has(s, "default")) {
+            out.push(finding(
+                where_.clone(),
+                "names",
+                format!(
+                    "{tn}.{xn} creates a {ty} without the input '{i}', which {ty}.{xt} requires"
+                ),
+            ));
+        }
+    }
+    out
+}
+
+/// The type each loop enclosing an effect step binds its item to, where the
+/// loop ranges over objects of a known type.
+pub fn binders(library: &Obj, tn: &str, x: &Value, step_path: &[Seg]) -> Env {
+    let mut env = Env::new();
+    let mut steps: Vec<Value> = list(x, "effect").to_vec();
+    let mut depth = 0;
+    while depth + 1 < step_path.len() {
+        let Seg::Index(i) = step_path[depth] else {
+            break;
+        };
+        let Some(spec) = steps.get(i).and_then(|s| s.get("foreach")).cloned() else {
+            break;
+        };
+        let mut at = None;
+        if let Some(array) = spec.get("array") {
+            let text = py_str(array);
+            if let Ok(tree) = parse(&text) {
+                at = OptionalReads::new(library, tn, Some(x)).walk(&tree, &env);
+            }
+            if at.is_none() && library.contains_key(&text) {
+                at = Some(format!("{text}[]"));
+            }
+        }
+        let item = spec.get("item").map(py_str).unwrap_or_default();
+        env.insert(
+            item,
+            at.and_then(|t| t.strip_suffix("[]").map(str::to_string)),
+        );
+        steps = list(&spec, "steps").to_vec();
+        depth += 3;
+    }
+    env
+}
+
+static CALL_ATTRIBUTE: LazyLock<Regex> = LazyLock::new(|| re(r"^(?:this\.)?([a-z][a-z0-9_]*)$"));
+static CALL_INPUT: LazyLock<Regex> = LazyLock::new(|| re(r"^inputs\.([a-z][a-z0-9_]*)$"));
+
+/// A call names a transition of its target's type that acts on an existing
+/// object, and passes its inputs.
+#[allow(clippy::too_many_arguments)]
+fn call_errors(
+    library: &Obj,
+    where_: &Path,
+    t: &Value,
+    tn: &str,
+    xn: &str,
+    x: &Value,
+    c: &Value,
+    env: &Env,
+) -> Found {
+    let target = squash(&c.get("target").map(py_str).unwrap_or_default());
+    let mut spec: Option<Value> = None;
+    if let Some(m) = CALL_ATTRIBUTE.captures(&target)
+        && let Some(s) = obj(t, "attributes").get(&m[1])
+    {
+        spec = Some(s.clone());
+    }
+    if let Some(m) = CALL_INPUT.captures(&target) {
+        spec = obj(x, "inputs")
+            .get(&m[1])
+            .filter(|s| super::doc::truthy(Some(s)))
+            .or_else(|| obj(t, "attributes").get(&m[1]))
+            .cloned();
+    }
+    let mut k = spec
+        .as_ref()
+        .and_then(|s| s.get("reference"))
+        .map(py_str)
+        .filter(|r| !r.is_empty());
+    if k.is_none() {
+        k = parse(&target)
+            .ok()
+            .and_then(|tree| OptionalReads::new(library, tn, Some(x)).walk(&tree, env));
+    }
+    let Some(k) = k.filter(|k| !k.ends_with("[]") && library.contains_key(k)) else {
+        return Found::new();
+    };
+    let other = &library[&k];
+    let ct = c.get("transition").map(py_str).unwrap_or_default();
+    let Some(called) = obj(other, "transitions").get(&ct).filter(|x| !x.is_null()) else {
+        return vec![finding(
+            where_.clone(),
+            "names",
+            format!("{tn}.{xn} calls {k}.{ct}, which is not a transition of {k}"),
+        )];
+    };
+    if kind(called) == "initial" {
+        return vec![finding(
+            where_.clone(),
+            "names",
+            format!(
+                "{tn}.{xn} calls {k}.{ct}, an initial transition; create an object with create"
+            ),
+        )];
+    }
+    let given: BTreeSet<String> = keys(c, "inputs").into_iter().collect();
+    let mut out: Found = given
+        .difference(&taken(called))
+        .map(|i| {
+            finding(
+                where_.clone(),
+                "names",
+                format!("{tn}.{xn} passes '{i}' to {k}.{ct}, which takes no input '{i}'"),
+            )
+        })
+        .collect();
+    out.extend(event_errors(
+        where_,
+        tn,
+        xn,
+        &format!("{k}.{ct}"),
+        called,
+        c.get("inputs").unwrap_or(&Value::Null),
+        other,
+    ));
+    for i in required_input_names(called).difference(&given) {
+        if !obj(called, "inputs")
+            .get(i)
+            .is_some_and(|s| has(s, "default"))
+        {
+            out.push(finding(
+                where_.clone(),
+                "names",
+                format!("{tn}.{xn} calls {k}.{ct} without the input '{i}', which it requires"),
+            ));
+        }
+    }
+    out
+}
+
+static PRESENT_LITERAL: LazyLock<Regex> =
+    LazyLock::new(|| re(r#"^(?:-?\d+(\.\d+)?|"[^"]*"|[A-Z][A-Za-z0-9]*\.[A-Z][A-Z0-9_]*)$"#));
+static NAME: LazyLock<Regex> = LazyLock::new(|| re(r"^[a-z][a-z0-9_]*$"));
+
+/// Whether an assigned expression provably has a value.
+fn present(expr: &str, known: &BTreeSet<String>, inputs: &BTreeSet<String>) -> bool {
+    if expr == "now" || PRESENT_LITERAL.is_match(expr) {
+        return true;
+    }
+    if NAME.is_match(expr) && !NOT_AN_ATTRIBUTE.contains(&expr) {
+        return known.contains(expr);
+    }
+    CALL_INPUT
+        .captures(expr)
+        .is_some_and(|m| inputs.contains(&m[1]))
+}
+
+/// Every transition into a state sets each attribute the state requires.
+fn required_errors(
+    tn: &str,
+    xn: &str,
+    x: &Value,
+    required: &BTreeMap<String, BTreeSet<String>>,
+    always: &BTreeSet<String>,
+) -> Found {
+    let base = segs!["types", tn, "transitions", xn];
+    let mut out = Found::new();
+    if matches!(kind(x), "assertion" | "erasure") {
+        return out;
+    }
+    let src = sources(x);
+    let to = x
+        .get("to")
+        .filter(|t| super::doc::truthy(Some(t)))
+        .map(py_str);
+    let into: Vec<String> = match &to {
+        Some(t) => vec![t.clone()],
+        None => src.clone(),
+    };
+    let cl: BTreeSet<String> = cleared(x).into_iter().collect();
+    let none = BTreeSet::new();
+    for s in &into {
+        for a in required.get(s).unwrap_or(&none).intersection(&cl) {
+            out.push(finding(
+                ext(&base, segs!["effect"]),
+                "required",
+                format!("{tn}.{xn} clears '{a}', which state {s} requires"),
+            ));
+        }
+    }
+    if kind(x) == "internal" {
+        return out;
+    }
+    let mut supplied: BTreeSet<String> = strings(x, "required_inputs").into_iter().collect();
+    supplied.extend(always.iter().cloned());
+    let kept: BTreeSet<String> = match src.split_first() {
+        Some((first, rest)) => rest.iter().fold(
+            required.get(first).cloned().unwrap_or_default(),
+            |acc, s| {
+                acc.intersection(required.get(s).unwrap_or(&none))
+                    .cloned()
+                    .collect()
+            },
+        ),
+        None => BTreeSet::new(),
+    };
+    let assigned: BTreeMap<String, String> =
+        assigns(x).into_iter().map(|(e, loc)| (loc, e)).collect();
+    let to = to.unwrap_or_default();
+    let mut known = supplied.clone();
+    known.extend(kept.iter().cloned());
+    for a in required.get(&to).unwrap_or(&none) {
+        if supplied.contains(a) || (kept.contains(a) && !cl.contains(a)) {
+            continue;
+        }
+        if assigned
+            .get(a)
+            .is_some_and(|e| present(e, &known, &required_input_names(x)))
+        {
+            continue;
+        }
+        let how = if src.is_empty() {
+            "since an initial transition starts from no state".to_string()
+        } else {
+            format!("or require it in state {}", src.join(", "))
+        };
+        out.push(finding(
+            ext(&base, segs!["to"]),
+            "required",
+            format!(
+                "{tn}.{xn} enters {to} without setting '{a}', which {to} requires: make it a required input, assign it a value that is provably present, {how}"
+            ),
+        ));
+    }
+    out
+}
+
+/// What a write to an attribute must be, as far as a publish can tell.
+fn written_kind(spec: Option<&Value>, enums: &BTreeSet<String>) -> Option<Vec<String>> {
+    let spec = spec.filter(|s| super::doc::truthy(Some(s)))?;
+    if let Some(r) = spec.get("reference") {
+        let r = py_str(r);
+        return if r.ends_with("[]") {
+            None
+        } else {
+            Some(vec!["reference".into(), r])
+        };
+    }
+    let typ = str_or(spec, "type", "");
+    if enums.contains(&typ) {
+        return Some(vec!["enumeration".into(), typ]);
+    }
+    if let Some(m) = re(r"^money\((\w+)\)$").captures(&typ) {
+        return Some(vec!["money".into(), m[1].to_string()]);
+    }
+    if re(r"^decimal\(\d+,\s*\d+\)$").is_match(&typ) {
+        return Some(vec!["decimal".into()]);
+    }
+    if typ == "counter" {
+        return Some(vec!["int".into()]);
+    }
+    SIMPLE_TYPES.contains(&typ.as_str()).then(|| vec![typ])
+}
+
+/// The kind of an assigned value where a publish can tell it.
+fn value_kind(
+    e: &Expr,
+    tn: &str,
+    t: &Value,
+    x: &Value,
+    enums: &BTreeSet<String>,
+) -> Option<Vec<String>> {
+    let one = |s: &str| Some(vec![s.to_string()]);
+    let attrs = obj(t, "attributes");
+    match e {
+        Expr::Str(_) => one("string"),
+        Expr::Num(_) => one("number"),
+        Expr::Call(f, _) if matches!(&**f, Expr::Name(n) if n == "date") => one("date"),
+        Expr::Money(c, _) => Some(vec!["money".into(), c.clone()]),
+        Expr::Bool(_) => one("bool"),
+        Expr::Name(n) => match n.as_str() {
+            "now" => one("timestamp"),
+            "this" => Some(vec!["reference".into(), tn.to_string()]),
+            k if ACTOR_KINDS.contains(&k) && !attrs.contains_key(k) => one("actor_kind"),
+            k => written_kind(attrs.get(k), enums),
+        },
+        Expr::Path(base, m) => {
+            let Expr::Name(b) = &**base else { return None };
+            if enums.contains(b) {
+                return Some(vec!["enumeration".into(), b.clone()]);
+            }
+            match b.as_str() {
+                "this" => written_kind(attrs.get(m), enums),
+                "actor" if m == "id" => one("identity"),
+                "actor" if m == "kind" => one("actor_kind"),
+                "inputs" => {
+                    let mut spec = obj(x, "inputs").get(m).filter(|s| !s.is_null()).cloned();
+                    if spec.is_none()
+                        && (strings(x, "required_inputs").contains(m)
+                            || strings(x, "optional_inputs").contains(m))
+                    {
+                        spec = attrs.get(m).cloned();
+                    }
+                    written_kind(spec.as_ref(), enums)
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// What a loop's range counts to, where a publish can tell (ADR-0146).
+fn range_kind(
+    e: &Expr,
+    tn: &str,
+    t: &Value,
+    x: &Value,
+    enums: &BTreeSet<String>,
+) -> Option<Vec<String>> {
+    if let Expr::Num(n) = e {
+        return Some(vec![
+            if matches!(n, Number::Int(_)) {
+                "int"
+            } else {
+                "decimal"
+            }
+            .to_string(),
+        ]);
+    }
+    let attrs = obj(t, "attributes");
+    let spec = match e {
+        Expr::Name(m) => attrs.get(m).cloned(),
+        Expr::Path(b, m) => match &**b {
+            Expr::Name(n) if n == "this" => attrs.get(m).cloned(),
+            Expr::Name(n) if n == "inputs" => obj(x, "inputs")
+                .get(m)
+                .filter(|s| super::doc::truthy(Some(s)))
+                .or_else(|| attrs.get(m))
+                .cloned(),
+            _ => None,
+        },
+        _ => None,
+    };
+    if spec
+        .as_ref()
+        .is_some_and(|s| super::doc::truthy(Some(s)) && kind_text(s).ends_with("[]"))
+    {
+        return Some(vec!["set".into()]);
+    }
+    value_kind(e, tn, t, x, enums)
+}
+
+/// Whether a value of one kind may be written to a target of another (the
+/// model's check 17).
+fn fits(target: &[String], value: &[String], library: &Obj) -> bool {
+    if target == value {
+        return true;
+    }
+    if value == ["number"] && (target == ["int"] || target == ["decimal"]) {
+        return true;
+    }
+    if target == ["decimal"] && value == ["int"] {
+        return true;
+    }
+    if target.first().map(String::as_str) == Some("reference")
+        && value.first().map(String::as_str) == Some("reference")
+    {
+        let mut seen = BTreeSet::new();
+        let mut k = value.get(1).cloned();
+        while let Some(kk) = k {
+            if kk.is_empty() || !seen.insert(kk.clone()) {
+                break;
+            }
+            if Some(&kk) == target.get(1) {
+                return true;
+            }
+            k = library
+                .get(&kk)
+                .and_then(|t| t.get("extends"))
+                .filter(|e| !e.is_null())
+                .map(py_str);
+        }
+    }
+    false
+}
+
+/// Each assign whose value does not fit its target, and each range that is
+/// not an int (the model's check 17, ADR-0146).
+fn write_type_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
+    let enums: BTreeSet<String> = keys(doc, "enumerations").into_iter().collect();
+    let mut out = Found::new();
+    for (xn, x) in obj(t, "transitions") {
+        for step in walk(x.get("effect")) {
+            let body = step.body();
+            if step.kind == "foreach"
+                && let Some(range) = body.get("range")
+            {
+                let got = parse(&squash(&py_str(range)))
+                    .ok()
+                    .and_then(|e| range_kind(&e, tn, t, x, &enums));
+                if let Some(got) = got.filter(|g| g != &["int"]) {
+                    out.push(finding(
+                        ext(
+                            segs!["types", tn, "transitions", xn, "effect"],
+                            ext(&step.path, segs!["foreach", "range"]),
+                        ),
+                        "names",
+                        format!(
+                            "{tn}.{xn} loops over a range of {}, and a range is an int",
+                            got.join(" ")
+                        ),
+                    ));
+                }
+            }
+            if step.kind != "assign" {
+                continue;
+            }
+            let loc = body_text(body, "location");
+            let target = written_kind(obj(t, "attributes").get(&loc), &enums);
+            let expr = body_text(body, "expr");
+            let Ok(tree) = parse(&squash(&expr)) else {
+                continue;
+            };
+            let value = value_kind(&tree, tn, t, x, &enums);
+            if let (Some(target), Some(value)) = (target, value)
+                && !fits(&target, &value, library)
+            {
+                out.push(finding(
+                    ext(segs!["types", tn, "transitions", xn, "effect"], step.path.clone()),
+                    "names",
+                    format!(
+                        "{tn}.{xn} writes {expr}, {}, to {loc}, which holds {}: a write's value must fit its target (the model's check 17)",
+                        value.join(" "),
+                        target.join(" ")
+                    ),
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// Every value an expression names is a state or an enumeration's member.
+fn value_errors(doc: &Value, tn: &str, t: &Value) -> Found {
+    let states: BTreeSet<String> = keys(t, "states").into_iter().collect();
+    let enums: BTreeMap<String, BTreeSet<String>> = obj(doc, "enumerations")
+        .iter()
+        .map(|(n, m)| {
+            (
+                n.clone(),
+                match m {
+                    Value::Array(a) => a.iter().map(py_str).collect(),
+                    _ => BTreeSet::new(),
+                },
+            )
+        })
+        .collect();
+    let own: BTreeMap<String, BTreeSet<String>> = types(doc)
+        .into_iter()
+        .map(|(k, v)| (k, keys(v, "states").into_iter().collect()))
+        .collect();
+    let imported = imported(doc);
+    let mut exprs: Vec<(Path, String, String)> = Vec::new();
+    for sec in ["conditions", "invariants", "derived_attributes"] {
+        for (n, c) in obj(t, sec) {
+            exprs.push((
+                segs!["types", tn, sec, n, "expression"],
+                n.clone(),
+                c.get("expression").map(py_str).unwrap_or_default(),
+            ));
+        }
+    }
+    for (a, spec) in obj(t, "attributes") {
+        if let Some(d) = spec.get("default") {
+            exprs.push((
+                segs!["types", tn, "attributes", a, "default"],
+                format!("{tn}.{a}'s default"),
+                py_str(d),
+            ));
+        }
+    }
+    for (a, spec) in obj(t, "attributes") {
+        if let Some(Value::Object(u)) = spec.get("unique")
+            && let Some(w) = u.get("where")
+        {
+            exprs.push((
+                segs!["types", tn, "attributes", a, "unique", "where"],
+                a.clone(),
+                py_str(w),
+            ));
+        }
+    }
+    for (xn, x) in obj(t, "transitions") {
+        for step in walk(x.get("effect")) {
+            for e in step_expressions(&step) {
+                exprs.push((
+                    ext(
+                        segs!["types", tn, "transitions", xn, "effect"],
+                        step.path.clone(),
+                    ),
+                    xn.clone(),
+                    e,
+                ));
+            }
+        }
+    }
+    for (o, ob) in obj(t, "observations") {
+        for (n, i) in obj(ob, "invariants") {
+            exprs.push((
+                segs![
+                    "types",
+                    tn,
+                    "observations",
+                    o,
+                    "invariants",
+                    n,
+                    "expression"
+                ],
+                n.clone(),
+                i.get("expression").map(py_str).unwrap_or_default(),
+            ));
+        }
+    }
+    for (mn, m) in obj(t, "metrics") {
+        if !has(m, "source") {
+            continue;
+        }
+        let base = segs!["types", tn, "metrics", mn];
+        let name = format!("metric {mn}");
+        for k in ["filter", "time_dimension", "expression"] {
+            if let Some(e) = m.get(k).filter(|e| super::doc::truthy(Some(e))) {
+                exprs.push((ext(&base, segs![k]), name.clone(), py_str(e)));
+            }
+        }
+        for (d, e) in obj(m, "dimensions") {
+            exprs.push((ext(&base, segs!["dimensions", d]), name.clone(), py_str(e)));
+        }
+        for (f, c) in obj(m, "flag_when") {
+            exprs.push((ext(&base, segs!["flag_when", f]), name.clone(), py_str(c)));
+        }
+    }
+    let mut out = Found::new();
+    for (p, name, text) in exprs {
+        for m in QUALIFIED.captures_iter(&text) {
+            let (owner, value) = (&m[1], &m[2]);
+            let known = enums.get(owner).or_else(|| own.get(owner));
+            match known {
+                None if !imported.contains(owner) => out.push(finding(
+                    p.clone(),
+                    "names",
+                    format!("{name} names {owner}.{value}, and no enumeration or type {owner} is declared in this module or imported"),
+                )),
+                Some(k) if !k.contains(value) => {
+                    let what = if enums.contains_key(owner) { "enumeration" } else { "type" };
+                    out.push(finding(p.clone(), "names", format!("{name} names {owner}.{value}, and the {what} {owner} has no {value}")));
+                }
+                _ => {}
+            }
+        }
+        let chars: Vec<char> = text.chars().collect();
+        for (word, _, end) in bare_upper(&text) {
+            if word.len() == 3 && word.chars().all(|c| c.is_ascii_uppercase()) {
+                let after: String = chars[end..].iter().collect();
+                let rest = after.trim_start();
+                if rest.len() < after.len() {
+                    let digits = rest.strip_prefix('-').unwrap_or(rest);
+                    if digits.chars().next().is_some_and(|c| c.is_numeric()) {
+                        continue; // a money literal's currency, as in USD 19.99
+                    }
+                }
+            }
+            if !states.contains(&word) {
+                out.push(finding(
+                    p.clone(),
+                    "names",
+                    format!("{name} names {word}, which is not a state of {tn}; write an enumeration value qualified, as <Enumeration>.<VALUE>"),
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// Every name an expression reads is a member of the object it is evaluated
+/// on.
+fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
+    let derived = keys(t, "derived_attributes");
+    let mut members: BTreeSet<String> = keys(t, "attributes").into_iter().collect();
+    members.extend(keys(t, "observations"));
+    members.extend(derived.iter().cloned());
+    members.extend(NOT_AN_ATTRIBUTE.iter().map(|s| s.to_string()));
+    members.extend(OBJECT_MEMBERS.iter().map(|s| s.to_string()));
+    members.extend(categories.iter().cloned());
+    if flag(t, "mirror") {
+        members.extend(MIRROR_MEMBERS.iter().map(|s| s.to_string()));
+    }
+    let request_only = set(REQUEST_ONLY);
+    let without_request: BTreeSet<String> = members.difference(&request_only).cloned().collect();
+    let mut exprs: Vec<(Path, String, String, BTreeSet<String>)> = Vec::new();
+    for sec in ["conditions", "invariants"] {
+        for (n, c) in obj(t, sec) {
+            exprs.push((
+                segs!["types", tn, sec, n, "expression"],
+                n.clone(),
+                c.get("expression").map(py_str).unwrap_or_default(),
+                members.clone(),
+            ));
+        }
+    }
+    for (a, spec) in obj(t, "attributes") {
+        if let Some(Value::Object(u)) = spec.get("unique")
+            && let Some(w) = u.get("where")
+        {
+            exprs.push((
+                segs!["types", tn, "attributes", a, "unique", "where"],
+                format!("{tn}.{a}'s uniqueness condition"),
+                py_str(w),
+                without_request.clone(),
+            ));
+        }
+    }
+    let mut out = Found::new();
+    for (i, d) in derived.iter().enumerate() {
+        let p = segs!["types", tn, "derived_attributes", d, "expression"];
+        let expr = obj(t, "derived_attributes")
+            .get(d)
+            .and_then(|s| s.get("expression"))
+            .map(py_str)
+            .unwrap_or_default();
+        let later: BTreeSet<String> = derived[i..].iter().cloned().collect();
+        for r in reads(&expr).intersection(&later) {
+            let message = if r == d {
+                format!("derived attribute '{d}' reads itself")
+            } else {
+                format!(
+                    "derived attribute '{d}' reads '{r}', which is declared after it; a derived attribute reads only those above it"
+                )
+            };
+            out.push(finding(p.clone(), "order", message));
+        }
+        let mut scope = without_request.clone();
+        scope.extend(later);
+        exprs.push((p, format!("derived attribute '{d}'"), expr, scope));
+    }
+    for (xn, x) in obj(t, "transitions") {
+        let walked = walk(x.get("effect"));
+        let mut binds: BTreeSet<String> = BTreeSet::new();
+        for s in &walked {
+            if s.kind == "foreach" {
+                binds.insert(body_text(s.body(), "item"));
+            }
+            if s.kind == "create"
+                && let Some(r) = s
+                    .body()
+                    .get("result")
+                    .filter(|r| super::doc::truthy(Some(r)))
+            {
+                binds.insert(py_str(r));
+            }
+        }
+        let mut scope = members.clone();
+        scope.extend(binds);
+        for s in &walked {
+            for e in step_expressions(s) {
+                exprs.push((
+                    ext(
+                        segs!["types", tn, "transitions", xn, "effect"],
+                        s.path.clone(),
+                    ),
+                    xn.clone(),
+                    e,
+                    scope.clone(),
+                ));
+            }
+        }
+    }
+    for (o, ob) in obj(t, "observations") {
+        let mut fields: BTreeSet<String> = keys(ob, "attributes").into_iter().collect();
+        fields.extend(OBSERVATION_MEMBERS.iter().map(|s| s.to_string()));
+        for (n, i) in obj(ob, "invariants") {
+            exprs.push((
+                segs![
+                    "types",
+                    tn,
+                    "observations",
+                    o,
+                    "invariants",
+                    n,
+                    "expression"
+                ],
+                n.clone(),
+                i.get("expression").map(py_str).unwrap_or_default(),
+                fields.clone(),
+            ));
+        }
+    }
+    for (p, name, text, scope) in exprs {
+        let in_observation = p.contains(&Seg::Key("observations".into()));
+        for r in reads(&text).difference(&scope) {
+            let message = if request_only.contains(r) {
+                format!("{name} reads '{r}', which only a transition has")
+            } else if r == "labels" {
+                format!(
+                    "{name} reads labels, which are read only as a metric's source, source: labels (check 55)"
+                )
+            } else if in_observation {
+                let o = match p.get(3) {
+                    Some(Seg::Key(o)) => o.clone(),
+                    _ => String::new(),
+                };
+                format!("{name} reads '{r}', which is not a field of the observation {o}")
+            } else {
+                format!("{name} reads '{r}', which {tn} does not declare")
+            };
+            out.push(finding(p.clone(), "names", message));
+        }
+    }
+    out
+}
+
+/// Whether a single reference end holds the value (§3.3).
+fn stores(spec: &Value, library: &Obj) -> bool {
+    let target = ref_of(spec);
+    let opposite = spec.get("opposite").map(py_str).unwrap_or_default();
+    let other = library
+        .get(&target)
+        .and_then(|t| obj(t, "attributes").get(&opposite))
+        .filter(|o| !o.is_null() && has(spec, "opposite"));
+    other.is_none_or(|o| ref_of(o).ends_with("[]")) || flag(spec, "stored")
+}
+
+/// No invariant reads an observation collection, directly or through a
+/// derived attribute (ADR-0099, ADR-0146).
+fn observation_read_errors(tn: &str, t: &Value) -> Found {
+    let kinds: BTreeSet<String> = keys(t, "observations").into_iter().collect();
+    if kinds.is_empty() {
+        return Found::new();
+    }
+    let derived: BTreeMap<String, BTreeSet<String>> = obj(t, "derived_attributes")
+        .iter()
+        .map(|(d, spec)| {
+            let read = reads(&spec.get("expression").map(py_str).unwrap_or_default());
+            (d.clone(), read.intersection(&kinds).cloned().collect())
+        })
+        .collect();
+    let mut out = Found::new();
+    for (n, inv) in obj(t, "invariants") {
+        let names = reads(&inv.get("expression").map(py_str).unwrap_or_default());
+        let mut hit: BTreeSet<String> = names.intersection(&kinds).cloned().collect();
+        for d in names.iter().filter(|d| derived.contains_key(*d)) {
+            hit.extend(derived[d].iter().cloned());
+        }
+        if !hit.is_empty() {
+            out.push(finding(
+                segs!["types", tn, "invariants", n],
+                "names",
+                format!(
+                    "invariant {n} reads the observations {}; a recorded fact matters to the flow only through a guard, so no invariant reads one",
+                    hit.into_iter().collect::<Vec<_>>().join(", ")
+                ),
+            ));
+        }
+    }
+    out
+}
+
+/// A name an effect binds shares no name with a member, a reserved word or
+/// a name an enclosing loop binds (ADR-0146, ADR-0147).
+fn binder_errors(tn: &str, t: &Value) -> Found {
+    let mut members: BTreeSet<String> = keys(t, "attributes").into_iter().collect();
+    members.extend(keys(t, "derived_attributes"));
+    members.extend(keys(t, "observations"));
+    let mut out = Found::new();
+    fn scan(
+        steps: &[Value],
+        at: Path,
+        bound: &BTreeSet<String>,
+        xn: &str,
+        tn: &str,
+        members: &BTreeSet<String>,
+        out: &mut Found,
+    ) {
+        for (i, st) in steps.iter().enumerate() {
+            let Some(k) = step_kind(st) else { continue };
+            let body = st.get(k).unwrap_or(&Value::Null);
+            let name = match k {
+                "create" => body.get("result").filter(|r| !r.is_null()).map(py_str),
+                "foreach" => body.get("item").filter(|r| !r.is_null()).map(py_str),
+                _ => None,
+            };
+            let where_ = ext(
+                segs!["types", tn, "transitions", xn, "effect"],
+                ext(&at, segs![i]),
+            );
+            if let Some(name) = &name {
+                if members.contains(name) {
+                    out.push(finding(where_.clone(), "names", format!("{tn}.{xn} binds '{name}', which is a member of {tn}; a bound name shares no name with a member")));
+                } else if BINDER_RESERVED.contains(&name.as_str()) {
+                    out.push(finding(where_.clone(), "names", format!("{tn}.{xn} binds '{name}', a word an expression resolves first or every object has (ADR-0147)")));
+                } else if k == "foreach" && bound.contains(name) {
+                    out.push(finding(where_.clone(), "names", format!("{tn}.{xn} binds '{name}' in a loop inside one that binds it already (ADR-0147)")));
+                }
+            }
+            if k == "foreach" {
+                let mut inner = bound.clone();
+                if let Some(n) = name {
+                    inner.insert(n);
+                }
+                let steps = list(body, "steps");
+                scan(
+                    steps,
+                    ext(&at, segs![i, "foreach", "steps"]),
+                    &inner,
+                    xn,
+                    tn,
+                    members,
+                    out,
+                );
+            }
+        }
+    }
+    for (xn, x) in obj(t, "transitions") {
+        scan(
+            list(x, "effect"),
+            Path::new(),
+            &BTreeSet::new(),
+            xn,
+            tn,
+            &members,
+            &mut out,
+        );
+    }
+    out
+}
+
+/// A type scan reads only what the store holds indexed on the scanned type
+/// (the model's check 7).
+fn scan_errors(tn: &str, t: &Value, library: &Obj) -> Found {
+    fn readable(tt: &Value, m: &str) -> bool {
+        let spec = obj(tt, "attributes").get(m).filter(|s| !s.is_null());
+        if let Some(spec) = spec {
+            return flag(spec, "indexed") || flag(spec, "unique") || has(spec, "reference");
+        }
+        let derived = obj(tt, "derived_attributes")
+            .get(m)
+            .filter(|d| !d.is_null());
+        m == "state"
+            || m == "id"
+            || derived.is_some_and(|d| flag(d, "indexed"))
+            || derived.is_none()
+    }
+    fn reads_of(
+        n: &Expr,
+        var: &str,
+        scanned: &Value,
+        scanned_name: &str,
+        found: &mut BTreeSet<(String, String)>,
+    ) {
+        if let Expr::Path(b, m) = n
+            && matches!(&**b, Expr::Name(v) if v == var)
+            && !readable(scanned, m)
+        {
+            found.insert((scanned_name.to_string(), format!("{var}.{m}")));
+        }
+        for c in children(n) {
+            reads_of(c, var, scanned, scanned_name, found);
+        }
+    }
+    fn walk_tree(e: &Expr, t: &Value, library: &Obj, found: &mut BTreeSet<(String, String)>) {
+        if let Expr::Agg {
+            var: Some(var),
+            collection: Some(c),
+            filter,
+            body,
+            ..
+        } = e
+            && let Expr::Name(cn) = &**c
+            && library.contains_key(cn)
+            && !obj(t, "attributes").contains_key(cn)
+        {
+            let scanned = &library[cn];
+            for part in [filter, body].into_iter().flatten() {
+                reads_of(part, var, scanned, cn, found);
+            }
+        }
+        for c in children(e) {
+            walk_tree(c, t, library, found);
+        }
+    }
+    let mut rules: Vec<(&str, String, String, Path)> = obj(t, "invariants")
+        .iter()
+        .map(|(n, i)| {
+            (
+                "invariant",
+                n.clone(),
+                i.get("expression").map(py_str).unwrap_or_default(),
+                segs!["types", tn, "invariants", n],
+            )
+        })
+        .collect();
+    rules.extend(obj(t, "conditions").iter().map(|(n, c)| {
+        (
+            "condition",
+            n.clone(),
+            c.get("expression").map(py_str).unwrap_or_default(),
+            segs!["types", tn, "conditions", n],
+        )
+    }));
+    let mut out = Found::new();
+    for (k, name, text, p) in rules {
+        let Ok(tree) = parse(&squash(&text)) else {
+            continue;
+        };
+        let mut found = BTreeSet::new();
+        walk_tree(&tree, t, library, &mut found);
+        for (scanned, read) in found {
+            out.push(finding(
+                p.clone(),
+                "names",
+                format!("{k} {name} scans every {scanned} and reads {read}, which is not indexed: a type scan reads only indexed or unique attributes, references, the state and indexed derived attributes (the model's check 7)"),
+            ));
+        }
+    }
+    out
+}
+
+/// An expression's direct subexpressions, as `flowexpr`'s tuples hold them.
+pub fn children(e: &Expr) -> Vec<&Expr> {
+    match e {
+        Expr::Num(_)
+        | Expr::Str(_)
+        | Expr::Bool(_)
+        | Expr::Dur(..)
+        | Expr::Money(..)
+        | Expr::Name(_) => Vec::new(),
+        Expr::Path(b, _) => vec![b],
+        Expr::Call(f, args) => {
+            let mut v: Vec<&Expr> = vec![f];
+            v.extend(args.iter());
+            v
+        }
+        Expr::Agg {
+            collection,
+            filter,
+            body,
+            ..
+        } => [collection, filter, body]
+            .into_iter()
+            .flatten()
+            .map(|b| &**b)
+            .collect(),
+        Expr::Metric {
+            name,
+            binds,
+            over,
+            fresh,
+        } => {
+            let mut v: Vec<&Expr> = vec![name];
+            v.extend(binds.iter().map(|(_, x)| x));
+            v.extend([over, fresh].into_iter().flatten().map(|b| &**b));
+            v
+        }
+        Expr::Changed(_, ev) => vec![ev],
+        Expr::Set(items) => items.iter().collect(),
+        Expr::Not(x) | Expr::Neg(x) | Expr::IsNull(x, _) => vec![x],
+        Expr::In(l, r) | Expr::Bin(_, l, r) => vec![l, r],
+        Expr::If(c, a, b) => vec![c, a, b],
+    }
+}
+
+static FLOW_DATA_READ: LazyLock<Regex> =
+    LazyLock::new(|| re(r"\b(?:time_in|entered_at)\(|\bthis\.(?:intervals|transitions)\b"));
+
+/// An indexed derived attribute reads only this object's stored, indexed
+/// values (the model's check 46).
+fn indexed_errors(tn: &str, t: &Value, library: &Obj) -> Found {
+    let attrs = obj(t, "attributes");
+    let mut out = Found::new();
+    for (d, spec) in obj(t, "derived_attributes") {
+        if !flag(spec, "indexed") {
+            continue;
+        }
+        let text = squash(&spec.get("expression").map(py_str).unwrap_or_default());
+        let mut why = Vec::new();
+        let mut names = reads(&text);
+        names.remove("state");
+        names.remove("this");
+        for r in names {
+            let a = attrs.get(&r).filter(|a| !a.is_null());
+            if r == "now" {
+                why.push("reads now, the clock".to_string());
+            } else if let Some(a) = a {
+                if ref_of(a).ends_with("[]") || str_or(a, "type", "").ends_with("[]") {
+                    why.push(format!("reads '{r}', a set"));
+                } else if has(a, "reference") && read_through(&text, &r) {
+                    why.push(format!("reads through '{r}' into another object"));
+                } else if has(a, "reference") && !stores(a, library) {
+                    why.push(format!(
+                        "reads '{r}', whose value the other end of the relationship stores"
+                    ));
+                } else if !has(a, "reference") && !flag(a, "indexed") {
+                    why.push(format!("reads '{r}', which is not indexed"));
+                }
+            } else {
+                why.push(format!("reads '{r}', which is not a stored attribute"));
+            }
+        }
+        if FLOW_DATA_READ.is_match(&text) {
+            why.push("reads the object's flow data".into());
+        }
+        for w in why {
+            out.push(finding(
+                segs!["types", tn, "derived_attributes", d, "indexed"],
+                "names",
+                format!("derived attribute '{d}' is indexed and {w}"),
+            ));
+        }
+    }
+    out
+}
+
+/// A string, or an enumeration, which a format fills with its member's name.
+fn is_text(spec: &Value) -> bool {
+    let typ = str_or(spec, "type", "");
+    let head: String = typ
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic() || *c == '_')
+        .collect();
+    let k = if flag(spec, "type") {
+        head
+    } else {
+        String::new()
+    };
+    !typ.ends_with("[]")
+        && (k == "string"
+            || (k.chars().next().is_some_and(char::is_uppercase)
+                && !BUILT_IN_TYPES.contains(&k.as_str())))
+}
+
+/// What every creation of the type writes (the model's check 8).
+fn creation_writes(t: &Value) -> BTreeSet<String> {
+    let given: BTreeSet<String> = obj(t, "attributes")
+        .iter()
+        .filter(|(_, s)| has(s, "default") || text(s, "type") == Some("counter"))
+        .map(|(a, _)| a.clone())
+        .collect();
+    let mut sets: Vec<BTreeSet<String>> = Vec::new();
+    for x in obj(t, "transitions").values() {
+        if kind(x) != "initial" {
+            continue;
+        }
+        let req: BTreeSet<String> = strings(x, "required_inputs").into_iter().collect();
+        let mut s = given.clone();
+        s.extend(req.iter().cloned());
+        for (e, loc) in assigns(x) {
+            if present(&e, &req, &required_input_names(x)) {
+                s.insert(loc);
+            }
+        }
+        sets.push(s);
+    }
+    match sets.split_first() {
+        Some((first, rest)) => rest.iter().fold(first.clone(), |acc, s| {
+            acc.intersection(s).cloned().collect()
+        }),
+        None => BTreeSet::new(),
+    }
+}
+
+static FORMAT_PART: LazyLock<Regex> = LazyLock::new(|| re(r"\[|\]|\{([^{}]*)\}"));
+
+/// A minted identifier and the uniqueness forms (the model's check 44).
+fn identifier_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
+    if flag(t, "abstract") {
+        return Found::new();
+    }
+    let attrs = obj(t, "attributes");
+    let imported = imported(doc);
+    let written = creation_writes(t);
+    let mut out = Found::new();
+    for (a, spec) in attrs {
+        let here = if inherited(t, "attributes", a) {
+            segs!["types", tn]
+        } else {
+            segs!["types", tn, "attributes", a]
+        };
+        let u = spec.get("unique");
+        let ident = spec
+            .get("identifier")
+            .filter(|i| super::doc::truthy(Some(i)));
+        if let Some(Value::Object(uo)) = u {
+            for w in uo
+                .get("with")
+                .map(|w| match w {
+                    Value::Array(a) => a.iter().map(py_str).collect::<Vec<_>>(),
+                    _ => Vec::new(),
+                })
+                .unwrap_or_default()
+            {
+                if !attrs.contains_key(&w) {
+                    out.push(finding(
+                        ext(&here, segs!["unique"]),
+                        "names",
+                        format!("{tn}.{a} is unique with '{w}', which {tn} does not declare"),
+                    ));
+                }
+            }
+        }
+        if u.and_then(Value::as_str) == Some("in_scope") && !ident.is_some_and(|i| flag(i, "scope"))
+        {
+            out.push(finding(
+                ext(&here, segs!["unique"]),
+                "names",
+                format!("{tn}.{a} is unique in scope, and has no identifier with a scope"),
+            ));
+        }
+        if text(spec, "type") == Some("counter") {
+            if optional(spec) {
+                out.push(finding(
+                    here.clone(),
+                    "names",
+                    format!("{tn}.{a} is a counter, which is never absent, so it is not optional"),
+                ));
+            }
+            if has(spec, "default") {
+                out.push(finding(
+                    here.clone(),
+                    "names",
+                    format!("{tn}.{a} is a counter, which starts at zero, so it has no default"),
+                ));
+            }
+        }
+        if let Some(d) = spec.get("default") {
+            let mut r = reads(&py_str(d));
+            r.remove("now");
+            for r in r {
+                out.push(finding(
+                    ext(&here, segs!["default"]),
+                    "names",
+                    format!("{tn}.{a}'s default reads '{r}'; a default is written before anything else, so it is a literal, a qualified value or now"),
+                ));
+            }
+        }
+        let Some(ident) = ident else { continue };
+        let where_ = ext(&here, segs!["identifier"]);
+        if text(spec, "type") != Some("string") {
+            out.push(finding(
+                where_.clone(),
+                "names",
+                format!(
+                    "{tn}.{a} has an identifier, which is minted as text, so its type is string"
+                ),
+            ));
+        }
+        let sequence = ident.get("sequence").map(py_str).unwrap_or_default();
+        if !obj(doc, "sequences").contains_key(&sequence) && !imported.contains(&sequence) {
+            out.push(finding(
+                ext(&where_, segs!["sequence"]),
+                "names",
+                format!("{tn}.{a} is minted from {sequence}, which is neither a sequence of this module nor imported"),
+            ));
+        }
+        if let Some(sc) = ident.get("scope").filter(|s| !s.is_null()).map(py_str) {
+            match attrs.get(&sc).filter(|s| !s.is_null()) {
+                None => out.push(finding(
+                    ext(&where_, segs!["scope"]),
+                    "names",
+                    format!("{tn}.{a} is scoped by '{sc}', which {tn} does not declare"),
+                )),
+                Some(ss) if kind_text_any(ss).ends_with("[]") => out.push(finding(
+                    ext(&where_, segs!["scope"]),
+                    "names",
+                    format!("{tn}.{a} is scoped by '{sc}', a set; a scope is one value"),
+                )),
+                Some(ss) if !has(ss, "reference") && !flag(ss, "indexed") => out.push(finding(
+                    ext(&where_, segs!["scope"]),
+                    "names",
+                    format!("{tn}.{a} is scoped by '{sc}', which is not indexed"),
+                )),
+                Some(_) if !written.contains(&sc) => out.push(finding(
+                    ext(&where_, segs!["scope"]),
+                    "names",
+                    format!(
+                        "{tn}.{a} is scoped by '{sc}', which not every creation of {tn} writes"
+                    ),
+                )),
+                Some(_) => {}
+            }
+        }
+        let fmt = ident.get("format").map(py_str).unwrap_or_default();
+        let fw = ext(&where_, segs!["format"]);
+        let (mut depth, mut numbered) = (0usize, false);
+        for m in FORMAT_PART.captures_iter(&fmt) {
+            let whole = &m[0];
+            if whole == "[" {
+                depth += 1;
+                continue;
+            }
+            if whole == "]" {
+                if depth == 0 {
+                    out.push(finding(
+                        fw.clone(),
+                        "names",
+                        format!("{tn}.{a}'s format closes a ] it did not open"),
+                    ));
+                }
+                depth = depth.saturating_sub(1);
+                continue;
+            }
+            let ph = &m[1];
+            if re(r"^n(:.*)?$").is_match(ph) {
+                numbered = true;
+                if !re(r"^n(:\d+)?$").is_match(ph) {
+                    out.push(finding(
+                        fw.clone(),
+                        "names",
+                        format!(
+                            "{tn}.{a}'s format has {{{ph}}}, whose width is not a number of digits"
+                        ),
+                    ));
+                }
+                continue;
+            }
+            let hops: Vec<&str> = ph.split('.').collect();
+            if !hops.iter().all(|h| NAME.is_match(h)) {
+                out.push(finding(
+                    fw.clone(),
+                    "names",
+                    format!("{tn}.{a}'s format has {{{ph}}}, which is not {{n}}, {{n:<width>}}, {{<attribute>}} or {{<reference>.<attribute>}}"),
+                ));
+                continue;
+            }
+            if hops.len() > 2 {
+                out.push(finding(fw.clone(), "names", format!("{tn}.{a}'s format reads {ph}, more than one reference away; a placeholder reaches one hop")));
+                continue;
+            }
+            let Some(first) = attrs.get(hops[0]).filter(|f| !f.is_null()) else {
+                out.push(finding(
+                    fw.clone(),
+                    "names",
+                    format!(
+                        "{tn}.{a}'s format reads '{}', which {tn} does not declare",
+                        hops[0]
+                    ),
+                ));
+                continue;
+            };
+            if hops.len() == 2 && (!has(first, "reference") || ref_of(first).ends_with("[]")) {
+                out.push(finding(
+                    fw.clone(),
+                    "names",
+                    format!(
+                        "{tn}.{a}'s format reads through '{}', which is not a single reference",
+                        hops[0]
+                    ),
+                ));
+                continue;
+            }
+            if !written.contains(hops[0]) {
+                out.push(finding(
+                    fw.clone(),
+                    "names",
+                    format!("{tn}.{a}'s format reads '{}', which not every creation of {tn} writes before the mint", hops[0]),
+                ));
+                continue;
+            }
+            let mut target = first.clone();
+            if hops.len() == 2 {
+                let Some(other) = library.get(&ref_of(first)) else {
+                    continue;
+                };
+                let Some(tg) = obj(other, "attributes")
+                    .get(hops[1])
+                    .filter(|t| !t.is_null())
+                else {
+                    out.push(finding(
+                        fw.clone(),
+                        "names",
+                        format!(
+                            "{tn}.{a}'s format reads {ph}, and {} has no attribute '{}'",
+                            ref_of(first),
+                            hops[1]
+                        ),
+                    ));
+                    continue;
+                };
+                target = tg.clone();
+            }
+            if !is_text(&target) {
+                out.push(finding(
+                    fw.clone(),
+                    "names",
+                    format!(
+                        "{tn}.{a}'s format reads {ph}, which is not a string or an enumeration"
+                    ),
+                ));
+            } else if optional(&target) && depth == 0 {
+                out.push(finding(
+                    fw.clone(),
+                    "names",
+                    format!("{tn}.{a}'s format reads {ph}, which is optional, outside [ … ]; a segment that may be absent goes in brackets"),
+                ));
+            }
+        }
+        if depth > 0 {
+            out.push(finding(
+                fw.clone(),
+                "names",
+                format!("{tn}.{a}'s format leaves a [ open"),
+            ));
+        }
+        if !numbered {
+            out.push(finding(fw, "names", format!("{tn}.{a}'s format has no {{n}} or {{n:<width>}}, so it would mint one value only")));
+        }
+    }
+    out
+}
+
+/// `str(spec.get("reference", spec.get("type", "")))`.
+fn kind_text_any(spec: &Value) -> String {
+    match spec.get("reference") {
+        Some(r) => py_str(r),
+        None => str_or(spec, "type", ""),
+    }
+}
+
+/// The members a row of the source has, or none if the type has no such
+/// source.
+fn row_members(t: &Value, source: &str) -> Option<BTreeSet<String>> {
+    if INTERVALS_OF.is_match(source) {
+        let mut rows = dataset_rows("intervals").unwrap_or_default();
+        rows.remove("state");
+        rows.insert("value".into());
+        return Some(rows);
+    }
+    if let Some(rows) = dataset_rows(source) {
+        return Some(rows);
+    }
+    if source == "objects" {
+        let mut out: BTreeSet<String> = keys(t, "attributes").into_iter().collect();
+        out.extend(keys(t, "observations"));
+        out.extend(keys(t, "derived_attributes"));
+        out.extend(OBJECT_ROW.iter().map(|s| s.to_string()));
+        return Some(out);
+    }
+    let ob = obj(t, "observations")
+        .get(source)
+        .filter(|o| !o.is_null())?;
+    let mut out: BTreeSet<String> = keys(ob, "attributes").into_iter().collect();
+    out.extend(KIND_ROW.iter().map(|s| s.to_string()));
+    Some(out)
+}
+
+/// The strings a row's `.transition` is compared with by `==`, `!=` or `in`.
+fn transition_literals(e: &Expr, item: &str) -> BTreeSet<String> {
+    let is_row = |n: &Expr| matches!(n, Expr::Path(b, m) if m == "transition" && matches!(&**b, Expr::Name(v) if v == item));
+    let mut found = BTreeSet::new();
+    fn go(n: &Expr, is_row: &dyn Fn(&Expr) -> bool, found: &mut BTreeSet<String>) {
+        if let Expr::Bin(op, l, r) = n
+            && matches!(op, BinOp::Eq | BinOp::Ne)
+            && (is_row(l) || is_row(r))
+        {
+            let other = if is_row(l) { r } else { l };
+            if let Expr::Str(s) = &**other {
+                found.insert(s.clone());
+            }
+        }
+        if let Expr::In(l, r) = n
+            && is_row(l)
+            && let Expr::Set(items) = &**r
+        {
+            for m in items {
+                if let Expr::Str(s) = m {
+                    found.insert(s.clone());
+                }
+            }
+        }
+        for c in children(n) {
+            go(c, is_row, found);
+        }
+    }
+    go(e, &is_row, &mut found);
+    found
+}
+
+static PERCENTILE_LITERAL: LazyLock<Regex> =
+    LazyLock::new(|| re(r"\bpercentile\(\s*([-+]?[0-9.]+)\s*,"));
+static PERCENTILE_ANY: LazyLock<Regex> = LazyLock::new(|| re(r"\bpercentile\(\s*([^,()]+?)\s*,"));
+static SPLITTABLE: LazyLock<Regex> = LazyLock::new(|| re(r"^intervals(\([a-z][a-z0-9_]*\))?$"));
+static PERCENTILE_NUMBER: LazyLock<Regex> = LazyLock::new(|| re(r"^[-+]?[0-9.]+$"));
+
+/// Whether a percentile's p, as written, lies in (0, 1].
+fn percentile_in_range(p: &str) -> bool {
+    p.parse::<f64>().is_ok_and(|v| v > 0.0 && v <= 1.0)
+}
+
+/// A metric in the metric language reads its rows through its item, and its
+/// flags read its value and its dimensions.
+fn formula_errors(tn: &str, t: &Value, mn: &str, m: &Value) -> Found {
+    let base = segs!["types", tn, "metrics", mn];
+    let source = m.get("source").map(py_str).unwrap_or_default();
+    let item = m.get("item").map(py_str).unwrap_or_default();
+    let mut members = row_members(t, &source);
+    let mut out = Found::new();
+    if let Some(split) = m.get("split_by").filter(|s| super::doc::truthy(Some(s))) {
+        if !SPLITTABLE.is_match(&source) {
+            out.push(finding(
+                ext(&base, segs!["split_by"]),
+                "names",
+                format!("metric {mn} splits {source} by {}, and only a type's spans, intervals or intervals(<member>), are split", py_str(split)),
+            ));
+        } else if let Some(mm) = members.as_mut() {
+            mm.extend(PIECE_MEMBERS.iter().map(|s| s.to_string()));
+        }
+        if flag(m, "time_dimension") {
+            out.push(finding(
+                ext(&base, segs!["time_dimension"]),
+                "names",
+                format!("metric {mn} splits its spans, so its time is its pieces', and it declares no time_dimension; a window clips the pieces"),
+            ));
+        }
+    }
+    if members.is_none() {
+        out.push(finding(
+            ext(&base, segs!["source"]),
+            "names",
+            format!("metric {mn} reads '{source}', which is not objects, intervals, intervals(<member>), transitions, attempts, attempt_counts, labels or an observation kind of {tn}"),
+        ));
+    }
+    if let Some(tr) = INTERVALS_OF.captures(&source)
+        && !obj(t, "attributes").contains_key(&tr[1])
+        && &tr[1] != "state"
+    {
+        out.push(finding(
+            ext(&base, segs!["source"]),
+            "names",
+            format!(
+                "metric {mn} reads the intervals of '{}', which {tn} does not declare",
+                &tr[1]
+            ),
+        ));
+    }
+    if NOT_AN_ATTRIBUTE.contains(&item.as_str())
+        || KEYWORDS.contains(&item.as_str())
+        || item == "value"
+    {
+        out.push(finding(
+            ext(&base, segs!["item"]),
+            "names",
+            format!(
+                "metric {mn} names its rows '{item}', which an expression reads as something else"
+            ),
+        ));
+    }
+    for d in keys(m, "dimensions") {
+        if d == "value" {
+            out.push(finding(
+                ext(&base, segs!["dimensions", &d]),
+                "names",
+                format!("metric {mn} has a dimension named 'value', which its flags read as the metric's value"),
+            ));
+        }
+    }
+    let mut parts: Vec<(Path, Option<String>)> = vec![
+        (
+            segs!["filter"],
+            m.get("filter").filter(|v| !v.is_null()).map(py_str),
+        ),
+        (
+            segs!["time_dimension"],
+            m.get("time_dimension").filter(|v| !v.is_null()).map(py_str),
+        ),
+        (segs!["expression"], m.get("expression").map(py_str)),
+    ];
+    for (d, e) in obj(m, "dimensions") {
+        parts.push((segs!["dimensions", d], Some(py_str(e))));
+    }
+    let expression = squash(&m.get("expression").map(py_str).unwrap_or_default());
+    for c in PERCENTILE_LITERAL.captures_iter(&expression) {
+        if !percentile_in_range(&c[1]) {
+            out.push(finding(
+                ext(&base, segs!["expression"]),
+                "names",
+                format!("metric {mn} takes the percentile {}, and a percentile's p is in (0, 1] (ADR-0146)", &c[1]),
+            ));
+        }
+    }
+    for (key, text) in &parts {
+        let Some(text) = text else { continue };
+        let mut r = reads(text);
+        r.remove(&item);
+        r.remove("now");
+        for r in r {
+            out.push(finding(
+                ext(&base, key.clone()),
+                "names",
+                format!("metric {mn} reads '{r}'; a metric reads its rows through '{item}'"),
+            ));
+        }
+        let read: BTreeSet<String> = members_of(&squash(text), &item).into_iter().collect();
+        for r in read {
+            if let Some(mm) = &members
+                && !mm.contains(&r)
+            {
+                let message = if source == "labels" && r == "note" {
+                    format!(
+                        "metric {mn} reads {item}.{r}, a label's note, which is personal and not readable"
+                    )
+                } else {
+                    format!(
+                        "metric {mn} reads {item}.{r}, and a row of {source} has no member '{r}'"
+                    )
+                };
+                out.push(finding(ext(&base, key.clone()), "names", message));
+            }
+        }
+    }
+    if TRANSITION_ROWS.contains(&source.as_str()) {
+        let names: BTreeSet<String> = keys(t, "transitions").into_iter().collect();
+        for (key, text) in &parts {
+            let Some(text) = text else { continue };
+            let Ok(tree) = parse(&squash(text)) else {
+                continue;
+            };
+            for lit in transition_literals(&tree, &item).difference(&names) {
+                out.push(finding(
+                    ext(&base, key.clone()),
+                    "names",
+                    format!("metric {mn} compares {item}.transition with \"{lit}\", which is not a transition of {tn}"),
+                ));
+            }
+        }
+    }
+    let dims: BTreeSet<String> = keys(m, "dimensions").into_iter().collect();
+    for (f, c) in obj(m, "flag_when") {
+        let mut r = reads(&py_str(c));
+        r.retain(|n| !dims.contains(n) && n != "value" && n != "now");
+        for r in r {
+            out.push(finding(
+                ext(&base, segs!["flag_when", f]),
+                "names",
+                format!("metric {mn}'s flag {f} reads '{r}', which is neither value nor a dimension the metric declares"),
+            ));
+        }
+    }
+    for c in PERCENTILE_ANY.captures_iter(&expression) {
+        if !PERCENTILE_NUMBER.is_match(&c[1]) {
+            out.push(finding(
+                ext(&base, segs!["expression"]),
+                "names",
+                format!("metric {mn} takes the percentile {}, and a percentile's p is a literal (ADR-0147)", &c[1]),
+            ));
+        }
+    }
+    out
+}
+
+/// The invariants of a type: declared, generated for a state's required
+/// attributes, and, for a machine, those it requires of its binders.
+pub fn invariant_names(doc: &Value, tn: &str, t: &Value) -> BTreeSet<String> {
+    let mut names: BTreeSet<String> = keys(t, "invariants").into_iter().collect();
+    for (s, v) in obj(t, "states") {
+        if flag(v, "required_attributes") {
+            names.insert(format!("{}_invariant", s.to_lowercase()));
+        }
+    }
+    if let Some(machine) = obj(doc, "machines").get(tn) {
+        names.extend(strings(
+            machine.get("requires").unwrap_or(&Value::Null),
+            "invariants",
+        ));
+    }
+    names
+}
+
+/// The types reachable from a type by relationships whose ends name each
+/// other.
+fn related(tn: &str, library: &Obj) -> BTreeSet<String> {
+    let mut seen = BTreeSet::new();
+    let mut todo = vec![tn.to_string()];
+    while let Some(next) = todo.pop() {
+        for spec in library
+            .get(&next)
+            .map(|t| obj(t, "attributes").values().cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+        {
+            let other = target_of(&spec);
+            if flag(&spec, "opposite") && !other.is_empty() && !seen.contains(&other) && other != tn
+            {
+                seen.insert(other.clone());
+                todo.push(other);
+            }
+        }
+    }
+    seen
+}
+
+/// (part attribute, transition) for each call an effect makes on a part.
+fn erasure_calls(x: &Value, attrs: &Obj) -> BTreeSet<(String, String)> {
+    let mut items: BTreeMap<String, String> = BTreeMap::new();
+    let mut out = BTreeSet::new();
+    for step in walk(x.get("effect")) {
+        let body = step.body();
+        if step.kind == "foreach"
+            && let Some(array) = body.get("array")
+        {
+            items.insert(body_text(body, "item"), squash(&py_str(array)));
+        }
+        if step.kind == "call" {
+            let target = squash(&body_text(body, "target"));
+            let target = items
+                .get(&target)
+                .cloned()
+                .unwrap_or_else(|| target.strip_prefix("this.").unwrap_or(&target).to_string());
+            if attrs.contains_key(&target) {
+                out.insert((target, body_text(body, "transition")));
+            }
+        }
+    }
+    out
+}
+
+/// Assertions, erasures and corrections (the model's checks 9, 27, 28, 29
+/// and 39).
+fn override_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
+    let attrs = obj(t, "attributes");
+    let mut enums: BTreeSet<String> = keys(doc, "enumerations").into_iter().collect();
+    enums.extend(imported(doc));
+    let mut out = Found::new();
+    for (a, spec) in attrs {
+        if flag(spec, "personal") && !optional(spec) && !kind_text(spec).ends_with("[]") {
+            out.push(finding(
+                segs!["types", tn, "attributes", a],
+                "names",
+                format!("{tn}.{a} is personal and required; erasure writes absence, so a personal attribute is optional"),
+            ));
+        }
+    }
+    for (o, ob) in obj(t, "observations") {
+        for (a, spec) in obj(ob, "attributes") {
+            if flag(spec, "personal") && !optional(spec) {
+                out.push(finding(
+                    segs!["types", tn, "observations", o, "attributes", a],
+                    "names",
+                    format!("{o}.{a} is personal and required; erasure writes absence, so a personal field is optional"),
+                ));
+            }
+        }
+    }
+    let own = invariant_names(doc, tn, t);
+    let reach = related(tn, library);
+    for (xn, x) in obj(t, "transitions") {
+        let base = segs!["types", tn, "transitions", xn];
+        let k = kind(x);
+        let inputs = obj(x, "inputs");
+        let reason = inputs.get("reason").filter(|r| !r.is_null());
+        let needs = match k {
+            "assertion" => Some("an assertion"),
+            "erasure" => Some("an erasure"),
+            _ if flag(x, "corrects") => Some("a correction"),
+            _ => None,
+        };
+        if let Some(needs) = needs
+            && reason.is_none()
+        {
+            out.push(finding(
+                base.clone(),
+                "names",
+                format!("{tn}.{xn} is {needs}, and declares no input 'reason'"),
+            ));
+        }
+        if k == "assertion" {
+            if let Some(r) = reason
+                && !r
+                    .get("type")
+                    .map(py_str)
+                    .is_some_and(|t| enums.contains(&t))
+            {
+                out.push(finding(
+                    ext(&base, segs!["inputs", "reason"]),
+                    "names",
+                    format!("{tn}.{xn}'s reason is not an enumeration; an assertion's reasons are counted, so they are declared values"),
+                ));
+            }
+            for i in ["admits", "to"]
+                .into_iter()
+                .filter(|i| inputs.contains_key(*i))
+            {
+                out.push(finding(
+                    ext(&base, segs!["inputs", i]),
+                    "names",
+                    format!("{tn}.{xn} declares the input '{i}', which an assertion has already: the state it asks for, or the invariants it admits"),
+                ));
+            }
+        }
+        if flag(x, "may_admit") && k != "assertion" {
+            out.push(finding(
+                ext(&base, segs!["may_admit"]),
+                "names",
+                format!("{tn}.{xn} may admit invariants, which only an assertion may"),
+            ));
+        }
+        for inv in strings(x, "may_admit") {
+            if let Some((on, name)) = inv.split_once('.') {
+                if !reach.contains(on) {
+                    out.push(finding(
+                        ext(&base, segs!["may_admit"]),
+                        "names",
+                        format!("{tn}.{xn} may admit {inv}, and {on} is not reachable from {tn} by a relationship whose ends name each other"),
+                    ));
+                } else if !invariant_names(doc, on, library.get(on).unwrap_or(&Value::Null))
+                    .contains(name)
+                {
+                    out.push(finding(
+                        ext(&base, segs!["may_admit"]),
+                        "names",
+                        format!("{tn}.{xn} may admit {inv}, which is not an invariant of {on}"),
+                    ));
+                }
+            } else if !own.contains(&inv) {
+                out.push(finding(
+                    ext(&base, segs!["may_admit"]),
+                    "names",
+                    format!("{tn}.{xn} may admit '{inv}', which is not an invariant of {tn}"),
+                ));
+            }
+        }
+        if flag(x, "corrects") {
+            if !matches!(k, "internal" | "external") {
+                out.push(finding(
+                    ext(&base, segs!["corrects"]),
+                    "names",
+                    format!("{tn}.{xn} corrects attributes, which only an internal or external transition may"),
+                ));
+            }
+            let mut written: BTreeSet<String> = strings(x, "required_inputs").into_iter().collect();
+            written.extend(strings(x, "optional_inputs"));
+            for s in walk(x.get("effect")) {
+                if matches!(s.kind, "assign" | "add" | "remove") {
+                    written.insert(body_text(s.body(), "location"));
+                }
+                if s.kind == "clear" {
+                    written.extend(list(s.st, "clear").iter().map(py_str));
+                }
+            }
+            let corrects: BTreeSet<String> = strings(x, "corrects").into_iter().collect();
+            for a in corrects.difference(&written) {
+                out.push(finding(
+                    ext(&base, segs!["corrects"]),
+                    "names",
+                    format!("{tn}.{xn} corrects '{a}' and does not write it"),
+                ));
+            }
+            for a in written.difference(&corrects) {
+                out.push(finding(
+                    ext(&base, segs!["corrects"]),
+                    "names",
+                    format!("{tn}.{xn} writes '{a}', which it does not list in corrects; a correction writes exactly what it corrects"),
+                ));
+            }
+        }
+        if k == "erasure" {
+            let calls = erasure_calls(x, attrs);
+            for (a, spec) in attrs {
+                let Some(part) = library.get(&target_of(spec)) else {
+                    continue;
+                };
+                if text(spec, "aggregation") != Some("composite") {
+                    continue;
+                }
+                if !obj(part, "attributes")
+                    .values()
+                    .any(|s| flag(s, "personal"))
+                {
+                    continue;
+                }
+                let erasures: BTreeSet<String> = obj(part, "transitions")
+                    .iter()
+                    .filter(|(_, px)| kind(px) == "erasure")
+                    .map(|(n, _)| n.clone())
+                    .collect();
+                if !calls.iter().any(|(c, n)| c == a && erasures.contains(n)) {
+                    out.push(finding(
+                        base.clone(),
+                        "names",
+                        format!("{tn}.{xn} erases {tn} and does not call an erasure of its parts in '{a}', which hold personal attributes"),
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A superseding transition names one successor, at the top level, and only
+/// it does; a group's erasures agree; a type with personal data has an
+/// erasure (`declaration-syntax.md` §6.1, §6.4; checks 26, 49 and 60).
+fn supersession_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
+    let states = obj(t, "states");
+    let mut out = Found::new();
+    for (xn, x) in obj(t, "transitions") {
+        let where_ = segs!["types", tn, "transitions", xn];
+        let into = x
+            .get("to")
+            .and_then(Value::as_str)
+            .and_then(|to| states.get(to));
+        let steps: Vec<Step<'_>> = walk(x.get("effect"))
+            .into_iter()
+            .filter(|s| s.kind == "supersede")
+            .collect();
+        let superseding = into.is_some_and(|s| flag(s, "superseding"));
+        if !steps.is_empty() && !superseding {
+            out.push(finding(
+                ext(&where_, segs!["effect"]),
+                "names",
+                format!("{tn}.{xn} supersedes, and does not enter a superseding state"),
+            ));
+        }
+        if superseding && steps.is_empty() {
+            out.push(finding(
+                ext(&where_, segs!["to"]),
+                "names",
+                format!("{tn}.{xn} enters the superseding state {} and names no successor with supersede", x.get("to").map(py_str).unwrap_or_default()),
+            ));
+        }
+        if steps.len() > 1 {
+            out.push(finding(
+                ext(&where_, ext(segs!["effect"], steps[1].path.clone())),
+                "names",
+                format!("{tn}.{xn} names more than one successor, and an object has one"),
+            ));
+        }
+        let mut bound: Vec<String> = Vec::new();
+        for s in walk(x.get("effect")) {
+            if s.kind == "create"
+                && s.depth == 0
+                && let Some(r) = s
+                    .body()
+                    .get("result")
+                    .filter(|r| super::doc::truthy(Some(r)))
+            {
+                bound.push(py_str(r));
+            }
+            if s.kind != "supersede" {
+                continue;
+            }
+            let at = ext(&where_, ext(segs!["effect"], s.path.clone()));
+            if s.depth > 0 {
+                out.push(finding(at.clone(), "names", format!("{tn}.{xn} supersedes inside a foreach, which may name no successor or several")));
+            }
+            let who = squash(&py_str(s.body()));
+            if who == "this" {
+                out.push(finding(
+                    at,
+                    "names",
+                    format!("{tn}.{xn} supersedes the object with itself"),
+                ));
+            } else if let Some(m) = CALL_INPUT.captures(&who) {
+                let spec = obj(x, "inputs").get(&m[1]).filter(|s| !s.is_null());
+                if let Some(spec) = spec {
+                    if !has(spec, "reference") {
+                        out.push(finding(
+                            at,
+                            "names",
+                            format!(
+                                "{tn}.{xn} supersedes with inputs.{}, which is not an object",
+                                &m[1]
+                            ),
+                        ));
+                    } else if flag(spec, "optional") {
+                        out.push(finding(
+                            at,
+                            "names",
+                            format!("{tn}.{xn} supersedes with inputs.{}, which is optional, so a request leaving it out would name no successor", &m[1]),
+                        ));
+                    }
+                }
+            } else if !bound.contains(&who) {
+                out.push(finding(
+                    at,
+                    "names",
+                    format!("{tn}.{xn} supersedes with {who}, which is neither an input nor a name a create at the top level of the effect binds (check 49)"),
+                ));
+            }
+        }
+    }
+    let erasure_needs = |tt: Option<&Value>| -> Option<BTreeMap<String, (String, bool)>> {
+        let tt = tt?;
+        let ex = obj(tt, "transitions")
+            .values()
+            .find(|x| kind(x) == "erasure")?;
+        Some(
+            obj(ex, "inputs")
+                .iter()
+                .map(|(i, sp)| (i.clone(), (kind_text_ref_or_type(sp), flag(sp, "optional"))))
+                .collect(),
+        )
+    };
+    for (xn, x) in obj(t, "transitions") {
+        let walked = walk(x.get("effect"));
+        for s in &walked {
+            if s.kind != "supersede" {
+                continue;
+            }
+            let who = squash(&py_str(s.body()));
+            let reference = CALL_INPUT
+                .captures(&who)
+                .and_then(|m| obj(x, "inputs").get(&m[1]).cloned())
+                .map(|sp| sp.get("reference").map(py_str).unwrap_or_default())
+                .unwrap_or_default();
+            let made: Vec<String> = walked
+                .iter()
+                .filter(|c| {
+                    c.kind == "create"
+                        && c.body().get("result").map(py_str).as_deref() == Some(who.as_str())
+                })
+                .map(|c| body_text(c.body(), "type"))
+                .collect();
+            let other = {
+                let r = reference.trim_end_matches(['[', ']']).to_string();
+                if r.is_empty() {
+                    made.first().cloned().unwrap_or_default()
+                } else {
+                    r
+                }
+            };
+            let (mine, theirs) = (erasure_needs(Some(t)), erasure_needs(library.get(&other)));
+            if !other.is_empty()
+                && other != tn
+                && let (Some(mine), Some(theirs)) = (mine, theirs)
+                && mine != theirs
+            {
+                let names = |m: &BTreeMap<String, (String, bool)>| {
+                    if m.is_empty() {
+                        "no input".to_string()
+                    } else {
+                        m.keys().cloned().collect::<Vec<_>>().join(", ")
+                    }
+                };
+                out.push(finding(
+                    ext(segs!["types", tn, "transitions", xn, "effect"], s.path.clone()),
+                    "names",
+                    format!(
+                        "{tn}.{xn} supersedes with a {other}, whose erasure takes {} where {tn}'s takes {}; a group's erasures receive one request's inputs, so they require the same, by name, type and optionality",
+                        names(&theirs),
+                        names(&mine)
+                    ),
+                ));
+            }
+        }
+    }
+    let mut takes_part = states.values().any(|v| flag(v, "superseding"));
+    for other in library.values() {
+        for x in obj(other, "transitions").values() {
+            let walked = walk(x.get("effect"));
+            for s in &walked {
+                if s.kind != "supersede" {
+                    continue;
+                }
+                let who = squash(&py_str(s.body()));
+                let reference = CALL_INPUT
+                    .captures(&who)
+                    .and_then(|m| obj(x, "inputs").get(&m[1]).cloned())
+                    .and_then(|sp| sp.get("reference").map(py_str));
+                let made: Vec<String> = walked
+                    .iter()
+                    .filter(|c| {
+                        c.kind == "create"
+                            && c.body().get("result").map(py_str).as_deref() == Some(who.as_str())
+                    })
+                    .map(|c| body_text(c.body(), "type"))
+                    .collect();
+                takes_part |= reference.as_deref() == Some(tn) || made.iter().any(|m| m == tn);
+            }
+        }
+    }
+    let erasures: Vec<String> = obj(t, "transitions")
+        .iter()
+        .filter(|(_, x)| kind(x) == "erasure")
+        .map(|(n, _)| n.clone())
+        .collect();
+    if erasures.len() > 1 {
+        out.push(finding(
+            segs!["types", tn, "transitions", &erasures[1]],
+            "names",
+            format!("{tn} declares the erasures {}; a type declares at most one, which a group's erasure takes (ADR-0147)", erasures.join(", ")),
+        ));
+    }
+    for (xn, x) in obj(t, "transitions") {
+        let to: Vec<String> = match x.get("to") {
+            Some(Value::Array(a)) => a.iter().map(py_str).collect(),
+            Some(v) => vec![py_str(v)],
+            None => vec!["None".into()],
+        };
+        if kind(x) == "assertion"
+            && to
+                .iter()
+                .any(|s| states.get(s).is_some_and(|v| flag(v, "superseding")))
+        {
+            out.push(finding(
+                segs!["types", tn, "transitions", xn, "to"],
+                "names",
+                format!("{tn}.{xn} asserts a superseding state, which would name no successor; a merge is a declared transition (the model's check 26, ADR-0147)"),
+            ));
+        }
+    }
+    let personal = obj(t, "attributes").values().any(|sp| flag(sp, "personal"));
+    let mut taken_personal: Vec<String> = obj(t, "transitions")
+        .iter()
+        .flat_map(|(xn, x)| {
+            obj(x, "inputs")
+                .iter()
+                .filter(|(_, sp)| flag(sp, "personal"))
+                .map(move |(i, _)| format!("{xn}.{i}"))
+        })
+        .collect();
+    taken_personal.sort();
+    let erasable = obj(t, "transitions").values().any(|x| kind(x) == "erasure");
+    if (personal || !taken_personal.is_empty())
+        && !erasable
+        && !flag(t, "abstract")
+        && !obj(doc, "machines").contains_key(tn)
+    {
+        let why = if takes_part {
+            ", and takes part in supersession, through which a superseded chain is erased"
+        } else {
+            ""
+        };
+        let what = if personal {
+            "personal data".to_string()
+        } else {
+            format!("the personal input {}", taken_personal[0])
+        };
+        out.push(finding(
+            segs!["types", tn],
+            "names",
+            format!("{tn} holds {what} and declares no erasure{why} (check 60)"),
+        ));
+    }
+    out
+}
+
+/// `str(sp.get("type", sp.get("reference")))`.
+fn kind_text_ref_or_type(sp: &Value) -> String {
+    match sp.get("type") {
+        Some(t) => py_str(t),
+        None => sp
+            .get("reference")
+            .map_or_else(|| "None".to_string(), py_str),
+    }
+}
+
+/// The evaluators a module declares or imports.
+pub fn evaluator_names(doc: &Value) -> BTreeSet<String> {
+    let mut out: BTreeSet<String> = keys(doc, "evaluators").into_iter().collect();
+    out.extend(
+        imported(doc)
+            .into_iter()
+            .filter(|n| n.chars().next().is_some_and(|c| c.is_lowercase())),
+    );
+    out
+}
+
+/// (evaluator, function, number of arguments) for each call an expression
+/// makes to an evaluator.
+fn evaluator_calls(text: &str, names: &BTreeSet<String>) -> Vec<(String, String, usize)> {
+    let text = squash(text);
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    for (ev, f, open) in dotted_calls(&text) {
+        if !names.contains(&ev) {
+            continue;
+        }
+        let (mut depth, mut i, mut commas) = (1i32, open, 0usize);
+        while i < chars.len() && depth > 0 {
+            match chars[i] {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                _ => {}
+            }
+            if chars[i] == ',' && depth == 1 {
+                commas += 1;
+            }
+            i += 1;
+        }
+        let body: String = chars[open..i.saturating_sub(1).max(open)].iter().collect();
+        out.push((
+            ev,
+            f,
+            if body.trim().is_empty() {
+                0
+            } else {
+                commas + 1
+            },
+        ));
+    }
+    out
+}
+
+static WHOLE_VERDICT: LazyLock<Regex> =
+    LazyLock::new(|| re(r"^(not\s+)?[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\(.*\)$"));
+
+/// A guard, and only a guard, asks an evaluator, with its arguments, as the
+/// whole condition or its negation (checks 19 and 24).
+fn evaluator_errors(doc: &Value, tn: &str, t: &Value) -> Found {
+    let evaluators = obj(doc, "evaluators");
+    let names = evaluator_names(doc);
+    let mut out = Found::new();
+    for (cn, c) in obj(t, "conditions") {
+        let where_ = segs!["types", tn, "conditions", cn, "expression"];
+        let text = squash(&c.get("expression").map(py_str).unwrap_or_default());
+        let calls = evaluator_calls(&text, &names);
+        for (ev, f, n) in &calls {
+            if let Some(e) = evaluators.get(ev) {
+                match obj(e, "functions").get(f).filter(|x| !x.is_null()) {
+                    None => out.push(finding(
+                        where_.clone(),
+                        "names",
+                        format!("condition {cn} calls {ev}.{f}, which {ev} does not declare"),
+                    )),
+                    Some(fun) => {
+                        let want = obj(fun, "arguments").len();
+                        if *n != want {
+                            out.push(finding(where_.clone(), "names", format!("condition {cn} passes {n} argument(s) to {ev}.{f}, which takes {want}")));
+                        }
+                    }
+                }
+            }
+        }
+        if !calls.is_empty() && !WHOLE_VERDICT.is_match(&text) {
+            out.push(finding(
+                where_.clone(),
+                "names",
+                format!("condition {cn} calls an evaluator inside a larger expression; a verdict is the whole condition or its negation (check 24)"),
+            ));
+        }
+    }
+    let mut others: Vec<(Path, String, String)> = Vec::new();
+    for sec in ["invariants", "derived_attributes"] {
+        for (n, x) in obj(t, sec) {
+            others.push((
+                segs!["types", tn, sec, n, "expression"],
+                n.clone(),
+                x.get("expression").map(py_str).unwrap_or_default(),
+            ));
+        }
+    }
+    for (xn, x) in obj(t, "transitions") {
+        for s in walk(x.get("effect")) {
+            for e in step_expressions(&s) {
+                others.push((
+                    ext(
+                        segs!["types", tn, "transitions", xn, "effect"],
+                        s.path.clone(),
+                    ),
+                    xn.clone(),
+                    e,
+                ));
+            }
+        }
+    }
+    for (p, name, text) in others {
+        for (ev, f, _) in evaluator_calls(&text, &names) {
+            out.push(finding(
+                p.clone(),
+                "names",
+                format!("{name} calls {ev}.{f}; only a guard asks an evaluator"),
+            ));
+        }
+    }
+    out
+}
+
+static AGGREGATE_CALL: LazyLock<Regex> =
+    LazyLock::new(|| re(r"\b(count|sum|min|max|avg|median|percentile)\s*\("));
+
+/// The dimensions a metric has.
+fn dimensions_of(m: &Value) -> BTreeSet<String> {
+    let mut out = if has(m, "source") {
+        keys(m, "dimensions").into_iter().collect::<BTreeSet<_>>()
+    } else {
+        strings(m, "group_by").into_iter().collect()
+    };
+    out.extend(STANDARD_DIMENSIONS.iter().map(|s| s.to_string()));
+    out
+}
+
+/// A module's metrics share one namespace, and a combined metric's inputs,
+/// groups and value are its inputs' (checks 33 and 56).
+fn combined_errors(doc: &Value) -> Found {
+    let mut out = Found::new();
+    let mut owner: BTreeMap<String, String> = BTreeMap::new();
+    for (tn, t) in types(doc) {
+        for mn in keys(t, "metrics") {
+            if let Some(o) = owner.get(&mn) {
+                out.push(finding(
+                    segs!["types", &tn, "metrics", &mn],
+                    "names",
+                    format!("the metric {mn} is declared by both {o} and {tn}; a module's metrics share one namespace"),
+                ));
+            }
+            owner.entry(mn).or_insert(tn.clone());
+        }
+    }
+    let kinds: Obj = types(doc)
+        .into_iter()
+        .map(|(n, t)| (n, t.clone()))
+        .collect();
+    let combined = obj(doc, "metrics");
+    let names: Vec<String> = combined.keys().cloned().collect();
+    for (i, (mn, m)) in combined.iter().enumerate() {
+        let base = segs!["metrics", mn];
+        if let Some(o) = owner.get(mn) {
+            out.push(finding(base.clone(), "names", format!("the metric {mn} is also declared by {o}; a module's metrics share one namespace")));
+        }
+        let mut dims: BTreeSet<String> = set(STANDARD_DIMENSIONS);
+        let mut held: Vec<BTreeSet<String>> = Vec::new();
+        for (alias, r) in obj(m, "input_metrics") {
+            let r = py_str(r);
+            let where_ = ext(&base, segs!["input_metrics", alias]);
+            if let Some((tn, name)) = r.split_once('.') {
+                let target = kinds
+                    .get(tn)
+                    .and_then(|t| obj(t, "metrics").get(name))
+                    .filter(|x| !x.is_null());
+                if !kinds.contains_key(tn) {
+                    out.push(finding(
+                        where_,
+                        "names",
+                        format!("metric {mn} combines {r}, and the module declares no type {tn}"),
+                    ));
+                } else if let Some(target) = target {
+                    dims.extend(dimensions_of(target));
+                    held.push(dimensions_of(target));
+                } else {
+                    out.push(finding(
+                        where_,
+                        "names",
+                        format!("metric {mn} combines {r}, which is not a metric of {tn}"),
+                    ));
+                }
+            } else if names[i..].contains(&r) {
+                out.push(finding(where_, "order", format!("metric {mn} combines {r}, which is itself or declared after it; a combined metric combines those above it")));
+            } else if let Some(c) = combined.get(&r) {
+                dims.extend(dimensions_of(c));
+                held.push(dimensions_of(c));
+            } else {
+                out.push(finding(
+                    where_,
+                    "names",
+                    format!("metric {mn} combines {r}, which is neither a combined metric of this module nor written as <Type>.<metric>"),
+                ));
+            }
+        }
+        let group_by = strings(m, "group_by");
+        for d in &group_by {
+            if !dims.contains(d) {
+                out.push(finding(
+                    ext(&base, segs!["group_by"]),
+                    "names",
+                    format!("metric {mn} groups by '{d}', which none of the metrics it combines has as a dimension"),
+                ));
+            }
+        }
+        let wanted: BTreeSet<String> = group_by.iter().cloned().collect();
+        if !held.is_empty() && wanted.is_subset(&dims) && !held.iter().any(|h| wanted.is_subset(h))
+        {
+            out.push(finding(
+                ext(&base, segs!["group_by"]),
+                "names",
+                format!(
+                    "metric {mn} groups by {}, which no one of the metrics it combines has all of; one input has every dimension the combination names (the model's check 56, ADR-0147)",
+                    wanted.iter().cloned().collect::<Vec<_>>().join(", ")
+                ),
+            ));
+        }
+        let expression = m.get("expression").map(py_str).unwrap_or_default();
+        let inputs: BTreeSet<String> = keys(m, "input_metrics").into_iter().collect();
+        for r in reads(&expression).difference(&inputs) {
+            out.push(finding(
+                ext(&base, segs!["expression"]),
+                "names",
+                format!("metric {mn} reads '{r}', which is not one of the metrics it combines"),
+            ));
+        }
+        if AGGREGATE_CALL.is_match(&expression) {
+            out.push(finding(
+                ext(&base, segs!["expression"]),
+                "names",
+                format!("metric {mn} aggregates, and a combined metric has no rows: its value combines the values of the metrics it names"),
+            ));
+        }
+        for (f, c) in obj(m, "flag_when") {
+            let mut r = reads(&py_str(c));
+            r.retain(|n| !wanted.contains(n) && n != "value" && n != "now");
+            for r in r {
+                out.push(finding(
+                    ext(&base, segs!["flag_when", f]),
+                    "names",
+                    format!("metric {mn}'s flag {f} reads '{r}', which is neither value nor a dimension the metric names"),
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// A metric's measure names a transition and a state of its type, and its
+/// groups are its type's.
+fn metric_errors(tn: &str, t: &Value, mn: &str, m: &Value) -> Found {
+    if has(m, "source") {
+        return formula_errors(tn, t, mn, m);
+    }
+    let base = segs!["types", tn, "metrics", mn];
+    let measure = m.get("measure").map(py_str).unwrap_or_default();
+    let mut out = Found::new();
+    if measure == "transition_count" {
+        let xn = m.get("transition").map(py_str).unwrap_or_default();
+        if !obj(t, "transitions").contains_key(&xn) {
+            return vec![finding(
+                ext(&base, segs!["transition"]),
+                "names",
+                format!("metric {mn} counts '{xn}', which is not a transition of {tn}"),
+            )];
+        }
+    }
+    if measure == "median_time_in_state" {
+        let st = m.get("state").map(py_str).unwrap_or_default();
+        if !obj(t, "states").contains_key(&st) {
+            out.push(finding(
+                ext(&base, segs!["state"]),
+                "names",
+                format!("metric {mn} measures the state {st}, which {tn} does not declare"),
+            ));
+        }
+    }
+    for d in strings(m, "group_by") {
+        if d == "actor" && measure != "transition_count" {
+            out.push(finding(
+                ext(&base, segs!["group_by"]),
+                "names",
+                format!("metric {mn} groups by actor, which only a transition_count has"),
+            ));
+        } else if !["actor", "month", "week"].contains(&d.as_str())
+            && !obj(t, "attributes").contains_key(&d)
+        {
+            out.push(finding(
+                ext(&base, segs!["group_by"]),
+                "names",
+                format!("metric {mn} groups by '{d}', which is not month, week, actor or an attribute of {tn}"),
+            ));
+        }
+    }
+    out
+}
+
+/// An optional input is read in a step only as the whole of an expression
+/// (`DESIGN.md` §5.4; the model's check 48).
+fn conditional_step_errors(tn: &str, t: &Value) -> Found {
+    let mut out = Found::new();
+    for (xn, x) in obj(t, "transitions") {
+        let mut optional_inputs: BTreeSet<String> = obj(x, "inputs")
+            .iter()
+            .filter(|(_, s)| flag(s, "optional") && !has(s, "default"))
+            .map(|(i, _)| i.clone())
+            .collect();
+        optional_inputs.extend(strings(x, "optional_inputs"));
+        for s in walk(x.get("effect")) {
+            for e in step_expressions(&s) {
+                let text = squash(&e);
+                for n in &optional_inputs {
+                    if text != format!("inputs.{n}")
+                        && re(&format!(r"\binputs\.{}\b", regex::escape(n))).is_match(&text)
+                    {
+                        out.push(finding(
+                            ext(segs!["types", tn, "transitions", xn, "effect"], s.path.clone()),
+                            "names",
+                            format!(
+                                "{tn}.{xn} reads the optional input '{n}' inside a larger expression of a step, which makes the step conditional; declare one transition per case, each taking the input it needs (DESIGN.md §5.4; the model's check 48)"
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    out
+}

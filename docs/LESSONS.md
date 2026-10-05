@@ -345,3 +345,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Capture the status first, `rc=$?`, before any other expansion on the line, and print a name with no substitution in it. Read each check's verdict line from its output too, never the loop's summary alone.
 - **Context:** Shell loops over `scripts/check-*.py` in ObjectFlow; commit `7ba2fcf` (ADR-0155's first docs), found and repaired 2026-10-05.
 
+### Check that a decision's clauses can hold together at every step between
+- **Pattern:** ADR-0156 decision 5 said both that each slice of the checker joins the dry run as it lands and that a sandbox runs the core's checks only when the last slice lands. Before the last slice the only dry runs are a sandbox's, so the two clauses could not both hold; it was found only when the first slice was wired in.
+- **Correction:** When a decision sets a rule for the steps along the way and another for the end, read them together at an intermediate step before recording it; where they conflict, say which governs.
+- **Context:** Sequencing clauses in ObjectFlow's ADRs; ADR-0156, 2026-10-05.
+

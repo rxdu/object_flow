@@ -12,9 +12,36 @@ use std::path::PathBuf;
 use objectflow_core::check::{Severity, check};
 use serde_json::Value;
 
-/// The codes of the steps the core runs: the load, the schema, the
-/// expressions and the imports (C1, its first part).
-const COVERED: &[&str] = &["yaml", "schema", "syntax", "imports"];
+/// The codes of the steps the core runs, 1 to 3 (C1): the load, the
+/// schemas, the expressions and the imports, the names and relationships of
+/// a module, its migration, and the notices beside them.
+const COVERED: &[&str] = &[
+    "yaml",
+    "schema",
+    "syntax",
+    "imports",
+    "names",
+    "order",
+    "required",
+    "migration",
+    "metric",
+    "audit",
+    "warn",
+    "self_serviceable",
+    "unknown",
+    "before",
+];
+/// In an examples file, only its load and its shape so far: what its
+/// examples name is checked with the examples (C4).
+const COVERED_IN_EXAMPLES: &[&str] = &["yaml", "schema"];
+
+fn covered(file: &str, code: &str) -> bool {
+    if file.ends_with(".examples.yaml") {
+        COVERED_IN_EXAMPLES.contains(&code)
+    } else {
+        COVERED.contains(&code)
+    }
+}
 
 fn plants() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/plants")
@@ -55,7 +82,12 @@ fn the_core_finds_what_the_flow_checker_finds() {
             .as_array()
             .expect("findings")
             .iter()
-            .filter(|f| COVERED.contains(&f[3].as_str().unwrap_or_default()))
+            .filter(|f| {
+                covered(
+                    f[0].as_str().unwrap_or_default(),
+                    f[3].as_str().unwrap_or_default(),
+                )
+            })
             .map(|f| {
                 (
                     (
@@ -73,7 +105,7 @@ fn the_core_finds_what_the_flow_checker_finds() {
             .collect();
         let got: BTreeMap<(String, u64, String), String> = check(&files, &previous)
             .into_iter()
-            .filter(|f| COVERED.contains(&f.code.as_str()))
+            .filter(|f| covered(&f.file, &f.code))
             .map(|f| {
                 let sev = if f.severity == Severity::Fatal {
                     "fatal"

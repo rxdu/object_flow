@@ -2,14 +2,22 @@
 //! flow description, run by the engine, held to the Python checker's
 //! findings over every design module and every plant of its self-test.
 //!
-//! This part runs the head of the checker's first steps: each file loaded
-//! strictly, checked against the schema, its YAML literals given their
-//! expression text, every expression parsed, and its imports and the names
-//! its closure declares. The names and relationships of a module, the
-//! sixty-four checks, the contradictions within a type and the examples
-//! follow in later parts (`TODO.md`).
+//! It runs the checker's steps 1 to 3: each file loaded strictly, checked
+//! against the schema, its YAML literals given their expression text, every
+//! expression parsed, its imports and the names its closure declares, and
+//! the names and relationships of the module, with its migration's rules
+//! and its checks against the previous version. The sixty-four checks, the
+//! contradictions within a type and the examples follow (`TODO.md`).
 
+mod doc;
+mod migration;
+mod names;
+mod notices;
+mod optional;
+mod raw;
 pub mod schema;
+mod steps;
+mod view;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -56,7 +64,6 @@ const DECLARES: &[&str] = &[
 /// The modules and examples files given, in import order, each with its
 /// name; `previous` maps a file to the text of the version before it.
 pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) -> Vec<Finding> {
-    let _ = previous;
     let mut found = Vec::new();
     let schema = match Schema::flow() {
         Ok(s) => s,
@@ -86,6 +93,8 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
     };
     let mut examples_files = Vec::new();
     let mut declared: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // every type of the modules checked so far, as the view holds it
+    let mut library = doc::Obj::new();
     let mut uses: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (file, text) in files {
         let fatal = |found: &mut Vec<Finding>, line: usize, code: &str, message: String| {
@@ -227,6 +236,66 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
         }
         declared.insert(module.clone(), mine.keys().cloned().collect());
         uses.insert(module, imports.into_iter().map(|(m, _)| m).collect());
+        // step 3: the module's names and relationships, over its view
+        let v = view::View::new(&doc, &library);
+        let notice = |found: &mut Vec<Finding>, line: usize, code: String, message: String| {
+            found.push(Finding {
+                file: file.clone(),
+                line,
+                severity: Severity::Notice,
+                code,
+                message,
+            });
+        };
+        let (pair, pair_notes) = match previous.get(file).and_then(|t| crate::yaml::load(t).ok()) {
+            Some(prev) => migration::migration_pair_errors(&schema::typed(&prev), &doc, &library),
+            None => (Vec::new(), Vec::new()),
+        };
+        for (p, code, message) in pair_notes
+            .into_iter()
+            .chain(migration::final_admission_notes(&doc, &v.doc))
+        {
+            notice(&mut found, node.line_at(&p), code, message);
+        }
+        let view_types = doc::obj(&v.doc, "types").clone();
+        let fatal_found = raw::order_errors(&doc)
+            .into_iter()
+            .chain(raw::family_errors(&doc, &library))
+            .chain(raw::machine_errors(&doc, &view_types))
+            .chain(raw::decimal_errors(&doc))
+            .chain(raw::type_name_errors(&doc))
+            .chain(names::name_errors(&v.doc, &library))
+            .chain(migration::migration_errors(&doc, &v.doc))
+            .chain(pair);
+        let mut seen: BTreeSet<(Vec<Seg>, String)> = BTreeSet::new();
+        for (p, code, mut message) in fatal_found {
+            let Some(p) = v.back(&p) else { continue };
+            if let (Some(Seg::Key(first)), Some(Seg::Key(name))) = (p.first(), p.get(1))
+                && first == "machines"
+                && message.contains('\'')
+            {
+                // a machine's attributes are the ones it requires of its binders
+                message = message.replace(
+                    &format!(", which {name} does not declare"),
+                    &format!(", which {name} does not require"),
+                );
+            }
+            if seen.insert((p.clone(), message.clone())) {
+                fatal(&mut found, node.line_at(&p), &code, message);
+            }
+        }
+        for (tn, t) in view_types {
+            library.insert(tn, t);
+        }
+        for (p, code, message) in notices::notices(&v.doc)
+            .into_iter()
+            .chain(notices::unknowns(&v.doc, &library))
+            .chain(notices::befores(&v.doc))
+        {
+            if let Some(p) = v.back(&p) {
+                notice(&mut found, node.line_at(&p), code, message);
+            }
+        }
     }
     // the shape of each examples file (publish-and-import.md §1 step 1)
     for (file, node, doc) in &examples_files {
