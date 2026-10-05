@@ -1,8 +1,8 @@
 //! The core's checker held to the flow checker (ADR-0156 decision 4): every
 //! check `scripts/check-flows.py`'s run makes, over the design's modules and
 //! every plant of its self-test, exported to `tests/plants` with what it
-//! found, run again through the core and compared by file, line and code,
-//! for the codes the core's checker covers so far.
+//! found, run again through the core and compared by file, line, code and
+//! message, for the codes the core's checker covers so far.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -12,9 +12,10 @@ use std::path::PathBuf;
 use objectflow_core::check::{Severity, check};
 use serde_json::Value;
 
-/// The codes of the steps the core runs, 1 to 3 (C1): the load, the
-/// schemas, the expressions and the imports, the names and relationships of
-/// a module, its migration, and the notices beside them.
+/// The codes of the steps the core runs in a module: 1 to 3 (C1), the load,
+/// the schemas, the expressions and the imports, the names and relationships
+/// of a module, its migration, and the notices beside them; 4 (C2), the
+/// sixty-four checks; and 5 (C3), the contradictions within one type.
 const COVERED: &[&str] = &[
     "yaml",
     "schema",
@@ -70,9 +71,10 @@ const COVERED: &[&str] = &[
     "check 42",
     "check 43",
 ];
-/// In an examples file, only its load and its shape so far: what its
-/// examples name is checked with the examples (C4).
-const COVERED_IN_EXAMPLES: &[&str] = &["yaml", "schema"];
+/// In an examples file, its load, its shape, and what its setups and
+/// examples name, with the transitions no example requests (C4); running the
+/// examples follows.
+const COVERED_IN_EXAMPLES: &[&str] = &["yaml", "schema", "names", "order", "coverage"];
 
 fn covered(file: &str, code: &str) -> bool {
     if file.ends_with(".examples.yaml") {
@@ -117,7 +119,10 @@ fn the_core_finds_what_the_flow_checker_finds() {
             .iter()
             .map(|(n, k)| (n.clone(), blob(k.as_str().unwrap_or_default())))
             .collect();
-        let want: BTreeMap<(String, u64, String), String> = case["findings"]
+        // each finding by its file, line, severity, code and message, so
+        // findings sharing a line are told apart and a message the core words
+        // differently is a difference
+        let want: BTreeSet<(String, u64, String, String)> = case["findings"]
             .as_array()
             .expect("findings")
             .iter()
@@ -129,20 +134,18 @@ fn the_core_finds_what_the_flow_checker_finds() {
             })
             .map(|f| {
                 (
-                    (
-                        f[0].as_str().unwrap_or_default().to_string(),
-                        f[1].as_u64().unwrap_or_default(),
-                        format!(
-                            "{} {}",
-                            f[2].as_str().unwrap_or_default(),
-                            f[3].as_str().unwrap_or_default()
-                        ),
+                    f[0].as_str().unwrap_or_default().to_string(),
+                    f[1].as_u64().unwrap_or_default(),
+                    format!(
+                        "{} {}",
+                        f[2].as_str().unwrap_or_default(),
+                        f[3].as_str().unwrap_or_default()
                     ),
                     f[4].as_str().unwrap_or_default().to_string(),
                 )
             })
             .collect();
-        let got: BTreeMap<(String, u64, String), String> = check(&files, &previous)
+        let got: BTreeSet<(String, u64, String, String)> = check(&files, &previous)
             .into_iter()
             .filter(|f| covered(&f.file, &f.code))
             .map(|f| {
@@ -152,19 +155,19 @@ fn the_core_finds_what_the_flow_checker_finds() {
                     "notice"
                 };
                 (
-                    (f.file, f.line as u64, format!("{sev} {}", f.code)),
+                    f.file,
+                    f.line as u64,
+                    format!("{sev} {}", f.code),
                     f.message,
                 )
             })
             .collect();
         compared += want.len();
-        let w: BTreeSet<_> = want.keys().collect();
-        let g: BTreeSet<_> = got.keys().collect();
-        for k in w.difference(&g) {
-            wrong.push(format!("{label}: missed {k:?}: {}", want[*k]));
+        for k in want.difference(&got) {
+            wrong.push(format!("{label}: missed {k:?}"));
         }
-        for k in g.difference(&w) {
-            wrong.push(format!("{label}: extra {k:?}: {}", got[*k]));
+        for k in got.difference(&want) {
+            wrong.push(format!("{label}: extra {k:?}"));
         }
     }
     assert!(

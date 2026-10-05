@@ -8,10 +8,10 @@ Draft, 2026-10-05. How the Rust core checks a flow description before it publish
 |---|---|---|---|
 | 1, 2: the strict load and the schemas | each file as written | `yaml`, `schema`, `syntax` | C1, done |
 | 3: imports, names and relationships, migrations, notices | each module through its view, machines and bases merged in | `imports`, `names`, `order`, `required`, `migration`, `metric`, `audit`, `warn`, `self_serviceable`, `unknown`, `before` | C1, done |
-| the names an examples file uses | each examples file against its module | `names`, `coverage` | C4 |
+| the names an examples file uses | each examples file against its module | `names`, `order`, `coverage` | C4, done |
 | 4: the sixty-four checks | every module converted to the internal form, one text | `check <n>` | C2, done |
 | 5: contradictions within one type | each type of the view | `contradiction`, `neverpasses` | C3, done |
-| 6: the examples | each examples file, run | `example`, `notrun` | C4 |
+| 6: the examples | each examples file, run | `example`, `notrun` | C4, to come |
 
 Step 4 runs only when no file has a fatal finding from steps 1 to 3, and the core keeps that order. A check that step 3 and the text checker both enforce is therefore reported by step 3 wherever both would fire, and reaches step 4 only where step 3 misses it.
 
@@ -93,3 +93,11 @@ Each check is one of four kinds. A *model* check refuses a declaration whatever 
 The design's modules and step 3's plants exercised four of the text checker's checks (7, 31, 53 and 64), since its own fixtures are in the internal form, which the core does not read. So `check-flows.py`'s self-test gained `syntax_plants`, 31 plants on six small modules each clean under every step, each changing one thing and caught at step 4 by the check it plants: 8, 11, 13, 15 (four ways), 17, 18, 20, 31 (two), 34, 40, 41, 54 (two), 56 (five), 57, 58 (two), 59 (three), 61, 62 and 64. The oracle holds the core to them by file, line and code. A check's line is the line of the YAML its finding stands for: the type, the state, the transition, the attribute or the clause the text checker reports at, through the conversion's map from each text line to the YAML it came from.
 
 C2 is done (2026-10-05): the core runs every model check the text checker enforces, each read from the YAML's meaning, and all 36 step-4 findings over the 245 exported checks agree, with no extra one. Planting found three clauses YAML cannot bring to step 4, each caught earlier (2026-10-05): a call or create missing a required argument (check 2) is step 3's, a comparison with a bare `null` (check 21) is refused by the expression parser, and `time_in` of an undeclared state (check 58) is refused by step 3 as an unqualified name. The core's port of those clauses is held only by the absence of extra findings over every plant.
+
+## 4. How the examples' names are held
+
+What an examples file names is checked by `src/check/examples.rs`, a port of `example_errors` and `uncovered`, once the file's shape is: each setup and example starts from a setup the file declares, before it; each step requests a transition the flow declares, of an object an earlier step made, with inputs the transition takes, written as their kinds are, as an actor the store holds; and each expectation names a verdict the request can give, with the clause and remedy the rules declare. A file whose names all resolve gets a notice of the transitions of its module no example requests.
+
+Mutating the port showed the oracle reached few of these rules (2026-10-05): of the 50 messages `example_errors` and `uncovered` give, counted by a fragment distinctive of each, the exported plants gave 20, though the self-test's docstring says each rule is proven. `check-flows.py` gained `example_rule_plants`, one plant a rule, 29 in the service, servicedesk and customers examples, two of them giving the service job's `reassign` an optional set of references and an optional actor kind for the rules on how those are written; one more in the delivery plants, a setup's step requesting a transition only via another; and the delivery examples gained two the design lacked, a checklist item requested alone, refused as `not_requestable` before the label it leaves out is looked at, and an approval of a withdrawn proposal, refused as `unavailable`. The exports now give all 50, and every mutation of a rule tried since fails the oracle.
+
+Since this slice the oracle compares each finding's message as well as its file, line and code. Four messages differed when it began to: PyYAML's words for a colon inside a plain value and for a `?` inside an inline collection, the quotes the reference parser's messages put around a token, and a machine's attribute, which the reference quotes as its declaration line, `attr submitted_at date?`, so a difference in optionality shows. The core now words all four as the reference does.

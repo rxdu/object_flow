@@ -205,8 +205,9 @@ fn line_of(span: &Span) -> usize {
 pub fn load(text: &str) -> Result<Node, YamlError> {
     let mut parser = Parser::new_from_str(text);
     let chars: Vec<char> = text.chars().collect();
-    // for each open collection, whether it is written in flow style
-    let mut flows: Vec<bool> = Vec::new();
+    // for each open collection written in flow style, the character that
+    // closes it
+    let mut flows: Vec<Option<char>> = Vec::new();
     let mut stack: Vec<Open> = Vec::new();
     let mut root: Option<Node> = None;
     let mut documents = 0;
@@ -250,7 +251,13 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
     while let Some(next) = parser.next_event() {
         let (event, span) = next.map_err(|e| YamlError {
             line: e.marker().line(),
-            message: e.info().to_string(),
+            // in PyYAML's words, which the flow checker's messages follow
+            message: match e.info() {
+                "mapping values are not allowed in this context" => {
+                    "mapping values are not allowed here".to_string()
+                }
+                other => other.to_string(),
+            },
         })?;
         let line = line_of(&span);
         match event {
@@ -278,11 +285,13 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
                         message: "an anchor is refused".to_string(),
                     });
                 }
-                if style == ScalarStyle::Plain && flows.last() == Some(&true) && value.contains('?')
+                if let Some(Some(close)) = flows.last()
+                    && style == ScalarStyle::Plain
+                    && value.contains('?')
                 {
                     return Err(YamlError {
                         line,
-                        message: "expected ',' or the collection's end, but got '?'".to_string(),
+                        message: format!("expected ',' or '{close}', but got '?'"),
                     });
                 }
                 let node = Node::Scalar {
@@ -299,11 +308,11 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
                 });
             }
             Event::SequenceStart(..) => {
-                flows.push(chars.get(span.start.index()) == Some(&'['));
+                flows.push((chars.get(span.start.index()) == Some(&'[')).then_some(']'));
                 stack.push(Open::Seq(Vec::new(), line));
             }
             Event::MappingStart(..) => {
-                flows.push(chars.get(span.start.index()) == Some(&'{'));
+                flows.push((chars.get(span.start.index()) == Some(&'{')).then_some('}'));
                 stack.push(Open::Map(Vec::new(), None, line, Vec::new()));
             }
             Event::SequenceEnd | Event::MappingEnd => {

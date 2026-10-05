@@ -10,8 +10,8 @@ use regex::Regex;
 use serde_json::Value;
 
 use super::doc::{
-    Found, Obj, Path, ext, finding, flag, has, keys, kind_text, obj, py_str, re, segs, squash,
-    strings, text,
+    Found, Obj, Path, ext, finding, flag, has, keys, obj, optional, py_str, re, segs, squash,
+    str_or, strings, text, truthy,
 };
 use super::view::{INHERITED, bases, types};
 use crate::yaml::Seg;
@@ -477,8 +477,8 @@ pub fn machine_errors(doc: &Value, kinds: &Obj) -> Found {
                     "names",
                     format!(
                         "{tn} declares '{a}' as {}, and its machine {mn} requires {}",
-                        kind_text(have),
-                        kind_text(want)
+                        declared_as(a, have),
+                        declared_as(a, want)
                     ),
                 ));
             }
@@ -640,4 +640,85 @@ pub fn type_name_errors(doc: &Value) -> Found {
         }
     }
     out
+}
+
+/// The markings an attribute or a reference carries after its type, in the
+/// model's words (`declaration-syntax.md` §3.1, §3.2; `check-flows.py`'s
+/// `markings`).
+fn markings(spec: &Value) -> String {
+    let mut marks: Vec<String> = Vec::new();
+    if flag(spec, "external") {
+        marks.push(format!("external \"{}\"", str_or(spec, "external", "")));
+    }
+    if let Some(d) = spec.get("default") {
+        marks.push(format!("default {}", squash(&py_str(d))));
+    }
+    marks.extend(
+        ["indexed", "personal"]
+            .into_iter()
+            .filter(|m| flag(spec, m))
+            .map(String::from),
+    );
+    match spec.get("unique") {
+        Some(Value::Bool(true)) => marks.push("unique".into()),
+        Some(Value::String(s)) if s == "in_scope" => marks.push("unique in scope".into()),
+        Some(u @ Value::Object(o)) if o.contains_key("with") => {
+            marks.push(format!("unique with {}", strings(u, "with").join(", ")))
+        }
+        Some(u @ Value::Object(o)) if o.contains_key("where") => {
+            marks.push(format!("unique where {}", squash(&str_or(u, "where", ""))))
+        }
+        _ => {}
+    }
+    marks.iter().map(|m| format!(" {m}")).collect()
+}
+
+/// The first line an attribute is declared by in the internal form
+/// (`check-flows.py`'s `attribute_line`, outside an observation and with no
+/// module to tell an owner by).
+fn declared_as(name: &str, spec: &Value) -> String {
+    let q = if optional(spec) { "?" } else { "" };
+    if let Some(r) = spec.get("reference") {
+        let r = py_str(r);
+        let inverse = spec
+            .get("opposite")
+            .filter(|o| truthy(Some(o)))
+            .map(|o| format!(" inverse {}", py_str(o)))
+            .unwrap_or_default();
+        if str_or(spec, "aggregation", "") == "composite" {
+            return format!("part {name} : {r}{q}{inverse}");
+        }
+        let stored = if flag(spec, "stored") { " stored" } else { "" };
+        let assignee = if flag(spec, "assignee") {
+            " assignee"
+        } else {
+            ""
+        };
+        return format!(
+            "ref {name} : {r}{q}{inverse}{stored}{assignee}{}",
+            markings(spec)
+        );
+    }
+    let typ = str_or(spec, "type", "");
+    if typ == "counter" {
+        return format!("counter {name}{}", markings(spec));
+    }
+    let mut marks: Vec<String> = Vec::new();
+    if flag(spec, "actor_kind") {
+        marks.push(format!("actor {}", str_or(spec, "actor_kind", "")));
+    }
+    if let Some(ident) = spec.get("identifier").filter(|i| truthy(Some(i))) {
+        let scope = if flag(ident, "scope") {
+            format!(" scoped by {}", str_or(ident, "scope", ""))
+        } else {
+            String::new()
+        };
+        marks.push(format!(
+            "identifier from {}{scope} format \"{}\"",
+            str_or(ident, "sequence", ""),
+            str_or(ident, "format", "")
+        ));
+    }
+    let marks: String = marks.iter().map(|m| format!(" {m}")).collect();
+    format!("attr {name} {typ}{q}{marks}{}", markings(spec))
 }

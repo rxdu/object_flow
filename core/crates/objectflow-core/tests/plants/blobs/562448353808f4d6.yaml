@@ -69,6 +69,12 @@ examples:
     request: { object: delivery, transition: cancel }
     expect: { verdict: applied, state: CANCELLED, cascaded: [ChecklistItem.discard, ChecklistItem.discard] }
 
+  a_checklist_item_is_added_only_by_opening_its_delivery:
+    description: An item joins a checklist only as its delivery is opened, so a request for one alone is not requestable, refused before the label it leaves out is looked at.
+    given: a_delivery_being_prepared
+    request: { type: ChecklistItem, transition: add, inputs: { delivery: delivery } }
+    expect: { verdict: not_requestable }
+
   an_approved_delivery_is_handed_over:
     description: Completing a signed-off delivery with a courier hands the item over, which delivers it externally at the delivery's price.
     given: an_approved_delivery_with_a_courier
@@ -80,7 +86,7 @@ examples:
     given: an_approved_delivery_with_a_courier
     steps:
       - request: { type: Agent, transition: issue, as: scout, inputs: { key_id: scout, name: Scout } }
-      - propose: { object: delivery, transition: complete, actor: scout, proposal: handover }
+      - propose: { object: delivery, transition: approve, actor: scout, proposal: handover }
     approve: { proposal: handover }
     expect: { verdict: applied, state: DELIVERED, cascaded: [InventoryItem.deliver_externally], proposal: executed }
 
@@ -94,7 +100,7 @@ examples:
       - request: { type: Agent, transition: issue, as: scout, inputs: { key_id: scout, name: Scout } }
       - propose: { object: delivery, transition: complete, actor: scout, proposal: handover }
     approve: { proposal: handover }
-    expect: { verdict: applied, state: DELIVERED, proposal: executed }
+    expect: { verdict: unsatisfied, clause: signed_off, remedy: delegable, proposal: pending }
 
   a_rejected_proposal_is_not_approved:
     description: A proposal someone rejected is ended, so approving it later is refused and nothing is handed over.
@@ -105,6 +111,16 @@ examples:
       - reject: { proposal: handover }
     approve: { proposal: handover }
     expect: { verdict: unavailable, proposal: rejected }
+
+  a_withdrawn_proposal_is_not_approved:
+    description: A proposal its proposer withdrew is ended as a rejected one is, so approving it later is refused and nothing is handed over.
+    given: an_approved_delivery_with_a_courier
+    steps:
+      - request: { type: Agent, transition: issue, as: scout, inputs: { key_id: scout, name: Scout } }
+      - propose: { object: delivery, transition: complete, actor: scout, proposal: handover }
+      - withdraw: { proposal: handover, actor: scout }
+    approve: { proposal: handover }
+    expect: { verdict: unavailable, proposal: withdrawn }
 
   an_unapproved_delivery_is_not_handed_over:
     description: Without a sign-off the delivery is not completed, and the caller asks someone to approve it.

@@ -167,7 +167,7 @@
    ],
    [
     "delivery.examples.yaml",
-    "017f9fc5af32ae89"
+    "328d686e77fe22c9"
    ]
   ],
   "previous": {},
@@ -177,7 +177,7 @@
     43,
     "notice",
     "coverage",
-    "no example requests 9 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.add, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+    "no example requests 8 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
    ],
    [
     "inventory.yaml",
@@ -4543,7 +4543,7 @@
    ],
    [
     "module.examples.yaml",
-    "3dcab55140ddf6dd"
+    "4bc171aa18d2e771"
    ]
   ],
   "previous": {},
@@ -4560,11 +4560,11 @@
     43,
     "notice",
     "coverage",
-    "no example requests 9 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.add, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+    "no example requests 8 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
    ],
    [
     "module.examples.yaml",
-    138,
+    154,
     "fatal",
     "example",
     "ticking_after_the_sign_off_makes_it_stale: expected the request to apply, and it is refused as unsatisfied signed_off delegable"
@@ -4588,7 +4588,7 @@
    ],
    [
     "module.examples.yaml",
-    "151b206928bb36b1"
+    "4f28bc300edbfaf5"
    ]
   ],
   "previous": {},
@@ -4605,7 +4605,7 @@
     43,
     "notice",
     "coverage",
-    "no example requests 9 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.add, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+    "no example requests 8 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
    ],
    [
     "module.examples.yaml",
@@ -4616,31 +4616,76 @@
    ],
    [
     "module.examples.yaml",
-    119,
+    72,
+    "fatal",
+    "example",
+    "a_checklist_item_is_added_only_by_opening_its_delivery: a step names 3 objects its request creates, and it creates 2"
+   ],
+   [
+    "module.examples.yaml",
+    135,
     "fatal",
     "example",
     "a_ticked_and_signed_off_delivery_is_handed_over: a step names 3 objects its request creates, and it creates 2"
    ],
    [
     "module.examples.yaml",
-    127,
+    143,
     "fatal",
     "example",
     "an_open_checklist_item_holds_the_delivery: a step names 3 objects its request creates, and it creates 2"
    ],
    [
     "module.examples.yaml",
-    138,
+    154,
     "fatal",
     "example",
     "ticking_after_the_sign_off_makes_it_stale: a step names 3 objects its request creates, and it creates 2"
    ],
    [
     "module.examples.yaml",
-    150,
+    166,
     "fatal",
     "example",
     "a_sign_off_after_the_ticks_is_current: a step names 3 objects its request creates, and it creates 2"
+   ]
+  ]
+ },
+ {
+  "label": "inventory_plants: a setup's step requesting a transition only via another",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "module.yaml",
+    "1841ab5c17e6f077"
+   ],
+   [
+    "module.examples.yaml",
+    "64440fccf168ef91"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "module.examples.yaml",
+    29,
+    "fatal",
+    "names",
+    "a setup's step must apply, and ChecklistItem.discard is only via Delivery.cancel, so a direct request is not requestable"
    ]
   ]
  },
@@ -4661,7 +4706,7 @@
    ],
    [
     "module.examples.yaml",
-    "f684f96df142bcce"
+    "9cf43a12a726512a"
    ]
   ],
   "previous": {},
@@ -4795,6 +4840,980 @@
     "fatal",
     "example",
     "a_negative_receipt_is_refused: expected the remedy unreachable_from_here, and it is refused as invariant_violated reserved_bounded self_serviceable"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: examples for a module not checked",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "f89caa1f10b14baf"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    3,
+    "fatal",
+    "names",
+    "examples for services, which is not among the modules checked"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: an examples file's keys out of order",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "ae0f2cb4c14b962e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    3,
+    "fatal",
+    "order",
+    "an examples file declares, in this order, examples_for, setups, examples"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a stub of a function no evaluator declares",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "f5c1087b62e341e0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    23,
+    "fatal",
+    "names",
+    "stubs nowhere.check, which no module checked declares as an evaluator's function"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a set of references given as one alias",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "da14d1a1bbd0c575"
+   ],
+   [
+    "service.examples.yaml",
+    "3aff9a8ff7b70801"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    35,
+    "fatal",
+    "names",
+    "'helpers' is a set of User, given as a list of aliases"
+   ],
+   [
+    "service.yaml",
+    105,
+    "fatal",
+    "names",
+    "ServiceJob.reassign's input 'helpers' is a set, which is never optional: an empty set is supplied instead"
+   ],
+   [
+    "service.yaml",
+    125,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: an actor kind written as a name",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "da14d1a1bbd0c575"
+   ],
+   [
+    "service.examples.yaml",
+    "634dfc4504f120f0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    35,
+    "fatal",
+    "names",
+    "'seen_by' is an actor_kind, written bare as human, agent or service"
+   ],
+   [
+    "service.yaml",
+    105,
+    "fatal",
+    "names",
+    "ServiceJob.reassign's input 'helpers' is a set, which is never optional: an empty set is supplied instead"
+   ],
+   [
+    "service.yaml",
+    125,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a bool written as a word",
+  "files": [
+   [
+    "servicedesk.yaml",
+    "99ac20951a5add57"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    "e569cd7c107ab8f1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.examples.yaml",
+    38,
+    "fatal",
+    "names",
+    "'major' is a bool"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: an int written as a word",
+  "files": [
+   [
+    "servicedesk.yaml",
+    "99ac20951a5add57"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    "5a0f275ac0f7b790"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.examples.yaml",
+    29,
+    "fatal",
+    "names",
+    "'tier' is an int"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a creation of a type no module declares",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "b12a5e0471237962"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    23,
+    "fatal",
+    "names",
+    "creates a ServiceJobs, which no module checked declares as a type"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a creation of an abstract type",
+  "files": [
+   [
+    "servicedesk.yaml",
+    "99ac20951a5add57"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    "e8b829120b50628f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.examples.yaml",
+    288,
+    "fatal",
+    "names",
+    "creates a Asset, which is abstract and has no objects"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a creation requested on an object",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "516d978468ce3a3a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    30,
+    "fatal",
+    "names",
+    "User.add is a creation, requested with the type"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a transition of an object requested as a creation",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "12676d68d4ba8457"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    30,
+    "fatal",
+    "names",
+    "User.leave is requested on an object, named by its alias"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a target state an assertion cannot put its object in",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "03ff7e8dd386a6be"
+   ],
+   [
+    "customers.examples.yaml",
+    "b0cb62ae0f23ecf1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.examples.yaml",
+    31,
+    "fatal",
+    "names",
+    "'NOWHERE' is not a state Customer.correct_state may put an object in"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: an alias given twice",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "f8476109e2c99b2b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    10,
+    "fatal",
+    "names",
+    "'ana' is already an alias"
+   ],
+   [
+    "service.examples.yaml",
+    30,
+    "fatal",
+    "names",
+    "acts on 'ben', which no earlier step gave as an alias"
+   ],
+   [
+    "service.examples.yaml",
+    35,
+    "fatal",
+    "names",
+    "'engineer' is a reference to User, and 'ben' is not an alias an earlier step gave one"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a setup given itself",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "337b514d44f1e323"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    7,
+    "fatal",
+    "names",
+    "setup two_engineers is given, through others, itself"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a setup given one declared after it",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "777e69bfaeb151e1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    7,
+    "fatal",
+    "order",
+    "is given the setup job_in_progress, declared after it; a setup is given one declared before it"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: objects named as the request under test creates them",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "0065376fdd4cec8f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    23,
+    "fatal",
+    "names",
+    "the request under test names no objects it creates, since no step follows it"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a proposal's state expected of a request",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "79b068bb2b84c61f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    24,
+    "fatal",
+    "names",
+    "only an approval leaves a proposal to state"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: an applied request naming a clause",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "bea11cc222dbad63"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    24,
+    "fatal",
+    "names",
+    "an applied request names no clause"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: an applied request with no state",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "0ce8aacfb6ece940"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    24,
+    "fatal",
+    "names",
+    "an applied request's example states the state its object reaches"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a value of an attribute the type does not declare",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "23a2318c08aee3da"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    66,
+    "fatal",
+    "names",
+    "ServiceJob declares no attribute 'signed_by'"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a cascade to a transition no module declares",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "565acee5b738e682"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    24,
+    "fatal",
+    "names",
+    "ServiceJob.close names no transition a module checked declares"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a warning by a condition of no type",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "d7dcc155cf057250"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    24,
+    "fatal",
+    "names",
+    "Nothing.quiet names no condition of a type a module checked declares"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a refused request expected to leave a state",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "35941eb1c2b0f591"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    36,
+    "fatal",
+    "names",
+    "a request refused as unsatisfied leaves no state to state"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a refused request naming no clause",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "9005090467d30b30"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    36,
+    "fatal",
+    "names",
+    "an unsatisfied request's example names the clause that refuses it and its remedy"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a request not only via others, expected to be not requestable",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "a2e1059a47c0d43b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    24,
+    "fatal",
+    "names",
+    "ServiceJob.open is not only via others, so it is never refused as not_requestable"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a violated invariant not named",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "f523dc235cea10a7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    36,
+    "fatal",
+    "names",
+    "an invariant_violated request's example names the invariant"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a violated invariant the type does not declare",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "4c3a78b68bcbb762"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    36,
+    "fatal",
+    "names",
+    "always_right is not an invariant of ServiceJob"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: a refused call naming no clause of a type",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "c24b7875dad5aebb"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    36,
+    "fatal",
+    "names",
+    "nothing is not a condition, invariant or generated guard of a type, written <Type>.<clause>"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ]
+ },
+ {
+  "label": "example_rule_plants: invalid input naming a clause",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "71212bf281cb3dd2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    36,
+    "fatal",
+    "names",
+    "a request refused as invalid_input names no clause or remedy"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ]
  },
@@ -5379,21 +6398,21 @@
    ],
    [
     "delivery.examples.yaml",
-    "8859e97a4b49a8e8"
+    "562448353808f4d6"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "delivery.examples.yaml",
-    83,
+    89,
     "fatal",
     "names",
     "Delivery.approve is not proposable, so no proposal of it can be filed"
    ],
    [
     "delivery.examples.yaml",
-    85,
+    91,
     "fatal",
     "names",
     "Delivery.approve does not leave an object in DELIVERED"
@@ -5424,14 +6443,14 @@
    ],
    [
     "delivery.examples.yaml",
-    "16dbb5757c597ab2"
+    "d285cd25b75f31b3"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "delivery.examples.yaml",
-    84,
+    90,
     "fatal",
     "names",
     "decides 'handoff', which no earlier step filed as a proposal"
@@ -5462,14 +6481,14 @@
    ],
    [
     "delivery.examples.yaml",
-    "0e445283adcde15f"
+    "716536db628f03f5"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "delivery.examples.yaml",
-    85,
+    91,
     "fatal",
     "names",
     "an approval that applies leaves its proposal executed, not pending"
@@ -5500,7 +6519,7 @@
    ],
    [
     "delivery.examples.yaml",
-    "927a31f12783ea13"
+    "1dada653eeea267e"
    ]
   ],
   "previous": {},
@@ -5510,11 +6529,11 @@
     43,
     "notice",
     "coverage",
-    "no example requests 9 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.add, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+    "no example requests 8 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
    ],
    [
     "delivery.examples.yaml",
-    87,
+    93,
     "fatal",
     "example",
     "a_proposal_approved_too_soon_stays_pending: expected the request to apply, and it is refused as unsatisfied signed_off delegable"

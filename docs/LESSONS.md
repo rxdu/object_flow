@@ -350,3 +350,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** When a decision sets a rule for the steps along the way and another for the end, read them together at an intermediate step before recording it; where they conflict, say which governs.
 - **Context:** Sequencing clauses in ObjectFlow's ADRs; ADR-0156, 2026-10-05.
 
+### Measure a self-test's reach before trusting it as an oracle
+- **Pattern:** The core's port of the examples' checks agreed with the Python checker over every exported plant at the first run, and three of five mutations of the port went unnoticed: 30 of the 50 messages the reference's examples checks give were given by no plant, though its self-test's docstring said each rule was proven. An oracle of plants can only fail where a plant reaches.
+- **Correction:** When a port is held to a reference's plants, mutate each rule of the port and run the oracle; for each mutation that passes, add a plant to the reference that breaks the rule, or an example the design lacks where the rule is about what a valid file may say. Count the rules no finding exercises, by their messages, before calling the port held.
+- **Context:** The Rust core's checker against `scripts/check-flows.py` (ADR-0156 decision 4), `example_rule_plants`; found 2026-10-05.

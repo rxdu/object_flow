@@ -13,6 +13,7 @@
 
 mod data;
 mod doc;
+mod examples;
 mod lines;
 mod logic;
 mod migration;
@@ -119,7 +120,15 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
         let node = match crate::yaml::load(text) {
             Ok(n) => n,
             Err(e) => {
-                fatal(&mut found, e.line, "yaml", e.message);
+                let mut message = e.message;
+                if message == "mapping values are not allowed here" {
+                    // an aggregate's body, sum(x in c: body), puts ": " inside
+                    // a plain scalar
+                    message.push_str(
+                        "; a value containing a colon and a space, such as an aggregate's body, is quoted or written after >-",
+                    );
+                }
+                fatal(&mut found, e.line, "yaml", message);
                 continue;
             }
         };
@@ -310,14 +319,46 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
         modules.push((index, node, doc));
     }
     let all_parsed = parsed == files.len();
-    // the shape of each examples file (publish-and-import.md §1 step 1)
+    // each examples file's shape, then what it names against the modules
+    // checked (publish-and-import.md §1 step 1, flow-format.md §11)
+    let by_name: BTreeMap<String, Value> = modules
+        .iter()
+        .map(|(_, _, d)| (doc::str_or(d, "module", ""), d.clone()))
+        .collect();
     for (file, node, doc) in &examples_files {
-        for (path, message) in schema::examples_findings(&examples_schema, doc) {
+        let mut errors: Vec<(doc::Path, String, String)> =
+            schema::examples_findings(&examples_schema, doc)
+                .into_iter()
+                .map(|(path, message)| (path, "schema".to_string(), message))
+                .collect();
+        if errors.is_empty() {
+            let (named, requested) = examples::example_errors(doc, &library, &by_name);
+            if named.is_empty() {
+                let module = doc::str_or(doc, "examples_for", "");
+                let left = examples::uncovered(&by_name[&module], &library, &requested);
+                if !left.is_empty() {
+                    found.push(Finding {
+                        file: file.clone(),
+                        line: node.line_at(&[crate::yaml::Seg::Key("examples".into())]),
+                        severity: Severity::Notice,
+                        code: "coverage".into(),
+                        message: format!(
+                            "no example requests {} transition{} of {module}: {}",
+                            left.len(),
+                            if left.len() == 1 { "" } else { "s" },
+                            left.join(", ")
+                        ),
+                    });
+                }
+            }
+            errors = named;
+        }
+        for (path, code, message) in errors {
             found.push(Finding {
                 file: file.clone(),
                 line: node.line_at(&path),
                 severity: Severity::Fatal,
-                code: "schema".into(),
+                code,
                 message,
             });
         }

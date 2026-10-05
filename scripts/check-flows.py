@@ -4134,6 +4134,102 @@ def examples_self_test(people, service, examples):
     return ok
 
 
+def example_rule_plants():
+    """The rules of §11 the plants above leave unproven, each proven by planting a mistake that breaks it: one plant a
+    rule, in the examples of the module it needs, with the module given an input of a kind none of its transitions
+    takes where the rule needs one."""
+    ok = True
+    read = lambda n: (EXAMPLES / n).read_text()
+    service = ["people.yaml", "service.yaml", "service.examples.yaml"]
+    opens = "    request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }\n    expect: { verdict: applied, state: OPEN }"
+    refused = "    expect: { verdict: unsatisfied, clause: engineer_active, remedy: self_serviceable }"
+    leave = "      - request: { object: ben, transition: leave }"
+    reassigned = "inputs: { engineer: ben, reason: ReassignmentReason.WORKLOAD }"
+    # optional inputs of a set of references and of an actor kind, for the rules on the values written for them
+    inputs = ("          reason: { type: ReassignmentReason }\n",
+              "          reason: { type: ReassignmentReason }\n          helpers: { reference: \"User[]\", optional: true }\n"
+              "          seen_by: { type: actor_kind, optional: true }\n")
+    plants = [
+        ("examples for a module not checked", "names", "not among the modules checked", service,
+         [("service.examples.yaml", "examples_for: service\n", "examples_for: services\n")]),
+        ("an examples file's keys out of order", "order", "in this order", service,
+         [("service.examples.yaml", "examples_for: service\n\nsetups:", "setups:"),
+          ("service.examples.yaml", "\nexamples:\n", "\nexamples_for: service\nexamples:\n")]),
+        ("a stub of a function no evaluator declares", "names", "as an evaluator's function", service,
+         [("service.examples.yaml", opens, "    evaluators: { nowhere.check: satisfied }\n" + opens)]),
+        ("a set of references given as one alias", "names", "given as a list of aliases", service,
+         [("service.yaml",) + inputs, ("service.examples.yaml", reassigned, reassigned[:-2] + ", helpers: ana }")]),
+        ("an actor kind written as a name", "names", "is an actor_kind", service,
+         [("service.yaml",) + inputs, ("service.examples.yaml", reassigned, reassigned[:-2] + ", seen_by: robot }")]),
+        ("a bool written as a word", "names", "' is a bool", ["servicedesk.yaml", "servicedesk.examples.yaml"],
+         [("servicedesk.examples.yaml", "major: false, responders: [oncall-1] }", "major: maybe, responders: [oncall-1] }")]),
+        ("an int written as a word", "names", "' is an int", ["servicedesk.yaml", "servicedesk.examples.yaml"],
+         [("servicedesk.examples.yaml", "inputs: { name: Payments, tier: 1,", "inputs: { name: Payments, tier: one,")]),
+        ("a creation of a type no module declares", "names", "as a type", service,
+         [("service.examples.yaml", opens, opens.replace("type: ServiceJob,", "type: ServiceJobs,"))]),
+        ("a creation of an abstract type", "names", "which is abstract", ["servicedesk.yaml", "servicedesk.examples.yaml"],
+         [("servicedesk.examples.yaml", "request: { type: Server, transition: receive, inputs: { name: db-01 } }",
+           "request: { type: Asset, transition: receive, inputs: { name: db-01 } }")]),
+        ("a creation requested on an object", "names", "is a creation, requested with the type", service,
+         [("service.examples.yaml", leave, "      - request: { object: ben, transition: add, inputs: { login: bob, name: Bob } }")]),
+        ("a transition of an object requested as a creation", "names", "is requested on an object", service,
+         [("service.examples.yaml", leave, "      - request: { type: User, transition: leave }")]),
+        ("a target state an assertion cannot put its object in", "names", "may put an object in",
+         ["people.yaml", "customers.yaml", "customers.examples.yaml"],
+         [("customers.examples.yaml", "transition: correct_state, inputs: { to: ACTIVE, reason: OverrideReason.MIS_KEYED } }",
+           "transition: correct_state, inputs: { to: NOWHERE, reason: OverrideReason.MIS_KEYED } }")]),
+        ("an alias given twice", "names", "is already an alias", service,
+         [("service.examples.yaml", "as: ben, inputs: { login: ben,", "as: ana, inputs: { login: ben,")]),
+        ("a setup given itself", "names", "is given, through others, itself", service,
+         [("service.examples.yaml", "  two_engineers:\n    description:", "  two_engineers:\n    given: two_engineers\n    description:")]),
+        ("a setup given one declared after it", "order", "declared after it", service,
+         [("service.examples.yaml", "  two_engineers:\n    description:", "  two_engineers:\n    given: job_in_progress\n    description:")]),
+        ("objects named as the request under test creates them", "names", "since no step follows it", service,
+         [("service.examples.yaml", opens, opens.replace("inputs: { engineer: ana } }", "inputs: { engineer: ana }, creates: [extra] }"))]),
+        ("a proposal's state expected of a request", "names", "only an approval leaves a proposal", service,
+         [("service.examples.yaml", opens, opens.replace("state: OPEN }", "state: OPEN, proposal: executed }"))]),
+        ("an applied request naming a clause", "names", "an applied request names no clause", service,
+         [("service.examples.yaml", opens, opens.replace("state: OPEN }", "state: OPEN, clause: engineer_active }"))]),
+        ("an applied request with no state", "names", "states the state its object reaches", service,
+         [("service.examples.yaml", opens, opens.replace("verdict: applied, state: OPEN }", "verdict: applied }"))]),
+        ("a value of an attribute the type does not declare", "names", "declares no attribute", service,
+         [("service.examples.yaml", "values: { signed_off_by_user: ana }", "values: { signed_by: ana }")]),
+        ("a cascade to a transition no module declares", "names", "names no transition a module checked declares", service,
+         [("service.examples.yaml", opens, opens.replace("state: OPEN }", "state: OPEN, cascaded: [ServiceJob.close] }"))]),
+        ("a warning by a condition of no type", "names", "names no condition of a type", service,
+         [("service.examples.yaml", opens, opens.replace("state: OPEN }", "state: OPEN, warned: [Nothing.quiet] }"))]),
+        ("a refused request expected to leave a state", "names", "leaves no state to state", service,
+         [("service.examples.yaml", refused, refused[:-2] + ", state: OPEN }")]),
+        ("a refused request naming no clause", "names", "names the clause that refuses it", service,
+         [("service.examples.yaml", refused, "    expect: { verdict: unsatisfied }")]),
+        ("a request not only via others, expected to be not requestable", "names", "never refused as not_requestable", service,
+         [("service.examples.yaml", opens, opens.replace("verdict: applied, state: OPEN }", "verdict: not_requestable }"))]),
+        ("a violated invariant not named", "names", "names the invariant", service,
+         [("service.examples.yaml", refused, "    expect: { verdict: invariant_violated }")]),
+        ("a violated invariant the type does not declare", "names", "is not an invariant of", service,
+         [("service.examples.yaml", refused, "    expect: { verdict: invariant_violated, clause: always_right }")]),
+        ("a refused call naming no clause of a type", "names", "is not a condition, invariant or generated guard", service,
+         [("service.examples.yaml", refused, "    expect: { verdict: call_refused, clause: nothing }")]),
+        ("invalid input naming a clause", "names", "names no clause or remedy", service,
+         [("service.examples.yaml", refused, "    expect: { verdict: invalid_input, clause: engineer_active }")]),
+    ]
+    for name, code, words, files, edits in plants:
+        texts = {f: read(f) for f in files}
+        planted = True
+        for f, old, new in edits:
+            planted &= texts[f].count(old) == 1
+            texts[f] = texts[f].replace(old, new, 1)
+        if not planted:
+            print(f"  planted {name}: NOT PLANTED, a file no longer has the text it replaces")
+            ok = False
+            continue
+        found, _notes = check([(f, texts[f]) for f in files])
+        hit = [x for x in found if x[3] == code and words in x[4]]
+        ok &= bool(hit)
+        print(f"  planted {name}: {'caught by ' + code + ', at ' + hit[0][0] + ':' + str(hit[0][1]) + ' ' + hit[0][4][:70] if hit else 'MISSED ' + str(found[:2])}")
+    return ok
+
+
 def logic_plants(people, service):
     """Step 2's grammar and step 5's analysis, each shown on the service example by planting what it refuses."""
     ok = True
@@ -4229,6 +4325,9 @@ def inventory_plants(people):
          stale + "    expect: { verdict: applied, state: DELIVERED }"),
         ("a step naming more objects than its request creates", "example", delivery, dex,
          "creates: [battery, manual]", "creates: [battery, manual, spare]"),
+        ("a setup's step requesting a transition only via another", "names", delivery, dex,
+         "      - request: { object: battery, transition: check }\n      - request: { object: manual, transition: check }\n      - request: { type: Courier",
+         "      - request: { object: battery, transition: discard }\n      - request: { object: manual, transition: check }\n      - request: { type: Courier"),
         ("a step naming objects a transition that creates none creates", "names", delivery, dex,
          "      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier } }\n\n  an_approved",
          "      - request: { object: delivery, transition: assign_courier, inputs: { courier: courier }, creates: [slip] }\n\n  an_approved"),
@@ -4862,6 +4961,7 @@ def main():
     ok &= runner_plants(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text())
     ok &= examples_self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "service.examples.yaml").read_text())
     ok &= inventory_plants(people)
+    ok &= example_rule_plants()
     ok &= unknown_plants(people)
     ok &= reference_plants(people)
     ok &= split_plants(people)

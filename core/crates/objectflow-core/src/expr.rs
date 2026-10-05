@@ -118,14 +118,41 @@ pub struct ParseError {
     pub message: String,
 }
 
+/// A string quoted as Python's `repr` quotes it, which the reference
+/// parser's messages use: single quotes, unless the text holds one and no
+/// double quote.
+pub fn py_repr(text: &str) -> String {
+    let quote = if text.contains('\'') && !text.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut out = String::from(quote);
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c == quote => {
+                out.push('\\');
+                out.push(c);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push(quote);
+    out
+}
+
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}, at {} of {:?}",
+            "{}, at {} of {}",
             self.message,
             self.pos + 1,
-            self.text
+            py_repr(&self.text)
         )
     }
 }
@@ -190,7 +217,10 @@ fn tokenize(text: &str) -> Result<Vec<Token>, ParseError> {
                 i += 1;
             }
             if i >= chars.len() {
-                return Err(fail(start, format!("unexpected character {c:?}")));
+                return Err(fail(
+                    start,
+                    format!("unexpected character {}", py_repr(&c.to_string())),
+                ));
             }
             i += 1;
             out.push(Token {
@@ -247,7 +277,10 @@ fn tokenize(text: &str) -> Result<Vec<Token>, ParseError> {
             });
             continue;
         }
-        return Err(fail(start, format!("unexpected character {c:?}")));
+        return Err(fail(
+            start,
+            format!("unexpected character {}", py_repr(&c.to_string())),
+        ));
     }
     out.push(Token {
         kind: Kind::End,
@@ -299,7 +332,7 @@ impl Parser {
     }
 
     fn fail<T>(&self, what: &str) -> Parsed<T> {
-        Err(self.error(format!("{what}, found {:?}", self.found())))
+        Err(self.error(format!("{what}, found {}", py_repr(&self.found()))))
     }
 
     fn take(&mut self) -> Token {
@@ -310,7 +343,11 @@ impl Parser {
 
     fn expect(&mut self, value: &str) -> Parsed<Token> {
         if !self.at(value, 0) {
-            return Err(self.error(format!("expected {value:?}, found {:?}", self.found())));
+            return Err(self.error(format!(
+                "expected {}, found {}",
+                py_repr(value),
+                py_repr(&self.found())
+            )));
         }
         Ok(self.take())
     }
