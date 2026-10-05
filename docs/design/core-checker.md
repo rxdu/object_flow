@@ -9,7 +9,7 @@ Draft, 2026-10-05. How the Rust core checks a flow description before it publish
 | 1, 2: the strict load and the schemas | each file as written | `yaml`, `schema`, `syntax` | C1, done |
 | 3: imports, names and relationships, migrations, notices | each module through its view, machines and bases merged in | `imports`, `names`, `order`, `required`, `migration`, `metric`, `audit`, `warn`, `self_serviceable`, `unknown`, `before` | C1, done |
 | the names an examples file uses | each examples file against its module | `names`, `coverage` | C4 |
-| 4: the sixty-four checks | every module converted to the internal form, one text | `check <n>` | C2 |
+| 4: the sixty-four checks | every module converted to the internal form, one text | `check <n>` | C2, done |
 | 5: contradictions within one type | each type of the view | `contradiction`, `neverpasses` | C3 |
 | 6: the examples | each examples file, run | `example`, `notrun` | C4 |
 
@@ -92,4 +92,4 @@ Each check is one of four kinds. A *model* check refuses a declaration whatever 
 
 The design's modules and step 3's plants exercised four of the text checker's checks (7, 31, 53 and 64), since its own fixtures are in the internal form, which the core does not read. So `check-flows.py`'s self-test gained `syntax_plants`, 31 plants on six small modules each clean under every step, each changing one thing and caught at step 4 by the check it plants: 8, 11, 13, 15 (four ways), 17, 18, 20, 31 (two), 34, 40, 41, 54 (two), 56 (five), 57, 58 (two), 59 (three), 61, 62 and 64. The oracle holds the core to them by file, line and code. A check's line is the line of the YAML its finding stands for: the type, the state, the transition, the attribute or the clause the text checker reports at, through the conversion's map from each text line to the YAML it came from.
 
-Planting found three clauses YAML cannot bring to step 4, each caught earlier (2026-10-05): a call or create missing a required argument (check 2) is step 3's, a comparison with a bare `null` (check 21) is refused by the expression parser, and `time_in` of an undeclared state (check 58) is refused by step 3 as an unqualified name. The core's port of those clauses is held only by the absence of extra findings over every plant.
+C2 is done (2026-10-05): the core runs every model check the text checker enforces, each read from the YAML's meaning, and all 36 step-4 findings over the 245 exported checks agree, with no extra one. Planting found three clauses YAML cannot bring to step 4, each caught earlier (2026-10-05): a call or create missing a required argument (check 2) is step 3's, a comparison with a bare `null` (check 21) is refused by the expression parser, and `time_in` of an undeclared state (check 58) is refused by step 3 as an unqualified name. The core's port of those clauses is held only by the absence of extra findings over every plant.

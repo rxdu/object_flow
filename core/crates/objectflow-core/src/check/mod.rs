@@ -2,15 +2,20 @@
 //! flow description, run by the engine, held to the Python checker's
 //! findings over every design module and every plant of its self-test.
 //!
-//! It runs the checker's steps 1 to 3: each file loaded strictly, checked
+//! It runs the checker's steps 1 to 4: each file loaded strictly, checked
 //! against the schema, its YAML literals given their expression text, every
-//! expression parsed, its imports and the names its closure declares, and
-//! the names and relationships of the module, with its migration's rules
-//! and its checks against the previous version. The sixty-four checks, the
-//! contradictions within a type and the examples follow (`TODO.md`).
+//! expression parsed, its imports and the names its closure declares, the
+//! names and relationships of the module, with its migration's rules and its
+//! checks against the previous version, and the sixty-four checks of
+//! `declaration-syntax.md` §10 on the core's reading of the modules. The
+//! contradictions within a type and the examples follow (`TODO.md`,
+//! `docs/design/core-checker.md`).
 
+mod data;
 mod doc;
+mod lines;
 mod migration;
+mod model;
 mod names;
 mod notices;
 mod optional;
@@ -92,11 +97,15 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
         }
     };
     let mut examples_files = Vec::new();
+    // each module that reached the end of step 3, for step 4: its file's
+    // index, its tree and its document
+    let mut modules: Vec<(usize, crate::yaml::Node, Value)> = Vec::new();
+    let mut parsed = 0usize;
     let mut declared: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     // every type of the modules checked so far, as the view holds it
     let mut library = doc::Obj::new();
     let mut uses: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for (file, text) in files {
+    for (index, (file, text)) in files.iter().enumerate() {
         let fatal = |found: &mut Vec<Finding>, line: usize, code: &str, message: String| {
             found.push(Finding {
                 file: file.clone(),
@@ -113,6 +122,7 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
                 continue;
             }
         };
+        parsed += 1;
         let mut doc = schema::typed(&node);
         if doc.get("examples_for").is_some() {
             // an examples file is checked once every module is (flow-format.md §11)
@@ -296,7 +306,9 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
                 notice(&mut found, node.line_at(&p), code, message);
             }
         }
+        modules.push((index, node, doc));
     }
+    let all_parsed = parsed == files.len();
     // the shape of each examples file (publish-and-import.md §1 step 1)
     for (file, node, doc) in &examples_files {
         for (path, message) in schema::examples_findings(&examples_schema, doc) {
@@ -307,6 +319,32 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
                 code: "schema".into(),
                 message,
             });
+        }
+    }
+    // step 4, the sixty-four checks, once no file has a fatal finding and
+    // every file loaded, over every module together (ADR-0156 decision 1)
+    if all_parsed && !found.iter().any(|f| f.severity == Severity::Fatal) {
+        let docs: Vec<Value> = modules.iter().map(|(_, _, d)| d.clone()).collect();
+        let mut fours: Vec<(usize, usize, u32, String)> = model::checks(&docs)
+            .into_iter()
+            .map(|f| {
+                let (index, node, _) = &modules[f.module];
+                (*index, node.line_at(&f.path), f.check, f.message)
+            })
+            .collect();
+        // the text checker reports a check's words once, at the first line
+        fours.sort();
+        let mut said = BTreeSet::new();
+        for (index, line, check, message) in fours {
+            if said.insert((check, message.clone())) {
+                found.push(Finding {
+                    file: files[index].0.clone(),
+                    line,
+                    severity: Severity::Fatal,
+                    code: format!("check {check}"),
+                    message,
+                });
+            }
         }
     }
     found
