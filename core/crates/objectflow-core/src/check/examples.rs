@@ -19,6 +19,10 @@ use super::doc::{
 use super::steps::{kind, required_input_names, sources, taken, targets};
 use super::view::bases;
 
+/// Each transition an examples file's examples request, as its type and
+/// name, with the examples that request it, in the order written.
+pub type Requested = BTreeMap<(String, String), Vec<String>>;
+
 const EXAMPLES_ORDER: &[&str] = &["examples_for", "setups", "examples"];
 const GENERATED_GUARDS: &[&str] = &[
     "actor_known",
@@ -576,7 +580,7 @@ pub fn example_errors(
     doc: &Value,
     library: &Obj,
     modules: &BTreeMap<String, Value>,
-) -> (Found, BTreeSet<(String, String)>) {
+) -> (Found, Requested) {
     let module = str_or(doc, "examples_for", "");
     if !modules.contains_key(&module) {
         return (
@@ -585,7 +589,7 @@ pub fn example_errors(
                 "names",
                 format!("examples for {module}, which is not among the modules checked"),
             )],
-            BTreeSet::new(),
+            Requested::new(),
         );
     }
     // an observation kind is recorded by its generated creation, `record`
@@ -747,7 +751,7 @@ pub fn example_errors(
     for name in &order {
         env_of(&mut c, name, &mut Vec::new(), &setups, &order, &mut envs);
     }
-    let mut requested: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut requested: Requested = BTreeMap::new();
     for (name, ex) in obj(doc, "examples").clone() {
         let at = segs!["examples", &name];
         let mut env = BTreeMap::new();
@@ -845,7 +849,10 @@ pub fn example_errors(
             str_or(ex.get("request").unwrap_or(&Value::Null), "transition", "")
         };
         let (tn, x) = (resolved.tn.clone(), resolved.x.clone());
-        requested.insert((tn.clone(), xn.clone()));
+        requested
+            .entry((tn.clone(), xn.clone()))
+            .or_default()
+            .push(name.clone());
         expect_errors(
             &mut c,
             &want,
@@ -1143,7 +1150,7 @@ fn expect_errors(
 
 /// The transitions of the examined module's types that no example requests,
 /// a bound machine's counted for each type that binds it.
-pub fn uncovered(mdoc: &Value, kinds: &Obj, requested: &BTreeSet<(String, String)>) -> Vec<String> {
+pub fn uncovered(mdoc: &Value, kinds: &Obj, requested: &Requested) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for tn in keys(mdoc, "types") {
         let Some(t) = kinds.get(&tn) else { continue };
@@ -1151,7 +1158,7 @@ pub fn uncovered(mdoc: &Value, kinds: &Obj, requested: &BTreeSet<(String, String
             continue;
         }
         for xn in keys(t, "transitions") {
-            if !requested.contains(&(tn.clone(), xn.clone())) {
+            if !requested.contains_key(&(tn.clone(), xn.clone())) {
                 out.push(format!("{tn}.{xn}"));
             }
         }

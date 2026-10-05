@@ -3357,7 +3357,7 @@ def check(files, previous=None, analysed=None):
     """Findings and notices over modules given in import order, as (file, line,
     severity, code, message); previous maps a file to the text of the version
     before it, against which its migration is checked. `analysed`, if given, is
-    filled with each module's count of guard conditions step 5 decided in full,
+    filled with each type's count of guard conditions step 5 decided in full,
     against all it read, which the publish report carries (ADR-0137)."""
     found, notes, loaded, library, declared, uses = [], [], [], {}, {}, {}
     modules, example_files = {}, []
@@ -3452,17 +3452,16 @@ def check(files, previous=None, analysed=None):
         # step 5: conditions within one type that can never hold together (ADR-0131 decisions 7 to 9, ADR-0137)
         enums = {n: list(v) for m in modules.values() for n, v in (m.get("enumerations") or {}).items()}
         for f, _t, idx, doc in loaded:
-            whole = total = 0
             for tn in doc.get("types") or {}:
                 t = library.get(tn) or {}
                 if t.get("abstract"):
                     continue
-                results, w, n = flowlogic.analyse_type(tn, t, enums)
-                whole, total = whole + w, total + n
+                results, whole, total = flowlogic.analyse_type(tn, t, enums)
+                # for each type, the figure the publish report carries (ADR-0137 decision 3)
+                if analysed is not None:
+                    analysed[tn] = (whole, total)
                 for path, severity, code, msg in results:
                     (found if severity == "fatal" else notes).append((f, line_of(idx, path), severity, code, msg))
-            if analysed is not None:
-                analysed[doc["module"]] = (whole, total)
     if not found and example_files and len(loaded) + len(example_files) == len(files):
         # step 6: each example run against the rules by the reference runner (flow-format.md §11.5, ADR-0136)
         for f, idx, doc in example_files:
@@ -4858,18 +4857,19 @@ def digest_self_test():
 
 # ── the checks the self-test makes, exported for the core (ADR-0156 decision 4) ──
 PLANTS = ROOT / "core/crates/objectflow-core/tests/plants"
-RECORDED = []      # each check the run makes: its label, files, previous versions and findings
+RECORDED = []      # each check the run makes: its label, files, previous versions, findings and step 5's counts
 
 
 def recording(check):
     """`check`, recording each call with what it found, labelled by its caller and,
     where the caller names it, the plant (ADR-0156 decision 4)."""
     def recorded(files, previous=None, analysed=None):
-        found, notes = check(files, previous, analysed)
+        counts = {} if analysed is None else analysed
+        found, notes = check(files, previous, counts)
         caller = sys._getframe(1)
         name = caller.f_locals.get("name")
         label = caller.f_code.co_name + (f": {name}" if isinstance(name, str) else "")
-        RECORDED.append((label, list(files), dict(previous or {}), found, notes))
+        RECORDED.append((label, list(files), dict(previous or {}), found, notes, dict(counts)))
         return found, notes
     return recorded
 
@@ -4877,19 +4877,21 @@ def recording(check):
 def plants_export(recorded):
     """The recorded checks as the core's fixtures: each file's text once, under the
     start of its SHA-256, and per check its files in order, the previous versions,
-    and every finding and notice by file, line, severity, code and message."""
+    and every finding and notice by file, line, severity, code and message, with
+    each type's count of the guard conditions step 5 decided in full."""
     blobs, cases = {}, []
 
     def blob(text):
         key = hashlib.sha256(text.encode()).hexdigest()[:16]
         blobs[key] = text
         return key
-    for label, files, previous, found, notes in recorded:
+    for label, files, previous, found, notes, counts in recorded:
         cases.append({
             "label": label,
             "files": [[n, blob(t)] for n, t in files],
             "previous": {n: blob(t) for n, t in sorted(previous.items())},
             "findings": sorted([list(x) for x in found + notes]),
+            "analysed": {tn: list(c) for tn, c in sorted(counts.items())},
         })
     return json.dumps(cases, indent=1, ensure_ascii=False) + "\n", blobs
 
@@ -4947,9 +4949,9 @@ def main():
             print(f"examples: {len(ran)} run: {ran.count('passed')} passed, {ran.count('failed')} failed, "
                   f"{ran.count('not run')} not run" if ran else
                   "examples: none run, since step 6 runs only when every earlier step finds nothing fatal")
-        for module, (whole, total) in counts.items():
+        for tn, (whole, total) in counts.items():
             if total:
-                print(f"{module}: step 5 decided {whole} of {total} guard conditions in full; the rest read something outside "
+                print(f"{tn}: step 5 decided {whole} of {total} guard conditions in full; the rest read something outside "
                       "the type, such as another object, a metric or an evaluator, which it leaves open")
         sys.exit(1 if found else 0)
     # every function of this module calls check through the module's namespace

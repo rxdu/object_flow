@@ -56,6 +56,12 @@ pub struct PublishReport {
     pub source_ref: Option<String>,
     pub source_digest: Option<String>,
     pub proposals_invalidated: usize,
+    /// Per transition, `<Type>.<transition>`, the examples that request it,
+    /// applied and refused; reported, never required (ADR-0136).
+    pub examples: BTreeMap<String, Vec<String>>,
+    /// Per type, the guard conditions the contradiction analysis decided in
+    /// full, of all it read (ADR-0137).
+    pub analysed: BTreeMap<String, (usize, usize)>,
 }
 
 impl PublishReport {
@@ -134,10 +140,12 @@ pub fn report_json(r: &PublishReport) -> serde_json::Value {
         "source_digest": r.source_digest,
         "proposals_invalidated": r.proposals_invalidated,
         "affected": r.affected(),
+        "examples": r.examples,
+        "analysed": r.analysed,
         "not_computed": [
             "invariants", "sweepable", "unsweepable", "queryable_derives", "worst_case_fanout",
             "observed_fanout", "replaced_creations", "creations_past_first_state", "observing_clauses",
-            "flags", "person_dimensions", "examples", "analysed",
+            "flags", "person_dimensions",
         ],
     })
 }
@@ -168,11 +176,19 @@ pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRu
         source_ref: draft.source_ref.map(str::to_string),
         source_digest: draft.source_digest.map(str::to_string),
         proposals_invalidated: 0,
+        examples: BTreeMap::new(),
+        analysed: BTreeMap::new(),
     };
     // step 1, the checks and the examples (ADR-0156), each module against
     // the installed version of it
     let previous: BTreeMap<String, String> = old.source.iter().cloned().collect();
-    for f in crate::check::check(draft.source, &previous) {
+    let checks = crate::check::checked(draft.source, &previous);
+    let report = PublishReport {
+        examples: checks.examples,
+        analysed: checks.analysed,
+        ..report
+    };
+    for f in checks.findings {
         let severity = match f.severity {
             crate::check::Severity::Fatal => Severity::Fatal,
             crate::check::Severity::Notice => Severity::Notice,
@@ -1156,6 +1172,12 @@ types:
             .unwrap()
         };
         let r = with(&examples("{ verdict: applied, state: RETIRED }"));
+        // which example requests each transition, and what step 5 decided
+        assert_eq!(
+            r.examples.get("Robot.retire"),
+            Some(&vec!["a_graded_robot_is_retired".to_string()])
+        );
+        assert_eq!(r.analysed.get("Robot"), Some(&(1, 1)));
         assert!(
             r.findings.iter().all(|f| f.code != "example_failed"),
             "{:#?}",

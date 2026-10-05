@@ -69,10 +69,30 @@ const DECLARES: &[&str] = &[
     "types",
 ];
 
-/// The modules and examples files given, in import order, each with its
-/// name; `previous` maps a file to the text of the version before it.
+/// What the checks find, with the figures a publish report carries beside
+/// them (`publish-and-import.md` §2).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Checked {
+    pub findings: Vec<Finding>,
+    /// For each type step 5 analysed, the guard conditions it decided in
+    /// full and all it read (ADR-0137 decision 3).
+    pub analysed: BTreeMap<String, (usize, usize)>,
+    /// For each transition, `<Type>.<transition>`, the examples that
+    /// request it, applied or refused (ADR-0136).
+    pub examples: BTreeMap<String, Vec<String>>,
+}
+
+/// The findings over the modules and examples files given, in import
+/// order, each with its name; `previous` maps a file to the text of the
+/// version before it.
 pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) -> Vec<Finding> {
-    let mut found = Vec::new();
+    checked(files, previous).findings
+}
+
+/// The findings, with the figures beside them, over the files `check` takes.
+pub fn checked(files: &[(String, String)], previous: &BTreeMap<String, String>) -> Checked {
+    let mut out = Checked::default();
+    let found = &mut out.findings;
     let schema = match Schema::flow() {
         Ok(s) => s,
         Err(e) => {
@@ -83,7 +103,7 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
                 code: "schema".into(),
                 message: e.0,
             });
-            return found;
+            return out;
         }
     };
     let examples_schema = match Schema::examples() {
@@ -96,7 +116,7 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
                 code: "schema".into(),
                 message: e.0,
             });
-            return found;
+            return out;
         }
     };
     let mut examples_files = Vec::new();
@@ -129,7 +149,7 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
                         "; a value containing a colon and a space, such as an aggregate's body, is quoted or written after >-",
                     );
                 }
-                fatal(&mut found, e.line, "yaml", message);
+                fatal(found, e.line, "yaml", message);
                 continue;
             }
         };
@@ -143,7 +163,7 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
         let errors = schema::findings(&schema, &doc);
         if !errors.is_empty() {
             for (path, message) in errors {
-                fatal(&mut found, node.line_at(&path), "schema", message);
+                fatal(found, node.line_at(&path), "schema", message);
             }
             continue;
         }
@@ -153,7 +173,7 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
             if let Err(e) = crate::expr::parse(&text) {
                 bad = true;
                 fatal(
-                    &mut found,
+                    found,
                     node.line_at(&path),
                     "syntax",
                     format!("{e}: not an expression of declaration-syntax.md §8"),
@@ -205,7 +225,7 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
             for n in names {
                 if !theirs.contains(n) {
                     fatal(
-                        &mut found,
+                        found,
                         at,
                         "names",
                         format!("imports '{n}' from {m}, which does not declare it"),
@@ -245,7 +265,7 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
             for (n, kind) in &mine {
                 if theirs.contains(n) {
                     fatal(
-                        &mut found,
+                        found,
                         node.line_at(&[Seg::Key((*kind).to_string()), Seg::Key(n.clone())]),
                         "names",
                         format!(
@@ -276,7 +296,7 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
             .into_iter()
             .chain(migration::final_admission_notes(&doc, &v.doc))
         {
-            notice(&mut found, node.line_at(&p), code, message);
+            notice(found, node.line_at(&p), code, message);
         }
         let view_types = doc::obj(&v.doc, "types").clone();
         let fatal_found = raw::order_errors(&doc)
@@ -302,7 +322,7 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
                 );
             }
             if seen.insert((p.clone(), message.clone())) {
-                fatal(&mut found, node.line_at(&p), &code, message);
+                fatal(found, node.line_at(&p), &code, message);
             }
         }
         for (tn, t) in view_types {
@@ -314,7 +334,7 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
             .chain(notices::befores(&v.doc))
         {
             if let Some(p) = v.back(&p) {
-                notice(&mut found, node.line_at(&p), code, message);
+                notice(found, node.line_at(&p), code, message);
             }
         }
         modules.push((index, node, doc));
@@ -334,6 +354,12 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
                 .collect();
         if errors.is_empty() {
             let (named, requested) = examples::example_errors(doc, &library, &by_name);
+            for ((tn, xn), names) in &requested {
+                out.examples
+                    .entry(format!("{tn}.{xn}"))
+                    .or_default()
+                    .extend(names.iter().cloned());
+            }
             if named.is_empty() {
                 let module = doc::str_or(doc, "examples_for", "");
                 let left = examples::uncovered(&by_name[&module], &library, &requested);
@@ -409,7 +435,9 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
                 if doc::flag(t, "abstract") {
                     continue;
                 }
-                for (path, fatal, code, message) in logic::analyse_type(tn, t, &enums) {
+                let (logic, whole, total) = logic::analyse_type(tn, t, &enums);
+                out.analysed.insert(tn.clone(), (whole, total));
+                for (path, fatal, code, message) in logic {
                     found.push(Finding {
                         file: files[*index].0.clone(),
                         line: node.line_at(&path),
@@ -476,7 +504,7 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
             }
         }
     }
-    found
+    out
 }
 
 /// The schemas a schema stands for: itself, or the expression it refers to,

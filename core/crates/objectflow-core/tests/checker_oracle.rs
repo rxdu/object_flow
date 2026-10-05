@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use objectflow_core::check::{Severity, check};
+use objectflow_core::check::{Severity, checked};
 use serde_json::Value;
 
 /// The codes of the steps the core runs in a module: 1 to 3 (C1), the load,
@@ -149,7 +149,26 @@ fn the_core_finds_what_the_flow_checker_finds() {
         // each finding by its file, line, severity, code and message, so
         // findings sharing a line are told apart and a message the core words
         // differently is a difference
-        let found = check(&files, &previous);
+        let checks = checked(&files, &previous);
+        // each type's count of the guard conditions step 5 decided in full
+        let counts: BTreeMap<String, (usize, usize)> = case["analysed"]
+            .as_object()
+            .expect("analysed")
+            .iter()
+            .map(|(tn, c)| {
+                let n = |i: usize| {
+                    usize::try_from(c[i].as_u64().unwrap_or_default()).unwrap_or_default()
+                };
+                (tn.clone(), (n(0), n(1)))
+            })
+            .collect();
+        if checks.analysed != counts {
+            wrong.push(format!(
+                "{label}: step 5 decided {:?}, and the flow checker {counts:?}",
+                checks.analysed
+            ));
+        }
+        let found = checks.findings;
         // the examples the core does not yet run, by file and line
         let unrun: BTreeSet<(String, u64)> = found
             .iter()

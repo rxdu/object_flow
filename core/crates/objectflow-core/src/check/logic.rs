@@ -1226,10 +1226,17 @@ fn names_in(e: &Expr) -> BTreeSet<String> {
 /// A finding of step 5: where, fatal or a notice, its code and its words.
 pub type Logic = (Path, bool, &'static str, String);
 
-/// The findings for one type of the view.
+/// The findings for one type of the view, and how many of the guard
+/// conditions it read it decided in full, reading nothing outside the type,
+/// of all it read (ADR-0137 decision 3).
 #[allow(clippy::too_many_lines)]
-pub fn analyse_type(tn: &str, t: &Value, enums: &BTreeMap<String, Vec<String>>) -> Vec<Logic> {
+pub fn analyse_type(
+    tn: &str,
+    t: &Value,
+    enums: &BTreeMap<String, Vec<String>>,
+) -> (Vec<Logic>, usize, usize) {
     let mut out = Vec::new();
+    let (mut whole, mut total) = (0, 0);
     let states = obj(t, "states");
     let conditions = obj(t, "conditions");
     let invariants = state_invariants(t);
@@ -1347,6 +1354,8 @@ pub fn analyse_type(tn: &str, t: &Value, enums: &BTreeMap<String, Vec<String>>) 
                     continue;
                 };
                 let r = (format!("guard {g}"), a.cases(&tree, 'T')?);
+                total += 1;
+                whole += usize::from(!a.opaque_seen);
                 let mode = py_str(mode);
                 if mode == "deny" {
                     denied.push(r)
@@ -1484,7 +1493,7 @@ pub fn analyse_type(tn: &str, t: &Value, enums: &BTreeMap<String, Vec<String>>) 
             ));
         }
     }
-    out
+    (out, whole, total)
 }
 
 #[cfg(test)]
@@ -1771,7 +1780,11 @@ mod tests {
         let mut wrong = Vec::new();
         for (name, conds, transitions, invariants, derived, want) in &cases {
             let t = small(conds, transitions.clone(), invariants, derived);
-            let codes: BTreeSet<&str> = analyse_type("T", &t, &enums).iter().map(|f| f.2).collect();
+            let codes: BTreeSet<&str> = analyse_type("T", &t, &enums)
+                .0
+                .iter()
+                .map(|f| f.2)
+                .collect();
             let right = match want {
                 Some(w) => codes.contains(w),
                 None => codes.is_empty(),
@@ -1815,7 +1828,11 @@ mod tests {
             ("a long lifecycle that holds together", json!({}), None),
         ] {
             let t = json!({"attributes": stamps, "states": chain, "conditions": {}, "transitions": moves, "invariants": invariants, "derived_attributes": {}});
-            let codes: BTreeSet<&str> = analyse_type("T", &t, &enums).iter().map(|f| f.2).collect();
+            let codes: BTreeSet<&str> = analyse_type("T", &t, &enums)
+                .0
+                .iter()
+                .map(|f| f.2)
+                .collect();
             let right = match want {
                 Some(w) => codes.contains(w) && !codes.contains("undecided"),
                 None => codes.is_empty(),
@@ -1838,11 +1855,11 @@ mod tests {
             },
             "transitions": { "go": { "kind": "external", "from": ["OPEN"], "to": "DONE", "guards": { "c1": "deny", "c2": "deny" } } }
         });
-        let found = analyse_type("T", &t, &BTreeMap::new());
+        let (found, _, _) = analyse_type("T", &t, &BTreeMap::new());
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].2, "contradiction");
         let mut wide = t.clone();
         wide["conditions"]["c2"]["expression"] = json!("amount < 150");
-        assert!(analyse_type("T", &wide, &BTreeMap::new()).is_empty());
+        assert!(analyse_type("T", &wide, &BTreeMap::new()).0.is_empty());
     }
 }
