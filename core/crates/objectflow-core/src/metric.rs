@@ -9,7 +9,7 @@
 //! which the examples and the runner's own metrics self-test hold it to. The
 //! attempt log and labels are not kept, and a read of either is not run.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value as Json, json};
 
@@ -171,7 +171,20 @@ pub fn find(
     let home = |t: &str| lib.type_(t).map(|t| t.module.clone());
     match name {
         Expr::Name(n) => {
-            let module = module.map(str::to_string).or_else(|| tn.and_then(home));
+            let module = module
+                .map(str::to_string)
+                .or_else(|| tn.and_then(home))
+                .or_else(|| {
+                    // a reader's bare name: the one module that declares it
+                    // (library-api.md §5)
+                    let hits: Vec<&String> = lib
+                        .metrics
+                        .iter()
+                        .filter(|(_, ms)| ms.contains_key(n))
+                        .map(|(m, _)| m)
+                        .collect();
+                    (tn.is_none() && hits.len() == 1).then(|| hits[0].clone())
+                });
             if let Some(m) = module
                 && let Some((owner, spec)) = lib.metrics.get(&m).and_then(|ms| ms.get(n))
             {
@@ -411,6 +424,40 @@ enum Reach {
     Many(Vec<Value>),
 }
 
+/// A value a read binds a dimension to: a guard's, as the language holds
+/// it, or a reader's, as the wire carries it (ADR-0150), matched against a
+/// row's value encoded the same way.
+#[derive(Clone, Debug, PartialEq)]
+enum Want {
+    Value(Value),
+    Wire(Json),
+}
+
+impl Want {
+    fn matches(&self, got: &Value) -> bool {
+        match self {
+            Want::Value(v) => got.equals(v),
+            Want::Wire(j) => crate::wire::encode(got) == *j,
+        }
+    }
+}
+
+type Bound = BTreeMap<String, Want>;
+
+/// The rows a read of a formula selects, and how to read them.
+struct Selected<'w> {
+    picked: Vec<Value>,
+    item: String,
+    rowkind: Kind,
+    dims: BTreeMap<String, Expr>,
+    evaluator: Evaluator<'w>,
+    tree: Expr,
+    /// What the formula reads that a gap concerns: an object's creation
+    /// time, and an object's own flow data (§6.9).
+    reads_created: bool,
+    reads_flow: bool,
+}
+
 /// The read of one metric over a store as the request found it.
 struct Reader<'w> {
     world: &'w World<'w>,
@@ -450,7 +497,7 @@ impl<'w> Reader<'w> {
         owner: Option<&str>,
         spec: &Json,
         module: &str,
-        bound: &BTreeMap<String, Value>,
+        bound: &Bound,
         window: Option<i64>,
     ) -> Result<(Num, Kind), NotRun> {
         let lib = self.world.lib;
@@ -473,7 +520,7 @@ impl<'w> Reader<'w> {
                 let reference = parsed(reference.as_str().unwrap_or_default())?;
                 let input = find(lib, &reference, None, Some(module))?;
                 let mine = dimensions(lib, input.owner.as_deref(), &input.spec)?;
-                let narrowed: BTreeMap<String, Value> = bound
+                let narrowed: Bound = bound
                     .iter()
                     .filter(|(d, _)| mine.contains(d))
                     .map(|(d, v)| (d.clone(), v.clone()))
@@ -496,7 +543,30 @@ impl<'w> Reader<'w> {
             let kind = self.kind(&tree, &kinds, None)?;
             return Ok((self.combined(&tree, &values)?, kind));
         }
-        let owner = owner.unwrap_or_default();
+        let sel = self.selected(owner.unwrap_or_default(), spec, bound, window, None)?;
+        let value = self.over_rows(&sel.evaluator, &sel.tree, &sel.picked, &sel.item)?;
+        let env = BTreeMap::from([(sel.item.clone(), sel.rowkind.clone())]);
+        let kind = self.kind(
+            &sel.tree,
+            &env,
+            self.world.lib.type_(owner.unwrap_or_default()),
+        )?;
+        Ok((value, kind))
+    }
+
+    /// The rows a read of a formula selects: its source's, cut by a split
+    /// and clipped by the window, then those its filter, a reader's filter,
+    /// the window and every bound dimension hold for (§6.9, ADR-0114,
+    /// ADR-0139, ADR-0142).
+    fn selected(
+        &self,
+        owner: &str,
+        spec: &Json,
+        bound: &Bound,
+        window: Option<i64>,
+        theirs: Option<&Expr>,
+    ) -> Result<Selected<'w>, NotRun> {
+        let lib = self.world.lib;
         let owner_t = self.type_of(owner)?;
         let f = formula(lib, owner, spec)?;
         let text = |k: &str| f.get(k).and_then(Json::as_str).map(str::to_string);
@@ -567,6 +637,12 @@ impl<'w> Reader<'w> {
             {
                 continue;
             }
+            // a reader's filter narrows the rows likewise (ADR-0114)
+            if let Some(w) = theirs
+                && truth(&evaluator.eval_in(w, &env)?)? != Some(true)
+            {
+                continue;
+            }
             if let (Some(s), Some(w)) = (&stamp, window) {
                 // the window holds its start, and a row with no time is in
                 // none (ADR-0139)
@@ -583,8 +659,8 @@ impl<'w> Reader<'w> {
             for (d, v) in bound {
                 let reached = self.reach(&evaluator, &dims[d], &env)?;
                 let matches = match reached {
-                    Reach::One(got) => got.equals(v),
-                    Reach::Many(got) => got.iter().any(|g| g.equals(v)),
+                    Reach::One(got) => v.matches(&got),
+                    Reach::Many(got) => got.iter().any(|g| v.matches(g)),
                 };
                 if !matches {
                     keep = false;
@@ -596,10 +672,30 @@ impl<'w> Reader<'w> {
             }
         }
         let tree = parsed(&text("expression").unwrap_or_default())?;
-        let env = BTreeMap::from([(item.clone(), rowkind)]);
-        let kind = self.kind(&tree, &env, Some(owner_t))?;
-        let value = self.over_rows(&evaluator, &tree, &picked, &item)?;
-        Ok((value, kind))
+        let read = ["filter", "time_dimension", "expression"]
+            .iter()
+            .filter_map(|k| text(k))
+            .chain(
+                f.get("dimensions")
+                    .and_then(Json::as_object)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|(_, e)| e.as_str().map(str::to_string)),
+            )
+            .collect::<Vec<_>>()
+            .join(" ");
+        Ok(Selected {
+            picked,
+            item,
+            rowkind,
+            dims,
+            evaluator,
+            tree,
+            reads_created: read.contains("created_at"),
+            reads_flow: ["entered_at(", "time_in(", "intervals"]
+                .iter()
+                .any(|w| read.contains(w)),
+        })
     }
 
     /// A metric's rows (`declaration-syntax.md` §6.9): each object of the
@@ -1330,14 +1426,617 @@ pub fn read(
     window: Option<i64>,
 ) -> Result<Value, NotRun> {
     let reader = Reader { world, answers };
+    let bound: Bound = bound
+        .iter()
+        .map(|(d, v)| (d.clone(), Want::Value(v.clone())))
+        .collect();
     let (v, kind) = reader.read(
         found.owner.as_deref(),
         &found.spec,
         &found.module,
-        bound,
+        &bound,
         window,
     )?;
     rounded(v, &kind)
+}
+
+/// One row of a reader's read: a group of the dimensions kept, its value,
+/// and the objects it read from before what their record vouches for
+/// (`library-api.md` §5, ADR-0106).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PageRow {
+    pub dimensions: Vec<(String, Value)>,
+    pub value: Value,
+    pub gaps: Vec<String>,
+}
+
+/// A declared flag on one of the declared groups, raised or unknown there
+/// (ADR-0146).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RaisedFlag {
+    pub flag: String,
+    pub group: Vec<(String, Value)>,
+    pub unknown: bool,
+}
+
+/// A reader's read of a metric (`library-api.md` §5, `MetricPage`): every
+/// group on one page, whose cursor is therefore none.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Page {
+    pub rows: Vec<PageRow>,
+    pub flags: Vec<RaisedFlag>,
+    pub history_complete: bool,
+    /// Why the read cannot be answered, with no rows: `unknown_metric`,
+    /// `unknown_dimension`, `filter_on_combined`, `no_window` or `personal`
+    /// (ADR-0148).
+    pub refused: Option<&'static str>,
+}
+
+/// A set some dimension's path goes through, by the prefix reaching it: its
+/// members, and each dimension going through it with the rest of its path.
+struct Through {
+    prefix: Expr,
+    members: Vec<Value>,
+    via: Vec<(usize, Vec<String>)>,
+}
+
+/// One group's exact value and the objects whose gaps it carries.
+type Groups = Vec<(Vec<Value>, Num, BTreeSet<String>)>;
+
+impl<'w> Reader<'w> {
+    /// A metric's exact value on each group of the dimensions kept, in the
+    /// order the groups first appear, with each group's gaps, and its
+    /// expression's type. A combined metric reads each input to the
+    /// dimensions it has of those kept and joins over every group an input
+    /// with all of them has, an input missing a group contributing its value
+    /// over no rows (ADR-0122 decision 18, ADR-0124, ADR-0147).
+    #[allow(clippy::too_many_arguments)]
+    fn grouped(
+        &self,
+        owner: Option<&str>,
+        spec: &Json,
+        module: &str,
+        bound: &Bound,
+        keep: &[String],
+        window: Option<i64>,
+        theirs: Option<&Expr>,
+    ) -> Result<(Groups, Kind), NotRun> {
+        let lib = self.world.lib;
+        if let Some(inputs) = spec.get("input_metrics").and_then(Json::as_object) {
+            let mut read = Vec::new();
+            let mut kinds = BTreeMap::new();
+            for (n, reference) in inputs {
+                let input = find(
+                    lib,
+                    &parsed(reference.as_str().unwrap_or_default())?,
+                    None,
+                    Some(module),
+                )?;
+                let mine = dimensions(lib, input.owner.as_deref(), &input.spec)?;
+                let kept: Vec<String> = keep.iter().filter(|d| mine.contains(d)).cloned().collect();
+                let narrowed: Bound = bound
+                    .iter()
+                    .filter(|(d, _)| mine.contains(d))
+                    .map(|(d, v)| (d.clone(), v.clone()))
+                    .collect();
+                let (groups, kind) = self.grouped(
+                    input.owner.as_deref(),
+                    &input.spec,
+                    &input.module,
+                    &narrowed,
+                    &kept,
+                    window,
+                    None,
+                )?;
+                let empty =
+                    self.over_no_rows(input.owner.as_deref(), &input.spec, &input.module)?;
+                kinds.insert(n.clone(), kind);
+                read.push((n.clone(), kept, groups, empty));
+            }
+            let mut keys: Vec<Vec<Value>> = Vec::new();
+            for (_, kept, groups, _) in &read {
+                if kept.len() == keep.len() {
+                    for (k, _, _) in groups {
+                        if !keys.contains(k) {
+                            keys.push(k.clone());
+                        }
+                    }
+                }
+            }
+            let tree = parsed(
+                spec.get("expression")
+                    .and_then(Json::as_str)
+                    .unwrap_or_default(),
+            )?;
+            let mut out = Vec::new();
+            for key in keys {
+                let mut values = BTreeMap::new();
+                let mut gaps = BTreeSet::new();
+                for (n, kept, groups, empty) in &read {
+                    let sub: Vec<Value> = keep
+                        .iter()
+                        .zip(&key)
+                        .filter(|(d, _)| kept.contains(d))
+                        .map(|(_, v)| v.clone())
+                        .collect();
+                    match groups.iter().find(|(k, _, _)| *k == sub) {
+                        Some((_, v, g)) => {
+                            values.insert(n.clone(), *v);
+                            gaps.extend(g.iter().cloned());
+                        }
+                        None => {
+                            values.insert(n.clone(), *empty);
+                        }
+                    }
+                }
+                out.push((key, self.combined(&tree, &values)?, gaps));
+            }
+            return Ok((out, self.kind(&tree, &kinds, None)?));
+        }
+        let owner = owner.unwrap_or_default();
+        let sel = self.selected(owner, spec, bound, window, theirs)?;
+        let exprs: Vec<&Expr> = keep.iter().map(|d| &sel.dims[d]).collect();
+        let mut members: Vec<(Vec<Value>, Vec<Value>)> = Vec::new();
+        for r in &sel.picked {
+            let env = BTreeMap::from([(sel.item.clone(), r.clone())]);
+            for key in self.combinations(&sel.evaluator, &exprs, &env)? {
+                match members.iter_mut().find(|(k, _)| *k == key) {
+                    Some((_, rows)) => rows.push(r.clone()),
+                    None => members.push((key, vec![r.clone()])),
+                }
+            }
+        }
+        // the whole, read with nothing kept, is one row even over no rows
+        if keep.is_empty() && members.is_empty() {
+            members.push((Vec::new(), Vec::new()));
+        }
+        let window_start = window.map(|w| self.world.now - w);
+        let mut out = Vec::new();
+        for (key, rows) in members {
+            let value = self.over_rows(&sel.evaluator, &sel.tree, &rows, &sel.item)?;
+            let gaps = rows
+                .iter()
+                .filter_map(|r| self.gap(r, &sel, window_start))
+                .collect();
+            out.push((key, value, gaps));
+        }
+        let env = BTreeMap::from([(sel.item.clone(), sel.rowkind.clone())]);
+        Ok((
+            out,
+            self.kind(&sel.tree, &env, self.world.lib.type_(owner))?,
+        ))
+    }
+
+    /// The object a row read from before what its record vouches for, if
+    /// any: a span or an event earlier than its object's `.recorded_from`, a
+    /// window beginning before it on an object that existed then, an undated
+    /// creation the formula reads, or an object's own flow data that began
+    /// before it (`declaration-syntax.md` §6.9, ADR-0106, ADR-0146).
+    fn gap(&self, r: &Value, sel: &Selected<'w>, window_start: Option<i64>) -> Option<String> {
+        let (id, since) = match r {
+            Value::Object(id) => (id.clone(), None),
+            Value::Row(f) => match (
+                f.get("object"),
+                f.get("entered_at").or_else(|| f.get("occurred_at")),
+            ) {
+                (Some(Value::Object(id)), Some(Value::Timestamp(t))) => (id.clone(), Some(*t)),
+                (Some(Value::Object(id)), _) => (id.clone(), None),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let o = self.world.get(&id)?;
+        let before = |t: i64| t < o.recorded_from;
+        let gapped = since.is_some_and(before)
+            || window_start.is_some_and(|w| before(w) && o.created_at < w)
+            || (sel.reads_created && !o.created_dated)
+            || (matches!(r, Value::Object(_))
+                && sel.reads_flow
+                && o.spans.values().flatten().any(|sp| before(sp.entered_at)));
+        gapped.then_some(id)
+    }
+
+    /// Each combination of the kept dimensions' values a row is counted
+    /// under: one value where a path reaches no set, each distinct value
+    /// where it goes through one, and, where two paths go through one set,
+    /// the values of each of its members, never crossed; an empty set, or a
+    /// member whose path reaches no value, counts the row under the absent
+    /// value (ADR-0123, ADR-0146).
+    fn combinations(
+        &self,
+        ev: &Evaluator<'w>,
+        exprs: &[&Expr],
+        env: &BTreeMap<String, Value>,
+    ) -> Result<Vec<Vec<Value>>, NotRun> {
+        let of = |b: &Value, member: &str| -> Result<Value, NotRun> {
+            if b.is_absent() {
+                return Ok(Value::Absent);
+            }
+            let mut inner = env.clone();
+            inner.insert("\u{0}base".into(), b.clone());
+            ev.eval_in(
+                &Expr::Path(Box::new(Expr::Name("\u{0}base".into())), member.to_string()),
+                &inner,
+            )
+        };
+        let mut fixed: BTreeMap<usize, Value> = BTreeMap::new();
+        let mut shared: Vec<Through> = Vec::new();
+        for (i, e) in exprs.iter().enumerate() {
+            let mut chain = Vec::new();
+            let mut node = *e;
+            while let Expr::Path(base, member) = node {
+                chain.push(member.clone());
+                node = base;
+            }
+            chain.reverse();
+            let mut v = ev.eval_in(node, env)?;
+            let mut prefix = node.clone();
+            let mut j = 0;
+            while !matches!(v, Value::Set(_)) && j < chain.len() {
+                v = of(&v, &chain[j])?;
+                prefix = Expr::Path(Box::new(prefix), chain[j].clone());
+                j += 1;
+            }
+            match v {
+                Value::Set(items) => match shared.iter_mut().find(|t| t.prefix == prefix) {
+                    Some(t) => t.via.push((i, chain[j..].to_vec())),
+                    None => shared.push(Through {
+                        prefix,
+                        members: items,
+                        via: vec![(i, chain[j..].to_vec())],
+                    }),
+                },
+                v => {
+                    fixed.insert(i, v);
+                }
+            }
+        }
+        let mut keys: Vec<BTreeMap<usize, Value>> = vec![fixed];
+        for Through { members, via, .. } in shared {
+            let mut tuples: Vec<Vec<Value>> = Vec::new();
+            for m in &members {
+                let mut vals = Vec::new();
+                for (_, rest) in &via {
+                    let mut x = m.clone();
+                    for name in rest {
+                        x = of(&x, name)?;
+                    }
+                    vals.push(x);
+                }
+                if !tuples.contains(&vals) {
+                    tuples.push(vals);
+                }
+            }
+            if tuples.is_empty() {
+                tuples.push(vec![Value::Absent; via.len()]);
+            }
+            let mut next = Vec::new();
+            for k in &keys {
+                for t in &tuples {
+                    let mut k = k.clone();
+                    for (n, (i, _)) in via.iter().enumerate() {
+                        k.insert(*i, t[n].clone());
+                    }
+                    next.push(k);
+                }
+            }
+            keys = next;
+        }
+        Ok(keys
+            .into_iter()
+            .map(|k| {
+                (0..exprs.len())
+                    .map(|i| k.get(&i).cloned().unwrap_or(Value::Absent))
+                    .collect()
+            })
+            .collect())
+    }
+
+    /// The value a metric's expression has over no rows (ADR-0122 decision
+    /// 18).
+    fn over_no_rows(&self, owner: Option<&str>, spec: &Json, module: &str) -> Result<Num, NotRun> {
+        let lib = self.world.lib;
+        if let Some(inputs) = spec.get("input_metrics").and_then(Json::as_object) {
+            let mut values = BTreeMap::new();
+            for (n, reference) in inputs {
+                let input = find(
+                    lib,
+                    &parsed(reference.as_str().unwrap_or_default())?,
+                    None,
+                    Some(module),
+                )?;
+                values.insert(
+                    n.clone(),
+                    self.over_no_rows(input.owner.as_deref(), &input.spec, &input.module)?,
+                );
+            }
+            let tree = parsed(
+                spec.get("expression")
+                    .and_then(Json::as_str)
+                    .unwrap_or_default(),
+            )?;
+            return self.combined(&tree, &values);
+        }
+        let owner = owner.unwrap_or_default();
+        let f = formula(lib, owner, spec)?;
+        let tree = parsed(
+            f.get("expression")
+                .and_then(Json::as_str)
+                .unwrap_or_default(),
+        )?;
+        let item = f.get("item").and_then(Json::as_str).unwrap_or_default();
+        self.over_rows(&self.row_eval(lib.type_(owner)), &tree, &[], item)
+    }
+
+    /// Whether a read may window a metric: one with a time dimension or a
+    /// split, or a combined one whose every input may be (ADR-0147).
+    fn windowed(&self, owner: Option<&str>, spec: &Json, module: &str) -> Result<bool, NotRun> {
+        let lib = self.world.lib;
+        if let Some(inputs) = spec.get("input_metrics").and_then(Json::as_object) {
+            for reference in inputs.values() {
+                let input = find(
+                    lib,
+                    &parsed(reference.as_str().unwrap_or_default())?,
+                    None,
+                    Some(module),
+                )?;
+                if !self.windowed(input.owner.as_deref(), &input.spec, &input.module)? {
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
+        }
+        let f = formula(lib, owner.unwrap_or_default(), spec)?;
+        Ok(f.get("time_dimension").is_some() || f.get("split_by").is_some())
+    }
+
+    /// Whether a reader's filter reads a personal attribute of an object it
+    /// reaches from the row (§6.9, ADR-0148).
+    fn reads_personal(&self, owner: &str, spec: &Json, filter: &Expr) -> Result<bool, NotRun> {
+        let lib = self.world.lib;
+        let f = formula(lib, owner, spec)?;
+        let source = f.get("source").and_then(Json::as_str).unwrap_or_default();
+        let item = f
+            .get("item")
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let t = self.type_of(owner)?;
+        let rowkind = if source == "objects" {
+            Kind::Object(owner.to_string())
+        } else if source.starts_with("intervals") {
+            Kind::Interval(owner.to_string())
+        } else if source == "transitions" {
+            Kind::Transition(owner.to_string())
+        } else if let Some((_, kind)) = t.observations.iter().find(|(c, _)| c == source) {
+            Kind::Object(kind.clone())
+        } else {
+            Kind::Other
+        };
+        let env = BTreeMap::from([(item, rowkind)]);
+        fn walk(r: &Reader<'_>, e: &Expr, env: &BTreeMap<String, Kind>) -> Result<bool, NotRun> {
+            if let Expr::Path(base, m) = e
+                && let Kind::Object(tn) = r.kind(base, env, None)?
+                && r.world
+                    .lib
+                    .type_(&tn)
+                    .and_then(|t| t.attribute(m))
+                    .is_some_and(|a| a.personal)
+            {
+                return Ok(true);
+            }
+            for c in crate::check::children_of(e) {
+                if walk(r, c, env)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        walk(self, filter, &env)
+    }
+
+    /// A page's order between two keys: by each kept dimension ascending, an
+    /// absent value last, a state, an enumeration member or a kind of actor
+    /// in declaration order, an object by id, which is creation order, a time
+    /// bucket in time order and a string by code point (ADR-0127, ADR-0147).
+    fn order(&self, keep: &[String], a: &[Value], b: &[Value]) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        const KINDS: [&str; 4] = ["human", "agent", "service", "unknown"];
+        let lib = self.world.lib;
+        let rank = |d: &str, v: &Value| -> (u8, Option<i128>, Option<Rat>, String) {
+            match v {
+                Value::Absent => (1, None, None, String::new()),
+                Value::State { type_, name } => {
+                    let at = lib
+                        .type_(type_)
+                        .and_then(|t| t.states.iter().position(|(s, _)| s == name));
+                    (
+                        0,
+                        at.and_then(|i| i128::try_from(i).ok()),
+                        None,
+                        String::new(),
+                    )
+                }
+                Value::Member {
+                    enumeration,
+                    member,
+                } => {
+                    let at = lib
+                        .enumerations
+                        .get(enumeration)
+                        .and_then(|ms| ms.iter().position(|m| m == member));
+                    (
+                        0,
+                        at.and_then(|i| i128::try_from(i).ok()),
+                        None,
+                        String::new(),
+                    )
+                }
+                Value::Text(t) if d == "actor_kind" && KINDS.contains(&t.as_str()) => (
+                    0,
+                    KINDS
+                        .iter()
+                        .position(|k| k == t)
+                        .and_then(|i| i128::try_from(i).ok()),
+                    None,
+                    String::new(),
+                ),
+                Value::Object(id) => (
+                    0,
+                    self.world.get(id).map(|o| i128::from(o.order)),
+                    None,
+                    id.clone(),
+                ),
+                Value::Text(t) => (0, None, None, t.clone()),
+                Value::Bool(b) => (0, Some(i128::from(*b)), None, String::new()),
+                other => (
+                    0,
+                    None,
+                    Num::of(other).ok().and_then(Num::rat),
+                    String::new(),
+                ),
+            }
+        };
+        for ((d, x), y) in keep.iter().zip(a).zip(b) {
+            let o = rank(d, x).cmp(&rank(d, y));
+            if o != Ordering::Equal {
+                return o;
+            }
+        }
+        Ordering::Equal
+    }
+}
+
+/// A reader's read of a metric (`library-api.md` §5, `declaration-syntax.md`
+/// §6.9): its rows those a guard's read would select, narrowed by a filter
+/// over its binder, grouped by the dimensions kept, every declared one unless
+/// `keep` names them, the rest aggregated over, a row per group in their
+/// order; each declared flag on each declared group; and a refusal, a value,
+/// where the read cannot be answered (ADR-0098, ADR-0101, ADR-0114, ADR-0124,
+/// ADR-0127, ADR-0146, ADR-0147, ADR-0148). A bound value is the wire's
+/// (ADR-0150), and so is a filter's text.
+pub fn page(
+    world: &World<'_>,
+    answers: Option<&BTreeMap<String, String>>,
+    name: &str,
+    bind: &BTreeMap<String, Json>,
+    keep: Option<&[String]>,
+    over: Option<i64>,
+    filter: Option<&str>,
+) -> Result<Page, NotRun> {
+    let refused = |why: &'static str| {
+        Ok(Page {
+            refused: Some(why),
+            history_complete: true,
+            ..Page::default()
+        })
+    };
+    let reader = Reader { world, answers };
+    let lib = world.lib;
+    let Ok(reference) = parse(name) else {
+        return refused("unknown_metric");
+    };
+    let Ok(found) = find(lib, &reference, None, None) else {
+        return refused("unknown_metric");
+    };
+    let owner = found.owner.as_deref();
+    let combined = found.spec.get("input_metrics").is_some();
+    let declared: Vec<String> = if combined {
+        found
+            .spec
+            .get("group_by")
+            .and_then(Json::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Json::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        formula(lib, owner.unwrap_or_default(), &found.spec)?
+            .get("dimensions")
+            .and_then(Json::as_object)
+            .map(|d| d.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    let keep: Vec<String> = keep.map_or_else(|| declared.clone(), <[String]>::to_vec);
+    let dims = dimensions(lib, owner, &found.spec)?;
+    if keep.iter().chain(bind.keys()).any(|d| !dims.contains(d)) {
+        return refused("unknown_dimension");
+    }
+    if filter.is_some() && combined {
+        return refused("filter_on_combined");
+    }
+    if over.is_some() && !reader.windowed(owner, &found.spec, &found.module)? {
+        return refused("no_window");
+    }
+    let theirs = filter.map(parsed).transpose()?;
+    if let Some(f) = &theirs
+        && reader.reads_personal(owner.unwrap_or_default(), &found.spec, f)?
+    {
+        return refused("personal");
+    }
+    let bound: Bound = bind
+        .iter()
+        .map(|(d, v)| (d.clone(), Want::Wire(v.clone())))
+        .collect();
+    let (mut groups, kind) = reader.grouped(
+        owner,
+        &found.spec,
+        &found.module,
+        &bound,
+        &keep,
+        over,
+        theirs.as_ref(),
+    )?;
+    groups.sort_by(|a, b| reader.order(&keep, &a.0, &b.0));
+    let mut rows = Vec::new();
+    for (key, value, gaps) in groups {
+        rows.push(PageRow {
+            dimensions: keep.iter().cloned().zip(key).collect(),
+            value: rounded(value, &kind)?,
+            gaps: gaps.into_iter().collect(),
+        });
+    }
+    let mut flags = Vec::new();
+    if let Some(when) = found.spec.get("flag_when").and_then(Json::as_object) {
+        // a flag is raised on each declared group, whatever the read keeps,
+        // over the rows the read selects (§6.9)
+        let (mut every, _) = reader.grouped(
+            owner,
+            &found.spec,
+            &found.module,
+            &bound,
+            &declared,
+            over,
+            theirs.as_ref(),
+        )?;
+        every.sort_by(|a, b| reader.order(&declared, &a.0, &b.0));
+        let t = owner.and_then(|o| lib.type_(o));
+        for (key, value, _) in every {
+            let mut env: BTreeMap<String, Value> =
+                declared.iter().cloned().zip(key.iter().cloned()).collect();
+            env.insert("value".into(), rounded(value, &kind)?);
+            for (flag, text) in when {
+                let condition = parsed(text.as_str().unwrap_or_default())?;
+                let holds = truth(&reader.row_eval(t).eval_in(&condition, &env)?)?;
+                if holds != Some(false) {
+                    flags.push(RaisedFlag {
+                        flag: flag.clone(),
+                        group: declared.iter().cloned().zip(key.iter().cloned()).collect(),
+                        unknown: holds.is_none(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(Page {
+        history_complete: rows.iter().all(|r| r.gaps.is_empty()),
+        rows,
+        flags,
+        refused: None,
+    })
 }
 
 #[cfg(test)]
@@ -1373,6 +2072,7 @@ types:
     attributes:
       engineer: { reference: User, optional: true, assignee: true }
       tags: { type: "string[]", optional: true }
+      memo: { type: string, optional: true, personal: true }
     observations:
       checks:
         kind: Check
@@ -1399,7 +2099,7 @@ types:
       close: { kind: external, from: [SHELVED], to: DONE }
       finish: { kind: external, from: [WORKING], to: DONE, guards: { good: deny } }
     metrics:
-      pass_rate: { description: x, source: checks, item: r, filter: r.outcome != Outcome.NA, dimensions: { engineer: r.subject.engineer }, time_dimension: r.occurred_at, expression: count(where r.outcome == Outcome.PASS) * 1.000 / count() }
+      pass_rate: { description: x, source: checks, item: r, filter: r.outcome != Outcome.NA, dimensions: { engineer: r.subject.engineer }, time_dimension: r.occurred_at, expression: count(where r.outcome == Outcome.PASS) * 1.000 / count(), flag_when: { low: "value < 0.900" } }
       pass_share: { description: x, source: checks, item: r, dimensions: { engineer: r.subject.engineer }, expression: count(where r.outcome == Outcome.PASS) * 1.00 / count() }
       passes: { description: x, source: checks, item: r, filter: r.outcome == Outcome.PASS, dimensions: { engineer: r.subject.engineer }, time_dimension: r.occurred_at, expression: count() }
       jobs_opened: { description: x, source: objects, item: o, dimensions: { engineer: o.engineer }, time_dimension: o.created_at, expression: count() }
@@ -1419,6 +2119,8 @@ types:
       engineers_checked: { description: x, source: checks, item: r, expression: count(distinct r.subject.engineer) }
       anas_jobs: { description: x, source: objects, item: o, filter: 'o.engineer.login == "ana"', expression: count() }
       third_of_checks: { description: x, source: checks, item: r, expression: count() / 3 }
+      outcome_pairs: { description: x, source: objects, item: o, dimensions: { outcome: o.checks.outcome, again: o.checks.outcome }, expression: count() }
+      done_spans: { description: x, source: intervals, item: i, filter: i.state == DONE, dimensions: { engineer: i.held(engineer) }, expression: max(i.duration), flag_when: { long: "value > 1 h" } }
 metrics:
   passes_of_all: { description: x, input_metrics: { passes: Job.passes, all: Job.jobs_total }, group_by: [engineer], expression: passes * 1.000 / all }
   passes_per_job: { description: x, input_metrics: { passes: Job.passes, jobs: Job.jobs_opened }, group_by: [engineer], expression: passes * 1.000 / jobs }
@@ -1824,5 +2526,348 @@ metrics:
             ),
             Value::Int(2)
         );
+    }
+
+    /// A page's rows as each group's dimensions and its value's number.
+    type Group = Vec<(String, Value)>;
+
+    fn rows_of(p: &Page) -> Vec<(Group, Option<Rat>)> {
+        p.rows
+            .iter()
+            .map(|r| (r.dimensions.clone(), num(&r.value)))
+            .collect()
+    }
+
+    fn page_of(
+        s: &Store,
+        name: &str,
+        bind: &[(&str, Value)],
+        keep: Option<&[&str]>,
+        over: Option<i64>,
+        filter: Option<&str>,
+    ) -> Page {
+        let w = s.snapshot().unwrap();
+        let bind: BTreeMap<String, Json> = bind
+            .iter()
+            .map(|(d, v)| (d.to_string(), crate::wire::encode(v)))
+            .collect();
+        let keep: Option<Vec<String>> = keep.map(|k| k.iter().map(|d| d.to_string()).collect());
+        page(&w, None, name, &bind, keep.as_deref(), over, filter).unwrap()
+    }
+
+    fn dims(pairs: &[(&str, Value)]) -> Vec<(String, Value)> {
+        pairs
+            .iter()
+            .map(|(d, v)| (d.to_string(), v.clone()))
+            .collect()
+    }
+
+    /// The reference runner's reader cases (`flowrun.py`,
+    /// `metrics_self_test`, "a reader's read").
+    #[test]
+    fn a_reader_reads_a_row_per_group() {
+        let mut s = world();
+        let (ana, ben) = (user(&mut s, "ana"), user(&mut s, "ben"));
+        let k1 = job(&mut s, json!({ "engineer": ana, "tags": ["urgent"] }));
+        let k2 = job(
+            &mut s,
+            json!({ "engineer": ben, "tags": ["urgent", "vip"] }),
+        );
+        let k0 = job(&mut s, json!({}));
+        record(&mut s, &k1, &["PASS", "FAIL"]);
+        record(&mut s, &k2, &["PASS", "PASS"]);
+        record(&mut s, &k0, &["FAIL"]);
+        let (a, b) = (Value::Object(ana.clone()), Value::Object(ben.clone()));
+        let rate = page_of(&s, "Job.pass_rate", &[], None, None, None);
+        // a row per engineer, the absent one last, as their objects were created
+        assert_eq!(
+            rows_of(&rate),
+            vec![
+                (dims(&[("engineer", a.clone())]), rat(1, 2)),
+                (dims(&[("engineer", b.clone())]), rat(1, 1)),
+                (dims(&[("engineer", Value::Absent)]), rat(0, 1)),
+            ]
+        );
+        // a flag on each declared group it holds for
+        assert_eq!(
+            rate.flags
+                .iter()
+                .map(|f| (f.flag.as_str(), f.group.clone(), f.unknown))
+                .collect::<Vec<_>>(),
+            vec![
+                ("low", dims(&[("engineer", a.clone())]), false),
+                ("low", dims(&[("engineer", Value::Absent)]), false),
+            ]
+        );
+        assert!(rate.history_complete && rate.refused.is_none());
+        // nothing kept, and a dimension bound
+        assert_eq!(
+            rows_of(&page_of(&s, "Job.pass_rate", &[], Some(&[]), None, None)),
+            vec![(vec![], rat(3, 5))]
+        );
+        // nothing kept, one row even over no rows
+        assert_eq!(
+            rows_of(&page_of(
+                &s,
+                "Job.pass_rate",
+                &[],
+                Some(&[]),
+                None,
+                Some("r.outcome == Outcome.NA")
+            )),
+            vec![(vec![], None)]
+        );
+        assert_eq!(
+            rows_of(&page_of(
+                &s,
+                "Job.pass_rate",
+                &[("engineer", b.clone())],
+                Some(&[]),
+                None,
+                None
+            )),
+            vec![(vec![], rat(1, 1))]
+        );
+        // a reader's filter narrows the rows before they are grouped
+        assert_eq!(
+            rows_of(&page_of(
+                &s,
+                "Job.pass_rate",
+                &[],
+                None,
+                None,
+                Some("r.outcome == Outcome.PASS")
+            )),
+            vec![
+                (dims(&[("engineer", a.clone())]), rat(1, 1)),
+                (dims(&[("engineer", b.clone())]), rat(1, 1))
+            ]
+        );
+        // a set dimension, an object under each value and an absent one under none
+        let text = |t: &str| Value::Text(t.into());
+        assert_eq!(
+            rows_of(&page_of(&s, "Job.tagged", &[], None, None, None)),
+            vec![
+                (dims(&[("tag", text("urgent"))]), rat(2, 1)),
+                (dims(&[("tag", text("vip"))]), rat(1, 1)),
+                (dims(&[("tag", Value::Absent)]), rat(1, 1)),
+            ]
+        );
+        // two dimensions through one set taken per member, never crossed
+        let outcome = |m: &str| Value::Member {
+            enumeration: "Outcome".into(),
+            member: m.into(),
+        };
+        assert_eq!(
+            rows_of(&page_of(&s, "Job.outcome_pairs", &[], None, None, None)),
+            vec![
+                (
+                    dims(&[("outcome", outcome("PASS")), ("again", outcome("PASS"))]),
+                    rat(2, 1)
+                ),
+                (
+                    dims(&[("outcome", outcome("FAIL")), ("again", outcome("FAIL"))]),
+                    rat(2, 1)
+                ),
+            ]
+        );
+        // a combined metric joined over every group, a missing input
+        // contributing its value over no rows
+        assert_eq!(
+            rows_of(&page_of(&s, "passes_per_job", &[], None, None, None)),
+            vec![
+                (dims(&[("engineer", a.clone())]), rat(1, 1)),
+                (dims(&[("engineer", b.clone())]), rat(2, 1)),
+                (dims(&[("engineer", Value::Absent)]), rat(0, 1)),
+            ]
+        );
+        // a flag unknown on a group whose value is
+        let k3 = job(&mut s, json!({ "engineer": ana }));
+        for x in ["start", "shelve", "close"] {
+            take(&mut s, x, &k3);
+        }
+        assert_eq!(
+            page_of(&s, "Job.done_spans", &[], None, None, None)
+                .flags
+                .iter()
+                .map(|f| (f.flag.as_str(), f.group.clone(), f.unknown))
+                .collect::<Vec<_>>(),
+            vec![("long", dims(&[("engineer", a.clone())]), true)]
+        );
+        // each refusal a value
+        let refused =
+            |name: &str, keep: Option<&[&str]>, over: Option<i64>, filter: Option<&str>| {
+                page_of(&s, name, &[], keep, over, filter).refused
+            };
+        assert_eq!(
+            [
+                refused("nonesuch", None, None, None),
+                refused("Job.pass_rate", Some(&["nobody"]), None, None),
+                refused("passes_per_job", None, None, Some("true")),
+                refused("Job.tagged", None, Some(7 * DAY), None),
+                refused("Job.jobs_opened", None, None, Some(r#"o.memo == "x""#)),
+            ],
+            [
+                Some("unknown_metric"),
+                Some("unknown_dimension"),
+                Some("filter_on_combined"),
+                Some("no_window"),
+                Some("personal"),
+            ]
+        );
+        // every row a guard could ask for is the guard's value
+        let w = s.snapshot().unwrap();
+        for name in [
+            "Job.pass_rate",
+            "Job.tagged",
+            "Job.outcome_pairs",
+            "passes_per_job",
+            "passes_of_all",
+            "Job.jobs_opened",
+        ] {
+            let found = find(w.lib, &parse(name).unwrap(), None, None).unwrap();
+            for row in page_of(&s, name, &[], None, None, None).rows {
+                if row.dimensions.iter().any(|(_, v)| v.is_absent()) {
+                    continue;
+                }
+                let bound: BTreeMap<String, Value> = row.dimensions.iter().cloned().collect();
+                assert_eq!(
+                    super::read(&w, None, &found, &bound, None).unwrap(),
+                    row.value,
+                    "{name} {:?}",
+                    row.dimensions
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_page_orders_states_as_declared() {
+        let mut s = world();
+        let ana = user(&mut s, "ana");
+        let ja = job(&mut s, json!({ "engineer": ana }));
+        for hours in 1..=4 {
+            take(&mut s, "start", &ja);
+            s.now += hours * 3600;
+            take(&mut s, "back", &ja);
+        }
+        let jb = job(&mut s, json!({ "engineer": ana }));
+        take(&mut s, "start", &jb);
+        s.now += 6 * 3600;
+        take(&mut s, "back", &jb);
+        take(&mut s, "start", &jb);
+        take(&mut s, "pause", &jb);
+        let state = |n: &str| Value::State {
+            type_: "Job".into(),
+            name: n.into(),
+        };
+        // WORKING's spans 0, 1, 2, 3, 4 and 6 h; the third
+        assert_eq!(
+            page_of(&s, "Job.time_in_state", &[], Some(&["state"]), None, None)
+                .rows
+                .iter()
+                .map(|r| (r.dimensions.clone(), r.value.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (dims(&[("state", state("OPEN"))]), Value::Duration(0)),
+                (
+                    dims(&[("state", state("WORKING"))]),
+                    Value::Duration(2 * 3600)
+                ),
+            ]
+        );
+    }
+
+    /// Gaps, which the reference runner cannot show, its objects having
+    /// whole records: a creation the import could not date, read by a
+    /// metric, and a window beginning before an object's record while it
+    /// existed (`declaration-syntax.md` §6.9, ADR-0106).
+    #[test]
+    fn a_row_names_the_objects_read_from_before_their_record() {
+        use crate::import::{EnteredAt, ImportBatch, ImportedObject, import_batch};
+        const FLEET: &str = r#"
+module: fleet
+categories: [active, closed]
+types:
+  Unit:
+    mirror: true
+    attributes:
+      code: { type: string, external: legacy }
+    states:
+      ACTIVE: { category: active }
+    metrics:
+      by_month: { description: x, source: objects, item: o, dimensions: { month: month(o.created_at) }, expression: count() }
+      units: { description: x, source: objects, item: o, time_dimension: o.created_at, expression: count() }
+      in_state: { description: x, source: intervals, item: i, dimensions: { state: i.state }, expression: count() }
+      entries: { description: x, source: intervals, item: i, time_dimension: i.entered_at, expression: count() }
+"#;
+        let lib = Library::load(&[("fleet.yaml".into(), FLEET.into())]).unwrap();
+        let port = parse_timestamp("2026-09-01T00:00:00Z").unwrap();
+        let mut s = Store::sandbox(lib, port).unwrap();
+        let t = |text: &str| parse_timestamp(text).unwrap();
+        let unit = |key: &str, created_at: Option<i64>, entered: Option<i64>| ImportedObject {
+            type_: "Unit".into(),
+            legacy_key: key.into(),
+            state: "ACTIVE".into(),
+            attributes: BTreeMap::from([("code".to_string(), json!(key))]),
+            entered: entered
+                .map(|at| {
+                    BTreeMap::from([(
+                        "state".to_string(),
+                        EnteredAt {
+                            at,
+                            by: None,
+                            by_kind: Some("human".into()),
+                        },
+                    )])
+                })
+                .unwrap_or_default(),
+            created_at,
+            ..ImportedObject::default()
+        };
+        let batch = ImportBatch {
+            objects: vec![
+                // created on 1 August, its record vouched for from 15 August
+                unit(
+                    "U-1",
+                    Some(t("2026-08-01T00:00:00Z")),
+                    Some(t("2026-08-15T00:00:00Z")),
+                ),
+                // ported with no history: undated, its record from the port
+                unit("U-2", None, None),
+            ],
+            sequences: Vec::new(),
+        };
+        let report = import_batch(&mut s, OPERATOR, &batch, &[], false)
+            .unwrap()
+            .unwrap();
+        assert!(report.refusal.is_none(), "{report:?}");
+        let w = s.snapshot().unwrap();
+        let id = |key: &str| w.external[&("legacy".to_string(), format!("Unit:{key}"))].clone();
+        let (u1, u2) = (id("U-1"), id("U-2"));
+        // a creation the import could not date, read by the metric
+        let months = page_of(&s, "Unit.by_month", &[], None, None, None);
+        assert_eq!(
+            months
+                .rows
+                .iter()
+                .map(|r| r.gaps.clone())
+                .collect::<Vec<_>>(),
+            vec![vec![], vec![u2.clone()]]
+        );
+        assert!(!months.history_complete);
+        // a window over creation times holds U-2 alone, whose undated
+        // creation it reads; U-1 was created before it
+        let recent = page_of(&s, "Unit.units", &[], None, Some(20 * DAY), None);
+        assert_eq!(recent.rows[0].gaps, vec![u2.clone()]);
+        // a window beginning on 12 August, before U-1's record, while U-1
+        // existed, over the span U-1 entered on 15 August; U-2 did not exist
+        // before the port
+        let entries = page_of(&s, "Unit.entries", &[], None, Some(20 * DAY), None);
+        assert_eq!(entries.rows[0].value, Value::Int(2));
+        assert_eq!(entries.rows[0].gaps, vec![u1.clone()]);
+        // spans that begin where their record does carry none
+        let spans = page_of(&s, "Unit.in_state", &[], None, None, None);
+        assert!(spans.history_complete, "{spans:?}");
     }
 }

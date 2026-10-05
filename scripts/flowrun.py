@@ -474,6 +474,10 @@ class Store:
         declared, homes = self.decl.metrics, self.decl.homes
         if ref[0] == "name":
             mod = module if module is not None else homes.get(tn)
+            if mod is None and tn is None:
+                # a reader's bare name: the one module that declares it (library-api.md §5)
+                hits = [m for m, ms in declared.items() if ref[1] in ms]
+                mod = hits[0] if len(hits) == 1 else None
             if ref[1] in (declared.get(mod) or {}):
                 owner, spec = declared[mod][ref[1]]
                 return owner, spec, mod
@@ -942,6 +946,18 @@ class Evaluator:
             kind = self.kind(tree, kinds)
             v = self.value(tree, values)
             return (v if exact else rounded(v, kind)), kind
+        picked, f, item, rowkind, _dims, row = self.selected(owner, spec, bound, window)
+        tree = parsed(f["expression"])
+        kind = row.kind(tree, {item: rowkind})
+        v = row.over_rows(tree, picked, item, rowkind)
+        return (v if exact else rounded(v, kind)), kind
+
+    def selected(self, owner, spec, bound, window, filt=None):
+        """The rows a read of a formula selects: its source's, cut by a split and clipped by the window, then those its
+        filter, a reader's filter, the window and every bound dimension hold for (§6.9, ADR-0114, ADR-0139, ADR-0142).
+        Returns them, the formula, its item, what a row is, the expression of each dimension, and the evaluator over
+        its rows."""
+        s = self.s
         f = formula(s.kinds, s.enums, owner, spec)
         rows, rowkind, by_kind = self.metric_rows(owner, f["source"])
         split = f.get("split_by")
@@ -962,12 +978,15 @@ class Evaluator:
         if window is not None and not f.get("time_dimension") and not split:
             raise NotRunnable("a window on a metric with no time dimension")
         where = parsed(f["filter"]) if f.get("filter") else None
+        theirs = parsed(filt) if filt else None
         stamp = parsed(f["time_dimension"]) if window is not None and not split else None
         picked = []
         for r in rows:
             env = {item: r}
             if where is not None and truth(row.value(where, env)) is not True:
                 continue                    # a filter that is unknown selects nothing (§8.2)
+            if theirs is not None and truth(row.value(theirs, env)) is not True:
+                continue                    # a reader's filter narrows the rows likewise (ADR-0114)
             if stamp is not None:
                 at = instant(row.value(stamp, env))
                 if at is ABSENT or not s.now - window <= at <= s.now:
@@ -975,10 +994,183 @@ class Evaluator:
             if all(v in got if is_set(got) else got == v
                    for d, v in bound.items() for got in (row.reach(parsed(dims[d]), env),)):
                 picked.append(r)
+        return picked, f, item, rowkind, dims, row
+
+    # ── a metric, as a reader reads it (library-api.md §5, declaration-syntax.md §6.9) ──────────────
+    def read_page(self, name, bind=None, keep=None, over=None, filt=None):
+        """A reader's read of a metric: its rows those a guard's read would select, narrowed by a filter over its binder,
+        grouped by the dimensions kept, every declared one unless `keep` names them, the rest aggregated over, a row per
+        group in their order; each declared flag on each declared group; and a refusal, a value, where the read cannot be
+        answered (ADR-0098, ADR-0101, ADR-0114, ADR-0124, ADR-0127, ADR-0146, ADR-0147, ADR-0148)."""
+        s, bind = self.s, dict(bind or {})
+
+        def refused(why):
+            return {"rows": [], "flags": [], "history_complete": True, "refused": why}
+        try:
+            owner, spec, module = s.find_metric(parsed(name))
+        except NotRunnable:
+            return refused("unknown_metric")
+        combined = "input_metrics" in spec
+        declared = list(spec.get("group_by") or []) if combined else list(formula(s.kinds, s.enums, owner, spec).get("dimensions") or {})
+        keep = declared if keep is None else list(keep)
+        dims = s.metric_dimensions(owner, spec)
+        if any(d not in dims for d in keep + list(bind)):
+            return refused("unknown_dimension")
+        if filt is not None and combined:
+            return refused("filter_on_combined")
+        if over is not None and not self.windowed(owner, spec, module):
+            return refused("no_window")
+        if filt is not None and self.reads_personal(owner, spec, filt):
+            return refused("personal")
+        groups, kind = self.grouped(owner, spec, module, bind, keep, over, filt)
+        rows = [{"dimensions": dict(zip(keep, key)), "value": rounded(v, kind), "gaps": list(gaps), "time_basis": "UTC calendar"}
+                for key, (v, gaps) in sorted(groups.items(), key=lambda kv: self.page_order(owner, keep, kv[0]))]
+        flags = []
+        if spec.get("flag_when"):
+            # a flag is raised on each declared group, whatever the read keeps, over the rows the read selects (§6.9)
+            every, _ = self.grouped(owner, spec, module, bind, declared, over, filt)
+            for key, (v, _gaps) in sorted(every.items(), key=lambda kv: self.page_order(owner, declared, kv[0])):
+                env = dict(zip(declared, key), value=rounded(v, kind))
+                for flag, text in spec["flag_when"].items():
+                    t = truth(Evaluator(s, owner, stubs=self.stubs).value(parsed(text), env))
+                    if t is not False:
+                        flags.append({"flag": flag, "group": dict(zip(declared, key)), "unknown": t is ABSENT})
+        return {"rows": rows, "flags": flags, "history_complete": not any(r["gaps"] for r in rows), "refused": None}
+
+    def windowed(self, owner, spec, module):
+        """Whether a read may window a metric: one with a time dimension or a split, or a combined one whose every input
+        may be (ADR-0147)."""
+        if "input_metrics" in spec:
+            return all(self.windowed(*self.s.find_metric(parsed(ref), module=module)) for ref in spec["input_metrics"].values())
+        f = formula(self.s.kinds, self.s.enums, owner, spec)
+        return bool(f.get("time_dimension") or f.get("split_by"))
+
+    def reads_personal(self, owner, spec, filt):
+        """Whether a reader's filter reads a personal attribute of an object it reaches from the row (§6.9, ADR-0148)."""
+        s = self.s
+        f = formula(s.kinds, s.enums, owner, spec)
+        source = f["source"]
+        observed = (s.kinds.get(owner) or {}).get("observations") or {}
+        rowkind = (("object", owner) if source == "objects" else ("interval", owner) if source.startswith("intervals")
+                   else ("transition", owner) if source == "transitions"
+                   else ("object", observed[source]["kind"]) if source in observed else ("other",))
+        env = {f["item"]: rowkind}
+
+        def walk(e):
+            if not isinstance(e, tuple):
+                return False
+            if e and e[0] == "path":
+                base = self.kind(e[1], env)
+                if base[0] == "object" and (((s.kinds.get(base[1]) or {}).get("attributes") or {}).get(e[2]) or {}).get("personal"):
+                    return True
+            return any(walk(p) for p in e[1:] if isinstance(p, tuple)) or \
+                any(walk(q) for p in e[1:] if isinstance(p, list) for q in p)
+        return walk(parsed(filt))
+
+    def grouped(self, owner, spec, module, bind, keep, over, filt):
+        """A metric's exact value on each group of the dimensions kept, with the objects each read from before what their
+        record vouches for, and its expression's type. A combined metric reads each input to the dimensions it has of
+        those kept, and joins over every group an input with all of them has, an input missing a group contributing its
+        value over no rows (ADR-0122 decision 18, ADR-0124, ADR-0147)."""
+        s = self.s
+        if "input_metrics" in spec:
+            inputs, kinds = [], {}
+            for n, ref in spec["input_metrics"].items():
+                o2, s2, m2 = s.find_metric(parsed(ref), module=module)
+                mine = s.metric_dimensions(o2, s2)
+                k2 = [d for d in keep if d in mine]
+                g2, kinds[n] = self.grouped(o2, s2, m2, {d: v for d, v in bind.items() if d in mine}, k2, over, None)
+                inputs.append((n, k2, g2, self.over_no_rows(o2, s2, m2)))
+            keys = []
+            for _n, k2, g2, _e in inputs:
+                if len(k2) == len(keep):
+                    keys += [k for k in g2 if k not in keys]
+            tree = parsed(spec["expression"])
+            out = {}
+            for key in keys:
+                values, gaps = {}, set()
+                for n, k2, g2, empty in inputs:
+                    sub = tuple(v for d, v in zip(keep, key) if d in k2)
+                    values[n], got = g2.get(sub, (empty, ()))
+                    gaps |= set(got)
+                out[key] = (self.value(tree, values), tuple(sorted(gaps)))
+            return out, self.kind(tree, kinds)
+        picked, f, item, rowkind, dims, row = self.selected(owner, spec, bind, over, filt)
         tree = parsed(f["expression"])
-        kind = row.kind(tree, {item: rowkind})
-        v = row.over_rows(tree, picked, item, rowkind)
-        return (v if exact else rounded(v, kind)), kind
+        members = {}
+        for r in picked:
+            for key in self.combinations(row, [parsed(dims[d]) for d in keep], {item: r}):
+                members.setdefault(key, []).append(r)
+        if not keep:
+            members.setdefault((), [])      # the whole, read with nothing kept, is one row even over no rows
+        # every object the runner holds has its whole record, so no row reads from before what it vouches for
+        return ({key: (row.over_rows(tree, rs, item, rowkind), ()) for key, rs in members.items()},
+                row.kind(tree, {item: rowkind}))
+
+    def over_no_rows(self, owner, spec, module):
+        """The value a metric's expression has over no rows (ADR-0122 decision 18)."""
+        if "input_metrics" in spec:
+            values = {n: self.over_no_rows(*self.s.find_metric(parsed(ref), module=module)) for n, ref in spec["input_metrics"].items()}
+            return self.value(parsed(spec["expression"]), values)
+        f = formula(self.s.kinds, self.s.enums, owner, spec)
+        _rows, rowkind, _by = self.metric_rows(owner, f["source"])
+        return Evaluator(self.s, owner, stubs=self.stubs, filter_mode=True).over_rows(parsed(f["expression"]), [], f["item"], rowkind)
+
+    def combinations(self, row, exprs, env):
+        """Each combination of the kept dimensions' values a row is counted under: one value where a path reaches no set,
+        each distinct value where it goes through one, and, where two paths go through one set, the values of each of
+        its members, never crossed; an empty set, or a member whose path reaches no value, counts the row under the
+        absent value (ADR-0123, ADR-0146)."""
+        fixed, shared = {}, {}
+        for i, e in enumerate(exprs):
+            chain, node = [], e
+            while node[0] == "path":
+                chain.append(node[2])
+                node = node[1]
+            chain.reverse()
+            v, prefix, j = row.value(node, env), node, 0
+            while not is_set(v) and j < len(chain):
+                v, prefix, j = row.member(v, chain[j]), ("path", prefix, chain[j]), j + 1
+            if is_set(v):
+                shared.setdefault(prefix, (v, []))[1].append((i, chain[j:]))
+            else:
+                fixed[i] = v
+        keys = [dict(fixed)]
+        for members, idx in shared.values():
+            tuples = []
+            for m in members:
+                vals = []
+                for _i, rest in idx:
+                    x = m
+                    for name in rest:
+                        x = ABSENT if x is ABSENT else row.member(x, name)
+                    vals.append(x)
+                if tuple(vals) not in tuples:
+                    tuples.append(tuple(vals))
+            tuples = tuples or [tuple(ABSENT for _ in idx)]
+            keys = [{**k, **{i: t[n] for n, (i, _rest) in enumerate(idx)}} for k in keys for t in tuples]
+        return [tuple(k[i] for i in range(len(exprs))) for k in keys]
+
+    def page_order(self, owner, keep, key):
+        """A page's order: by each kept dimension ascending, an absent value last, a state, an enumeration member or a
+        kind of actor in declaration order, an object by id, which is creation order, a time bucket in time order and
+        a string by code point (ADR-0127, ADR-0147)."""
+        s = self.s
+        out = []
+        for d, v in zip(keep, key):
+            if v is ABSENT:
+                out.append((1,))
+            elif isinstance(v, tuple) and v[:1] == ("state",):
+                out.append((0, list(((s.kinds.get(v[1]) or {}).get("states") or {})).index(v[2])))
+            elif isinstance(v, tuple) and v[:1] == ("enum",):
+                out.append((0, list(s.enums.get(v[1]) or []).index(v[2])))
+            elif d == "actor_kind" and v in ACTOR_KINDS + ("unknown",):
+                out.append((0, (ACTOR_KINDS + ("unknown",)).index(v)))
+            elif isinstance(v, str) and v in s.objects:
+                out.append((0, s.objects[v].id_order))
+            else:
+                out.append((0, v))
+        return tuple(out)
 
     def metric_rows(self, owner, source):
         """A metric's rows (declaration-syntax.md §6.9): each object of the type or its family, each span of its state or
@@ -2740,7 +2932,8 @@ def metrics_self_test(operator):
     rate = "count(where r.outcome == Outcome.PASS) * {} / count()"
     job = {
         "attributes": {"engineer": {"reference": "User", "optional": True, "assignee": True},
-                       "tags": {"type": "string[]", "optional": True}},
+                       "tags": {"type": "string[]", "optional": True},
+                       "memo": {"type": "string", "optional": True, "personal": True}},
         "observations": {"checks": {"kind": "Check", "attributes": {"outcome": {"type": "Outcome"}}}},
         "states": {"OPEN": {"category": "inbound"}, "WORKING": {"category": "live"}, "SHELVED": {"category": "closed"},
                    "DONE": {"category": "closed", "final": True}},
@@ -2760,7 +2953,7 @@ def metrics_self_test(operator):
             "finish": {"kind": "external", "from": ["WORKING"], "to": "DONE", "guards": {"good": "deny"}}},
         "metrics": {
             "pass_rate": {"source": "checks", "item": "r", "filter": "r.outcome != Outcome.NA", "dimensions": {"engineer": "r.subject.engineer"},
-                          "time_dimension": "r.occurred_at", "expression": rate.format("1.000")},
+                          "time_dimension": "r.occurred_at", "expression": rate.format("1.000"), "flag_when": {"low": "value < 0.900"}},
             "pass_share": {"source": "checks", "item": "r", "dimensions": {"engineer": "r.subject.engineer"}, "expression": rate.format("1.00")},
             "passes": {"source": "checks", "item": "r", "filter": "r.outcome == Outcome.PASS", "dimensions": {"engineer": "r.subject.engineer"},
                        "time_dimension": "r.occurred_at", "expression": "count()"},
@@ -2784,7 +2977,11 @@ def metrics_self_test(operator):
             "jobs_total": {"source": "objects", "item": "o", "expression": "count()"},
             "engineers_checked": {"source": "checks", "item": "r", "expression": "count(distinct r.subject.engineer)"},
             "anas_jobs": {"source": "objects", "item": "o", "filter": 'o.engineer.login == "ana"', "expression": "count()"},
-            "third_of_checks": {"source": "checks", "item": "r", "expression": "count() / 3"}}}
+            "third_of_checks": {"source": "checks", "item": "r", "expression": "count() / 3"},
+            "outcome_pairs": {"source": "objects", "item": "o", "dimensions": {"outcome": "o.checks.outcome", "again": "o.checks.outcome"},
+                              "expression": "count()"},
+            "done_spans": {"source": "intervals", "item": "i", "filter": "i.state == DONE", "dimensions": {"engineer": "i.held(engineer)"},
+                           "expression": "max(i.duration)", "flag_when": {"long": "value > 1 h"}}}}
     module = {"enumerations": {"Outcome": ["PASS", "FAIL", "NA"]},
               "types": {"User": {"attributes": {"login": {"type": "identity", "actor_kind": "human"}},
                                  "states": {"ACTIVE": {"category": "live"}},
@@ -2840,6 +3037,43 @@ def metrics_self_test(operator):
     check("a distinct count leaves out an absent value", read(s, j1, "metric(engineers_checked)"), 1)
     check("a filter unknown for a row selects it not", read(s, j1, "metric(anas_jobs)"), 1)
     check("int / int truncates in a metric's value, before the rounding", read(s, j1, "metric(third_of_checks)"), 1)
+    # a reader's read: a row per group of the dimensions kept, in their order, an absent value last (library-api.md §5)
+    r, s = world()
+    ana, ben = req(r, s, "User", "add", login="ana"), req(r, s, "User", "add", login="ben")
+    k1 = req(r, s, "Job", "open", engineer=ana, tags=["urgent"])
+    k2 = req(r, s, "Job", "open", engineer=ben, tags=["urgent", "vip"])
+    k0 = req(r, s, "Job", "open")
+    record(r, s, k1, "PASS", "FAIL")
+    record(r, s, k2, "PASS", "PASS")
+    record(r, s, k0, "FAIL")
+    page = lambda name, **kw: Evaluator(s, None).read_page(name, **kw)
+    rows = lambda p: [(r_["dimensions"], r_["value"]) for r_ in p["rows"]]
+    rate = page("Job.pass_rate")
+    check("a row per engineer, the absent one last, as their objects were created",
+          rows(rate), [({"engineer": ana}, Fraction(1, 2)), ({"engineer": ben}, 1), ({"engineer": ABSENT}, 0)])
+    check("a flag on each declared group it holds for", [(f["flag"], f["group"], f["unknown"]) for f in rate["flags"]],
+          [("low", {"engineer": ana}, False), ("low", {"engineer": ABSENT}, False)])
+    check("nothing kept, one row over every row", rows(page("Job.pass_rate", keep=[])), [({}, Fraction(3, 5))])
+    check("nothing kept, one row even over no rows", rows(page("Job.pass_rate", keep=[], filt="r.outcome == Outcome.NA")), [({}, ABSENT)])
+    check("a dimension bound, its rows alone", rows(page("Job.pass_rate", bind={"engineer": ben}, keep=[])), [({}, 1)])
+    check("a reader's filter narrows the rows before they are grouped",
+          rows(page("Job.pass_rate", filt="r.outcome == Outcome.PASS")), [({"engineer": ana}, 1), ({"engineer": ben}, 1)])
+    check("a set dimension, an object under each value and an absent one under none",
+          rows(page("Job.tagged")), [({"tag": "urgent"}, 2), ({"tag": "vip"}, 1), ({"tag": ABSENT}, 1)])
+    check("two dimensions through one set taken per member, never crossed, a value two members share once", rows(page("Job.outcome_pairs")),
+          [({"outcome": ("enum", "Outcome", "PASS"), "again": ("enum", "Outcome", "PASS")}, 2),
+           ({"outcome": ("enum", "Outcome", "FAIL"), "again": ("enum", "Outcome", "FAIL")}, 2)])
+    check("a combined metric joined over every group, a missing input contributing its value over no rows",
+          rows(page("passes_per_job")), [({"engineer": ana}, 1), ({"engineer": ben}, 2), ({"engineer": ABSENT}, 0)])
+    k3 = req(r, s, "Job", "open", engineer=ana)
+    for x in ("start", "shelve", "close"):
+        req(r, s, "Job", x, k3)
+    check("a flag unknown on a group whose value is", [(f["flag"], f["group"], f["unknown"]) for f in page("Job.done_spans")["flags"]],
+          [("long", {"engineer": ana}, True)])
+    check("each refusal a value", [page(*a, **kw)["refused"] for a, kw in [
+        (("nonesuch",), {}), (("Job.pass_rate",), {"keep": ["nobody"]}), (("passes_per_job",), {"filt": "true"}),
+        (("Job.tagged",), {"over": 7 * day}), (("Job.jobs_opened",), {"filt": 'o.memo == "x"'})]],
+          ["unknown_metric", "unknown_dimension", "filter_on_combined", "no_window", "personal"])
     # a span holds what the transition that began it wrote, and an event what was held before it (§6.9, ADR-0146)
     r, s = world()
     ana, ben = req(r, s, "User", "add", login="ana"), req(r, s, "User", "add", login="ben")
@@ -2888,6 +3122,9 @@ def metrics_self_test(operator):
     req(r, s, "Job", "start", jb)
     req(r, s, "Job", "pause", jb)
     check("a transition count by name, apart from another between the same states", read(s, ja, "metric(backs)"), 5)
+    check("the states in their declared order, a state no span holds now left out",
+          [(r_["dimensions"]["state"][2], r_["value"]) for r_ in Evaluator(s, None).read_page("Job.time_in_state", keep=["state"])["rows"]],
+          [("OPEN", 0), ("WORKING", 2 * 3600)])     # WORKING's spans 0, 1, 2, 3, 4 and 6 h; the third
     # a span still current accrues nothing over an unbroken stretch of closed states (ADR-0146)
     r, s = world()
     eve = req(r, s, "User", "add", login="eve")

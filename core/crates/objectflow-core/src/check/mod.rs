@@ -19,6 +19,8 @@ mod logic;
 mod migration;
 mod model;
 mod names;
+// an expression's direct subexpressions, which the metric read walks too
+pub(crate) use names::children as children_of;
 mod notices;
 mod optional;
 mod raw;

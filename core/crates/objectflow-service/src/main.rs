@@ -741,10 +741,72 @@ async fn availability(State(shared): State<Shared>, Json(body): Json<J>) -> Answ
     }
 }
 
-async fn metric() -> Answer {
-    Err(Fault::NotRun(
-        "a metric read, which the core's first slice does not offer".to_string(),
-    ))
+/// A reader's read of a metric: one page holding every group, so its
+/// cursor is none (`library-api.md` §5, `MetricPage`).
+async fn metric(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let (Some(_actor), Some(name)) = (
+        body.get("actor").and_then(|a| text(a, "id")),
+        text(&body, "name"),
+    ) else {
+        return Err(Fault::Bad(
+            "metric names its actor and the metric".to_string(),
+        ));
+    };
+    if body.get("cursor").is_some_and(|c| !c.is_null()) {
+        return Err(Fault::Bad(
+            "a metric's page holds every group, so it has no cursor to continue from".to_string(),
+        ));
+    }
+    let bind = body
+        .get("bind")
+        .and_then(J::as_object)
+        .map(|b| b.clone().into_iter().collect())
+        .unwrap_or_default();
+    let keep: Option<Vec<String>> = match body.get("keep") {
+        None | Some(J::Null) => None,
+        Some(J::Array(items)) => Some(
+            items
+                .iter()
+                .map(|d| d.as_str().map(str::to_string))
+                .collect::<Option<_>>()
+                .ok_or_else(|| Fault::Bad("keep takes dimension names".to_string()))?,
+        ),
+        Some(_) => return Err(Fault::Bad("keep takes dimension names".to_string())),
+    };
+    let over =
+        match text(&body, "over") {
+            None => None,
+            Some(by) => Some(parse_duration(by).ok_or_else(|| {
+                Fault::Bad(format!("over takes a duration such as '30 days': {by}"))
+            })?),
+        };
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    let world = s.snapshot()?;
+    let page = objectflow_core::metric::page(
+        &world,
+        Some(&s.answers),
+        name,
+        &bind,
+        keep.as_deref(),
+        over,
+        text(&body, "filter"),
+    )?;
+    let group = |pairs: &[(String, objectflow_core::value::Value)]| {
+        J::Object(pairs.iter().map(|(d, v)| (d.clone(), encode(v))).collect())
+    };
+    Ok(Json(json!({
+        "rows": page.rows.iter().map(|r| json!({
+            "dimensions": group(&r.dimensions), "value": encode(&r.value), "gaps": r.gaps,
+            "time_basis": "UTC calendar",
+        })).collect::<Vec<_>>(),
+        "cursor": J::Null,
+        "flags": page.flags.iter().map(|f| json!({
+            "flag": f.flag, "group": group(&f.group), "unknown": f.unknown,
+        })).collect::<Vec<_>>(),
+        "history_complete": page.history_complete,
+        "refused": page.refused,
+    })))
 }
 
 fn app(shared: Shared) -> Router {
