@@ -117,6 +117,9 @@ pub struct Attribute {
     pub composite: bool,
     /// An external identifier: the source whose value it holds (§4.15).
     pub external: Option<String>,
+    /// On a composite end, `survives: true`: its parts outlive any final state
+    /// of the whole, a migration's included (`publish-and-import.md` §3).
+    pub survives_always: bool,
     /// On a composite end, the transitions its parts take when this object
     /// takes one of those listed.
     pub cascade: Vec<CascadeClause>,
@@ -356,6 +359,8 @@ impl Type {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Module {
     pub name: String,
+    /// Its `migration`: what a publish of it maps (`flow-format.md` §4.16).
+    pub migration: Migration,
     pub enumerations: Vec<(String, Vec<String>)>,
     pub types: Vec<Type>,
     /// The observation kinds its types declare, by name.
@@ -491,6 +496,7 @@ impl Reader<'_> {
                 .get("external")
                 .and_then(Node::text)
                 .map(str::to_string),
+            survives_always: node.get("survives").and_then(Node::boolean) == Some(true),
             actor_kind: node
                 .get("actor_kind")
                 .map(|k| self.text(k, "a kind of actor"))
@@ -824,6 +830,7 @@ impl Reader<'_> {
             composite: false,
             cascade: Vec::new(),
             external: None,
+            survives_always: false,
         };
         let mut attributes = Vec::new();
         let mut required = vec!["subject".to_string()];
@@ -1011,12 +1018,90 @@ impl Reader<'_> {
         }
         Ok(Module {
             name: name.to_string(),
+            migration: self.migration(doc.get("migration"))?,
             enumerations,
             types,
             observation_kinds,
             machines,
             evaluators,
         })
+    }
+}
+
+/// A module's `migration`: the mappings a publish of it applies, each naming
+/// its type or enumeration (`publish-and-import.md` §3, `flow-format.md`
+/// §4.16).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Migration {
+    /// A type, a state it removes, and the state its objects move to.
+    pub removed_states: Vec<(String, String, String)>,
+    /// An enumeration, a member it removes, and the member it maps to.
+    pub removed_members: Vec<(String, String, String)>,
+    /// A type, an attribute's old name, and its new one.
+    pub renamed_attributes: Vec<(String, String, String)>,
+    /// A type, an attribute, and the value written to it, in the order
+    /// written.
+    pub backfill: Vec<(String, String, Expr)>,
+    /// An invariant, `Type.name`, a violation of which is admitted, and the
+    /// reason, an enumeration member written `Enum.MEMBER`.
+    pub admit: Vec<(String, String)>,
+}
+
+impl Migration {
+    fn extend(&mut self, other: Migration) {
+        self.removed_states.extend(other.removed_states);
+        self.removed_members.extend(other.removed_members);
+        self.renamed_attributes.extend(other.renamed_attributes);
+        self.backfill.extend(other.backfill);
+        self.admit.extend(other.admit);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        *self == Migration::default()
+    }
+}
+
+impl Reader<'_> {
+    fn migration(&self, node: Option<&Node>) -> Loaded<Migration> {
+        let mut m = Migration::default();
+        let Some(node) = node else {
+            return Ok(m);
+        };
+        let pairs = |key: &str| -> Vec<(String, String, String)> {
+            node.get(key)
+                .map(Node::entries)
+                .unwrap_or_default()
+                .iter()
+                .flat_map(|(owner, map)| {
+                    map.entries()
+                        .iter()
+                        .filter_map(|(old, new)| {
+                            new.text()
+                                .map(|n| (owner.clone(), old.clone(), n.to_string()))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect()
+        };
+        m.removed_states = pairs("removed_states");
+        m.removed_members = pairs("removed_members");
+        m.renamed_attributes = pairs("renamed_attributes");
+        for (tn, map) in node.get("backfill").map(Node::entries).unwrap_or_default() {
+            for (a, e) in map.entries() {
+                m.backfill
+                    .push((tn.clone(), a.clone(), self.expression(e)?));
+            }
+        }
+        for item in node.get("admit").map(Node::items).unwrap_or_default() {
+            let (Some(inv), Some(reason)) = (
+                item.get("invariant").and_then(Node::text),
+                item.get("reason").and_then(Node::text),
+            ) else {
+                return self.error(item, "an admit names its invariant and its reason");
+            };
+            m.admit.push((inv.to_string(), reason.to_string()));
+        }
+        Ok(m)
     }
 }
 
@@ -1042,6 +1127,13 @@ pub struct Library {
     pub evaluators: Vec<String>,
     /// The modules loaded, in import order.
     pub modules: Vec<String>,
+    /// The declaration version it is installed as (`storage-schema.md` §5).
+    pub version: i64,
+    /// Its source: each module's description by its name, and each examples
+    /// file by `<module>.examples`, in the order given (ADR-0135, ADR-0136).
+    pub source: Vec<(String, String)>,
+    /// The migrations its modules carry, which a publish of it applies.
+    pub migration: Migration,
 }
 
 /// The bases a type extends, nearest first; the walk stops at an unknown
@@ -1190,6 +1282,9 @@ fn bind(t: &mut Type, m: &Type) {
 /// one object, `operator`, a human, active from the store's creation.
 pub const OPERATOR: &str = "operator";
 
+/// The built-in type of the store's operator.
+pub const OPERATOR_TYPE: &str = "Operator";
+
 fn operator_type() -> Type {
     Type {
         name: "Operator".to_string(),
@@ -1210,6 +1305,7 @@ fn operator_type() -> Type {
                 composite: false,
                 cascade: Vec::new(),
                 external: None,
+                survives_always: false,
             },
         )],
         derived: Vec::new(),
@@ -1274,6 +1370,7 @@ fn proposal_type() -> Type {
         composite: false,
         cascade: Vec::new(),
         external: None,
+        survives_always: false,
     };
     let state = |category: &str, is_final: bool| State {
         category: category.to_string(),
@@ -1346,16 +1443,101 @@ fn proposal_type() -> Type {
     }
 }
 
+/// The built-in type of a change to the declaration (`DESIGN.md` §9): the
+/// source it proposes, where it came from and its digest, the version it was
+/// drafted against, and the dry run's report. Its transitions are the
+/// store's own.
+pub const DECLARATION_CHANGE: &str = "DeclarationChange";
+
+fn declaration_change_type() -> Type {
+    let mut t = proposal_type();
+    t.name = DECLARATION_CHANGE.to_string();
+    let attribute = |ty: &str, optional: bool| Attribute {
+        declared: Declared::Scalar(ty.to_string()),
+        optional,
+        ..t.attributes[0].1.clone()
+    };
+    t.attributes = vec![
+        // the source as a JSON object, each module's name to its text
+        ("source".into(), attribute("string", false)),
+        ("source_ref".into(), attribute("string", false)),
+        ("source_digest".into(), attribute("string", false)),
+        ("base_version".into(), attribute("int", false)),
+        // the dry run's report, as JSON, when it is submitted
+        ("report".into(), attribute("string", true)),
+        ("drafted_by".into(), attribute("string", false)),
+        ("drafted_by_kind".into(), attribute("string", false)),
+        ("approved_by".into(), attribute("string", true)),
+        ("approved_by_kind".into(), attribute("string", true)),
+    ];
+    let state = |category: &str, is_final: bool| State {
+        category: category.to_string(),
+        is_final,
+        required_attributes: Vec::new(),
+        superseding: false,
+    };
+    t.states = vec![
+        ("DRAFTED".into(), state("live", false)),
+        ("SUBMITTED".into(), state("live", false)),
+        ("PUBLISHED".into(), state("closed", true)),
+        ("REJECTED".into(), state("closed", true)),
+        ("WITHDRAWN".into(), state("closed", true)),
+        ("SUPERSEDED".into(), state("closed", true)),
+    ];
+    t.source = serde_json::json!({
+        "description": "A change to the declaration, drafted, submitted and published (DESIGN.md §9).",
+        "attributes": {
+            "source": { "type": "string" }, "source_ref": { "type": "string" },
+            "source_digest": { "type": "string" }, "base_version": { "type": "int" },
+            "report": { "type": "string", "optional": true },
+            "drafted_by": { "type": "string" }, "drafted_by_kind": { "type": "string" },
+            "approved_by": { "type": "string", "optional": true },
+            "approved_by_kind": { "type": "string", "optional": true }
+        },
+        "states": {
+            "DRAFTED": { "category": "live" }, "SUBMITTED": { "category": "live" },
+            "PUBLISHED": { "category": "closed", "final": true },
+            "REJECTED": { "category": "closed", "final": true },
+            "WITHDRAWN": { "category": "closed", "final": true },
+            "SUPERSEDED": { "category": "closed", "final": true }
+        },
+        "transitions": {
+            "draft": { "kind": "initial", "to": "DRAFTED" },
+            "revise": { "kind": "internal", "from": ["DRAFTED"] },
+            "reopen": { "kind": "external", "from": ["SUBMITTED"], "to": "DRAFTED" },
+            "submit": { "kind": "external", "from": ["DRAFTED"], "to": "SUBMITTED" },
+            "refresh": { "kind": "internal", "from": ["SUBMITTED"] },
+            "publish": { "kind": "external", "from": ["SUBMITTED"], "to": "PUBLISHED" },
+            "reject": { "kind": "external", "from": ["SUBMITTED"], "to": "REJECTED" },
+            "withdraw": { "kind": "external", "from": ["DRAFTED", "SUBMITTED"], "to": "WITHDRAWN" },
+            "supersede": { "kind": "external", "from": ["DRAFTED", "SUBMITTED"], "to": "SUPERSEDED" }
+        }
+    });
+    t
+}
+
 impl Library {
     /// The library of modules given as (file, text), in import order, with
-    /// the built-in Operator and Proposal types.
+    /// the built-in Operator, Proposal and DeclarationChange types.
     pub fn load(files: &[(String, String)]) -> Result<Library, LoadError> {
         let mut lib = Library::default();
         let mut machines: BTreeMap<String, Type> = BTreeMap::new();
         lib.types.insert("Operator".to_string(), operator_type());
         lib.types.insert(PROPOSAL.to_string(), proposal_type());
+        lib.types
+            .insert(DECLARATION_CHANGE.to_string(), declaration_change_type());
+        lib.version = 1;
         for (file, text) in files {
+            // an examples file is part of the source, and no module of it
+            if let Some(name) = crate::source::name_of(text)
+                && crate::source::is_examples(&name)
+            {
+                lib.source.push((name, text.clone()));
+                continue;
+            }
             let m = load_module(file, text)?;
+            lib.source.push((m.name.clone(), text.clone()));
+            lib.migration.extend(m.migration);
             for (n, members) in m.enumerations {
                 lib.enumerations.insert(n, members);
             }

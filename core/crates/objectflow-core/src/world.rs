@@ -74,6 +74,8 @@ pub struct World<'l> {
     /// Each external identifier, by source and value, and the object that
     /// holds it, a legacy key among them (`storage-schema.md`, `of_external_id`).
     pub external: BTreeMap<(String, String), String>,
+    /// A sandbox's store, whose caller checks a source (ADR-0155).
+    pub sandbox: bool,
 }
 
 impl<'l> World<'l> {
@@ -83,6 +85,7 @@ impl<'l> World<'l> {
             objects: BTreeMap::new(),
             now,
             external: BTreeMap::new(),
+            sandbox: false,
         }
     }
 

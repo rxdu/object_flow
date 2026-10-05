@@ -215,9 +215,8 @@ async fn load(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
                 "load takes files, each with a name and a text".to_string(),
             ));
         };
-        if !name.ends_with(".examples.yaml") {
-            files.push((name.to_string(), text.to_string()));
-        }
+        // an examples file is part of version 1's source, and no module
+        files.push((name.to_string(), text.to_string()));
     }
     if files.is_empty() {
         return Err(Fault::Bad(
@@ -587,6 +586,61 @@ async fn get(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     object_json(s, text(&body, "id").unwrap_or_default())
 }
 
+/// A change's dry run, its report the impact a publish would have; the
+/// approval, which installs it, is the next slice's (`library-api.md` §6,
+/// ADR-0155).
+async fn publish(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let (Some(actor), Some(change)) = (
+        body.get("actor").and_then(|a| text(a, "id")),
+        text(&body, "change"),
+    ) else {
+        return Err(Fault::Bad(
+            "publish names its actor and the change".to_string(),
+        ));
+    };
+    if body.get("dry_run").and_then(J::as_bool) != Some(true) {
+        return Err(Fault::NotRun(
+            "the approval, which installs a version, the next slice (ADR-0155)".to_string(),
+        ));
+    }
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    let world = s.snapshot()?;
+    let Some(c) = world
+        .get(change)
+        .filter(|c| c.type_ == objectflow_core::model::DECLARATION_CHANGE)
+    else {
+        return Err(Fault::Missing(format!("no change {change}")));
+    };
+    if !world.sandbox {
+        return Err(Fault::NotRun(
+            "the publish checks, outside a sandbox (ADR-0155)".to_string(),
+        ));
+    }
+    let attr = |a: &str| match c.attr(a) {
+        objectflow_core::value::Value::Text(t) => t,
+        _ => String::new(),
+    };
+    let source: Vec<(String, String)> = serde_json::from_str::<Map<String, J>>(&attr("source"))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(n, t)| (n, t.as_str().unwrap_or_default().to_string()))
+        .collect();
+    let report = objectflow_core::publish::dry_run(
+        &world,
+        &objectflow_core::publish::Draft {
+            change_id: Some(change),
+            source: &source,
+            source_ref: Some(&attr("source_ref")),
+            source_digest: Some(&attr("source_digest")),
+            actor,
+        },
+    )?;
+    Ok(Json(
+        json!({ "verdict": J::Null, "report": objectflow_core::publish::report_json(&report) }),
+    ))
+}
+
 /// The object whose external identifier for a source has a value, a legacy
 /// key among them (`library-api.md` §6, ADR-0154).
 async fn lookup(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
@@ -693,6 +747,7 @@ fn app(shared: Shared) -> Router {
         .route("/v1/metric", post(metric))
         .route("/v1/import_batch", post(import_op))
         .route("/v1/lookup", post(lookup))
+        .route("/v1/publish", post(publish))
         .route("/sandbox/load", post(load))
         .route("/sandbox/reset", post(reset))
         .route("/sandbox/clock", post(clock))

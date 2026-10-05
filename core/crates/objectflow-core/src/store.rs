@@ -260,6 +260,19 @@ CREATE TABLE of_counter (
   value  INTEGER NOT NULL
 );
 INSERT INTO of_counter (name, value) VALUES ('position', 0), ('txn', 0), ('object', 0);
+CREATE TABLE of_declaration (
+  version       INTEGER PRIMARY KEY,
+  module        TEXT    NOT NULL,
+  source        TEXT    NOT NULL,
+  source_ref    TEXT,
+  source_digest TEXT,
+  builtins      TEXT    NOT NULL,
+  published_at  TEXT    NOT NULL,
+  published_by  TEXT    NOT NULL,
+  change_id     TEXT,
+  release       TEXT,
+  report        TEXT    NOT NULL
+);
 CREATE TABLE of_external_id (
   source     TEXT NOT NULL,
   value      TEXT NOT NULL,
@@ -320,7 +333,13 @@ pub struct Store {
     /// What its evaluators answer, `<evaluator>.<function>` to `satisfied`,
     /// `unsatisfied` or `unanswered`: a sandbox's caller sets them (PRD F13).
     pub answers: BTreeMap<String, String>,
+    /// A sandbox, whose caller checks a source before it reaches the store
+    /// (ADR-0155 decision 1).
+    pub sandbox: bool,
 }
+
+/// The built-in module a version was published with: this engine release.
+pub const BUILTINS: &str = concat!("objectflow-core ", env!("CARGO_PKG_VERSION"));
 
 impl Store {
     /// An in-memory store for a sandbox, holding the library's types and its
@@ -329,16 +348,44 @@ impl Store {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         conn.execute_batch(SCHEMA)?;
-        let store = Store {
+        let mut store = Store {
             conn,
             lib,
             now,
             answers: BTreeMap::new(),
+            sandbox: true,
         };
         for t in store.lib.types.values() {
             store.conn.execute_batch(&store.type_ddl(t))?;
         }
         store.create_operator()?;
+        // version 0, the built-ins the store is created with, and version 1,
+        // the modules a sandbox's load installs directly (ADR-0155 decision 4)
+        let at = timestamp_text(now);
+        store.conn.execute(
+            "INSERT INTO of_declaration (version, module, source, builtins, published_at, published_by, report) \
+             VALUES (0, '', '{}', ?1, ?2, ?1, '{}')",
+            params![BUILTINS, at],
+        )?;
+        let source: serde_json::Map<String, serde_json::Value> = store
+            .lib
+            .source
+            .iter()
+            .map(|(n, t)| (n.clone(), serde_json::Value::String(t.clone())))
+            .collect();
+        store.conn.execute(
+            "INSERT INTO of_declaration (version, module, source, source_ref, source_digest, builtins, \
+             published_at, published_by, report) VALUES (1, ?1, ?2, 'sandbox:load', ?3, ?4, ?5, ?6, '{}')",
+            params![
+                store.lib.modules.last().cloned().unwrap_or_default(),
+                serde_json::Value::Object(source).to_string(),
+                crate::source::digest(&store.lib.source),
+                BUILTINS,
+                at,
+                OPERATOR
+            ],
+        )?;
+        store.lib.version = 1;
         Ok(store)
     }
 
@@ -477,7 +524,9 @@ impl Store {
 
     /// Every object, as a request reads them.
     pub fn snapshot(&self) -> Stored<World<'_>> {
-        snapshot(&self.conn, &self.lib, self.now)
+        let mut world = snapshot(&self.conn, &self.lib, self.now)?;
+        world.sandbox = self.sandbox;
+        Ok(world)
     }
 
     /// Decide on a snapshot and write what the decision changed, in one
@@ -487,7 +536,8 @@ impl Store {
         decide: impl FnOnce(&World<'_>, &mut Allocator) -> Result<(T, Option<Change>), E>,
     ) -> Result<Result<T, E>, StoreError> {
         let tx = self.conn.transaction()?;
-        let world = snapshot(&tx, &self.lib, self.now)?;
+        let mut world = snapshot(&tx, &self.lib, self.now)?;
+        world.sandbox = self.sandbox;
         let mut alloc = Allocator::read(&tx)?;
         let decided = decide(&world, &mut alloc);
         match decided {
@@ -960,7 +1010,7 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
             Sql::Text(o.id.clone()),
             Sql::Text(o.state.clone()),
             Sql::Integer(o.version),
-            Sql::Integer(1),
+            Sql::Integer(event.declaration_version),
             Sql::Integer(event.position),
         ];
         if t.states.iter().any(|(_, s)| s.superseding) {

@@ -26,4 +26,6 @@ pub mod store;
 pub mod request;
 
 pub mod import;
+pub mod publish;
 pub mod reads;
+pub mod source;

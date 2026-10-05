@@ -755,7 +755,7 @@ fn decide(
             source: "asserted".into(),
             actor_id: who.id.clone(),
             actor_kind: who.kind.clone(),
-            declaration_version: 1,
+            declaration_version: lib.version,
             recorded_at: port,
             occurred_at: Some(port),
             imported: true,

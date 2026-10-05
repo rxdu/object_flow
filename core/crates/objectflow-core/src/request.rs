@@ -24,7 +24,8 @@ use serde_json::{Value as Json, json};
 use crate::eval::{Evaluator, NotRun, Who, truth};
 use crate::expr::Expr;
 use crate::model::{
-    Declared, Enforce, From, Kind, Library, PROPOSAL, Remedy, Step, Transition, Type, Unique,
+    DECLARATION_CHANGE, Declared, Enforce, From, Kind, Library, PROPOSAL, Remedy, Step, Transition,
+    Type, Unique,
 };
 use crate::store::{Allocator, Change, Event};
 use crate::value::{Value, parse_duration};
@@ -200,12 +201,13 @@ pub fn decide(
 ) -> Result<(Verdict, Option<Change>), NotRun> {
     // a request filed for approval, and one deciding a proposal, are the
     // store's own (DESIGN.md §9)
-    let deciding = req
-        .object_id
-        .as_deref()
-        .and_then(|id| world.get(id))
-        .is_some_and(|o| o.type_ == PROPOSAL);
-    let answer = if req.propose {
+    let target = req.object_id.as_deref().and_then(|id| world.get(id));
+    let deciding = target.is_some_and(|o| o.type_ == PROPOSAL);
+    let changing = target.is_some_and(|o| o.type_ == DECLARATION_CHANGE)
+        || (req.object_id.is_none() && req.type_.as_deref() == Some(DECLARATION_CHANGE));
+    let answer = if changing {
+        decide_change(world, alloc, req)
+    } else if req.propose {
         file(world, alloc, req)
     } else if deciding {
         decide_proposal(world, alloc, req, answers)
@@ -1049,7 +1051,7 @@ fn take(
         .into(),
         actor_id: ctx.who.id.clone(),
         actor_kind: ctx.who.kind.clone(),
-        declaration_version: 1,
+        declaration_version: ctx.work.lib.version,
         recorded_at: ctx.work.now,
         occurred_at: Some(ctx.at),
         imported: false,
@@ -1183,7 +1185,7 @@ fn invalidate_proposals(
             source: "erased".into(),
             actor_id: ctx.who.id.clone(),
             actor_kind: ctx.who.kind.clone(),
-            declaration_version: 1,
+            declaration_version: ctx.work.lib.version,
             recorded_at: ctx.work.now,
             occurred_at: Some(ctx.at),
             imported: false,
@@ -1363,7 +1365,7 @@ fn file(
         source: "observed".into(),
         actor_id: who.id.clone(),
         actor_kind: who.kind.clone(),
-        declaration_version: 1,
+        declaration_version: world.lib.version,
         recorded_at: world.now,
         occurred_at: Some(world.now),
         imported: false,
@@ -1382,6 +1384,279 @@ fn file(
             admitted: Vec::new(),
             discharged: Vec::new(),
             redacted: Vec::new(),
+            ..Change::default()
+        }),
+    ))
+}
+
+/// A built-in object's event as the store records it: its spans, its
+/// version, and the event itself, by the actor asking now.
+#[allow(clippy::too_many_arguments)]
+fn store_event(
+    lib: &Library,
+    t: &Type,
+    o: &mut Object,
+    before: Option<&Vec<(String, Value)>>,
+    from_state: Option<String>,
+    transition: &str,
+    position: i64,
+    now: i64,
+    who: &Who,
+    payload: Json,
+) -> Event {
+    record_spans(lib, t, o, before, position, now, who);
+    o.version += 1;
+    Event {
+        position,
+        object_id: o.id.clone(),
+        object_seq: o.version,
+        transition: transition.to_string(),
+        changes_state: from_state.as_deref() != Some(o.state.as_str()),
+        from_state,
+        to_state: o.state.clone(),
+        source: "observed".into(),
+        actor_id: who.id.clone(),
+        actor_kind: who.kind.clone(),
+        declaration_version: lib.version,
+        recorded_at: now,
+        occurred_at: Some(now),
+        imported: false,
+        payload,
+    }
+}
+
+/// A change's source from the wire: each file's name to its text, and its
+/// reference, refused where empty, longer than 512 characters, or holding a
+/// control character (ADR-0135).
+/// A change's source, its reference and its digest.
+struct ChangeSource {
+    files: Vec<(String, String)>,
+    reference: String,
+    digest: String,
+}
+
+fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
+    let mut wrong = Vec::new();
+    let source: Vec<(String, String)> = match req.inputs.get("source") {
+        Some(Json::Object(files)) if !files.is_empty() && files.values().all(Json::is_string) => {
+            files
+                .iter()
+                .map(|(n, t)| (n.clone(), t.as_str().unwrap_or_default().to_string()))
+                .collect()
+        }
+        _ => {
+            wrong.push("source".to_string());
+            Vec::new()
+        }
+    };
+    let reference = match req.inputs.get("source_ref") {
+        Some(Json::String(r))
+            if (1..=512).contains(&r.chars().count()) && !r.chars().any(char::is_control) =>
+        {
+            r.clone()
+        }
+        _ => {
+            wrong.push("source_ref".to_string());
+            String::new()
+        }
+    };
+    let unknown: Vec<String> = req
+        .inputs
+        .keys()
+        .filter(|k| !["source", "source_ref"].contains(&k.as_str()))
+        .cloned()
+        .collect();
+    if !unknown.is_empty() {
+        return refused(Verdict::InvalidInput { inputs: unknown });
+    }
+    if !wrong.is_empty() {
+        return refused(Verdict::InvalidInput { inputs: wrong });
+    }
+    let Some(digest) = crate::source::digest(&source) else {
+        return refused(Verdict::InvalidInput {
+            inputs: vec!["source".into()],
+        });
+    };
+    Ok(ChangeSource {
+        files: source,
+        reference,
+        digest,
+    })
+}
+
+/// A request on a change to the declaration (`DESIGN.md` §9, ADR-0155):
+/// `draft` and `revise` take the source and its reference; `submit` and
+/// `refresh` run the dry run and attach its report, refused while it finds
+/// anything fatal; `reopen`, `reject` and `withdraw` move it on; `supersede`
+/// is a publish's; and `publish`, the approval, is the next slice's.
+fn decide_change(
+    world: &World<'_>,
+    alloc: &mut Allocator,
+    req: &Request,
+) -> Result<(Verdict, Option<Change>), Stop> {
+    let lib = world.lib;
+    let Some(who) = resolve_actor(world, &req.actor) else {
+        return refused(Verdict::Unsatisfied {
+            clause: "actor_known".into(),
+            remedy: Some(Remedy::Dependent),
+        });
+    };
+    let Some(t) = lib.type_(DECLARATION_CHANGE) else {
+        return stop_not_run("a store without the built-in DeclarationChange");
+    };
+    let xn = req.transition.as_str();
+    let held = req.object_id.as_deref().and_then(|id| world.get(id));
+    let unknown = || Verdict::UnknownTransition {
+        transition: req.transition.clone(),
+    };
+    let (from, to): (&[&str], &str) = match (xn, held.is_some()) {
+        ("draft", false) => (&[], "DRAFTED"),
+        ("revise", true) => (&["DRAFTED"], "DRAFTED"),
+        ("reopen", true) => (&["SUBMITTED"], "DRAFTED"),
+        ("submit", true) => (&["DRAFTED"], "SUBMITTED"),
+        ("refresh", true) => (&["SUBMITTED"], "SUBMITTED"),
+        ("reject", true) => (&["SUBMITTED"], "REJECTED"),
+        ("withdraw", true) => (&["DRAFTED", "SUBMITTED"], "WITHDRAWN"),
+        ("supersede", true) => {
+            return refused(Verdict::NotRequestable {
+                parents: vec!["publish".into()],
+            });
+        }
+        ("publish", true) => {
+            return stop_not_run(
+                "the approval, which installs a version, the next slice (ADR-0155)",
+            );
+        }
+        _ => return refused(unknown()),
+    };
+    if let Some(h) = held
+        && !from.contains(&h.state.as_str())
+    {
+        return refused(Verdict::Unavailable {
+            state: h.state.clone(),
+        });
+    }
+    let now = world.now;
+    let mut o = match held {
+        Some(h) => h.clone(),
+        None => Object {
+            id: String::new(),
+            type_: DECLARATION_CHANGE.into(),
+            state: to.into(),
+            version: 0,
+            attrs: BTreeMap::new(),
+            created_at: now,
+            created_by_kind: who.kind.clone(),
+            order: world.next_order(),
+            superseded_by: None,
+            spans: BTreeMap::new(),
+            writes: BTreeMap::new(),
+            admissions: BTreeSet::new(),
+            erased: false,
+            created_dated: true,
+            recorded_from: now,
+        },
+    };
+    let before = held.map(|h| tracked_values(lib, t, h));
+    let from_state = held.map(|h| h.state.clone());
+    let mut payload = json!({});
+    match xn {
+        "draft" | "revise" => {
+            let ChangeSource {
+                files: source,
+                reference,
+                digest,
+            } = change_source(req)?;
+            let files: serde_json::Map<String, Json> = source
+                .into_iter()
+                .map(|(n, t)| (n, Json::String(t)))
+                .collect();
+            o.attrs.insert(
+                "source".into(),
+                Value::Text(Json::Object(files).to_string()),
+            );
+            o.attrs
+                .insert("source_ref".into(), Value::Text(reference.clone()));
+            o.attrs
+                .insert("source_digest".into(), Value::Text(digest.clone()));
+            o.attrs
+                .insert("base_version".into(), Value::Int(lib.version));
+            if xn == "draft" {
+                o.attrs
+                    .insert("drafted_by".into(), Value::Text(who.id.clone()));
+                o.attrs
+                    .insert("drafted_by_kind".into(), Value::Text(who.kind.clone()));
+            }
+            payload = json!({ "source_ref": reference, "source_digest": digest });
+        }
+        "submit" | "refresh" => {
+            if !world.sandbox {
+                return stop_not_run(
+                    "the publish checks, which the core runs only in a sandbox, whose caller checks (ADR-0155)",
+                );
+            }
+            let text = |a: &str| match o.attr(a) {
+                Value::Text(t) => t,
+                _ => String::new(),
+            };
+            let source: Vec<(String, String)> =
+                serde_json::from_str::<serde_json::Map<String, Json>>(&text("source"))
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(n, t)| (n, t.as_str().unwrap_or_default().to_string()))
+                    .collect();
+            let report = crate::publish::dry_run(
+                world,
+                &crate::publish::Draft {
+                    change_id: Some(&o.id),
+                    source: &source,
+                    source_ref: Some(&text("source_ref")),
+                    source_digest: Some(&text("source_digest")),
+                    actor: &req.actor,
+                },
+            )?;
+            if report.fatal() {
+                return refused(Verdict::Unsatisfied {
+                    clause: "dry_run_clean".into(),
+                    remedy: Some(Remedy::UnreachableFromHere),
+                });
+            }
+            o.attrs.insert(
+                "report".into(),
+                Value::Text(crate::publish::report_json(&report).to_string()),
+            );
+        }
+        _ => {}
+    }
+    let position = alloc.position();
+    alloc.txn();
+    if held.is_none() {
+        o.id = alloc.object_id(DECLARATION_CHANGE);
+    }
+    o.state = to.into();
+    let event = store_event(
+        lib,
+        t,
+        &mut o,
+        before.as_ref(),
+        from_state,
+        xn,
+        position,
+        now,
+        &who,
+        payload,
+    );
+    let id = o.id.clone();
+    let version = o.version;
+    Ok((
+        Verdict::Satisfied {
+            object_id: id,
+            version,
+            events: vec![position],
+            flags: Vec::new(),
+        },
+        Some(Change {
+            writes: vec![(o, held.is_none(), event)],
             ..Change::default()
         }),
     ))
@@ -1471,7 +1746,7 @@ fn decide_proposal(
         source: "observed".into(),
         actor_id: who.id.clone(),
         actor_kind: who.kind.clone(),
-        declaration_version: 1,
+        declaration_version: world.lib.version,
         recorded_at: world.now,
         occurred_at: Some(world.now),
         imported: false,
