@@ -1275,18 +1275,29 @@ fn take(
         // each input personal under the transition its event recorded,
         // redacted there alone, since an input personal in one transition
         // may not be in another (storage-schema.md §9 step 8)
-        for e in ctx.work.events.iter().filter(|e| e.object_id == o.id) {
+        let own: Vec<Event> = ctx
+            .work
+            .events
+            .iter()
+            .filter(|e| e.object_id == o.id)
+            .cloned()
+            .collect();
+        for e in &own {
             let Some(ex) = t.transition(&e.transition) else {
                 continue;
             };
+            let mut tainted = BTreeSet::new();
             if let Some(recorded) = e.payload["inputs"].as_object() {
                 for name in recorded.keys() {
                     if input_personal(t, ex, name) || t.attribute(name).is_some_and(|a| a.personal)
                     {
                         ctx.redacted_inputs.push((e.position, name.clone()));
+                        tainted.insert(name.clone());
                     }
                 }
             }
+            // and the callers that passed one on (§9 step 3)
+            caller_taint(ctx, e, tainted);
         }
         ctx.erased.entry(o.id.clone()).or_default().extend(erased);
         invalidate_proposals(ctx, alloc, &o.id)?;
@@ -1516,6 +1527,105 @@ fn take(
     ctx.events.push(event);
     ctx.causes.pop();
     Ok(id)
+}
+
+/// The callers that passed a personal value on (`storage-schema.md` §9 step
+/// 3): up an event's cause chain, each caller's inputs that the step taking
+/// the event's transition mapped into one of its tainted inputs, redacted in
+/// the caller's event and tainted in turn, until a level passes none on. A
+/// call's step is matched by the transition it takes, its target's type not
+/// inferred, so two calls of one transition name on different types taint
+/// both, which redacts more and never less; the installed version's steps are
+/// read, as for every erasure here (TODO: an earlier version's).
+fn caller_taint(ctx: &mut Ctx<'_>, from: &Event, mut tainted: BTreeSet<String>) {
+    let lib = ctx.work.lib;
+    let mut callee = from.clone();
+    while !tainted.is_empty() {
+        let Some(caller) = callee
+            .cause
+            .and_then(|c| ctx.work.events.iter().find(|e| e.position == c))
+            .cloned()
+        else {
+            break;
+        };
+        let Some(cx) = ctx
+            .work
+            .get(&caller.object_id)
+            .and_then(|o| lib.type_(&o.type_))
+            .and_then(|t| t.transition(&caller.transition))
+        else {
+            break;
+        };
+        let callee_type = ctx.work.get(&callee.object_id).map(|o| o.type_.clone());
+        let mut passed = BTreeSet::new();
+        for (input, exprs) in
+            steps_taking(lib, &cx.effect, &callee.transition, callee_type.as_deref())
+        {
+            if tainted.contains(input) {
+                for e in exprs {
+                    e.inputs_read(&mut passed);
+                }
+            }
+        }
+        let recorded = caller.payload["inputs"].as_object();
+        for n in &passed {
+            if recorded.is_some_and(|r| r.contains_key(n)) {
+                ctx.redacted_inputs.push((caller.position, n.clone()));
+            }
+        }
+        tainted = passed;
+        callee = caller;
+    }
+}
+
+/// The inputs each step that takes a transition maps, a loop's steps
+/// included: a creation of the type, or a call of the transition; each with
+/// the expressions its value comes from, its own and, where it reads a
+/// loop's item, the loop's array, whose element it is.
+fn steps_taking<'s>(
+    lib: &Library,
+    steps: &'s [Step],
+    transition: &str,
+    type_: Option<&str>,
+) -> Vec<(&'s String, Vec<&'s Expr>)> {
+    let mut out = Vec::new();
+    for st in steps {
+        match st {
+            Step::Create {
+                type_: created,
+                transition: tr,
+                inputs,
+                ..
+            } if tr == transition && type_.is_none_or(|t| lib.is_a(t, created)) => {
+                out.extend(inputs.iter().map(|(n, e)| (n, vec![e])));
+            }
+            Step::Call {
+                transition: tr,
+                inputs,
+                ..
+            } if tr == transition => {
+                out.extend(inputs.iter().map(|(n, e)| (n, vec![e])));
+            }
+            Step::Foreach {
+                item, array, steps, ..
+            } => {
+                for (n, mut exprs) in steps_taking(lib, steps, transition, type_) {
+                    let mut read = BTreeSet::new();
+                    for e in &exprs {
+                        names_read(e, &mut read);
+                    }
+                    if read.contains(item)
+                        && let Some(a) = array
+                    {
+                        exprs.push(a);
+                    }
+                    out.push((n, exprs));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// Whether an input is personal (`declaration-syntax.md` §10, check 10):
@@ -6590,6 +6700,145 @@ types:
         assert_eq!(
             s.snapshot().unwrap().get(OPERATOR).unwrap().state,
             "RETIRED"
+        );
+    }
+
+    /// An erasure walks up its events' cause chains (`storage-schema.md` §9
+    /// step 3): a caller's input passed into the erased personal value,
+    /// directly or through another caller, is redacted in the caller's
+    /// event; an input it kept, or passed elsewhere, stays.
+    #[test]
+    fn an_erasure_redacts_what_callers_passed_into_the_erased_value() {
+        const DESKS: &str = r#"
+module: desks
+categories: [live, closed]
+types:
+  Person:
+    attributes:
+      name: { type: string, optional: true, personal: true }
+      desk: { reference: Desk }
+    states:
+      ACTIVE: { category: live }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [name, desk] }
+      rename: { kind: internal, from: [ACTIVE], required_inputs: [name] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Desk:
+    attributes:
+      person: { reference: Person, optional: true }
+      label: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      open: { kind: initial, to: OPEN }
+      register:
+        kind: internal
+        from: [OPEN]
+        inputs: { full_name: { type: string }, note: { type: string } }
+        effect:
+          - create: { type: Person, transition: add, inputs: { name: inputs.full_name, desk: this }, result: p }
+          - assign: { location: person, expr: p }
+          - assign: { location: label, expr: inputs.note }
+      relabel_person:
+        kind: internal
+        from: [OPEN]
+        inputs: { new_name: { type: string }, memo: { type: string } }
+        effect:
+          - call: { target: person, transition: rename, inputs: { name: inputs.new_name } }
+  Office:
+    attributes:
+      desk: { reference: Desk }
+    states:
+      OPEN: { category: live }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [desk] }
+      rename_at_desk:
+        kind: internal
+        from: [OPEN]
+        inputs: { who: { type: string }, why: { type: string } }
+        effect:
+          - call: { target: desk, transition: relabel_person, inputs: { new_name: inputs.who, memo: inputs.why } }
+      rename_in_turn:
+        kind: internal
+        from: [OPEN]
+        inputs: { aliases: { type: "string[]" }, why: { type: string } }
+        effect:
+          - foreach:
+              item: n
+              array: inputs.aliases
+              limit: 5
+              steps:
+                - call: { target: desk, transition: relabel_person, inputs: { new_name: n, memo: inputs.why } }
+"#;
+        let lib = Library::load(&[("desks.yaml".into(), DESKS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let desk = created(&req(&mut s, "open", OPERATOR, ("Desk", true), json!({})));
+        created(&req(
+            &mut s,
+            "register",
+            OPERATOR,
+            (&desk, false),
+            json!({"full_name": "Dana Doe", "note": "corner desk"}),
+        ));
+        let office = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Office", true),
+            json!({"desk": desk}),
+        ));
+        created(&req(
+            &mut s,
+            "rename_at_desk",
+            OPERATOR,
+            (&office, false),
+            json!({"who": "Dana D.", "why": "a typo"}),
+        ));
+        // a loop's item, from its array: the array is what passed the name
+        created(&req(
+            &mut s,
+            "rename_in_turn",
+            OPERATOR,
+            (&office, false),
+            json!({"aliases": ["Dee", "D. Doe"], "why": "nicknames"}),
+        ));
+        let person = match s.snapshot().unwrap().get(&desk).unwrap().attr("person") {
+            Value::Object(p) => p,
+            other => panic!("{other:?}"),
+        };
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&person, false),
+            json!({"reason": "request"}),
+        ));
+        let inputs = |s: &Store, id: &str, xn: &str| -> Json {
+            s.history(id)
+                .unwrap()
+                .into_iter()
+                .find(|e| e.transition == xn)
+                .unwrap()
+                .payload["inputs"]
+                .clone()
+        };
+        // the creation's caller: the name it passed redacted, its note kept
+        assert_eq!(
+            inputs(&s, &desk, "register"),
+            json!({"full_name": null, "note": "corner desk"})
+        );
+        // a call's caller, and its caller in turn
+        assert_eq!(
+            inputs(&s, &desk, "relabel_person"),
+            json!({"new_name": null, "memo": "a typo"})
+        );
+        assert_eq!(
+            inputs(&s, &office, "rename_at_desk"),
+            json!({"who": null, "why": "a typo"})
+        );
+        assert_eq!(
+            inputs(&s, &office, "rename_in_turn"),
+            json!({"aliases": null, "why": "nicknames"})
         );
     }
 }
