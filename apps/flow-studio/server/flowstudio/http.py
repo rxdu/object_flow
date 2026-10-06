@@ -15,7 +15,8 @@ A refusal is a 200 carrying the verdict; a fault is a 4xx or 5xx carrying a
 `fault` message; a construct the reference runner cannot run is a 501.
 
 With the Rust core chosen as the backend, every `/v1` and `/sandbox` call is
-forwarded to the core's service and answered as it answers (`core.py`).
+forwarded to the core's service and answered as it answers, a load checked by
+the flow checker first (`core.py`).
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from urllib.parse import parse_qs, urlparse
 from . import catalogue
 from .catalogue import Catalogue
 from .core import FORWARDED, Core
-from .sandbox import Fault, Sandbox
+from .sandbox import Fault, Sandbox, checked
 
 log = logging.getLogger("flowstudio")
 
@@ -135,10 +136,29 @@ def handler(box: Sandbox, cat: Catalogue, origin: str | None,
                 return
             if forwarded:
                 assert core is not None
-                self.send(*core.forward(path, body))
+                self.answer_forwarded(core, path, body)
                 return
             with box.lock:
                 self.answer(lambda: table[path](body))
+
+        def answer_forwarded(self, core: Core, path: str, body: dict) -> None:
+            """The core's answer, a load checked first as the runner's is,
+            so the core never loads what the flow checker refuses."""
+            if path != "/sandbox/load":
+                self.send(*core.forward(path, body))
+                return
+            try:
+                _files, refused, notices = checked(body)
+            except Fault as f:
+                self.send(f.status, {"fault": f.message})
+                return
+            if refused:
+                self.send(200, refused)
+                return
+            status, answer = core.forward(path, body)
+            if status == 200 and isinstance(answer, dict):
+                answer["notices"] = notices
+            self.send(status, answer)
 
         def answer(self, call: Callable[[], Any]) -> None:
             try:

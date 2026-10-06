@@ -19,7 +19,7 @@ It starts the studio's server, waits until it answers, which takes longer the fi
 
 `backend` in [`config.json`](config.json) names the one the server starts with, and `--backend` overrides it:
 
-- **`core`**, the Rust core's service. The server builds it with the toolchain `core/rust-toolchain.toml` pins, starts it as its child on a free loopback port, and forwards every `/v1` and `/sandbox` call to it unchanged; the editor, the checker's findings and the diagrams stay the server's. It needs `~/.cargo/bin/cargo`, from rustup, which installs the toolchain the file pins on first use.
+- **`core`**, the Rust core's service. The server builds it with the toolchain `core/rust-toolchain.toml` pins, starts it as its child on a free loopback port, and forwards every `/v1` and `/sandbox` call to it unchanged, but for a load, which the flow checker checks first as it does for the runner; the editor, the checker's findings and the diagrams stay the server's. It needs `~/.cargo/bin/cargo`, from rustup, which installs the toolchain the file pins on first use.
 - **`runner`**, the Python reference runner, the oracle the core is held to (ADR-0132 decision 2).
 
 ## The server
@@ -34,7 +34,7 @@ python3 -m venv --system-site-packages .venv
 .venv/bin/python -m pytest              # the wire's tests, and every example replayed through it
 ```
 
-The replay test plays every example of the design's example modules through the wire, as a caller would, and holds each to the outcome the flow checker gives it, against the runner and against the core. An example that needs what the interface does not yet offer is reported as waiting, with the reason, never passed (ADR-0150, Consequences).
+The replay test plays every example of the design's example modules through the wire, as a caller would, and holds each to the outcome the flow checker gives it, against the runner and against the core. A second test plays them through both backends at once and compares every answer whole; `tests/backend_differences.txt` lists where they are known to differ and why. An example that needs what the interface does not yet offer is reported as waiting, with the reason, never passed (ADR-0150, Consequences).
 
 ## The front end
 

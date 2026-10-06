@@ -3783,7 +3783,8 @@ pub(crate) fn names_read(e: &Expr, out: &mut BTreeSet<String>) {
 
 /// The remedy `DESIGN.md` §5.5 infers for an invariant that fails, as the
 /// runner infers it: `self_serviceable` where the transition takes an input
-/// it writes to a value the invariant reads; else `dependent` where the
+/// it writes to a value the invariant reads, an attribute input writing its
+/// attribute and an assertion's `to` the state; else `dependent` where the
 /// invariant reads another object; else `unreachable_from_here`. `None` where
 /// it cannot be told: an invariant on another object, or one reading `this`.
 fn invariant_remedy(
@@ -3878,6 +3879,9 @@ fn invariant_remedy(
         }
     }
     from_inputs(&x.effect, &mut writes);
+    if x.kind == Kind::Assertion {
+        writes.insert("state".into());
+    }
     if reads.iter().any(|r| writes.contains(r)) {
         Some(Remedy::SelfServiceable)
     } else if other {
@@ -5536,7 +5540,9 @@ types:
         ));
         let to =
             |state: &str, admits: &[&str]| json!({"to": state, "reason": "LOW", "admits": admits});
-        // without its admission, the state it asserts breaks an invariant
+        // without its admission, the state it asserts breaks an invariant,
+        // which the caller can remedy, since the assertion's `to` writes the
+        // state the invariant reads (library-api.md §4, InvariantFailure)
         assert!(matches!(
             req(
                 &mut s,
@@ -5545,7 +5551,10 @@ types:
                 (&job, false),
                 to("WORKING", &[])
             ),
-            Verdict::InvariantViolated { .. }
+            Verdict::InvariantViolated {
+                remedy: Some(Remedy::SelfServiceable),
+                ..
+            }
         ));
         // no assertion leaves a state for itself, or admits what it may not
         assert_eq!(

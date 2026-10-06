@@ -612,7 +612,7 @@ impl<'a> Evaluator<'a> {
                     let mut derived = Evaluator::new(self.world, Some(t), Some(&o.id));
                     derived.answers = self.answers;
                     derived.reading = self.reading;
-                    derived.eval(e)?
+                    crate::metric::typed_derived(self.world, t, e, derived.eval(e)?)
                 } else {
                     return not_run(format!("the member `{}.{m}`", o.type_));
                 }

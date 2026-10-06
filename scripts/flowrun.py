@@ -442,7 +442,9 @@ class Obj:
         self.id, self.type, self.state, self.attrs = oid, tn, state, {}
         self.created_at = created_at
         self.entered = {state: created_at}      # when it most recently entered each state it has been in
-        self.version = 1
+        # each recorded change adds one, its creation's first, so a version is a point in the object's order of events
+        # (ADR-0023 rule 4, storage-schema.md §2's object_seq)
+        self.version = 0
         self.id_order = 0                       # creation order, which ascending id order is (§5.1)
         self.admissions = set()                 # invariants whose violation an admission lets stand (ADR-0054)
         self.spans = {}                         # tracked member -> its spans, each a Row (DESIGN.md §7)
@@ -489,9 +491,18 @@ class Store:
         self.proposals = {}                     # proposal id -> the request it holds, its proposer and its state (§9)
         self.attempts = []                      # the attempt log: each request that did not apply, each audit's
                                                 # would-be refusal and each raised flag (DESIGN.md §6, §7)
+        # the operator, created with version 0 by its own act, the log's first event (storage-schema.md §6, ADR-0134)
         op = Obj(OPERATOR, "Operator", "ACTIVE", self.now)
         op.attrs["identity"] = OPERATOR
         self.objects[OPERATOR] = op
+        self.position = 1
+        op.version = 1
+        op.writes["identity"] = self.position
+        self.events.append({"position": self.position, "object": OPERATOR, "type": "Operator", "transition": "install",
+                            "from_state": ABSENT, "to_state": ("state", "Operator", "ACTIVE"), "completes": False,
+                            "returns": False, "occurred_at": self.now, "recorded_at": self.now, "actor_id": OPERATOR,
+                            "actor_kind": "human", "asserted": False, "overrides": False, "imported": False,
+                            "migrated": False, "redacted": False, "reason": ABSENT, "declaration_version": 0, "held": {}})
 
     def new_id(self, tn):
         self.counter += 1
@@ -2377,6 +2388,9 @@ def observation_kinds(modules):
                 if ob.get("max_recording_delay"):
                     # the model's `occurred within`, the bound a recording's occurred time is held to (flow-format.md §4.4)
                     kinds[ob["kind"]]["transitions"]["record"]["backdating_limit"] = ob["max_recording_delay"]
+                if ob.get("description"):
+                    # what the observation is, which its kind's declaration says as the core's does
+                    kinds[ob["kind"]]["description"] = ob["description"]
     return kinds
 
 
@@ -2491,6 +2505,7 @@ def import_object(runner, store, tn, state, given):
                          "occurred_at": store.now, "recorded_at": store.now, "actor_id": OPERATOR, "actor_kind": "human",
                          "asserted": True, "overrides": False, "imported": True, "migrated": False, "redacted": False,
                          "reason": ABSENT, "declaration_version": 1, "held": {}})
+    o.version += 1
     return o.id
 
 

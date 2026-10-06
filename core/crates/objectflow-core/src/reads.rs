@@ -33,7 +33,8 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
     };
     let mut derived = Vec::new();
     for (n, e) in &t.derived {
-        derived.push((n.clone(), Evaluator::new(world, Some(t), Some(id)).eval(e)?));
+        let v = Evaluator::new(world, Some(t), Some(id)).eval(e)?;
+        derived.push((n.clone(), crate::metric::typed_derived(world, t, e, v)));
     }
     // a subscription carries its lag, and whether it is lagging or dead,
     // derived from its acknowledged cursor (DESIGN.md §7)
@@ -916,6 +917,51 @@ types:
         // an actor the store does not hold is refused every offer
         let nobody = offered(&s, "nobody", &job);
         assert!(nobody.values().all(|x| matches!(&x.verdict, Some(Verdict::Unsatisfied { clause, .. }) if clause == "actor_known")));
+    }
+
+    /// A derived sum over no elements is the zero of its expression's type,
+    /// a duration here, read by `get` and as a query's field alike, as the
+    /// reference runner's service encodes it (`declaration-syntax.md` §8.3).
+    #[test]
+    fn a_derived_sum_over_nothing_is_its_types_zero() {
+        let text = JOBS.replace(
+            "      long: { expression: hours is not null and hours > 8 }",
+            "      long: { expression: hours is not null and hours > 8 }\n      \
+             done_for: { expression: \"sum(i in this.intervals where i.state == DONE: i.duration)\" }",
+        );
+        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let r = Request {
+            transition: "open".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Job".into()),
+            inputs: [("title".to_string(), json!("Fix"))].into_iter().collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let Verdict::Satisfied { object_id: job, .. } = request(&mut s, &r).unwrap().unwrap()
+        else {
+            panic!("the job is not opened")
+        };
+        let w = s.snapshot().unwrap();
+        let v = get(&w, &job).unwrap().unwrap();
+        let done_for = v
+            .derived
+            .iter()
+            .find(|(n, _)| n == "done_for")
+            .map(|(_, x)| x);
+        assert_eq!(done_for, Some(&Value::Duration(0)));
+        let page = query(&w, "Job", None, &[], Some(&["done_for".to_string()])).unwrap();
+        assert_eq!(
+            page.items[0].fields,
+            vec![("done_for".to_string(), Value::Duration(0))]
+        );
     }
 
     #[test]

@@ -526,6 +526,26 @@ struct Selected<'w> {
     reads_flow: bool,
 }
 
+/// A derived attribute's value as its expression's type has it: a sum over
+/// no elements is the integer 0 (`eval.rs`), which is a duration's zero
+/// where the expression yields a duration (§8.3), as the reference runner's
+/// service encodes it by the expression's kind. An amount's zero needs its
+/// currency's scale, which no value here gives, so it stays the integer.
+pub fn typed_derived(world: &World<'_>, t: &Type, e: &Expr, v: Value) -> Value {
+    if v != Value::Int(0) {
+        return v;
+    }
+    let reader = Reader {
+        world,
+        answers: None,
+    };
+    let this = BTreeMap::from([("this".to_string(), Kind::Object(t.name.clone()))]);
+    match reader.kind(e, &this, Some(t)) {
+        Ok(Kind::Duration) => Value::Duration(0),
+        _ => v,
+    }
+}
+
 /// The read of one metric over a store as the request found it.
 struct Reader<'w> {
     world: &'w World<'w>,

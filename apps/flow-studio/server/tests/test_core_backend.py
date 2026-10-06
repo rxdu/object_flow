@@ -64,6 +64,22 @@ def test_a_fault_keeps_the_cores_status_and_words(studio):
         wire.post("/v1/nothing", {})
 
 
+def test_a_load_the_checker_refuses_never_reaches_the_core(studio):
+    # the studio's load runs the flow checker first, for either backend
+    # (ADR-0153 decision 5): the refusal is the checker's, and the core
+    # keeps the module it held
+    wire, _ = studio
+    bundle = wire.get(f"/studio/module?file={SERVICE}")
+    broken = [dict(f, text=f["text"].replace("        to: OPEN",
+                                             "        to: NOWHERE", 1))
+              if f["name"] == SERVICE else f for f in bundle["files"]]
+    assert broken != bundle["files"]
+    refused = wire.post("/sandbox/load", {"files": broken})
+    assert refused["loaded"] is False
+    assert any(f["file"] == SERVICE for f in refused["findings"])
+    assert wire.post("/v1/declaration", {"type": "ServiceJob"})["states"]
+
+
 def test_the_tooling_stays_the_servers(studio):
     wire, _ = studio
     bundle = wire.get(f"/studio/module?file={SERVICE}")
@@ -133,7 +149,7 @@ def test_both_backends_report_the_same_load(studio):
             files = design.bundle(m["file"])["files"]
             runner = Sandbox().load({"files": files})
             core = wire.post("/sandbox/load", {"files": files})
-            for key in ("loaded", "types", "modules", "evaluators"):
+            for key in ("loaded", "types", "modules", "evaluators", "notices"):
                 assert core[key] == runner[key], (m["file"], key)
     finally:
         bundle = wire.get(f"/studio/module?file={SERVICE}")

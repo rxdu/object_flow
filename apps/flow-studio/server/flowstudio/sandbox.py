@@ -68,6 +68,71 @@ def build(files: list[tuple[str, str]]) -> tuple[dict, dict]:
     return library, modules
 
 
+def checked(body: dict) -> tuple[list[tuple[str, str]], dict | None, int]:
+    """A load's module files and the flow checker's verdict on them, which the
+    studio's load runs before either backend loads them (ADR-0153 decision
+    5): the files, the answer refusing them where it finds them wrong, and
+    the number of its notes."""
+    files = [(f["name"], f["text"]) for f in body.get("files") or []]
+    files = [(n, t) for n, t in files if not n.endswith(".examples.yaml")]
+    if not files:
+        raise Fault(400, "load takes the module files, in import order")
+    found, notes = flows.check(files)
+    if found:
+        return files, {
+            "loaded": False,
+            "findings": [
+                {"file": f, "line": line, "code": code, "message": msg}
+                for f, line, _sev, code, msg in found
+            ],
+        }, len(notes)
+    return files, None, len(notes)
+
+
+def written(modules: dict) -> dict:
+    """Each declared type as its module writes it, with what it binds and
+    inherits merged in, each piece as written, which `declaration` returns as
+    the core does: a binder's machine's states, conditions and transitions,
+    the machine's initial ones giving way to the binder's own (flow-format.md
+    §4.10), and a subtype's bases' attributes, derived attributes and
+    invariants, the farthest base first and its own last
+    (declaration-syntax.md §2)."""
+    machines = {n: spec for m in modules.values()
+                for n, spec in (m.get("machines") or {}).items()}
+    types = {tn: spec for m in modules.values()
+             for tn, spec in (m.get("types") or {}).items()}
+    out = {}
+    for tn, spec in types.items():
+        t = copy.deepcopy(spec)
+        machine = machines.get(t.get("state_machine"))
+        if machine:
+            own = t.get("transitions") or {}
+            own_initial = any((x or {}).get("kind") == "initial"
+                              for x in own.values())
+            transitions = {
+                n: x for n, x in (machine.get("transitions") or {}).items()
+                if not (own_initial and (x or {}).get("kind") == "initial")}
+            conditions = dict(machine.get("conditions") or {})
+            conditions.update(t.get("conditions") or {})
+            t["states"] = copy.deepcopy(machine.get("states") or {})
+            t["transitions"] = copy.deepcopy({**transitions, **own})
+            t["conditions"] = copy.deepcopy(conditions)
+        chain, seen, base = [], {tn}, t.get("extends")
+        while base in types and base not in seen:
+            chain.append(base)
+            seen.add(base)
+            base = types[base].get("extends")
+        for key in ("attributes", "derived_attributes", "invariants"):
+            merged: dict = {}
+            for b in reversed(chain):
+                merged.update(types[b].get(key) or {})
+            merged.update(spec.get(key) or {})
+            if merged:
+                t[key] = copy.deepcopy(merged)
+        out[tn] = t
+    return out
+
+
 class Sandbox:
     """One store, its clock and its evaluators' answers, held by the caller."""
 
@@ -77,23 +142,17 @@ class Sandbox:
         self.store = None
         self.stubs: dict = {}
         self.parts: tuple | None = None
+        # each declared type as its module writes it, which `declaration`
+        # returns, where the runner's own entry is its loader's normal form
+        self.written: dict = {}
 
     # ── sandbox control (ADR-0150 decision 3) ─────────────────────────────
     def load(self, body: dict) -> dict:
-        files = [(f["name"], f["text"]) for f in body.get("files") or []]
-        files = [(n, t) for n, t in files if not n.endswith(".examples.yaml")]
-        if not files:
-            raise Fault(400, "load takes the module files, in import order")
-        found, notes = flows.check(files)
-        if found:
-            return {
-                "loaded": False,
-                "findings": [
-                    {"file": f, "line": line, "code": code, "message": msg}
-                    for f, line, _sev, code, msg in found
-                ],
-            }
+        files, refused, notices = checked(body)
+        if refused:
+            return refused
         library, modules = build(files)
+        self.written = written(modules)
         enums = {
             n: list(v)
             for m in modules.values()
@@ -117,7 +176,7 @@ class Sandbox:
         return {
             "loaded": True,
             "modules": list(modules),
-            "notices": len(notes),
+            "notices": notices,
             "now": values.timestamp_text(self.store.now),
             # what a caller may create and answer in this sandbox: every
             # type the modules declare, and every evaluator function
@@ -506,7 +565,7 @@ class Sandbox:
         t = self.runner.kinds.get(tn)
         if t is None:
             raise Fault(404, f"no type {tn} is declared")
-        out = jsonable(t)
+        out = jsonable(self.written.get(tn, t))
         # the members of each enumeration the type's attributes are of, which
         # its rules are read against
         used = {str((spec or {}).get("type", "")).removesuffix("[]")

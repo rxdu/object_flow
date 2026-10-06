@@ -3,9 +3,12 @@ slice 4).
 
 Both backends speak one wire, so with the core chosen the studio's server
 forwards every `/v1/<operation>` and `/sandbox/<control>` call to the core's
-service unchanged, status and body, and keeps only its own tooling. It adds
-nothing to an answer and reads nothing out of one, so a difference between the
-backends is the backends', never the forwarder's.
+service unchanged, status and body, and keeps only its own tooling. The one
+exception is a load, which the server checks with the flow checker first, as
+it checks one for the runner (ADR-0153 decision 5): the core never loads what
+the checker refuses, and the answer carries the checker's notices. Otherwise
+it adds nothing to an answer and reads nothing out of one, so a difference
+between the backends is the backends', never the forwarder's.
 
 The service is built with the repository's pinned toolchain and started as a
 child on a free loopback port; it stops with the studio's server.
