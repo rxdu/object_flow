@@ -1767,19 +1767,25 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
             t.attributes.iter().filter(|(_, a)| !a.many).collect();
         let cols: Vec<String> = scalars.iter().map(|(n, a)| quote(&column(n, a))).collect();
         let select = format!(
-            "SELECT state, version{}{} FROM {name} WHERE id = ?1",
+            "SELECT state, version, state_source{}{} FROM {name} WHERE id = ?1",
             if cols.is_empty() { "" } else { ", " },
             cols.join(", ")
         );
         let mut stmt = conn.prepare(&select)?;
         for (order, id, created_at, kind) in objects {
-            let (state, version, values) = stmt.query_row(params![id], |r| {
+            let (state, version, source, values) = stmt.query_row(params![id], |r| {
                 let mut values = Vec::new();
                 for i in 0..scalars.len() {
-                    values.push(r.get::<_, Sql>(i + 2)?);
+                    values.push(r.get::<_, Sql>(i + 3)?);
                 }
-                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, values))
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, String>(2)?,
+                    values,
+                ))
             })?;
+            world.state_sources.insert(id.clone(), source);
             let mut attrs = BTreeMap::new();
             for ((n, a), v) in scalars.iter().zip(values) {
                 let v = from_sql(v, &a.declared, lib)?;

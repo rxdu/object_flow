@@ -563,6 +563,20 @@ class Driver:
                 raise Differs(f"the pull is refused as {page['refused']}")
             return [(self.show(e["object_id"]), self.show(e["transition"]), self.show(e["occurred_at"]))
                     for e in page["events"]], ["object", "transition", "occurred_at"], []
+        m = re.fullmatch(r"exceptions\((\w+)\)|available\((\w+), (\w+)\)", spec_)
+        if m:
+            # a page of objects (DESIGN.md §10): exceptions with each one's state; available asking no evaluator
+            if m.group(1):
+                page = self.core.call("/v1/exceptions", {"actor": {"id": OPERATOR}, "type": m.group(1)})
+            else:
+                page = self.core.call("/v1/available", {"actor": {"id": OPERATOR}, "type": m.group(2),
+                                                        "transition": m.group(3)})
+            if page.get("refused"):
+                raise NotRun(f"{spec_}: {page['refused']}")
+            if m.group(1):
+                return [(self.show(i["id"]), self.show(i["fields"]["state"])) for i in page["items"]], \
+                    ["object", "state"], []
+            return [(self.show(i["id"]),) for i in page["items"]], ["object"], []
         m = re.fullmatch(r"intervals\(([\w-]+)\.(\w+)\)", spec_)
         if m:
             # the type's interval export, a consumer keeping the latest row per object, dimension and entry (ADR-0100)
@@ -750,7 +764,8 @@ def main():
             if not spec_.startswith(("metric(", "query(", "check ", "answer ", "events(", "history(", "provenance(",
                                      "payloads(", "get(", "results(", "recorded(", "labels(", "proposal ",
                                      "caused by(", "pull(", "notices of", "change ", "impact of",
-                                     "read set of", "consulted of", "intervals(", "attempts(", "refusal of")):
+                                     "read set of", "consulted of", "intervals(", "attempts(", "refusal of",
+                                     "exceptions(", "available(")):
                 outcomes.append("not compared")
                 continue
             if stopped:

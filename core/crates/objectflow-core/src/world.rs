@@ -103,6 +103,11 @@ pub struct World<'l> {
     /// Each subscription's acknowledged cursor, where one was acknowledged:
     /// runtime state, not versioned (`DESIGN.md` §7).
     pub acknowledged: BTreeMap<String, i64>,
+    /// The source of the event that last changed each object's state, as
+    /// the store holds it: `observed`, `asserted` or `imported`
+    /// (`storage-schema.md` §3, `state_source`), which `exceptions` reads; a
+    /// request's working copy does not move it.
+    pub state_sources: BTreeMap<String, String>,
 }
 
 impl<'l> World<'l> {
@@ -117,6 +122,7 @@ impl<'l> World<'l> {
             imported: BTreeSet::new(),
             attempts: Vec::new(),
             acknowledged: BTreeMap::new(),
+            state_sources: BTreeMap::new(),
         }
     }
 

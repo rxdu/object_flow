@@ -363,6 +363,56 @@ async fn pull(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     })))
 }
 
+/// A page of objects as the wire gives it: each object's id, type and
+/// fields, or a refusal, a value.
+fn page_json(page: &reads::QueryPage) -> J {
+    json!({
+        "items": page.items.iter().map(|i| json!({
+            "id": i.id, "type": i.type_,
+            "fields": J::Object(i.fields.iter().map(|(f, v)| (f.clone(), encode(v))).collect()),
+        })).collect::<Vec<_>>(),
+        "cursor": J::Null,
+        "refused": page.refused,
+    })
+}
+
+/// The objects an assertion put in their state, the import's excepted, and
+/// those holding an admitted violation (`DESIGN.md` §10).
+async fn exceptions(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let (Some(_actor), Some(type_)) = (
+        body.get("actor").and_then(|a| text(a, "id")),
+        text(&body, "type"),
+    ) else {
+        return Err(Fault::Bad(
+            "exceptions names its actor and the type".to_string(),
+        ));
+    };
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    let world = s.snapshot()?;
+    Ok(Json(page_json(&reads::exceptions(&world, type_))))
+}
+
+/// The objects of a type a transition is offered to, asking no evaluator
+/// (`DESIGN.md` §10, ADR-0048).
+async fn available(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let (Some(actor), Some(type_), Some(transition)) = (
+        body.get("actor").and_then(|a| text(a, "id")),
+        text(&body, "type"),
+        text(&body, "transition"),
+    ) else {
+        return Err(Fault::Bad(
+            "available names its actor, the type and the transition".to_string(),
+        ));
+    };
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    let world = s.snapshot()?;
+    Ok(Json(page_json(&reads::available(
+        &world, actor, type_, transition,
+    )?)))
+}
+
 /// A source's rows after a cursor, as JSON lines, every personal value
 /// omitted; a refusal is a value (`library-api.md` §6, ADR-0094).
 async fn export(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
@@ -1020,6 +1070,8 @@ fn app(shared: Shared) -> Router {
         .route("/v1/check", post(check))
         .route("/v1/pull", post(pull))
         .route("/v1/export", post(export))
+        .route("/v1/exceptions", post(exceptions))
+        .route("/v1/available", post(available))
         .route("/v1/acknowledge", post(acknowledge))
         .route("/v1/import_batch", post(import_op))
         .route("/v1/lookup", post(lookup))

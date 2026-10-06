@@ -5,6 +5,7 @@
 # finding, and once it matches it is reported, to move here.
 answer AN1
 answer AN2
+available(Delivery, mark_ready)
 caused by(D20.complete_sale)
 change DC1
 check CK1
@@ -16,6 +17,7 @@ events(R30)
 events(R40)
 events(S1)
 events(T6)
+exceptions(Robot)
 get(C-DANA)
 get(C-DANA) #2
 get(W5)

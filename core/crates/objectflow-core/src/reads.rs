@@ -97,6 +97,99 @@ pub struct QueryPage {
     pub refused: Option<String>,
 }
 
+/// `exceptions(type)` (`DESIGN.md` §10): the objects of the type or its
+/// family whose state an assertion last set, the import's excepted, and
+/// those holding an admitted invariant violation, in id order, each with
+/// its state; a type the store does not declare is refused, a value.
+pub fn exceptions(world: &World<'_>, type_: &str) -> QueryPage {
+    if world.lib.type_(type_).is_none() {
+        return QueryPage {
+            items: Vec::new(),
+            refused: Some("unknown_type".into()),
+        };
+    }
+    let items = world
+        .of_type(type_)
+        .into_iter()
+        .filter(|o| {
+            world.state_sources.get(&o.id).map(String::as_str) == Some("asserted")
+                || !o.admissions.is_empty()
+        })
+        .map(state_item)
+        .collect();
+    QueryPage {
+        items,
+        refused: None,
+    }
+}
+
+/// An object as a page of objects gives it, with its state.
+fn state_item(o: &Object) -> Item {
+    Item {
+        id: o.id.clone(),
+        type_: o.type_.clone(),
+        fields: vec![(
+            "state".into(),
+            Value::State {
+                type_: o.type_.clone(),
+                name: o.state.clone(),
+            },
+        )],
+    }
+}
+
+/// `available(type, transition)` (`DESIGN.md` §10): the objects of the
+/// type or its family the transition is offered to, as `availability`
+/// offers it to each, available or available given its inputs, in id
+/// order, each with its state and the guards it did not evaluate, since it
+/// asks no evaluator (ADR-0048, ADR-0049). A type or a transition the store
+/// does not declare, and a transition only a cascade takes, are refused, a
+/// value.
+pub fn available(
+    world: &World<'_>,
+    actor: &str,
+    type_: &str,
+    transition: &str,
+) -> Result<QueryPage, NotRun> {
+    let refuse = |why: &str| {
+        Ok(QueryPage {
+            items: Vec::new(),
+            refused: Some(why.to_string()),
+        })
+    };
+    let Some(t) = world.lib.type_(type_) else {
+        return refuse("unknown_type");
+    };
+    let Some(x) = t.transition(transition).filter(|x| x.kind != Kind::Initial) else {
+        return refuse("unknown_transition");
+    };
+    if !x.only_via.is_empty() {
+        return refuse("not_requestable");
+    }
+    let mut items = Vec::new();
+    for o in world.of_type(type_) {
+        let offers = availability(world, actor, &o.id)?.unwrap_or_default();
+        let Some(offer) = offers.iter().find(|f| f.transition == transition) else {
+            continue;
+        };
+        if offer.availability == Availability::Unavailable {
+            continue;
+        }
+        let mut item = state_item(o);
+        if !offer.unevaluated.is_empty() {
+            item.fields.push((
+                "unevaluated".into(),
+                Value::Set(offer.unevaluated.iter().cloned().map(Value::Text).collect()),
+            ));
+        }
+        items.push(item);
+    }
+    Ok(QueryPage {
+        items,
+        refused: None,
+    })
+}
+
 /// One key of a query's order: what it reads, and whether it descends.
 enum Key {
     CreatedAt,
@@ -789,5 +882,142 @@ types:
         assert_eq!(v.derived, vec![("long".to_string(), Value::Bool(false))]);
         assert!(v.open);
         assert!(get(&w, "job-99").unwrap().is_none());
+    }
+
+    /// `exceptions` and `available` (`DESIGN.md` §10): an object an
+    /// assertion put in its state is an exception until an ordinary
+    /// transition moves it, as is one holding an admitted violation, over a
+    /// family; `available` lists the objects a transition is offered to, a
+    /// warning blocking none and an evaluator's guard left unevaluated and
+    /// named; and what neither can read is refused, a value.
+    #[test]
+    fn exceptions_and_available_page_objects_and_refuse_as_values() {
+        const SHOP: &str = r#"
+module: shop
+categories: [live, closed]
+evaluators:
+  vault:
+    functions:
+      cleared: { arguments: { n: { type: int } } }
+types:
+  Task:
+    abstract: true
+    attributes:
+      n: { type: int }
+  Job:
+    extends: Task
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: false }
+    conditions:
+      small: { expression: n < 10, remedy: self_serviceable }
+      positive: { expression: n > 0, remedy: self_serviceable }
+      cleared: { expression: vault.cleared(n), remedy: dependent }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [n] }
+      finish: { kind: external, from: [OPEN], to: DONE, guards: { small: deny, positive: warn } }
+      clear: { kind: external, from: [OPEN], to: DONE, guards: { cleared: deny } }
+      reopen: { kind: external, from: [DONE], to: OPEN }
+      archive: { kind: internal, from: [DONE], only_via: [finish] }
+      force: { kind: assertion, to: [OPEN, DONE], inputs: { reason: { type: string } } }
+"#;
+        let lib = Library::load(&[("shop.yaml".into(), SHOP.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask = |s: &mut Store, xn: &str, object: Option<&str>, inputs: serde_json::Value| {
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: object.map(str::to_string),
+                type_: object.is_none().then(|| "Job".to_string()),
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                principal: None,
+            };
+            match request(s, &r).unwrap().unwrap() {
+                Verdict::Satisfied { object_id, .. } => object_id,
+                other => panic!("{other:?}"),
+            }
+        };
+        let one = ask(&mut s, "open", None, json!({"n": 1}));
+        let big = ask(&mut s, "open", None, json!({"n": 50}));
+        let below = ask(&mut s, "open", None, json!({"n": -1}));
+        let ids = |p: &QueryPage| -> Vec<String> {
+            assert_eq!(p.refused, None);
+            p.items.iter().map(|i| i.id.clone()).collect()
+        };
+        let avail = |s: &Store, xn: &str| {
+            let w = s.snapshot().unwrap();
+            available(&w, OPERATOR, "Job", xn).unwrap()
+        };
+        let excepted = |s: &Store, t: &str| exceptions(&s.snapshot().unwrap(), t);
+        // the deny guard blocks fifty; the warning blocks none
+        assert_eq!(ids(&avail(&s, "finish")), [one.clone(), below.clone()]);
+        assert_eq!(ids(&excepted(&s, "Job")), Vec::<String>::new());
+        // an assertion's state is an exception, over the family, and the
+        // object is no longer offered a transition from OPEN
+        ask(
+            &mut s,
+            "force",
+            Some(&one),
+            json!({"to": "DONE", "reason": "boxed"}),
+        );
+        let page = excepted(&s, "Task");
+        assert_eq!(ids(&page), [one.as_str()]);
+        assert_eq!(
+            page.items[0].fields,
+            [(
+                "state".to_string(),
+                Value::State {
+                    type_: "Job".into(),
+                    name: "DONE".into()
+                }
+            )]
+        );
+        assert_eq!(ids(&avail(&s, "finish")), [below.as_str()]);
+        // an ordinary transition returns it to the machine
+        ask(&mut s, "reopen", Some(&one), json!({}));
+        assert_eq!(ids(&excepted(&s, "Job")), Vec::<String>::new());
+        assert_eq!(ids(&avail(&s, "finish")), [one.clone(), below.clone()]);
+        // an admitted violation is an exception
+        let mut w = s.snapshot().unwrap();
+        w.objects
+            .get_mut(&big)
+            .unwrap()
+            .admissions
+            .insert("bounded".into());
+        assert_eq!(ids(&exceptions(&w, "Job")), [big.as_str()]);
+        drop(w);
+        // an evaluator's guard is not asked, and is named on every object
+        let page = avail(&s, "clear");
+        assert_eq!(ids(&page), [one.clone(), big.clone(), below.clone()]);
+        assert!(page.items.iter().all(|i| i.fields.contains(&(
+            "unevaluated".to_string(),
+            Value::Set(vec![Value::Text("cleared".into())])
+        ))));
+        // what it cannot read is refused, a value
+        let w = s.snapshot().unwrap();
+        for (t, xn, why) in [
+            ("Nope", "finish", "unknown_type"),
+            ("Job", "nope", "unknown_transition"),
+            ("Job", "open", "unknown_transition"),
+            ("Job", "archive", "not_requestable"),
+        ] {
+            assert_eq!(
+                available(&w, OPERATOR, t, xn).unwrap().refused.as_deref(),
+                Some(why)
+            );
+        }
+        assert_eq!(
+            exceptions(&w, "Nope").refused.as_deref(),
+            Some("unknown_type")
+        );
     }
 }
