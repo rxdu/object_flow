@@ -51,6 +51,13 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
             .filter(|e| e.position > after)
             .map(|e| (e.position, event_row(world, e)))
             .collect()
+    } else if world
+        .lib
+        .type_(source)
+        .is_some_and(|t| t.observation_on.is_some())
+    {
+        // an observation kind's records, each by its latest event
+        object_rows(world, world.of_type(source), after)
     } else {
         let Some((type_, kind)) = source.split_once('.') else {
             return refuse("unknown_source");
@@ -67,9 +74,33 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
                 .filter(|a| a.type_.as_deref().is_some_and(|t| world.lib.is_a(t, type_)))
                 .map(|a| (a.txn, attempt_row(a)))
                 .collect(),
-            "transitions" | "attempt_counts" | "labels" => {
+            // the log of the type's family
+            "transitions" => world
+                .events
+                .iter()
+                .filter(|e| e.position > after)
+                .filter(|e| {
+                    world
+                        .get(&e.object_id)
+                        .is_some_and(|o| world.lib.is_a(&o.type_, type_))
+                })
+                .map(|e| (e.position, event_row(world, e)))
+                .collect(),
+            // the labels on the type's family's objects
+            "labels" => {
+                let on: Vec<&Object> = world
+                    .of_type(crate::model::LABEL)
+                    .into_iter()
+                    .filter(|l| {
+                        matches!(l.attr("subject"), crate::value::Value::Object(s)
+                            if world.get(&s).is_some_and(|o| world.lib.is_a(&o.type_, type_)))
+                    })
+                    .collect();
+                object_rows(world, on, after)
+            }
+            "attempt_counts" => {
                 return Err(NotRun(format!(
-                    "the export of {source}, which the slice does not serve yet"
+                    "the export of {source}, whose rows have no shape in library-api.md and whose rollup rows no event pages"
                 )));
             }
             _ => return refuse("unknown_source"),
@@ -82,6 +113,47 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
         lines: rows.iter().map(|(_, r)| r.to_string()).collect(),
         cursor: next.to_string(),
         refused: None,
+    })
+}
+
+/// Each object after the cursor by its latest event, which a correction or a
+/// forget moves, so the row comes again (ADR-0100 §6).
+fn object_rows(world: &World<'_>, objects: Vec<&Object>, after: i64) -> Vec<(i64, Json)> {
+    objects
+        .into_iter()
+        .filter_map(|o| {
+            let last = world
+                .events
+                .iter()
+                .filter(|e| e.object_id == o.id)
+                .map(|e| e.position)
+                .max()?;
+            (last > after).then(|| (last, object_row(world, o)))
+        })
+        .collect()
+}
+
+/// An object in `Object`'s shape (`library-api.md` §5), its personal
+/// attributes omitted (ADR-0094 §3).
+fn object_row(world: &World<'_>, o: &Object) -> Json {
+    let t = world.lib.type_(&o.type_);
+    let attributes: serde_json::Map<String, Json> = o
+        .attrs
+        .iter()
+        .filter(|(a, _)| !t.and_then(|t| t.attribute(a)).is_some_and(|s| s.personal))
+        .map(|(a, v)| (a.clone(), wire::encode(v)))
+        .collect();
+    json!({
+        "id": o.id,
+        "type": o.type_,
+        "state": o.state,
+        "version": o.version,
+        "declaration_version": world.version_of(&o.id),
+        "created_at": timestamp_text(o.created_at),
+        "created_by_kind": o.created_by_kind,
+        "attributes": attributes,
+        "recorded_from": timestamp_text(o.recorded_from),
+        "created_dated": o.created_dated,
     })
 }
 
@@ -263,6 +335,13 @@ types:
       start: { kind: external, from: [OPEN], to: WORKING, guards: { calm: deny } }
       fix_crew: { kind: internal, from: [OPEN, WORKING], corrects: [crew], required_inputs: [crew], inputs: { reason: { type: string } } }
       note: { kind: internal, from: [OPEN, WORKING], inputs: { whisper: { type: string, personal: true }, said: { type: string } } }
+    observations:
+      readings:
+        kind: Reading
+        description: A reading taken on the job.
+        attributes:
+          level: { type: int }
+          remark: { type: string, optional: true, personal: true }
   Tool:
     attributes:
       size: { type: int }
@@ -438,6 +517,68 @@ types:
                 Some(why)
             );
         }
-        assert!(export(&w, "Job.labels", None).is_err());
+        assert!(export(&w, "Job.attempt_counts", None).is_err());
+        drop(w);
+        // a type's transitions: its family's log, and no other type's
+        let (rows, _) = page(&s, "Job.transitions", None);
+        assert!(
+            !rows.is_empty()
+                && rows
+                    .iter()
+                    .all(|e| e["object_id"] == json!(calm) || e["object_id"] == json!(cross))
+        );
+        // an observation kind's records, and a type's labels, each without
+        // its personal field
+        let record = |s: &mut Store, type_: &str, inputs: Json| {
+            let r = Request {
+                transition: "record".into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some(type_.into()),
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            match request(s, &r).unwrap().unwrap() {
+                Verdict::Satisfied { object_id, .. } => object_id,
+                other => panic!("{other:?}"),
+            }
+        };
+        let reading = record(
+            &mut s,
+            "Reading",
+            json!({"subject": calm, "level": 3, "remark": "Dana's"}),
+        );
+        let label = record(
+            &mut s,
+            crate::model::LABEL,
+            json!({"subject": calm, "name": "VIP", "note": "private"}),
+        );
+        let (rows, r1) = page(&s, "Reading", None);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            (&rows[0]["id"], &rows[0]["attributes"]["level"]),
+            (&json!(reading), &json!(3))
+        );
+        assert!(rows[0]["attributes"].get("remark").is_none());
+        assert_eq!(page(&s, "Reading", Some(&r1)), (Vec::new(), r1));
+        let (rows, _) = page(&s, "Job.labels", None);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            (&rows[0]["id"], &rows[0]["attributes"]["name"]),
+            (&json!(label), &json!("vip"))
+        );
+        assert!(rows[0]["attributes"].get("note").is_none());
+        assert_eq!(page(&s, "Tool.labels", None).0, Vec::<Json>::new());
     }
 }
