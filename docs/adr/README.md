@@ -163,3 +163,4 @@
 | [0159](0159-a-drafts-evidence-a-refused-calls-row-and-two-reads-confirmed.md) | A draft's evidence, a refused call's attempt row, and two reads confirmed | Decided by the author |
 | [0160](0160-diagnostics-the-walk-down-and-the-attempt-counts-export.md) | What diagnostics selects, the erasure's walk down, and the attempt counts export | Decided by the author; decisions 1 and 3 formed after the approval, decision 2 the record's |
 | [0161](0161-scenario-versions-query-fields-empty-labels-and-unresolved-imports.md) | Scenario versions, query fields, empty label names and unresolved imports | Decided by the author |
+| [0162](0162-an-operation-reads-what-its-rules-reach-through-the-database.md) | An operation reads what its rules reach, through the database | Proposed, for the author's discussion |
