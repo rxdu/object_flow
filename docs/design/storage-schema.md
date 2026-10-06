@@ -526,7 +526,9 @@ CREATE TABLE t_declaration_change (
   source_digest  TEXT    NOT NULL,          -- sha256 over the modules, which the repository's side
                                             -- recomputes at the reference (ADR-0135)
   report         TEXT,                      -- the dry run: the impact report, with its ids
-  evidence       TEXT,                      -- the evidence as it read at submission (ADR-0097)
+  evidence       TEXT,                      -- the references the draft cites, each a read's arguments,
+                                            -- and each read's page or refusal as it answered at
+                                            -- submission or refresh, with its as-of time (ADR-0097, ADR-0159)
   drafted_by     TEXT    NOT NULL,
   drafted_by_kind TEXT   NOT NULL,
   drafted_principal TEXT,                   -- the drafter's principal, if any
@@ -628,6 +630,8 @@ CREATE TABLE of_attempt (
   enforced            INTEGER NOT NULL DEFAULT 1,   -- 0 for an observing clause or a flag
   flagged             INTEGER NOT NULL DEFAULT 0,   -- 1 for a raised flag (ADR-0111)
   applied_position    INTEGER,              -- the applied event of an observing clause or a flag
+  call                TEXT,                 -- for a refused call or creation, the object it targeted and
+                                            -- the kind of the verdict it received, as JSON (ADR-0159)
   reads               TEXT,                 -- everything the request had read when refused (ADR-0088, ADR-0105)
   consulted           TEXT,                 -- its metric values and evaluator verdicts (ADR-0096)
   request_values      TEXT,                 -- every non-personal input and the occurred time of the
