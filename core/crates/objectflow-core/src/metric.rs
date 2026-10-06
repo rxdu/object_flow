@@ -3104,7 +3104,7 @@ types:
                     a.enforced,
                     a.flagged,
                     a.actor_kind.clone(),
-                    a.request_values.get("proposal").is_some(),
+                    a.proposal.is_some(),
                 )
             })
             .collect();
@@ -3196,6 +3196,11 @@ types:
         );
         // a flag and an audit name the event they were raised on
         assert!(w.attempts[..2].iter().all(|a| a.applied_position.is_some()));
+        // the refused approval's row names the proposal in a column of its
+        // own, not among the request's values (storage-schema.md §6)
+        let approval = w.attempts.iter().find(|a| a.proposal.is_some()).unwrap();
+        assert_eq!(approval.proposal.as_deref(), Some(p.as_str()));
+        assert!(approval.request_values.get("proposal").is_none());
         // the proposal's read carries the verdict its refused approval left
         // (ADR-0157)
         let view = crate::reads::get(&w, &p).unwrap().unwrap();

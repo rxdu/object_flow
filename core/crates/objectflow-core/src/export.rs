@@ -358,6 +358,7 @@ fn attempt_row(a: &Attempt) -> Json {
         "reads": a.reads,
         "applied_position": a.applied_position,
         "call": a.call,
+        "proposal": a.proposal,
         "consulted": a.consulted,
         "request_values": a.request_values,
         "withheld_inputs": a.withheld,

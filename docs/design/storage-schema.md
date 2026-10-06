@@ -505,8 +505,8 @@ CREATE TABLE t_proposal (
                                             -- record (DESIGN.md §9 lists it; added 2026-10-06)
   submitted_under INTEGER NOT NULL REFERENCES of_declaration(version),
   -- the verdict that left it pending is not stored: a read derives it from
-  -- the refused approval's of_attempt row, the proposal getting no event
-  -- (ADR-0044, ADR-0157)
+  -- the refused approval's of_attempt row, which names it in its proposal
+  -- column, the proposal getting no event (ADR-0044, ADR-0157)
   expires_at     TEXT,          -- expiry is derived from this, never a state
   CONSTRAINT t_proposal_state CHECK (state IN
     ('PENDING','EXECUTED','REJECTED','WITHDRAWN','INVALIDATED'))
@@ -634,6 +634,8 @@ CREATE TABLE of_attempt (
   applied_position    INTEGER,              -- the applied event of an observing clause or a flag
   call                TEXT,                 -- for a refused call or creation, the object it targeted and
                                             -- the kind of the verdict it received, as JSON (ADR-0159)
+  proposal            TEXT,                 -- for an approval its held request refused, the proposal,
+                                            -- whose last_verdict the row is (ADR-0157; added 2026-10-06)
   reads               TEXT,                 -- everything the request had read when refused (ADR-0088, ADR-0105)
   consulted           TEXT,                 -- its metric values and evaluator verdicts (ADR-0096)
   request_values      TEXT,                 -- every non-personal input and the occurred time of the

@@ -155,8 +155,7 @@ pub struct Attempt {
     pub enforced: bool,
     pub flagged: bool,
     pub applied_position: Option<i64>,
-    /// The request's non-personal inputs and its occurred time, and for an
-    /// approval its request refused, the proposal it executed.
+    /// The request's non-personal inputs and its occurred time.
     pub request_values: serde_json::Value,
     pub withheld: Vec<String>,
     pub declaration_version: i64,
@@ -173,6 +172,9 @@ pub struct Attempt {
     pub call: serde_json::Value,
     /// Why the request was sent, the caller's reason (`DESIGN.md` §7).
     pub context: Option<String>,
+    /// For an approval its held request refused, the proposal it would have
+    /// executed, whose `last_verdict` the row is (ADR-0157); none otherwise.
+    pub proposal: Option<String>,
 }
 
 fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
@@ -181,8 +183,8 @@ fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
         &format!(
             "INSERT INTO of_attempt (at, actor_id, actor_kind, txn, type, object_id, transition, verdict, clause, remedy, \
              unknown, enforced, flagged, applied_position, request_values, declaration_version, actor_principal, \
-             reads, consulted, call, context) \
-             VALUES (?1, ?2, ?3, {txn}, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)"
+             reads, consulted, call, context, proposal) \
+             VALUES (?1, ?2, ?3, {txn}, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)"
         ),
         params![
             timestamp_text(a.at),
@@ -205,6 +207,7 @@ fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
             (!a.consulted.is_null()).then(|| a.consulted.to_string()),
             (!a.call.is_null()).then(|| a.call.to_string()),
             a.context,
+            a.proposal,
         ],
     )?;
     Ok(())
@@ -246,6 +249,7 @@ fn attempt_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Attempt> {
         txn: r.get(18)?,
         call: json_column(r.get(19)?),
         context: r.get(20)?,
+        proposal: r.get(21)?,
     })
 }
 
@@ -818,6 +822,7 @@ CREATE TABLE of_attempt (
   flagged             INTEGER NOT NULL DEFAULT 0,
   applied_position    INTEGER,
   call                TEXT,
+  proposal            TEXT,
   reads               TEXT,
   consulted           TEXT,
   request_values      TEXT,
@@ -2061,8 +2066,8 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
     // the attempt log, in the order written
     let mut attempts = conn.prepare(
         "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
-         flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn, call, context \
-         FROM of_attempt ORDER BY id",
+         flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn, call, context, \
+         proposal FROM of_attempt ORDER BY id",
     )?;
     let rows = attempts.query_map([], attempt_row)?;
     world.attempts = rows.collect::<Result<Vec<_>, _>>()?;

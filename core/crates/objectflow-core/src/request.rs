@@ -1217,6 +1217,7 @@ fn take(
                 .unwrap_or(Json::Null),
             txn: 0,
             call: Json::Null,
+            proposal: None,
         });
     }
     alloc.txn();
@@ -4076,9 +4077,6 @@ fn refused_attempt(
     if let Some(at) = asked.occurred_at {
         request_values["occurred_at"] = json!(crate::value::timestamp_text(at));
     }
-    if let Some(p) = proposal {
-        request_values["proposal"] = json!(p);
-    }
     let who = resolve_actor(world, &req.actor);
     crate::store::Attempt {
         at: world.now,
@@ -4104,6 +4102,7 @@ fn refused_attempt(
         flagged: false,
         applied_position: None,
         context: req.context.clone(),
+        proposal,
         request_values,
         withheld,
         declaration_version: lib.version,

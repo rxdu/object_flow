@@ -52,7 +52,7 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
             .attempts
             .iter()
             .rev()
-            .find(|a| a.request_values["proposal"].as_str() == Some(id));
+            .find(|a| a.proposal.as_deref() == Some(id));
         derived.push((
             "last_verdict".into(),
             refused.map_or(Value::Absent, |a| {

@@ -453,6 +453,8 @@ class Attempt:
     reads: ReadSet | None                 # all the request had read when refused (ADR-0088, ADR-0105)
     applied_position: int | None          # the applied event of an observing clause or a flag
     call: Mapping[str, str] | None        # a refused call's target and its verdict kind (ADR-0159)
+    proposal: str | None                  # for an approval its held request refused, the proposal,
+                                          # whose last verdict the row is (ADR-0157)
     consulted: Mapping[str, Any]          # its metric values and evaluator verdicts (ADR-0096)
     request_values: Mapping[str, Any]     # every non-personal input, and the occurred time,
                                           # of the request; a replay re-evaluates it (ADR-0105)
