@@ -1851,9 +1851,10 @@ struct ChangeSource {
     evidence: Option<Vec<Json>>,
 }
 
-/// Whether a cited reference is of its form (ADR-0159): a metric read's
-/// arguments, `{metric, bind?, keep?, over?, filter?}`, or a diagnostics
-/// read's, `{diagnostics, window}`, each duration one the reads take.
+/// Whether a cited reference is of its form (`library-api.md` §5,
+/// `EvidenceRef`, ADR-0159): a metric read's arguments, `{metric, bind?,
+/// keep?, over?, filter?}`, or a diagnostics read's, `{diagnostics, over}`,
+/// the window as `over`, each duration one the reads take.
 fn reference_formed(r: &Json) -> bool {
     let Some(r) = r.as_object() else {
         return false;
@@ -1874,9 +1875,9 @@ fn reference_formed(r: &Json) -> bool {
             && (!r.contains_key("filter") || text("filter").is_some())
     } else {
         named("diagnostics")
-            && duration("window")
+            && duration("over")
             && r.keys()
-                .all(|k| ["diagnostics", "window"].contains(&k.as_str()))
+                .all(|k| ["diagnostics", "over"].contains(&k.as_str()))
     }
 }
 

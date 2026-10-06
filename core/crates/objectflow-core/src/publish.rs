@@ -1869,7 +1869,7 @@ types:
         ));
         assert_eq!(evidence(&s), json!({ "cites": cites }));
         // one giving a diagnostics read: its submission is not run
-        let diagnostics = json!([{"diagnostics": "Robot", "window": "7 days"}]);
+        let diagnostics = json!([{"diagnostics": "Robot", "over": "7 days"}]);
         created(&req(
             &mut s,
             "revise",
