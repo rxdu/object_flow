@@ -886,10 +886,10 @@ CREATE INDEX of_interval_current ON of_interval (dimension, value) WHERE left_po
 CREATE INDEX of_interval_entered ON of_interval (dimension, entered_at) WHERE left_position IS NULL;
 CREATE INDEX of_interval_by_object ON of_interval (object_id, dimension, left_position);
 CREATE TABLE of_sequence (
-  sequence TEXT    NOT NULL,
-  scope    TEXT    NOT NULL,                        -- '' for a sequence with no scope
-  value    INTEGER NOT NULL,
-  PRIMARY KEY (sequence, scope)
+  name       TEXT    NOT NULL,
+  scope_key  TEXT    NOT NULL,                      -- '' for a sequence with no scope
+  next_value INTEGER NOT NULL,                      -- the next number it draws
+  PRIMARY KEY (name, scope_key)
 );
 ";
 
@@ -1742,7 +1742,8 @@ impl Allocator {
             )?)
         };
         let mut sequences = BTreeMap::new();
-        let mut stmt = tx.prepare("SELECT sequence, scope, value FROM of_sequence")?;
+        // each sequence's last number drawn, the one before its next
+        let mut stmt = tx.prepare("SELECT name, scope_key, next_value - 1 FROM of_sequence")?;
         let rows = stmt.query_map([], |r| Ok(((r.get(0)?, r.get(1)?), r.get(2)?)))?;
         for row in rows {
             let (key, value): ((String, String), i64) = row?;
@@ -1772,9 +1773,9 @@ impl Allocator {
         for key in &self.drawn {
             let value = self.sequences.get(key).copied().unwrap_or(0);
             tx.execute(
-                "INSERT INTO of_sequence (sequence, scope, value) VALUES (?1, ?2, ?3) \
-                 ON CONFLICT (sequence, scope) DO UPDATE SET value = excluded.value",
-                params![key.0, key.1, value],
+                "INSERT INTO of_sequence (name, scope_key, next_value) VALUES (?1, ?2, ?3) \
+                 ON CONFLICT (name, scope_key) DO UPDATE SET next_value = excluded.next_value",
+                params![key.0, key.1, value + 1],
             )?;
         }
         Ok(())
@@ -2464,10 +2465,12 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
         )?;
     }
     for (sequence, scope, value) in &change.raised {
+        // raised past the legacy system's last value, never lowered
+        // (storage-schema.md §6, ADR-0103)
         tx.execute(
-            "INSERT INTO of_sequence (sequence, scope, value) VALUES (?1, ?2, ?3) \
-             ON CONFLICT (sequence, scope) DO UPDATE SET value = max(value, excluded.value)",
-            params![sequence, scope, value],
+            "INSERT INTO of_sequence (name, scope_key, next_value) VALUES (?1, ?2, ?3) \
+             ON CONFLICT (name, scope_key) DO UPDATE SET next_value = max(next_value, excluded.next_value)",
+            params![sequence, scope, value + 1],
         )?;
     }
     for (id, invariant, position) in &change.discharged {

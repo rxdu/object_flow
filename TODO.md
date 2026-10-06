@@ -258,7 +258,7 @@ The engine in Rust (ADR-0132), built slice by slice and judged by replaying the 
   - the rest of the import: legacy entries, a refresh's intermediate values (its legacy intervals), and a mirror's observations and labels;
   - an owned type's external identifiers kept in `of_external_id`, which only the import writes now, so `lookup` finds an object only by a mirror's identifier or a legacy key;
   - the Python checker's dependencies pinned: `check-flows.py` runs on the system's PyYAML 5.4.1 and `jsonschema` 3.2.0, unpinned, and the oracle's lines follow `jsonschema`'s `best_match`, which changes between releases;
-  - the core's `of_sequence`, whose columns are `sequence`, `scope` and `value`, the last number drawn, where `storage-schema.md` §6 names them `name`, `scope_key` and `next_value`.
+  - ~~the core's `of_sequence`'s columns~~ *(done 2026-10-06: `name`, `scope_key` and `next_value`, as `storage-schema.md` §6 names them, the next number drawn rather than the last)*.
 
 ## Toward implementation
 
