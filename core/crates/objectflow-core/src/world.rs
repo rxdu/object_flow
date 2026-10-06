@@ -68,6 +68,9 @@ pub struct Span {
     /// Supplied by the import's mapping: an earlier value the legacy record
     /// gives, at position 0 (ADR-0086, `of_interval.legacy`).
     pub legacy: bool,
+    /// The event of the latest correction that changed its value or its
+    /// `.held` (`declaration-syntax.md` §6.4, ADR-0147, `of_interval.corrected_by`).
+    pub corrected_by: Option<i64>,
 }
 
 impl Object {

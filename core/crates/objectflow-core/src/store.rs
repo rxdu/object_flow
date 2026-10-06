@@ -83,6 +83,10 @@ pub struct Change {
     /// erased attributes in every past event's payload, and its personal
     /// attributes' values in the interval index (§9, steps 2 and 9).
     pub redacted: Vec<(String, Vec<String>)>,
+    /// The spans a correction merged into the one before them, which leave
+    /// the index: an object, a dimension, and the span's entered position
+    /// and time (`declaration-syntax.md` §6.4).
+    pub merged: Vec<(String, String, i64, i64)>,
     /// Spans written beside any event: an object, a dimension and the span,
     /// such as a publish opens on a member it newly tracks (ADR-0155).
     pub spans: Vec<(String, String, Span)>,
@@ -402,6 +406,7 @@ fn opened(
         migrated: true,
         declaration_version: version,
         legacy: false,
+        corrected_by: None,
     }
 }
 
@@ -452,6 +457,7 @@ fn event_of(
                 migrated: source == "migrated",
                 declaration_version: opened_under,
                 legacy: false,
+                corrected_by: None,
             });
         }
     }
@@ -479,10 +485,11 @@ fn event_of(
 fn upsert_span(tx: &Transaction<'_>, id: &str, dimension: &str, sp: &Span) -> Stored<()> {
     tx.execute(
         "INSERT INTO of_interval (object_id, dimension, value, entered_position, left_position, \
-         entered_at, left_at, entered_by, entered_by_kind, declaration_version, migrated, legacy) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?11, ?10, ?12) \
+         entered_at, left_at, entered_by, entered_by_kind, declaration_version, migrated, legacy, corrected_by) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?11, ?10, ?12, ?13) \
          ON CONFLICT (object_id, dimension, entered_position, entered_at) DO UPDATE SET \
-         value = excluded.value, left_position = excluded.left_position, left_at = excluded.left_at",
+         value = excluded.value, left_position = excluded.left_position, left_at = excluded.left_at, \
+         corrected_by = excluded.corrected_by",
         params![
             id,
             dimension,
@@ -496,6 +503,7 @@ fn upsert_span(tx: &Transaction<'_>, id: &str, dimension: &str, sp: &Span) -> St
             i64::from(sp.migrated),
             sp.declaration_version,
             i64::from(sp.legacy),
+            sp.corrected_by,
         ],
     )?;
     Ok(())
@@ -1810,7 +1818,7 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
 fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> {
     let mut stmt = conn.prepare(
         "SELECT object_id, dimension, value, entered_position, left_position, entered_at, left_at, \
-         entered_by, entered_by_kind, migrated, declaration_version, legacy FROM of_interval \
+         entered_by, entered_by_kind, migrated, declaration_version, legacy, corrected_by FROM of_interval \
          ORDER BY object_id, dimension, entered_position, entered_at",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -1827,6 +1835,7 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
             r.get::<_, i64>(9)? != 0,
             r.get::<_, i64>(10)?,
             r.get::<_, i64>(11)? != 0,
+            r.get::<_, Option<i64>>(12)?,
         ))
     })?;
     for row in rows {
@@ -1843,6 +1852,7 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
             migrated,
             declaration_version,
             legacy,
+            corrected_by,
         ) = row?;
         let Some(o) = world.objects.get_mut(&id) else {
             return Err(StoreError(format!(
@@ -1879,6 +1889,7 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
             migrated,
             declaration_version,
             legacy,
+            corrected_by,
         };
         o.spans.entry(dimension).or_default().push(span);
     }
@@ -1995,8 +2006,11 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
         // the spans this event opened or ended, written with it, in the same
         // transaction (storage-schema.md, of_interval)
         for (dimension, spans) in &o.spans {
+            // and those a correction relabelled or reached (§6.4)
             for sp in spans.iter().filter(|sp| {
-                sp.entered_position == event.position || sp.left_position == Some(event.position)
+                sp.entered_position == event.position
+                    || sp.left_position == Some(event.position)
+                    || sp.corrected_by == Some(event.position)
             }) {
                 upsert_span(tx, &o.id, dimension, sp)?;
             }
@@ -2020,6 +2034,13 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
                 }
             }
         }
+    }
+    for (id, dimension, position, at) in &change.merged {
+        tx.execute(
+            "DELETE FROM of_interval WHERE object_id = ?1 AND dimension = ?2 \
+             AND entered_position = ?3 AND entered_at = ?4",
+            params![id, dimension, position, timestamp_text(*at)],
+        )?;
     }
     // the write index, once every event it names is in the log
     for (id, attribute, position) in &change.index {
@@ -2047,6 +2068,13 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
     // their shape kept (§9, steps 2 and 9)
     for (id, attributes) in &change.redacted {
         for a in attributes {
+            // and a correction's record of the value it replaced and wrote
+            let corrected = format!("$.corrected.\"{}\"", a.replace('"', ""));
+            tx.execute(
+                "UPDATE of_event SET payload = json_set(payload, ?2 || '.replaced', json('null'), \
+                 ?2 || '.value', json('null')) WHERE object_id = ?1 AND json_type(payload, ?2) IS NOT NULL",
+                params![id, corrected],
+            )?;
             let path = format!("$.inputs.\"{}\"", a.replace('"', ""));
             tx.execute(
                 "UPDATE of_event SET payload = json_set(payload, ?2, json('null')) \

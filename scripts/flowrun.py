@@ -92,7 +92,17 @@ def timestamp(text):
 
 
 class Row(dict):
-    """A row of an object's own flow data: a span of `intervals` or an event of `transitions` (§6.9)."""
+    """A row of an object's own flow data: a span of `intervals` or an event of `transitions` (§6.9). A span also knows
+    the position of the event that began it, which is no member of the row."""
+
+    position = 0
+
+
+def span_row(position, fields):
+    """A span begun by the event at a position."""
+    row = Row(fields)
+    row.position = position
+    return row
 
 
 def attempt_row(store, tn, oid, xn, actor, r, proposal=None):
@@ -1941,8 +1951,9 @@ class Runner:
             if m in (x.get("corrects") or []) and spans and spans[-1]["left_at"] is ABSENT and held.get(m, ABSENT) != v:
                 # a correction replaces the wrong value for the span it was held, explicitly: the span is relabelled and
                 # carries the correction, and every value held then, by a span or an event of the object begun within it,
-                # reads the corrected one; the original event is not changed (ADR-0146)
-                wrong, since = spans[-1]["value"], spans[-1]["entered_at"]
+                # reads the corrected one; the original event is not changed (ADR-0146). Within it is by position, as
+                # `.held` is read at the position of the transition that began a row (declaration-syntax.md §6.9)
+                wrong, since = spans[-1]["value"], spans[-1].position
                 spans[-1]["value"], spans[-1]["corrected_by"] = v, pos
                 if len(spans) > 1 and spans[-2]["value"] == v:
                     # equal to the interval before it, it merges with it, so a correction never counts as a change of
@@ -1951,10 +1962,10 @@ class Runner:
                     spans.pop()
                 for rows in o.spans.values():
                     for row in rows:
-                        if row["entered_at"] >= since and row["held"].get(m) == wrong:
+                        if row.position >= since and row["held"].get(m) == wrong:
                             row["held"][m], row["corrected_by"] = v, pos    # every row whose .held it changes (ADR-0147)
                 for ev in work.events:
-                    if ev["object"] == o.id and ev["occurred_at"] >= since and ev["held"].get(m) == wrong:
+                    if ev["object"] == o.id and ev["position"] > since and ev["held"].get(m) == wrong:
                         ev["held"][m] = v
                 held[m] = v     # its own row credits the corrected value, begun in the span it corrects (ADR-0147)
                 continue
@@ -1964,9 +1975,9 @@ class Runner:
                 if spans and spans[-1]["left_at"] is ABSENT:
                     spans[-1]["left_at"] = ctx.at
                 key = "state" if m == "state" else "value"
-                spans.append(Row({"object": o.id, key: v, "entered_at": ctx.at, "left_at": ABSENT,
-                                  "entered_by_kind": ctx.who["kind"], "declaration_version": 1, "legacy": False,
-                                  "migrated": False, "held": dict(now_values)}))
+                spans.append(span_row(pos, {"object": o.id, key: v, "entered_at": ctx.at, "left_at": ABSENT,
+                                            "entered_by_kind": ctx.who["kind"], "declaration_version": 1, "legacy": False,
+                                            "migrated": False, "held": dict(now_values)}))
         written = ctx.attr_writes.get(o.id, set()) | ctx.erased.get(o.id, set())
         written |= {a for a in set(before_attrs) | set(o.attrs) if before_attrs.get(a, ABSENT) != o.attrs.get(a, ABSENT)}
         for a in written:
@@ -2464,9 +2475,10 @@ def import_object(runner, store, tn, state, given):
     store.position += 1
     values = runner.tracked_values(o)
     for m, v in values.items():
-        o.spans[m] = [Row({"object": o.id, "state" if m == "state" else "value": v, "entered_at": store.now, "left_at": ABSENT,
-                           "entered_by_kind": "unknown", "declaration_version": 1, "legacy": False, "migrated": False,
-                           "held": dict(values)})]
+        o.spans[m] = [span_row(store.position, {"object": o.id, "state" if m == "state" else "value": v,
+                                                "entered_at": store.now, "left_at": ABSENT, "entered_by_kind": "unknown",
+                                                "declaration_version": 1, "legacy": False, "migrated": False,
+                                                "held": dict(values)})]
     for a in o.attrs:
         o.writes[a] = store.position
     store.events.append({"position": store.position, "object": o.id, "type": o.type, "transition": "import", "from_state": ABSENT,
@@ -2864,6 +2876,24 @@ def self_test():
     check("a corrected interval equal to the one before it merges with it",
           (len(spans), spans[0]["value"], spans[0]["left_at"], "corrected_by" in spans[0]), (1, ("enum", "Crew", "NORTH"), ABSENT, True))
     check("the correction's own row credits the corrected value", s.events[-1]["held"]["crew"], ("enum", "Crew", "NORTH"))
+    # a row begun after the corrected interval's start, though dated before it, credits the corrected value, since `.held`
+    # is read at the position of the transition that began a row (declaration-syntax.md §6.9)
+    dated = copy.deepcopy(jobs)
+    dated["Job"]["transitions"]["start"]["backdating_limit"] = "1 day"
+    crews = {"Crew": ["NORTH", "SOUTH", "EAST"]}
+    r, s = Runner(dated, crews), Store(dated, crews)
+    j = r.attempt(s, "Job", "open", None, OPERATOR, {"crew": "Crew.NORTH"}, {}, {})[1]
+    s.now += 7200
+    r.attempt(s, "Job", "move_crew", j, OPERATOR, {"crew": "Crew.SOUTH"}, {}, {})
+    r.attempt(s, "Job", "start", j, OPERATOR, {}, {}, {}, occurred=s.now - 3600)
+    r.attempt(s, "Job", "fix_crew", j, OPERATOR, {"crew": "Crew.EAST", "reason": "mis-keyed"}, {}, {})
+    o = s.objects[j]
+    start = next(ev for ev in s.events if ev["transition"] == "start")
+    check("a span and an event begun after the corrected interval's start, though dated before it, credit the corrected value",
+          (o.spans["state"][-1]["held"]["crew"], start["held"]["crew"], [sp["value"][2] for sp in o.spans["crew"]]),
+          (("enum", "Crew", "EAST"), ("enum", "Crew", "EAST"), ["NORTH", "EAST"]))
+    check("a row's .corrected_by is read where a correction changed its value or its .held, and absent elsewhere",
+          Evaluator(s, "Job", j).value(flowexpr.parse("count(i in this.intervals where i.corrected_by is not null)"), {}), 1)
     # a request failing two generated guards is refused naming the first in the order flow-format.md §4.8 states
     wallet = {"attributes": {"cards": {"reference": "Card[]", "aggregation": "composite", "opposite": "wallet"}},
               "states": {"OPEN": {"category": "live"}, "SHUT": {"category": "closed", "final": True}},

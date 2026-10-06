@@ -198,6 +198,9 @@ struct Ctx<'w> {
     failed: Vec<(String, bool, Option<Remedy>, bool)>,
     /// Their rows of the attempt log, written with the events (§7).
     observed: Vec<crate::store::Attempt>,
+    /// The spans a correction merged into the one before them: an object,
+    /// a dimension, and the span's entered position and time.
+    merged: Vec<(String, String, i64, i64)>,
     /// For each object, what its current transition wrote by an input or an
     /// effect, whatever the value.
     wrote: BTreeMap<String, BTreeSet<String>>,
@@ -362,6 +365,7 @@ fn decide_or_stop(
         flags: Vec::new(),
         failed: Vec::new(),
         observed: Vec::new(),
+        merged: Vec::new(),
         wrote: BTreeMap::new(),
         index: Vec::new(),
         asserted: None,
@@ -476,6 +480,7 @@ fn decide_or_stop(
                 .map(|(id, attrs)| (id.clone(), attrs.iter().cloned().collect()))
                 .collect(),
             attempts: observed,
+            merged: ctx.merged,
             ..Change::default()
         }),
     ))
@@ -1056,20 +1061,44 @@ fn take(
         erase_chain(ctx, alloc, &id, &inputs, depth)?;
     }
     // the event, recorded as the transition ends, with the spans it opens
+    let imported = if x.corrects.is_empty() {
+        BTreeSet::new()
+    } else {
+        ctx.work.imported.clone()
+    };
     let Some(o) = ctx.work.objects.get_mut(&id) else {
         return stop_not_run(format!("the object {id}, which its own effect removed"));
     };
-    // a correction of a tracked value relabels the span it was held for,
-    // which the core does not yet run (declaration-syntax.md §6.4)
-    if let Some(m) = x.corrects.iter().find(|m| {
-        lib.tracked(t).contains(m)
-            && before
-                .as_ref()
-                .is_some_and(|b| b.iter().any(|(n, v)| n == *m && *v != o.attr(m)))
-    }) {
-        return stop_not_run(format!(
-            "a correction of the tracked value {tn}.{m}, which relabels its interval"
-        ));
+    // a correction replaces the wrong value for the span it was held,
+    // explicitly: a tracked member's current interval is relabelled, and
+    // opens no interval of its own, so its spans see no change; its event
+    // names each attribute, the value it replaces, the new value and the
+    // span it corrects (declaration-syntax.md §6.4)
+    let mut before = before;
+    let mut corrections = serde_json::Map::new();
+    let tracked = lib.tracked(t);
+    for m in &x.corrects {
+        let value = o.attr(m);
+        let was = before_attrs.get(m).cloned().unwrap_or(Value::Absent);
+        let mut span = Json::Null;
+        if was != value
+            && tracked.contains(m)
+            && let Some((since, gone)) = correct_span(lib, t, o, m, &value, position, &imported)
+        {
+            span = json!(since);
+            if let Some((p, at)) = gone {
+                ctx.merged.push((id.clone(), m.clone(), p, at));
+            }
+            if let Some(b) = before.as_mut() {
+                for (_, v) in b.iter_mut().filter(|(n, _)| n == m) {
+                    *v = value.clone();
+                }
+            }
+        }
+        corrections.insert(
+            m.clone(),
+            json!({ "replaced": wire::encode(&was), "value": wire::encode(&value), "span": span }),
+        );
     }
     if !record_spans(lib, t, o, before.as_ref(), position, ctx.at, &ctx.who) {
         // what an effect changed, which no guard could see, precedes its
@@ -1151,6 +1180,18 @@ fn take(
         // an erasure names what it erased, and never the values
         payload: if x.kind == Kind::Erasure {
             json!({ "erased": ctx.erased.get(&id).cloned().unwrap_or_default() })
+        } else if !corrections.is_empty() {
+            // and its reason, unless the reason is personal (§6.4)
+            let mut p = json!({ "inputs": written, "corrected": corrections });
+            if let Some(r) = x
+                .inputs
+                .iter()
+                .find(|(n, i)| n == "reason" && !i.personal)
+                .and_then(|_| inputs.get("reason"))
+            {
+                p["reason"] = wire::encode(r);
+            }
+            p
         } else {
             json!({ "inputs": written })
         },
@@ -1158,6 +1199,74 @@ fn take(
     ctx.work.events.push(event.clone());
     ctx.events.push(event);
     Ok(id)
+}
+
+/// A correction of a tracked member: its current interval relabelled with
+/// the corrected value and opening none of its own, a relabelled interval
+/// equal in value to the one before it merging with it, and every interval
+/// row whose value or `.held` it changes, read as a read derives it,
+/// carrying the correction (`declaration-syntax.md` §6.4, §6.9, ADR-0146,
+/// ADR-0147). Returns the corrected span's entered position and the entry of
+/// a span it merged away; none where the member has no current interval.
+fn correct_span(
+    lib: &Library,
+    t: &Type,
+    o: &mut Object,
+    m: &str,
+    value: &Value,
+    position: i64,
+    imported: &BTreeSet<i64>,
+) -> Option<(i64, Option<(i64, i64)>)> {
+    type Rows = BTreeMap<(String, i64, i64), Value>;
+    let held_of = |o: &Object| -> Rows {
+        let mut out = Rows::new();
+        for (d, spans) in &o.spans {
+            for sp in spans {
+                let row = if sp.legacy || imported.contains(&sp.entered_position) {
+                    crate::eval::held_at(lib, t, o, sp.entered_at)
+                } else {
+                    crate::eval::held(lib, t, o, sp.entered_position, true)
+                };
+                let v = match row {
+                    Value::Row(f) => f.get(m).cloned().unwrap_or(Value::Absent),
+                    _ => Value::Absent,
+                };
+                out.insert((d.clone(), sp.entered_position, sp.entered_at), v);
+            }
+        }
+        out
+    };
+    let was = held_of(o);
+    let spans = o.spans.get_mut(m)?;
+    let last = spans.last_mut().filter(|l| l.left_position.is_none())?;
+    let since = last.entered_position;
+    last.value = value.clone();
+    last.corrected_by = Some(position);
+    let mut merged = None;
+    if spans.len() > 1
+        && spans
+            .get(spans.len() - 2)
+            .is_some_and(|p| p.value == *value)
+    {
+        merged = spans
+            .pop()
+            .map(|gone| (gone.entered_position, gone.entered_at));
+        if let Some(prev) = spans.last_mut() {
+            prev.left_position = None;
+            prev.left_at = None;
+            prev.corrected_by = Some(position);
+        }
+    }
+    let now = held_of(o);
+    for (d, spans) in &mut o.spans {
+        for sp in spans {
+            let key = (d.clone(), sp.entered_position, sp.entered_at);
+            if was.get(&key) != now.get(&key) {
+                sp.corrected_by = Some(position);
+            }
+        }
+    }
+    Some((since, merged))
 }
 
 /// The value of the state and of each tracked member (`DESIGN.md` §7).
@@ -1230,6 +1339,7 @@ fn record_spans(
             migrated: false,
             declaration_version: lib.version,
             legacy: false,
+            corrected_by: None,
         });
     }
     true
@@ -4002,6 +4112,7 @@ types:
                 "      finish: { kind: external, from: [WORKING], to: DONE }\n      \
                  forget: { kind: erasure, inputs: { reason: { type: string } } }\n      \
                  renote: { kind: internal, from: any, required_inputs: [note] }\n      \
+                 fix_note: { kind: internal, from: any, required_inputs: [note], corrects: [note], inputs: { reason: { type: string } } }\n      \
                  stamp: { kind: internal, from: any, effect: [ { assign: { location: note, expr: '\"x\"' } } ] }",
             )
             .replace(
@@ -4046,6 +4157,13 @@ types:
             (crate::model::LABEL, true),
             json!({"subject": &job, "name": "VIP", "note": "rang"}),
         ));
+        created(&req(
+            &mut s,
+            "fix_note",
+            OPERATOR,
+            (&job, false),
+            json!({"note": "secret!", "reason": "typo"}),
+        ));
         // the erasure admits the invariant it breaks, and forgets the check
         let v = req(
             &mut s,
@@ -4069,6 +4187,19 @@ types:
         assert_eq!(history[0].payload["inputs"]["title"], json!("Fix"));
         assert_eq!(history.last().unwrap().source, "erased");
         assert_eq!(history.last().unwrap().payload, json!({"erased": ["note"]}));
+        // a correction's record of the value it replaced and wrote goes too,
+        // its reason kept
+        let fixed = history.iter().find(|e| e.source == "corrected").unwrap();
+        assert_eq!(
+            (
+                fixed.payload["corrected"]["note"].clone(),
+                fixed.payload["reason"].clone()
+            ),
+            (
+                json!({"replaced": null, "value": null, "span": null}),
+                json!("typo")
+            )
+        );
         // its label's note leaves the label's row and its creation event, as
         // no transition, the name kept (declaration-syntax.md §6.8)
         let l = w.get(&tag).unwrap();
@@ -4460,42 +4591,235 @@ types:
         );
     }
 
+    /// The reference runner's correction cases (`flowrun.py`, `self_test`,
+    /// "a correction replaces the wrong value"): a crew corrected relabels
+    /// its interval, corrected back merges it, and a row begun after the
+    /// corrected interval's start credits the corrected value however it is
+    /// dated (`declaration-syntax.md` §6.4, §6.9).
     #[test]
-    fn a_correction_is_recorded_as_one_and_a_tracked_one_is_not_yet_run() {
-        let text = JOBS.replace(
-            "      finish: { kind: external, from: [WORKING], to: DONE }",
-            "      finish: { kind: external, from: [WORKING], to: DONE }\n      \
-             fix_title: { kind: internal, from: any, required_inputs: [title], corrects: [title] }\n      \
-             fix_priority: { kind: internal, from: any, required_inputs: [priority], corrects: [priority] }",
-        );
-        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
-        let mut s = Store::sandbox(lib, 0).unwrap();
-        let job = created(&req(
+    fn a_correction_relabels_the_interval_it_corrects() {
+        const CREWS: &str = r#"
+module: crews
+categories: [live, closed]
+enumerations: { Crew: [NORTH, SOUTH, EAST] }
+types:
+  Job:
+    attributes:
+      crew: { type: Crew }
+      title: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+      WORKING: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [crew] }
+      start: { kind: external, from: [OPEN], to: WORKING, backdating_limit: 1 day }
+      move_crew: { kind: internal, from: [OPEN, WORKING], required_inputs: [crew] }
+      fix_crew: { kind: internal, from: [OPEN, WORKING], corrects: [crew], required_inputs: [crew], inputs: { reason: { type: string } } }
+      fix_title: { kind: internal, from: any, corrects: [title], required_inputs: [title], inputs: { reason: { type: string } } }
+"#;
+        let crews = || {
+            let lib = Library::load(&[("crews.yaml".into(), CREWS.into())]).unwrap();
+            Store::sandbox(lib, 1_767_225_600).unwrap()
+        };
+        let crew = |c: &str| Value::Member {
+            enumeration: "Crew".into(),
+            member: c.into(),
+        };
+        let held_crew = |row: &Value| match row {
+            Value::Row(f) => match f.get("held") {
+                Some(Value::Row(h)) => h.get("crew").cloned().unwrap_or(Value::Absent),
+                _ => Value::Absent,
+            },
+            _ => Value::Absent,
+        };
+        // a correction relabels the interval it corrects, marking it, and a
+        // span or an event begun within it credits the corrected value
+        let mut s = crews();
+        let j = created(&req(
             &mut s,
             "open",
             OPERATOR,
             ("Job", true),
-            json!({"title": "Fx", "priority": "LOW"}),
+            json!({"crew": "NORTH"}),
         ));
+        created(&req(&mut s, "start", OPERATOR, (&j, false), json!({})));
+        let fix = req(
+            &mut s,
+            "fix_crew",
+            OPERATOR,
+            (&j, false),
+            json!({"crew": "SOUTH", "reason": "mis-keyed"}),
+        );
+        let Verdict::Satisfied { events, .. } = &fix else {
+            panic!("{fix:?}");
+        };
+        let at = events[0];
+        let w = s.snapshot().unwrap();
+        let o = w.get(&j).unwrap();
+        let t = w.lib.type_("Job").unwrap();
+        let spans = &o.spans["crew"];
+        assert_eq!(
+            (spans.len(), spans[0].value.clone(), spans[0].corrected_by),
+            (1, crew("SOUTH"), Some(at))
+        );
+        let states = crate::eval::interval_rows(&w, o, t, "state").unwrap();
+        let working = states.last().unwrap();
+        assert_eq!(held_crew(working), crew("SOUTH"));
+        let Value::Row(f) = working else { panic!() };
+        assert_eq!(f["corrected_by"], Value::Int(at));
+        let rows: Vec<Value> = w
+            .events
+            .iter()
+            .filter(|e| e.object_id == j)
+            .map(|e| crate::eval::transition_row(&w, o, t, e))
+            .collect();
+        // the original write's event is not changed, and the start credits
+        // the corrected crew
+        assert_eq!(
+            rows.iter().map(held_crew).collect::<Vec<_>>(),
+            [Value::Absent, crew("SOUTH"), crew("SOUTH")]
+        );
+        // the correction's event names the attribute, the value it replaces,
+        // the new value, the span it corrects and the reason
+        let e = w.events.iter().find(|e| e.position == at).unwrap();
+        assert_eq!(e.source, "corrected");
+        assert_eq!(
+            (
+                e.payload["corrected"]["crew"].clone(),
+                e.payload["reason"].clone()
+            ),
+            (
+                json!({"replaced": "NORTH", "value": "SOUTH", "span": spans[0].entered_position}),
+                json!("mis-keyed")
+            )
+        );
+        drop(w);
+        // a crew moved by mistake and corrected back: the relabelled interval
+        // merges with the one before it, which leaves the index, and the
+        // correction's own row credits the corrected crew
+        let mut s = crews();
+        let j = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"crew": "NORTH"}),
+        ));
+        s.now += 3600;
+        created(&req(
+            &mut s,
+            "move_crew",
+            OPERATOR,
+            (&j, false),
+            json!({"crew": "SOUTH"}),
+        ));
+        s.now += 3600;
+        created(&req(
+            &mut s,
+            "fix_crew",
+            OPERATOR,
+            (&j, false),
+            json!({"crew": "NORTH", "reason": "never moved"}),
+        ));
+        let w = s.snapshot().unwrap();
+        let o = w.get(&j).unwrap();
+        let t = w.lib.type_("Job").unwrap();
+        let spans = &o.spans["crew"];
+        assert_eq!(
+            (
+                spans.len(),
+                spans[0].value.clone(),
+                spans[0].left_at,
+                spans[0].corrected_by.is_some()
+            ),
+            (1, crew("NORTH"), None, true)
+        );
+        let last = w.events.iter().rfind(|e| e.object_id == j).unwrap();
+        assert_eq!(
+            held_crew(&crate::eval::transition_row(&w, o, t, last)),
+            crew("NORTH")
+        );
+        drop(w);
+        // a span and an event begun after the corrected interval's start,
+        // though dated before it, credit the corrected value: `.held` is read
+        // at the position of the transition that began a row (§6.9)
+        let mut s = crews();
+        let j = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"crew": "NORTH"}),
+        ));
+        s.now += 7200;
+        created(&req(
+            &mut s,
+            "move_crew",
+            OPERATOR,
+            (&j, false),
+            json!({"crew": "SOUTH"}),
+        ));
+        let dated = Request {
+            transition: "start".into(),
+            actor: OPERATOR.into(),
+            object_id: Some(j.clone()),
+            type_: None,
+            inputs: BTreeMap::new(),
+            occurred_at: Some(s.now - 3600),
+            propose: false,
+            expires_at: None,
+        };
+        created(&request(&mut s, &dated).unwrap().unwrap());
+        created(&req(
+            &mut s,
+            "fix_crew",
+            OPERATOR,
+            (&j, false),
+            json!({"crew": "EAST", "reason": "mis-keyed"}),
+        ));
+        let w = s.snapshot().unwrap();
+        let o = w.get(&j).unwrap();
+        let t = w.lib.type_("Job").unwrap();
+        let states = crate::eval::interval_rows(&w, o, t, "state").unwrap();
+        let start = w.events.iter().find(|e| e.transition == "start").unwrap();
+        assert_eq!(
+            (
+                held_crew(states.last().unwrap()),
+                held_crew(&crate::eval::transition_row(&w, o, t, start)),
+                o.spans["crew"]
+                    .iter()
+                    .map(|sp| sp.value.clone())
+                    .collect::<Vec<_>>()
+            ),
+            (
+                crew("EAST"),
+                crew("EAST"),
+                vec![crew("NORTH"), crew("EAST")]
+            )
+        );
+        // a row's .corrected_by is read where a correction changed its value
+        // or its .held, and absent elsewhere
+        let read = Evaluator::new(&w, Some(t), Some(&j))
+            .eval(
+                &crate::expr::parse("count(i in this.intervals where i.corrected_by is not null)")
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(read, Value::Int(1));
+        // an untracked attribute has no interval: its correction changes its
+        // value and its event, naming no span
         created(&req(
             &mut s,
             "fix_title",
             OPERATOR,
-            (&job, false),
-            json!({"title": "Fix"}),
+            (&j, false),
+            json!({"title": "Fix", "reason": "typo"}),
         ));
-        assert_eq!(s.history(&job).unwrap().last().unwrap().source, "corrected");
-        let r = Request {
-            transition: "fix_priority".into(),
-            actor: OPERATOR.into(),
-            object_id: Some(job.clone()),
-            type_: None,
-            inputs: [("priority".to_string(), json!("HIGH"))].into(),
-            occurred_at: None,
-            propose: false,
-            expires_at: None,
-        };
-        let not = request(&mut s, &r).unwrap().unwrap_err();
-        assert!(not.0.contains("Job.priority"), "{not}");
+        let last = s.history(&j).unwrap().last().cloned().unwrap();
+        assert_eq!(
+            last.payload["corrected"]["title"],
+            json!({"replaced": null, "value": "Fix", "span": null})
+        );
     }
 }

@@ -1022,6 +1022,7 @@ fn legacy_spans(
                     migrated: false,
                     declaration_version: lib.version,
                     legacy: true,
+                    corrected_by: None,
                 },
             ));
         }
@@ -1093,6 +1094,7 @@ fn open_spans(
             migrated: false,
             declaration_version: lib.version,
             legacy: false,
+            corrected_by: None,
         });
     }
     None

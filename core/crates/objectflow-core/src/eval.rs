@@ -968,6 +968,12 @@ pub(crate) fn interval_rows(
                 );
                 row.insert("legacy".to_string(), Value::Bool(sp.legacy));
                 row.insert("migrated".to_string(), Value::Bool(sp.migrated));
+                // the event of the latest correction that changed its value
+                // or its .held (§6.4, ADR-0147)
+                row.insert(
+                    "corrected_by".to_string(),
+                    sp.corrected_by.map_or(Value::Absent, Value::Int),
+                );
                 row.insert(
                     "duration".to_string(),
                     span_duration(t, o, member, sp, &closed, now),
