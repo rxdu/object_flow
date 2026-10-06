@@ -1511,6 +1511,103 @@ GENERATED_REMEDY = {"actor_known": "dependent", "occurred_within": "self_service
                     "successor_not_superseded": "self_serviceable"}
 
 
+def input_personal(t, x, name):
+    """Whether an input is personal (declaration-syntax.md §10, check 10): marked so, or written by the transition's
+    effect into a personal attribute."""
+    if ((x.get("inputs") or {}).get(name) or {}).get("personal"):
+        return True
+    attrs = t.get("attributes") or {}
+    return any(((attrs.get(st[k]["location"]) or {}).get("personal")
+                and name in inputs_read(st[k].get("value", st[k].get("expr"))))
+               for st, k in effect_steps(x.get("effect") or []) if k in ("assign", "add"))
+
+
+def effect_steps(steps):
+    """Each step of an effect with its kind, a loop's steps after it."""
+    for st in steps or ():
+        k = next(iter(st))
+        yield st, k
+        if k == "foreach":
+            yield from effect_steps(st[k].get("steps"))
+
+
+def inputs_read(text):
+    """The inputs an expression reads, `inputs.<name>`."""
+    out = set()
+
+    def walk(n):
+        if isinstance(n, tuple):
+            if len(n) == 3 and n[0] == "path" and n[1] == ("name", "inputs") and isinstance(n[2], str):
+                out.add(n[2])
+            for c in n[1:]:
+                walk(c)
+        elif isinstance(n, list):
+            for c in n:
+                walk(c)
+    if isinstance(text, str):
+        try:
+            walk(flowexpr.parse(text))
+        except Exception:           # a literal the format gives as YAML reads no input
+            pass
+    return out
+
+
+def carries(text, tainted, holding):
+    """Whether an expression carries a tainted value: it reads a tainted input, or an attribute holding one, bare or
+    through `this` (ADR-0160)."""
+    if not isinstance(text, str):
+        return False
+    if inputs_read(text) & tainted:
+        return True
+    found = []
+
+    def walk(n):
+        if isinstance(n, tuple):
+            if n[:1] == ("name",) and len(n) == 2 and n[1] in holding:
+                found.append(n)
+            elif len(n) == 3 and n[0] == "path" and n[1] == ("name", "this") and n[2] in holding:
+                found.append(n)
+            for c in n[1:]:
+                walk(c)
+        elif isinstance(n, list):
+            for c in n:
+                walk(c)
+    try:
+        walk(flowexpr.parse(text))
+    except Exception:
+        return False
+    return bool(found)
+
+
+def steps_taking(store, steps, transition, tn):
+    """For each step of an effect that takes the transition given, a call of it or a creation of the type, each input it
+    fills and the expressions that fill it, a loop's array among them where the input reads the loop's item."""
+    out = []
+    for st in steps or ():
+        k = next(iter(st))
+        spec = st[k]
+        if (k == "create" and spec.get("transition") == transition and store.is_a(tn, spec.get("type"))) \
+                or (k == "call" and spec.get("transition") == transition):
+            out += [(n, [e]) for n, e in (spec.get("inputs") or {}).items()]
+        elif k == "foreach":
+            for n, exprs in steps_taking(store, spec.get("steps"), transition, tn):
+                reads = any(spec["item"] in str(e) for e in exprs)
+                out.append((n, exprs + ([spec["array"]] if reads and "array" in spec else [])))
+    return out
+
+
+def attributes_written(t, x, name):
+    """The attributes an input writes: itself where it is an attribute's input, and each location an effect step
+    assigns or adds it to."""
+    out = set()
+    if name in x.get("required_inputs", []) + x.get("optional_inputs", []) and name in (t.get("attributes") or {}):
+        out.add(name)
+    for st, k in effect_steps(x.get("effect") or []):
+        if k in ("assign", "add") and name in inputs_read(st[k].get("value", st[k].get("expr"))):
+            out.add(st[k]["location"])
+    return out
+
+
 class Ctx:
     """One request's working store, and what it has taken and written so far."""
 
@@ -1523,6 +1620,8 @@ class Ctx:
         self.asserted, self.admits = None, set()    # the object an assertion set, and what it admits
         self.erased = {}            # object id -> the personal attributes this request erased on it
         self.position_of = {}       # object id -> the position of the event its current transition records
+        self.causes = []            # the positions of the transitions being taken, the innermost last: each event's
+                                    # cause is the one taken when it began (storage-schema.md §2, cause_position)
         self.before = None          # the store as the request found it
         self.created = []           # the objects it creates other than its own, in the order it creates them
         self.attr_writes = {}       # object id -> the attributes its current transition's effect wrote
@@ -1923,6 +2022,8 @@ class Runner:
         # 5. the outcome: its event's position allocated as it begins applying, so this_event is known to it (§7)
         work.position += 1
         pos = work.position
+        cause = ctx.causes[-1] if ctx.causes else None
+        ctx.causes.append(pos)
         before = (work.objects[oid].state, dict(work.objects[oid].attrs), self.tracked_values(work.objects[oid])) if oid else (None, {}, {})
         if oid is None:
             o = Obj(work.new_id(tn), tn, x["to"], ctx.at)
@@ -1982,7 +2083,8 @@ class Runner:
         if x["kind"] == "erasure":
             self.forget_observations(ctx, o, inputs, depth)
             self.erase_chain(ctx, o, inputs, depth)
-        self.record(ctx, o, x, xn, pos, before, inputs, created=oid is None)
+        ctx.causes.pop()
+        self.record(ctx, o, x, xn, pos, before, inputs, created=oid is None, cause=cause)
         o.version += 1
         return o.id
 
@@ -2001,7 +2103,7 @@ class Runner:
             if spans and ctx.at < spans[-1]["entered_at"]:
                 raise Refused("unsatisfied", "occurred_within", GENERATED_REMEDY["occurred_within"])
 
-    def record(self, ctx, o, x, xn, pos, before, inputs, created):
+    def record(self, ctx, o, x, xn, pos, before, inputs, created, cause=None):
         work = ctx.work
         before_state, before_attrs, held = before
         now_values = self.tracked_values(o)
@@ -2069,7 +2171,9 @@ class Runner:
             "asserted": x["kind"] == "assertion",
             "overrides": x["kind"] == "assertion" or (x["kind"] == "erasure" and bool(self.failing_invariants(work, o))),
             "imported": False, "migrated": False,
-            "redacted": False, "reason": reason, "declaration_version": 1, "held": held})
+            "redacted": False, "reason": reason, "declaration_version": 1, "held": held,
+            # what caused it, and the inputs it took by name, which an erasure's walk down follows (ADR-0160)
+            "cause": cause, "inputs": sorted(inputs)})
 
     def loop_order(self, work, item):
         """A loop's order: objects by ascending id, which is creation order; values ascending, strings by code point,
@@ -2239,6 +2343,7 @@ class Runner:
                 del o.attrs[a]
         o.erased = True
         ctx.erased.setdefault(o.id, set()).update(erased)
+        self.walk_down_from(ctx, o)
         # every pending proposal targeting the erased object is invalidated, its redaction and invalidation one event
         # (DESIGN.md §8, ADR-0147)
         for key, proposal in work.proposals.items():
@@ -2246,6 +2351,63 @@ class Runner:
                 proposal["state"] = "invalidated"
                 if key in work.objects:
                     proposal_event(work, key, "invalidate", "PENDING", "INVALIDATED", ctx.who["id"])
+
+    # ── the erasure's walk down (storage-schema.md §9 step 12, ADR-0160 decision 2) ─────────────────────────────────
+    def walk_down_from(self, ctx, o):
+        """From each of the erased object's events, each event it caused on another object is followed: an input the
+        causing step filled from a tainted input or a personal attribute is redacted there, marked personal or not, and
+        a personal attribute it wrote is cleared while the object still holds what flowed in; the walk continues down.
+        Every other object so redacted gets one `redact` event, caused by the erasure's event (ADR-0160)."""
+        work, t = ctx.work, self.kinds.get(o.type) or {}
+        holding = {a for a, sp in (t.get("attributes") or {}).items() if (sp or {}).get("personal")}
+        redacted, cleared = {}, {}
+        for e in [e for e in work.events if e["object"] == o.id]:
+            x = (t.get("transitions") or {}).get(e["transition"]) or {}
+            tainted = {n for n in e.get("inputs") or () if input_personal(t, x, n) or n in holding}
+            self.walk_down(ctx, e, tainted, holding, redacted, cleared)
+        for oid in sorted(set(redacted) | set(cleared), key=lambda i: work.objects[i].id_order):
+            p = work.objects[oid]
+            if oid == o.id or p.erased:
+                continue                # an erased object holds nothing personal to redact
+            for a in cleared.get(oid, ()):
+                if is_set_attribute(((self.kinds.get(p.type) or {}).get("attributes") or {}).get(a) or {}):
+                    p.attrs[a] = ()
+                else:
+                    p.attrs.pop(a, None)
+            work.position += 1
+            p.version += 1
+            state = ("state", p.type, p.state)
+            work.events.append({
+                "position": work.position, "object": oid, "type": p.type, "transition": "redact",
+                "from_state": state, "to_state": state, "completes": False, "returns": False,
+                "occurred_at": ctx.at, "recorded_at": work.now, "actor_id": ctx.who["id"],
+                "actor_kind": ctx.who["kind"], "asserted": False, "overrides": False, "imported": False,
+                "migrated": False, "redacted": True, "reason": ABSENT, "declaration_version": 1, "held": {},
+                "cause": ctx.causes[-1] if ctx.causes else None, "inputs": []})
+
+    def walk_down(self, ctx, e, tainted, holding, redacted, cleared):
+        work = ctx.work
+        fx = ((self.kinds.get(e["type"]) or {}).get("transitions") or {}).get(e["transition"]) or {}
+        for f in [f for f in work.events if f.get("cause") == e["position"] and f["object"] != e["object"]]:
+            p = work.objects.get(f["object"])
+            if p is None:
+                continue
+            pt = self.kinds.get(p.type) or {}
+            px = (pt.get("transitions") or {}).get(f["transition"]) or {}
+            passed = {n for n, exprs in steps_taking(work, fx.get("effect") or [], f["transition"], p.type)
+                      if any(carries(x, tainted, holding) for x in exprs)}
+            next_holding = set()
+            for n in passed:
+                if n in (f.get("inputs") or ()):
+                    redacted.setdefault(p.id, set()).add(n)
+                for a in attributes_written(pt, px, n):
+                    if not (((pt.get("attributes") or {}).get(a) or {}).get("personal")):
+                        continue
+                    next_holding.add(a)
+                    if p.writes.get(a) == f["position"]:
+                        cleared.setdefault(p.id, set()).add(a)
+            if passed:
+                self.walk_down(ctx, f, passed, next_holding, redacted, cleared)
 
     def forget_observations(self, ctx, o, inputs, depth):
         """An erasure reaches its object's observations through each one's generated `forget`, taken after its declared

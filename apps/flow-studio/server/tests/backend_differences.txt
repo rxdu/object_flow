@@ -2,10 +2,5 @@
 # each by module, operation and path (tests/test_backends_agree.py). Each group names
 # the TODO.md entry that accounts for it; a difference not listed fails the test.
 
-# TODO "The reference runner does not walk an erasure down": a customer's forget
-# writes no `redact` event on the contact whose input it erases (ADR-0160 decision
-# 2), so the request's events, the positions after it and the contact's version differ.
-customers.yaml /v1/events .events[]
-customers.yaml /v1/events .events[].transition
-customers.yaml /v1/get .version
-customers.yaml /v1/request .events
+# None since 2026-10-07: the reference runner holds proposals as objects and walks an
+# erasure down, as the core does, and the backends answer every example alike.
