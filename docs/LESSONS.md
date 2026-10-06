@@ -372,3 +372,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Three gate commands sent as parallel tool calls shared one shell: the first's `cd core` landed between the others' steps, so the studio's tests ran from the wrong directory and printed a stale output file's "28 passed", the checks' glob matched nothing, and the replay did not start. A passing line from a run that did not happen nearly stood as a result.
 - **Correction:** Run gates sequentially, each from an absolute path, deleting each output file before its run so a stale one cannot be read as fresh; read the exit code of the run itself.
 - **Context:** Claude Code's Bash tool, whose parallel calls share a working directory; ObjectFlow's gates, 2026-10-06.
+
+### Restore a mutated file from a saved copy, never from git
+- **Pattern:** Checking a mutation by hand, I restored the file with `git checkout --`, which put back the last commit and discarded the slice's uncommitted edits to it along with the mutation. Only a later grep showed the edits were gone.
+- **Correction:** Before mutating a file, copy it aside and restore from the copy, as the mutation scripts do; and before any command that rewrites a tracked file from git, check `git diff --stat` for that file and treat uncommitted changes as work that command destroys.
+- **Context:** Mutation checks during a slice, with uncommitted changes in the mutated file; ObjectFlow, 2026-10-06.

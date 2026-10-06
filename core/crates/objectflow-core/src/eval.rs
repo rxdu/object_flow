@@ -1535,10 +1535,9 @@ pub(crate) fn transition_row(
     let reason = if erased {
         Value::Text("erasure".into())
     } else if asserted && !e.imported {
-        match e.payload["reason"]
-            .as_str()
-            .or_else(|| e.payload["inputs"]["reason"].as_str())
-        {
+        // the reason its event records apart, withheld where it is personal:
+        // the inputs the event also records may hold a personal one
+        match e.payload["reason"].as_str() {
             Some(member) => match t
                 .transition(&e.transition)
                 .and_then(|x| x.inputs.iter().find(|(n, _)| n == "reason"))

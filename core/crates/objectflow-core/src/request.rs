@@ -364,6 +364,9 @@ struct Ctx<'w> {
     admits: BTreeSet<String>,
     /// For each object this request erased, the personal attributes it erased.
     erased: BTreeMap<String, BTreeSet<String>>,
+    /// Each past event's personal input an erasure redacts, by the event's
+    /// position and the input's name.
+    redacted_inputs: Vec<(i64, String)>,
     /// Every event, in the order recorded.
     events: Vec<Event>,
     created: BTreeSet<String>,
@@ -546,6 +549,7 @@ fn decide_or_stop(
         asserted: None,
         admits: BTreeSet::new(),
         erased: BTreeMap::new(),
+        redacted_inputs: Vec::new(),
         events: Vec::new(),
         created: BTreeSet::new(),
         read: Reading::default(),
@@ -697,6 +701,7 @@ fn decide_or_stop(
                 .collect(),
             attempts: observed,
             merged: ctx.merged,
+            redacted_inputs: ctx.redacted_inputs,
             ..Change::default()
         }),
     ))
@@ -1252,6 +1257,22 @@ fn take(
             }
         }
         o.erased = true;
+        // each input personal under the transition its event recorded,
+        // redacted there alone, since an input personal in one transition
+        // may not be in another (storage-schema.md §9 step 8)
+        for e in ctx.work.events.iter().filter(|e| e.object_id == o.id) {
+            let Some(ex) = t.transition(&e.transition) else {
+                continue;
+            };
+            if let Some(recorded) = e.payload["inputs"].as_object() {
+                for name in recorded.keys() {
+                    if input_personal(t, ex, name) || t.attribute(name).is_some_and(|a| a.personal)
+                    {
+                        ctx.redacted_inputs.push((e.position, name.clone()));
+                    }
+                }
+            }
+        }
         ctx.erased.entry(o.id.clone()).or_default().extend(erased);
         invalidate_proposals(ctx, alloc, &o.id)?;
     }
@@ -1261,13 +1282,18 @@ fn take(
     {
         o.state = to.clone();
     }
-    let mut written = serde_json::Map::new();
     for k in x.required_inputs.iter().chain(&x.optional_inputs) {
         if let Some(v) = inputs.get(k) {
             o.attrs.insert(k.clone(), v.clone());
-            written.insert(k.clone(), wire::encode(v));
         }
     }
+    // the event records every input the transition took, those that write
+    // an attribute and its declared ones alike, personal ones until an
+    // erasure redacts them (storage-schema.md §4, §9 step 8)
+    let written: serde_json::Map<String, Json> = inputs
+        .iter()
+        .map(|(k, v)| (k.clone(), wire::encode(v)))
+        .collect();
     let id = o.id.clone();
     ctx.wrote.insert(
         id.clone(),
@@ -1479,7 +1505,7 @@ fn take(
 /// Whether an input is personal (`declaration-syntax.md` §10, check 10):
 /// marked so, or written by the transition's effect into a personal
 /// attribute, which makes it personal without the marking.
-fn input_personal(t: &Type, x: &Transition, name: &str) -> bool {
+pub(crate) fn input_personal(t: &Type, x: &Transition, name: &str) -> bool {
     fn writes(steps: &[Step], t: &Type, name: &str) -> bool {
         steps.iter().any(|st| match st {
             Step::Assign { location, expr } | Step::Add { location, expr } => {
@@ -6176,5 +6202,118 @@ types:
             request(&mut s, &stranger).unwrap().unwrap(),
             Verdict::Unsatisfied { ref clause, .. } if clause == "actor_known"
         ));
+    }
+
+    /// An event records every input its transition took, declared ones
+    /// with those that write an attribute (`storage-schema.md` §4); an
+    /// erasure redacts each one personal under the transition its event
+    /// recorded, marked so or flowing into a personal attribute, and keeps a
+    /// same-named input another transition does not mark (§9 step 8).
+    #[test]
+    fn an_event_records_every_input_and_an_erasure_redacts_the_personal_ones() {
+        const NOTES: &str = r#"
+module: notes
+categories: [live, closed]
+types:
+  Job:
+    attributes:
+      title: { type: string }
+      owner_name: { type: string, optional: true, personal: true }
+    states:
+      OPEN: { category: live }
+      HELD: { category: live }
+    conditions:
+      explained: { expression: inputs.why is not null, remedy: self_serviceable }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title], optional_inputs: [owner_name] }
+      remark: { kind: internal, from: [OPEN], inputs: { memo: { type: string, personal: true }, why: { type: string } }, guards: { explained: deny } }
+      log: { kind: internal, from: [OPEN], inputs: { memo: { type: string } } }
+      sign: { kind: internal, from: [OPEN], inputs: { signer: { type: string } }, effect: [ { assign: { location: owner_name, expr: inputs.signer } } ] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+      fix: { kind: assertion, to: [HELD], inputs: { reason: { type: string, personal: true } } }
+"#;
+        let lib = Library::load(&[("notes.yaml".into(), NOTES.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fix", "owner_name": "Dana"}),
+        ));
+        for (xn, inputs) in [
+            (
+                "remark",
+                json!({"memo": "Dana's private note", "why": "audit"}),
+            ),
+            ("log", json!({"memo": "a shared note"})),
+            ("sign", json!({"signer": "Dana D."})),
+        ] {
+            created(&req(&mut s, xn, OPERATOR, (&job, false), inputs));
+        }
+        let inputs = |s: &Store| -> Vec<(String, Json)> {
+            s.history(&job)
+                .unwrap()
+                .into_iter()
+                .map(|e| (e.transition, e.payload["inputs"].clone()))
+                .collect()
+        };
+        // every input recorded, declared ones and personal ones included
+        assert_eq!(
+            inputs(&s),
+            [
+                (
+                    "open".to_string(),
+                    json!({"title": "Fix", "owner_name": "Dana"})
+                ),
+                (
+                    "remark".to_string(),
+                    json!({"memo": "Dana's private note", "why": "audit"})
+                ),
+                ("log".to_string(), json!({"memo": "a shared note"})),
+                ("sign".to_string(), json!({"signer": "Dana D."})),
+            ]
+        );
+        // an override's personal reason is recorded with its inputs, and no
+        // read of its transition takes it from there
+        created(&req(
+            &mut s,
+            "fix",
+            OPERATOR,
+            (&job, false),
+            json!({"to": "HELD", "reason": "Dana asked"}),
+        ));
+        {
+            let w = s.snapshot().unwrap();
+            let o = w.get(&job).unwrap();
+            let t = w.lib.type_("Job").unwrap();
+            let e = w.events.iter().rfind(|e| e.transition == "fix").unwrap();
+            assert_eq!(e.payload["inputs"]["reason"], json!("Dana asked"));
+            let Value::Row(row) = crate::eval::transition_row(&w, o, t, e) else {
+                panic!("a transition's row")
+            };
+            assert_eq!(row.get("reason"), Some(&Value::Absent));
+        }
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&job, false),
+            json!({"reason": "request"}),
+        ));
+        // the personal ones redacted where they were personal, the rest kept
+        let after = inputs(&s);
+        assert_eq!(
+            &after[..4],
+            [
+                (
+                    "open".to_string(),
+                    json!({"title": "Fix", "owner_name": null})
+                ),
+                ("remark".to_string(), json!({"memo": null, "why": "audit"})),
+                ("log".to_string(), json!({"memo": "a shared note"})),
+                ("sign".to_string(), json!({"signer": null})),
+            ]
+        );
     }
 }

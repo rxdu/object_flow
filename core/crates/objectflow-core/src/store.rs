@@ -92,6 +92,9 @@ pub struct Change {
     /// erased attributes in every past event's payload, and its personal
     /// attributes' values in the interval index (§9, steps 2 and 9).
     pub redacted: Vec<(String, Vec<String>)>,
+    /// Each past event's personal input an erasure redacts, by the event's
+    /// position and the input's name (§9 step 8).
+    pub redacted_inputs: Vec<(i64, String)>,
     /// The spans a correction merged into the one before them, which leave
     /// the index: an object, a dimension, and the span's entered position
     /// and time (`declaration-syntax.md` §6.4).
@@ -2296,6 +2299,14 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
                 }
             }
         }
+    }
+    for (position, name) in &change.redacted_inputs {
+        let path = format!("$.inputs.\"{}\"", name.replace('"', ""));
+        tx.execute(
+            "UPDATE of_event SET payload = json_set(payload, ?2, json('null')) \
+             WHERE position = ?1 AND json_type(payload, ?2) IS NOT NULL",
+            params![position, path],
+        )?;
     }
     for (source, value, id, attribute) in &change.external {
         tx.execute(

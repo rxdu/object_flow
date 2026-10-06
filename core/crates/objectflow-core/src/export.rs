@@ -92,7 +92,7 @@ fn event_row(world: &World<'_>, e: &Event) -> Json {
     let mut payload = e.payload.clone();
     for part in ["inputs", "corrected"] {
         if let Some(values) = payload.get_mut(part).and_then(Json::as_object_mut) {
-            values.retain(|k, _| !personal(world.lib, type_, k));
+            values.retain(|k, _| !personal(world.lib, type_, &e.transition, k));
         }
     }
     json!({
@@ -117,14 +117,16 @@ fn event_row(world: &World<'_>, e: &Event) -> Json {
     })
 }
 
-/// Whether an attribute an event's payload holds is personal. The payload
-/// holds only the inputs that write an attribute, so an attribute's marking
-/// is the whole test (TODO: a transition's declared inputs).
-fn personal(lib: &Library, type_: Option<&str>, name: &str) -> bool {
-    type_
-        .and_then(|t| lib.type_(t))
-        .and_then(|t| t.attribute(name))
-        .is_some_and(|a| a.personal)
+/// Whether an input an event's payload holds is personal under the
+/// transition it recorded: an attribute marked so, an input marked so, or
+/// one its effect writes into a personal attribute (check 10).
+fn personal(lib: &Library, type_: Option<&str>, transition: &str, name: &str) -> bool {
+    let Some(t) = type_.and_then(|t| lib.type_(t)) else {
+        return false;
+    };
+    t.attribute(name).is_some_and(|a| a.personal)
+        || t.transition(transition)
+            .is_some_and(|x| crate::request::input_personal(t, x, name))
 }
 
 /// Each span of each object of the type, after the cursor, by the event that
@@ -258,6 +260,7 @@ types:
       open: { kind: initial, to: OPEN, required_inputs: [crew], optional_inputs: [mood, note] }
       start: { kind: external, from: [OPEN], to: WORKING, guards: { calm: deny } }
       fix_crew: { kind: internal, from: [OPEN, WORKING], corrects: [crew], required_inputs: [crew], inputs: { reason: { type: string } } }
+      note: { kind: internal, from: [OPEN, WORKING], inputs: { whisper: { type: string, personal: true }, said: { type: string } } }
   Tool:
     attributes:
       size: { type: int }
@@ -326,6 +329,15 @@ types:
         assert_eq!(opened["payload"]["inputs"], json!({"crew": "NORTH"}));
         assert_eq!(at, log.last().unwrap()["position"].to_string());
         assert_eq!(page(&s, "log", Some(&at)).0, Vec::<Json>::new());
+        // a declared input marked personal is left out too
+        req(
+            &mut s,
+            "note",
+            Some(&cross),
+            json!({"whisper": "private", "said": "public"}),
+        );
+        let (log, _) = page(&s, "log", Some(&at));
+        assert_eq!(log[0]["payload"]["inputs"], json!({"said": "public"}));
         // each job's state, crew and mood, the mood's value omitted
         let (rows, c1) = page(&s, "Job.intervals", None);
         assert_eq!(rows.len(), 6);
