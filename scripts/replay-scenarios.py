@@ -454,6 +454,31 @@ class Driver:
             return ", ".join(sorted(self.show(x) for x in v))
         return str(v)
 
+    def query(self, spec_, header):
+        """A query as its table writes it: each object by its label, with the fields the table names that a page
+        returns. A column a page does not return, the order key's value or gaps, is no query's, and is named."""
+        m = re.fullmatch(r'query\((\w+)(?:, filter: "(.+?)")?(?:, order: "(.+?)")?\)', spec_)
+        if not m:
+            raise NotRun(f"a read the driver does not parse: {spec_}")
+        fields = [c for c in header if c not in ("object", "entered", "gaps")]
+        body = {"actor": {"id": OPERATOR}, "type": m.group(1), "fields": fields}
+        if m.group(2):
+            body["filter"] = self.labelled(m.group(2))
+        if m.group(3):
+            body["order"] = [k.strip() for k in m.group(3).split(",")]
+        page = self.core.call("/v1/query", body)
+        if page.get("refused"):
+            raise Differs(f"the query is refused as {page['refused']}")
+        rows = [tuple([self.show(i["id"])] + [self.show(i["fields"].get(f)) for f in fields]) for i in page["items"]]
+        return rows, ["object"] + fields, [c for c in header if c in ("entered", "gaps")]
+
+    def labelled(self, text):
+        """A filter's text with each object it names by its label compared by id, as the language names one
+        (flow-format.md §5)."""
+        return re.sub(r"([\w.]+) == ([A-Z][\w-]*)",
+                      lambda g: f'{g.group(1)}.id == "{self.ids[g.group(2)]}"' if g.group(2) in self.ids else g.group(0),
+                      text)
+
     def metric(self, spec_):
         reader = re.search(r"\) as ([\w-]+)$", spec_)
         if reader:
@@ -468,10 +493,7 @@ class Driver:
         if m.group(2):
             body["bind"] = {m.group(2): self.wire(m.group(3))}
         if m.group(5):
-            # an object the filter names by its label, which the language names by its id (flow-format.md §5)
-            body["filter"] = re.sub(r"([\w.]+) == ([A-Z][\w-]*)",
-                                    lambda g: f'{g.group(1)}.id == "{self.ids[g.group(2)]}"' if g.group(2) in self.ids
-                                    else g.group(0), m.group(5).replace('\\"', '"'))
+            body["filter"] = self.labelled(m.group(5).replace('\\"', '"'))
         if m.group(6):
             body["over"] = m.group(6)
         page = self.core.call("/v1/metric", body)
@@ -491,7 +513,7 @@ def main():
     total = sum(len(h.get("requests") or []) for _s, h in histories)
     survey = [] if "--survey" in sys.argv[1:] else None
     service = Service()
-    findings, matched, outcomes, unrun, waiting, stopped = [], set(), [], [], [], None
+    findings, matched, outcomes, unrun, waiting, partial, stopped = [], set(), [], [], [], [], None
     awaiting = {}
     for line in (PASSING.read_text().splitlines() if PASSING.exists() else []):
         if line.startswith("awaiting: "):
@@ -516,8 +538,8 @@ def main():
             # a read named by its text, and by its place among reads of the same text
             seen[spec_] = seen.get(spec_, 0) + 1
             key = spec_ if seen[spec_] == 1 else f"{spec_} #{seen[spec_]}"
-            if not spec_.startswith("metric("):
-                outcomes.append("query, not run: the core has no query" if spec_.startswith("query(") else "not compared")
+            if not spec_.startswith(("metric(", "query(")):
+                outcomes.append("not compared")
                 continue
             if stopped:
                 outcomes.append("unreached")
@@ -535,8 +557,16 @@ def main():
                     outcomes.append(f"after a gap, {'not run' if isinstance(e, NotRun) else 'refused'}")
                     survey.append(f"read at line {line}, `{spec_}`, after a gap: {e}")
                 continue
+            beyond = []
             try:
-                got, cols = d.metric(spec_)
+                if spec_.startswith("query("):
+                    got, cols, beyond = d.query(spec_, header)
+                    # the columns a page does not return are left out of the comparison, and named
+                    keep = [header.index(c) for c in cols if c in header]
+                    rows = [[r[i] for i in keep] for r in rows]
+                    header = [header[i] for i in keep]
+                else:
+                    got, cols = d.metric(spec_)
             except NotRun as e:
                 outcomes.append(f"not run: {e}")
                 unrun.append(f"line {line}: `{spec_}`: {e}")
@@ -546,6 +576,8 @@ def main():
                 findings.append(f"line {line}: `{spec_}`: {e}")
                 continue
             want = [tuple(r) for r in rows]
+            # a query's page is ordered where it names an order; otherwise it ascends by id, which the document's
+            # labels do not show
             ordered = "order:" in spec_
             if header != cols:
                 outcomes.append("differs")
@@ -557,6 +589,9 @@ def main():
                 # a difference recorded as awaiting a decision is reported, and is no finding
                 (waiting if key in awaiting else findings).append(text + (f"\n    awaiting: {awaiting[key]}"
                                                                           if key in awaiting else ""))
+            elif beyond:
+                outcomes.append("matches, but for columns no query returns")
+                partial.append(f"line {line}: `{spec_}`: {', '.join(beyond)}")
             else:
                 outcomes.append("matches")
                 matched.add(key)
@@ -579,6 +614,8 @@ def main():
         print(f"  stepped past, changing nothing a compared read reads: {a}")
     for u in unrun:
         print(f"  not run: {u}")
+    for p in partial:
+        print(f"  matches on what a query returns, and quotes what it does not: {p}")
     for w in waiting:
         print(f"  awaiting a decision: {w}")
     for f in findings:

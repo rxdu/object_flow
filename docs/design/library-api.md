@@ -309,6 +309,8 @@ class Object:
 class Page:
     items: Sequence[Any]
     cursor: str | None
+    refused: str | None = None            # a query it cannot answer, a value: unknown_type,
+                                          # malformed_filter, unknown_order_key, unknown_field
 
 
 @dataclass(frozen=True)
@@ -700,6 +702,7 @@ Twenty operations: the seventeen of §10, the write path of §6, and the operati
 - `pull` and `acknowledge` take a subscription's id; who may use one is the upper layer's (ADR-0114). The core posts nothing: a relay that posts to an endpoint is an upper-layer application pulling as its own actor (ADR-0105).
 - `get` and `query` evaluate a derived attribute that reads other objects over every object it reads (ADR-0114). `query` accepts a time-dependent derived attribute the publish report lists as queryable, and filters on the stored operand it compares against `now` (ADR-0048).
 - `history`, `pull` and `export` return the `reads` and `consulted` of an event or an attempt whole, and a refusal's `Unsatisfied.consulted` gives its requester the value it was decided on (ADR-0114).
+- `query` refuses as a value, in its page's `refused`, a type the store does not know, a filter that does not parse, an order key that is not one ADR-0127 allows, and a field the type does not have, as `metric` and `pull` refuse (settled building the core's query, 2026-10-06).
 - A `Page` of objects ascends by object id unless `query` names an `order`, a key or a list of keys, each an indexed attribute, `created_at` or `entered_at(<tracked member>)`, ascending unless marked `desc`, with the id breaking ties and an absent value last; a `MetricPage` ascends by the dimensions kept, in the order `keep` names them, or by the declared dimensions in their declared order when `keep` is none, a time bucket in time order and an absent value last, the implicit `version` and `actor_kind` after the declared, states, enumeration members and kinds of actor in declaration order, strings by code point and objects by id (ADR-0127, ADR-0147).
 - `metric` aggregates every row its source selects, after narrowing them by `filter`, which is how an upper layer scopes a read to what its user may see (PRD C2, M2, T5, ADR-0114). A `filter` on a combined metric is refused, since it has no rows to narrow; the reader reads each input with its own filter and combines them (ADR-0146). A read keeping no dimension returns one row, over no rows the value its expression has there, as a guard's read gives one value; and a bare `name` names the metric of the one module declaring it, `<Type>.<metric>` a type's own or standard one (settled building the core's read, 2026-10-05).
 - `declaration(type, version)` returns, with the rule set, the version's `source_ref` and `source_digest`, where its source came from and the digest the repository's side checks it by, neither for version 0 (ADR-0135); a `DeclarationChange`'s own are read by `get`.

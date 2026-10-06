@@ -793,6 +793,56 @@ async fn availability(State(shared): State<Shared>, Json(body): Json<J>) -> Answ
 
 /// A reader's read of a metric: one page holding every group, so its
 /// cursor is none (`library-api.md` §5, `MetricPage`).
+/// A page of objects of a type or its family, filtered and ordered
+/// (`library-api.md` §6, ADR-0127): every object the filter holds for, on
+/// one page, so no cursor; a refusal is a value.
+async fn query(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let (Some(_actor), Some(type_)) = (
+        body.get("actor").and_then(|a| text(a, "id")),
+        text(&body, "type"),
+    ) else {
+        return Err(Fault::Bad("query names its actor and the type".to_string()));
+    };
+    if body.get("cursor").is_some_and(|c| !c.is_null()) {
+        return Err(Fault::Bad(
+            "a query's page holds every object, so it has no cursor to continue from".to_string(),
+        ));
+    }
+    let strings = |k: &str| -> Result<Option<Vec<String>>, Fault> {
+        match body.get(k) {
+            None | Some(J::Null) => Ok(None),
+            Some(J::String(one)) => Ok(Some(vec![one.clone()])),
+            Some(J::Array(items)) => items
+                .iter()
+                .map(|i| i.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()
+                .map(Some)
+                .ok_or_else(|| Fault::Bad(format!("{k} takes a name or a list of names"))),
+            Some(_) => Err(Fault::Bad(format!("{k} takes a name or a list of names"))),
+        }
+    };
+    let order = strings("order")?.unwrap_or_default();
+    let fields = strings("fields")?;
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    let world = s.snapshot()?;
+    let page = reads::query(
+        &world,
+        type_,
+        text(&body, "filter"),
+        &order,
+        fields.as_deref(),
+    )?;
+    Ok(Json(json!({
+        "items": page.items.iter().map(|i| json!({
+            "id": i.id, "type": i.type_,
+            "fields": J::Object(i.fields.iter().map(|(f, v)| (f.clone(), encode(v))).collect()),
+        })).collect::<Vec<_>>(),
+        "cursor": J::Null,
+        "refused": page.refused,
+    })))
+}
+
 async fn metric(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     let (Some(_actor), Some(name)) = (
         body.get("actor").and_then(|a| text(a, "id")),
@@ -868,6 +918,7 @@ fn app(shared: Shared) -> Router {
         .route("/v1/declaration", post(declaration))
         .route("/v1/availability", post(availability))
         .route("/v1/metric", post(metric))
+        .route("/v1/query", post(query))
         .route("/v1/import_batch", post(import_op))
         .route("/v1/lookup", post(lookup))
         .route("/v1/publish", post(publish))

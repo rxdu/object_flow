@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::eval::{Evaluator, NotRun, truth};
+use crate::expr::Expr;
 use crate::model::{Declared, Enforce, Kind, Remedy, Transition, Type};
 use crate::request::{names_read, resolve_actor, takes_from};
 use crate::value::Value;
@@ -68,6 +69,196 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
         derived,
         open: !t.finished(&o.state),
     }))
+}
+
+/// One object of a query's page: its id, its type, and the fields asked
+/// for, each as a read gives it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Item {
+    pub id: String,
+    pub type_: String,
+    pub fields: Vec<(String, Value)>,
+}
+
+/// A query's page (`library-api.md` §6): every object of the type or its
+/// family that the filter holds for, in the order asked, or a refusal, a
+/// value as every read's is.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct QueryPage {
+    pub items: Vec<Item>,
+    pub refused: Option<String>,
+}
+
+/// One key of a query's order: what it reads, and whether it descends.
+enum Key {
+    CreatedAt,
+    EnteredAt(String),
+    Attribute(String),
+}
+
+/// A query over a type or a family (`DESIGN.md` §10, ADR-0048, ADR-0127):
+/// the objects its filter holds for, a filter unknown for one selecting it
+/// not; ordered by each key, ascending unless marked `desc`, an absent value
+/// last and the object's id, creation order, breaking every tie; each with
+/// the fields asked for, or its type's summary set, or its state where the
+/// type declares none. A type it does not know, a filter or a key it cannot
+/// read, and a field no object of the type has, are refused, as values.
+///
+/// The read surface answers a filter by an index (ADR-0048): this one is
+/// answered over every object of the type, so a filter no index could
+/// answer is not refused, and a time-dependent derived attribute is
+/// evaluated rather than rewritten to its operand.
+pub fn query(
+    world: &World<'_>,
+    type_: &str,
+    filter: Option<&str>,
+    order: &[String],
+    fields: Option<&[String]>,
+) -> Result<QueryPage, NotRun> {
+    let refuse = |why: &str| {
+        Ok(QueryPage {
+            items: Vec::new(),
+            refused: Some(why.to_string()),
+        })
+    };
+    let Some(t) = world.lib.type_(type_) else {
+        return refuse("unknown_type");
+    };
+    let filter = match filter.map(crate::expr::parse) {
+        None => None,
+        Some(Ok(e)) => Some(e),
+        Some(Err(_)) => return refuse("malformed_filter"),
+    };
+    let mut keys = Vec::new();
+    for k in order {
+        let (name, desc) = match k.trim().strip_suffix(" desc") {
+            Some(n) => (n.trim(), true),
+            None => (k.trim(), false),
+        };
+        let key = if name == "created_at" {
+            Key::CreatedAt
+        } else if let Some(m) = name
+            .strip_prefix("entered_at(")
+            .and_then(|r| r.strip_suffix(')'))
+        {
+            if !world.lib.tracked(t).iter().any(|x| x == m.trim()) {
+                return refuse("unknown_order_key");
+            }
+            Key::EnteredAt(m.trim().to_string())
+        } else if t.attribute(name).is_some_and(|a| !a.many) {
+            Key::Attribute(name.to_string())
+        } else {
+            return refuse("unknown_order_key");
+        };
+        keys.push((key, desc));
+    }
+    let summary: Vec<String> = t
+        .source
+        .get("summary")
+        .and_then(|s| s.as_array())
+        .map(|s| {
+            s.iter()
+                .filter_map(|f| f.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_else(|| vec!["state".to_string()]);
+    let asked: Vec<String> = fields.map_or(summary, <[String]>::to_vec);
+    let mut chosen = Vec::new();
+    for o in world.of_type(type_) {
+        let Some(ot) = world.lib.type_(&o.type_) else {
+            return Err(NotRun(format!("the type {}", o.type_)));
+        };
+        let held = match &filter {
+            None => true,
+            Some(e) => truth(&Evaluator::new(world, Some(ot), Some(&o.id)).eval(e)?)? == Some(true),
+        };
+        if held {
+            chosen.push(o);
+        }
+    }
+    let lib = world.lib;
+    // a key's value for an object, and how two values of one key order
+    let value = |o: &Object, key: &Key| -> Value {
+        match key {
+            Key::CreatedAt => Value::Timestamp(o.created_at),
+            Key::EnteredAt(m) => o
+                .spans
+                .get(m)
+                .and_then(|s| s.last())
+                .filter(|sp| sp.left_position.is_none())
+                .map_or(Value::Absent, |sp| Value::Timestamp(sp.entered_at)),
+            Key::Attribute(a) => o.attr(a),
+        }
+    };
+    let rank = |v: &Value, w: &Value| -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        let position = |v: &Value| -> Option<i64> {
+            match v {
+                Value::Member {
+                    enumeration,
+                    member,
+                } => lib
+                    .enumerations
+                    .get(enumeration)
+                    .and_then(|ms| ms.iter().position(|m| m == member))
+                    .and_then(|i| i64::try_from(i).ok()),
+                Value::State { type_, name } => lib
+                    .type_(type_)
+                    .and_then(|t| t.states.iter().position(|(s, _)| s == name))
+                    .and_then(|i| i64::try_from(i).ok()),
+                Value::Object(id) => world.get(id).map(|o| o.order),
+                _ => None,
+            }
+        };
+        match (position(v), position(w)) {
+            (Some(a), Some(b)) => a.cmp(&b),
+            _ => v.compare(w).unwrap_or(Ordering::Equal),
+        }
+    };
+    chosen.sort_by(|a, b| {
+        for (key, desc) in &keys {
+            let (x, y) = (value(a, key), value(b, key));
+            // an absent value last, whichever way the key runs
+            let o = match (x.is_absent(), y.is_absent()) {
+                (true, true) => std::cmp::Ordering::Equal,
+                (true, false) => std::cmp::Ordering::Greater,
+                (false, true) => std::cmp::Ordering::Less,
+                (false, false) if *desc => rank(&y, &x),
+                (false, false) => rank(&x, &y),
+            };
+            if o != std::cmp::Ordering::Equal {
+                return o;
+            }
+        }
+        a.order.cmp(&b.order)
+    });
+    let mut items = Vec::new();
+    for o in chosen {
+        let Some(ot) = lib.type_(&o.type_) else {
+            return Err(NotRun(format!("the type {}", o.type_)));
+        };
+        let reader = Evaluator::new(world, Some(ot), Some(&o.id));
+        let mut out = Vec::new();
+        for f in &asked {
+            let known = f == "state"
+                || f == "created_at"
+                || ot.attribute(f).is_some()
+                || ot.derived.iter().any(|(d, _)| d == f);
+            if !known {
+                return refuse("unknown_field");
+            }
+            out.push((f.clone(), reader.eval(&Expr::Name(f.clone()))?));
+        }
+        items.push(Item {
+            id: o.id.clone(),
+            type_: o.type_.clone(),
+            fields: out,
+        });
+    }
+    Ok(QueryPage {
+        items,
+        refused: None,
+    })
 }
 
 /// How available a transition is (`library-api.md` §5).
@@ -394,6 +585,153 @@ types:
             .into_iter()
             .map(|o| (o.transition.clone(), o))
             .collect()
+    }
+
+    /// A query (`DESIGN.md` §10, ADR-0127): the objects its filter holds
+    /// for, one unknown for an object selecting it not; ordered by each key,
+    /// `desc` reversing one, an absent value last, creation order breaking
+    /// ties; each with the fields asked for, or its state; and a refusal a
+    /// value.
+    #[test]
+    fn a_query_filters_orders_and_refuses_as_a_value() {
+        let (mut s, first) = setup();
+        let ask = |s: &mut Store, xn: &str, object: Option<&str>, inputs: serde_json::Value| {
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: object.map(str::to_string),
+                type_: object.is_none().then(|| "Job".to_string()),
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                principal: None,
+            };
+            match request(s, &r).unwrap().unwrap() {
+                Verdict::Satisfied { object_id, .. } => object_id,
+                other => panic!("{other:?}"),
+            }
+        };
+        // first: no hours; then three more, an hour apart
+        let mut jobs = vec![first];
+        for hours in [9, 3, 9] {
+            s.now += 3600;
+            let j = ask(&mut s, "open", None, json!({"title": "Job"}));
+            ask(&mut s, "estimate", Some(&j), json!({"hours": hours}));
+            jobs.push(j);
+        }
+        // the first estimated is finished and reopened, entering OPEN after
+        // the one created after it
+        s.now += 3600;
+        ask(&mut s, "finish", Some(jobs[1].as_str()), json!({}));
+        ask(&mut s, "reopen", Some(jobs[1].as_str()), json!({}));
+        s.now += 3600;
+        ask(&mut s, "finish", Some(jobs[3].as_str()), json!({}));
+        let w = s.snapshot().unwrap();
+        let ids = |p: QueryPage| -> Vec<String> {
+            assert_eq!(p.refused, None);
+            p.items.into_iter().map(|i| i.id).collect()
+        };
+        let order = |keys: &[&str]| keys.iter().map(|k| k.to_string()).collect::<Vec<_>>();
+        let q = |filter: Option<&str>, keys: &[&str]| {
+            query(&w, "Job", filter, &order(keys), None).unwrap()
+        };
+        // by state's category, newest first
+        assert_eq!(
+            ids(q(Some("state.category != closed"), &["created_at desc"])),
+            [jobs[2].as_str(), jobs[1].as_str(), jobs[0].as_str()]
+        );
+        // by a derived value; one whose hours are unknown is not selected
+        assert_eq!(
+            ids(q(Some("long"), &[])),
+            [jobs[1].as_str(), jobs[3].as_str()]
+        );
+        assert_eq!(
+            ids(q(Some("hours > 5"), &[])),
+            [jobs[1].as_str(), jobs[3].as_str()]
+        );
+        // by an attribute, an absent value last whichever way, ties by creation
+        assert_eq!(
+            ids(q(None, &["hours"])),
+            [
+                jobs[2].as_str(),
+                jobs[1].as_str(),
+                jobs[3].as_str(),
+                jobs[0].as_str()
+            ]
+        );
+        assert_eq!(
+            ids(q(None, &["hours desc"])),
+            [
+                jobs[1].as_str(),
+                jobs[3].as_str(),
+                jobs[2].as_str(),
+                jobs[0].as_str()
+            ]
+        );
+        // by when the current state was entered, not when it was created:
+        // the reopened job last
+        assert_eq!(
+            ids(q(Some("state.category != closed"), &["entered_at(state)"])),
+            [jobs[0].as_str(), jobs[2].as_str(), jobs[1].as_str()]
+        );
+        // a type that declares no summary gives each object's state, and the
+        // fields asked for are given
+        let p = query(&w, "Job", Some("hours < 5"), &[], None).unwrap();
+        assert_eq!(
+            p.items[0].fields,
+            vec![(
+                "state".to_string(),
+                Value::State {
+                    type_: "Job".into(),
+                    name: "OPEN".into()
+                }
+            )]
+        );
+        let p = query(
+            &w,
+            "Job",
+            Some("hours < 5"),
+            &[],
+            Some(&order(&["title", "hours", "long"])),
+        )
+        .unwrap();
+        assert_eq!(
+            p.items[0].fields,
+            vec![
+                ("title".to_string(), Value::Text("Job".into())),
+                ("hours".to_string(), Value::Int(3)),
+                ("long".to_string(), Value::Bool(false))
+            ]
+        );
+        // each refusal a value
+        let refused = |p: QueryPage| p.refused;
+        assert_eq!(
+            refused(query(&w, "Nonesuch", None, &[], None).unwrap()).as_deref(),
+            Some("unknown_type")
+        );
+        assert_eq!(
+            refused(q(Some("hours >"), &[])).as_deref(),
+            Some("malformed_filter")
+        );
+        assert_eq!(
+            refused(q(None, &["nonesuch"])).as_deref(),
+            Some("unknown_order_key")
+        );
+        assert_eq!(
+            refused(q(None, &["entered_at(title)"])).as_deref(),
+            Some("unknown_order_key")
+        );
+        assert_eq!(
+            refused(query(&w, "Job", None, &[], Some(&order(&["nonesuch"]))).unwrap()).as_deref(),
+            Some("unknown_field")
+        );
     }
 
     #[test]
