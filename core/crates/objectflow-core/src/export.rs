@@ -221,6 +221,7 @@ fn attempt_row(a: &Attempt) -> Json {
         "flagged": a.flagged,
         "reads": a.reads,
         "applied_position": a.applied_position,
+        "call": a.call,
         "consulted": a.consulted,
         "request_values": a.request_values,
         "withheld_inputs": a.withheld,
@@ -400,8 +401,8 @@ types:
         let (rows, a1) = page(&s, "Job.attempts", None);
         assert_eq!(rows.len(), 1);
         assert_eq!(
-            (&rows[0]["object_id"], &rows[0]["clause"]),
-            (&json!(cross), &json!("calm"))
+            (&rows[0]["object_id"], &rows[0]["clause"], &rows[0]["call"]),
+            (&json!(cross), &json!("calm"), &Json::Null)
         );
         assert_eq!(page(&s, "Job.attempts", Some(&a1)), (Vec::new(), a1));
         // what it cannot read is refused, a value; what it does not serve

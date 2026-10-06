@@ -312,7 +312,7 @@ fn decide_as(
     let changing = target.is_some_and(|o| o.type_ == DECLARATION_CHANGE)
         || (req.object_id.is_none() && req.type_.as_deref() == Some(DECLARATION_CHANGE));
     let answer = if changing {
-        decide_change(world, alloc, req)
+        decide_change(world, alloc, req, answers)
     } else if req.propose {
         file(world, alloc, req)
     } else if deciding {
@@ -1074,6 +1074,7 @@ fn take(
                 .consulted_record(ctx.work.now)
                 .unwrap_or(Json::Null),
             txn: 0,
+            call: Json::Null,
         });
     }
     alloc.txn();
@@ -1846,6 +1847,37 @@ struct ChangeSource {
     files: Vec<(String, String)>,
     reference: String,
     digest: String,
+    /// The references it cites, where it gives them (ADR-0159).
+    evidence: Option<Vec<Json>>,
+}
+
+/// Whether a cited reference is of its form (ADR-0159): a metric read's
+/// arguments, `{metric, bind?, keep?, over?, filter?}`, or a diagnostics
+/// read's, `{diagnostics, window}`, each duration one the reads take.
+fn reference_formed(r: &Json) -> bool {
+    let Some(r) = r.as_object() else {
+        return false;
+    };
+    let text = |k: &str| r.get(k).and_then(Json::as_str);
+    let named = |k: &str| text(k).is_some_and(|n| !n.trim().is_empty());
+    let duration = |k: &str| text(k).is_some_and(|d| crate::value::parse_duration(d).is_some());
+    if r.contains_key("metric") {
+        named("metric")
+            && r.keys()
+                .all(|k| ["metric", "bind", "keep", "over", "filter"].contains(&k.as_str()))
+            && r.get("bind").is_none_or(Json::is_object)
+            && r.get("keep").is_none_or(|k| {
+                k.as_array()
+                    .is_some_and(|ds| ds.iter().all(|d| d.as_str().is_some_and(|d| !d.is_empty())))
+            })
+            && (!r.contains_key("over") || duration("over"))
+            && (!r.contains_key("filter") || text("filter").is_some())
+    } else {
+        named("diagnostics")
+            && duration("window")
+            && r.keys()
+                .all(|k| ["diagnostics", "window"].contains(&k.as_str()))
+    }
 }
 
 fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
@@ -1883,10 +1915,18 @@ fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
             String::new()
         }
     };
+    let evidence = match req.inputs.get("evidence") {
+        None => None,
+        Some(Json::Array(refs)) if refs.iter().all(reference_formed) => Some(refs.clone()),
+        Some(_) => {
+            wrong.push("evidence".to_string());
+            None
+        }
+    };
     let unknown: Vec<String> = req
         .inputs
         .keys()
-        .filter(|k| !["source", "source_ref"].contains(&k.as_str()))
+        .filter(|k| !["source", "source_ref", "evidence"].contains(&k.as_str()))
         .cloned()
         .collect();
     if !unknown.is_empty() {
@@ -1904,6 +1944,7 @@ fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
         files: source,
         reference,
         digest,
+        evidence,
     })
 }
 
@@ -1916,6 +1957,7 @@ fn decide_change(
     world: &World<'_>,
     alloc: &mut Allocator,
     req: &Request,
+    answers: &BTreeMap<String, String>,
 ) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
     let who = request_who(world, req)?;
@@ -1986,6 +2028,7 @@ fn decide_change(
                 files: source,
                 reference,
                 digest,
+                evidence,
             } = change_source(req)?;
             let files: serde_json::Map<String, Json> = source
                 .into_iter()
@@ -2008,6 +2051,32 @@ fn decide_change(
                     .insert("drafted_by_kind".into(), Value::Text(who.kind.clone()));
             }
             payload = json!({ "source_ref": reference, "source_digest": digest });
+            // the references it cites, replaced where it gives them and kept
+            // where it does not (DESIGN.md §5.4); what a submission read
+            // goes with the submission (ADR-0159)
+            let cites = match &evidence {
+                Some(refs) => Some(refs.clone()),
+                None => match o.attr("evidence") {
+                    Value::Text(t) => serde_json::from_str::<Json>(&t)
+                        .ok()
+                        .and_then(|e| e["cites"].as_array().cloned()),
+                    _ => None,
+                },
+            };
+            match cites {
+                Some(refs) => {
+                    o.attrs.insert(
+                        "evidence".into(),
+                        Value::Text(json!({ "cites": refs }).to_string()),
+                    );
+                }
+                None => {
+                    o.attrs.remove("evidence");
+                }
+            }
+            if let Some(refs) = evidence {
+                payload["evidence"] = Json::Array(refs);
+            }
         }
         "submit" | "refresh" => {
             let text = |a: &str| match o.attr(a) {
@@ -2040,6 +2109,22 @@ fn decide_change(
                 "report".into(),
                 Value::Text(crate::publish::report_json(&report).to_string()),
             );
+            // each reference it cites, read as the store stands, kept as it
+            // answered, a refusal as the value it is (ADR-0097 §5, ADR-0159)
+            if let Value::Text(t) = o.attr("evidence")
+                && let Some(cites) = serde_json::from_str::<Json>(&t)
+                    .ok()
+                    .and_then(|e| e["cites"].as_array().cloned())
+            {
+                let mut read = Vec::new();
+                for r in &cites {
+                    read.push(evidence_read(world, answers, r)?);
+                }
+                o.attrs.insert(
+                    "evidence".into(),
+                    Value::Text(json!({ "cites": cites, "read": read }).to_string()),
+                );
+            }
         }
         _ => {}
     }
@@ -2075,6 +2160,47 @@ fn decide_change(
             ..Change::default()
         }),
     ))
+}
+
+/// One cited reference read as the store stands, with its as-of time: a
+/// metric's page, or its refusal. The slice computes no diagnostics, so a
+/// reference to them stops the submission as not run (ADR-0159).
+fn evidence_read(
+    world: &World<'_>,
+    answers: &BTreeMap<String, String>,
+    reference: &Json,
+) -> Result<Json, Stop> {
+    let Some(name) = reference["metric"].as_str() else {
+        return stop_not_run(
+            "a diagnostics read cited as evidence, which the slice does not compute",
+        );
+    };
+    let bind: BTreeMap<String, Json> = reference["bind"]
+        .as_object()
+        .map(|b| b.clone().into_iter().collect())
+        .unwrap_or_default();
+    let keep: Option<Vec<String>> = reference["keep"].as_array().map(|ds| {
+        ds.iter()
+            .filter_map(|d| d.as_str().map(str::to_string))
+            .collect()
+    });
+    let over = reference["over"]
+        .as_str()
+        .and_then(crate::value::parse_duration);
+    let page = crate::metric::page(
+        world,
+        Some(answers),
+        name,
+        &bind,
+        keep.as_deref(),
+        over,
+        reference["filter"].as_str(),
+    )
+    .map_err(Stop::NotRun)?;
+    let mut out = crate::metric::page_json(&page);
+    out["reference"] = reference.clone();
+    out["as_of"] = json!(crate::value::timestamp_text(world.now));
+    Ok(out)
 }
 
 /// A decision on a proposal (`DESIGN.md` §9): `reject` and `withdraw` end
@@ -3343,6 +3469,13 @@ fn refused_attempt(
         reads: refusal.reads.clone(),
         consulted: refusal.consulted.clone(),
         txn: 0,
+        // a refused call's target, and the verdict it received (ADR-0159)
+        call: match verdict {
+            Verdict::CallRefused {
+                object_id, verdict, ..
+            } => json!({ "object": object_id, "verdict": verdict.kind() }),
+            _ => Json::Null,
+        },
     }
 }
 
@@ -3651,6 +3784,9 @@ types:
                 "self_serviceable"
             )
         );
+        // the row names the call's target and the verdict it received
+        // (ADR-0159)
+        assert_eq!(a.call, json!({ "object": line, "verdict": "unsatisfied" }));
     }
 
     /// A request's principal (`DESIGN.md` §5.8, §6 step 1): resolved as

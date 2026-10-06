@@ -1493,6 +1493,9 @@ fn declaration_change_type() -> Type {
         ("base_version".into(), attribute("int", false)),
         // the dry run's report, as JSON, when it is submitted
         ("report".into(), attribute("string", true)),
+        // the references it cites, and each read as it answered at
+        // submission, as JSON (ADR-0097, ADR-0159)
+        ("evidence".into(), attribute("string", true)),
         ("drafted_by".into(), attribute("string", false)),
         ("drafted_by_kind".into(), attribute("string", false)),
         ("approved_by".into(), attribute("string", true)),
@@ -1518,6 +1521,7 @@ fn declaration_change_type() -> Type {
             "source": { "type": "string" }, "source_ref": { "type": "string" },
             "source_digest": { "type": "string" }, "base_version": { "type": "int" },
             "report": { "type": "string", "optional": true },
+            "evidence": { "type": "string", "optional": true },
             "drafted_by": { "type": "string" }, "drafted_by_kind": { "type": "string" },
             "approved_by": { "type": "string", "optional": true },
             "approved_by_kind": { "type": "string", "optional": true }

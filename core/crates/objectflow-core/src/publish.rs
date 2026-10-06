@@ -1785,4 +1785,110 @@ types:
             json!({"nick": "c", "level": "GOLD", "size": "XL", "band": "LOW"}),
         ));
     }
+
+    /// A draft's evidence (ADR-0097 §5, ADR-0159): `draft` takes the
+    /// references it cites, each a read's arguments, refusing one of another
+    /// form; `submit` and `refresh` keep each read as it answered, a refusal
+    /// as a value; a `revise` giving none keeps the citations and drops what a
+    /// submission read; and a cited diagnostics read is not run.
+    #[test]
+    fn a_drafts_evidence_is_cited_then_read_at_submission() {
+        let (mut s, _, _, _) = fleet();
+        let refuse = |s: &mut Store| {
+            assert!(!matches!(
+                req(s, "add", ("Robot", true), json!({})),
+                Verdict::Satisfied { .. }
+            ));
+        };
+        refuse(&mut s);
+        let text = v2(true, true, true);
+        let draft = |s: &mut Store, evidence: Json| {
+            req(
+                s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"fleet": text}, "source_ref": "git:fleet@1", "evidence": evidence}),
+            )
+        };
+        // a reference not of its form is refused, the draft with it
+        for wrong in [
+            json!("metric(Robot.refusals)"),
+            json!([{"metric": ""}]),
+            json!([{"metric": "Robot.refusals", "bogus": 1}]),
+            json!([{"metric": "Robot.refusals", "over": "forever"}]),
+            json!([{"metric": "Robot.refusals", "keep": "transition"}]),
+            json!([{"diagnostics": "Robot"}]),
+        ] {
+            assert_eq!(
+                draft(&mut s, wrong.clone()),
+                Verdict::InvalidInput {
+                    inputs: vec!["evidence".into()]
+                },
+                "{wrong}"
+            );
+        }
+        // a window the metric cannot take, a read it can, and a metric it
+        // does not declare
+        let cites = json!([
+            {"metric": "Robot.refusals", "keep": ["transition"], "over": "30 days"},
+            {"metric": "Robot.refusals", "keep": ["transition"]},
+            {"metric": "nope"}
+        ]);
+        let change = created(&draft(&mut s, cites.clone()));
+        let evidence = |s: &Store| -> Json {
+            match s.snapshot().unwrap().get(&change).unwrap().attr("evidence") {
+                Value::Text(t) => serde_json::from_str(&t).unwrap(),
+                other => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(evidence(&s), json!({ "cites": cites }));
+        assert_eq!(s.history(&change).unwrap()[0].payload["evidence"], cites);
+        // submitted, each reference is read as it then stands
+        created(&req(&mut s, "submit", (&change, false), json!({})));
+        let read = evidence(&s)["read"].clone();
+        assert_eq!(read[0]["reference"], cites[0]);
+        assert_eq!(read[0]["refused"], json!("no_window"));
+        assert_eq!(
+            read[1]["rows"][0]["dimensions"],
+            json!({"transition": "add"})
+        );
+        assert_eq!(read[1]["rows"][0]["value"], json!(1));
+        assert_eq!(read[1]["as_of"], json!("2026-01-01T00:00:00Z"));
+        assert_eq!(read[2]["refused"], json!("unknown_metric"));
+        // a refresh reads again
+        refuse(&mut s);
+        created(&req(&mut s, "refresh", (&change, false), json!({})));
+        assert_eq!(evidence(&s)["read"][1]["rows"][0]["value"], json!(2));
+        // a revise giving none keeps the citations, and not the reads
+        created(&req(&mut s, "reopen", (&change, false), json!({})));
+        created(&req(
+            &mut s,
+            "revise",
+            (&change, false),
+            json!({"source": {"fleet": text}, "source_ref": "git:fleet@2"}),
+        ));
+        assert_eq!(evidence(&s), json!({ "cites": cites }));
+        // one giving a diagnostics read: its submission is not run
+        let diagnostics = json!([{"diagnostics": "Robot", "window": "7 days"}]);
+        created(&req(
+            &mut s,
+            "revise",
+            (&change, false),
+            json!({"source": {"fleet": text}, "source_ref": "git:fleet@3", "evidence": diagnostics}),
+        ));
+        assert_eq!(evidence(&s), json!({ "cites": diagnostics }));
+        let submit = Request {
+            transition: "submit".into(),
+            actor: OPERATOR.into(),
+            object_id: Some(change.clone()),
+            type_: None,
+            inputs: Default::default(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            principal: None,
+        };
+        assert!(request(&mut s, &submit).unwrap().is_err());
+    }
 }

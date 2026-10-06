@@ -1557,6 +1557,31 @@ pub struct RaisedFlag {
     pub unknown: bool,
 }
 
+/// A page as the wire gives it, the `metric` read's and a draft's evidence
+/// snapshot's alike (`library-api.md` §5, ADR-0159): its rows, its flags,
+/// whether the history it read is complete, and its refusal, a value.
+pub fn page_json(page: &Page) -> serde_json::Value {
+    let group = |pairs: &[(String, Value)]| {
+        serde_json::Value::Object(
+            pairs
+                .iter()
+                .map(|(d, v)| (d.clone(), crate::wire::encode(v)))
+                .collect(),
+        )
+    };
+    serde_json::json!({
+        "rows": page.rows.iter().map(|r| serde_json::json!({
+            "dimensions": group(&r.dimensions), "value": crate::wire::encode(&r.value), "gaps": r.gaps,
+            "time_basis": "UTC calendar",
+        })).collect::<Vec<_>>(),
+        "flags": page.flags.iter().map(|f| serde_json::json!({
+            "flag": f.flag, "group": group(&f.group), "unknown": f.unknown,
+        })).collect::<Vec<_>>(),
+        "history_complete": page.history_complete,
+        "refused": page.refused,
+    })
+}
+
 /// A reader's read of a metric (`library-api.md` §5, `MetricPage`): every
 /// group on one page, whose cursor is therefore none.
 #[derive(Clone, Debug, PartialEq, Default)]

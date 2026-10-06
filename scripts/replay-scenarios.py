@@ -135,6 +135,7 @@ class Driver:
         self.governed = {p["change"]: p for p in publishes if p.get("change")}
         self.changes, self.answers, self.checks, self.advice = {}, {}, {}, []
         self.versions = []
+        self.cited = {}
         self.now = None
         self.taken = 0
         self.last = 0                       # the last position a request's events reached
@@ -282,9 +283,18 @@ class Driver:
             out[name] = cs.patched(base, change.get("add") or {}, change.get("remove") or [])
         return out
 
-    def draft(self, texts, actor=OPERATOR):
+    def draft(self, texts, actor=OPERATOR, evidence=None):
+        inputs = {"source": texts, "source_ref": "metric-scenarios.md"}
+        if evidence:
+            # each reference the arguments of the read it names (ADR-0159), kept for the document's notation
+            inputs["evidence"] = []
+            for text in evidence:
+                body, _keep = self.metric_body(text)
+                ref = {"metric" if k == "name" else k: v for k, v in body.items() if k != "actor"}
+                self.cited[json.dumps(ref, sort_keys=True)] = text
+                inputs["evidence"].append(ref)
         v = self.core.call("/v1/request", {"type": "DeclarationChange", "transition": "draft", "actor": {"id": actor},
-                                           "inputs": {"source": texts, "source_ref": "metric-scenarios.md"}})
+                                           "inputs": inputs})
         if v["kind"] != "satisfied":
             raise Differs(f"a change is not drafted: {v}")
         return v["object_id"]
@@ -349,7 +359,8 @@ class Driver:
             # an observation's own erasure, its kind's generated `forget` (declaration-syntax.md §6.8)
             r = {**r, "object": r["forget"], "transition": "forget"}
         if r.get("draft"):
-            self.changes[r["draft"]] = self.draft(self.published(self.governed[r["draft"]]), self.oid(r["actor"]))
+            self.changes[r["draft"]] = self.draft(self.published(self.governed[r["draft"]]), self.oid(r["actor"]),
+                                                  r.get("evidence"))
             return
         if r.get("submit"):
             self.changes[r["submit"] + "@version"] = self.submit(self.changes[r["submit"]], self.oid(r["actor"]))
@@ -537,6 +548,21 @@ class Driver:
                 if f["severity"] == "notice" and f["code"].startswith("check:") and n and n.group(1) in v["changed"]:
                     rows.append((n.group(1), f["code"][len("check:"):], n.group(2)))
             return rows, ["module", "code", "notice"], []
+        m = re.fullmatch(r"evidence of ([\w-]+)", spec_)
+        if m:
+            # what each reference read at submission, as the change keeps it (ADR-0097 §5, ADR-0159)
+            o = self.core.call("/v1/get", {"id": self.changes[m.group(1)]})
+            evidence = json.loads(o["attributes"].get("evidence") or "{}")
+            rows = []
+            for read in evidence.get("read") or []:
+                if read.get("refused"):
+                    raise Differs(f"a cited read is refused as {read['refused']}")
+                ref = read["reference"]
+                text = self.cited.get(json.dumps(ref, sort_keys=True), json.dumps(ref))
+                for r in read["rows"]:
+                    group = ", ".join(f"{k} = {self.show(r['dimensions'].get(k))}" for k in ref.get("keep") or [])
+                    rows.append((text, group, self.show(r["value"])))
+            return rows, ["read", "group", "value"], []
         m = re.fullmatch(r"(change|impact of) ([\w-]+)", spec_)
         if m:
             place = self.changes[m.group(2) + "@place"]
@@ -609,10 +635,11 @@ class Driver:
                 # the threshold is a value the clause read, and a read set holds identities, not values
                 return [(self.show(a["clause"]), self.show(a["remedy"]), consulted)], ["clause", "remedy", "consulted"], \
                     ["threshold"]
-            # a verdict as the history writes it; a refused call's target is a column the row does not hold
-            return [(self.show(a["transition"]), self.show(a["actor_kind"]), a["verdict"].replace("_", " "),
-                     self.show(a["clause"]), self.show(a["remedy"])) for a in rows], \
-                ["transition", "actor_kind", "verdict", "clause", "remedy"], ["call"]
+            # a verdict as the history writes it: a refused call's own, with the call's target (ADR-0159)
+            return [(self.show(a["transition"]), self.show(a["actor_kind"]),
+                     ((a.get("call") or {}).get("verdict") or a["verdict"]).replace("_", " "),
+                     self.show(a["clause"]), self.show(a["remedy"]), self.show((a.get("call") or {}).get("object")))
+                    for a in rows], ["transition", "actor_kind", "verdict", "clause", "remedy", "call"], []
         m = re.fullmatch(r"(read set|consulted) of ([\w-]+)\.(\w+)(?:: (.+))?", spec_)
         if m:
             # what the rules of the object's last event of the transition read and consulted (ADR-0088, ADR-0158)
@@ -711,6 +738,16 @@ class Driver:
                       text)
 
     def metric(self, spec_):
+        body, keep = self.metric_body(spec_)
+        page = self.core.call("/v1/metric", body)
+        if page.get("refused"):
+            raise Differs(f"the read is refused as {page['refused']}")
+        rows = [tuple([self.show(r["dimensions"].get(k)) for k in keep] + [self.show(r["value"]), self.show(r["gaps"])])
+                for r in page["rows"]]
+        return rows, keep + ["value", "gaps"]
+
+    def metric_body(self, spec_):
+        """A metric read as the document writes it, as the `metric` operation's arguments, and the dimensions kept."""
         reader = re.search(r"\) as ([\w-]+)$", spec_)
         if reader:
             spec_ = spec_[:reader.start() + 1]
@@ -727,12 +764,7 @@ class Driver:
             body["filter"] = self.labelled(m.group(5).replace('\\"', '"'))
         if m.group(6):
             body["over"] = m.group(6)
-        page = self.core.call("/v1/metric", body)
-        if page.get("refused"):
-            raise Differs(f"the read is refused as {page['refused']}")
-        rows = [tuple([self.show(r["dimensions"].get(k)) for k in keep] + [self.show(r["value"]), self.show(r["gaps"])])
-                for r in page["rows"]]
-        return rows, keep + ["value", "gaps"]
+        return body, keep
 
 
 def main():
@@ -773,7 +805,7 @@ def main():
                                      "payloads(", "get(", "results(", "recorded(", "labels(", "proposal ",
                                      "caused by(", "pull(", "notices of", "change ", "impact of",
                                      "read set of", "consulted of", "intervals(", "attempts(", "refusal of",
-                                     "exceptions(", "available(", "rules(")):
+                                     "exceptions(", "available(", "rules(", "evidence of")):
                 outcomes.append("not compared")
                 continue
             if stopped:

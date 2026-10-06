@@ -151,6 +151,9 @@ pub struct Attempt {
     /// Its writing transaction, by which the attempt export pages (ADR-0100
     /// §6): 0 until it is written.
     pub txn: i64,
+    /// For a refused call or creation, the object it targeted and the kind
+    /// of the verdict it received (ADR-0159); null otherwise.
+    pub call: serde_json::Value,
 }
 
 fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
@@ -159,8 +162,8 @@ fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
         &format!(
             "INSERT INTO of_attempt (at, actor_id, actor_kind, txn, type, object_id, transition, verdict, clause, remedy, \
              unknown, enforced, flagged, applied_position, request_values, declaration_version, actor_principal, \
-             reads, consulted) \
-             VALUES (?1, ?2, ?3, {txn}, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"
+             reads, consulted, call) \
+             VALUES (?1, ?2, ?3, {txn}, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)"
         ),
         params![
             timestamp_text(a.at),
@@ -181,6 +184,7 @@ fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
             a.principal,
             (!a.reads.is_null()).then(|| a.reads.to_string()),
             (!a.consulted.is_null()).then(|| a.consulted.to_string()),
+            (!a.call.is_null()).then(|| a.call.to_string()),
         ],
     )?;
     Ok(())
@@ -220,6 +224,7 @@ fn attempt_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Attempt> {
         reads: json_column(r.get(16)?),
         consulted: json_column(r.get(17)?),
         txn: r.get(18)?,
+        call: json_column(r.get(19)?),
     })
 }
 
@@ -773,6 +778,7 @@ CREATE TABLE of_attempt (
   enforced            INTEGER NOT NULL DEFAULT 1,
   flagged             INTEGER NOT NULL DEFAULT 0,
   applied_position    INTEGER,
+  call                TEXT,
   reads               TEXT,
   consulted           TEXT,
   request_values      TEXT,
@@ -1892,7 +1898,7 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
     // the attempt log, in the order written
     let mut attempts = conn.prepare(
         "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
-         flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn \
+         flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn, call \
          FROM of_attempt ORDER BY id",
     )?;
     let rows = attempts.query_map([], attempt_row)?;

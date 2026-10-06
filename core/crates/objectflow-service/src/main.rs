@@ -1040,21 +1040,11 @@ async fn metric(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
         over,
         text(&body, "filter"),
     )?;
-    let group = |pairs: &[(String, objectflow_core::value::Value)]| {
-        J::Object(pairs.iter().map(|(d, v)| (d.clone(), encode(v))).collect())
-    };
-    Ok(Json(json!({
-        "rows": page.rows.iter().map(|r| json!({
-            "dimensions": group(&r.dimensions), "value": encode(&r.value), "gaps": r.gaps,
-            "time_basis": "UTC calendar",
-        })).collect::<Vec<_>>(),
-        "cursor": J::Null,
-        "flags": page.flags.iter().map(|f| json!({
-            "flag": f.flag, "group": group(&f.group), "unknown": f.unknown,
-        })).collect::<Vec<_>>(),
-        "history_complete": page.history_complete,
-        "refused": page.refused,
-    })))
+    let mut out = objectflow_core::metric::page_json(&page);
+    if let Some(o) = out.as_object_mut() {
+        o.insert("cursor".to_string(), J::Null);
+    }
+    Ok(Json(out))
 }
 
 fn app(shared: Shared) -> Router {
