@@ -3,6 +3,10 @@
 # is named with its place among reads of the same text, `#2` and on.
 # A read recorded as awaiting a decision differs for a reason TODO records; its difference is reported and is no
 # finding, and once it matches it is reported, to move here.
+answer AN1
+answer AN2
+check CK1
+check CK2
 metric(BatteryDay.refusals, keep: [transition, clause, remedy])
 metric(Delivery.oldest_open, keep: [state])
 metric(Delivery.refusal_rate, bind: {transition: complete_sale}, keep: [actor_kind])

@@ -133,7 +133,7 @@ class Driver:
         publishes = [yaml.safe_load(b) for i, _s, b in cs.fences(text) if i == "yaml publish"]
         self.publishes = sorted((p for p in publishes if not p.get("change")), key=lambda p: cs.when(p["at"]))
         self.governed = {p["change"]: p for p in publishes if p.get("change")}
-        self.changes, self.answers, self.advice = {}, {}, []
+        self.changes, self.answers, self.checks, self.advice = {}, {}, {}, []
         self.now = None
         self.taken = 0
 
@@ -328,9 +328,9 @@ class Driver:
             self.advice.append(f"{r['at']}: {r['subscribe']}, a subscription the core does not yet take")
             return
         if r.get("check"):
-            # `check` is advice and has no effect (library-api.md §6), so the store every later read sees is the same
-            # whether or not it ran; the core does not yet give it, and the read of its answer is not compared
-            self.advice.append(f"{r['at']}: {r['check']}, a check of {r['object']}.{r['transition']}")
+            # `check` is advice with no effect: the verdict the request would receive (library-api.md §6)
+            self.checks[r["check"]] = self.core.call("/v1/check", self.body_of({k: v for k, v in r.items()
+                                                                                 if k not in ("check", "creates")}))
             return
         if r.get("approve_proposal"):
             r = {**r, "object": r["approve_proposal"], "transition": "approve"}
@@ -348,6 +348,44 @@ class Driver:
             self.approve(self.changes[r["approve"]], self.changes[r["approve"] + "@version"], self.published(p),
                          self.oid(r["actor"]))
             return
+        v = self.core.call("/v1/request", self.body_of(r))
+        want = r.get("refused")
+        if want:
+            got = self.outcome(v)
+            expect = {"verdict": want["verdict"], "clause": want.get("clause"), "remedy": want["remedy"],
+                      "call": want.get("call")}
+            if got != expect:
+                raise Differs(f"it is answered {got}, and the history says {expect}")
+            return
+        if v["kind"] != "satisfied":
+            raise Differs(f"it is answered {v}, and the history says it applies")
+        if r.get("propose"):
+            # a proposal filed, which the verdict names (ADR-0147)
+            self.name(r["propose"], v["object_id"])
+        elif r.get("record") or r.get("label") or r.get("create"):
+            self.name(r["object"], v["object_id"])
+        if r.get("answer"):
+            self.answers[r["answer"]] = v
+        made = list(r.get("creates") or [])
+        if made:
+            events = self.core.call("/v1/events", {"positions": v["events"]})["events"]
+            new = [e["object_id"] for e in events if e and e["from_state"] is None and e["object_id"] != v["object_id"]]
+            if len(new) != len(made):
+                raise Differs(f"it creates {len(new)} object(s), and the history names {made}")
+            for alias, oid in zip(made, new):
+                self.name(alias, oid)
+
+    def outcome(self, v):
+        """A verdict as the history writes one: a call's refusal as the call's own verdict and the object it called."""
+        if v["kind"] == "call_refused":
+            inner = v.get("verdict") or {}
+            return {"verdict": inner.get("kind"), "clause": (inner.get("clause") or "").split(".")[-1] or None,
+                    "remedy": inner.get("remedy"), "call": self.aliases.get(v.get("object_id"), v.get("object_id"))}
+        return {"verdict": v["kind"].replace("_", " ") if v["kind"] == "invalid_input" else v["kind"],
+                "clause": v.get("clause"), "remedy": v.get("remedy"), "call": None}
+
+    def body_of(self, r):
+        """A request of the history as the wire carries it."""
         body = {"actor": self.actor(r["actor"], r.get("principal"))}
         if (r.get("refused") or {}).get("verdict") == "stale":
             # a request carrying an old version of its object, the one before the version it is at (ADR-0023)
@@ -375,38 +413,7 @@ class Driver:
             tn = self.core.call("/v1/get", {"id": self.oid(r["object"])})["type"]
             body.update(object_id=self.oid(r["object"]), transition=r["transition"],
                         inputs=self.wire(self.typed(tn, r["transition"], r.get("inputs") or {})))
-        v = self.core.call("/v1/request", body)
-        want = r.get("refused")
-        if want:
-            got = {"verdict": v["kind"].replace("_", " ") if v["kind"] == "invalid_input" else v["kind"],
-                   "clause": v.get("clause"), "remedy": v.get("remedy"), "call": None}
-            if v["kind"] == "call_refused":
-                # a call's refusal, which the history writes as the call's own verdict and the object it called
-                inner = v.get("verdict") or {}
-                got = {"verdict": inner.get("kind"), "clause": (inner.get("clause") or "").split(".")[-1] or None,
-                       "remedy": inner.get("remedy"), "call": self.aliases.get(v.get("object_id"), v.get("object_id"))}
-            expect = {"verdict": want["verdict"], "clause": want.get("clause"), "remedy": want["remedy"],
-                      "call": want.get("call")}
-            if got != expect:
-                raise Differs(f"it is answered {got}, and the history says {expect}")
-            return
-        if v["kind"] != "satisfied":
-            raise Differs(f"it is answered {v}, and the history says it applies")
-        if r.get("propose"):
-            # a proposal filed, which the verdict names (ADR-0147)
-            self.name(r["propose"], v["object_id"])
-        elif r.get("record") or r.get("label") or r.get("create"):
-            self.name(r["object"], v["object_id"])
-        if r.get("answer"):
-            self.answers[r["answer"]] = v
-        made = list(r.get("creates") or [])
-        if made:
-            events = self.core.call("/v1/events", {"positions": v["events"]})["events"]
-            new = [e["object_id"] for e in events if e and e["from_state"] is None and e["object_id"] != v["object_id"]]
-            if len(new) != len(made):
-                raise Differs(f"it creates {len(new)} object(s), and the history names {made}")
-            for alias, oid in zip(made, new):
-                self.name(alias, oid)
+        return body
 
     def replay(self, block, survey=None):
         """The block's history; in a survey, each step it cannot take recorded in `survey` and stepped past."""
@@ -453,6 +460,22 @@ class Driver:
         if isinstance(v, list):
             return ", ".join(sorted(self.show(x) for x in v))
         return str(v)
+
+    def other(self, spec_):
+        """A read of a check's answer or of a request's, as its table writes it."""
+        m = re.fullmatch(r"check ([\w-]+)", spec_)
+        if m:
+            c = self.checks[m.group(1)]
+            o = self.outcome(c["verdict"])
+            return [tuple(self.show(o[k]) for k in ("verdict", "clause", "remedy", "call"))], \
+                ["verdict", "clause", "remedy", "call"]
+        m = re.fullmatch(r"answer ([\w-]+)", spec_)
+        if m:
+            v = self.answers[m.group(1)]
+            flags = v.get("flags") or [{"clause": None, "remedy": None}]
+            return [(self.show(v["kind"]), self.show(f["clause"]), self.show(f["remedy"])) for f in flags], \
+                ["verdict", "flag", "remedy"]
+        raise NotRun(f"a read the driver does not compare: {spec_}")
 
     def query(self, spec_, header):
         """A query as its table writes it: each object by its label, with the fields the table names that a page
@@ -538,7 +561,7 @@ def main():
             # a read named by its text, and by its place among reads of the same text
             seen[spec_] = seen.get(spec_, 0) + 1
             key = spec_ if seen[spec_] == 1 else f"{spec_} #{seen[spec_]}"
-            if not spec_.startswith(("metric(", "query(")):
+            if not spec_.startswith(("metric(", "query(", "check ", "answer ")):
                 outcomes.append("not compared")
                 continue
             if stopped:
@@ -559,7 +582,9 @@ def main():
                 continue
             beyond = []
             try:
-                if spec_.startswith("query("):
+                if spec_.startswith(("check ", "answer ")):
+                    got, cols = d.other(spec_)
+                elif spec_.startswith("query("):
                     got, cols, beyond = d.query(spec_, header)
                     # the columns a page does not return are left out of the comparison, and named
                     keep = [header.index(c) for c in cols if c in header]

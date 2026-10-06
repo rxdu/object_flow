@@ -304,6 +304,32 @@ async fn evaluators(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
 
 // ── the library's operations ──────────────────────────────────────────────
 async fn request_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let req = request_of(&body)?;
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    let v = request::request(s, &req)??;
+    Ok(Json(verdict(&v)))
+}
+
+/// The verdict a request would receive, simulated and never written, with
+/// the guards it did not evaluate (`library-api.md` §6, ADR-0054).
+async fn check(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let req = request_of(&body)?;
+    if req.propose {
+        return Err(Fault::Bad(
+            "a check simulates a request, not a proposal".to_string(),
+        ));
+    }
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    let c = request::check(s, &req)??;
+    Ok(Json(
+        json!({ "verdict": verdict(&c.verdict), "unevaluated": c.unevaluated }),
+    ))
+}
+
+/// A request as the wire carries it (`library-api.md` §3).
+fn request_of(body: &J) -> Result<Request, Fault> {
     if body.get("idempotency_key").is_some_and(|v| !v.is_null()) {
         return Err(Fault::NotRun("a request's idempotency_key".to_string()));
     }
@@ -317,7 +343,7 @@ async fn request_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
     let propose = body.get("propose").and_then(J::as_bool) == Some(true);
     // a proposal's expiry, with `propose` only (library-api.md §3)
     let expires_at =
-        match text(&body, "expires_at") {
+        match text(body, "expires_at") {
             Some(_) if !propose => {
                 return Err(Fault::Bad(
                     "expires_at is a proposal's, with propose".to_string(),
@@ -329,22 +355,22 @@ async fn request_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
             None => None,
         };
     let (Some(transition), Some(actor)) = (
-        text(&body, "transition"),
+        text(body, "transition"),
         body.get("actor").and_then(|a| text(a, "id")),
     ) else {
         return Err(Fault::Bad(
             "a request names its transition and its actor".to_string(),
         ));
     };
-    let object_id = text(&body, "object_id").map(str::to_string);
-    let type_ = text(&body, "type").map(str::to_string);
+    let object_id = text(body, "object_id").map(str::to_string);
+    let type_ = text(body, "type").map(str::to_string);
     if object_id.is_some() == type_.is_some() {
         return Err(Fault::Bad(
             "a request names an object_id or, to create, a type".to_string(),
         ));
     }
     let occurred_at =
-        match text(&body, "occurred_at") {
+        match text(body, "occurred_at") {
             Some(t) => Some(parse_timestamp(t).ok_or_else(|| {
                 Fault::Bad(format!("occurred_at takes an RFC 3339 timestamp: {t}"))
             })?),
@@ -373,10 +399,7 @@ async fn request_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
             .and_then(|a| text(a, "principal"))
             .map(str::to_string),
     };
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let v = request::request(s, &req)??;
-    Ok(Json(verdict(&v)))
+    Ok(req)
 }
 
 // ── the import (ADR-0154) ─────────────────────────────────────────────────
@@ -919,6 +942,7 @@ fn app(shared: Shared) -> Router {
         .route("/v1/availability", post(availability))
         .route("/v1/metric", post(metric))
         .route("/v1/query", post(query))
+        .route("/v1/check", post(check))
         .route("/v1/import_batch", post(import_op))
         .route("/v1/lookup", post(lookup))
         .route("/v1/publish", post(publish))

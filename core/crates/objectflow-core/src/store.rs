@@ -919,6 +919,21 @@ impl Store {
 
     /// Decide on a snapshot and write what the decision changed, in one
     /// transaction: the request path's frame (`DESIGN.md` §6).
+    /// What a decision would be on the store as it stands, never written,
+    /// not even the numbers it drew: a check's simulation (`library-api.md`
+    /// §6, ADR-0054).
+    pub fn simulate<T>(
+        &mut self,
+        decide: impl FnOnce(&World<'_>, &mut Allocator) -> T,
+    ) -> Result<T, StoreError> {
+        let tx = self.conn.transaction()?;
+        let world = snapshot(&tx, &self.lib, self.now)?;
+        let mut alloc = Allocator::read(&tx)?;
+        let out = decide(&world, &mut alloc);
+        tx.rollback()?;
+        Ok(out)
+    }
+
     pub fn transact<T, E>(
         &mut self,
         decide: impl FnOnce(&World<'_>, &mut Allocator) -> Result<(T, Option<Change>), E>,

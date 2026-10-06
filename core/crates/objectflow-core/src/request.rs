@@ -246,6 +246,9 @@ struct Ctx<'w> {
     failed: Vec<(String, bool, Option<Remedy>, bool)>,
     /// Their rows of the attempt log, written with the events (§7).
     observed: Vec<crate::store::Attempt>,
+    /// For a check, where it names each guard it did not evaluate, one that
+    /// asks an evaluator, which a check never asks (ADR-0054).
+    checking: Checking,
     /// The spans a correction merged into the one before them: an object,
     /// a dimension, and the span's entered position and time.
     merged: Vec<(String, String, i64, i64)>,
@@ -271,6 +274,22 @@ pub fn decide(
     req: &Request,
     answers: &BTreeMap<String, String>,
 ) -> Result<(Verdict, Option<Change>, Refusal), NotRun> {
+    decide_as(world, alloc, req, answers, &None)
+}
+
+/// A check's collector of the guards it leaves unevaluated; none for a
+/// request.
+type Checking = Option<std::rc::Rc<std::cell::RefCell<Vec<String>>>>;
+
+/// What a request decides, or, with a collector, what a check of it would
+/// answer, its evaluator guards named and not asked.
+fn decide_as(
+    world: &World<'_>,
+    alloc: &mut Allocator,
+    req: &Request,
+    answers: &BTreeMap<String, String>,
+    checking: &Checking,
+) -> Result<(Verdict, Option<Change>, Refusal), NotRun> {
     // a request filed for approval, and one deciding a proposal, are the
     // store's own (DESIGN.md §9)
     let target = req.object_id.as_deref().and_then(|id| world.get(id));
@@ -282,9 +301,9 @@ pub fn decide(
     } else if req.propose {
         file(world, alloc, req)
     } else if deciding {
-        decide_proposal(world, alloc, req, answers)
+        decide_proposal(world, alloc, req, answers, checking)
     } else {
-        decide_or_stop(world, alloc, req, answers, None)
+        decide_or_stop(world, alloc, req, answers, None, checking)
     };
     match answer {
         Ok((v, change)) => Ok((v, change, Refusal::default())),
@@ -299,6 +318,7 @@ fn decide_or_stop(
     req: &Request,
     answers: &BTreeMap<String, String>,
     filed_at: Option<i64>,
+    checking: &Checking,
 ) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
     // 1. the actor
@@ -409,6 +429,7 @@ fn decide_or_stop(
         flags: Vec::new(),
         failed: Vec::new(),
         observed: Vec::new(),
+        checking: checking.clone(),
         merged: Vec::new(),
         wrote: BTreeMap::new(),
         index: Vec::new(),
@@ -869,9 +890,25 @@ fn take(
         let asking = Evaluator::new(&ctx.work, Some(t), oid.as_deref())
             .with_committed(&ctx.before)
             .with_inputs(&inputs)
-            .with_actor(&ctx.who)
-            .with_answers(&ctx.answers);
+            .with_actor(&ctx.who);
+        // a check asks no evaluator: a guard left unanswered is named, and
+        // decides nothing (ADR-0054)
+        let asking = if ctx.checking.is_some() {
+            asking
+        } else {
+            asking.with_answers(&ctx.answers)
+        };
         let ok = truth(&asking.eval(&c.expression)?)?;
+        if let Some(named) = &ctx.checking
+            && asking.unanswered.get()
+        {
+            named.borrow_mut().push(if tn == ctx.requested {
+                g.clone()
+            } else {
+                qualified(g, tn)
+            });
+            continue;
+        }
         if ok != Some(true) {
             match mode {
                 Enforce::Deny => {
@@ -1951,6 +1988,7 @@ fn decide_proposal(
     alloc: &mut Allocator,
     req: &Request,
     answers: &BTreeMap<String, String>,
+    checking: &Checking,
 ) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
     let who = request_who(world, req)?;
@@ -2072,8 +2110,8 @@ fn decide_proposal(
         Value::Timestamp(t) => Some(t),
         _ => None,
     };
-    let (verdict, change) =
-        decide_or_stop(world, alloc, &held, answers, filed_at).map_err(|stop| match stop {
+    let (verdict, change) = decide_or_stop(world, alloc, &held, answers, filed_at, checking)
+        .map_err(|stop| match stop {
             Stop::Refused(v, mut r) => {
                 r.approving = Some(Box::new((p.id.clone(), held.clone())));
                 Stop::Refused(v, r)
@@ -3041,6 +3079,34 @@ pub fn request(
     Ok(Ok(verdict))
 }
 
+/// What `check` answers (`library-api.md` §4): the verdict the request
+/// would receive, and the guards it did not evaluate, so the verdict is
+/// explicitly partial (ADR-0054).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Checked {
+    pub verdict: Verdict,
+    pub unevaluated: Vec<String>,
+}
+
+/// The verdict a request would receive (`DESIGN.md` §10, ADR-0054),
+/// simulating the same sequence on the store as it stands: lock-free and
+/// side-effect-free, it writes nothing, not a row of the attempt log nor the
+/// numbers it drew, and it asks no evaluator, naming each guard that would
+/// have; a creation is checked given its type (ADR-0099).
+pub fn check(
+    store: &mut crate::store::Store,
+    req: &Request,
+) -> Result<Result<Checked, NotRun>, crate::store::StoreError> {
+    let named = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let checking = Some(named.clone());
+    let decided =
+        store.simulate(|world, alloc| decide_as(world, alloc, req, &BTreeMap::new(), &checking))?;
+    Ok(decided.map(|(verdict, _, _)| Checked {
+        verdict,
+        unevaluated: named.borrow().clone(),
+    }))
+}
+
 /// A refused request's row of the attempt log (`DESIGN.md` §6, §9): who
 /// asked, as the request named them where the store holds no such actor,
 /// and their kind, `unknown` then; the type, none for an unknown id; the
@@ -3506,6 +3572,140 @@ types:
             ),
             (Some("actor_known"), "human", Some("nobody"))
         );
+    }
+
+    /// `check` (`DESIGN.md` §10, ADR-0054): the verdict a request would
+    /// receive, its effects and calls simulated, written nowhere, not even
+    /// the numbers it drew, and asking no evaluator, naming each guard that
+    /// would have.
+    #[test]
+    fn a_check_simulates_writes_nothing_and_names_what_it_did_not_ask() {
+        const SHOP: &str = r#"
+module: shop
+categories: [live, closed]
+evaluators:
+  vault:
+    functions:
+      cleared: { arguments: { n: { type: int } } }
+types:
+  Line:
+    attributes:
+      qty: { type: int }
+    states:
+      OPEN: { category: live }
+      PACKED: { category: closed, final: true }
+    conditions:
+      small: { expression: qty < 10, remedy: self_serviceable }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [qty] }
+      pack: { kind: external, from: [OPEN], to: PACKED, guards: { small: deny } }
+  Order:
+    attributes:
+      line: { reference: Line }
+      n: { type: int }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    conditions:
+      cleared: { expression: vault.cleared(n), remedy: dependent }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [line, n] }
+      ship: { kind: external, from: [OPEN], to: DONE, guards: { cleared: deny }, effect: [ { call: { target: line, transition: pack } } ] }
+"#;
+        let lib = Library::load(&[("shop.yaml".into(), SHOP.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        // the evaluator would refuse, if it were asked
+        s.answers
+            .insert("vault.cleared".into(), "unsatisfied".into());
+        let big = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"qty": 20}),
+        ));
+        let small = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"qty": 3}),
+        ));
+        let order = |s: &mut Store, line: &str| {
+            created(&req(
+                s,
+                "open",
+                OPERATOR,
+                ("Order", true),
+                json!({"line": line, "n": 1}),
+            ))
+        };
+        let refused = order(&mut s, &big);
+        let fine = order(&mut s, &small);
+        let ship = |object: &str| Request {
+            transition: "ship".into(),
+            actor: OPERATOR.into(),
+            object_id: Some(object.to_string()),
+            type_: None,
+            inputs: BTreeMap::new(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            principal: None,
+        };
+        let before = |s: &Store| {
+            let w = s.snapshot().unwrap();
+            (
+                w.events.len(),
+                w.attempts.len(),
+                w.get(&fine).unwrap().version,
+            )
+        };
+        let was = before(&s);
+        // the call its effect makes is refused, and the evaluator guard is
+        // named, not asked
+        let c = check(&mut s, &ship(&refused)).unwrap().unwrap();
+        assert!(
+            matches!(&c.verdict, Verdict::CallRefused { clause, .. } if clause.as_deref() == Some("Line.small")),
+            "{c:?}"
+        );
+        assert_eq!(c.unevaluated, ["cleared"]);
+        // one that would apply, its verdict as the request's would be
+        let c = check(&mut s, &ship(&fine)).unwrap().unwrap();
+        assert!(matches!(c.verdict, Verdict::Satisfied { .. }), "{c:?}");
+        assert_eq!(c.unevaluated, ["cleared"]);
+        // nothing written: no event, no attempt row, no version moved
+        assert_eq!(before(&s), was);
+        // the request itself asks the evaluator, which refuses
+        assert_eq!(
+            request(&mut s, &ship(&fine)).unwrap().unwrap(),
+            Verdict::Unsatisfied {
+                clause: "cleared".into(),
+                remedy: Some(Remedy::Dependent)
+            }
+        );
+        // a creation is checked given its type, and the id it would draw is
+        // drawn again by the creation itself
+        let add = Request {
+            transition: "add".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Line".into()),
+            inputs: [("qty".to_string(), json!(4))].into(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            principal: None,
+        };
+        let Verdict::Satisfied {
+            object_id: would, ..
+        } = check(&mut s, &add).unwrap().unwrap().verdict
+        else {
+            panic!("a creation is checked")
+        };
+        assert_eq!(created(&request(&mut s, &add).unwrap().unwrap()), would);
     }
 
     #[test]
