@@ -1417,6 +1417,8 @@ fn proposal_type() -> Type {
             // declaration in force when it is approved
             ("inputs".into(), attribute("string", false)),
             ("proposer".into(), attribute("string", false)),
+            // why the proposer filed it, which its execution records
+            ("context".into(), attribute("string", true)),
             ("occurred".into(), attribute("timestamp", true)),
             ("filed_at".into(), attribute("timestamp", false)),
             ("expires_at".into(), attribute("timestamp", true)),
@@ -1450,6 +1452,7 @@ fn proposal_type() -> Type {
                 "transition": { "type": "string" },
                 "inputs": { "type": "string" },
                 "proposer": { "type": "string" },
+                "context": { "type": "string", "optional": true },
                 "occurred": { "type": "timestamp", "optional": true },
                 "filed_at": { "type": "timestamp" },
                 "expires_at": { "type": "timestamp", "optional": true }

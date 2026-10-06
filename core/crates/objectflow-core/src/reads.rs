@@ -681,6 +681,7 @@ types:
             expected_version: None,
             principal: None,
             idempotency_key: None,
+            context: None,
         };
         let job = match request(&mut s, &r).unwrap().unwrap() {
             Verdict::Satisfied { object_id, .. } => object_id,
@@ -725,6 +726,7 @@ types:
                 expected_version: None,
                 principal: None,
                 idempotency_key: None,
+                context: None,
             };
             match request(s, &r).unwrap().unwrap() {
                 Verdict::Satisfied { object_id, .. } => object_id,
@@ -943,6 +945,7 @@ types:
                 expected_version: None,
                 principal: None,
                 idempotency_key: None,
+                context: None,
             };
             match request(s, &r).unwrap().unwrap() {
                 Verdict::Satisfied { object_id, .. } => object_id,

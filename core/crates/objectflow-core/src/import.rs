@@ -806,6 +806,7 @@ fn decide(
             imported: true,
             payload: json!({ "inputs": o.attributes }),
             reads: json!({}),
+            context: None,
         };
         // what it wrote, in the write index
         let before = p.held.as_ref().map(|h| h.attrs.clone()).unwrap_or_default();
@@ -1497,6 +1498,7 @@ types:
             expected_version: None,
             principal: None,
             idempotency_key: None,
+            context: None,
         };
         assert_eq!(
             request(&mut s, &note).unwrap().unwrap(),
@@ -1518,6 +1520,7 @@ types:
             expected_version: None,
             principal: None,
             idempotency_key: None,
+            context: None,
         };
         assert!(matches!(
             request(&mut s, &forget).unwrap().unwrap(),

@@ -59,6 +59,10 @@ pub struct Request {
     /// under it is replayed, not applied again (`DESIGN.md` §6 step 2,
     /// ADR-0041, ADR-0077).
     pub idempotency_key: Option<String>,
+    /// Why the request was sent and by which route, the caller's reason,
+    /// recorded on every event and attempt row it makes and read by no rule
+    /// (`DESIGN.md` §6, ADR-0105 §8).
+    pub context: Option<String>,
 }
 
 /// Why a request gets no verdict: a construct the slice does not run, or a
@@ -93,6 +97,7 @@ fn request_digest(req: &Request) -> String {
         "propose": req.propose,
         "expires_at": req.expires_at,
         "principal": req.principal,
+        "context": req.context,
     });
     let hex: String = Sha256::digest(body.to_string().as_bytes())
         .iter()
@@ -370,6 +375,8 @@ struct Ctx<'w> {
     /// Every event, in the order recorded.
     events: Vec<Event>,
     created: BTreeSet<String>,
+    /// Why the request was sent, which every event and row it makes records.
+    context: Option<String>,
     /// Everything the request's rules have read, for a refusal's row.
     read: Reading,
     /// What the rules evaluated for each event read, by its position: its
@@ -550,6 +557,7 @@ fn decide_or_stop(
         admits: BTreeSet::new(),
         erased: BTreeMap::new(),
         redacted_inputs: Vec::new(),
+        context: req.context.clone(),
         events: Vec::new(),
         created: BTreeSet::new(),
         read: Reading::default(),
@@ -1163,6 +1171,7 @@ fn take(
             enforced: false,
             flagged,
             applied_position: Some(position),
+            context: ctx.context.clone(),
             request_values: Json::Null,
             withheld: Vec::new(),
             declaration_version: lib.version,
@@ -1470,6 +1479,7 @@ fn take(
         declaration_version: ctx.work.lib.version,
         recorded_at: ctx.work.now,
         occurred_at: Some(ctx.at),
+        context: ctx.context.clone(),
         imported: false,
         // an erasure names what it erased, and never the values
         payload: if x.kind == Kind::Erasure {
@@ -1717,6 +1727,7 @@ fn invalidate_proposals(
             declaration_version: ctx.work.lib.version,
             recorded_at: ctx.work.now,
             occurred_at: Some(ctx.at),
+            context: ctx.context.clone(),
             imported: false,
             payload: json!({ "redacted": ["inputs"] }),
             reads: json!({}),
@@ -1856,6 +1867,9 @@ fn file(
         Value::Text(Json::Object(req.inputs.clone().into_iter().collect()).to_string()),
     );
     attrs.insert("proposer".into(), Value::Text(req.actor.clone()));
+    if let Some(c) = &req.context {
+        attrs.insert("context".into(), Value::Text(c.clone()));
+    }
     if let Some(occurred) = req.occurred_at {
         attrs.insert("occurred".into(), Value::Timestamp(occurred));
     }
@@ -1898,6 +1912,7 @@ fn file(
         declaration_version: world.lib.version,
         recorded_at: world.now,
         occurred_at: Some(world.now),
+        context: req.context.clone(),
         imported: false,
         payload: json!({ "inputs": req.inputs }),
         reads: json!({}),
@@ -1954,6 +1969,7 @@ fn store_event(
         declaration_version: lib.version,
         recorded_at: now,
         occurred_at: Some(now),
+        context: None,
         imported: false,
         payload,
         reads: json!({}),
@@ -2256,7 +2272,7 @@ fn decide_change(
         o.id = alloc.object_id(DECLARATION_CHANGE);
     }
     o.state = to.into();
-    let event = store_event(
+    let mut event = store_event(
         lib,
         t,
         &mut o,
@@ -2268,6 +2284,7 @@ fn decide_change(
         &who,
         payload,
     );
+    event.context = req.context.clone();
     let id = o.id.clone();
     let version = o.version;
     Ok((
@@ -2413,6 +2430,7 @@ fn decide_proposal(
         declaration_version: world.lib.version,
         recorded_at: world.now,
         occurred_at: Some(world.now),
+        context: req.context.clone(),
         imported: false,
         payload: json!({}),
         reads: json!({}),
@@ -2461,6 +2479,8 @@ fn decide_proposal(
         expected_version: None,
         principal: req.principal.clone(),
         idempotency_key: None,
+        // the proposer's reason, which its execution records
+        context: text("context"),
     };
     let filed_at = match p.attr("filed_at") {
         Value::Timestamp(t) => Some(t),
@@ -3645,6 +3665,7 @@ fn refused_attempt(
         enforced: true,
         flagged: false,
         applied_position: None,
+        context: req.context.clone(),
         request_values,
         withheld,
         declaration_version: lib.version,
@@ -3727,6 +3748,7 @@ types:
             expected_version: None,
             principal: None,
             idempotency_key: None,
+            context: None,
         };
         request(s, &r).unwrap().unwrap()
     }
@@ -3768,6 +3790,7 @@ types:
                 expected_version: version,
                 principal: None,
                 idempotency_key: None,
+                context: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -3784,6 +3807,7 @@ types:
             expected_version: Some(7),
             principal: None,
             idempotency_key: None,
+            context: None,
         };
         let job = created(&request(&mut s, &creation).unwrap().unwrap());
         // the version read applies, and moves the object on
@@ -3842,6 +3866,7 @@ types:
             expected_version: None,
             principal: None,
             idempotency_key: None,
+            context: None,
         };
         let change = created(&request(&mut s, &draft).unwrap().unwrap());
         let read_before = Verdict::Stale {
@@ -4020,6 +4045,7 @@ types:
                 expected_version: None,
                 principal: principal.map(str::to_string),
                 idempotency_key: None,
+                context: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -4146,6 +4172,7 @@ types:
             expected_version: None,
             principal: None,
             idempotency_key: None,
+            context: None,
         };
         let before = |s: &Store| {
             let w = s.snapshot().unwrap();
@@ -4192,6 +4219,7 @@ types:
             expected_version: None,
             principal: None,
             idempotency_key: None,
+            context: None,
         };
         let Verdict::Satisfied {
             object_id: would, ..
@@ -4869,6 +4897,7 @@ types:
                 expected_version: None,
                 principal: None,
                 idempotency_key: None,
+                context: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -5554,6 +5583,7 @@ types:
                 expected_version: None,
                 principal: None,
                 idempotency_key: None,
+                context: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -5654,6 +5684,7 @@ types:
                 expected_version: None,
                 principal: None,
                 idempotency_key: None,
+                context: None,
             };
             created(&request(&mut s, &r).unwrap().unwrap())
         };
@@ -5866,6 +5897,7 @@ types:
             expected_version: None,
             principal: None,
             idempotency_key: None,
+            context: None,
         };
         created(&request(&mut s, &dated).unwrap().unwrap());
         created(&req(
@@ -6058,6 +6090,7 @@ types:
             expected_version: version,
             principal: None,
             idempotency_key: Some(key.to_string()),
+            context: None,
         };
         let counts = |s: &Store| {
             let w = s.snapshot().unwrap();
@@ -6314,6 +6347,198 @@ types:
                 ("log".to_string(), json!({"memo": "a shared note"})),
                 ("sign".to_string(), json!({"signer": null})),
             ]
+        );
+    }
+
+    /// A request's `context`, the caller's reason (`DESIGN.md` §6, ADR-0105
+    /// §8): every event it makes records it, a cascade's included, as does
+    /// each attempt row, an audit's and a refusal's; a proposal keeps its
+    /// proposer's, which its execution records, while the approval's own
+    /// event records the approver's; and it is part of what a key identifies.
+    #[test]
+    fn a_requests_context_is_recorded_on_everything_it_makes() {
+        const SHOP: &str = r#"
+module: shop
+categories: [live, closed]
+types:
+  Line:
+    attributes:
+      qty: { type: int }
+    states:
+      OPEN: { category: live }
+      PACKED: { category: closed, final: true }
+    conditions:
+      small: { expression: qty < 10, remedy: self_serviceable }
+      counted: { expression: qty > 0, remedy: self_serviceable }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [qty] }
+      pack: { kind: external, from: [OPEN], to: PACKED, guards: { small: deny, counted: audit }, proposable: true }
+  Order:
+    attributes:
+      line: { reference: Line }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [line] }
+      ship: { kind: external, from: [OPEN], to: DONE, effect: [ { call: { target: line, transition: pack } } ] }
+"#;
+        let lib = Library::load(&[("shop.yaml".into(), SHOP.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask = |s: &mut Store,
+                   xn: &str,
+                   target: (&str, bool),
+                   inputs: Json,
+                   context: &str,
+                   propose: bool| {
+            let (name, is_type) = target;
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: (!is_type).then(|| name.to_string()),
+                type_: is_type.then(|| name.to_string()),
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose,
+                expires_at: None,
+                expected_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: Some(context.to_string()),
+            };
+            request(s, &r).unwrap().unwrap()
+        };
+        let line = |s: &mut Store, qty: i64| {
+            created(&ask(
+                s,
+                "add",
+                ("Line", true),
+                json!({"qty": qty}),
+                "stock",
+                false,
+            ))
+        };
+        let order = |s: &mut Store, l: &str| {
+            created(&ask(
+                s,
+                "open",
+                ("Order", true),
+                json!({"line": l}),
+                "sales",
+                false,
+            ))
+        };
+        let contexts = |s: &Store, positions: &[i64]| -> Vec<(String, Option<String>)> {
+            s.events(positions)
+                .unwrap()
+                .into_iter()
+                .flatten()
+                .map(|e| (e.transition, e.context))
+                .collect()
+        };
+        // a cascade's event records the request's reason
+        let (l1, l0, big) = (line(&mut s, 3), line(&mut s, 0), line(&mut s, 20));
+        let o1 = order(&mut s, &l1);
+        let Verdict::Satisfied { events, .. } =
+            ask(&mut s, "ship", (&o1, false), json!({}), "job:ship", false)
+        else {
+            panic!("a small line ships")
+        };
+        let why = Some("job:ship".to_string());
+        assert_eq!(
+            contexts(&s, &events),
+            [
+                ("ship".to_string(), why.clone()),
+                ("pack".to_string(), why.clone())
+            ]
+        );
+        // an audit's row, and a refusal's
+        let o0 = order(&mut s, &l0);
+        ask(
+            &mut s,
+            "ship",
+            (&o0, false),
+            json!({}),
+            "job:audited",
+            false,
+        );
+        let w = s.snapshot().unwrap();
+        let audit = w.attempts.last().unwrap();
+        assert_eq!(
+            (audit.clause.as_deref(), audit.context.as_deref()),
+            (Some("counted"), Some("job:audited"))
+        );
+        drop(w);
+        let ob = order(&mut s, &big);
+        assert!(matches!(
+            ask(
+                &mut s,
+                "ship",
+                (&ob, false),
+                json!({}),
+                "job:refused",
+                false
+            ),
+            Verdict::CallRefused { .. }
+        ));
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.attempts.last().unwrap().context.as_deref(),
+            Some("job:refused")
+        );
+        drop(w);
+        // a proposal keeps its proposer's reason for the request it executes
+        let l2 = line(&mut s, 2);
+        let proposal = created(&ask(
+            &mut s,
+            "pack",
+            (&l2, false),
+            json!({}),
+            "proposer:why",
+            true,
+        ));
+        let Verdict::Satisfied { events, .. } = ask(
+            &mut s,
+            "approve",
+            (&proposal, false),
+            json!({}),
+            "approver:why",
+            false,
+        ) else {
+            panic!("the approval applies")
+        };
+        assert_eq!(
+            contexts(&s, &events),
+            [
+                ("approve".to_string(), Some("approver:why".to_string())),
+                ("pack".to_string(), Some("proposer:why".to_string()))
+            ]
+        );
+        // and a different reason under a used key is another request
+        let mut keyed = Request {
+            transition: "add".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Line".into()),
+            inputs: [("qty".to_string(), json!(1))].into_iter().collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            principal: None,
+            idempotency_key: Some("k".into()),
+            context: Some("first".into()),
+        };
+        created(&request(&mut s, &keyed).unwrap().unwrap());
+        keyed.context = Some("second".into());
+        assert_eq!(
+            request(&mut s, &keyed).unwrap(),
+            Err(NoVerdict::KeyReused { key: "k".into() })
         );
     }
 }

@@ -501,6 +501,8 @@ CREATE TABLE t_proposal (
   transition     TEXT    NOT NULL,
   inputs         TEXT    NOT NULL,
   proposer       TEXT    NOT NULL,
+  context        TEXT,                      -- the proposer's reason, which its execution's events
+                                            -- record (DESIGN.md §9 lists it; added 2026-10-06)
   submitted_under INTEGER NOT NULL REFERENCES of_declaration(version),
   -- the verdict that left it pending is not stored: a read derives it from
   -- the refused approval's of_attempt row, the proposal getting no event

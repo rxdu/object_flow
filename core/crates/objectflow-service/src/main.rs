@@ -187,14 +187,13 @@ fn event(e: &Event) -> J {
         "declaration_version": e.declaration_version,
         "recorded_at": timestamp_text(e.recorded_at),
         "occurred_at": e.occurred_at.map(timestamp_text), "imported": e.imported,
-        "payload": e.payload, "cause": e.cause, "reads": e.reads,
+        "payload": e.payload, "cause": e.cause, "reads": e.reads, "context": e.context,
     })
 }
 
-const EVENT_NOT_COMPUTED: [&str; 7] = [
+const EVENT_NOT_COMPUTED: [&str; 6] = [
     "object_seq",
     "source",
-    "context",
     "taint_version",
     "txn",
     "retries",
@@ -545,6 +544,12 @@ fn request_of(body: &J) -> Result<Request, Fault> {
             .and_then(|a| text(a, "principal"))
             .map(str::to_string),
         idempotency_key,
+        // why the request was sent and by which route (library-api.md §3)
+        context: match body.get("context") {
+            None | Some(J::Null) => None,
+            Some(J::String(c)) => Some(c.clone()),
+            Some(_) => return Err(Fault::Bad("context takes a string".to_string())),
+        },
     };
     Ok(req)
 }

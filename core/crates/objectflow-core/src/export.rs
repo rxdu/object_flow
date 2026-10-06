@@ -114,6 +114,7 @@ fn event_row(world: &World<'_>, e: &Event) -> Json {
         "imported": e.imported,
         "payload": payload,
         "reads": e.reads,
+        "context": e.context,
     })
 }
 
@@ -212,6 +213,7 @@ fn attempt_row(a: &Attempt) -> Json {
         "actor_id": a.actor_id,
         "actor_kind": a.actor_kind,
         "principal": a.principal,
+        "context": a.context,
         "type": a.type_,
         "object_id": a.object_id,
         "transition": a.transition,
@@ -288,6 +290,7 @@ types:
             expected_version: None,
             principal: None,
             idempotency_key: None,
+            context: None,
         };
         request(s, &r).unwrap().unwrap()
     }
@@ -406,6 +409,7 @@ types:
             expected_version: None,
             principal: None,
             idempotency_key: None,
+            context: None,
         };
         assert!(matches!(
             request(&mut s, &tool).unwrap().unwrap(),
