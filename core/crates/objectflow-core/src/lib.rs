@@ -28,6 +28,8 @@ pub mod wire;
 pub mod store;
 pub mod subscription;
 
+pub mod export;
+
 pub mod request;
 
 pub mod import;

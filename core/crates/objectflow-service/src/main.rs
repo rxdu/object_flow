@@ -363,6 +363,28 @@ async fn pull(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     })))
 }
 
+/// A source's rows after a cursor, as JSON lines, every personal value
+/// omitted; a refusal is a value (`library-api.md` §6, ADR-0094).
+async fn export(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let (Some(_actor), Some(source)) = (
+        body.get("actor").and_then(|a| text(a, "id")),
+        text(&body, "source"),
+    ) else {
+        return Err(Fault::Bad(
+            "export names its actor and the source".to_string(),
+        ));
+    };
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    let world = s.snapshot()?;
+    let page = objectflow_core::export::export(&world, source, text(&body, "cursor"))?;
+    Ok(Json(json!({
+        "lines": page.lines,
+        "cursor": page.cursor,
+        "refused": page.refused,
+    })))
+}
+
 /// A subscription's progress moved, back as well as forward; a refusal is
 /// a value (`library-api.md` §6).
 async fn acknowledge(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
@@ -997,6 +1019,7 @@ fn app(shared: Shared) -> Router {
         .route("/v1/query", post(query))
         .route("/v1/check", post(check))
         .route("/v1/pull", post(pull))
+        .route("/v1/export", post(export))
         .route("/v1/acknowledge", post(acknowledge))
         .route("/v1/import_batch", post(import_op))
         .route("/v1/lookup", post(lookup))

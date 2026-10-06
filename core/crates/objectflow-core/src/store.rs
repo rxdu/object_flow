@@ -148,6 +148,9 @@ pub struct Attempt {
     /// failing clause consulted (ADR-0096, ADR-0158). Null where none.
     pub reads: serde_json::Value,
     pub consulted: serde_json::Value,
+    /// Its writing transaction, by which the attempt export pages (ADR-0100
+    /// §6): 0 until it is written.
+    pub txn: i64,
 }
 
 fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
@@ -216,6 +219,7 @@ fn attempt_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Attempt> {
         declaration_version: r.get(14)?,
         reads: json_column(r.get(16)?),
         consulted: json_column(r.get(17)?),
+        txn: r.get(18)?,
     })
 }
 
@@ -1882,7 +1886,7 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
     // the attempt log, in the order written
     let mut attempts = conn.prepare(
         "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
-         flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted \
+         flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn \
          FROM of_attempt ORDER BY id",
     )?;
     let rows = attempts.query_map([], attempt_row)?;

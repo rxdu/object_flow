@@ -482,6 +482,18 @@ class Driver:
             return ", ".join(sorted(self.show(x) for x in v))
         return str(v)
 
+    def exported(self, source):
+        """Every row of an export source, page after page, until a page returns none."""
+        rows, cursor = [], None
+        while True:
+            page = self.core.call("/v1/export", {"actor": {"id": OPERATOR}, "source": source, "cursor": cursor})
+            if page.get("refused"):
+                raise NotRun(f"export {source}: {page['refused']}")
+            if not page["lines"]:
+                return rows
+            rows += [json.loads(line) for line in page["lines"]]
+            cursor = page["cursor"]
+
     def other(self, spec_):
         """A read the core answers through its operations, as its table writes it: its rows, its columns, and the
         columns it quotes that no operation returns, which are named and left out."""
@@ -551,6 +563,34 @@ class Driver:
                 raise Differs(f"the pull is refused as {page['refused']}")
             return [(self.show(e["object_id"]), self.show(e["transition"]), self.show(e["occurred_at"]))
                     for e in page["events"]], ["object", "transition", "occurred_at"], []
+        m = re.fullmatch(r"intervals\(([\w-]+)\.(\w+)\)", spec_)
+        if m:
+            # the type's interval export, a consumer keeping the latest row per object, dimension and entry (ADR-0100)
+            oid = self.oid(m.group(1))
+            latest = {}
+            for line in self.exported(self.core.call("/v1/get", {"id": oid})["type"] + ".intervals"):
+                if line["object_id"] == oid and line["dimension"] == m.group(2):
+                    latest[line["entered_at"]] = line
+            return [(self.show(r.get("value")), self.show(r["entered_at"]), self.show(r["entered_by_kind"]),
+                     self.show(r["legacy"])) for _k, r in sorted(latest.items())], \
+                ["value", "entered_at", "entered_by_kind", "legacy"], []
+        m = re.fullmatch(r"(attempts\(([\w-]+)\)|refusal of ([\w-]+)\.(\w+))", spec_)
+        if m:
+            # the type's attempt export, in the order written (ADR-0094, ADR-0100)
+            oid = self.oid(m.group(2) or m.group(3))
+            rows = [a for a in self.exported(self.core.call("/v1/get", {"id": oid})["type"] + ".attempts")
+                    if a["object_id"] == oid]
+            if m.group(3):
+                a = [a for a in rows if a["transition"] == m.group(4)][-1]
+                consulted = ", ".join(f"{re.sub(r'(?<=: )([^,)]+)', lambda k: self.show(k.group(1)), ref)} = {self.show(v)}"
+                                      for g in (a.get("consulted") or {}).values() for ref, v in sorted(g["values"].items()))
+                # the threshold is a value the clause read, and a read set holds identities, not values
+                return [(self.show(a["clause"]), self.show(a["remedy"]), consulted)], ["clause", "remedy", "consulted"], \
+                    ["threshold"]
+            # a verdict as the history writes it; a refused call's target is a column the row does not hold
+            return [(self.show(a["transition"]), self.show(a["actor_kind"]), a["verdict"].replace("_", " "),
+                     self.show(a["clause"]), self.show(a["remedy"])) for a in rows], \
+                ["transition", "actor_kind", "verdict", "clause", "remedy"], ["call"]
         m = re.fullmatch(r"(read set|consulted) of ([\w-]+)\.(\w+)(?:: (.+))?", spec_)
         if m:
             # what the rules of the object's last event of the transition read and consulted (ADR-0088, ADR-0158)
@@ -710,7 +750,7 @@ def main():
             if not spec_.startswith(("metric(", "query(", "check ", "answer ", "events(", "history(", "provenance(",
                                      "payloads(", "get(", "results(", "recorded(", "labels(", "proposal ",
                                      "caused by(", "pull(", "notices of", "change ", "impact of",
-                                     "read set of", "consulted of")):
+                                     "read set of", "consulted of", "intervals(", "attempts(", "refusal of")):
                 outcomes.append("not compared")
                 continue
             if stopped:

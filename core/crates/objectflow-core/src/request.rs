@@ -1073,6 +1073,7 @@ fn take(
             consulted: clause_read
                 .consulted_record(ctx.work.now)
                 .unwrap_or(Json::Null),
+            txn: 0,
         });
     }
     alloc.txn();
@@ -3341,6 +3342,7 @@ fn refused_attempt(
         declaration_version: lib.version,
         reads: refusal.reads.clone(),
         consulted: refusal.consulted.clone(),
+        txn: 0,
     }
 }
 
