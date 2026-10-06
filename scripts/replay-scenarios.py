@@ -134,6 +134,7 @@ class Driver:
         self.publishes = sorted((p for p in publishes if not p.get("change")), key=lambda p: cs.when(p["at"]))
         self.governed = {p["change"]: p for p in publishes if p.get("change")}
         self.changes, self.answers, self.checks, self.advice = {}, {}, {}, []
+        self.versions = []
         self.now = None
         self.taken = 0
         self.last = 0                       # the last position a request's events reached
@@ -300,6 +301,9 @@ class Driver:
 
     def approve(self, change, version, texts, actor=OPERATOR):
         r = self.core.call("/v1/publish", {"actor": {"id": actor}, "change": change, "expected_version": version})
+        if r.get("report"):
+            # each version by its place in the history: the cutover's is the document's version 1
+            self.versions.append({"report": r["report"], "changed": {n for n in texts if texts[n] != self.texts.get(n)}})
         if (r.get("verdict") or {}).get("kind") != "satisfied":
             findings = [(f.get("code"), f.get("message", "")[:120]) for f in ((r.get("report") or {}).get("findings") or [])
                         if f.get("severity") in ("fatal", "decision")]
@@ -354,6 +358,8 @@ class Driver:
             p = self.governed[r["approve"]]
             self.approve(self.changes[r["approve"]], self.changes[r["approve"] + "@version"], self.published(p),
                          self.oid(r["actor"]))
+            self.name(r["approve"], self.changes[r["approve"]])
+            self.changes[r["approve"] + "@place"] = len(self.versions)
             return
         v = self.core.call("/v1/request", self.body_of(r))
         self.last = max([self.last] + list(v.get("events") or []))
@@ -509,6 +515,34 @@ class Driver:
             return [(self.show(e["transition"]), a, self.show(v)) for e in evs
                     for a, v in sorted(((e.get("payload") or {}).get("inputs") or {}).items())], \
                 ["transition", "attribute", "value"], []
+        m = re.fullmatch(r"notices of version (\d+)", spec_)
+        if m:
+            # the checker's notes on the modules the version changed, by its place in the history
+            v = self.versions[int(m.group(1)) - 1]
+            rows = []
+            for f in v["report"]["findings"]:
+                n = re.fullmatch(r"(\w+):\d+: (.*)", f["message"], re.S)
+                if f["severity"] == "notice" and f["code"].startswith("check:") and n and n.group(1) in v["changed"]:
+                    rows.append((n.group(1), f["code"][len("check:"):], n.group(2)))
+            return rows, ["module", "code", "notice"], []
+        m = re.fullmatch(r"(change|impact of) ([\w-]+)", spec_)
+        if m:
+            place = self.changes[m.group(2) + "@place"]
+            report = self.versions[place - 1]["report"]
+            if m.group(1) == "impact of":
+                # each object a guard the change newly enforces would refuse (publish-and-import.md §1)
+                rows = []
+                for f in report["findings"]:
+                    k = re.fullmatch(r"newly_enforced:\w+\.(\w+)\.(\w+)", f["code"])
+                    if k:
+                        rows += [(self.show(o), k.group(1), k.group(2)) for o in f["sample"]]
+                return rows, ["object", "transition", "clause"], []
+            evs = self.core.call("/v1/history", {"id": self.oid(m.group(2))})["events"]
+            drafted = evs[0] if evs else {}
+            published = next((e for e in evs if e["transition"] == "publish"), {})
+            return [(self.show(drafted.get("actor_id")), self.show(drafted.get("actor_kind")),
+                     self.show(published.get("actor_id")), self.show(published.get("actor_kind")), str(place))], \
+                ["drafted_by", "drafted_kind", "approved_by", "approved_kind", "version"], []
         m = re.fullmatch(r"pull\(([\w-]+)\)", spec_)
         if m:
             # the events its filter selects after its acknowledged cursor (DESIGN.md §7)
@@ -658,7 +692,7 @@ def main():
             key = spec_ if seen[spec_] == 1 else f"{spec_} #{seen[spec_]}"
             if not spec_.startswith(("metric(", "query(", "check ", "answer ", "events(", "history(", "provenance(",
                                      "payloads(", "get(", "results(", "recorded(", "labels(", "proposal ",
-                                     "caused by(", "pull(")):
+                                     "caused by(", "pull(", "notices of", "change ", "impact of")):
                 outcomes.append("not compared")
                 continue
             if stopped:

@@ -6,6 +6,7 @@
 answer AN1
 answer AN2
 caused by(D20.complete_sale)
+change DC1
 check CK1
 check CK2
 events(M-ARM)
@@ -25,6 +26,7 @@ history(R20)
 history(U-DIYA)
 history(W4)
 history(X1)
+impact of DC1
 labels(L07)
 metric(BatteryDay.refusals, keep: [transition, clause, remedy])
 metric(Delivery.oldest_open, keep: [state])
@@ -86,6 +88,8 @@ metric(supplier_lead_time_p80, keep: [supplier], over: "365 days")
 metric(supplier_lead_time_p80, keep: [supplier], over: "365 days") as A-BUYER
 metric(trial_refusals, keep: [clause, actor])
 metric(weak_battery_units, keep: [model, week])
+notices of version 14
+notices of version 16
 payloads(C-DANA)
 proposal PR1
 provenance(J3)
