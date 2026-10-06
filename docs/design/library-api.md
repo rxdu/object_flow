@@ -534,7 +534,8 @@ class ImportedObject:
     type: str
     legacy_key: str
     state: str
-    attributes: Mapping[str, Any]         # references by legacy key
+    attributes: Mapping[str, Any]         # references by legacy key; one that may name any
+                                          # type, a label's subject, as "<Type>:<key>"
     legacy_entries: Sequence[Mapping[str, Any]] = ()   # only this object's fields
     legacy_intervals: Sequence["LegacyInterval"] = ()  # earlier values only; on a refresh,
                                           # the values since the last import

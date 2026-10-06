@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{Value as Json, json};
 
 use crate::eval::NotRun;
-use crate::model::{Declared, Library, Type};
+use crate::model::{ANY_TYPE, Declared, Library, Type};
 use crate::request::{failing_invariants, resolve_actor, text_of};
 use crate::store::{Allocator, Change, Event, Store, StoreError};
 use crate::value::Value;
@@ -44,6 +44,9 @@ pub struct ImportedObject {
     /// Where the legacy record is silent, each from its start to its end; no
     /// legacy interval may overlap one (ADR-0106, ADR-0147).
     pub silent_spans: Vec<(i64, i64)>,
+    /// An observation's occurred time, where the legacy record gives it; a
+    /// label's is when it was recorded (`library-api.md` §5).
+    pub occurred_at: Option<i64>,
     /// What the object carries that the core does not yet import, by name.
     pub beyond: Vec<String>,
 }
@@ -274,9 +277,11 @@ fn decide(
             },
         );
     };
-    // owned types, which the import may not write (C33)
+    // owned types, which the import may not write (C33); an observation or
+    // a label it writes on a mirror's object (publish-and-import.md §4)
+    let importable = |t: &Type| t.mirror || t.observation_on.is_some();
     for o in &batch.objects {
-        if lib.type_(&o.type_).is_some_and(|t| !t.mirror)
+        if lib.type_(&o.type_).is_some_and(|t| !importable(t))
             && !report.refused_types.contains(&o.type_)
         {
             report.refused_types.push(o.type_.clone());
@@ -289,7 +294,7 @@ fn decide(
         let Some(t) = lib.type_(&o.type_) else {
             return refused(report, refusal(o, format!("names no type {}", o.type_)));
         };
-        if !t.mirror {
+        if !importable(t) {
             return refused(
                 report,
                 refusal(
@@ -297,6 +302,15 @@ fn decide(
                     format!("{} is owned by this store, not a mirror", o.type_),
                 ),
             );
+        }
+        if o.occurred_at.is_some() && t.observation_on.is_none() {
+            return refused(
+                report,
+                refusal(o, "an occurred time, which only an observation takes"),
+            );
+        }
+        if o.occurred_at.is_some_and(|at| at > world.now) {
+            return refused(report, refusal(o, "an occurred time after the import"));
         }
         if let Some(what) = t.beyond.first() {
             return Err(NotRun(what.clone()));
@@ -379,6 +393,14 @@ fn decide(
                 NOT_DECLARED,
             );
         }
+        // an observation the store records at the import, occurred when the
+        // legacy record says, or then
+        if t.observation_on.is_some() {
+            let at = |v: i64| Value::Timestamp(v);
+            p.values.insert("recorded_at".into(), at(world.now));
+            p.values
+                .insert("occurred_at".into(), at(o.occurred_at.unwrap_or(world.now)));
+        }
         for (k, raw) in &o.attributes {
             let Some(a) = t.attribute(k) else {
                 return refused(
@@ -411,6 +433,25 @@ fn decide(
                         );
                         continue;
                     };
+                    // a reference to any type, a label's subject, names its
+                    // object's type with its key, `<Type>:<key>`, the form
+                    // the store keeps a legacy key in
+                    if target == ANY_TYPE {
+                        match key.split_once(':') {
+                            Some((tn, k)) if lib.type_(tn).is_some() => {
+                                named.push(legacy(lib, tn, k));
+                            }
+                            _ => found(
+                                &mut classes,
+                                o,
+                                p.index,
+                                ViolationKind::Guard,
+                                k.clone(),
+                                NOT_OF_ITS_TYPE,
+                            ),
+                        }
+                        continue;
+                    }
                     named.push(legacy(lib, target, key));
                 }
                 references.push(Reference {
@@ -461,6 +502,42 @@ fn decide(
                     refusal(
                         o,
                         format!("{k} names {}, which the batch and the store lack", key.1),
+                    ),
+                );
+            }
+        }
+    }
+    // an observation or a label is on a mirror's object, in the batch or the
+    // store: the import writes nothing an owned type's own requests would
+    let placed_types: BTreeMap<&str, &str> = placed
+        .iter()
+        .map(|p| (p.id.as_str(), batch.objects[p.index].type_.as_str()))
+        .collect();
+    for r in references.iter().filter(|r| r.attribute == "subject") {
+        let o = &batch.objects[r.index];
+        if lib
+            .type_(&o.type_)
+            .is_none_or(|t| t.observation_on.is_none())
+        {
+            continue;
+        }
+        for key in &r.named {
+            let Some(id) = ids.get(key).or_else(|| world.external.get(key)) else {
+                continue;
+            };
+            let subject = placed_types
+                .get(id.as_str())
+                .map(|t| (*t).to_string())
+                .or_else(|| world.get(id).map(|s| s.type_.clone()))
+                .unwrap_or_default();
+            if lib.type_(&subject).is_none_or(|t| !t.mirror) {
+                return refused(
+                    report,
+                    refusal(
+                        o,
+                        format!(
+                            "an observation on a {subject}, which this store owns, not a mirror"
+                        ),
                     ),
                 );
             }
@@ -727,26 +804,35 @@ fn decide(
         let (Some(t), Some(mut obj)) = (lib.type_(&o.type_), work.get(&p.id).cloned()) else {
             continue;
         };
+        let resolve = |key: &str, target: &str| {
+            let k = legacy(lib, target, key);
+            ids.get(&k).or_else(|| world.external.get(&k)).cloned()
+        };
+        // a refresh's intermediate values, which are a change of their own
+        let intermediate = match &p.held {
+            Some(h) => match intermediate_spans(lib, t, h, o, &resolve, port) {
+                Ok(spans) => spans,
+                Err(r) => return refused(report, refusal(o, r)),
+            },
+            None => BTreeMap::new(),
+        };
         let changed = match &p.held {
             None => true,
-            Some(h) => h.state != obj.state || h.attrs != obj.attrs,
+            Some(h) => h.state != obj.state || h.attrs != obj.attrs || !intermediate.is_empty(),
         };
         if !changed {
             continue; // a refresh that changes nothing writes nothing
         }
         let position = alloc.position();
         alloc.txn();
-        if let Some(r) = open_spans(lib, t, &mut obj, p.held.as_ref(), o, position, port) {
+        let refresh = p.held.as_ref().map(|h| (h, &intermediate));
+        if let Some(r) = open_spans(lib, t, &mut obj, refresh, o, position, port) {
             return refused(report, refusal(o, r));
         }
         if p.held.is_none() {
             // the earlier values the legacy record gives, at position 0, and
             // the times the record supplies held to its creation and its
             // silent spans (publish-and-import.md §4)
-            let resolve = |key: &str, target: &str| {
-                let k = legacy(lib, target, key);
-                ids.get(&k).or_else(|| world.external.get(&k)).cloned()
-            };
             match legacy_spans(lib, t, &obj, o, &resolve) {
                 Ok(spans) => {
                     for (d, sp) in spans {
@@ -759,11 +845,6 @@ fn decide(
                 Err(r) => return refused(report, refusal(o, r)),
             }
             created(lib, t, &mut obj, o, port);
-        } else if !o.legacy_intervals.is_empty() {
-            return Err(NotRun(format!(
-                "a refresh's intermediate values, on {} {}",
-                o.type_, o.legacy_key
-            )));
         }
         // admissions: what an ADMIT class holds, with its reason; one that
         // holds again is discharged (ADR-0054, C14)
@@ -968,48 +1049,7 @@ fn legacy_spans(
                     "a legacy interval of {d} that overlaps a silent span"
                 ));
             }
-            let value = if d == "state" {
-                match l.value.as_str() {
-                    Some(s) if t.state(s).is_some() => Value::State {
-                        type_: t.name.clone(),
-                        name: s.to_string(),
-                    },
-                    _ => {
-                        return Err(format!(
-                            "a legacy interval in a state {} does not declare",
-                            t.name
-                        ));
-                    }
-                }
-            } else {
-                let Some(a) = t.attribute(d) else {
-                    return Err(format!(
-                        "a legacy interval of {d}, which {} does not declare",
-                        t.name
-                    ));
-                };
-                match (&a.declared, &l.value) {
-                    (_, Json::Null) => Value::Absent,
-                    (Declared::Reference(target), Json::String(key)) => {
-                        match resolve(key, target) {
-                            Some(id) => Value::Object(id),
-                            None => {
-                                return Err(format!(
-                                    "a legacy interval of {d} naming {key}, which no object of the batch or the store has as its legacy key"
-                                ));
-                            }
-                        }
-                    }
-                    (declared, raw) => match wire::decode(raw, declared, false, lib) {
-                        Ok(v) => v,
-                        Err(_) => {
-                            return Err(format!(
-                                "a legacy interval of {d} holding a value it cannot"
-                            ));
-                        }
-                    },
-                }
-            };
+            let value = earlier_value(lib, t, d, &l.value, resolve, "a legacy interval")?;
             out.push((
                 d.to_string(),
                 Span {
@@ -1034,21 +1074,164 @@ fn legacy_spans(
     Ok(out)
 }
 
+/// The value an earlier span holds, decoded as its dimension declares it, a
+/// reference resolved by legacy key, or why it is refused: a state or an
+/// attribute the type does not declare, a key no object of the batch or the
+/// store has, or a value its type cannot hold. `what` names the span in the
+/// reason, a legacy interval or a refresh's intermediate value.
+fn earlier_value(
+    lib: &Library,
+    t: &Type,
+    d: &str,
+    raw: &Json,
+    resolve: &dyn Fn(&str, &str) -> Option<String>,
+    what: &str,
+) -> Result<Value, String> {
+    if d == "state" {
+        return match raw.as_str() {
+            Some(s) if t.state(s).is_some() => Ok(Value::State {
+                type_: t.name.clone(),
+                name: s.to_string(),
+            }),
+            _ => Err(format!("{what} in a state {} does not declare", t.name)),
+        };
+    }
+    let Some(a) = t.attribute(d) else {
+        return Err(format!("{what} of {d}, which {} does not declare", t.name));
+    };
+    match (&a.declared, raw) {
+        (_, Json::Null) => Ok(Value::Absent),
+        (Declared::Reference(target), Json::String(key)) => match resolve(key, target) {
+            Some(id) => Ok(Value::Object(id)),
+            None => Err(format!(
+                "{what} of {d} naming {key}, which no object of the batch or the store has as its legacy key"
+            )),
+        },
+        (declared, raw) => wire::decode(raw, declared, false, lib)
+            .map_err(|_| format!("{what} of {d} holding a value it cannot")),
+    }
+}
+
+/// A refresh's intermediate values (`publish-and-import.md` §4, ADR-0106):
+/// the values a dimension held in the legacy record between the one the
+/// store holds and the one the refresh brings, each opened and closed on the
+/// refresh's event, so a change made in the legacy system while the type is
+/// a mirror keeps its time and who made it. One the store already holds is
+/// left as it is, so a batch sent again writes nothing; the rest are refused
+/// where the dimension is not tracked, a value is not declared, one enters
+/// before the latest interval the store holds or at or after the value
+/// following it, or ends before it begins or after the next one begins.
+/// Their positions are the event's, which `open_spans` gives them.
+fn intermediate_spans(
+    lib: &Library,
+    t: &Type,
+    held: &Object,
+    o: &ImportedObject,
+    resolve: &dyn Fn(&str, &str) -> Option<String>,
+    port: i64,
+) -> Result<BTreeMap<String, Vec<Span>>, String> {
+    let tracked = lib.tracked(t);
+    let mut by_dimension: BTreeMap<&str, Vec<&LegacyInterval>> = BTreeMap::new();
+    for l in &o.legacy_intervals {
+        by_dimension
+            .entry(l.dimension.as_str())
+            .or_default()
+            .push(l);
+    }
+    let mut out = BTreeMap::new();
+    for (d, mut given) in by_dimension {
+        if !tracked.iter().any(|m| m == d) {
+            return Err(format!(
+                "an intermediate value of {d}, which {} does not track",
+                t.name
+            ));
+        }
+        given.sort_by_key(|l| l.entered_at);
+        let spans = held.spans.get(d).map_or(&[][..], Vec::as_slice);
+        let mut fresh = Vec::new();
+        for l in given {
+            let value = earlier_value(lib, t, d, &l.value, resolve, "an intermediate value")?;
+            let holds = spans
+                .iter()
+                .any(|sp| !sp.legacy && sp.entered_at == l.entered_at && sp.value == value);
+            if !holds {
+                fresh.push((l, value));
+            }
+        }
+        let Some(latest) = spans.last().map(|sp| sp.entered_at) else {
+            return Err(format!(
+                "an intermediate value of {d}, of which the store holds no interval"
+            ));
+        };
+        // the value the refresh brings opens where `entered` says, or at
+        // the import
+        let current = o.entered.get(d).map_or(port, |e| e.at);
+        let mut made = Vec::new();
+        for (i, (l, value)) in fresh.iter().enumerate() {
+            if l.entered_at < latest {
+                return Err(format!(
+                    "an intermediate value of {d} entered before the latest interval the store holds"
+                ));
+            }
+            let next = fresh.get(i + 1).map_or(current, |(n, _)| n.entered_at);
+            if l.entered_at >= next {
+                return Err(format!(
+                    "an intermediate value of {d} entered at or after the value following it"
+                ));
+            }
+            let left = l.left_at.unwrap_or(next);
+            if left < l.entered_at {
+                return Err(format!(
+                    "an intermediate value of {d} that ends before it begins"
+                ));
+            }
+            if left > next {
+                return Err(format!(
+                    "an intermediate value of {d} that overlaps the value following it"
+                ));
+            }
+            made.push(Span {
+                value: value.clone(),
+                entered_position: 0,
+                left_position: Some(0),
+                entered_at: l.entered_at,
+                left_at: Some(left),
+                entered_by: l.entered_by.clone(),
+                entered_by_kind: l
+                    .entered_by_kind
+                    .clone()
+                    .unwrap_or_else(|| "unknown".into()),
+                migrated: false,
+                declaration_version: lib.version,
+                legacy: false,
+                corrected_by: None,
+            });
+        }
+        if !made.is_empty() {
+            out.insert(d.to_string(), made);
+        }
+    }
+    Ok(out)
+}
+
 /// The intervals an import opens: for a new object, one for the state and
 /// every tracked member; for a refresh, one for each value it changes, the
 /// current one ending. Each opens when `entered` says, by the changer it
 /// names, and otherwise at the import, by a changer of kind `unknown`
-/// (ADR-0106, C28). A refresh whose entry precedes the latest entry of the
-/// same dimension is refused, its reason returned.
+/// (ADR-0106, C28). A refresh's intermediate values go between the value
+/// it ends and the one it opens, so a value that came back to the one held
+/// opens again. A refresh whose entry precedes the latest entry of the same
+/// dimension is refused, its reason returned.
 fn open_spans(
     lib: &Library,
     t: &Type,
     obj: &mut Object,
-    held: Option<&Object>,
+    refresh: Option<(&Object, &BTreeMap<String, Vec<Span>>)>,
     o: &ImportedObject,
     position: i64,
     port: i64,
 ) -> Option<String> {
+    let held = refresh.map(|(h, _)| h);
     for m in lib.tracked(t) {
         let now = if m == "state" {
             Value::State {
@@ -1068,23 +1251,33 @@ fn open_spans(
                 h.attr(&m)
             }
         });
-        if was.as_ref() == Some(&now) {
+        let between = refresh
+            .and_then(|(_, between)| between.get(&m))
+            .map_or(&[][..], Vec::as_slice);
+        if was.as_ref() == Some(&now) && between.is_empty() {
             continue;
         }
         let entered = o.entered.get(&m);
         let at = entered.map_or(port, |e| e.at);
         let spans = obj.spans.entry(m.clone()).or_default();
         if let Some(last) = spans.last_mut() {
-            if at < last.entered_at {
+            let ends = between.first().map_or(at, |sp| sp.entered_at);
+            if ends < last.entered_at {
                 return Some(format!(
                     "its {m} entered before the latest interval the store holds"
                 ));
             }
             if last.left_position.is_none() {
                 last.left_position = Some(position);
-                last.left_at = Some(at);
+                last.left_at = Some(ends);
             }
         }
+        // each opened and closed on this event
+        spans.extend(between.iter().map(|sp| Span {
+            entered_position: position,
+            left_position: Some(position),
+            ..sp.clone()
+        }));
         spans.push(Span {
             value: now,
             entered_position: position,
@@ -1873,24 +2066,227 @@ types:
                 "{words}: something was written"
             );
         }
-        // a refresh's intermediate values are not yet run
+    }
+
+    /// A refresh's intermediate values (`publish-and-import.md` §4): the
+    /// leads a team had in the legacy system between two imports open and
+    /// close on the refresh's event, in order, with who made each change; a
+    /// batch sent again writes nothing, a lead that came back opens again,
+    /// and values out of order are refused.
+    #[test]
+    fn a_refresh_opens_and_closes_its_intermediate_values_in_order() {
+        let day = 86_400;
         let mut s = store();
         let port = s.now;
-        run(
-            &mut s,
-            vec![employee("E-1", "EMPLOYED", json!({"employee_id": "1"}))],
-            &[],
-            false,
-        );
-        let mut again = employee("E-1", "LEFT", json!({"employee_id": "1"}));
-        again.legacy_intervals = vec![earlier("state", json!("EMPLOYED"), port, Some(port))];
-        let batch = ImportBatch {
-            objects: vec![again],
-            sequences: Vec::new(),
+        let team = |lead: &str| {
+            let mut t = employee("T-1", "ACTIVE", json!({"code": "T1", "lead": lead}));
+            t.type_ = "Team".into();
+            t
         };
-        let not_run = import_batch(&mut s, OPERATOR, &batch, &[], false)
-            .unwrap()
-            .unwrap_err();
-        assert!(not_run.0.contains("intermediate values"), "{}", not_run.0);
+        let staff: Vec<_> = ["E-1", "E-2", "E-3"]
+            .iter()
+            .map(|k| employee(k, "EMPLOYED", json!({"employee_id": k})))
+            .chain([team("E-1")])
+            .collect();
+        assert_eq!(run(&mut s, staff, &[], false).written, 4);
+        let id = |s: &Store, key: &str| {
+            s.snapshot().unwrap().external[&("legacy".to_string(), key.to_string())].clone()
+        };
+        let (t1, e1, e2, e3) = (
+            id(&s, "Team:T-1"),
+            id(&s, "Employee:E-1"),
+            id(&s, "Employee:E-2"),
+            id(&s, "Employee:E-3"),
+        );
+        // ten days on, the legacy record shows E-2 led from day 2 to day 6,
+        // by an HR clerk, and E-3 from day 6
+        s.now = port + 10 * day;
+        let mut refresh = team("E-3");
+        refresh.entered.insert(
+            "lead".into(),
+            EnteredAt {
+                at: port + 6 * day,
+                by: None,
+                by_kind: None,
+            },
+        );
+        let mut between = earlier("lead", json!("E-2"), port + 2 * day, None);
+        between.entered_by = Some("hr-clerk".into());
+        between.entered_by_kind = Some("human".into());
+        refresh.legacy_intervals = vec![between];
+        assert_eq!(run(&mut s, vec![refresh.clone()], &[], false).written, 1);
+        let leads = |s: &Store| {
+            s.snapshot().unwrap().get(&t1).unwrap().spans["lead"]
+                .iter()
+                .map(|sp| {
+                    (
+                        sp.value.clone(),
+                        sp.entered_at - port,
+                        sp.left_at.map(|l| l - port),
+                        sp.entered_by_kind.clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let unknown = || "unknown".to_string();
+        let expected = vec![
+            (Value::Object(e1.clone()), 0, Some(2 * day), unknown()),
+            (
+                Value::Object(e2.clone()),
+                2 * day,
+                Some(6 * day),
+                "human".into(),
+            ),
+            (Value::Object(e3.clone()), 6 * day, None, unknown()),
+        ];
+        assert_eq!(leads(&s), expected);
+        // the closed spans are the refresh's event's, as the store reads them
+        let w = s.snapshot().unwrap();
+        let spans = &w.get(&t1).unwrap().spans["lead"];
+        assert_eq!(spans[1].entered_position, spans[1].left_position.unwrap());
+        assert_eq!(spans[0].left_position, Some(spans[1].entered_position));
+        drop(w);
+        // sent again, it writes nothing, and is not refused: what the store
+        // holds is left as it is (publish-and-import.md §4)
+        let events = s.snapshot().unwrap().events.len();
+        let again = run(&mut s, vec![refresh], &[], false);
+        assert_eq!((again.written, again.refusal), (0, None));
+        assert_eq!(s.snapshot().unwrap().events.len(), events);
+        assert_eq!(leads(&s), expected);
+        // E-1 led again for a day before E-3 came back: the current value is
+        // unchanged, and the refresh still writes the stretch between
+        s.now = port + 20 * day;
+        let mut back = team("E-3");
+        back.entered.insert(
+            "lead".into(),
+            EnteredAt {
+                at: port + 13 * day,
+                by: None,
+                by_kind: None,
+            },
+        );
+        back.legacy_intervals = vec![earlier("lead", json!("E-1"), port + 12 * day, None)];
+        assert_eq!(run(&mut s, vec![back], &[], false).written, 1);
+        assert_eq!(
+            leads(&s)[2..],
+            [
+                (
+                    Value::Object(e3.clone()),
+                    6 * day,
+                    Some(12 * day),
+                    unknown()
+                ),
+                (
+                    Value::Object(e1.clone()),
+                    12 * day,
+                    Some(13 * day),
+                    unknown()
+                ),
+                (Value::Object(e3), 13 * day, None, unknown()),
+            ]
+        );
+        // refused: before the latest interval the store holds, at or after
+        // the value following it, past it, and of what is not tracked
+        s.now = port + 30 * day;
+        let cases: Vec<(&str, LegacyInterval, i64)> = vec![
+            (
+                "before the latest interval",
+                earlier("lead", json!("E-2"), port + 11 * day, None),
+                25,
+            ),
+            (
+                "at or after the value following it",
+                earlier("lead", json!("E-2"), port + 25 * day, None),
+                25,
+            ),
+            (
+                "overlaps the value following it",
+                earlier("lead", json!("E-2"), port + 21 * day, Some(port + 27 * day)),
+                25,
+            ),
+            (
+                "does not track",
+                earlier("code", json!("T9"), port + 21 * day, None),
+                25,
+            ),
+        ];
+        for (words, l, entered) in cases {
+            let mut r = team("E-2");
+            r.entered.insert(
+                "lead".into(),
+                EnteredAt {
+                    at: port + entered * day,
+                    by: None,
+                    by_kind: None,
+                },
+            );
+            r.legacy_intervals = vec![l];
+            let report = run(&mut s, vec![r], &[], false);
+            let reason = report.refusal.map(|f| f.reason).unwrap_or_default();
+            assert!(reason.contains(words), "{words}: {reason}");
+            assert_eq!(report.written, 0, "{words}");
+        }
+        assert_eq!(leads(&s).len(), 5);
+    }
+
+    /// Observations and labels port with their subjects
+    /// (`publish-and-import.md` §4): a mirror's object's note, dated when the
+    /// legacy record says and recorded at the import, and a label naming its
+    /// subject by `<Type>:<key>`; an occurred time only on an observation,
+    /// and never after the import.
+    #[test]
+    fn observations_and_labels_port_with_their_mirrors_objects() {
+        let day = 86_400;
+        let mut s = store();
+        let port = s.now;
+        let mut note = employee(
+            "N-1",
+            "RECORDED",
+            json!({"subject": "E-1", "text": "joined"}),
+        );
+        note.type_ = "Note".into();
+        note.occurred_at = Some(port - 30 * day);
+        let mut label = employee(
+            "L-1",
+            "RECORDED",
+            json!({"subject": "Employee:E-1", "name": "mentor", "subject_state": "EMPLOYED"}),
+        );
+        label.type_ = "label".into();
+        let batch = vec![
+            employee("E-1", "EMPLOYED", json!({"employee_id": "1"})),
+            note.clone(),
+            label.clone(),
+        ];
+        let r = run(&mut s, batch, &[], false);
+        assert_eq!((r.written, r.refusal), (3, None));
+        let w = s.snapshot().unwrap();
+        let id = |key: &str| w.external[&("legacy".to_string(), key.to_string())].clone();
+        let (e1, n1, l1) = (id("Employee:E-1"), id("Note:N-1"), id("label:L-1"));
+        let n = w.get(&n1).unwrap();
+        assert_eq!(n.attr("subject"), Value::Object(e1.clone()));
+        assert_eq!(n.attr("occurred_at"), Value::Timestamp(port - 30 * day));
+        assert_eq!(n.attr("recorded_at"), Value::Timestamp(port));
+        assert_eq!(w.get(&l1).unwrap().attr("subject"), Value::Object(e1));
+        drop(w);
+        // refused: a label's subject without its type, an occurred time on
+        // what is not an observation, and one after the import
+        let mut bare = label.clone();
+        bare.legacy_key = "L-2".into();
+        bare.attributes.insert("subject".into(), json!("E-1"));
+        let mut dated = employee("E-2", "EMPLOYED", json!({"employee_id": "2"}));
+        dated.occurred_at = Some(port - day);
+        let mut ahead = note;
+        ahead.legacy_key = "N-2".into();
+        ahead.occurred_at = Some(port + day);
+        for (words, o) in [
+            ("is undecided", bare),
+            ("only an observation takes", dated),
+            ("after the import", ahead),
+        ] {
+            let r = run(&mut s, vec![o], &[], false);
+            let reason = r.refusal.map(|f| f.reason).unwrap_or_default();
+            assert!(reason.contains(words), "{words}: {reason}");
+            assert_eq!(r.written, 0, "{words}");
+        }
     }
 }

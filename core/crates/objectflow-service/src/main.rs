@@ -685,11 +685,6 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
     {
         beyond.push(format!("legacy entries, on {type_} {legacy_key}"));
     }
-    if o.get("occurred_at").is_some_and(|v| !v.is_null()) {
-        beyond.push(format!(
-            "an observation's occurred time, on {type_} {legacy_key}"
-        ));
-    }
     // the earlier values the legacy record gives, and where it is silent
     let mut legacy_intervals = Vec::new();
     for l in o
@@ -747,6 +742,7 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
         entered,
         created_at: instant(o.get("created_at"), "created_at")?,
         created_by_kind: field("created_by_kind"),
+        occurred_at: instant(o.get("occurred_at"), "occurred_at")?,
         beyond,
     })
 }
