@@ -551,6 +551,23 @@ class Driver:
                 raise Differs(f"the pull is refused as {page['refused']}")
             return [(self.show(e["object_id"]), self.show(e["transition"]), self.show(e["occurred_at"]))
                     for e in page["events"]], ["object", "transition", "occurred_at"], []
+        m = re.fullmatch(r"(read set|consulted) of ([\w-]+)\.(\w+)(?:: (.+))?", spec_)
+        if m:
+            # what the rules of the object's last event of the transition read and consulted (ADR-0088, ADR-0158)
+            evs = self.core.call("/v1/history", {"id": self.oid(m.group(2))})["events"]
+            e = [e for e in evs if e["transition"] == m.group(3)][-1]
+            if m.group(1) == "read set":
+                kinds = {k.strip() for k in (m.group(4) or "").split(",")}
+                rows = []
+                for oid in (e.get("reads") or {}).get("objects", {}):
+                    t = self.core.call("/v1/get", {"id": oid})["type"]
+                    if t in kinds:
+                        rows.append((self.show(oid), t))
+                return rows, ["object", "kind"], []
+            # a reference binds an object by its id, which the document writes by its alias
+            return [(re.sub(r"(?<=: )([^,)]+)", lambda k: self.show(k.group(1)), ref), self.show(v))
+                    for g in ((e.get("payload") or {}).get("consulted") or {}).values()
+                    for ref, v in sorted(g["values"].items())], ["reference", "value"], []
         m = re.fullmatch(r"caused by\(([\w-]+)\.(\w+)\)", spec_)
         if m:
             # every event the named one caused (DESIGN.md §6 step 8)
@@ -692,7 +709,8 @@ def main():
             key = spec_ if seen[spec_] == 1 else f"{spec_} #{seen[spec_]}"
             if not spec_.startswith(("metric(", "query(", "check ", "answer ", "events(", "history(", "provenance(",
                                      "payloads(", "get(", "results(", "recorded(", "labels(", "proposal ",
-                                     "caused by(", "pull(", "notices of", "change ", "impact of")):
+                                     "caused by(", "pull(", "notices of", "change ", "impact of",
+                                     "read set of", "consulted of")):
                 outcomes.append("not compared")
                 continue
             if stopped:

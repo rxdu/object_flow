@@ -9,6 +9,8 @@ caused by(D20.complete_sale)
 change DC1
 check CK1
 check CK2
+consulted of D14.complete_sale
+consulted of D15.complete_sale
 events(M-ARM)
 events(R30)
 events(R40)
@@ -106,6 +108,8 @@ query(Robot, filter: "state == REQUESTED or state == PROCUREMENT", order: "creat
 query(RobotModel, filter: "low_stock")
 query(Shipment, filter: "overdue")
 query(Warranty, filter: "expiring")
+read set of D09.complete_sale: PdiCheck, PdiResult
+read set of D10.complete_sale: PdiCheck, PdiResult
 recorded(R08.battery_days)
 results(D10)
 results(D18)

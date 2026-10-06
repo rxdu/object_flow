@@ -805,6 +805,7 @@ fn decide(
             occurred_at: Some(port),
             imported: true,
             payload: json!({ "inputs": o.attributes }),
+            reads: json!({}),
         };
         // what it wrote, in the write index
         let before = p.held.as_ref().map(|h| h.attrs.clone()).unwrap_or_default();

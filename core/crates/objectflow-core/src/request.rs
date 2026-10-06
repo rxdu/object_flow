@@ -21,7 +21,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value as Json, json};
 
-use crate::eval::{Evaluator, NotRun, Who, truth};
+use crate::eval::{Evaluator, NotRun, Reading, Who, truth};
 use crate::expr::Expr;
 use crate::model::{
     DECLARATION_CHANGE, Declared, Enforce, From, Kind, Library, PROPOSAL, Remedy, Step, Transition,
@@ -111,12 +111,18 @@ pub struct Refusal {
     /// For an approval its request refused, the proposal and the request it
     /// held, whose transition the row is of.
     pub approving: Option<Box<(String, Request)>>,
+    /// Everything the request had read when refused, the objects its
+    /// outcome and cascades reached included, and what the failing clause
+    /// consulted (`DESIGN.md` §7, ADR-0088): null where it read nothing.
+    pub reads: Json,
+    pub consulted: Json,
 }
 
 /// Why a request stops before it applies: a refusal, or a construct the
 /// slice does not run.
 enum Stop {
-    Refused(Verdict, Refusal),
+    /// Boxed, since what a refusal read makes it large beside the rest.
+    Refused(Verdict, Box<Refusal>),
     NotRun(NotRun),
 }
 
@@ -127,7 +133,7 @@ impl std::convert::From<NotRun> for Stop {
 }
 
 fn refused<T>(v: Verdict) -> Result<T, Stop> {
-    Err(Stop::Refused(v, Refusal::default()))
+    Err(Stop::Refused(v, Box::default()))
 }
 
 /// Who a request acts as: its actor, and the principal it names, each an
@@ -243,7 +249,7 @@ struct Ctx<'w> {
     /// The `warn` and `audit` guards of the transition being taken that
     /// failed: each clause, whether it raises a flag, its remedy and whether
     /// it was unknown, linked to its event once its position is allocated.
-    failed: Vec<(String, bool, Option<Remedy>, bool)>,
+    failed: Vec<(String, bool, Option<Remedy>, bool, Reading)>,
     /// Their rows of the attempt log, written with the events (§7).
     observed: Vec<crate::store::Attempt>,
     /// For a check, where it names each guard it did not evaluate, one that
@@ -268,6 +274,12 @@ struct Ctx<'w> {
     /// Every event, in the order recorded.
     events: Vec<Event>,
     created: BTreeSet<String>,
+    /// Everything the request's rules have read, for a refusal's row.
+    read: Reading,
+    /// What the rules evaluated for each event read, by its position: its
+    /// transition's guards, and the invariants of its object if it is the
+    /// object's last (ADR-0088).
+    readings: BTreeMap<i64, Reading>,
 }
 
 /// What the request answers: its verdict, and what it writes if it applies.
@@ -310,7 +322,7 @@ fn decide_as(
     };
     match answer {
         Ok((v, change)) => Ok((v, change, Refusal::default())),
-        Err(Stop::Refused(v, r)) => Ok((v, None, r)),
+        Err(Stop::Refused(v, r)) => Ok((v, None, *r)),
         Err(Stop::NotRun(e)) => Err(e),
     }
 }
@@ -443,10 +455,19 @@ fn decide_or_stop(
         erased: BTreeMap::new(),
         events: Vec::new(),
         created: BTreeSet::new(),
+        read: Reading::default(),
+        readings: BTreeMap::new(),
     };
     // an admission records the request's reason (ADR-0054)
     let reason = inputs.get("reason").map(text_of).unwrap_or_default();
-    let root = take(&mut ctx, alloc, &tn, &req.transition, oid, inputs, 0)?;
+    let root = match take(&mut ctx, alloc, &tn, &req.transition, oid, inputs, 0) {
+        Ok(root) => root,
+        Err(Stop::Refused(v, mut r)) => {
+            r.reads = refused_reads(&ctx);
+            return Err(Stop::Refused(v, r));
+        }
+        Err(stop) => return Err(stop),
+    };
     // 7. the invariants, on every object, in ascending id order, except a
     // violation an admission lets stand, which is discharged once the
     // invariant holds again (ADR-0054); an assertion admits what it names
@@ -458,7 +479,21 @@ fn decide_or_stop(
         let Some(obj) = ctx.work.get(&id) else {
             continue;
         };
-        let failing = failing_invariants(&ctx.work, obj)?;
+        // what an object's invariants read is recorded on its last event,
+        // for an object the request wrote
+        let last = ctx
+            .events
+            .iter()
+            .filter(|e| e.object_id == id)
+            .map(|e| e.position)
+            .max();
+        let reading = std::cell::RefCell::new(Reading::default());
+        let failing = failing_invariants_reading(&ctx.work, obj, last.map(|_| &reading))?;
+        let read = reading.into_inner();
+        ctx.read.merge(read.clone());
+        if let Some(position) = last {
+            ctx.readings.entry(position).or_default().merge(read);
+        }
         let holding: Vec<String> = obj
             .admissions
             .iter()
@@ -489,7 +524,13 @@ fn decide_or_stop(
                 })
                 .collect();
             let remedy = failures.first().and_then(|f| f.remedy);
-            return refused(Verdict::InvariantViolated { failures, remedy });
+            return Err(Stop::Refused(
+                Verdict::InvariantViolated { failures, remedy },
+                Box::new(Refusal {
+                    reads: refused_reads(&ctx),
+                    ..Refusal::default()
+                }),
+            ));
         }
         if let Some(o) = ctx.work.objects.get_mut(&id) {
             for n in holding {
@@ -500,6 +541,13 @@ fn decide_or_stop(
                 o.admissions.insert(n.clone());
                 admitted.push((id.clone(), n, first, reason.clone()));
             }
+        }
+    }
+    // each event's read set, its own object's entry left to its order
+    // (DESIGN.md §6)
+    for e in &mut ctx.events {
+        if let Some(r) = ctx.readings.get(&e.position) {
+            e.reads = r.record(ctx.work.now, Some(&e.object_id));
         }
     }
     // the events in position order, the order they were allocated in: a
@@ -892,24 +940,36 @@ fn take(
     {
         *name = name.trim().to_lowercase();
     }
+    // what the transition's guards read, each guard's under its name
+    let mut read = Reading::default();
     for (g, mode) in &x.guards {
         let Some(c) = t.condition(g) else {
             return stop_not_run(format!("the guard {g}, which {tn} does not declare"));
         };
-        let asking = Evaluator::new(&ctx.work, Some(t), oid.as_deref())
-            .with_committed(&ctx.before)
-            .with_inputs(&inputs)
-            .with_actor(&ctx.who);
-        // a check asks no evaluator: a guard left unanswered is named, and
-        // decides nothing (ADR-0054)
-        let asking = if ctx.checking.is_some() {
-            asking
-        } else {
-            asking.with_answers(&ctx.answers)
+        let reading = std::cell::RefCell::new(Reading::default());
+        let (ok, unanswered) = {
+            let asking = Evaluator::new(&ctx.work, Some(t), oid.as_deref())
+                .with_committed(&ctx.before)
+                .with_inputs(&inputs)
+                .with_actor(&ctx.who)
+                .with_reading(&reading, g);
+            // a check asks no evaluator: a guard left unanswered is named,
+            // and decides nothing (ADR-0054)
+            let asking = if ctx.checking.is_some() {
+                asking
+            } else {
+                asking.with_answers(&ctx.answers)
+            };
+            (
+                truth(&asking.eval(&c.expression)?)?,
+                asking.unanswered.get(),
+            )
         };
-        let ok = truth(&asking.eval(&c.expression)?)?;
+        let guard_read = reading.into_inner();
+        ctx.read.merge(guard_read.clone());
+        read.merge(guard_read.clone());
         if let Some(named) = &ctx.checking
-            && asking.unanswered.get()
+            && unanswered
         {
             named.borrow_mut().push(if tn == ctx.requested {
                 g.clone()
@@ -926,16 +986,19 @@ fn take(
                     return Err(Stop::Refused(
                         Verdict::Unsatisfied {
                             clause: g.clone(),
-                            remedy: if asking.unanswered.get() {
+                            remedy: if unanswered {
                                 Some(Remedy::Temporal)
                             } else {
                                 c.remedy
                             },
                         },
-                        Refusal {
+                        Box::new(Refusal {
                             unknown: ok.is_none(),
-                            approving: None,
-                        },
+                            consulted: guard_read
+                                .consulted_record(ctx.work.now)
+                                .unwrap_or(Json::Null),
+                            ..Refusal::default()
+                        }),
                     ));
                 }
                 Enforce::Warn => {
@@ -948,11 +1011,15 @@ fn take(
                         clause,
                         remedy: c.remedy,
                     });
-                    ctx.failed.push((g.clone(), true, c.remedy, ok.is_none()));
+                    ctx.failed
+                        .push((g.clone(), true, c.remedy, ok.is_none(), guard_read));
                 }
                 // an observing clause's would-be refusal is recorded, and
                 // refuses nothing (DESIGN.md §5.5)
-                Enforce::Audit => ctx.failed.push((g.clone(), false, c.remedy, ok.is_none())),
+                Enforce::Audit => {
+                    ctx.failed
+                        .push((g.clone(), false, c.remedy, ok.is_none(), guard_read));
+                }
             }
         }
     }
@@ -977,9 +1044,11 @@ fn take(
     let position = alloc.position();
     let cause = ctx.causes.last().copied();
     ctx.causes.push(position);
+    let consulted = read.consulted_record(ctx.work.now);
+    ctx.readings.insert(position, read);
     // each flag raised, and each audit's would-be refusal, a row of the type
     // whose clause failed, linked to this event (DESIGN.md §5.5, §7)
-    for (clause, flagged, remedy, unknown) in std::mem::take(&mut ctx.failed) {
+    for (clause, flagged, remedy, unknown, clause_read) in std::mem::take(&mut ctx.failed) {
         ctx.observed.push(crate::store::Attempt {
             at: ctx.work.now,
             actor_id: ctx.who.id.clone(),
@@ -998,6 +1067,12 @@ fn take(
             request_values: Json::Null,
             withheld: Vec::new(),
             declaration_version: lib.version,
+            // an observing clause's would-be refusal carries what it read
+            // and consulted (ADR-0088 §3)
+            reads: clause_read.record(ctx.work.now, None),
+            consulted: clause_read
+                .consulted_record(ctx.work.now)
+                .unwrap_or(Json::Null),
         });
     }
     alloc.txn();
@@ -1291,8 +1366,13 @@ fn take(
             {
                 p["reason"] = wire::encode(r);
             }
+            // what its guards consulted, by guard and reference (ADR-0158)
+            if let Some(c) = consulted {
+                p["consulted"] = c;
+            }
             p
         },
+        reads: json!({}),
     };
     ctx.work.events.push(event.clone());
     ctx.events.push(event);
@@ -1517,6 +1597,7 @@ fn invalidate_proposals(
             occurred_at: Some(ctx.at),
             imported: false,
             payload: json!({ "redacted": ["inputs"] }),
+            reads: json!({}),
         };
         ctx.work.events.push(invalidated.clone());
         ctx.events.push(invalidated);
@@ -1697,6 +1778,7 @@ fn file(
         occurred_at: Some(world.now),
         imported: false,
         payload: json!({ "inputs": req.inputs }),
+        reads: json!({}),
     };
     Ok((
         Verdict::Satisfied {
@@ -1751,6 +1833,7 @@ fn store_event(
         occurred_at: Some(now),
         imported: false,
         payload,
+        reads: json!({}),
     }
 }
 
@@ -2082,6 +2165,7 @@ fn decide_proposal(
         occurred_at: Some(world.now),
         imported: false,
         payload: json!({}),
+        reads: json!({}),
     };
     if to != "EXECUTED" {
         return Ok((
@@ -2839,12 +2923,26 @@ fn mint(
 /// ADR-0147). An invariant that is unknown holds (`declaration-syntax.md`
 /// §8.2).
 pub fn failing_invariants(world: &World<'_>, o: &Object) -> Result<Vec<String>, NotRun> {
+    failing_invariants_reading(world, o, None)
+}
+
+/// The invariants an object fails, and, given a collector, what each
+/// declared invariant read, under its name (ADR-0088).
+fn failing_invariants_reading(
+    world: &World<'_>,
+    o: &Object,
+    reading: Option<&std::cell::RefCell<Reading>>,
+) -> Result<Vec<String>, NotRun> {
     let Some(t) = world.lib.type_(&o.type_) else {
         return Ok(Vec::new());
     };
     let mut out = Vec::new();
     for (n, e) in &t.invariants {
-        if truth(&Evaluator::new(world, Some(t), Some(&o.id)).eval(e)?)? == Some(false) {
+        let mut evaluating = Evaluator::new(world, Some(t), Some(&o.id));
+        if let Some(r) = reading {
+            evaluating = evaluating.with_reading(r, n);
+        }
+        if truth(&evaluating.eval(e)?)? == Some(false) {
             out.push(n.clone());
         }
     }
@@ -3135,6 +3233,18 @@ pub fn check(
     }))
 }
 
+/// Everything a request had read when refused, the objects its outcome and
+/// cascades reached included, at the versions it left them (`DESIGN.md` §7).
+fn refused_reads(ctx: &Ctx<'_>) -> Json {
+    let mut read = ctx.read.clone();
+    for e in &ctx.events {
+        if let Some(o) = ctx.work.get(&e.object_id) {
+            read.objects.insert(o.id.clone(), o.version);
+        }
+    }
+    read.record(ctx.work.now, None)
+}
+
 /// A refused request's row of the attempt log (`DESIGN.md` §6, §9): who
 /// asked, as the request named them where the store holds no such actor,
 /// and their kind, `unknown` then; the type, none for an unknown id; the
@@ -3229,6 +3339,8 @@ fn refused_attempt(
         request_values,
         withheld,
         declaration_version: lib.version,
+        reads: refusal.reads.clone(),
+        consulted: refusal.consulted.clone(),
     }
 }
 
@@ -5472,6 +5584,106 @@ types:
         assert_eq!(
             last.payload["corrected"]["title"],
             json!({"replaced": null, "value": "Fix", "span": null})
+        );
+    }
+
+    /// A rule recording what it reads is evaluated whole (`DESIGN.md` §6,
+    /// ADR-0158): the side of an `and` or an `or` that does not decide, and
+    /// an `all`'s elements after one fails, are evaluated for the record,
+    /// each evaluator's answer consulted by the call and its argument; and
+    /// the verdict is the one stopping early would give, an evaluator the
+    /// deciding side never needed leaving its remedy its own (ADR-0138).
+    #[test]
+    fn a_rule_is_evaluated_whole_for_its_record_and_decides_as_before() {
+        const SHOP: &str = r#"
+module: shop
+categories: [live, closed]
+evaluators:
+  vault:
+    functions:
+      cleared: { arguments: { n: { type: int } } }
+types:
+  Order:
+    attributes:
+      n: { type: int }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    conditions:
+      small_and_cleared: { expression: n < 10 and vault.cleared(n), remedy: self_serviceable }
+      big_or_cleared: { expression: n >= 10 or vault.cleared(n), remedy: dependent }
+      every_cleared: { expression: "all(o in Order: vault.cleared(o.n))", remedy: dependent }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [n] }
+      ship: { kind: external, from: [OPEN], to: DONE, guards: { small_and_cleared: deny } }
+      send: { kind: external, from: [OPEN], to: DONE, guards: { big_or_cleared: deny } }
+      note: { kind: internal, from: [OPEN], guards: { every_cleared: audit } }
+"#;
+        let lib = Library::load(&[("shop.yaml".into(), SHOP.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let open = |s: &mut Store, n: i64| {
+            created(&req(
+                s,
+                "open",
+                OPERATOR,
+                ("Order", true),
+                json!({ "n": n }),
+            ))
+        };
+        let (one, two, big) = (open(&mut s, 1), open(&mut s, 2), open(&mut s, 20));
+        // the size decides; the vault, asked for the record, did not answer,
+        // and the refusal keeps the guard's own remedy
+        s.answers
+            .insert("vault.cleared".into(), "unanswered".into());
+        assert_eq!(
+            req(&mut s, "ship", OPERATOR, (&big, false), json!({})),
+            Verdict::Unsatisfied {
+                clause: "small_and_cleared".into(),
+                remedy: Some(Remedy::SelfServiceable),
+            }
+        );
+        let w = s.snapshot().unwrap();
+        let row = w.attempts.last().unwrap();
+        assert!(!row.unknown);
+        assert_eq!(
+            row.consulted["small_and_cleared"]["values"],
+            json!({ "vault.cleared(20)": "unanswered" })
+        );
+        drop(w);
+        // the size decides again, and the vault's answer is on the event
+        s.answers
+            .insert("vault.cleared".into(), "unsatisfied".into());
+        assert_eq!(
+            created(&req(&mut s, "send", OPERATOR, (&big, false), json!({}))),
+            big
+        );
+        let sent = s.history(&big).unwrap().pop().unwrap();
+        assert_eq!(
+            sent.payload["consulted"]["big_or_cleared"]["values"],
+            json!({ "vault.cleared(20)": "unsatisfied" })
+        );
+        // the first order fails, and every order is asked for all the same
+        assert_eq!(
+            created(&req(&mut s, "note", OPERATOR, (&one, false), json!({}))),
+            one
+        );
+        let noted = s.history(&one).unwrap().pop().unwrap();
+        assert_eq!(
+            noted.payload["consulted"]["every_cleared"]["values"],
+            json!({ "vault.cleared(1)": "unsatisfied", "vault.cleared(2)": "unsatisfied", "vault.cleared(20)": "unsatisfied" })
+        );
+        assert_eq!(
+            noted.reads["scans"]["every_cleared"]["Order"],
+            json!(
+                [big.clone(), one.clone(), two.clone()]
+                    .iter()
+                    .collect::<BTreeSet<_>>()
+            )
+        );
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.attempts.last().unwrap().clause.as_deref(),
+            Some("every_cleared")
         );
     }
 }

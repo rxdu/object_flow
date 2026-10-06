@@ -69,6 +69,9 @@ pub struct Event {
     pub occurred_at: Option<i64>,
     pub imported: bool,
     pub payload: serde_json::Value,
+    /// The read set of the rules evaluated for it, as JSON (ADR-0088,
+    /// ADR-0158): empty where it evaluated none.
+    pub reads: serde_json::Value,
 }
 
 /// What a request writes: the objects it created or changed, each with its
@@ -140,6 +143,11 @@ pub struct Attempt {
     pub request_values: serde_json::Value,
     pub withheld: Vec<String>,
     pub declaration_version: i64,
+    /// Everything the request had read when refused, or, for an observing
+    /// clause's row, what the clause read (ADR-0088 §3); and the values the
+    /// failing clause consulted (ADR-0096, ADR-0158). Null where none.
+    pub reads: serde_json::Value,
+    pub consulted: serde_json::Value,
 }
 
 fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
@@ -147,8 +155,9 @@ fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
     tx.execute(
         &format!(
             "INSERT INTO of_attempt (at, actor_id, actor_kind, txn, type, object_id, transition, verdict, clause, remedy, \
-             unknown, enforced, flagged, applied_position, request_values, declaration_version, actor_principal) \
-             VALUES (?1, ?2, ?3, {txn}, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)"
+             unknown, enforced, flagged, applied_position, request_values, declaration_version, actor_principal, \
+             reads, consulted) \
+             VALUES (?1, ?2, ?3, {txn}, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"
         ),
         params![
             timestamp_text(a.at),
@@ -167,6 +176,8 @@ fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
             values.to_string(),
             a.declaration_version,
             a.principal,
+            (!a.reads.is_null()).then(|| a.reads.to_string()),
+            (!a.consulted.is_null()).then(|| a.consulted.to_string()),
         ],
     )?;
     Ok(())
@@ -203,7 +214,15 @@ fn attempt_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Attempt> {
             })
             .unwrap_or_default(),
         declaration_version: r.get(14)?,
+        reads: json_column(r.get(16)?),
+        consulted: json_column(r.get(17)?),
     })
+}
+
+/// A JSON column as written, null where empty.
+fn json_column(text: Option<String>) -> serde_json::Value {
+    text.and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(serde_json::Value::Null)
 }
 
 fn table(type_: &str) -> String {
@@ -491,6 +510,7 @@ fn event_of(
         occurred_at: Some(now),
         imported: false,
         payload,
+        reads: serde_json::json!({}),
     }
 }
 
@@ -1678,7 +1698,7 @@ fn next(tx: &Connection, name: &str) -> Stored<i64> {
 
 const EVENT_SELECT: &str = "SELECT position, object_id, object_seq, transition, from_state, to_state, changes_state, \
     source, actor_id, actor_kind, declaration_version, recorded_at, occurred_at, imported, payload, actor_principal, \
-    cause_position FROM of_event";
+    cause_position, reads FROM of_event";
 
 fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
     let recorded: String = r.get(11)?;
@@ -1702,6 +1722,10 @@ fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
         occurred_at: occurred.as_deref().and_then(parse_timestamp),
         imported: r.get::<_, i64>(13)? != 0,
         payload: serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null),
+        reads: json_column(r.get(17)?).as_object().map_or_else(
+            || serde_json::json!({}),
+            |o| serde_json::Value::Object(o.clone()),
+        ),
     })
 }
 
@@ -1858,7 +1882,8 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
     // the attempt log, in the order written
     let mut attempts = conn.prepare(
         "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
-         flagged, applied_position, request_values, declaration_version, actor_principal FROM of_attempt ORDER BY id",
+         flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted \
+         FROM of_attempt ORDER BY id",
     )?;
     let rows = attempts.query_map([], attempt_row)?;
     world.attempts = rows.collect::<Result<Vec<_>, _>>()?;
@@ -2012,7 +2037,7 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
             "INSERT INTO of_event (position, txn, object_id, object_seq, transition, from_state, to_state, changes_state, \
              source, actor_id, actor_kind, declaration_version, taint_version, recorded_at, occurred_at, payload, reads, imported, \
              actor_principal, cause_position) \
-             VALUES (?1, (SELECT value FROM of_counter WHERE name = 'txn'), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?13, ?14, '{}', ?15, ?16, ?17)",
+             VALUES (?1, (SELECT value FROM of_counter WHERE name = 'txn'), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?13, ?14, ?18, ?15, ?16, ?17)",
             params![
                 event.position,
                 event.object_id,
@@ -2031,6 +2056,7 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
                 i64::from(event.imported),
                 event.principal,
                 event.cause,
+                event.reads.to_string(),
             ],
         )?;
         let name = table(&o.type_);

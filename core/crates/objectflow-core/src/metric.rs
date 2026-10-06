@@ -3425,4 +3425,163 @@ types:
             )]
         );
     }
+
+    /// `DESIGN.md` §6 and §7, ADR-0088, ADR-0158: an event records the read
+    /// set of the rules evaluated for it and the values they consulted. A
+    /// scan records, by guard and type, what satisfied its `where`, an empty
+    /// match empty, and not what it examined and rejected; a collection's
+    /// elements are read; the event's own object is left to its order; and a
+    /// metric is consulted, by guard and reference, though the `or`'s other
+    /// side decides. An invariant's reads go on its object's event. A
+    /// refusal's row holds everything read and what its clause consulted, an
+    /// audit's what its clause read.
+    #[test]
+    fn an_event_records_what_its_rules_read_and_consulted() {
+        let text = JOBS
+            .replace(
+                "      checked: { description: Checked., expression: count(c in checks) > 0, remedy: self_serviceable }",
+                "      checked: { description: Checked., expression: count(c in checks) > 0, remedy: self_serviceable }
+      tagged_or_good: { description: x, expression: \"count(t in tags) >= 1 or metric(pass_rate, engineer := engineer, over last 30 days) >= 0.900\", remedy: dependent }
+      ana_known: { description: x, expression: 'any(u in User where u.login == \"ana\")', remedy: dependent }
+      no_carl: { description: x, expression: 'none(u in User where u.login == \"carl\")', remedy: dependent }
+      login_unknown: { description: x, expression: engineer_login is null, remedy: dependent }",
+            )
+            .replace(
+                "      review: { kind: internal, from: [WORKING], guards: { checked: warn } }",
+                "      review: { kind: internal, from: [WORKING], guards: { checked: warn } }
+      wrap: { kind: internal, from: [WORKING], guards: { checked: deny, tagged_or_good: deny, ana_known: deny, no_carl: deny } }
+      vet: { kind: internal, from: [WORKING], guards: { login_unknown: audit } }",
+            )
+            .replace(
+                "    transitions:\n      open: { kind: initial, to: OPEN, optional_inputs: [engineer, tags] }",
+                "    derived_attributes:\n      engineer_login: { expression: engineer.login }\n    invariants:\n      engineer_named: { expression: engineer is null or engineer.login is not null }\n    transitions:\n      open: { kind: initial, to: OPEN, optional_inputs: [engineer, tags] }",
+            );
+        assert_eq!(text.matches("wrap:").count(), 1);
+        assert_eq!(text.matches("engineer_named").count(), 1);
+        assert_eq!(text.matches("no_carl").count(), 2);
+        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, parse_timestamp("2026-01-01T00:00:00Z").unwrap()).unwrap();
+        let (ana, ben) = (user(&mut s, "ana"), user(&mut s, "ben"));
+        let tagged = job(&mut s, json!({ "engineer": ana, "tags": ["urgent"] }));
+        let plain = job(&mut s, json!({ "engineer": ana }));
+        record(&mut s, &tagged, &["PASS", "FAIL"]);
+        for j in [&tagged, &plain] {
+            take(&mut s, "start", j);
+        }
+        let checks: Vec<String> = s
+            .snapshot()
+            .unwrap()
+            .of_type("Check")
+            .iter()
+            .map(|c| c.id.clone())
+            .collect();
+        assert_eq!(checks.len(), 2);
+        let last = |s: &Store, j: &str, xn: &str| {
+            s.history(j)
+                .unwrap()
+                .into_iter()
+                .rfind(|e| e.transition == xn)
+                .unwrap()
+        };
+        // the tag decides, and the rate is consulted all the same: ana's
+        // checks, one pass in two
+        assert_eq!(
+            req(&mut s, "Job", "wrap", Some(&tagged), json!({})),
+            Ok(tagged.clone())
+        );
+        let e = last(&s, &tagged, "wrap");
+        let reference = format!("pass_rate(engineer: {ana})");
+        assert_eq!(
+            e.payload["consulted"]["tagged_or_good"]["values"],
+            json!({ reference.clone(): "0.500" })
+        );
+        assert_eq!(
+            e.payload["consulted"]["tagged_or_good"]["as_of"],
+            json!("2026-01-01T00:00:00Z")
+        );
+        // ana matched, ben examined and rejected, carl matched by none; the
+        // checks read as the collection's elements; the job's own entry left
+        // to its order
+        let mut read: Vec<&String> = e.reads["objects"].as_object().unwrap().keys().collect();
+        read.sort();
+        let mut want = vec![&ana, &checks[0], &checks[1]];
+        want.sort();
+        assert_eq!(read, want);
+        assert!(!read.contains(&&ben) && !read.contains(&&tagged));
+        assert_eq!(e.reads["scans"]["ana_known"], json!({ "User": [ana] }));
+        assert_eq!(e.reads["scans"]["no_carl"], json!({ "User": [] }));
+        assert_eq!(e.reads["now"], json!("2026-01-01T00:00:00Z"));
+        // each read with the version it read
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            e.reads["objects"][&ana],
+            json!(w.get(&ana).unwrap().version)
+        );
+        drop(w);
+        // an untagged job is refused on the rate; its row holds what the
+        // request read, its own job included, and what its clause consulted
+        record(&mut s, &plain, &["PASS"]);
+        assert_eq!(
+            req(&mut s, "Job", "wrap", Some(&plain), json!({})),
+            Err(("unsatisfied".into(), "tagged_or_good".into()))
+        );
+        let w = s.snapshot().unwrap();
+        let row = w.attempts.last().unwrap();
+        assert_eq!(row.clause.as_deref(), Some("tagged_or_good"));
+        assert_eq!(
+            row.consulted["tagged_or_good"]["values"],
+            json!({ reference.clone(): "0.667" })
+        );
+        assert!(row.reads["objects"].get(&plain).is_some());
+        drop(w);
+        // a clause reading a derived attribute reads what its expression
+        // reads: the audit's row holds the engineer
+        assert_eq!(
+            req(&mut s, "Job", "vet", Some(&tagged), json!({})),
+            Ok(tagged.clone())
+        );
+        let w = s.snapshot().unwrap();
+        let row = w.attempts.last().unwrap();
+        assert_eq!(row.clause.as_deref(), Some("login_unknown"));
+        assert!(row.reads["objects"].get(&ana).is_some());
+        drop(w);
+        // an audit's row holds what its clause read
+        let bare = job(&mut s, json!({}));
+        take(&mut s, "start", &bare);
+        assert_eq!(
+            req(&mut s, "Job", "inspect", Some(&bare), json!({})),
+            Ok(bare.clone())
+        );
+        let w = s.snapshot().unwrap();
+        let row = w.attempts.last().unwrap();
+        assert_eq!(row.clause.as_deref(), Some("checked"));
+        assert_eq!(
+            row.reads["objects"],
+            json!({ bare.clone(): w.get(&bare).unwrap().version - 1 })
+        );
+        assert_eq!(row.consulted, Json::Null);
+        drop(w);
+        // the invariant's read of the engineer goes on the job's event
+        let free = job(&mut s, json!({}));
+        assert_eq!(
+            req(
+                &mut s,
+                "Job",
+                "take",
+                Some(&free),
+                json!({ "engineer": ben })
+            ),
+            Ok(free.clone())
+        );
+        let taken = s
+            .snapshot()
+            .unwrap()
+            .events
+            .iter()
+            .rfind(|e| e.transition == "take")
+            .unwrap()
+            .clone();
+        assert!(taken.reads["objects"].get(&ben).is_some());
+        assert!(taken.reads["objects"].get(&taken.object_id).is_none());
+    }
 }

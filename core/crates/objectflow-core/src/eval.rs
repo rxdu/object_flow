@@ -89,6 +89,82 @@ pub struct Evaluator<'a> {
     /// The store as the request found it, which a metric guard reads
     /// (ADR-0084 §6); none where it is the world itself.
     committed: Option<&'a World<'a>>,
+    /// Where a rule's evaluation records what it read and consulted, and
+    /// the rule's name, which keys its scans and consulted values (ADR-0088,
+    /// ADR-0158); none where nothing records.
+    reading: Option<(&'a std::cell::RefCell<Reading>, &'a str)>,
+    /// How deep inside a type-scan's `where` it is, where an object it
+    /// examines is not yet read: only what the scan matches is (ADR-0158).
+    quiet: std::cell::Cell<usize>,
+}
+
+/// What the rules evaluated for an event read and consulted (`DESIGN.md`
+/// §6, ADR-0088, ADR-0158): each object read, with the version read; each
+/// type-scan's matches, by rule and type, an empty match recorded empty;
+/// and each value consulted, by rule and the reference with its bindings.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Reading {
+    pub objects: BTreeMap<String, i64>,
+    pub scans: BTreeMap<String, BTreeMap<String, std::collections::BTreeSet<String>>>,
+    pub consulted: BTreeMap<String, BTreeMap<String, Value>>,
+}
+
+impl Reading {
+    /// The read set as an event or an attempt row records it
+    /// (`storage-schema.md` §4): each object read with its version, but the
+    /// one given, the event's own, whose version read its order records;
+    /// each scan's matches by rule and type; and the `now` the request fixed.
+    pub fn record(&self, now: i64, own: Option<&str>) -> serde_json::Value {
+        let objects: serde_json::Map<String, serde_json::Value> = self
+            .objects
+            .iter()
+            .filter(|(id, _)| Some(id.as_str()) != own)
+            .map(|(id, v)| (id.clone(), serde_json::json!(v)))
+            .collect();
+        serde_json::json!({
+            "objects": objects,
+            "scans": self.scans,
+            "now": crate::value::timestamp_text(now),
+        })
+    }
+
+    /// The values it consulted, by rule and the reference with its bindings,
+    /// with the as-of time of each rule's (ADR-0158); none where it consulted
+    /// nothing.
+    pub fn consulted_record(&self, as_of: i64) -> Option<serde_json::Value> {
+        if self.consulted.is_empty() {
+            return None;
+        }
+        let mut out = serde_json::Map::new();
+        for (rule, refs) in &self.consulted {
+            let values: serde_json::Map<String, serde_json::Value> = refs
+                .iter()
+                .map(|(r, v)| (r.clone(), crate::wire::encode(v)))
+                .collect();
+            out.insert(
+                rule.clone(),
+                serde_json::json!({
+                    "as_of": crate::value::timestamp_text(as_of),
+                    "values": values,
+                }),
+            );
+        }
+        Some(serde_json::Value::Object(out))
+    }
+
+    /// Another's reads added to these.
+    pub fn merge(&mut self, other: Reading) {
+        self.objects.extend(other.objects);
+        for (rule, types) in other.scans {
+            let mine = self.scans.entry(rule).or_default();
+            for (t, ids) in types {
+                mine.entry(t).or_default().extend(ids);
+            }
+        }
+        for (rule, refs) in other.consulted {
+            self.consulted.entry(rule).or_default().extend(refs);
+        }
+    }
 }
 
 /// The truth of a value, three-valued: `None` for unknown.
@@ -122,6 +198,59 @@ impl<'a> Evaluator<'a> {
             answers: None,
             unanswered: std::cell::Cell::new(false),
             committed: None,
+            reading: None,
+            quiet: std::cell::Cell::new(0),
+        }
+    }
+
+    /// Recording what a rule's evaluation reads and consults, under the
+    /// rule's name (ADR-0088, ADR-0158).
+    pub fn with_reading(
+        mut self,
+        reading: &'a std::cell::RefCell<Reading>,
+        rule: &'a str,
+    ) -> Evaluator<'a> {
+        self.reading = Some((reading, rule));
+        self
+    }
+
+    /// An object read, with the version it is at, unless a scan is only
+    /// examining it.
+    fn note(&self, id: &str) {
+        if let Some((reading, _)) = self.reading
+            && self.quiet.get() == 0
+            && let Some(o) = self.world.get(id)
+        {
+            reading
+                .borrow_mut()
+                .objects
+                .insert(id.to_string(), o.version);
+        }
+    }
+
+    /// A part that does not decide, evaluated for the record alone where a
+    /// rule records what it reads: every metric and evaluator a rule names is
+    /// consulted whichever side decides (`DESIGN.md` §6, ADR-0158), and what
+    /// it read is read. Its verdict, and any evaluator it leaves unanswered,
+    /// are set aside, so the rule decides as it would stopping early.
+    fn aside(&self, e: &Expr, env: &BTreeMap<String, Value>) -> Result<(), NotRun> {
+        if self.reading.is_some() {
+            let asked = self.unanswered.get();
+            self.value(e, env)?;
+            self.unanswered.set(asked);
+        }
+        Ok(())
+    }
+
+    /// A value a rule consulted, by the reference with its bindings.
+    fn consult(&self, reference: String, value: &Value) {
+        if let Some((reading, rule)) = self.reading {
+            reading
+                .borrow_mut()
+                .consulted
+                .entry(rule.to_string())
+                .or_default()
+                .insert(reference, value.clone());
         }
     }
 
@@ -420,6 +549,7 @@ impl<'a> Evaluator<'a> {
             Term::Value(Value::Object(id)) => id,
             other => return not_run(format!("a member `{m}` of {other:?}")),
         };
+        self.note(id);
         let Some(o) = self.world.get(id) else {
             return not_run(format!(
                 "a member `{m}` of an object the store does not hold"
@@ -481,6 +611,7 @@ impl<'a> Evaluator<'a> {
                     // asked with the same answers, as the runner asks it
                     let mut derived = Evaluator::new(self.world, Some(t), Some(&o.id));
                     derived.answers = self.answers;
+                    derived.reading = self.reading;
                     derived.eval(e)?
                 } else {
                     return not_run(format!("the member `{}.{m}`", o.type_));
@@ -540,6 +671,8 @@ impl<'a> Evaluator<'a> {
             let short =
                 (op == BinOp::And && a == Some(false)) || (op != BinOp::And && a == Some(true));
             if short {
+                // the side that does not decide is evaluated for the record
+                self.aside(r, env)?;
                 return Ok(Value::Bool(op != BinOp::And));
             }
             let b = truth(&self.value(r, env)?)?;
@@ -575,15 +708,28 @@ impl<'a> Evaluator<'a> {
         let (Some(var), Some(collection)) = (var, collection) else {
             return not_run(format!("a metric's own `{kind}`"));
         };
+        let mut scanned = None;
         let items: Vec<Value> = match self.term(collection, env)? {
             Term::Value(Value::Absent) => return Ok(Value::Absent),
-            Term::Value(Value::Set(items)) => items,
-            Term::TypeRef(t) if self.type_named(&t).is_some() => self
-                .world
-                .of_type(&t)
-                .into_iter()
-                .map(|o| Value::Object(o.id.clone()))
-                .collect(),
+            Term::Value(Value::Set(items)) => {
+                // each element of a collection a rule aggregates is read
+                for i in &items {
+                    if let Value::Object(id) = i {
+                        self.note(id);
+                    }
+                }
+                items
+            }
+            Term::TypeRef(t) if self.type_named(&t).is_some() => {
+                let all = self
+                    .world
+                    .of_type(&t)
+                    .into_iter()
+                    .map(|o| Value::Object(o.id.clone()))
+                    .collect();
+                scanned = Some(t);
+                all
+            }
             other => return not_run(format!("an aggregate over {other:?}")),
         };
         let mut selected = Vec::new();
@@ -591,16 +737,47 @@ impl<'a> Evaluator<'a> {
         for item in items {
             let mut inner = env.clone();
             inner.insert(var.to_string(), item);
+            // a type-scan's where examines an object, which is read only if
+            // the scan matches it (ADR-0158)
+            if scanned.is_some() {
+                self.quiet.set(self.quiet.get() + 1);
+            }
             let keep = match filter {
-                None => Some(true),
-                Some(f) => truth(&self.value(f, &inner)?)?,
+                None => Ok(Some(true)),
+                Some(f) => self.value(f, &inner).and_then(|v| truth(&v)),
             };
+            if scanned.is_some() {
+                self.quiet.set(self.quiet.get() - 1);
+            }
+            let keep = keep?;
             match keep {
                 None if self.filter_mode => {}
                 None => undecided = true,
                 Some(true) => selected.push(inner),
                 Some(false) => {}
             }
+        }
+        if let (Some(t), Some((reading, rule))) = (&scanned, self.reading)
+            && self.quiet.get() == 0
+        {
+            let matched: std::collections::BTreeSet<String> = selected
+                .iter()
+                .filter_map(|inner| match inner.get(var) {
+                    Some(Value::Object(id)) => Some(id.clone()),
+                    _ => None,
+                })
+                .collect();
+            for id in &matched {
+                self.note(id);
+            }
+            reading
+                .borrow_mut()
+                .scans
+                .entry(rule.to_string())
+                .or_default()
+                .entry(t.clone())
+                .or_default()
+                .extend(matched);
         }
         match kind {
             "any" => Ok(if !selected.is_empty() {
@@ -619,16 +796,28 @@ impl<'a> Evaluator<'a> {
             }),
             "all" => {
                 let mut unknown = undecided;
+                let mut failed = false;
                 for inner in &selected {
                     if let Some(b) = body {
+                        // once one fails, the rest are evaluated for the
+                        // record alone
+                        if failed {
+                            self.aside(b, inner)?;
+                            continue;
+                        }
                         match truth(&self.value(b, inner)?)? {
-                            Some(false) => return Ok(Value::Bool(false)),
+                            Some(false) if self.reading.is_none() => {
+                                return Ok(Value::Bool(false));
+                            }
+                            Some(false) => failed = true,
                             None => unknown = true,
                             Some(true) => {}
                         }
                     }
                 }
-                Ok(if unknown {
+                Ok(if failed {
+                    Value::Bool(false)
+                } else if unknown {
                     Value::Absent
                 } else {
                     Value::Bool(true)
@@ -832,6 +1021,7 @@ impl<'a> Evaluator<'a> {
     /// `time_in(<STATE>)`, read from its flow data (`declaration-syntax.md`
     /// §8.3).
     fn flow_function(&self, id: &str, function: &str, arg: &str) -> Result<Value, NotRun> {
+        self.note(id);
         let Some(o) = self.world.get(id) else {
             return not_run(format!("`{function}` of an object the store does not hold"));
         };
@@ -929,7 +1119,31 @@ impl<'a> Evaluator<'a> {
                 other => return not_run(format!("a window of {other:?}")),
             },
         };
-        crate::metric::read(committed, self.answers, &found, &bound, window)
+        let value = crate::metric::read(committed, self.answers, &found, &bound, window)?;
+        // consulted, by the metric and its bindings (ADR-0158)
+        let written = match name {
+            Expr::Name(n) => n.clone(),
+            Expr::Path(b, n) => match b.as_ref() {
+                Expr::Name(t) => format!("{t}.{n}"),
+                _ => n.clone(),
+            },
+            _ => String::new(),
+        };
+        let bindings: Vec<String> = bound
+            .iter()
+            .map(|(d, v)| format!("{d}: {}", text_of_value(v)))
+            .collect();
+        self.consult(format!("{written}({})", bindings.join(", ")), &value);
+        Ok(value)
+    }
+}
+
+/// A bound value as a consulted reference writes it: as the wire does,
+/// text bare.
+fn text_of_value(v: &Value) -> String {
+    match crate::wire::encode(v) {
+        serde_json::Value::String(s) => s,
+        other => other.to_string(),
     }
 }
 
@@ -1018,27 +1232,42 @@ impl Evaluator<'_> {
         env: &BTreeMap<String, Value>,
     ) -> Result<Value, NotRun> {
         let key = format!("{evaluator}.{function}");
+        let mut written = Vec::new();
         for a in args {
-            if self.value(a, env)?.is_absent() {
+            let v = self.value(a, env)?;
+            if v.is_absent() {
                 return Ok(Value::Absent);
             }
+            written.push(text_of_value(&v));
         }
         // an offer asks no evaluator: the call is left unanswered (ADR-0048)
         let Some(answers) = self.answers else {
             self.unanswered.set(true);
             return Ok(Value::Absent);
         };
-        match answers.get(&key).map(String::as_str) {
-            Some("satisfied") => Ok(Value::Bool(true)),
-            Some("unsatisfied") => Ok(Value::Bool(false)),
+        let answer = answers.get(&key).map(String::as_str);
+        let verdict = match answer {
+            Some("satisfied") => Value::Bool(true),
+            Some("unsatisfied") => Value::Bool(false),
             Some("unanswered") => {
                 self.unanswered.set(true);
-                Ok(Value::Absent)
+                Value::Absent
             }
-            _ => not_run(format!(
-                "the evaluator function {key}, which the sandbox gives no answer for"
-            )),
+            _ => {
+                return not_run(format!(
+                    "the evaluator function {key}, which the sandbox gives no answer for"
+                ));
+            }
+        };
+        // consulted, by the call and its arguments: the verdict, never a
+        // value (ADR-0069, ADR-0158)
+        if let Some(a) = answer {
+            self.consult(
+                format!("{key}({})", written.join(", ")),
+                &Value::Text(a.to_string()),
+            );
         }
+        Ok(verdict)
     }
 
     fn attribute_of_this(&self, name: &str) -> bool {

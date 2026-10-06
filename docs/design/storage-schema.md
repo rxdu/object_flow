@@ -268,8 +268,8 @@ A derivation that reads a clock or another object gets no column. That is why a 
 It is JSON rather than columns for two reasons. Its shape is per transition. And a fold of the log must reproduce a row written under a **declaration version that may no longer exist**; a column set fixed by today's declaration could not hold yesterday's event.
 
 `reads` is the read set of ADR-0088, also JSON:
-- the objects the transition's rules read, each with the version read;
-- for each type-scan, the ids it matched, an empty match recorded as empty;
+- the objects the transition's rules read, each with the version read, but the event's own object, whose version read is the one before the event's (`DESIGN.md` §6);
+- for each guard, each type it scanned and the ids satisfying the scan's `where`, an empty match recorded as empty, an object the scan examined and rejected not being read (ADR-0158);
 - the `now` the request fixed.
 
 It holds no value, only identities and versions, and every reader gets it whole (ADR-0114).
