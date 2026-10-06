@@ -107,7 +107,7 @@
 | [0103](0103-what-the-production-audit-required-of-the-design.md) | What the production audit required of the design: declared request rules, text bounds, formatted serials, and seven repairs | Accepted by the author (decided at the author's direction against the PRD) — later refined by ADR-0110, ADR-0114, ADR-0142 |
 | [0104](0104-the-engine-is-the-governed-core-and-managing-the-flow-is-an-upper-layer.md) | The engine is the governed core; managing the flow and using its data belong to upper-layer applications | Accepted by the author — later refined by ADR-0105, ADR-0132 |
 | [0105](0105-the-core-sends-nothing-and-every-write-names-its-route.md) | The core sends nothing, and every write to governed state names its route | Accepted by the author (decided at the author's direction against the PRD) — later refined by ADR-0114, ADR-0126, ADR-0146, ADR-0147, ADR-0148 |
-| [0106](0106-what-the-record-measures-coverage-completion-and-the-metric-rules.md) | What the record measures: history coverage, completion, and the metric rules revision 5 exposed | Accepted by the author (decided at the author's direction against the PRD) — later refined by ADR-0114, ADR-0125, ADR-0128, ADR-0139, ADR-0142, ADR-0146, ADR-0147, ADR-0160 |
+| [0106](0106-what-the-record-measures-coverage-completion-and-the-metric-rules.md) | What the record measures: history coverage, completion, and the metric rules revision 5 exposed | Accepted by the author (decided at the author's direction against the PRD) — later refined by ADR-0114, ADR-0125, ADR-0128, ADR-0139, ADR-0142, ADR-0146, ADR-0147, ADR-0160, ADR-0161 |
 | [0107](0107-the-project-is-named-objectflow.md) | The project is named ObjectFlow | Accepted by the author |
 | [0108](0108-a-cascade-is-declared-clearly-enough-not-to-surprise.md) | A cascade is declared clearly enough not to surprise, and is shown where it lands | Accepted (the principle is the author's; the mechanism written at the author's direction) — later refined by ADR-0130 |
 | [0109](0109-a-states-conditions-are-invariants-and-publishing-reports-what-a-creation-skips.md) | What every object in a state must carry is an invariant, and publishing reports what a creation skips | Accepted by the author (decided at the author's direction) — later refined by ADR-0114, ADR-0130 |
@@ -128,7 +128,7 @@
 | [0124](0124-a-combined-metric-read-by-fewer-dimensions-combines-its-inputs-over-them.md) | A combined metric read by fewer dimensions combines its inputs over them | Accepted by the author — later refined by ADR-0128 |
 | [0125](0125-a-request-naming-an-unknown-actor-is-logged-under-the-kind-unknown.md) | A request naming an unknown actor is logged under the kind unknown | Accepted by the author |
 | [0126](0126-a-store-is-created-with-its-operator.md) | A store is created with its operator, the actor its first requests name | Accepted by the author — later refined by ADR-0134 |
-| [0127](0127-a-reads-page-has-an-order-and-querys-order-a-grammar.md) | A read's page has an order, and `query`'s order a grammar | Accepted by the author in advance |
+| [0127](0127-a-reads-page-has-an-order-and-querys-order-a-grammar.md) | A read's page has an order, and `query`'s order a grammar | Accepted by the author in advance — later refined by ADR-0161 |
 | [0128](0128-what-the-metric-scenarios-left-open-about-metrics.md) | What the metric scenarios left open about metrics | Accepted by the author in advance — later refined by ADR-0139 |
 | [0129](0129-a-publish-notices-a-metric-whose-filter-it-reroutes.md) | A publish notices a metric whose filter it reroutes | Accepted by the author in advance |
 | [0130](0130-three-questions-left-open-by-adr-0108-and-adr-0109.md) | Three questions ADR-0108 and ADR-0109 left open | Accepted by the author in advance |
@@ -156,9 +156,10 @@
 | [0152](0152-what-an-offer-decides.md) | What an offer decides, before its inputs are given | Accepted by the author |
 | [0153](0153-the-cores-first-slice.md) | The core's first slice | At the author's direction |
 | [0154](0154-the-cores-import.md) | The core's import | At the author's direction |
-| [0155](0155-the-cores-publishing.md) | The core's publishing, and its first slice | Accepted by the author |
+| [0155](0155-the-cores-publishing.md) | The core's publishing, and its first slice | Accepted by the author — later refined by ADR-0161 |
 | [0156](0156-the-cores-checker.md) | The core's checker | Accepted by the author |
 | [0157](0157-a-proposals-read-carries-its-last-refused-approval.md) | A proposal's read carries its last refused approval | Decided by the author |
 | [0158](0158-what-an-event-records-of-its-rules-and-how-an-export-pages.md) | What an event records of its rules, and how an export pages | Decided by the author; decision 3 withdrawn, ADR-0100 having decided it |
 | [0159](0159-a-drafts-evidence-a-refused-calls-row-and-two-reads-confirmed.md) | A draft's evidence, a refused call's attempt row, and two reads confirmed | Decided by the author |
 | [0160](0160-diagnostics-the-walk-down-and-the-attempt-counts-export.md) | What diagnostics selects, the erasure's walk down, and the attempt counts export | Decided by the author; decisions 1 and 3 formed after the approval, decision 2 the record's |
+| [0161](0161-scenario-versions-query-fields-empty-labels-and-unresolved-imports.md) | Scenario versions, query fields, empty label names and unresolved imports | Decided by the author |

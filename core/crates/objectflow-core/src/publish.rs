@@ -201,14 +201,20 @@ pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRu
             // nothing unchecked is installed (ADR-0155 decision 1, ADR-0156
             // decision 3)
             "notrun" => (Severity::Fatal, "example_not_run".to_string()),
+            // a version's source is the whole version, so an import from a
+            // module it does not carry resolves to nothing (ADR-0161)
+            "imports" => (Severity::Fatal, "check:imports".to_string()),
             other => (severity, format!("check:{other}")),
         };
-        found.add(
-            severity,
-            code,
-            format!("{}:{}: {}", f.file, f.line, f.message),
-            None,
-        );
+        let message = if f.code == "imports" {
+            format!(
+                "{}:{}: {}; a version carries every module it imports from, so it is refused",
+                f.file, f.line, f.message
+            )
+        } else {
+            format!("{}:{}: {}", f.file, f.line, f.message)
+        };
+        found.add(severity, code, message, None);
     }
     // the dry run goes on past what the checks refuse, reporting everything
     // (publish-and-import.md §1 step 4), except where the rules they refuse
@@ -1894,5 +1900,37 @@ types:
                 .as_array()
                 .is_some_and(|d| !d.is_empty())
         );
+    }
+
+    /// A version's source is the whole version (ADR-0161): a module
+    /// importing from a module the version does not carry is refused as a
+    /// fatal finding, where the checker on a module alone only notices it.
+    #[test]
+    fn a_version_importing_from_a_module_it_does_not_carry_is_refused() {
+        let (mut s, _, _, _) = fleet();
+        let text = v2(true, true, true).replacen(
+            "module: fleet\n",
+            "module: fleet\nimports: { gone: [Thing] }\n",
+            1,
+        );
+        assert!(text.contains("imports: { gone: [Thing] }"));
+        let change = draft(&mut s, &text);
+        let r = run(&s, &change, &text);
+        let unresolved = r
+            .findings
+            .iter()
+            .find(|f| f.code == "check:imports")
+            .unwrap_or_else(|| panic!("{:#?}", r.findings));
+        assert_eq!(unresolved.severity, Severity::Fatal);
+        assert!(
+            unresolved.message.contains("gone"),
+            "{}",
+            unresolved.message
+        );
+        assert!(r.fatal() && !r.accepted);
+        // without the import the same version is accepted
+        let clean = v2(true, true, true);
+        let change = draft(&mut s, &clean);
+        assert!(run(&s, &change, &clean).accepted);
     }
 }

@@ -134,7 +134,7 @@ class Driver:
         self.publishes = sorted((p for p in publishes if not p.get("change")), key=lambda p: cs.when(p["at"]))
         self.governed = {p["change"]: p for p in publishes if p.get("change")}
         self.changes, self.answers, self.checks, self.advice = {}, {}, {}, []
-        self.versions = []
+        self.versions = {}
         self.cited = {}
         self.now = None
         self.taken = 0
@@ -312,8 +312,9 @@ class Driver:
     def approve(self, change, version, texts, actor=OPERATOR):
         r = self.core.call("/v1/publish", {"actor": {"id": actor}, "change": change, "expected_version": version})
         if r.get("report"):
-            # each version by its place in the history: the cutover's is the document's version 1
-            self.versions.append({"report": r["report"], "changed": {n for n in texts if texts[n] != self.texts.get(n)}})
+            # each version by the store's number, which the document's are since ADR-0161
+            self.versions[r["report"]["version"]] = {"report": r["report"],
+                                                     "changed": {n for n in texts if texts[n] != self.texts.get(n)}}
         if (r.get("verdict") or {}).get("kind") != "satisfied":
             findings = [(f.get("code"), f.get("message", "")[:120]) for f in ((r.get("report") or {}).get("findings") or [])
                         if f.get("severity") in ("fatal", "decision")]
@@ -370,7 +371,7 @@ class Driver:
             self.approve(self.changes[r["approve"]], self.changes[r["approve"] + "@version"], self.published(p),
                          self.oid(r["actor"]))
             self.name(r["approve"], self.changes[r["approve"]])
-            self.changes[r["approve"] + "@place"] = len(self.versions)
+            self.changes[r["approve"] + "@published"] = max(self.versions)
             return
         v = self.core.call("/v1/request", self.body_of(r))
         self.last = max([self.last] + list(v.get("events") or []))
@@ -540,8 +541,8 @@ class Driver:
                 ["transition", "attribute", "value"], []
         m = re.fullmatch(r"notices of version (\d+)", spec_)
         if m:
-            # the checker's notes on the modules the version changed, by its place in the history
-            v = self.versions[int(m.group(1)) - 1]
+            # the checker's notes on the modules the version changed, by the store's version number
+            v = self.versions[int(m.group(1))]
             rows = []
             for f in v["report"]["findings"]:
                 n = re.fullmatch(r"(\w+):\d+: (.*)", f["message"], re.S)
@@ -565,8 +566,8 @@ class Driver:
             return rows, ["read", "group", "value"], []
         m = re.fullmatch(r"(change|impact of) ([\w-]+)", spec_)
         if m:
-            place = self.changes[m.group(2) + "@place"]
-            report = self.versions[place - 1]["report"]
+            version = self.changes[m.group(2) + "@published"]
+            report = self.versions[version]["report"]
             if m.group(1) == "impact of":
                 # each object a guard the change newly enforces would refuse (publish-and-import.md §1)
                 rows = []
@@ -579,7 +580,7 @@ class Driver:
             drafted = evs[0] if evs else {}
             published = next((e for e in evs if e["transition"] == "publish"), {})
             return [(self.show(drafted.get("actor_id")), self.show(drafted.get("actor_kind")),
-                     self.show(published.get("actor_id")), self.show(published.get("actor_kind")), str(place))], \
+                     self.show(published.get("actor_id")), self.show(published.get("actor_kind")), str(version))], \
                 ["drafted_by", "drafted_kind", "approved_by", "approved_kind", "version"], []
         m = re.fullmatch(r"pull\(([\w-]+)\)", spec_)
         if m:
@@ -713,12 +714,12 @@ class Driver:
         raise NotRun(f"a read the driver does not compare: {spec_}")
 
     def query(self, spec_, header):
-        """A query as its table writes it: each object by its label, with the fields the table names that a page
-        returns. A column a page does not return, the order key's value or gaps, is no query's, and is named."""
+        """A query as its table writes it: each object by its label, with the fields the table names, which a page
+        returns as asked (ADR-0161)."""
         m = re.fullmatch(r'query\((\w+)(?:, filter: "(.+?)")?(?:, order: "(.+?)")?\)', spec_)
         if not m:
             raise NotRun(f"a read the driver does not parse: {spec_}")
-        fields = [c for c in header if c not in ("object", "entered", "gaps")]
+        fields = [c for c in header if c != "object"]
         body = {"actor": {"id": OPERATOR}, "type": m.group(1), "fields": fields}
         if m.group(2):
             body["filter"] = self.labelled(m.group(2))
@@ -728,7 +729,7 @@ class Driver:
         if page.get("refused"):
             raise Differs(f"the query is refused as {page['refused']}")
         rows = [tuple([self.show(i["id"])] + [self.show(i["fields"].get(f)) for f in fields]) for i in page["items"]]
-        return rows, ["object"] + fields, [c for c in header if c in ("entered", "gaps")]
+        return rows, ["object"] + fields, []
 
     def labelled(self, text):
         """A filter's text with each object it names by its label compared by id, as the language names one

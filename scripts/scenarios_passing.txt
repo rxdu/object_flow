@@ -98,10 +98,11 @@ metric(supplier_lead_time, keep: [supplier], over: "365 days")
 metric(supplier_lead_time_p80, keep: [supplier], filter: "o.model.manufacturer == \"Roverline\"", over: "365 days") as A-BUYER
 metric(supplier_lead_time_p80, keep: [supplier], over: "365 days")
 metric(supplier_lead_time_p80, keep: [supplier], over: "365 days") as A-BUYER
+metric(time_to_done, keep: [version])
 metric(trial_refusals, keep: [clause, actor])
 metric(weak_battery_units, keep: [model, week])
-notices of version 14
-notices of version 16
+notices of version 15
+notices of version 17
 payloads(C-DANA)
 proposal PR1
 provenance(J3)
@@ -109,6 +110,7 @@ provenance(J4)
 pull(SUB-ARRIVED)
 pull(SUB-BOUND)
 query(Delivery, filter: "date_at_risk")
+query(Delivery, filter: "state.category != closed", order: "entered_at(state)")
 query(Engagement, filter: "overdue")
 query(Engagement, filter: "overdue") #2
 query(Robot, filter: "awaiting_assignment")
@@ -124,4 +126,3 @@ recorded(R08.battery_days)
 results(D10)
 results(D18)
 results(D18) #2
-awaiting: metric(time_to_done, keep: [version]) -- the scenario numbers versions from the journey, where its own port makes the journey version 2 (TODO, 2026-10-06)

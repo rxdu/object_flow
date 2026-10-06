@@ -341,6 +341,18 @@ pub fn query(
         let reader = Evaluator::new(world, Some(ot), Some(&o.id));
         let mut out = Vec::new();
         for f in &asked {
+            // the entry time of a tracked member's current interval, as an
+            // order key reads it (ADR-0127, ADR-0161)
+            if let Some(m) = f
+                .strip_prefix("entered_at(")
+                .and_then(|r| r.strip_suffix(')'))
+            {
+                if !lib.tracked(ot).iter().any(|x| x == m.trim()) {
+                    return refuse("unknown_field");
+                }
+                out.push((f.clone(), value(o, &Key::EnteredAt(m.trim().to_string()))));
+                continue;
+            }
             // an attribute, a derived value, or a member every object has
             // (flow-format.md §5)
             let known = ot.attribute(f).is_some()
@@ -825,6 +837,34 @@ types:
                 ("long".to_string(), Value::Bool(false)),
                 ("created_by_kind".to_string(), Value::Text("human".into()))
             ]
+        );
+        // the entry time of a tracked member's current interval, as a field
+        // as an order key (ADR-0161): each item's own
+        let p = query(
+            &w,
+            "Job",
+            Some("state.category != closed"),
+            &order(&["entered_at(state)"]),
+            Some(&order(&["entered_at(state)"])),
+        )
+        .unwrap();
+        assert_eq!((p.refused.as_deref(), p.items.len()), (None, 3));
+        for item in &p.items {
+            let entered = w.get(&item.id).unwrap().spans["state"]
+                .last()
+                .unwrap()
+                .entered_at;
+            assert_eq!(
+                item.fields,
+                vec![("entered_at(state)".to_string(), Value::Timestamp(entered))]
+            );
+        }
+        assert_eq!(
+            query(&w, "Job", None, &[], Some(&order(&["entered_at(title)"])))
+                .unwrap()
+                .refused
+                .as_deref(),
+            Some("unknown_field")
         );
         // each refusal a value
         let refused = |p: QueryPage| p.refused;

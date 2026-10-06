@@ -322,7 +322,7 @@ EFFECTS = {
 
 
 def sell_and_warrant(s, o, i, t):
-    """complete_sale from version 15: each unit bound is sold and gains its warranty, in ascending id order."""
+    """complete_sale from version 16: each unit bound is sold and gains its warranty, in ascending id order."""
     for u in sorted(s.units(o.id)):
         s.call(u, "Robot", "sell", {"buyer": o.attrs["customer"]}, t)
         s.create("Warranty", "start", {"unit": u, "months": s.objects[s.objects[u].attrs["model"]].attrs["warranty_months"]}, t)
@@ -515,7 +515,9 @@ class Store:
         self.publishes = sorted((p for p in publishes if not p.get("change")), key=lambda p: when(p["at"]))
         self.governed = {p["change"]: p for p in publishes if p.get("change")}
         self.changes, self.observed, self.actor = {}, [], None
-        self.version, self.findings = 1, []
+        # the port's all-mirror declaration is version 1, the journey that cut
+        # it over version 2 (metric-scenarios.md §1)
+        self.version, self.findings = 2, []
         self.objects, self.obs, self.events, self.attempts, self.reading = {}, {}, [], [], None
         self.subscriptions, self.consulted, self.floors, self.proposals = {}, {}, {}, {}
         self.causes, self.creating, self.checks, self.answers, self.notices = [], [], {}, {}, {}
@@ -576,6 +578,10 @@ class Store:
         order += [n for n in self.text if n not in order]
         files = [(f"{n}.yaml", self.text[n]) for n in order]
         errs, notes = flows.check(files, {f"{n}.yaml": prev[n] for n in mods if n in prev})
+        # a version's source is the whole version, so an import from a module
+        # it does not carry is refused, not noticed (ADR-0161)
+        errs += [n for n in notes if n[3] == "imports"]
+        notes = [n for n in notes if n[3] != "imports"]
         self.findings += [f"the version published at {at:%Y-%m-%dT%H:%MZ}: {e[0]} {e[3]} {e[4]}"
                           for e in errs if e[0][:-len(".yaml")] in mods]
         self.version += 1
@@ -1489,9 +1495,11 @@ def read(s, spec_):
         return [{"object": o.id, "state": o.state} for o in s.objects.values()
                 if o.type == "Robot" and o.state_source == "asserted"], ["object", "state"]
     if spec_ == 'query(Delivery, filter: "state.category != closed", order: "entered_at(state)")':
+        # the fields a reader asks for: the entry time it orders by, and where
+        # each record begins (ADR-0161)
         rows = [(o.intervals[-1][1], o) for o in s.objects.values() if o.type == "Delivery" and s.open(o)]
-        return [{"object": o.id, "state": o.state, "entered": t, "gaps": {o.id} if t < o.recorded_from else set()}
-                for t, o in sorted(rows, key=lambda r: r[0])], ["object", "state", "entered", "gaps"]
+        return [{"object": o.id, "state": o.state, "entered_at(state)": t, "recorded_from": o.recorded_from}
+                for t, o in sorted(rows, key=lambda r: r[0])], ["object", "state", "entered_at(state)", "recorded_from"]
     m = re.fullmatch(r"read set of (\w+)\.(\w+): (.+)", spec_)
     if m:
         kinds = {k.strip() for k in m.group(3).split(",")}

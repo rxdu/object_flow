@@ -1067,13 +1067,19 @@ fn take(
             });
         }
     }
-    // a label's name is vocabulary, normalised to lower case and trimmed
-    // (declaration-syntax.md §6.8)
+    // a label's name is vocabulary, normalised to lower case and trimmed, and
+    // a name empty once normalised is no name (declaration-syntax.md §6.8,
+    // ADR-0161)
     if tn == crate::model::LABEL
         && xn == "record"
         && let Some(Value::Text(name)) = inputs.get_mut("name")
     {
         *name = name.trim().to_lowercase();
+        if name.is_empty() {
+            return refused(Verdict::InvalidInput {
+                inputs: vec!["name".into()],
+            });
+        }
     }
     // what the transition's guards read, each guard's under its name
     let mut read = Reading::default();

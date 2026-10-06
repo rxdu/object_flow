@@ -3248,6 +3248,11 @@ types:
         let jm = job(&mut s, json!({}));
         let label = |s: &mut Store, inputs: Json| req(s, LABEL, "record", None, inputs);
         let l1 = label(&mut s, json!({ "subject": jl, "name": "  Late-Risk " })).unwrap();
+        // a name empty once normalised is no name (ADR-0161)
+        assert_eq!(
+            label(&mut s, json!({ "subject": jl, "name": "   " })),
+            Err(("invalid_input".into(), String::new()))
+        );
         take(&mut s, "start", &jl);
         s.now += 60;
         let l2 = label(

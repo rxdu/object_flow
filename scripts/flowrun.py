@@ -1851,6 +1851,9 @@ class Runner:
         if tn == LABEL and xn == "record":
             # a label's name is vocabulary, normalised to lower case and trimmed (declaration-syntax.md §6.8)
             inputs = dict(inputs, name=inputs["name"].strip().lower())
+            # and a name empty once normalised is no name (ADR-0161)
+            if not inputs["name"]:
+                raise Refused("invalid_input", remedy="self_serviceable", detail="name is empty once normalised")
         conditions = t.get("conditions") or {}
         failed = []
         for g, mode in (x.get("guards") or {}).items():
@@ -3294,6 +3297,8 @@ def metrics_self_test(operator):
     ana = req(r, s, "User", "add", login="ana")
     jl, jm = req(r, s, "Job", "open", engineer=ana), req(r, s, "Job", "open")
     l1 = req(r, s, LABEL, "record", subject=jl, name="  Late-Risk ")
+    check("a label's name empty once normalised, refused as invalid input (ADR-0161)",
+          req(r, s, LABEL, "record", subject=jl, name="   "), ("invalid_input", None))
     req(r, s, "Job", "start", jl)
     s.now += 60
     l2 = req(r, s, LABEL, "record", subject=jl, name="late-risk", note="rang twice")

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author in advance, 2026-09-28: "for all similar items that you have confidence in an recommendation, just accept", said while the author was taken through the items that need their attention, of which this was the fifth.
 - **Date:** 2026-09-28
+- **Refined by:** ADR-0161 — `query`'s `fields` may name `entered_at(<tracked member>)`.
 - **Refines:** ADR-0048 decision 6 (cursor pagination orders by object id), ADR-0084 §5 (`query` filters on the entry time of a tracked value's current interval), ADR-0098 (a metric's read)
 - **Relates to:** `DESIGN.md` §10; `library-api.md` §6; `metric-scenarios.md` §3.4, §7
 

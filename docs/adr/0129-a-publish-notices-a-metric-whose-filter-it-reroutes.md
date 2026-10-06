@@ -7,7 +7,7 @@
 
 ## Context
 
-The lead of `metric-scenarios.md` §29 declares a cycle time counting completions from `PREPARATION` into `DELIVERED`. Version 14 moves the completions to leave `READY`, and from then the metric counts none, so D06's 165 days in preparation never enter it. The metric is still well formed, and its filter still says what it means; what changed is the flow it filters. Publishing checked version 14 and reported only a rule on trial, and the rule-set diff shows the rerouted transition on the delivery and nothing on the metric, whose approver is not told its counts change (`TODO.md`, 2026-09-28).
+The lead of `metric-scenarios.md` §29 declares a cycle time counting completions from `PREPARATION` into `DELIVERED`. Version 14 *(15 since ADR-0161 renumbered the scenario)* moves the completions to leave `READY`, and from then the metric counts none, so D06's 165 days in preparation never enter it. The metric is still well formed, and its filter still says what it means; what changed is the flow it filters. Publishing checked version 14 and reported only a rule on trial, and the rule-set diff shows the rerouted transition on the delivery and nothing on the metric, whose approver is not told its counts change (`TODO.md`, 2026-09-28).
 
 ## Decision
 
@@ -23,4 +23,4 @@ The lead of `metric-scenarios.md` §29 declares a cycle time counting completion
 ## Consequences
 
 - `flow-format.md` §7 lists the `metric` notice, `scripts/check-flows.py` reports it, and its self-test plants a rerouting.
-- `metric-scenarios.md` §39 reads version 14's notices, which now name the lead's cycle time.
+- `metric-scenarios.md` §39 reads version 14's notices *(version 15's since ADR-0161)*, which now name the lead's cycle time.

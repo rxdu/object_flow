@@ -18,7 +18,7 @@ The script evaluates guards, effects and invariants from a transcription it hold
 
 The store holds the modules `operations_shared` and `inventory_journey` of `unit-journey.md` §2. The agent Scout is an `Agent`, the type `operations_shared` declares for agents. *(Corrected 2026-09-27: this document first declared the type in a module of its own, `scenario_agents`, since the journey declared none and no agent could act on the store (PRD T6; `DESIGN.md` §6 step 1). At the author's direction the type moved into `operations_shared` (D445).)*
 
-**The port.** At `2026-09-01T00:00Z` the store imported the legacy system's objects while every type was a mirror, and the publish of the journey cut them over (`publish-and-import.md` §7). `Customer` stays a mirror, which only the import writes. The history below begins after the cutover. The import's events are marked `imported` and keep provenance `asserted`, and each imported object's `state_source` is `imported` (`DESIGN.md` §8, §11). An imported object carries every value its legacy record holds, one its attribute's default would give included, since a default is a creation's and the import creates nothing (`flow-format.md` §4.17). *(Corrected 2026-10-06: the ported deliveries and models left out `internal`, `label_photo_required`, `manufacturer_serial_required` and `reorder_point`, which guards read, and `check-scenarios.py` read each absence as the default, which no engine does; replaying the history against the core found it.)*
+**The port.** At `2026-09-01T00:00Z` the store imported the legacy system's objects while every type was a mirror, version 1, and the publish of the journey, version 2, cut them over (`publish-and-import.md` §7). `Customer` stays a mirror, which only the import writes. The history below begins after the cutover. The import's events are marked `imported` and keep provenance `asserted`, and each imported object's `state_source` is `imported` (`DESIGN.md` §8, §11). An imported object carries every value its legacy record holds, one its attribute's default would give included, since a default is a creation's and the import creates nothing (`flow-format.md` §4.17). *(Corrected 2026-10-06: the ported deliveries and models left out `internal`, `label_photo_required`, `manufacturer_serial_required` and `reorder_point`, which guards read, and `check-scenarios.py` read each absence as the default, which no engine does; replaying the history against the core found it.)*
 
 **Reading.** Every read is taken at `now`, `2026-09-28T00:00Z`, a Monday. Weeks are ISO 8601 weeks in UTC: 2026-W37 runs from Monday 7 September, W38 from the 14th and W39 from the 21st (`declaration-syntax.md` §6.9). A read names the dimensions it keeps and aggregates over the rest, `version` and `actor_kind` included (`declaration-syntax.md` §6.9, "A reader reads a metric as a guard does"). The ids are labels, and no value below depends on their order.
 
@@ -180,12 +180,14 @@ Four deliveries are open, D05 to D08, all in preparation. `oldest_open` is `max(
 
 Read: `query(Delivery, filter: "state.category != closed", order: "entered_at(state)")`
 
-| object | state | entered | gaps |
+| object | state | entered_at(state) | recorded_from |
 |---|---|---|---|
-| D08 | PREPARATION | 2026-08-15T00:00Z | D08 |
-| D07 | PREPARATION | 2026-09-01T00:00Z | |
-| D05 | PREPARATION | 2026-09-20T00:00Z | |
-| D06 | PREPARATION | 2026-09-25T00:00Z | |
+| D08 | PREPARATION | 2026-08-15T00:00Z | 2026-08-28T00:00Z |
+| D07 | PREPARATION | 2026-09-01T00:00Z | 2026-09-01T00:00Z |
+| D05 | PREPARATION | 2026-09-20T00:00Z | 2026-09-20T00:00Z |
+| D06 | PREPARATION | 2026-09-25T00:00Z | 2026-09-25T00:00Z |
+
+A page carries the fields its reader asks for and nothing of its own: here each delivery's state, the entry time it is ordered by and `recorded_from`, from when its record is continuous. D08 entered `PREPARATION` before its record begins, which the two fields show side by side; gaps are a metric row's, and a query has none (ADR-0161).
 
 ### 3.5 The lead's split, declared on 24 September
 
@@ -335,7 +337,7 @@ Writing the values found two questions the specification did not settle, and eac
 
 The history continues from `now` of §2, and the reads below are taken at the new `now`, `2026-10-12T00:00Z`, a Monday. W40 runs from 28 September, W41 from 5 October. The reads of §3 to §5 were taken at the first `now`, before any of this happened, and hold as written.
 
-On 1 October the operations lead publishes version 3 of the journey. It adds three things, each needed by a use case and each written the way the model writes it (`declaration-syntax.md` §6.8):
+On 1 October the operations lead publishes version 4 of the journey. It adds three things, each needed by a use case and each written the way the model writes it (`declaration-syntax.md` §6.8):
 - **A checklist per model**, `PdiCheck`: a catalogue whose objects are the checks, so a checklist changes by creating and retiring checks, not by publishing (PRD D7).
 - **Two kinds of datapoint on the delivery.** `pdi_results` holds a pre-delivery check's result for one unit (UC-4), and `availability_checks` holds what was in stock and what must be procured for one model when the delivery was committed (UC-5). Both are the delivery's, since the model advises declaring a kind "on the object whose gate reads it".
 - **A gate on each completion**, `all_checked`: every unit bound has a result for every active check of its model, and a metric, `open_shortfall`, over the availability checks.
@@ -606,7 +608,7 @@ The history continues from `now` of §8. The reads below are taken at the new `n
 
 **What the first part ported, and §3 to §11 did not read.** Six robots came from the legacy system at the port with their order and receipt history, L01 to L06. The legacy record has an "ordered" status and a "received" one, and no status for a unit in transit. So each ported robot's history is a stay in `REQUESTED` from its order and a stay in `INTAKE` from its receipt, as legacy intervals (`publish-and-import.md` §4, "Intervals"). L05's mapping gives no order date, so it is undated. The ported models name their manufacturers, Armtek and Roverline.
 
-On 20 October the operations lead publishes version 4 of the journey:
+On 20 October the operations lead publishes version 5 of the journey:
 - **A daily battery summary on each unit**, `battery_days`, which a telemetry service records from the readings the unit reports every second (UC-7).
 - **Supplier lead time**, at the median and the eightieth percentile (UC-8, UC-9).
 - **First-pass yield**, as two distinct counts over the pre-delivery results and one combined metric that divides them (UC-8).
@@ -894,7 +896,7 @@ The values for each supplier:
 4. **The legacy record had no in-transit status.** The ported robots' histories go from `REQUESTED` to `INTAKE`, as a legacy system with only "ordered" and "received" would give them.
 5. **"The last twelve months" is the last 365 days** (UC-9), since a window is written in fixed units and a month is not one.
 6. **A check not applicable is not a failure** (UC-8). First-pass yield counts a unit as failed only where a first result is `FAIL`, so R01, whose mistaken "not applicable" was corrected, and any unit with a check that does not apply to it, pass.
-7. **A promised date is taken when the delivery is opened** (UC-8), as the order's commitment is (§12). Deliveries opened before version 4 have none and are not counted, as a formula over data that was never recorded cannot count it.
+7. **A promised date is taken when the delivery is opened** (UC-8), as the order's commitment is (§12). Deliveries opened before version 5 have none and are not counted, as a formula over data that was never recorded cannot count it.
 
 **Findings.**
 1. **No actor type for a service** (D448). As with the agent (D445), the journey's shared module declared none, so the telemetry service could not act. Resolved in place, as `Agent` was.
@@ -909,7 +911,7 @@ The history continues from `now` of §13. The reads below are taken at the new `
 - **L07**, an Arm 7 ordered on 20 July and never received.
 - **E01**, a lease out since August and due back on 10 November.
 
-On 2 November the lead publishes version 5 of the journey:
+On 2 November the lead publishes version 6 of the journey:
 - **A rule that reads a metric** (UC-10). Each model may carry a `yield_floor`, and completing a delivery needs, for every unit, its model's first-pass rate over the last 30 days at or above the floor, or a second sign-off. The rate is a metric with a `time_dimension`, so a guard can window it.
 - **A norm held as data** (UC-12, ADR-0113). Each model may carry a `usual_lead_time`, which the reporting service refreshes from supplier lead time by a declared transition.
 - **The three business exceptions the journey lacked** (UC-12), each a derived attribute over a stored operand and `now` (`data-driven-engine.md` §3.10):
@@ -1150,7 +1152,7 @@ Read: `labels(L07)`
 
 > The first consumer's alert catalogue holds six business exceptions — low stock, procurement overdue, backorder ageing, delivery date at risk, lease overdue, warranty expiring — and one notice that is not an exception at all: order ready, which is an event, the last slot filled. *Acceptance:* each of the six conditions is declared once and answerable by a query a scheduler or an agent runs; a threshold one of them reads, such as a reorder point per model, is held on an object and changes only by that object's recorded transition; order ready is a subscription to the transition that fills the last slot; sending any alert is an upper-layer application's; and an ageing condition, such as backorder ageing, can compare against the norm observed for that kind of work in the flow's own history instead of a fixed number. (PRD §7)
 
-**Each of the six is declared once and answered by a query.** Each is a derived attribute of the object it is about, over a stored operand and `now` (`data-driven-engine.md` §3.10). Three were in the journey already, and version 5 added three. A scheduler or an agent asks for the objects in which each holds:
+**Each of the six is declared once and answered by a query.** Each is a derived attribute of the object it is about, over a stored operand and `now` (`data-driven-engine.md` §3.10). Three were in the journey already, and version 6 added three. A scheduler or an agent asks for the objects in which each holds:
 
 | Exception | Declared as | Holds at `now` for |
 |---|---|---|
@@ -1258,7 +1260,7 @@ Each is a Monday. The reads of §3 to §21 hold as written, at their own `now`.
 
 **A rule goes on trial** (UC-14). A photo is proposed as required before a Rover 2 goes on offer. The rule, `rover_photo`, is published as an audited guard on `inventorize`: evaluated on every request, refusing nothing, and each failure recorded (`flow-format.md` §4.8, `audit`). With it comes a count of the refusals a rule on trial would have made, by rule and by who would have been refused.
 
-On 16 November the lead publishes version 6. It installs the returns module's first version and puts the rule on trial:
+On 16 November the lead publishes version 7. It installs the returns module's first version and puts the rule on trial:
 
 ```yaml publish
 at: 2026-11-16T01:00Z
@@ -1289,8 +1291,8 @@ modules:
   - Ben takes R31 through without a photo;
   - Scout takes R33 through without one;
   - Ben photographs R32 first.
-- **Enforcing the rule (UC-15).** Scout drafts enforcing it, submits the change and attaches the evidence. Ana approves it on 7 December, as version 7. Two days later Ben's request to take R11 through without a photo is refused. Ben photographs it and it goes through.
-- **Evidence for the label.** On 13 December, after a month of labels, the lead declares three metrics on the returns, as version 8, to see what the label says.
+- **Enforcing the rule (UC-15).** Scout drafts enforcing it, submits the change and attaches the evidence. Ana approves it on 7 December, as version 8. Two days later Ben's request to take R11 through without a photo is refused. Ben photographs it and it goes through.
+- **Evidence for the label.** On 13 December, after a month of labels, the lead declares three metrics on the returns, as version 9, to see what the label says.
 
 ```yaml publish
 at: 2026-12-13T00:00Z
@@ -1419,7 +1421,7 @@ Read: `metric(trial_refusals, keep: [clause, actor])`
 
 `actor` names the person or agent who asked, by the identity they act under (ADR-0122 decision 21). A dimension that names an actor is marked in the declaration a reader reads, so an upper layer can decide who may see it (PRD T7).
 
-**Enforcing it is a flow change.** The rule was enforced by version 7, a governed change (§26). From then it refuses: R11's request, without a photo, was refused on 9 December. The standard `refusals` counts enforced refusals only, so the trial's two are not in it:
+**Enforcing it is a flow change.** The rule was enforced by version 8, a governed change (§26). From then it refuses: R11's request, without a photo, was refused on 9 December. The standard `refusals` counts enforced refusals only, so the trial's two are not in it:
 
 Read: `metric(Robot.refusals, keep: [clause, remedy], filter: "a.clause == \"rover_photo\"")`
 
@@ -1459,7 +1461,7 @@ Read: `change DC1`
 
 | drafted_by | drafted_kind | approved_by | approved_kind | version |
 |---|---|---|---|---|
-| scout | agent | ana | human | 7 |
+| scout | agent | ana | human | 8 |
 
 Read: `evidence of DC1`
 
@@ -1471,7 +1473,7 @@ Read: `evidence of DC1`
 | metric(Robot.override_counts, keep: [state, reason]) | state = AVAILABLE, reason = MIS_SCANNED | 1 |
 | metric(Robot.override_counts, keep: [state, reason]) | state = DEVELOPMENT, reason = LEGACY_DATA | 1 |
 
-**No flow change applies without passing the governed path.** Version 7 exists only because Ana approved DC1: the publish above names its change and has no time of its own, and the script applies it at the approval and at nothing else. Who may approve, and that the approver is not the drafter, are the upper layer's (PRD F7, ADR-0114).
+**No flow change applies without passing the governed path.** Version 8 exists only because Ana approved DC1: the publish above names its change and has no time of its own, and the script applies it at the approval and at nothing else. Who may approve, and that the approver is not the drafter, are the upper layer's (PRD F7, ADR-0114).
 
 ## 27. UC-13, refined: a state promoted, and a state dropped
 
@@ -1483,7 +1485,7 @@ On 14 December the team publishes the returns' second version, as `returns-modul
 - how often the unit came back;
 - a rule on replacements.
 
-The lead's three metrics are declared on it again, since a version is the whole module. This is version 9.
+The lead's three metrics are declared on it again, since a version is the whole module. This is version 10.
 
 ```yaml publish
 at: 2026-12-14T01:00Z
@@ -1517,7 +1519,7 @@ modules:
         expression: median(t.occurred_at - t.object.created_at)
 ```
 
-**Version 10 drops `RESOLVED`.** A resolved return waited in `RESOLVED` until someone asked to close it, and T6 had waited three weeks. On 28 December version 10 drops the state: `resolve` closes a return at once. Its migration moves the returns still resolved into `CLOSED`, each by a recorded migration (`flow-format.md` §4.16).
+**Version 11 drops `RESOLVED`.** A resolved return waited in `RESOLVED` until someone asked to close it, and T6 had waited three weeks. On 28 December version 11 drops the state: `resolve` closes a return at once. Its migration moves the returns still resolved into `CLOSED`, each by a recorded migration (`flow-format.md` §4.16).
 
 ```yaml publish
 at: 2026-12-28T00:00Z
@@ -1527,16 +1529,16 @@ modules:
     add:
       types.Return.transitions.resolve.to: CLOSED
       migration:
-        description: Version 10 drops RESOLVED, since a resolved return was only ever waiting to be closed, and closes the returns still in it.
+        description: Version 11 drops RESOLVED, since a resolved return was only ever waiting to be closed, and closes the returns still in it.
         removed_states:
           Return: { RESOLVED: CLOSED }
 ```
 
 **What happens.**
 - **The in-flight returns move by recorded transitions.** T3 and T5, labelled and still being inspected, are moved into `AWAITING_PARTS` by `await_parts`. T3's parts come in on the 18th, and it is resolved the next day, into `RESOLVED`.
-- **T7** arrives and is resolved and closed under version 9.
-- **Version 10's mapping** moves T3 and T6 from `RESOLVED` into `CLOSED`.
-- **Under version 10:** T8 is resolved straight into `CLOSED`, and so is T5, when its parts come in in January.
+- **T7** arrives and is resolved and closed under version 10.
+- **Version 11's mapping** moves T3 and T6 from `RESOLVED` into `CLOSED`.
+- **Under version 11:** T8 is resolved straight into `CLOSED`, and so is T5, when its parts come in in January.
 
 ```yaml scenario
 now: 2027-01-11T00:00Z
@@ -1578,23 +1580,23 @@ Read: `metric(Return.time_in_state, keep: [state], filter: "i.state == Return.AW
 
 T3 waited 4d 7h for its parts, and T5 21d 6h 55m. The median of two is the lower.
 
-**Time-to-done is comparable across the versions.** Every metric can be split by the declaration version its rows were recorded under (PRD M3). A declaration version counts every publish of the store, not each version of one module (`DESIGN.md` §5.9). So the returns' three versions are declaration versions 6, 9 and 10:
-- version 6 is the first returns version, with the rule on trial;
-- versions 7 and 8, in between, changed the robot's rule and the returns' metrics, and no return closed under them;
+**Time-to-done is comparable across the versions.** Every metric can be split by the declaration version its rows were recorded under (PRD M3). A declaration version counts every publish of the store, not each version of one module (`DESIGN.md` §5.9). So the returns' three versions are declaration versions 7, 10 and 11:
+- version 7 is the first returns version, with the rule on trial;
+- versions 8 and 9, in between, changed the robot's rule and the returns' metrics, and no return closed under them;
 - the migration's moves are not the flow, and `time_to_done` leaves them out, as the standard metrics do (`declaration-syntax.md` §6.11).
 
 Read: `metric(time_to_done, keep: [version])`
 
 | version | value | gaps |
 |---|---|---|
-| 6 | 9d | |
-| 9 | 3d | |
+| 7 | 9d | |
 | 10 | 3d | |
+| 11 | 3d | |
 
 The values for each version:
-- **Version 6:** T2 took 3d 2h, T4 9d and T1 11d, so the median is 9d.
-- **Version 9:** T7 took 3d.
-- **Version 10:** T8 took 3d and T5, which waited for parts, 35d. The median of two is the lower, 3d.
+- **Version 7:** T2 took 3d 2h, T4 9d and T1 11d, so the median is 9d.
+- **Version 10:** T7 took 3d.
+- **Version 11:** T8 took 3d and T5, which waited for parts, 35d. The median of two is the lower, 3d.
 
 ## 28. What is inferred, and what UC-13 to UC-15 found
 
@@ -1619,7 +1621,7 @@ The history continues from `now` of §27. The reads of §30 and §31 are taken a
 - **Chen**, an engineer, a user of the legacy system.
 - **SJ1**, a repair still open. The legacy audit trail shows it unassigned for its first two days, then Ben's, then Chen's from 29 August. The port brings those as legacy intervals of `engineer` (`publish-and-import.md` §4, "Intervals").
 
-On 11 January the lead publishes version 11. It adds a split of delivery cycle time by who opened the delivery (UC-16), and makes a reassignment proposable, so an agent can propose one for a person to approve (UC-18).
+On 11 January the lead publishes version 12. It adds a split of delivery cycle time by who opened the delivery (UC-16), and makes a reassignment proposable, so an agent can propose one for a person to approve (UC-18).
 
 ```yaml publish
 at: 2027-01-11T01:00Z
@@ -1817,7 +1819,7 @@ Read: `proposal PR1`
 
 > A customer asks to be erased. *Acceptance:* their personal values are removed from objects, history and datapoints; metrics built from those datapoints keep their counts and expose no personal value. (PRD §7)
 
-The journey's customer is a mirror of the legacy system's, and held no personal value. On 25 January the lead publishes version 12. It gives a customer who is a person a contact name and email, both `personal`, and an erasure, which a mirror may declare (`declaration-syntax.md` §2; `flow-format.md` §4.13):
+The journey's customer is a mirror of the legacy system's, and held no personal value. On 25 January the lead publishes version 13. It gives a customer who is a person a contact name and email, both `personal`, and an erasure, which a mirror may declare (`declaration-syntax.md` §2; `flow-format.md` §4.13):
 
 ```yaml publish
 at: 2027-01-25T01:00Z
@@ -1956,7 +1958,7 @@ Read: `metric(first_pass_yield, keep: [model, month])`
 
 The history continues from `now` of §32. The reads of §35 are taken at `2027-02-22T00:00Z`, a Monday. The reads of §3 to §32 hold as written, at their own `now`.
 
-**A second rule on trial.** §12 left open whether a failed check should block a delivery, since the gate asks only that every check have a result. On 8 February the lead puts the stricter rule on trial as version 13: every active check of every unit bound has a result that is not a failure, audited on `complete_sale`. A failure that a later result passes, as R02's battery did in §8, satisfies it. With it comes the count of the refusals a rule on trial would have made on a delivery, as §23 declared it for the unit, under a name of its own, since a module's metrics share one namespace (`flow-format.md` §4.9).
+**A second rule on trial.** §12 left open whether a failed check should block a delivery, since the gate asks only that every check have a result. On 8 February the lead puts the stricter rule on trial as version 14: every active check of every unit bound has a result that is not a failure, audited on `complete_sale`. A failure that a later result passes, as R02's battery did in §8, satisfies it. With it comes the count of the refusals a rule on trial would have made on a delivery, as §23 declared it for the unit, under a name of its own, since a module's metrics share one namespace (`flow-format.md` §4.9).
 
 ```yaml publish
 at: 2027-02-08T01:00Z
@@ -2111,7 +2113,7 @@ Read: `history(K4)`
 
 The history continues from `now` of §34. The reads of §37 are taken at `2027-03-08T00:00Z`, a Monday. The reads of §3 to §35 hold as written, at their own `now`.
 
-**The facts it asks about.** UC-20's application asks five questions each hour. Two are about facts the journey already records: leases run over are `Engagement.overdue` (§21), and open work is the standard `open_work`. The other three need facts the journey lacks, and the operations review declared two of them (`flow-review.md` §2.2, §2.4, §8). On 22 February the lead publishes version 14, which adds them as the review's appendix wrote them before D454, and a third:
+**The facts it asks about.** UC-20's application asks five questions each hour. Two are about facts the journey already records: leases run over are `Engagement.overdue` (§21), and open work is the standard `open_work`. The other three need facts the journey lacks, and the operations review declared two of them (`flow-review.md` §2.2, §2.4, §8). On 22 February the lead publishes version 15, which adds them as the review's appendix wrote them before D454, and a third:
 - **`READY`**, entered by `mark_ready` once a unit is bound and none is still on order, and left by `back_to_preparation`. The completions now leave `READY`, and `filled` moves from them to `mark_ready`.
 - **`procured_for`**, which `inventorize` writes from the earmark it clears and `reserve` clears, so a unit bought for an order keeps the fact when it arrives, and `awaiting_assignment` over it.
 - **`missing_a_week`**, an exception over the unit's own stay in `MISSING`. The journey's `missing_units` metric gives the longest time missing per shipment, not the units, and a per-object ageing condition is a derived attribute over the entry time of the object's current stay (ADR-0084 §5).
@@ -2283,7 +2285,7 @@ Read: `history(D20)`
 
 > When sales ops completes a delivery, every unit bound to it becomes sold and gains its warranty, as one change. […] A reviewer reading only the unit's rules, and an agent about to complete a delivery, can each tell that it will happen. *Acceptance:* completing a delivery sells each bound unit and creates its warranty in one request, or refuses and changes nothing, naming the unit and the rule that refused; the unit's printed rules say that a delivery's completion sells it; the completion can be checked before it is requested, its cascades included; and each unit's sale records the completion as its cause. (PRD §7, abridged)
 
-**What the journey already does, and what version 15 adds.** The journey's `complete_sale` calls `sell` on each unit bound, and `sell` is `only_via` the completion (`unit-journey.md` §2). The warranty is this document's own type (§18), started by hand. On 8 March the lead publishes version 15:
+**What the journey already does, and what version 16 adds.** The journey's `complete_sale` calls `sell` on each unit bound, and `sell` is `only_via` the completion (`unit-journey.md` §2). The warranty is this document's own type (§18), started by hand. On 8 March the lead publishes version 16:
 - **The completion creates each unit's warranty** in the loop that sells it, as the first consumer's completion does (`first-consumer-walkthrough.md` §3.3).
 - **A warranty holds its model's months, and its end is recorded after.** The end is a number of calendar months from the sale, which the engine cannot compute, since a month has no fixed length (`declaration-syntax.md` §8.3). So the end becomes optional, and the sales application records it with `set_end`, as §22 inferred it computes it.
 - **A unit is sold with the manufacturer serial its model requires.** The journey requires the serial of every unit on offer, and refuses to turn a model's requirement on while a unit on offer lacks one (`unit-journey.md` §2). A unit already reserved is not on offer, so nothing stops it being sold without one. The guard on `sell` closes that, and it is the rule a completion's cascade can fail.
@@ -2443,8 +2445,8 @@ Read: `get(W5)`
 7. **A unit is sold with the serial its model requires** (UC-21). It is the journey's own rule for a unit on offer, extended to the sale of a reserved one. It also gives a completion's cascade a rule that can refuse, which the journey's `sell` did not have.
 
 **Findings.**
-1. **The review's `filled` does not read the units procured for a delivery** (UC-20). `mark_ready` requires a unit bound and none still on order. A unit bought for the delivery is on order until it arrives. From then it carries `procured_for`, and is neither bound nor on order. So D20 may be marked ready with one of its two units while the other waits to be assigned to it (§37). Adding `none(u in procured)` to `filled` would make the delivery wait for it. The two proposals were the author's to decide together, so `flow-review.md` §8 records the interaction. *(Corrected in the review 2026-09-28, D454: its appendix's `filled` now adds `none(u in procured)`. Version 14 above keeps the `filled` that found the gap.)*
-2. **A version that reroutes a transition changes what a metric filtering on its states counts, and nothing reports it** (UC-20, UC-21). The lead's `delivery_cycle_time` counts completions from `PREPARATION` (§29). Since version 14 a completion leaves `READY`, so D06, 165 days in preparation, and D20 are not counted. The people's median below is §30's, over ten completions that include D17's and D10's and not those two. Publishing checked version 14 and reported nothing of it, only the `audit` notice of version 13's rule on trial, as a probe of the flow checker's notices showed. The metric is still well formed, and its filter still means what it says. *(Settled 2026-09-28 by ADR-0129: publishing now notices each such metric, and version 14's notices, read below, name the lead's cycle time beside the rule on trial. The on-time rate, which counts completions into `DELIVERED` from wherever they come, is not named, since where they end did not change.)*
+1. **The review's `filled` does not read the units procured for a delivery** (UC-20). `mark_ready` requires a unit bound and none still on order. A unit bought for the delivery is on order until it arrives. From then it carries `procured_for`, and is neither bound nor on order. So D20 may be marked ready with one of its two units while the other waits to be assigned to it (§37). Adding `none(u in procured)` to `filled` would make the delivery wait for it. The two proposals were the author's to decide together, so `flow-review.md` §8 records the interaction. *(Corrected in the review 2026-09-28, D454: its appendix's `filled` now adds `none(u in procured)`. Version 15 above keeps the `filled` that found the gap.)*
+2. **A version that reroutes a transition changes what a metric filtering on its states counts, and nothing reports it** (UC-20, UC-21). The lead's `delivery_cycle_time` counts completions from `PREPARATION` (§29). Since version 15 a completion leaves `READY`, so D06, 165 days in preparation, and D20 are not counted. The people's median below is §30's, over ten completions that include D17's and D10's and not those two. Publishing checked version 15 and reported nothing of it, only the `audit` notice of version 14's rule on trial, as a probe of the flow checker's notices showed. The metric is still well formed, and its filter still means what it says. *(Settled 2026-09-28 by ADR-0129: publishing now notices each such metric, and version 15's notices, read below, name the lead's cycle time beside the rule on trial. The on-time rate, which counts completions into `DELIVERED` from wherever they come, is not named, since where they end did not change.)*
 
 Read: `metric(delivery_cycle_time, keep: [creator])`
 
@@ -2454,7 +2456,7 @@ Read: `metric(delivery_cycle_time, keep: [creator])`
 | agent | 11d 2h | |
 | unknown | 15d | |
 
-Read: `notices of version 14`
+Read: `notices of version 15`
 
 | module | code | notice |
 |---|---|---|
@@ -2575,7 +2577,7 @@ Read: `metric(ServiceJob.refusals, keep: [transition, clause, remedy, actor_kind
 
 > In the first consumer's reimbursement workflow, a claim line above the policy amount for its category is allowed, but everyone should see it. The deployment declares that rule as a flag. *Acceptance:* the claim is submitted and the line applied; the answer carries the flag, naming the rule; the flag is recorded and counted per rule and per kind of actor; the printed rules show it as a flag, not as a rule on trial or an enforced one; and no guarantee is claimed for it. (PRD §7)
 
-**The reimbursements.** The journey has no expense claim. The design's worked one is the format's example `approvals.yaml`, whose `ExpenseClaim` is drafted, submitted and approved, and the model's own example of a flag is a claim line's `within_policy` (`declaration-syntax.md` §5.1). On 5 April the lead publishes version 16, which installs the example as it is written and adds what UC-23 needs:
+**The reimbursements.** The journey has no expense claim. The design's worked one is the format's example `approvals.yaml`, whose `ExpenseClaim` is drafted, submitted and approved, and the model's own example of a flag is a claim line's `within_policy` (`declaration-syntax.md` §5.1). On 5 April the lead publishes version 17, which installs the example as it is written and adds what UC-23 needs:
 - **a category catalogue**, `ExpenseCategory`, each with the most its policy allows for one line;
 - **claim lines**, `ClaimLine`, each created by the claim's `add_line`;
 - **the rule**, `within_policy`, on `add_line`, marked `warn`, the format's word for the model's `flag` (`flow-format.md` §4.8, Appendix A.1).
@@ -2714,9 +2716,9 @@ Read: `rules(ExpenseClaim.add_line)`
 |---|---|---|---|
 | within_policy | self_serviceable | no | FLAG — NOT ENFORCED |
 
-**No guarantee is claimed for it.** The publish report lists the flag, so whoever approves the version is told it refuses nothing, and the adversarial harness treats it as absent (`declaration-syntax.md` §5.1). Version 16's report, from the flow checker, names only it:
+**No guarantee is claimed for it.** The publish report lists the flag, so whoever approves the version is told it refuses nothing, and the adversarial harness treats it as absent (`declaration-syntax.md` §5.1). Version 17's report, from the flow checker, names only it:
 
-Read: `notices of version 16`
+Read: `notices of version 17`
 
 | module | code | notice |
 |---|---|---|
