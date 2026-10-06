@@ -6529,6 +6529,43 @@ types:
             ))
         };
         let (one, two, big) = (open(&mut s, 1), open(&mut s, 2), open(&mut s, 20));
+        // the size decides, and the sandbox has no answer for the vault, which
+        // only the record would ask: it consults nothing rather than stopping
+        // the request, as stopping early never asks it
+        assert_eq!(
+            req(&mut s, "ship", OPERATOR, (&big, false), json!({})),
+            Verdict::Unsatisfied {
+                clause: "small_and_cleared".into(),
+                remedy: Some(Remedy::SelfServiceable),
+            }
+        );
+        assert!(
+            s.snapshot().unwrap().attempts.last().unwrap().consulted["small_and_cleared"]
+                .get("values")
+                .is_none_or(|v| v.as_object().is_none_or(|m| m.is_empty()))
+        );
+        // where it decides, a call with no answer still stops the request
+        assert!(
+            request(
+                &mut s,
+                &Request {
+                    transition: "ship".into(),
+                    actor: OPERATOR.into(),
+                    object_id: Some(one.clone()),
+                    type_: None,
+                    inputs: BTreeMap::new(),
+                    occurred_at: None,
+                    propose: false,
+                    expires_at: None,
+                    expected_version: None,
+                    principal: None,
+                    idempotency_key: None,
+                    context: None,
+                }
+            )
+            .unwrap()
+            .is_err()
+        );
         // the size decides; the vault, asked for the record, did not answer,
         // and the refusal keeps the guard's own remedy
         s.answers

@@ -96,6 +96,10 @@ pub struct Evaluator<'a> {
     /// How deep inside a type-scan's `where` it is, where an object it
     /// examines is not yet read: only what the scan matches is (ADR-0158).
     quiet: std::cell::Cell<usize>,
+    /// How deep inside a part evaluated for the record alone it is, where an
+    /// evaluator the sandbox gives no answer for is set aside rather than
+    /// stopping a request its verdict does not decide.
+    aside: std::cell::Cell<usize>,
 }
 
 /// What the rules evaluated for an event read and consulted (`DESIGN.md`
@@ -200,6 +204,7 @@ impl<'a> Evaluator<'a> {
             committed: None,
             reading: None,
             quiet: std::cell::Cell::new(0),
+            aside: std::cell::Cell::new(0),
         }
     }
 
@@ -236,7 +241,10 @@ impl<'a> Evaluator<'a> {
     fn aside(&self, e: &Expr, env: &BTreeMap<String, Value>) -> Result<(), NotRun> {
         if self.reading.is_some() {
             let asked = self.unanswered.get();
-            self.value(e, env)?;
+            self.aside.set(self.aside.get() + 1);
+            let read = self.value(e, env);
+            self.aside.set(self.aside.get() - 1);
+            read?;
             self.unanswered.set(asked);
         }
         Ok(())
@@ -1253,6 +1261,9 @@ impl Evaluator<'_> {
                 self.unanswered.set(true);
                 Value::Absent
             }
+            // asked for the record alone, a call the sandbox has no answer
+            // for consults nothing, as stopping early would never have asked
+            None if self.aside.get() > 0 => return Ok(Value::Absent),
             _ => {
                 return not_run(format!(
                     "the evaluator function {key}, which the sandbox gives no answer for"
