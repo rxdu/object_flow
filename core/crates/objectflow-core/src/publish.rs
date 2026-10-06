@@ -1933,4 +1933,30 @@ types:
         let change = draft(&mut s, &clean);
         assert!(run(&s, &change, &clean).accepted);
     }
+
+    /// `declaration` at an earlier version (`library-api.md` §6): each
+    /// published version's library loads again from the source it recorded,
+    /// the built-ins alone at version 0, and a version never published has
+    /// none.
+    #[test]
+    fn an_earlier_versions_library_loads_from_its_source() {
+        let (mut s, _, _, _) = fleet();
+        let (change, v) = submitted(&mut s, &v2(true, true, true));
+        assert!(matches!(
+            approve(&mut s, &change, v).0,
+            Verdict::Satisfied { .. }
+        ));
+        let first = s.library_at(1).unwrap().unwrap();
+        let robot = first.type_("Robot").unwrap();
+        assert_eq!(first.version, 1);
+        assert!(robot.state("HOLD").is_some() && robot.transition("hold").is_some());
+        assert!(robot.attribute("site").is_none());
+        let second = s.library_at(2).unwrap().unwrap();
+        let robot = second.type_("Robot").unwrap();
+        assert_eq!(second.version, 2);
+        assert!(robot.state("HOLD").is_none() && robot.attribute("site").is_some());
+        let builtins = s.library_at(0).unwrap().unwrap();
+        assert!(builtins.type_("Robot").is_none() && builtins.type_("Operator").is_some());
+        assert!(s.library_at(9).unwrap().is_none());
+    }
 }

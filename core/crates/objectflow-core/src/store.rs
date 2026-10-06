@@ -1694,6 +1694,38 @@ impl Store {
         Ok(positions)
     }
 
+    /// The library a version installed, loaded again from the source it
+    /// recorded (`library-api.md` §6, `declaration` at an earlier version):
+    /// none for a version the store never published; a source that no
+    /// longer loads is the store's failure, since it loaded when published.
+    pub fn library_at(&self, version: i64) -> Stored<Option<Library>> {
+        let source: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT source FROM of_declaration WHERE version = ?1",
+                params![version],
+                |r| r.get(0),
+            )
+            .map(Some)
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(other),
+            })?;
+        let Some(source) = source else {
+            return Ok(None);
+        };
+        let files: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&source)
+            .map_err(|e| StoreError(format!("version {version}'s source: {e}")))?;
+        let files: Vec<(String, String)> = files
+            .into_iter()
+            .map(|(n, t)| (n, t.as_str().unwrap_or_default().to_string()))
+            .collect();
+        let mut lib = Library::load(&files)
+            .map_err(|e| StoreError(format!("version {version}'s source no longer loads: {e}")))?;
+        lib.version = version;
+        Ok(Some(lib))
+    }
+
     /// The store's connection, for a test to read its schema.
     #[cfg(test)]
     pub(crate) fn conn(&self) -> &Connection {

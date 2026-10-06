@@ -1003,7 +1003,22 @@ async fn declaration(State(shared): State<Shared>, Json(body): Json<J>) -> Answe
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
     let name = text(&body, "type").unwrap_or_default();
-    let Some(t) = s.lib.type_(name) else {
+    // the version asked for, the installed one where none is
+    // (library-api.md §6)
+    let earlier = match body.get("version") {
+        None | Some(J::Null) => None,
+        Some(v) => {
+            let n = v.as_i64().ok_or_else(|| {
+                Fault::Bad("version takes a declaration version, an integer".to_string())
+            })?;
+            Some(
+                s.library_at(n)?
+                    .ok_or_else(|| Fault::Missing(format!("no version {n} was published")))?,
+            )
+        }
+    };
+    let lib = earlier.as_ref().unwrap_or(&s.lib);
+    let Some(t) = lib.type_(name) else {
         return Err(Fault::Missing(format!("no type {name} is declared")));
     };
     let mut out = t.source.clone();
@@ -1016,7 +1031,7 @@ async fn declaration(State(shared): State<Shared>, Json(body): Json<J>) -> Answe
     );
     for d in decl {
         if let Declared::Scalar(e) = d
-            && let Some(members) = s.lib.enumerations.get(e)
+            && let Some(members) = lib.enumerations.get(e)
         {
             used.insert(e.clone(), json!(members));
         }
