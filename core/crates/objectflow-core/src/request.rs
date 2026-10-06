@@ -1280,8 +1280,20 @@ fn take(
     // empty, and its values leave the interval index (DESIGN.md §8)
     if x.kind == Kind::Erasure {
         let mut erased = BTreeSet::new();
+        // personal under the installed version, or under the version of
+        // the event that last wrote it, an attribute a later version no
+        // longer marks keeping what it was written as (ADR-0146 decision 2)
+        let written_personal = |a: &str| {
+            o.writes.get(a).is_some_and(|position| {
+                ctx.work
+                    .events
+                    .iter()
+                    .find(|e| e.position == *position)
+                    .is_some_and(|e| ctx.work.personal_under(e.declaration_version, &o.type_, a))
+            })
+        };
         for (a, spec) in &t.attributes {
-            if !spec.personal || !o.attrs.contains_key(a) {
+            if !(spec.personal || written_personal(a)) || !o.attrs.contains_key(a) {
                 continue;
             }
             if spec.stored_set() {
@@ -1291,12 +1303,17 @@ fn take(
             }
             erased.insert(a.clone());
         }
-        for (a, spec) in &t.attributes {
-            if spec.personal
-                && let Some(spans) = o.spans.get_mut(a)
-            {
-                for sp in spans {
+        // each span personal under the installed version or the version it
+        // was written under
+        for (a, spans) in o.spans.iter_mut() {
+            let now_personal = t.attribute(a).is_some_and(|spec| spec.personal);
+            for sp in spans {
+                if now_personal || ctx.work.personal_under(sp.declaration_version, &o.type_, a) {
                     sp.value = Value::Absent;
+                    // written by the store, which writes only the spans an
+                    // event opens or closes, as the walk down's are
+                    ctx.redacted_spans
+                        .push((o.id.clone(), a.clone(), sp.entered_position));
                 }
             }
         }
@@ -1304,10 +1321,22 @@ fn take(
         let redacted_since = ctx.redacted_inputs.len();
         // what the erased object holds that is personal, the source of
         // every value the walks follow
+        let own_versions: BTreeSet<i64> = ctx
+            .work
+            .events
+            .iter()
+            .filter(|e| e.object_id == o.id)
+            .map(|e| e.declaration_version)
+            .collect();
         let holding: BTreeSet<String> = t
             .attributes
             .iter()
-            .filter(|(_, spec)| spec.personal)
+            .filter(|(a, spec)| {
+                spec.personal
+                    || own_versions
+                        .iter()
+                        .any(|v| ctx.work.personal_under(*v, &o.type_, a))
+            })
             .map(|(a, _)| a.clone())
             .collect();
         // each input personal under the transition its event recorded,
@@ -1321,13 +1350,25 @@ fn take(
             .cloned()
             .collect();
         for e in &own {
-            let Some(ex) = t.transition(&e.transition) else {
+            // the transition as the version its event was written under
+            // declared it (storage-schema.md §9 step 2, per version)
+            let tv = ctx
+                .work
+                .type_at(e.declaration_version, &o.type_)
+                .unwrap_or(t);
+            let Some(ex) = tv
+                .transition(&e.transition)
+                .or_else(|| t.transition(&e.transition))
+            else {
                 continue;
             };
             let mut tainted = BTreeSet::new();
             if let Some(recorded) = e.payload["inputs"].as_object() {
                 for name in recorded.keys() {
-                    if input_personal(t, ex, name) || t.attribute(name).is_some_and(|a| a.personal)
+                    if input_personal(tv, ex, name)
+                        || tv.attribute(name).is_some_and(|a| a.personal)
+                        || input_personal(t, ex, name)
+                        || t.attribute(name).is_some_and(|a| a.personal)
                     {
                         ctx.redacted_inputs.push((e.position, name.clone()));
                         tainted.insert(name.clone());
@@ -3945,6 +3986,8 @@ pub fn request(
     req: &Request,
 ) -> Result<Result<Verdict, NoVerdict>, crate::store::StoreError> {
     let answers = store.answers.clone();
+    // what an erasure reads was personal under each earlier version
+    store.load_earlier()?;
     let decided = store.transact(|world, alloc| {
         // 2. a key its actor applied before replays that request's verdict,
         // whatever version the retry names, and a different request under it

@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::model::Library;
+use crate::model::{Library, Type};
 use crate::store::Event;
 use crate::value::Value;
 
@@ -79,10 +79,18 @@ impl Object {
     }
 }
 
+/// No earlier version's library: a store with one version, or a world
+/// built without them.
+static NO_EARLIER: BTreeMap<i64, Library> = BTreeMap::new();
+
 /// The objects of a store, and the time a request reads.
 #[derive(Clone, Debug)]
 pub struct World<'l> {
     pub lib: &'l Library,
+    /// Each earlier version's library, by version, which an erasure reads
+    /// what was personal under (ADR-0146 decision 2); empty where the store
+    /// has published one version.
+    pub earlier: &'l BTreeMap<i64, Library>,
     pub objects: BTreeMap<String, Object>,
     pub now: i64,
     /// Each external identifier, by source and value, and the object that
@@ -122,6 +130,7 @@ impl<'l> World<'l> {
     pub fn new(lib: &'l Library, now: i64) -> World<'l> {
         World {
             lib,
+            earlier: &NO_EARLIER,
             objects: BTreeMap::new(),
             now,
             external: BTreeMap::new(),
@@ -134,6 +143,41 @@ impl<'l> World<'l> {
             idempotency: BTreeMap::new(),
             rollup: Vec::new(),
         }
+    }
+
+    /// A type as the version given declared it: the installed version's,
+    /// or an earlier one's where the store holds it.
+    pub fn type_at(&self, version: i64, name: &str) -> Option<&'l Type> {
+        match self.earlier.get(&version) {
+            Some(lib) if version != self.lib.version => lib.type_(name),
+            _ => self.lib.type_(name),
+        }
+    }
+
+    /// Whether an attribute of a type, named as the installed version names
+    /// it, was personal under the version given (ADR-0146 decision 2): its
+    /// name taken back through each later version's renames first, so a
+    /// value written before a rename is judged as the attribute it was.
+    pub fn personal_under(&self, version: i64, type_: &str, attribute: &str) -> bool {
+        let mut name = attribute.to_string();
+        for k in (version + 1..=self.lib.version).rev() {
+            let lib = if k == self.lib.version {
+                Some(self.lib)
+            } else {
+                self.earlier.get(&k)
+            };
+            if let Some((_, from, _)) = lib.and_then(|l| {
+                l.migration
+                    .renamed_attributes
+                    .iter()
+                    .find(|(t, _, to)| t == type_ && *to == name)
+            }) {
+                name.clone_from(from);
+            }
+        }
+        self.type_at(version, type_)
+            .and_then(|t| t.attribute(&name))
+            .is_some_and(|a| a.personal)
     }
 
     pub fn get(&self, id: &str) -> Option<&Object> {

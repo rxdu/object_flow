@@ -541,6 +541,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D527](#d527) | A publish's redaction could break an invariant after the invariants were checked | Resolved by ADR-0155 |
 | [D528](#d528) | A type-changed attribute's intervals had nowhere to go | Resolved by ADR-0155 |
 | [D529](#d529) | Two modules checked together each declare a type `Service`, and a store holding both keeps one | Open |
+| [D530](#d530) | A publish's rename did not carry the attribute write index | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3469,3 +3470,8 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **Two modules checked together each declare a type `Service`, and a store holding both keeps one.** `people.yaml` declares `Service`, an actor type, "a system that can make requests", and `servicedesk.yaml` declares its own `Service`, "a service in the service registry", importing nothing. The flow checker checks every design module with `people.yaml` first, and the Flow Studio loads them together the same way; the format's rule 1 forbids a name a module shares with one *in its closure*, which `servicedesk.yaml`'s is not, so the checker passes it. But a store's library holds every type of every module it runs by name, "a name declared once across them" (`core/crates/objectflow-core/src/model.rs`, `Library`), and both the core and the reference runner key types by name, so the later module's `Service` silently replaces the earlier: in a store holding both, `people.yaml`'s actor type is gone. Found 2026-10-07 using the Flow Studio, where the page warned of two list entries keyed `Service`; checked by loading the bundle into the runner's sandbox, whose answer lists `Service` twice.
 
 **Open**, for the author. Recommended: a load and a publish refuse a type, enumeration or machine name that two of the modules declare, naming both, in the core and in the flow checker's check of files together, since the store cannot hold both; and `servicedesk.yaml`'s `Service` is renamed, eight references in the module and one in its examples, to a name of the author's choosing, `RegisteredService` say. The refusal cannot land before the rename, or `servicedesk.yaml`'s examples stop loading.
+
+### D530
+**A publish's rename did not carry the attribute write index.** `storage-schema.md` §10 said a renamed attribute's column is renamed, "carrying the mapping", and nothing of its intervals or its `of_attribute_write` rows. The core carried the intervals and not the write index, so after a rename `changed_since` read no write of the attribute, and an erasure could not tell which version last wrote it. Found 2026-10-07 building erasure under earlier versions, by a test of an attribute renamed by one version and unmarked by the next, whose value survived the erasure.
+
+**Resolved** in place: §10's row says both are carried under the new name, and the core does it, the test holding the write index after the rename and a mutation leaving it behind failing.

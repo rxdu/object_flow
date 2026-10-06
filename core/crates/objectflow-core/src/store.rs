@@ -549,6 +549,121 @@ fn event_of(
     }
 }
 
+/// What a version kept for history on an erased object, cleared where it
+/// was personal under the version it belongs to (ADR-0146 decision 2,
+/// `storage-schema.md` §10): a column a later version dropped, kept under
+/// its own name, and one a type change set aside as `<column>__v<n>`; the
+/// intervals set aside with it as `<attribute>__v<n>`; and a personal set's
+/// side table, dropped or set aside. Personal under a version means as its
+/// library declares the attribute; a dropped column was personal where any
+/// earlier version declaring it marked it so.
+fn clear_kept(
+    tx: &Transaction<'_>,
+    lib: &Library,
+    earlier: &BTreeMap<i64, Library>,
+    o: &Object,
+) -> Stored<()> {
+    let Some(t) = lib.type_(&o.type_) else {
+        return Ok(());
+    };
+    let name = table(&t.name);
+    // the attribute a column held under a version, and whether it was
+    // personal there; under any earlier version where none is named
+    let personal = |col: &str, version: Option<i64>| -> bool {
+        let under = |l: &Library| {
+            l.type_(&t.name).is_some_and(|lt| {
+                lt.attributes
+                    .iter()
+                    .any(|(n, a)| a.personal && (column(n, a) == col || n == col))
+            })
+        };
+        match version {
+            Some(v) if v == lib.version => under(lib),
+            Some(v) => earlier.get(&v).is_some_and(under),
+            None => earlier.values().any(under),
+        }
+    };
+    let split = |c: &str| match c.rsplit_once("__v") {
+        Some((base, v)) => match v.parse::<i64>() {
+            Ok(v) => (base.to_string(), Some(v)),
+            Err(_) => (c.to_string(), None),
+        },
+        None => (c.to_string(), None),
+    };
+    let own: Vec<String> = table_parts(lib, t, false)
+        .columns
+        .iter()
+        .map(|(c, _)| c.clone())
+        .collect();
+    let mut kept = Vec::new();
+    {
+        let mut info = tx.prepare(&format!("PRAGMA table_info({})", quote(&name)))?;
+        let rows = info.query_map([], |r| r.get::<_, String>(1))?;
+        for row in rows {
+            let c = row?;
+            if !own.contains(&c) {
+                kept.push(c);
+            }
+        }
+    }
+    for c in kept {
+        let (base, version) = split(&c);
+        if personal(&base, version) {
+            tx.execute(
+                &format!("UPDATE {name} SET {} = NULL WHERE id = ?1", quote(&c)),
+                [&o.id],
+            )?;
+        }
+    }
+    // the intervals set aside with a type change
+    let mut dims = Vec::new();
+    {
+        let mut q = tx.prepare(
+            "SELECT DISTINCT dimension FROM of_interval WHERE object_id = ?1 AND dimension LIKE '%\\_\\_v%' ESCAPE '\\'",
+        )?;
+        let rows = q.query_map([&o.id], |r| r.get::<_, String>(0))?;
+        for row in rows {
+            dims.push(row?);
+        }
+    }
+    for d in dims {
+        let (base, version) = split(&d);
+        if version.is_some() && personal(&base, version) {
+            tx.execute(
+                "UPDATE of_interval SET value = NULL WHERE object_id = ?1 AND dimension = ?2",
+                params![o.id, d],
+            )?;
+        }
+    }
+    // a personal set's side table, dropped or set aside
+    let mut sides = Vec::new();
+    {
+        let mut q = tx.prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE ?1 ESCAPE '\\'",
+        )?;
+        let pattern = format!("{}\\_\\_%", name.replace('_', "\\_"));
+        let rows = q.query_map([pattern], |r| r.get::<_, String>(0))?;
+        for row in rows {
+            sides.push(row?);
+        }
+    }
+    let prefix = format!("{name}__");
+    for side in sides {
+        let Some(rest) = side.strip_prefix(&prefix) else {
+            continue;
+        };
+        let (attribute, version) = split(rest);
+        let current = version.is_none() && t.attribute(&attribute).is_some();
+        if !current && personal(&attribute, version) {
+            tx.execute(
+                &format!("DELETE FROM {} WHERE object_id = ?1", quote(&side)),
+                [&o.id],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 /// One span of the interval index, inserted or brought up to date.
 fn upsert_span(tx: &Transaction<'_>, id: &str, dimension: &str, sp: &Span) -> Stored<()> {
     tx.execute(
@@ -922,6 +1037,10 @@ pub struct Store {
     /// nothing.
     pub attempt_retention: Option<i64>,
     pub idempotency_retention: Option<i64>,
+    /// Each earlier version's library, loaded once from the source it
+    /// recorded, since a published version never changes: what an erasure
+    /// reads was personal under (ADR-0146 decision 2).
+    earlier: BTreeMap<i64, Library>,
 }
 
 /// What `maintain` was asked to do (`library-api.md` §5, ADR-0100,
@@ -950,6 +1069,7 @@ impl Store {
             answers: BTreeMap::new(),
             attempt_retention: None,
             idempotency_retention: None,
+            earlier: BTreeMap::new(),
         };
         for t in store.lib.types.values() {
             store.conn.execute_batch(&store.type_ddl(t))?;
@@ -1087,7 +1207,23 @@ impl Store {
 
     /// Every object, as a request reads them.
     pub fn snapshot(&self) -> Stored<World<'_>> {
-        snapshot(&self.conn, &self.lib, self.now)
+        snapshot(&self.conn, &self.lib, &self.earlier, self.now)
+    }
+
+    /// Every earlier version's library loaded, those already loaded kept:
+    /// a request's world reads them where an erasure decides what was
+    /// personal (ADR-0146 decision 2). Version 0 holds the built-ins, which
+    /// every version holds as well.
+    pub fn load_earlier(&mut self) -> Stored<()> {
+        for v in 1..self.lib.version {
+            if self.earlier.contains_key(&v) {
+                continue;
+            }
+            if let Some(lib) = self.library_at(v)? {
+                self.earlier.insert(v, lib);
+            }
+        }
+        Ok(())
     }
 
     /// Decide on a snapshot and write what the decision changed, in one
@@ -1100,7 +1236,7 @@ impl Store {
         decide: impl FnOnce(&World<'_>, &mut Allocator) -> T,
     ) -> Result<T, StoreError> {
         let tx = self.conn.transaction()?;
-        let world = snapshot(&tx, &self.lib, self.now)?;
+        let world = snapshot(&tx, &self.lib, &self.earlier, self.now)?;
         let mut alloc = Allocator::read(&tx)?;
         let out = decide(&world, &mut alloc);
         tx.rollback()?;
@@ -1139,14 +1275,14 @@ impl Store {
         decide: impl FnOnce(&World<'_>, &mut Allocator) -> Result<(T, Option<Change>), E>,
     ) -> Result<Result<T, E>, StoreError> {
         let tx = self.conn.transaction()?;
-        let world = snapshot(&tx, &self.lib, self.now)?;
+        let world = snapshot(&tx, &self.lib, &self.earlier, self.now)?;
         let mut alloc = Allocator::read(&tx)?;
         let decided = decide(&world, &mut alloc);
         match decided {
             Ok((answer, Some(change))) => {
                 alloc.write(&tx)?;
                 alloc.write_sequences(&tx)?;
-                write(&tx, &self.lib, &change)?;
+                write(&tx, &self.lib, &self.earlier, &change)?;
                 tx.commit()?;
                 Ok(Ok(answer))
             }
@@ -1356,6 +1492,15 @@ impl Store {
                         tx.execute(
                             &format!(
                                 "UPDATE of_interval SET dimension = ?2 WHERE dimension = ?1 \
+                                 AND object_id IN (SELECT id FROM {name})"
+                            ),
+                            params![from, to],
+                        )?;
+                        // and its write index, so `changed_since` and an
+                        // erasure read who last wrote it under its new name
+                        tx.execute(
+                            &format!(
+                                "UPDATE of_attribute_write SET attribute = ?2 WHERE attribute = ?1 \
                                  AND object_id IN (SELECT id FROM {name})"
                             ),
                             params![from, to],
@@ -1659,7 +1804,7 @@ impl Store {
             }
         }
         alloc.write(&tx)?;
-        write(&tx, new, &change_set)?;
+        write(&tx, new, &self.earlier, &change_set)?;
         // after the mappings: every changed table brought to the version's
         // exact shape, then every foreign key checked
         for t in changed {
@@ -1907,8 +2052,14 @@ fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
     })
 }
 
-fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'l>> {
+fn snapshot<'l>(
+    conn: &Connection,
+    lib: &'l Library,
+    earlier: &'l BTreeMap<i64, Library>,
+    now: i64,
+) -> Stored<World<'l>> {
     let mut world = World::new(lib, now);
+    world.earlier = earlier;
     let mut directory =
         conn.prepare("SELECT rowid, id, type, created_at, created_by_kind FROM of_object")?;
     let rows = directory.query_map([], |r| {
@@ -2256,7 +2407,12 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
     Ok(())
 }
 
-fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
+fn write(
+    tx: &Transaction<'_>,
+    lib: &Library,
+    earlier: &BTreeMap<i64, Library>,
+    change: &Change,
+) -> Stored<()> {
     for (o, created, event) in &change.writes {
         let Some(t) = lib.type_(&o.type_) else {
             return Err(StoreError(format!(
@@ -2491,6 +2647,13 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
                     }
                 }
             }
+        }
+    }
+    // what a version kept for history, personal under the version it
+    // belongs to, leaves an erased object too (ADR-0146 decision 2)
+    for (o, _, _) in &change.writes {
+        if o.erased {
+            clear_kept(tx, lib, earlier, o)?;
         }
     }
     for (position, name) in &change.redacted_inputs {

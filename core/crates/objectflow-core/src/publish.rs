@@ -268,35 +268,6 @@ fn impact(
         }
     };
     new.version = old.version + 1;
-    // erasure reaches every value personal under any version an object's
-    // history was written under (ADR-0146 decision 2), and the core's reaches
-    // only what the installed version marks personal: a version that would
-    // leave one behind, dropped, retyped or no longer personal, is not run
-    for (tn, ot) in &old.types {
-        if builtin(tn) || ot.retired {
-            continue;
-        }
-        for (a, spec) in ot.attributes.iter().filter(|(_, s)| s.personal) {
-            let to = new
-                .migration
-                .renamed_attributes
-                .iter()
-                .find(|(t, from, _)| t == tn && from == a)
-                .map_or(a, |(_, _, to)| to);
-            let kept = new
-                .type_(tn)
-                .and_then(|t| t.attribute(to))
-                .is_some_and(|na| {
-                    na.personal && na.declared == spec.declared && na.many == spec.many
-                });
-            if !kept {
-                return Err(NotRun(format!(
-                    "erasure of {tn}.{a}, personal under version {}, once a version no longer holds it so (ADR-0146 decision 2)",
-                    old.version
-                )));
-            }
-        }
-    }
     // a type the version drops is retired: its objects and history stay
     // readable, and nothing creates or changes one (storage-schema.md §10)
     for (tn, t) in &old.types {
@@ -1630,9 +1601,13 @@ types:
 "#;
 
     #[test]
-    fn a_version_leaving_a_personal_value_unerasable_is_not_run() {
-        let lib = Library::load(&[("shop.yaml".into(), SHOP_V1.into())]).unwrap();
-        let s = Store::sandbox(lib, 1_767_225_600).unwrap();
+    /// Erasure reaches every value personal under any version an object's
+    /// history was written under (ADR-0146 decision 2): after a version
+    /// unmarks, drops or retypes a personal attribute, erasing a customer
+    /// who joined before leaves its name in no row, kept or set-aside column
+    /// or past event; and one who joined after the unmarking keeps a name
+    /// that was never personal.
+    fn a_version_unmarking_dropping_or_retyping_a_personal_value_leaves_it_erasable() {
         let unmarked = SHOP_V1.replace(
             "name: { type: string, optional: true, personal: true }",
             "name: { type: string, optional: true }",
@@ -1646,20 +1621,265 @@ types:
                 "optional_inputs: [name, nick, tier, size]",
                 "optional_inputs: [nick, tier, size]",
             );
-        for text in [unmarked, dropped] {
-            let w = s.snapshot().unwrap();
-            let r = dry_run(
-                &w,
-                &Draft {
-                    change_id: None,
-                    source: &[("shop".to_string(), text)],
-                    source_ref: None,
-                    source_digest: None,
-                    actor: OPERATOR,
-                },
+        let retyped = SHOP_V1.replace(
+            "name: { type: string, optional: true, personal: true }",
+            "name: { type: int, optional: true }",
+        );
+        for (what, text, column) in [
+            ("unmarked", unmarked, "name"),
+            ("dropped", dropped, "name"),
+            ("retyped", retyped, "name__v1"),
+        ] {
+            let lib = Library::load(&[("shop.yaml".into(), SHOP_V1.into())]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let ana = created(&req(
+                &mut s,
+                "join",
+                ("Customer", true),
+                json!({"name": "Ana", "nick": "a"}),
+            ));
+            let change = created(&req(
+                &mut s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"shop": text}, "source_ref": "git:shop@1"}),
+            ));
+            created(&req(&mut s, "submit", (&change, false), json!({})));
+            let v = s.snapshot().unwrap().get(&change).unwrap().version;
+            let (verdict, report) = approve(&mut s, &change, v);
+            assert!(
+                matches!(verdict, Verdict::Satisfied { .. }),
+                "{what}: {verdict:?} {report:#?}"
             );
-            assert!(r.unwrap_err().0.contains("Customer.name"));
+            assert_eq!(s.lib.version, 2, "{what}");
+            created(&req(
+                &mut s,
+                "forget",
+                (&ana, false),
+                json!({"reason": "asked"}),
+            ));
+            let held: Option<String> = s
+                .conn()
+                .query_row(
+                    &format!("SELECT {column} FROM t_customer WHERE id = ?1"),
+                    [&ana],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(held, None, "{what}: the {column} column");
+            let joined = s.history(&ana).unwrap().into_iter().next().unwrap();
+            assert_eq!(
+                joined.payload["inputs"]["name"],
+                json!(null),
+                "{what}: the join event"
+            );
+            assert_eq!(joined.payload["inputs"]["nick"], json!("a"), "{what}");
+            if what == "unmarked" {
+                // a name given under the version that unmarked it was never
+                // personal, and an erasure leaves it
+                let bo = created(&req(
+                    &mut s,
+                    "join",
+                    ("Customer", true),
+                    json!({"name": "Bo"}),
+                ));
+                created(&req(
+                    &mut s,
+                    "forget",
+                    (&bo, false),
+                    json!({"reason": "asked"}),
+                ));
+                assert_eq!(
+                    s.snapshot().unwrap().get(&bo).unwrap().attr("name"),
+                    Value::Text("Bo".into())
+                );
+            }
         }
+    }
+
+    /// The interval index too: a tracked personal enumeration's intervals
+    /// are cleared by the version they were written under, whether a later
+    /// version unmarked it, keeping its intervals, or retyped it, setting
+    /// them aside as `tier__v1` (ADR-0146 decision 2, `storage-schema.md` §9
+    /// step 9).
+    #[test]
+    fn an_erasure_clears_intervals_personal_under_the_version_they_were_written_under() {
+        let v1 = SHOP_V1.replace(
+            "tier: { type: Tier, optional: true }",
+            "tier: { type: Tier, optional: true, personal: true }",
+        );
+        let unmarked = SHOP_V1.to_string();
+        let retyped = SHOP_V1.replace(
+            "tier: { type: Tier, optional: true }",
+            "tier: { type: string, optional: true }",
+        );
+        for (what, text, dimension) in [
+            ("unmarked", unmarked, "tier"),
+            ("retyped", retyped, "tier__v1"),
+        ] {
+            let lib = Library::load(&[("shop.yaml".into(), v1.clone())]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let ana = created(&req(
+                &mut s,
+                "join",
+                ("Customer", true),
+                json!({"tier": "GOLD"}),
+            ));
+            let change = created(&req(
+                &mut s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"shop": text}, "source_ref": "git:shop@1"}),
+            ));
+            created(&req(&mut s, "submit", (&change, false), json!({})));
+            let v = s.snapshot().unwrap().get(&change).unwrap().version;
+            assert!(
+                matches!(approve(&mut s, &change, v).0, Verdict::Satisfied { .. }),
+                "{what}"
+            );
+            let held = |s: &Store| -> Vec<Option<String>> {
+                let mut q = s
+                    .conn()
+                    .prepare(
+                        "SELECT value FROM of_interval WHERE object_id = ?1 AND dimension = ?2",
+                    )
+                    .unwrap();
+                q.query_map(rusqlite::params![ana, dimension], |r| r.get(0))
+                    .unwrap()
+                    .map(Result::unwrap)
+                    .collect()
+            };
+            assert!(
+                held(&s).iter().any(Option::is_some),
+                "{what}: a value before the erasure"
+            );
+            created(&req(
+                &mut s,
+                "forget",
+                (&ana, false),
+                json!({"reason": "asked"}),
+            ));
+            assert!(
+                !held(&s).is_empty() && held(&s).iter().all(Option::is_none),
+                "{what}: {:?}",
+                held(&s)
+            );
+        }
+        // a value given after the unmarking stays, and the one before it,
+        // personal then, is cleared, though the current value is not erased
+        let lib = Library::load(&[("shop.yaml".into(), v1)]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let bo = created(&req(
+            &mut s,
+            "join",
+            ("Customer", true),
+            json!({"tier": "GOLD"}),
+        ));
+        let v2 = SHOP_V1.replace(
+            "      leave: { kind: external, from: [ACTIVE], to: GONE }",
+            "      leave: { kind: external, from: [ACTIVE], to: GONE }\n      retier: { kind: internal, from: [ACTIVE], required_inputs: [tier] }",
+        );
+        let change = created(&req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"shop": v2}, "source_ref": "git:shop@2"}),
+        ));
+        created(&req(&mut s, "submit", (&change, false), json!({})));
+        let v = s.snapshot().unwrap().get(&change).unwrap().version;
+        assert!(matches!(
+            approve(&mut s, &change, v).0,
+            Verdict::Satisfied { .. }
+        ));
+        s.now += 60;
+        created(&req(
+            &mut s,
+            "retier",
+            (&bo, false),
+            json!({"tier": "SILVER"}),
+        ));
+        created(&req(
+            &mut s,
+            "forget",
+            (&bo, false),
+            json!({"reason": "asked"}),
+        ));
+        let mut q = s
+            .conn()
+            .prepare("SELECT value FROM of_interval WHERE object_id = ?1 AND dimension = 'tier' ORDER BY entered_at")
+            .unwrap();
+        let values: Vec<Option<String>> = q
+            .query_map([&bo], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(values, vec![None, Some("SILVER".to_string())]);
+    }
+
+    /// A personal attribute renamed by one version and unmarked by the
+    /// next is still erased from objects whose value was written before the
+    /// rename, its name taken back through the rename (ADR-0146 decision 2).
+    #[test]
+    fn an_erasure_follows_a_personal_attribute_through_its_renames() {
+        let lib = Library::load(&[("shop.yaml".into(), SHOP_V1.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let ana = created(&req(
+            &mut s,
+            "join",
+            ("Customer", true),
+            json!({"name": "Ana"}),
+        ));
+        let renamed = SHOP_V1
+            .replace(
+                "name: { type: string, optional: true, personal: true }",
+                "alias: { type: string, optional: true, personal: true }",
+            )
+            .replace(
+                "optional_inputs: [name, nick, tier, size]",
+                "optional_inputs: [alias, nick, tier, size]",
+            )
+            + "migration:\n  description: The name is an alias.\n  renamed_attributes:\n    Customer: { name: alias }\n";
+        let unmarked = renamed
+            .replace(
+                "alias: { type: string, optional: true, personal: true }",
+                "alias: { type: string, optional: true }",
+            )
+            .replace(
+                "migration:\n  description: The name is an alias.\n  renamed_attributes:\n    Customer: { name: alias }\n",
+                "",
+            );
+        for (n, text) in [(1, renamed), (2, unmarked)] {
+            let change = created(&req(
+                &mut s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"shop": text}, "source_ref": format!("git:shop@{n}")}),
+            ));
+            created(&req(&mut s, "submit", (&change, false), json!({})));
+            let v = s.snapshot().unwrap().get(&change).unwrap().version;
+            let (verdict, report) = approve(&mut s, &change, v);
+            assert!(
+                matches!(verdict, Verdict::Satisfied { .. }),
+                "{verdict:?} {report:#?}"
+            );
+        }
+        assert_eq!(s.lib.version, 3);
+        let w = s.snapshot().unwrap();
+        let held = w.get(&ana).unwrap();
+        assert_eq!(held.attr("alias"), Value::Text("Ana".into()));
+        // the write index follows the rename, so `changed_since` reads it
+        assert!(held.writes.contains_key("alias") && !held.writes.contains_key("name"));
+        drop(w);
+        created(&req(
+            &mut s,
+            "forget",
+            (&ana, false),
+            json!({"reason": "asked"}),
+        ));
+        assert_eq!(
+            s.snapshot().unwrap().get(&ana).unwrap().attr("alias"),
+            Value::Absent
+        );
     }
 
     #[test]
