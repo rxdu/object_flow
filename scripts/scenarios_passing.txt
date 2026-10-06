@@ -1,0 +1,3 @@
+# Each metric read of docs/design/metric-scenarios.md the core matches when scripts/replay-scenarios.py replays the
+# history without stepping past anything; a read no longer matching fails the replay. A read repeated in the document
+# is named with its place among reads of the same text, `#2` and on.

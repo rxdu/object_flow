@@ -56,6 +56,14 @@ def when(s):
     return datetime.strptime(str(s), "%Y-%m-%dT%H:%MZ")
 
 
+def held(o, a):
+    """An attribute's value where a rule reads it: one a creation's default or the port's legacy record gave, since an
+    absent value is unknown to an engine, never its default (flow-format.md §4.17)."""
+    if a not in o.attrs:
+        raise Refused(f"{o.id}.{a} is absent where a rule reads it, which an engine reads as unknown, not as a default")
+    return o.attrs[a]
+
+
 def value(v):
     """A request's or an import's value: a timestamp written as one is read as one, whatever its name."""
     if isinstance(v, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\dZ", v):
@@ -174,7 +182,7 @@ def second_eye(s, o, i):
 DERIVED = {
     ("RobotModel", "low_stock"): ("available_units < reorder_point", lambda s, o: sum(
         1 for u in s.objects.values() if u.type == "Robot" and u.attrs.get("model") == o.id and u.state == "AVAILABLE")
-        < o.attrs.get("reorder_point", 0)),
+        < held(o, "reorder_point")),
     ("Shipment", "overdue"): ("state == IN_TRANSIT and eta < now",
                               lambda s, o: o.state == "IN_TRANSIT" and o.attrs.get("eta") is not None and o.attrs["eta"] < s.now),
     ("Engagement", "overdue"): ("state == OUT and expected_return is not null and expected_return < now",
@@ -198,8 +206,8 @@ DERIVED = {
 }
 
 GUARDS = {
-    ("Delivery", "not_internal"): ("not internal", lambda s, o, i: not o.attrs.get("internal", False)),
-    ("Delivery", "is_internal"): ("internal", lambda s, o, i: bool(o.attrs.get("internal", False))),
+    ("Delivery", "not_internal"): ("not internal", lambda s, o, i: not held(o, "internal")),
+    ("Delivery", "is_internal"): ("internal", lambda s, o, i: bool(held(o, "internal"))),
     ("Delivery", "filled"): ("count(u in units) >= 1 and none(u in pegged)",
                              lambda s, o, i: len(s.units(o.id)) >= 1 and not s.pegged(o.id)),
     ("Delivery", "all_checked"): ("all(u in units: all(c in PdiCheck where c.model == u.model and c.state == PdiCheck.ACTIVE: "
@@ -216,10 +224,10 @@ GUARDS = {
                         lambda s, o, i: s.objects[i["slot"]].state == "PREPARATION"),
     ("Robot", "labelled"): ("label_printed_at is not null", lambda s, o, i: o.attrs.get("label_printed_at") is not None),
     ("Robot", "mfr_serial"): ("model.manufacturer_serial_required implies manufacturer_serial is not null",
-                              lambda s, o, i: not s.objects[o.attrs["model"]].attrs.get("manufacturer_serial_required", False)
+                              lambda s, o, i: not held(s.objects[o.attrs["model"]], "manufacturer_serial_required")
                               or o.attrs.get("manufacturer_serial") is not None),
     ("Robot", "photo"): ("model.label_photo_required implies count(p in photos) >= 1",
-                         lambda s, o, i: not s.objects[o.attrs["model"]].attrs.get("label_photo_required", False)
+                         lambda s, o, i: not held(s.objects[o.attrs["model"]], "label_photo_required")
                          or len(o.attrs.get("photos", [])) >= 1),
     ("Delivery", "yield_or_signed"): ("count(s in second_sign_offs) >= 1 or all(u in units: u.model.yield_floor is null or "
                                       "metric(first_pass_rate, model := u.model, over last 30 days) >= u.model.yield_floor)",
@@ -248,9 +256,9 @@ INVARIANTS = {
                             lambda s, o: o.state != "AVAILABLE" or o.attrs.get("label_printed_at") is not None),
     ("Robot", "mfr_serial"): ("state != AVAILABLE or not model.manufacturer_serial_required or manufacturer_serial is not null",
                               lambda s, o: o.state != "AVAILABLE"
-                              or not s.objects[o.attrs["model"]].attrs.get("manufacturer_serial_required", False)
+                              or not held(s.objects[o.attrs["model"]], "manufacturer_serial_required")
                               or o.attrs.get("manufacturer_serial") is not None),
-    ("RobotModel", "reorder_point_nonneg"): ("reorder_point >= 0", lambda s, o: o.attrs.get("reorder_point", 0) >= 0),
+    ("RobotModel", "reorder_point_nonneg"): ("reorder_point >= 0", lambda s, o: held(o, "reorder_point") >= 0),
     ("ServiceJob", "engineer_active"): ("not open or engineer.state == User.ACTIVE",
                                         lambda s, o: not s.open(o) or s.objects[o.attrs["engineer"]].state == "ACTIVE"),
 }
@@ -750,6 +758,13 @@ class Store:
     def apply(self, o, tn, xn, x, inputs, occ, to=None):
         frm = o.state
         held = {m: (None if x["kind"] == "created" else o.attrs.get(m)) for m in self.tracked(tn)}
+        if x["kind"] == "created":
+            # a default is written by every creation that does not take the attribute as an input (flow-format.md §4.17)
+            for a, spec_ in (self.types[tn].get("attributes") or {}).items():
+                if "default" in spec_ and a not in inputs:
+                    if not isinstance(spec_["default"], (bool, int, float)):
+                        raise Refused(f"{tn}.{a}'s default {spec_['default']!r} is not transcribed")
+                    o.set(a, spec_["default"])
         for a in (x.get("required_inputs") or []) + (x.get("optional_inputs") or []):
             if a in inputs:
                 o.set(a, inputs[a])
@@ -1624,6 +1639,8 @@ PLANTS = [
      "inputs: { engineer: A-SCOUT } }"),
     ("a departed user's request said to be refused", "actor: U-DIYA, object: J3, transition: start }",
      "actor: U-DIYA, object: J3, transition: start, refused: { verdict: unsatisfied, clause: actor_known, remedy: dependent } }"),
+    ("a ported delivery leaving out a value its guard reads, which no engine defaults",
+     "attributes: { customer: C-ACME, internal: false } }\n  - { object: D07", "attributes: { customer: C-ACME } }\n  - { object: D07"),
     ("a flag said to refuse", "inputs: { category: CAT-TRAVEL, amount: 420.00 }, creates: [CL1], answer: AN1 }",
      "inputs: { category: CAT-TRAVEL, amount: 420.00 }, creates: [CL1], refused: { verdict: unsatisfied, "
      "clause: within_policy, remedy: self_serviceable } }"),

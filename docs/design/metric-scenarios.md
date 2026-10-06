@@ -18,7 +18,7 @@ The script evaluates guards, effects and invariants from a transcription it hold
 
 The store holds the modules `operations_shared` and `inventory_journey` of `unit-journey.md` §2. The agent Scout is an `Agent`, the type `operations_shared` declares for agents. *(Corrected 2026-09-27: this document first declared the type in a module of its own, `scenario_agents`, since the journey declared none and no agent could act on the store (PRD T6; `DESIGN.md` §6 step 1). At the author's direction the type moved into `operations_shared` (D445).)*
 
-**The port.** At `2026-09-01T00:00Z` the store imported the legacy system's objects while every type was a mirror, and the publish of the journey cut them over (`publish-and-import.md` §7). `Customer` stays a mirror, which only the import writes. The history below begins after the cutover. The import's events are marked `imported` and keep provenance `asserted`, and each imported object's `state_source` is `imported` (`DESIGN.md` §8, §11).
+**The port.** At `2026-09-01T00:00Z` the store imported the legacy system's objects while every type was a mirror, and the publish of the journey cut them over (`publish-and-import.md` §7). `Customer` stays a mirror, which only the import writes. The history below begins after the cutover. The import's events are marked `imported` and keep provenance `asserted`, and each imported object's `state_source` is `imported` (`DESIGN.md` §8, §11). An imported object carries every value its legacy record holds, one its attribute's default would give included, since a default is a creation's and the import creates nothing (`flow-format.md` §4.17). *(Corrected 2026-10-06: the ported deliveries and models left out `internal`, `label_photo_required`, `manufacturer_serial_required` and `reorder_point`, which guards read, and `check-scenarios.py` read each absence as the default, which no engine does; replaying the history against the core found it.)*
 
 **Reading.** Every read is taken at `now`, `2026-09-28T00:00Z`, a Monday. Weeks are ISO 8601 weeks in UTC: 2026-W37 runs from Monday 7 September, W38 from the 14th and W39 from the 21st (`declaration-syntax.md` §6.9). A read names the dimensions it keeps and aggregates over the rest, `version` and `actor_kind` included (`declaration-syntax.md` §6.9, "A reader reads a metric as a guard does"). The ids are labels, and no value below depends on their order.
 
@@ -44,15 +44,15 @@ imported:
   - { object: U-CHEN, type: User, state: ACTIVE, attributes: { login: chen } }
   - { object: C-ACME, type: Customer, state: ACTIVE, attributes: { legacy_key: "C-1001", name: Acme Robotics } }
   - { object: C-BOREAL, type: Customer, state: ACTIVE, attributes: { legacy_key: "C-1002", name: Boreal Logistics } }
-  - { object: M-ARM, type: RobotModel, state: ACTIVE, attributes: { name: Arm 7, manufacturer: Armtek, warranty_months: 24 } }
-  - { object: M-ROVER, type: RobotModel, state: ACTIVE, attributes: { name: Rover 2, manufacturer: Roverline, warranty_months: 24 } }
+  - { object: M-ARM, type: RobotModel, state: ACTIVE, attributes: { name: Arm 7, manufacturer: Armtek, warranty_months: 24, label_photo_required: false, manufacturer_serial_required: false, reorder_point: 0 } }
+  - { object: M-ROVER, type: RobotModel, state: ACTIVE, attributes: { name: Rover 2, manufacturer: Roverline, warranty_months: 24, label_photo_required: false, manufacturer_serial_required: false, reorder_point: 0 } }
   - { object: R01, type: Robot, state: AVAILABLE, attributes: { model: M-ARM, label_printed_at: 2026-08-03T00:00Z } }
   - { object: R02, type: Robot, state: AVAILABLE, attributes: { model: M-ARM, label_printed_at: 2026-08-03T00:00Z } }
   - { object: R03, type: Robot, state: AVAILABLE, attributes: { model: M-ARM, label_printed_at: 2026-08-03T00:00Z } }
   - { object: R04, type: Robot, state: INTAKE, attributes: { model: M-ROVER, label_printed_at: 2026-08-27T00:00Z } }
-  - { object: D01, type: Delivery, state: PREPARATION, created: 2026-08-20T00:00Z, entered: 2026-08-20T00:00Z, entered_by: human, attributes: { customer: C-ACME } }
-  - { object: D07, type: Delivery, state: PREPARATION, attributes: { customer: C-BOREAL } }
-  - { object: D08, type: Delivery, state: PREPARATION, entered: 2026-08-15T00:00Z, entered_by: human, silent: [2026-08-25T00:00Z, 2026-08-28T00:00Z], attributes: { customer: C-ACME } }
+  - { object: D01, type: Delivery, state: PREPARATION, created: 2026-08-20T00:00Z, entered: 2026-08-20T00:00Z, entered_by: human, attributes: { customer: C-ACME, internal: false } }
+  - { object: D07, type: Delivery, state: PREPARATION, attributes: { customer: C-BOREAL, internal: false } }
+  - { object: D08, type: Delivery, state: PREPARATION, entered: 2026-08-15T00:00Z, entered_by: human, silent: [2026-08-25T00:00Z, 2026-08-28T00:00Z], attributes: { customer: C-ACME, internal: false } }
   - { object: L01, type: Robot, state: AVAILABLE, created: 2025-10-06T00:00Z, entered: 2025-11-20T00:00Z, entered_by: human, legacy: [[REQUESTED, 2025-10-06T00:00Z, 2025-11-17T00:00Z], [INTAKE, 2025-11-17T00:00Z, 2025-11-20T00:00Z]], attributes: { model: M-ARM, label_printed_at: 2025-11-18T00:00Z } }
   - { object: L02, type: Robot, state: SOLD, created: 2026-01-12T00:00Z, entered: 2026-03-02T00:00Z, entered_by: human, legacy: [[REQUESTED, 2026-01-12T00:00Z, 2026-02-09T00:00Z], [INTAKE, 2026-02-09T00:00Z, 2026-02-11T00:00Z], [AVAILABLE, 2026-02-11T00:00Z, 2026-03-02T00:00Z]], attributes: { model: M-ARM, label_printed_at: 2026-02-10T00:00Z, sold_to: C-BOREAL } }
   - { object: L03, type: Robot, state: AVAILABLE, created: 2026-03-02T00:00Z, entered: 2026-04-29T00:00Z, entered_by: human, legacy: [[REQUESTED, 2026-03-02T00:00Z, 2026-04-27T00:00Z], [INTAKE, 2026-04-27T00:00Z, 2026-04-29T00:00Z]], attributes: { model: M-ROVER, label_printed_at: 2026-04-28T00:00Z } }
