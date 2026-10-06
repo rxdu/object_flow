@@ -366,6 +366,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 ### Assert every scripted replacement, after rustfmt above all
 - **Pattern:** Python edit scripts replaced text with a bare `str.replace`, which does nothing where the text is not found. Twice in one session the target had been reflowed by `cargo fmt` since it was read: a mutation ran unmutated and passed, and a test kept an expectation the script meant to change, costing a debugging round each time.
 - **Correction:** In every edit script, assert the count of each target before replacing (`assert s.count(old) == 1`), and after `cargo fmt` re-read the region before scripting an edit to it; a mutation that passes is first checked for having applied at all.
+- **Pattern (2026-10-06):** Striking a TODO entry by replacing a prefix of its line kept the line's tail, which a later edit then glued onto another entry; the assertion that the prefix occurred once passed, so it caught nothing.
+- **Correction (2026-10-06):** In list documents, replace whole lines: find the entry's start and its line end, and replace from one to the other.
 - **Context:** Scripted edits to the Rust core in ObjectFlow; found 2026-10-05 and again 2026-10-06.
 
 ### Run the gates in one call, never in parallel calls that share a shell

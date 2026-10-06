@@ -112,6 +112,10 @@ pub struct World<'l> {
     /// of the request it applied and the verdict it was given, which a retry
     /// replays (`storage-schema.md` §6, `of_idempotency`, ADR-0077).
     pub idempotency: BTreeMap<(String, String), (String, serde_json::Value)>,
+    /// The daily counts of the attempt rows `maintain` pruned, each a row of
+    /// the `attempt_counts` source as the rows it counted were
+    /// (`storage-schema.md` §6, `of_attempt_rollup`).
+    pub rollup: Vec<(BTreeMap<String, crate::value::Value>, i64)>,
 }
 
 impl<'l> World<'l> {
@@ -128,6 +132,7 @@ impl<'l> World<'l> {
             acknowledged: BTreeMap::new(),
             state_sources: BTreeMap::new(),
             idempotency: BTreeMap::new(),
+            rollup: Vec::new(),
         }
     }
 

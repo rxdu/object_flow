@@ -42,6 +42,9 @@ struct Sandbox {
     files: Vec<(String, String)>,
     store: Option<Store>,
     answers: Map<String, J>,
+    /// The retentions the store is built with, which a reset keeps
+    /// (ADR-0101, ADR-0103): none unless the load names them.
+    retentions: (Option<i64>, Option<i64>),
 }
 
 type Shared = Arc<Mutex<Sandbox>>;
@@ -215,6 +218,19 @@ fn offer(o: &Offer) -> J {
 
 // ── the sandbox's controls ────────────────────────────────────────────────
 async fn load(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    // the deployment's attempt and idempotency retentions, durations
+    let retention = |k: &str| -> Result<Option<i64>, Fault> {
+        match text(&body, k) {
+            None => Ok(None),
+            Some(d) => parse_duration(d)
+                .map(Some)
+                .ok_or_else(|| Fault::Bad(format!("{k} takes a duration such as '90 days'"))),
+        }
+    };
+    let retentions = (
+        retention("attempt_retention")?,
+        retention("idempotency_retention")?,
+    );
     let mut files = Vec::new();
     for f in body
         .get("files")
@@ -251,9 +267,11 @@ async fn load(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     let answer = json!({"loaded": true, "modules": lib.modules, "notices": 0, "now": CLOCK_START,
                         "types": types, "evaluators": lib.evaluators});
     let now = parse_timestamp(CLOCK_START).unwrap_or(0);
-    let store = Store::sandbox(lib, now)?;
+    let mut store = Store::sandbox(lib, now)?;
+    (store.attempt_retention, store.idempotency_retention) = retentions;
     let mut sandbox = locked(&shared)?;
     sandbox.files = files;
+    sandbox.retentions = retentions;
     sandbox.store = Some(store);
     sandbox.answers = Map::new();
     Ok(Json(answer))
@@ -268,7 +286,9 @@ async fn reset(State(shared): State<Shared>) -> Answer {
     }
     let lib = Library::load(&sandbox.files).map_err(|e| Fault::Internal(e.to_string()))?;
     let now = parse_timestamp(CLOCK_START).unwrap_or(0);
-    sandbox.store = Some(Store::sandbox(lib, now)?);
+    let mut store = Store::sandbox(lib, now)?;
+    (store.attempt_retention, store.idempotency_retention) = sandbox.retentions;
+    sandbox.store = Some(store);
     sandbox.answers = Map::new();
     Ok(Json(json!({ "now": CLOCK_START })))
 }
@@ -424,6 +444,34 @@ async fn available(State(shared): State<Shared>, Json(body): Json<J>) -> Answer 
     Ok(Json(page_json(&reads::available(
         &world, actor, type_, transition,
     )?)))
+}
+
+/// A maintenance task run outside the retention the store was built with:
+/// the rows it moved or removed, or its refusal, a value (`DESIGN.md` §10).
+async fn maintain(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let task = body.get("task");
+    let (Some(_actor), Some(name), Some(before)) = (
+        body.get("actor").and_then(|a| text(a, "id")),
+        task.and_then(|t| text(t, "name")),
+        task.and_then(|t| text(t, "before")),
+    ) else {
+        return Err(Fault::Bad(
+            "maintain names its actor and a task, its name and a time before which it prunes"
+                .to_string(),
+        ));
+    };
+    let before = parse_timestamp(before)
+        .ok_or_else(|| Fault::Bad(format!("before takes a timestamp: {before}")))?;
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    let task = objectflow_core::store::MaintenanceTask {
+        name: name.to_string(),
+        before,
+    };
+    Ok(Json(match s.maintain(&task)?? {
+        Ok(moved) => json!({ "moved": moved, "refused": J::Null }),
+        Err(why) => json!({ "moved": 0, "refused": why }),
+    }))
 }
 
 /// A source's rows after a cursor, as JSON lines, every personal value
@@ -1087,6 +1135,7 @@ fn app(shared: Shared) -> Router {
         .route("/v1/check", post(check))
         .route("/v1/pull", post(pull))
         .route("/v1/export", post(export))
+        .route("/v1/maintain", post(maintain))
         .route("/v1/exceptions", post(exceptions))
         .route("/v1/available", post(available))
         .route("/v1/acknowledge", post(acknowledge))

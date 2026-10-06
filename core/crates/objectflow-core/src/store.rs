@@ -776,6 +776,23 @@ CREATE TABLE of_subscription_position (
   acknowledged     TEXT    NOT NULL,
   acknowledged_at  TEXT    NOT NULL
 );
+-- The daily counts of the attempt rows maintain pruned (storage-schema.md §6).
+CREATE TABLE of_attempt_rollup (
+  day          TEXT    NOT NULL,
+  object_id    TEXT    NOT NULL DEFAULT '',
+  verdict      TEXT    NOT NULL,
+  type         TEXT    NOT NULL DEFAULT '',
+  transition   TEXT    NOT NULL DEFAULT '',
+  clause       TEXT    NOT NULL DEFAULT '',
+  remedy       TEXT    NOT NULL DEFAULT '',
+  actor_kind   TEXT    NOT NULL,
+  enforced     INTEGER NOT NULL,
+  flagged      INTEGER NOT NULL DEFAULT 0,
+  declaration_version INTEGER NOT NULL,
+  count        INTEGER NOT NULL,
+  PRIMARY KEY (day, type, object_id, verdict, transition, clause, remedy, actor_kind, enforced,
+               flagged, declaration_version)
+);
 CREATE TABLE of_attempt (
   id                  INTEGER PRIMARY KEY,
   at                  TEXT    NOT NULL,
@@ -887,6 +904,22 @@ pub struct Store {
     /// What its evaluators answer, `<evaluator>.<function>` to `satisfied`,
     /// `unsatisfied` or `unanswered`: a sandbox's caller sets them (PRD F13).
     pub answers: BTreeMap<String, String>,
+    /// How long attempt rows, and idempotency records, are kept before
+    /// `maintain` may prune them, in seconds: the deployment's, set when the
+    /// store is built, with no default, since they are numbers to measure
+    /// (`DESIGN.md` §8, ADR-0101, ADR-0103); a store built with none prunes
+    /// nothing.
+    pub attempt_retention: Option<i64>,
+    pub idempotency_retention: Option<i64>,
+}
+
+/// What `maintain` was asked to do (`library-api.md` §5, ADR-0100,
+/// ADR-0103): prune attempt rows, or idempotency records, older than
+/// `before`, or archive events.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MaintenanceTask {
+    pub name: String,
+    pub before: i64,
 }
 
 /// The built-in module a version was published with: this engine release.
@@ -904,6 +937,8 @@ impl Store {
             lib,
             now,
             answers: BTreeMap::new(),
+            attempt_retention: None,
+            idempotency_retention: None,
         };
         for t in store.lib.types.values() {
             store.conn.execute_batch(&store.type_ddl(t))?;
@@ -970,6 +1005,61 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// `maintain` (`DESIGN.md` §10): prunes attempt rows recorded before
+    /// `before`, adding each to its day's count in the rollup, which the
+    /// `attempt_counts` source reads with the rows that remain; or deletes the
+    /// idempotency records applied before it, after which a retry under a
+    /// pruned key is a new request. It refuses, as a value, a task it does not
+    /// know and a `before` inside the retention the store was built with,
+    /// which a store built with none puts everywhere; it changes no governed
+    /// state or history, and returns the rows it moved or removed. Archiving
+    /// events, a tiering of the log a single SQLite file has none of, is not
+    /// run.
+    pub fn maintain(
+        &mut self,
+        task: &MaintenanceTask,
+    ) -> Stored<Result<Result<i64, &'static str>, NotRun>> {
+        let retention = match task.name.as_str() {
+            "prune_attempts" => self.attempt_retention,
+            "prune_idempotency" => self.idempotency_retention,
+            "archive_events" => {
+                return Ok(Err(NotRun(
+                    "archiving events, which a single SQLite file has no tier for".into(),
+                )));
+            }
+            _ => return Ok(Ok(Err("unknown_task"))),
+        };
+        match retention {
+            Some(kept) if task.before <= self.now - kept => {}
+            _ => return Ok(Ok(Err("inside_retention"))),
+        }
+        let before = timestamp_text(task.before);
+        let tx = self.conn.transaction()?;
+        let moved = if task.name == "prune_attempts" {
+            // each row's day, as the rollup keys it: its recorded time's UTC
+            // calendar day
+            tx.execute(
+                "INSERT INTO of_attempt_rollup (day, object_id, verdict, type, transition, clause, remedy, \
+                 actor_kind, enforced, flagged, declaration_version, count) \
+                 SELECT substr(at, 1, 10), COALESCE(object_id, ''), verdict, COALESCE(type, ''), \
+                 COALESCE(transition, ''), COALESCE(clause, ''), remedy, actor_kind, enforced, flagged, \
+                 declaration_version, COUNT(*) FROM of_attempt WHERE at < ?1 \
+                 GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 \
+                 ON CONFLICT (day, type, object_id, verdict, transition, clause, remedy, actor_kind, enforced, \
+                 flagged, declaration_version) DO UPDATE SET count = count + excluded.count",
+                params![before],
+            )?;
+            tx.execute("DELETE FROM of_attempt WHERE at < ?1", params![before])?
+        } else {
+            tx.execute(
+                "DELETE FROM of_idempotency WHERE applied_at < ?1",
+                params![before],
+            )?
+        };
+        tx.commit()?;
+        Ok(Ok(Ok(i64::try_from(moved).unwrap_or(i64::MAX))))
     }
 
     /// A refused request's row of the attempt log, in a short transaction of
@@ -1962,6 +2052,51 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
     for row in rows {
         world.admitting.insert(row?);
     }
+    // the pruned rows' daily counts, as rows of the attempt_counts source
+    let mut rolled = conn.prepare(
+        "SELECT day, object_id, verdict, type, transition, clause, remedy, actor_kind, enforced, flagged, \
+         declaration_version, count FROM of_attempt_rollup",
+    )?;
+    let rows = rolled.query_map([], |r| {
+        let text = |i: usize| -> rusqlite::Result<Value> {
+            let t: String = r.get(i)?;
+            Ok(if t.is_empty() {
+                Value::Absent
+            } else {
+                Value::Text(t)
+            })
+        };
+        let day: String = r.get(0)?;
+        let object: String = r.get(1)?;
+        let mut f = BTreeMap::new();
+        f.insert(
+            "day".to_string(),
+            crate::value::parse_timestamp(&format!("{day}T00:00:00Z"))
+                .map_or(Value::Absent, |t| Value::Date(t.div_euclid(86_400))),
+        );
+        f.insert(
+            "object".to_string(),
+            if object.is_empty() {
+                Value::Absent
+            } else {
+                Value::Object(object)
+            },
+        );
+        f.insert("verdict".to_string(), text(2)?);
+        f.insert("type".to_string(), text(3)?);
+        f.insert("transition".to_string(), text(4)?);
+        f.insert("clause".to_string(), text(5)?);
+        f.insert("remedy".to_string(), text(6)?);
+        f.insert("actor_kind".to_string(), text(7)?);
+        f.insert(
+            "enforced".to_string(),
+            Value::Bool(r.get::<_, i64>(8)? != 0),
+        );
+        f.insert("flagged".to_string(), Value::Bool(r.get::<_, i64>(9)? != 0));
+        f.insert("declaration_version".to_string(), Value::Int(r.get(10)?));
+        Ok((f, r.get::<_, i64>(11)?))
+    })?;
+    world.rollup = rows.collect::<Result<Vec<_>, _>>()?;
     // each key an actor applied, which a retry replays
     let mut keys =
         conn.prepare("SELECT actor_id, key, request_digest, verdict FROM of_idempotency")?;

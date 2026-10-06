@@ -795,8 +795,8 @@ impl<'w> Reader<'w> {
                     by_kind: "actor_kind",
                 });
             }
-            // each UTC day, object and combination of the members, counted;
-            // nothing is pruned, so the rollup holds nothing
+            // each UTC day, object and combination of the members, counted:
+            // the rows maintain pruned, from the rollup, with those that remain
             const MEMBERS: [&str; 9] = [
                 "object",
                 "transition",
@@ -809,6 +809,23 @@ impl<'w> Reader<'w> {
                 "declaration_version",
             ];
             let mut counts: Vec<(Vec<Value>, i64)> = Vec::new();
+            for (f, n) in &world.rollup {
+                if !matches!(f.get("type"), Some(Value::Text(t)) if world.lib.is_a(t, owner)) {
+                    continue;
+                }
+                let key: Vec<Value> =
+                    std::iter::once(f.get("day").cloned().unwrap_or(Value::Absent))
+                        .chain(
+                            MEMBERS
+                                .iter()
+                                .map(|m| f.get(*m).cloned().unwrap_or(Value::Absent)),
+                        )
+                        .collect();
+                match counts.iter_mut().find(|(k, _)| *k == key) {
+                    Some((_, c)) => *c += n,
+                    None => counts.push((key, *n)),
+                }
+            }
             for row in &mine {
                 let Value::Row(f) = row else { continue };
                 let day = match f.get("at") {
@@ -3614,5 +3631,143 @@ types:
             .clone();
         assert!(taken.reads["objects"].get(&ben).is_some());
         assert!(taken.reads["objects"].get(&taken.object_id).is_none());
+    }
+
+    /// `maintain` (`DESIGN.md` §10, ADR-0101, ADR-0103): a prune inside the
+    /// store's retention, or of a store built with none, is refused; pruned
+    /// attempt rows leave the log and keep counting through the rollup, a
+    /// second prune of the same day adding to its count; a pruned key's
+    /// retry is a new request; and a task it does not know is refused.
+    #[test]
+    fn maintain_prunes_outside_the_retention_and_the_counts_survive() {
+        use crate::store::MaintenanceTask;
+        let mut s = world();
+        let j = job(&mut s, json!({}));
+        let refuse = |s: &mut Store| {
+            assert_eq!(
+                req(s, "Job", "close", Some(&j), json!({})),
+                Err(("unavailable".into(), String::new()))
+            );
+        };
+        // by transition and week, so a pruned row keeps its day
+        let refusals = |s: &Store| -> Vec<(Value, Value, Value)> {
+            let w = s.snapshot().unwrap();
+            let keep = ["transition".to_string(), "week".to_string()];
+            page(
+                &w,
+                None,
+                "Job.refusals",
+                &BTreeMap::new(),
+                Some(&keep),
+                None,
+                None,
+            )
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|r| {
+                (
+                    r.dimensions[0].1.clone(),
+                    r.dimensions[1].1.clone(),
+                    r.value,
+                )
+            })
+            .collect()
+        };
+        let task = |name: &str, before: i64| MaintenanceTask {
+            name: name.into(),
+            before,
+        };
+        // two refusals two hours apart, and another type's, which the job's
+        // count never includes
+        refuse(&mut s);
+        assert_eq!(
+            req(&mut s, "User", "add", None, json!({})).map(|_| ()),
+            Err(("invalid_input".into(), String::new()))
+        );
+        let first = s.now;
+        s.now += 2 * 3600;
+        refuse(&mut s);
+        let counted = refusals(&s);
+        assert_eq!(
+            counted,
+            [(
+                Value::Text("close".into()),
+                Value::Text("2026-W01".into()),
+                Value::Int(2)
+            )]
+        );
+        // a store built with no retention prunes nothing
+        assert_eq!(
+            s.maintain(&task("prune_attempts", first)).unwrap().unwrap(),
+            Err("inside_retention")
+        );
+        s.attempt_retention = Some(30 * DAY);
+        s.now += 40 * DAY;
+        // inside the retention, refused
+        assert_eq!(
+            s.maintain(&task("prune_attempts", s.now - 10 * DAY))
+                .unwrap()
+                .unwrap(),
+            Err("inside_retention")
+        );
+        // the first row pruned, then the second, into the same day's count
+        assert_eq!(
+            s.maintain(&task("prune_attempts", first + 1))
+                .unwrap()
+                .unwrap(),
+            Ok(2)
+        );
+        assert_eq!(s.snapshot().unwrap().attempts.len(), 1);
+        assert_eq!(refusals(&s), counted);
+        assert_eq!(
+            s.maintain(&task("prune_attempts", first + 3 * 3600))
+                .unwrap()
+                .unwrap(),
+            Ok(1)
+        );
+        assert!(s.snapshot().unwrap().attempts.is_empty());
+        assert_eq!(refusals(&s), counted);
+        // a pruned key's retry is a new request
+        let keyed = Request {
+            transition: "open".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Job".into()),
+            inputs: BTreeMap::new(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            principal: None,
+            idempotency_key: Some("k".into()),
+            context: None,
+        };
+        let opened = |s: &mut Store| match request(s, &keyed).unwrap().unwrap() {
+            Verdict::Satisfied {
+                object_id,
+                replayed,
+                ..
+            } => (object_id, replayed),
+            other => panic!("{other:?}"),
+        };
+        let (once, _) = opened(&mut s);
+        assert_eq!(opened(&mut s), (once.clone(), true));
+        s.idempotency_retention = Some(DAY);
+        s.now += 2 * DAY;
+        assert_eq!(
+            s.maintain(&task("prune_idempotency", s.now - DAY))
+                .unwrap()
+                .unwrap(),
+            Ok(1)
+        );
+        let (again, replayed) = opened(&mut s);
+        assert!(!replayed && again != once);
+        // a task it does not know, and one it does not run
+        assert_eq!(
+            s.maintain(&task("prune_everything", 0)).unwrap().unwrap(),
+            Err("unknown_task")
+        );
+        assert!(s.maintain(&task("archive_events", 0)).unwrap().is_err());
     }
 }
