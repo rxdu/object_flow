@@ -3687,15 +3687,22 @@ fn failing_invariants_reading(
             Ok(Some(values))
         };
         let Some(mine) = key(o)? else { continue };
-        // unique across the family of the type declaring it
+        // unique across the family of the type declaring it; what it read is
+        // a scan of that family, its matches the objects holding the same
+        // key, none where it holds (ADR-0088, ADR-0158)
         let scope = world.lib.unique_scope(t, a);
+        let mut matched = Vec::new();
         for other in world.of_type(scope) {
             if other.id != o.id
                 && key(other)?.is_some_and(|k| k.iter().zip(&mine).all(|(x, y)| x.equals(y)))
             {
-                out.push(format!("{a}_unique"));
-                break;
+                matched.push(other);
             }
+        }
+        let rule = format!("{a}_unique");
+        record_scan(reading, &rule, scope, &matched);
+        if !matched.is_empty() {
+            out.push(rule);
         }
     }
     // an external identifier is unique per source, across every type that
@@ -3710,20 +3717,59 @@ fn failing_invariants_reading(
         if mine.is_absent() || out.contains(&name) {
             continue;
         }
-        let taken = world.in_order().into_iter().any(|other| {
-            other.id != o.id
-                && world.lib.type_(&other.type_).is_some_and(|ot| {
-                    ot.attributes.iter().any(|(b, bs)| {
-                        bs.external.as_deref() == Some(source.as_str())
-                            && other.attr(b).equals(&mine)
+        let holders: Vec<&Object> = world
+            .in_order()
+            .into_iter()
+            .filter(|other| {
+                other.id != o.id
+                    && world.lib.type_(&other.type_).is_some_and(|ot| {
+                        ot.attributes.iter().any(|(b, bs)| {
+                            bs.external.as_deref() == Some(source.as_str())
+                                && other.attr(b).equals(&mine)
+                        })
                     })
-                })
-        });
-        if taken {
+            })
+            .collect();
+        // a scan of every type holding an identifier of the source, by type
+        for (tn, ot) in &world.lib.types {
+            if ot
+                .attributes
+                .iter()
+                .any(|(_, bs)| bs.external.as_deref() == Some(source.as_str()))
+            {
+                record_scan(reading, &name, tn, &[]);
+            }
+        }
+        for h in &holders {
+            record_scan(reading, &name, &h.type_, &[h]);
+        }
+        if !holders.is_empty() {
             out.push(name);
         }
     }
     Ok(out)
+}
+
+/// A uniqueness check's scan, recorded as a type scan's is: under its rule
+/// and the type scanned, the objects it matched, read at their versions,
+/// and an empty match recorded empty (ADR-0088, ADR-0158).
+fn record_scan(
+    reading: Option<&std::cell::RefCell<Reading>>,
+    rule: &str,
+    type_: &str,
+    matched: &[&Object],
+) {
+    let Some(r) = reading else { return };
+    let mut r = r.borrow_mut();
+    for m in matched {
+        r.objects.insert(m.id.clone(), m.version);
+    }
+    r.scans
+        .entry(rule.to_string())
+        .or_default()
+        .entry(type_.to_string())
+        .or_default()
+        .extend(matched.iter().map(|m| m.id.clone()));
 }
 
 /// The bare names an expression reads at the start of a path, a loop's own
@@ -6400,6 +6446,51 @@ types:
     /// each evaluator's answer consulted by the call and its argument; and
     /// the verdict is the one stopping early would give, an evaluator the
     /// deciding side never needed leaving its remedy its own (ADR-0138).
+    /// A uniqueness check reads its family as a type scan does (ADR-0088,
+    /// ADR-0158): an event records the scan under the invariant's name, empty
+    /// where the value is unique, and a refused duplicate's attempt row
+    /// records the object it collided with, at the version read.
+    #[test]
+    fn a_uniqueness_check_records_the_scan_it_made() {
+        let mut s = store();
+        let ana = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        let bob = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "bob"}),
+        ));
+        let added = s.history(&bob).unwrap().pop().unwrap();
+        assert_eq!(added.reads["scans"]["login_unique"], json!({"User": []}));
+        assert!(matches!(
+            req(
+                &mut s,
+                "add",
+                OPERATOR,
+                ("User", true),
+                json!({"login": "ana"})
+            ),
+            Verdict::InvariantViolated { .. }
+        ));
+        let w = s.snapshot().unwrap();
+        let refused = &w.attempts.last().unwrap().reads;
+        assert_eq!(
+            refused["scans"]["login_unique"],
+            json!({ "User": [ana.clone()] })
+        );
+        assert_eq!(
+            refused["objects"][&ana],
+            json!(w.get(&ana).unwrap().version)
+        );
+    }
+
     #[test]
     fn a_rule_is_evaluated_whole_for_its_record_and_decides_as_before() {
         const SHOP: &str = r#"
