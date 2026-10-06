@@ -249,6 +249,9 @@ struct Ctx<'w> {
     /// For a check, where it names each guard it did not evaluate, one that
     /// asks an evaluator, which a check never asks (ADR-0054).
     checking: Checking,
+    /// The positions of the transitions taking place, the innermost last:
+    /// each event's cause is the one below its own (`DESIGN.md` §6 step 8).
+    causes: Vec<i64>,
     /// The spans a correction merged into the one before them: an object,
     /// a dimension, and the span's entered position and time.
     merged: Vec<(String, String, i64, i64)>,
@@ -303,7 +306,7 @@ fn decide_as(
     } else if deciding {
         decide_proposal(world, alloc, req, answers, checking)
     } else {
-        decide_or_stop(world, alloc, req, answers, None, checking)
+        decide_or_stop(world, alloc, req, answers, None, checking, None)
     };
     match answer {
         Ok((v, change)) => Ok((v, change, Refusal::default())),
@@ -319,6 +322,7 @@ fn decide_or_stop(
     answers: &BTreeMap<String, String>,
     filed_at: Option<i64>,
     checking: &Checking,
+    cause: Option<i64>,
 ) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
     // 1. the actor
@@ -430,6 +434,7 @@ fn decide_or_stop(
         failed: Vec::new(),
         observed: Vec::new(),
         checking: checking.clone(),
+        causes: cause.into_iter().collect(),
         merged: Vec::new(),
         wrote: BTreeMap::new(),
         index: Vec::new(),
@@ -497,6 +502,10 @@ fn decide_or_stop(
             }
         }
     }
+    // the events in position order, the order they were allocated in: a
+    // cause before what it caused, which names it, and an object's creation
+    // before its other events (storage-schema.md §2)
+    ctx.events.sort_by_key(|e| e.position);
     let mut seen = BTreeSet::new();
     let mut writes = Vec::new();
     for e in &ctx.events {
@@ -962,8 +971,12 @@ fn take(
         .as_deref()
         .and_then(|id| ctx.work.get(id))
         .map(|o| tracked_values(lib, t, o));
-    // 6. the outcome, its position allocated as it begins applying
+    // 6. the outcome, its position allocated as it begins applying; its
+    // cause is the transition taking place below it, and it is the cause of
+    // every one it takes (DESIGN.md §6 step 8)
     let position = alloc.position();
+    let cause = ctx.causes.last().copied();
+    ctx.causes.push(position);
     // each flag raised, and each audit's would-be refusal, a row of the type
     // whose clause failed, linked to this event (DESIGN.md §5.5, §7)
     for (clause, flagged, remedy, unknown) in std::mem::take(&mut ctx.failed) {
@@ -1256,6 +1269,7 @@ fn take(
         actor_id: ctx.who.id.clone(),
         actor_kind: ctx.who.kind.clone(),
         principal: ctx.who.principal.clone(),
+        cause,
         declaration_version: ctx.work.lib.version,
         recorded_at: ctx.work.now,
         occurred_at: Some(ctx.at),
@@ -1282,6 +1296,7 @@ fn take(
     };
     ctx.work.events.push(event.clone());
     ctx.events.push(event);
+    ctx.causes.pop();
     Ok(id)
 }
 
@@ -1495,6 +1510,8 @@ fn invalidate_proposals(
             actor_id: ctx.who.id.clone(),
             actor_kind: ctx.who.kind.clone(),
             principal: ctx.who.principal.clone(),
+            // an invalidation is caused by the erasure that made it
+            cause: ctx.causes.last().copied(),
             declaration_version: ctx.work.lib.version,
             recorded_at: ctx.work.now,
             occurred_at: Some(ctx.at),
@@ -1674,6 +1691,7 @@ fn file(
         actor_id: who.id.clone(),
         actor_kind: who.kind.clone(),
         principal: who.principal.clone(),
+        cause: None,
         declaration_version: world.lib.version,
         recorded_at: world.now,
         occurred_at: Some(world.now),
@@ -1727,6 +1745,7 @@ fn store_event(
         actor_id: who.id.clone(),
         actor_kind: who.kind.clone(),
         principal: who.principal.clone(),
+        cause: None,
         declaration_version: lib.version,
         recorded_at: now,
         occurred_at: Some(now),
@@ -2057,6 +2076,7 @@ fn decide_proposal(
         actor_id: who.id.clone(),
         actor_kind: who.kind.clone(),
         principal: who.principal.clone(),
+        cause: None,
         declaration_version: world.lib.version,
         recorded_at: world.now,
         occurred_at: Some(world.now),
@@ -2110,14 +2130,22 @@ fn decide_proposal(
         Value::Timestamp(t) => Some(t),
         _ => None,
     };
-    let (verdict, change) = decide_or_stop(world, alloc, &held, answers, filed_at, checking)
-        .map_err(|stop| match stop {
-            Stop::Refused(v, mut r) => {
-                r.approving = Some(Box::new((p.id.clone(), held.clone())));
-                Stop::Refused(v, r)
-            }
-            other => other,
-        })?;
+    let (verdict, change) = decide_or_stop(
+        world,
+        alloc,
+        &held,
+        answers,
+        filed_at,
+        checking,
+        Some(position),
+    )
+    .map_err(|stop| match stop {
+        Stop::Refused(v, mut r) => {
+            r.approving = Some(Box::new((p.id.clone(), held.clone())));
+            Stop::Refused(v, r)
+        }
+        other => other,
+    })?;
     let Some(mut change) = change else {
         return Ok((verdict, None));
     };
@@ -3464,6 +3492,33 @@ types:
         };
         // the verdict names the call's clause qualified, as an expectation does
         assert_eq!(clause.as_deref(), Some("Line.small"));
+        // a call that applies records its caller's event as its cause
+        let fine = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"qty": 3}),
+        ));
+        let shipped = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Order", true),
+            json!({"line": fine}),
+        ));
+        let Verdict::Satisfied { events, .. } =
+            req(&mut s, "ship", OPERATOR, (&shipped, false), json!({}))
+        else {
+            panic!("a small line ships")
+        };
+        let evs: Vec<_> = s.events(&events).unwrap().into_iter().flatten().collect();
+        assert_eq!(
+            evs.iter()
+                .map(|e| (e.transition.as_str(), e.cause))
+                .collect::<Vec<_>>(),
+            [("ship", None), ("pack", Some(evs[0].position))]
+        );
         let w = s.snapshot().unwrap();
         let a = w.attempts.last().unwrap();
         assert_eq!(
@@ -5117,6 +5172,9 @@ types:
             (first.object_id.as_str(), first.transition.as_str()),
             (handover.as_str(), "approve")
         );
+        // the approval is the cause of the request it runs (DESIGN.md §9)
+        let ran = s.events(&events[1..2]).unwrap().remove(0).unwrap();
+        assert_eq!((first.cause, ran.cause), (None, Some(first.position)));
         let w = s.snapshot().unwrap();
         assert_eq!(
             (
@@ -5173,6 +5231,9 @@ types:
         let w = s.snapshot().unwrap();
         let p = w.get(&late).unwrap();
         assert_eq!(p.state, "INVALIDATED");
+        let erasure = s.history(&other).unwrap().last().cloned().unwrap();
+        let invalidated = s.history(&late).unwrap().last().cloned().unwrap();
+        assert_eq!(invalidated.cause, Some(erasure.position));
         assert_eq!(p.attr("inputs"), Value::Text("{}".into()));
         assert_eq!(
             s.history(&late).unwrap()[0].payload["inputs"]["note"],

@@ -5,6 +5,7 @@
 # finding, and once it matches it is reported, to move here.
 answer AN1
 answer AN2
+caused by(D20.complete_sale)
 check CK1
 check CK2
 events(M-ARM)
@@ -15,6 +16,15 @@ events(T6)
 get(C-DANA)
 get(C-DANA) #2
 get(W5)
+history(CL1)
+history(D17)
+history(D20)
+history(K4)
+history(Q15)
+history(R20)
+history(U-DIYA)
+history(W4)
+history(X1)
 labels(L07)
 metric(BatteryDay.refusals, keep: [transition, clause, remedy])
 metric(Delivery.oldest_open, keep: [state])

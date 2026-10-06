@@ -1441,6 +1441,8 @@ types:
         assert_eq!(migrate.declaration_version, 1);
         let published = s.history(&change).unwrap();
         assert_eq!(published.last().unwrap().declaration_version, 2);
+        // a migration is caused by the publish's event
+        assert_eq!(migrate.cause, Some(published.last().unwrap().position));
         let (source, versions): (String, i64) = s
             .conn()
             .query_row(

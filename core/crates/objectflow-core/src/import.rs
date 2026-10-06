@@ -799,6 +799,7 @@ fn decide(
             actor_id: who.id.clone(),
             actor_kind: who.kind.clone(),
             principal: who.principal.clone(),
+            cause: None,
             declaration_version: lib.version,
             recorded_at: port,
             occurred_at: Some(port),

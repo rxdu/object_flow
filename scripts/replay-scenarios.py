@@ -136,6 +136,7 @@ class Driver:
         self.changes, self.answers, self.checks, self.advice = {}, {}, {}, []
         self.now = None
         self.taken = 0
+        self.last = 0                       # the last position a request's events reached
 
     # the ids: each alias the history names, the core's object
     def name(self, alias, oid):
@@ -349,6 +350,7 @@ class Driver:
                          self.oid(r["actor"]))
             return
         v = self.core.call("/v1/request", self.body_of(r))
+        self.last = max([self.last] + list(v.get("events") or []))
         want = r.get("refused")
         if want:
             got = self.outcome(v)
@@ -374,6 +376,13 @@ class Driver:
                 raise Differs(f"it creates {len(new)} object(s), and the history names {made}")
             for alias, oid in zip(made, new):
                 self.name(alias, oid)
+
+    def cause(self, position):
+        """An event's cause as the history writes it, `D20.complete_sale`; absent where it has none."""
+        if position is None:
+            return "absent"
+        e = self.core.call("/v1/events", {"positions": [position]})["events"][0]
+        return f"{self.show(e['object_id'])}.{e['transition']}"
 
     def outcome(self, v):
         """A verdict as the history writes one: a call's refusal as the call's own verdict and the object it called."""
@@ -484,16 +493,24 @@ class Driver:
                 return [(self.show(e["transition"]), self.show(e["occurred_at"]), self.show(e["recorded_at"]))
                         for e in evs], ["transition", "occurred_at", "recorded_at"], []
             if m.group(1) == "history":
-                # an event's cause, which the core does not yet record, is no column the history returns
+                # an event's cause as the history writes it, the causing event's object and transition
                 return [(self.show(e["transition"]), self.show(e["occurred_at"]), self.show(e["actor_id"]),
-                         self.show(e["actor_kind"])) for e in evs], \
-                    ["transition", "occurred_at", "actor", "actor_kind"], ["cause"]
+                         self.show(e["actor_kind"]), self.cause(e["cause"])) for e in evs], \
+                    ["transition", "occurred_at", "actor", "actor_kind", "cause"], []
             if m.group(1) == "provenance":
                 return [(self.show(e["transition"]), self.show(e["actor_id"]), self.show(e["actor_kind"]),
                          self.show(e["principal"])) for e in evs], ["transition", "actor", "actor_kind", "principal"], []
             return [(self.show(e["transition"]), a, self.show(v)) for e in evs
                     for a, v in sorted(((e.get("payload") or {}).get("inputs") or {}).items())], \
                 ["transition", "attribute", "value"], []
+        m = re.fullmatch(r"caused by\(([\w-]+)\.(\w+)\)", spec_)
+        if m:
+            # every event the named one caused (DESIGN.md §6 step 8)
+            evs = self.core.call("/v1/history", {"id": self.oid(m.group(1))})["events"]
+            mine = [e["position"] for e in evs if e["transition"] == m.group(2)]
+            every = self.core.call("/v1/events", {"positions": list(range(1, self.last + 1))})["events"]
+            return [(self.show(e["object_id"]), self.show(e["transition"])) for e in every
+                    if e and mine and e["cause"] == mine[-1]], ["object", "transition"], []
         m = re.fullmatch(r"get\(([\w-]+)\)", spec_)
         if m:
             # its stored attributes, an erased one absent; a derived value is no attribute it stores
@@ -626,7 +643,8 @@ def main():
             seen[spec_] = seen.get(spec_, 0) + 1
             key = spec_ if seen[spec_] == 1 else f"{spec_} #{seen[spec_]}"
             if not spec_.startswith(("metric(", "query(", "check ", "answer ", "events(", "history(", "provenance(",
-                                     "payloads(", "get(", "results(", "recorded(", "labels(", "proposal ")):
+                                     "payloads(", "get(", "results(", "recorded(", "labels(", "proposal ",
+                                     "caused by(")):
                 outcomes.append("not compared")
                 continue
             if stopped:

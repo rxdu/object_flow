@@ -60,6 +60,10 @@ pub struct Event {
     pub actor_kind: String,
     /// The principal the actor acted for, where the request named one.
     pub principal: Option<String>,
+    /// The event whose transition caused this one: a call's, a creation's,
+    /// a cascade's or an erasure's, an approval's for the request it ran,
+    /// and a publish's for its migrations (`DESIGN.md` §6 step 8, §9).
+    pub cause: Option<i64>,
     pub declaration_version: i64,
     pub recorded_at: i64,
     pub occurred_at: Option<i64>,
@@ -481,6 +485,7 @@ fn event_of(
         actor_id: who.id.clone(),
         actor_kind: who.kind.clone(),
         principal: who.principal.clone(),
+        cause: None,
         declaration_version,
         recorded_at: now,
         occurred_at: Some(now),
@@ -1347,6 +1352,11 @@ impl Store {
                     new.version,
                     serde_json::json!({ "mappings": codes, "admits": admits.iter().map(|(n, _)| n).collect::<Vec<_>>() }),
                 );
+                // a migration is caused by the publish's event (DESIGN.md §5.9)
+                let event = Event {
+                    cause: Some(publish_position),
+                    ..event
+                };
                 change_set.writes.push((x.clone(), false, event));
             }
             // an attribute the version newly marks personal, redacted on an
@@ -1401,6 +1411,11 @@ impl Store {
                     new.version,
                     serde_json::json!({ "redacted": newly }),
                 );
+                // a migration is caused by the publish's event (DESIGN.md §5.9)
+                let event = Event {
+                    cause: Some(publish_position),
+                    ..event
+                };
                 change_set.redacted.push((x.id.clone(), newly));
                 change_set.writes.push((x, false, event));
             }
@@ -1439,6 +1454,11 @@ impl Store {
                     new.version,
                     serde_json::json!({ "by": change.id }),
                 );
+                // a migration is caused by the publish's event (DESIGN.md §5.9)
+                let event = Event {
+                    cause: Some(publish_position),
+                    ..event
+                };
                 change_set.writes.push((x, false, event));
             }
         }
@@ -1625,7 +1645,8 @@ fn next(tx: &Connection, name: &str) -> Stored<i64> {
 }
 
 const EVENT_SELECT: &str = "SELECT position, object_id, object_seq, transition, from_state, to_state, changes_state, \
-    source, actor_id, actor_kind, declaration_version, recorded_at, occurred_at, imported, payload, actor_principal FROM of_event";
+    source, actor_id, actor_kind, declaration_version, recorded_at, occurred_at, imported, payload, actor_principal, \
+    cause_position FROM of_event";
 
 fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
     let recorded: String = r.get(11)?;
@@ -1643,6 +1664,7 @@ fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
         actor_id: r.get(8)?,
         actor_kind: r.get(9)?,
         principal: r.get(15)?,
+        cause: r.get(16)?,
         declaration_version: r.get(10)?,
         recorded_at: parse_timestamp(&recorded).unwrap_or(0),
         occurred_at: occurred.as_deref().and_then(parse_timestamp),
@@ -1946,8 +1968,8 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
         tx.execute(
             "INSERT INTO of_event (position, txn, object_id, object_seq, transition, from_state, to_state, changes_state, \
              source, actor_id, actor_kind, declaration_version, taint_version, recorded_at, occurred_at, payload, reads, imported, \
-             actor_principal) \
-             VALUES (?1, (SELECT value FROM of_counter WHERE name = 'txn'), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?13, ?14, '{}', ?15, ?16)",
+             actor_principal, cause_position) \
+             VALUES (?1, (SELECT value FROM of_counter WHERE name = 'txn'), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?13, ?14, '{}', ?15, ?16, ?17)",
             params![
                 event.position,
                 event.object_id,
@@ -1965,6 +1987,7 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
                 event.payload.to_string(),
                 i64::from(event.imported),
                 event.principal,
+                event.cause,
             ],
         )?;
         let name = table(&o.type_);
