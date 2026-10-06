@@ -1874,7 +1874,7 @@ types:
             json!({"source": {"fleet": text}, "source_ref": "git:fleet@2"}),
         ));
         assert_eq!(evidence(&s), json!({ "cites": cites }));
-        // one giving a diagnostics read: its submission is not run
+        // one giving a diagnostics read reads it at submission (ADR-0160)
         let diagnostics = json!([{"diagnostics": "Robot", "over": "7 days"}]);
         created(&req(
             &mut s,
@@ -1883,20 +1883,16 @@ types:
             json!({"source": {"fleet": text}, "source_ref": "git:fleet@3", "evidence": diagnostics}),
         ));
         assert_eq!(evidence(&s), json!({ "cites": diagnostics }));
-        let submit = Request {
-            transition: "submit".into(),
-            actor: OPERATOR.into(),
-            object_id: Some(change.clone()),
-            type_: None,
-            inputs: Default::default(),
-            occurred_at: None,
-            propose: false,
-            expires_at: None,
-            expected_version: None,
-            principal: None,
-            idempotency_key: None,
-            context: None,
-        };
-        assert!(request(&mut s, &submit).unwrap().is_err());
+        created(&req(&mut s, "submit", (&change, false), json!({})));
+        let read = evidence(&s)["read"][0].clone();
+        assert_eq!(
+            (&read["reference"], &read["refused"]),
+            (&diagnostics[0], &Json::Null)
+        );
+        assert!(
+            read["diagnostics"]
+                .as_array()
+                .is_some_and(|d| !d.is_empty())
+        );
     }
 }

@@ -30,6 +30,8 @@ pub mod subscription;
 
 pub mod export;
 
+pub mod diagnostics;
+
 pub mod request;
 
 pub mod import;

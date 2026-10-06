@@ -446,6 +446,37 @@ async fn available(State(shared): State<Shared>, Json(body): Json<J>) -> Answer 
     )?)))
 }
 
+/// Where a type's flow and reality disagree, over a window (`DESIGN.md`
+/// §10, ADR-0160); a type it does not declare is refused, a value.
+async fn diagnostics(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let (Some(_actor), Some(type_), Some(window)) = (
+        body.get("actor").and_then(|a| text(a, "id")),
+        text(&body, "type"),
+        text(&body, "window"),
+    ) else {
+        return Err(Fault::Bad(
+            "diagnostics names its actor, the type and a window".to_string(),
+        ));
+    };
+    let window = parse_duration(window).ok_or_else(|| {
+        Fault::Bad(format!(
+            "window takes a duration such as '30 days': {window}"
+        ))
+    })?;
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    let world = s.snapshot()?;
+    Ok(Json(
+        match objectflow_core::diagnostics::diagnostics(&world, type_, window)? {
+            Ok(found) => json!({
+                "diagnostics": found.iter().map(objectflow_core::diagnostics::Diagnostic::json).collect::<Vec<_>>(),
+                "refused": J::Null,
+            }),
+            Err(why) => json!({ "diagnostics": [], "refused": why }),
+        },
+    ))
+}
+
 /// A maintenance task run outside the retention the store was built with:
 /// the rows it moved or removed, or its refusal, a value (`DESIGN.md` §10).
 async fn maintain(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
@@ -1136,6 +1167,7 @@ fn app(shared: Shared) -> Router {
         .route("/v1/pull", post(pull))
         .route("/v1/export", post(export))
         .route("/v1/maintain", post(maintain))
+        .route("/v1/diagnostics", post(diagnostics))
         .route("/v1/exceptions", post(exceptions))
         .route("/v1/available", post(available))
         .route("/v1/acknowledge", post(acknowledge))

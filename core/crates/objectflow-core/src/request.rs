@@ -2689,17 +2689,34 @@ fn decide_change(
 }
 
 /// One cited reference read as the store stands, with its as-of time: a
-/// metric's page, or its refusal. The slice computes no diagnostics, so a
-/// reference to them stops the submission as not run (ADR-0159).
+/// metric's page or a type's diagnostics, or the refusal of either, a value
+/// (ADR-0159, ADR-0160).
 fn evidence_read(
     world: &World<'_>,
     answers: &BTreeMap<String, String>,
     reference: &Json,
 ) -> Result<Json, Stop> {
+    // a diagnostics read, its window as `over` (ADR-0159, ADR-0160)
+    if let Some(type_) = reference["diagnostics"].as_str() {
+        let window = reference["over"]
+            .as_str()
+            .and_then(crate::value::parse_duration)
+            .unwrap_or(0);
+        let mut out = match crate::diagnostics::diagnostics(world, type_, window)
+            .map_err(Stop::NotRun)?
+        {
+            Ok(found) => json!({
+                "diagnostics": found.iter().map(crate::diagnostics::Diagnostic::json).collect::<Vec<_>>(),
+                "refused": Json::Null,
+            }),
+            Err(why) => json!({ "diagnostics": [], "refused": why }),
+        };
+        out["reference"] = reference.clone();
+        out["as_of"] = json!(crate::value::timestamp_text(world.now));
+        return Ok(out);
+    }
     let Some(name) = reference["metric"].as_str() else {
-        return stop_not_run(
-            "a diagnostics read cited as evidence, which the slice does not compute",
-        );
+        return stop_not_run("a cited reference that names neither a metric nor diagnostics");
     };
     let bind: BTreeMap<String, Json> = reference["bind"]
         .as_object()
