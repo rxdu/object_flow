@@ -563,6 +563,14 @@ class Driver:
                 raise Differs(f"the pull is refused as {page['refused']}")
             return [(self.show(e["object_id"]), self.show(e["transition"]), self.show(e["occurred_at"]))
                     for e in page["events"]], ["object", "transition", "occurred_at"], []
+        m = re.fullmatch(r"rules\((\w+)\.(\w+)\)", spec_)
+        if m:
+            # the installed declaration's guards on the transition, in the order evaluated, each with its condition's
+            # remedy and whether it refuses; how a renderer marks one it does not enforce is the renderer's
+            d = self.core.call("/v1/declaration", {"type": m.group(1)})
+            guards = ((d.get("transitions") or {}).get(m.group(2)) or {}).get("guards") or {}
+            return [(g, self.show((d.get("conditions") or {}).get(g, {}).get("remedy")), "yes" if mode == "deny" else "no")
+                    for g, mode in guards.items()], ["clause", "remedy", "enforced"], ["marked"]
         m = re.fullmatch(r"exceptions\((\w+)\)|available\((\w+), (\w+)\)", spec_)
         if m:
             # a page of objects (DESIGN.md §10): exceptions with each one's state; available asking no evaluator
@@ -765,7 +773,7 @@ def main():
                                      "payloads(", "get(", "results(", "recorded(", "labels(", "proposal ",
                                      "caused by(", "pull(", "notices of", "change ", "impact of",
                                      "read set of", "consulted of", "intervals(", "attempts(", "refusal of",
-                                     "exceptions(", "available(")):
+                                     "exceptions(", "available(", "rules(")):
                 outcomes.append("not compared")
                 continue
             if stopped:
