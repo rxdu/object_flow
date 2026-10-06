@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` M5, T5, D8 and N2
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0100 — attempt rows carry their writing transaction, and an interval is re-emitted when it closes. ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
+- **Refined by:** ADR-0100 — attempt rows carry their writing transaction, and an interval is re-emitted when it closes. ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand. ADR-0160 — `<Type>.attempt_counts` exports by settled UTC day.
 - **Refines:** ADR-0081
 
 ## Context
