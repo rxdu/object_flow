@@ -1311,6 +1311,25 @@ pub const OPERATOR: &str = "operator";
 /// The built-in type of the store's operator.
 pub const OPERATOR_TYPE: &str = "Operator";
 
+/// One of the operator's transitions, taking no input.
+fn operator_transition(kind: Kind, from: Option<From>, to: &str) -> Transition {
+    Transition {
+        kind,
+        from,
+        to: vec![to.to_string()],
+        only_via: Vec::new(),
+        proposable: false,
+        required_inputs: Vec::new(),
+        optional_inputs: Vec::new(),
+        inputs: Vec::new(),
+        guards: Vec::new(),
+        effect: Vec::new(),
+        backdating_limit: None,
+        may_admit: Vec::new(),
+        corrects: Vec::new(),
+    }
+}
+
 fn operator_type() -> Type {
     Type {
         name: "Operator".to_string(),
@@ -1322,7 +1341,8 @@ fn operator_type() -> Type {
                 many: false,
                 optional: false,
                 default: None,
-                unique: Unique::No,
+                // one operator per identity (ADR-0126)
+                unique: Unique::Yes,
                 assignee: false,
                 personal: false,
                 actor_kind: Some("human".to_string()),
@@ -1357,7 +1377,22 @@ fn operator_type() -> Type {
         ],
         conditions: Vec::new(),
         invariants: Vec::new(),
-        transitions: Vec::new(),
+        // its creation, taken only by creating the store, and its
+        // retirement, requested like any transition (ADR-0126)
+        transitions: vec![
+            (
+                "install".into(),
+                operator_transition(Kind::Initial, None, "ACTIVE"),
+            ),
+            (
+                "retire".into(),
+                operator_transition(
+                    Kind::External,
+                    Some(From::States(vec!["ACTIVE".into()])),
+                    "RETIRED",
+                ),
+            ),
+        ],
         beyond: Vec::new(),
         at_outcome: Vec::new(),
         observations: Vec::new(),
@@ -1370,8 +1405,12 @@ fn operator_type() -> Type {
         inherited: BTreeMap::new(),
         source: serde_json::json!({
             "description": "The store's operator, its first actor (ADR-0126).",
-            "attributes": { "identity": { "type": "identity", "actor_kind": "human" } },
-            "states": { "ACTIVE": { "category": "live" }, "RETIRED": { "category": "closed", "final": true } }
+            "attributes": { "identity": { "type": "identity", "actor_kind": "human", "unique": true } },
+            "states": { "ACTIVE": { "category": "live" }, "RETIRED": { "category": "closed", "final": true } },
+            "transitions": {
+                "install": { "kind": "initial", "to": "ACTIVE" },
+                "retire": { "kind": "external", "from": ["ACTIVE"], "to": "RETIRED" }
+            }
         }),
     }
 }

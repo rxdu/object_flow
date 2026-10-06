@@ -474,7 +474,13 @@ fn decide_or_stop(
         }
     };
     stale(world, req)?;
-    // 3. not requestable, and unavailable
+    // 3. not requestable, and unavailable: the operator's creation is taken
+    // only by creating the store (ADR-0126)
+    if t.name == crate::model::OPERATOR_TYPE && x.kind == Kind::Initial {
+        return refused(Verdict::NotRequestable {
+            parents: Vec::new(),
+        });
+    }
     if !x.only_via.is_empty() {
         return refused(Verdict::NotRequestable {
             parents: x.only_via.clone(),
@@ -6539,6 +6545,51 @@ types:
         assert_eq!(
             request(&mut s, &keyed).unwrap(),
             Err(NoVerdict::KeyReused { key: "k".into() })
+        );
+    }
+
+    /// The store's operator (ADR-0126, ADR-0134): its creation, `install`,
+    /// is the store's own first event, the operator's act with the context
+    /// naming the release; no request takes it; and `retire` is requested
+    /// like any transition.
+    #[test]
+    fn the_operator_is_installed_with_the_store_and_retires_like_any_object() {
+        let mut s = store();
+        let installed = s.history(OPERATOR).unwrap();
+        assert_eq!(installed.len(), 1);
+        let e = &installed[0];
+        assert_eq!(
+            (
+                e.transition.as_str(),
+                e.actor_id.as_str(),
+                e.actor_kind.as_str(),
+                e.source.as_str()
+            ),
+            ("install", OPERATOR, "human", "observed")
+        );
+        assert_eq!(
+            e.context.as_deref(),
+            Some(format!("store-creation:{}", crate::store::BUILTINS).as_str())
+        );
+        assert_eq!(
+            req(
+                &mut s,
+                "install",
+                OPERATOR,
+                (crate::model::OPERATOR_TYPE, true),
+                json!({"identity": "ops:ben"})
+            ),
+            Verdict::NotRequestable {
+                parents: Vec::new()
+            }
+        );
+        assert!(matches!(
+            req(&mut s, "retire", OPERATOR, (OPERATOR, false), json!({})),
+            Verdict::Satisfied { .. }
+        ));
+        assert_eq!(
+            s.snapshot().unwrap().get(OPERATOR).unwrap().state,
+            "RETIRED"
         );
     }
 }

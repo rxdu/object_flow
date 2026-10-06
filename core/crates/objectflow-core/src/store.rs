@@ -957,9 +957,12 @@ impl Store {
         let txn = next(&tx, "txn")?;
         tx.execute(
             "INSERT INTO of_event (position, txn, object_id, object_seq, transition, from_state, to_state, changes_state, \
-             source, actor_id, actor_kind, declaration_version, taint_version, recorded_at, occurred_at, payload, reads) \
-             VALUES (?1, ?2, ?3, 1, 'create', NULL, 'ACTIVE', 1, 'observed', ?3, 'human', 1, 0, ?4, ?4, '{}', '{}')",
-            params![position, txn, OPERATOR, at],
+             source, actor_id, actor_kind, declaration_version, taint_version, recorded_at, occurred_at, payload, reads, \
+             context) \
+             VALUES (?1, ?2, ?3, 1, 'install', NULL, 'ACTIVE', 1, 'observed', ?3, 'human', 1, 0, ?4, ?4, '{}', '{}', ?5)",
+            // its own act, the context naming the release that created the
+            // store (storage-schema.md §6, ADR-0134)
+            params![position, txn, OPERATOR, at, format!("store-creation:{BUILTINS}")],
         )?;
         tx.execute(
             "INSERT INTO t_operator (id, state, version, declaration_version, last_event, identity) VALUES (?1, 'ACTIVE', 1, 1, ?2, ?1)",
