@@ -969,6 +969,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            principal: None,
         };
         request(s, &r).unwrap().unwrap()
     }
@@ -1014,6 +1015,7 @@ types:
             propose: true,
             expires_at: None,
             expected_version: None,
+            principal: None,
         };
         let proposal = created(&request(&mut s, &proposal).unwrap().unwrap());
         let other = created(&req(
@@ -1337,6 +1339,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            principal: None,
         };
         assert!(matches!(
             request(&mut s, &r).unwrap().unwrap(),

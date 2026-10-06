@@ -1,28 +1,66 @@
 # Each metric read of docs/design/metric-scenarios.md the core matches when scripts/replay-scenarios.py replays the
 # history without stepping past anything; a read no longer matching fails the replay. A read repeated in the document
 # is named with its place among reads of the same text, `#2` and on.
+# A read recorded as awaiting a decision differs for a reason TODO records; its difference is reported and is no
+# finding, and once it matches it is reported, to move here.
 metric(BatteryDay.refusals, keep: [transition, clause, remedy])
 metric(Delivery.oldest_open, keep: [state])
-metric(Delivery.refusals, keep: [clause, remedy, actor_kind])
+metric(Delivery.refusal_rate, bind: {transition: complete_sale}, keep: [actor_kind])
 metric(Delivery.refusals, keep: [clause, remedy, actor_kind, week], filter: "a.clause == \"all_checked\"")
+metric(Delivery.refusals, keep: [clause, remedy, actor_kind])
+metric(Delivery.refusals, keep: [clause, remedy, actor_kind], filter: "a.clause == \"yield_or_signed\"")
 metric(Delivery.refusals, keep: [transition, clause, remedy, actor_kind, week])
+metric(Delivery.rework, keep: [actor_kind])
+metric(Delivery.throughput, keep: [state, actor_kind])
+metric(Delivery.throughput, keep: [state, actor_kind]) #2
 metric(Delivery.time_in_state, keep: [state])
-metric(delivery_wait, keep: [state, customer, configuration])
+metric(Delivery.transition_counts, keep: [transition, actor_kind], filter: "t.actor_kind == service")
 metric(Delivery.work_in_progress, keep: [state])
+metric(ExpenseClaim.flags_raised, keep: [transition, clause, remedy, actor_kind])
+metric(PdiResult.refusals, keep: [transition, clause, remedy])
+metric(Return.time_in_state, keep: [state], filter: "i.state == Return.AWAITING_PARTS")
+metric(Return.time_in_state, keep: [state], filter: "i.state == Return.INSPECTING")
+metric(Robot.override_counts, keep: [state, reason, week])
+metric(Robot.override_counts, keep: [state, reason])
+metric(Robot.refusals, keep: [clause, remedy], filter: "a.clause == \"rover_photo\"")
+metric(Robot.refusals, keep: [transition, clause, remedy])
+metric(Robot.time_in_state, keep: [state], filter: "i.state == Robot.PROCUREMENT")
+metric(ServiceJob.acted_by_non_assignee.engineer, keep: [transition])
+metric(ServiceJob.cycle_time_by_assignee.engineer, bind: {assignee: U-BEN}, keep: []) as A-SCOUT
+metric(ServiceJob.cycle_time_by_assignee.engineer, keep: []) as U-CHEN
+metric(ServiceJob.cycle_time_by_assignee.engineer, keep: [assignee])
+metric(ServiceJob.cycle_time_by_assignee.engineer, keep: [assignee]) as A-SCOUT
+metric(ServiceJob.cycle_time_by_assignee.engineer, keep: [assignee]) as U-ANA
+metric(ServiceJob.handoffs_by_object.engineer, keep: [object])
+metric(ServiceJob.open_work.engineer, keep: [assignee])
+metric(ServiceJob.open_work.engineer, keep: [assignee]) #2
+metric(ServiceJob.refusals, keep: [transition, clause, remedy, actor_kind])
+metric(ServiceJob.returns_by_object.engineer, keep: [object])
+metric(ServiceJob.time_to_first_assignment.engineer, keep: [month])
+metric(ServiceJob.transition_counts, keep: [transition, actor_kind], filter: "t.transition == \"start\"")
+metric(Shipment.refusals, keep: [transition, clause, remedy, actor_kind])
+metric(Shipment.refusals, keep: [transition, clause, remedy])
+metric(delivery_cycle_time, keep: [creator])
+metric(delivery_cycle_time, keep: [creator]) #2
+metric(delivery_trial_refusals, keep: [clause, actor])
+metric(delivery_wait, keep: [state, customer, configuration])
+metric(first_pass_yield, keep: [model, month])
+metric(first_pass_yield, keep: [model, month]) #2
 metric(first_pass_yield, keep: [model, month]) as A-SCOUT
 metric(first_pass_yield, keep: [model, month]) as S-REPORTS
 metric(first_pass_yield, keep: [model, month]) as U-ANA
+metric(labelled_returns, keep: [state])
+metric(labelled_wait, keep: [state])
 metric(on_time_rate, keep: [month])
-metric(open_shortfall, keep: [model])
-metric(open_shortfall, keep: [model, week])
-metric(PdiResult.refusals, keep: [transition, clause, remedy])
-metric(Robot.override_counts, keep: [state, reason])
-metric(Robot.override_counts, keep: [state, reason, week])
-metric(Robot.refusals, keep: [transition, clause, remedy])
-metric(Robot.time_in_state, keep: [state], filter: "i.state == Robot.PROCUREMENT")
-metric(Shipment.refusals, keep: [transition, clause, remedy])
-metric(supplier_lead_time, keep: [supplier, month])
-metric(supplier_lead_time, keep: [supplier], over: "365 days")
-metric(supplier_lead_time_p80, keep: [supplier], over: "365 days")
-metric(weak_battery_units, keep: [model, week])
 metric(on_time_rate, keep: [month], filter: "t.object.customer == C-ACME")
+metric(open_shortfall, keep: [model, week])
+metric(open_shortfall, keep: [model])
+metric(supplier_lead_time, keep: [supplier, month])
+metric(supplier_lead_time, keep: [supplier, month], filter: "o.model.manufacturer == \"Roverline\"")
+metric(supplier_lead_time, keep: [supplier], over: "365 days")
+metric(supplier_lead_time_p80, keep: [supplier], filter: "o.model.manufacturer == \"Roverline\"", over: "365 days") as A-BUYER
+metric(supplier_lead_time_p80, keep: [supplier], over: "365 days")
+metric(supplier_lead_time_p80, keep: [supplier], over: "365 days") as A-BUYER
+metric(trial_refusals, keep: [clause, actor])
+metric(weak_battery_units, keep: [model, week])
+awaiting: metric(time_to_done, keep: [version]) -- the scenario numbers versions from the journey, where its own port makes the journey version 2 (TODO, 2026-10-06)

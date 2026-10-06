@@ -169,16 +169,16 @@ fn event(e: &Event) -> J {
     json!({
         "position": e.position, "object_id": e.object_id, "transition": e.transition,
         "from_state": e.from_state, "to_state": e.to_state, "changes_state": e.changes_state,
-        "actor_id": e.actor_id, "actor_kind": e.actor_kind, "declaration_version": e.declaration_version,
+        "actor_id": e.actor_id, "actor_kind": e.actor_kind, "principal": e.principal,
+        "declaration_version": e.declaration_version,
         "recorded_at": timestamp_text(e.recorded_at),
         "occurred_at": e.occurred_at.map(timestamp_text), "imported": e.imported,
     })
 }
 
-const EVENT_NOT_COMPUTED: [&str; 13] = [
+const EVENT_NOT_COMPUTED: [&str; 12] = [
     "object_seq",
     "source",
-    "principal",
     "context",
     "cause",
     "taint_version",
@@ -367,6 +367,11 @@ async fn request_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
         propose,
         expires_at,
         expected_version,
+        // the principal the actor acts for, which the store records (library-api.md §3)
+        principal: body
+            .get("actor")
+            .and_then(|a| text(a, "principal"))
+            .map(str::to_string),
     };
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;

@@ -15,13 +15,16 @@ it talks to the core's service over HTTP, as a caller would, and
 
 The ids are labels: each object the history names is the core's object its creation or its import made. The replay
 stops at the first step the core cannot take as the history says, whether it does not run it or answers otherwise,
-since every later value stands on it; each read after that is unreached. A query is not run, since the core has no
+since every later value stands on it; each read after that is unreached. Two kinds of step change nothing a compared read
+reads, and are stepped past and recorded where the core cannot take them: a `check`, which is advice with no effect, and
+a subscription, which feeds only `pull`. A query is not run, since the core has no
 `query`, and the other reads, of history, events and the rest, are not this driver's to compare.
 
 It prints how far the replay reached and each read's outcome. It exits 1 where a read it reached disagrees with its
 table, or a step the core takes answers otherwise than the history says, each a finding against the core or the
 document; and where a read `scenarios_passing.txt` lists no longer matches, so a regression shows. A read newly
-matching is printed, to be added to that list.
+matching is printed, to be added to that list; one the list records as awaiting a decision, which TODO holds, has its
+difference reported and is no finding.
 
 With `--survey` it steps past each step it cannot take, recording why, so one run lists every gap the history meets;
 a value read after a step it stepped past may stand on that step, so a survey's reads are reported and never held.
@@ -172,8 +175,13 @@ class Driver:
             out[k] = v
         return out
 
-    def actor(self, alias):
-        return {"id": self.ids.get(alias, alias)}
+    def actor(self, alias, principal=None):
+        """An actor as the wire names it, with the principal it acts for, each the core's id where the history made
+        it, and as named where it did not, as a request naming an unknown actor does."""
+        out = {"id": self.ids.get(alias, alias)}
+        if principal:
+            out["principal"] = self.ids.get(principal, principal)
+        return out
 
     def oid(self, alias):
         """The core's object an alias names; one no step the replay took made is a gap's consequence."""
@@ -313,9 +321,12 @@ class Driver:
 
     # ── the requests ────────────────────────────────────────────────────────────────────
     def request(self, r):
-        for k in ("principal", "subscribe"):
-            if k in r:
-                raise NotRun(f"a request's `{k}`, which the core does not yet take")
+        if r.get("subscribe"):
+            # a subscription is the store's delivery state, which no metric reads: it feeds `pull`, whose reads this
+            # driver does not compare, so the store every compared read sees is the same whether or not it is made;
+            # the core does not yet take one (DESIGN.md §7)
+            self.advice.append(f"{r['at']}: {r['subscribe']}, a subscription the core does not yet take")
+            return
         if r.get("check"):
             # `check` is advice and has no effect (library-api.md §6), so the store every later read sees is the same
             # whether or not it ran; the core does not yet give it, and the read of its answer is not compared
@@ -337,7 +348,7 @@ class Driver:
             self.approve(self.changes[r["approve"]], self.changes[r["approve"] + "@version"], self.published(p),
                          self.oid(r["actor"]))
             return
-        body = {"actor": self.actor(r["actor"])}
+        body = {"actor": self.actor(r["actor"], r.get("principal"))}
         if (r.get("refused") or {}).get("verdict") == "stale":
             # a request carrying an old version of its object, the one before the version it is at (ADR-0023)
             body["expected_version"] = self.core.call("/v1/get", {"id": self.oid(r["object"])})["version"] - 1
@@ -480,7 +491,12 @@ def main():
     total = sum(len(h.get("requests") or []) for _s, h in histories)
     survey = [] if "--survey" in sys.argv[1:] else None
     service = Service()
-    findings, matched, outcomes, unrun, stopped = [], set(), [], [], None
+    findings, matched, outcomes, unrun, waiting, stopped = [], set(), [], [], [], None
+    awaiting = {}
+    for line in (PASSING.read_text().splitlines() if PASSING.exists() else []):
+        if line.startswith("awaiting: "):
+            spec_, _, why = line[len("awaiting: "):].partition(" -- ")
+            awaiting[spec_.strip()] = why.strip()
     seen = {}
     try:
         d = Driver(service, text, journey)
@@ -536,8 +552,11 @@ def main():
                 findings.append(f"line {line}: `{spec_}` has columns {header}, and the read returns {cols}")
             elif (want != got) if ordered else (sorted(want) != sorted(got)):
                 outcomes.append("differs")
-                findings.append(f"line {line}: `{spec_}` expects\n      {sorted(want)}\n    and the core gives\n      "
-                                f"{sorted(got)}")
+                text = (f"line {line}: `{spec_}` expects\n      {sorted(want)}\n    and the core gives\n      "
+                        f"{sorted(got)}")
+                # a difference recorded as awaiting a decision is reported, and is no finding
+                (waiting if key in awaiting else findings).append(text + (f"\n    awaiting: {awaiting[key]}"
+                                                                          if key in awaiting else ""))
             else:
                 outcomes.append("matches")
                 matched.add(key)
@@ -557,17 +576,21 @@ def main():
             print(f"    {gap}")
         return 0
     for a in d.advice:
-        print(f"  stepped past, as advice that changes nothing: {a}")
+        print(f"  stepped past, changing nothing a compared read reads: {a}")
     for u in unrun:
         print(f"  not run: {u}")
+    for w in waiting:
+        print(f"  awaiting a decision: {w}")
     for f in findings:
         print(f"  finding: {f}")
+    for spec_ in sorted(set(awaiting) & matched):
+        print(f"  now matching, to move from awaiting to held: {spec_}")
     held = {line.strip() for line in PASSING.read_text().splitlines()
-            if line.strip() and not line.startswith("#")} if PASSING.exists() else set()
+            if line.strip() and not line.startswith(("#", "awaiting: "))} if PASSING.exists() else set()
     lost = sorted(held - matched)
     for spec_ in lost:
         print(f"  no longer matches: {spec_}")
-    for spec_ in sorted(matched - held):
+    for spec_ in sorted(matched - held - set(awaiting)):
         print(f"  newly matching, to add to {PASSING.name}: {spec_}")
     return 1 if findings or lost else 0
 

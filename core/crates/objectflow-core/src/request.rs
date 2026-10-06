@@ -52,6 +52,9 @@ pub struct Request {
     /// The version of the object its caller read, the optimistic check of
     /// ADR-0023: a request finding it moved is refused as `stale`.
     pub expected_version: Option<i64>,
+    /// The principal its actor acts for, an object's id or the identity it
+    /// holds, recorded and never read by a rule (`DESIGN.md` §5.8).
+    pub principal: Option<String>,
 }
 
 fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
@@ -71,6 +74,7 @@ pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Option<Who> {
         Some(Who {
             id,
             kind: kind.to_string(),
+            principal: None,
         })
     };
     if let Some(o) = world.get(actor) {
@@ -124,6 +128,28 @@ impl std::convert::From<NotRun> for Stop {
 
 fn refused<T>(v: Verdict) -> Result<T, Stop> {
     Err(Stop::Refused(v, Refusal::default()))
+}
+
+/// Who a request acts as: its actor, and the principal it names, each an
+/// object of a type that marks an actor identity, or the request is refused
+/// as `actor_known` (`DESIGN.md` §6 step 1). The kind is the actor's.
+fn request_who(world: &World<'_>, req: &Request) -> Result<Who, Stop> {
+    let unknown = || {
+        refused(Verdict::Unsatisfied {
+            clause: "actor_known".into(),
+            remedy: Some(Remedy::Dependent),
+        })
+    };
+    let Some(mut who) = resolve_actor(world, &req.actor) else {
+        return unknown();
+    };
+    if let Some(p) = &req.principal {
+        let Some(principal) = resolve_actor(world, p) else {
+            return unknown();
+        };
+        who.principal = Some(principal.id);
+    }
+    Ok(who)
 }
 
 /// The optimistic check of ADR-0023: a request naming the version of its
@@ -276,12 +302,7 @@ fn decide_or_stop(
 ) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
     // 1. the actor
-    let Some(who) = resolve_actor(world, &req.actor) else {
-        return refused(Verdict::Unsatisfied {
-            clause: "actor_known".into(),
-            remedy: Some(Remedy::Dependent),
-        });
-    };
+    let who = request_who(world, req)?;
     // 2. the object and the transition
     let (tn, oid) = match &req.object_id {
         Some(id) => match world.get(id) {
@@ -913,6 +934,7 @@ fn take(
             at: ctx.work.now,
             actor_id: ctx.who.id.clone(),
             actor_kind: ctx.who.kind.clone(),
+            principal: ctx.who.principal.clone(),
             type_: Some(tn.to_string()),
             object_id: oid.clone(),
             transition: Some(xn.to_string()),
@@ -1196,6 +1218,7 @@ fn take(
         .into(),
         actor_id: ctx.who.id.clone(),
         actor_kind: ctx.who.kind.clone(),
+        principal: ctx.who.principal.clone(),
         declaration_version: ctx.work.lib.version,
         recorded_at: ctx.work.now,
         occurred_at: Some(ctx.at),
@@ -1434,6 +1457,7 @@ fn invalidate_proposals(
             source: "erased".into(),
             actor_id: ctx.who.id.clone(),
             actor_kind: ctx.who.kind.clone(),
+            principal: ctx.who.principal.clone(),
             declaration_version: ctx.work.lib.version,
             recorded_at: ctx.work.now,
             occurred_at: Some(ctx.at),
@@ -1459,12 +1483,7 @@ fn file(
     req: &Request,
 ) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
-    let Some(who) = resolve_actor(world, &req.actor) else {
-        return refused(Verdict::Unsatisfied {
-            clause: "actor_known".into(),
-            remedy: Some(Remedy::Dependent),
-        });
-    };
+    let who = request_who(world, req)?;
     let (tn, oid) = match &req.object_id {
         Some(id) => match world.get(id) {
             None => return refused(Verdict::NotFound),
@@ -1617,6 +1636,7 @@ fn file(
         source: "observed".into(),
         actor_id: who.id.clone(),
         actor_kind: who.kind.clone(),
+        principal: who.principal.clone(),
         declaration_version: world.lib.version,
         recorded_at: world.now,
         occurred_at: Some(world.now),
@@ -1669,6 +1689,7 @@ fn store_event(
         source: "observed".into(),
         actor_id: who.id.clone(),
         actor_kind: who.kind.clone(),
+        principal: who.principal.clone(),
         declaration_version: lib.version,
         recorded_at: now,
         occurred_at: Some(now),
@@ -1757,12 +1778,7 @@ fn decide_change(
     req: &Request,
 ) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
-    let Some(who) = resolve_actor(world, &req.actor) else {
-        return refused(Verdict::Unsatisfied {
-            clause: "actor_known".into(),
-            remedy: Some(Remedy::Dependent),
-        });
-    };
+    let who = request_who(world, req)?;
     let Some(t) = lib.type_(DECLARATION_CHANGE) else {
         return stop_not_run("a store without the built-in DeclarationChange");
     };
@@ -1937,12 +1953,7 @@ fn decide_proposal(
     answers: &BTreeMap<String, String>,
 ) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
-    let Some(who) = resolve_actor(world, &req.actor) else {
-        return refused(Verdict::Unsatisfied {
-            clause: "actor_known".into(),
-            remedy: Some(Remedy::Dependent),
-        });
-    };
+    let who = request_who(world, req)?;
     let Some(p) = req.object_id.as_deref().and_then(|id| world.get(id)) else {
         return refused(Verdict::NotFound);
     };
@@ -2007,6 +2018,7 @@ fn decide_proposal(
         source: "observed".into(),
         actor_id: who.id.clone(),
         actor_kind: who.kind.clone(),
+        principal: who.principal.clone(),
         declaration_version: world.lib.version,
         recorded_at: world.now,
         occurred_at: Some(world.now),
@@ -2054,6 +2066,7 @@ fn decide_proposal(
         propose: false,
         expires_at: None,
         expected_version: None,
+        principal: req.principal.clone(),
     };
     let filed_at = match p.attr("filed_at") {
         Value::Timestamp(t) => Some(t),
@@ -3102,6 +3115,11 @@ fn refused_attempt(
             .as_ref()
             .map_or_else(|| req.actor.clone(), |w| w.id.clone()),
         actor_kind: who.map_or_else(|| "unknown".to_string(), |w| w.kind),
+        // the principal as resolved, or as named where the store holds none
+        principal: req
+            .principal
+            .as_ref()
+            .map(|p| resolve_actor(world, p).map_or_else(|| p.clone(), |w| w.id)),
         type_,
         object_id,
         transition: Some(asked.transition.clone()),
@@ -3184,6 +3202,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            principal: None,
         };
         request(s, &r).unwrap().unwrap()
     }
@@ -3223,6 +3242,7 @@ types:
                 propose,
                 expires_at: None,
                 expected_version: version,
+                principal: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -3237,6 +3257,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: Some(7),
+            principal: None,
         };
         let job = created(&request(&mut s, &creation).unwrap().unwrap());
         // the version read applies, and moves the object on
@@ -3293,6 +3314,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            principal: None,
         };
         let change = created(&request(&mut s, &draft).unwrap().unwrap());
         let read_before = Verdict::Stale {
@@ -3393,6 +3415,96 @@ types:
                 Some("small"),
                 "self_serviceable"
             )
+        );
+    }
+
+    /// A request's principal (`DESIGN.md` §5.8, §6 step 1): resolved as
+    /// the actor is, refused as `actor_known` where it names no actor,
+    /// recorded on the event and the attempt row, and readable in an outcome
+    /// as `actor.principal`, which no rule reads.
+    #[test]
+    fn a_principal_is_resolved_recorded_and_written_by_an_outcome() {
+        let text = JOBS
+            .replace(
+                "      note: { type: string, optional: true }",
+                "      note: { type: string, optional: true }\n      for_whom: { type: string, optional: true }",
+            )
+            .replace(
+                "      finish: { kind: external, from: [WORKING], to: DONE }",
+                "      finish: { kind: external, from: [WORKING], to: DONE }\n      \
+                 sign: { kind: internal, from: any, effect: [ { assign: { location: for_whom, expr: actor.principal } } ] }",
+            );
+        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ana = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fix"}),
+        ));
+        let sign = |s: &mut Store, principal: Option<&str>| {
+            let r = Request {
+                transition: "sign".into(),
+                actor: OPERATOR.into(),
+                object_id: Some(job.clone()),
+                type_: None,
+                inputs: BTreeMap::new(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                principal: principal.map(str::to_string),
+            };
+            request(s, &r).unwrap().unwrap()
+        };
+        // named by its object's id or by the identity it holds, recorded by
+        // the identity, and written by the outcome
+        for named in [ana.as_str(), "ana"] {
+            created(&sign(&mut s, Some(named)));
+            let w = s.snapshot().unwrap();
+            assert_eq!(
+                w.get(&job).unwrap().attr("for_whom"),
+                Value::Text("ana".into())
+            );
+            let last = s.history(&job).unwrap().last().cloned().unwrap();
+            assert_eq!(last.principal.as_deref(), Some("ana"));
+        }
+        // none named, none recorded; an outcome assigning `actor.principal`
+        // then would assign an absent value, which neither runner runs
+        created(&req(
+            &mut s,
+            "estimate",
+            OPERATOR,
+            (&job, false),
+            json!({"hours": 2}),
+        ));
+        assert_eq!(s.history(&job).unwrap().last().unwrap().principal, None);
+        // a principal the store holds no actor for is refused as actor_known,
+        // its attempt row keeping it as named
+        assert_eq!(
+            sign(&mut s, Some("nobody")),
+            Verdict::Unsatisfied {
+                clause: "actor_known".into(),
+                remedy: Some(Remedy::Dependent),
+            }
+        );
+        let w = s.snapshot().unwrap();
+        let a = w.attempts.last().unwrap();
+        assert_eq!(
+            (
+                a.clause.as_deref(),
+                a.actor_kind.as_str(),
+                a.principal.as_deref()
+            ),
+            (Some("actor_known"), "human", Some("nobody"))
         );
     }
 
@@ -4059,6 +4171,7 @@ types:
                 propose: false,
                 expires_at: None,
                 expected_version: None,
+                principal: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -4742,6 +4855,7 @@ types:
                 propose: true,
                 expires_at,
                 expected_version: None,
+                principal: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -4837,6 +4951,7 @@ types:
                 propose: true,
                 expires_at: Some(s.now + 60),
                 expected_version: None,
+                principal: None,
             };
             created(&request(&mut s, &r).unwrap().unwrap())
         };
@@ -5044,6 +5159,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            principal: None,
         };
         created(&request(&mut s, &dated).unwrap().unwrap());
         created(&req(

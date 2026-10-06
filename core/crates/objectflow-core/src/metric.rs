@@ -2265,6 +2265,7 @@ metrics:
             propose: false,
             expires_at: None,
             expected_version: None,
+            principal: None,
         };
         match request(s, &r).unwrap().unwrap() {
             Verdict::Satisfied { object_id, .. } => Ok(object_id),
@@ -3003,6 +3004,7 @@ types:
             propose,
             expires_at: None,
             expected_version: None,
+            principal: None,
         };
         // an actor the store does not hold
         request(&mut s, &ask("review", "nobody", &jr, false))
@@ -3266,6 +3268,7 @@ types:
                 propose: false,
                 expires_at: None,
                 expected_version: None,
+                principal: None,
             };
             match request(&mut s, &r).unwrap().unwrap() {
                 Verdict::Unsatisfied { clause, .. } => Err(("unsatisfied".to_string(), clause)),

@@ -59,6 +59,9 @@ type Evaluated = Result<Term, NotRun>;
 pub struct Who {
     pub id: String,
     pub kind: String,
+    /// The principal it acts for, by its identity, where the request names
+    /// one (`DESIGN.md` §5.8).
+    pub principal: Option<String>,
 }
 
 /// An evaluation of expressions for one object, or none, and one request.
@@ -369,6 +372,9 @@ impl<'a> Evaluator<'a> {
                 return Ok(Term::Value(match (self.actor, m) {
                     (Some(a), "id") => Value::Text(a.id.clone()),
                     (Some(a), "kind") => Value::Text(a.kind.clone()),
+                    (Some(a), "principal") => {
+                        a.principal.clone().map_or(Value::Absent, Value::Text)
+                    }
                     _ => Value::Absent,
                 }));
             }

@@ -798,6 +798,7 @@ fn decide(
             source: "asserted".into(),
             actor_id: who.id.clone(),
             actor_kind: who.kind.clone(),
+            principal: who.principal.clone(),
             declaration_version: lib.version,
             recorded_at: port,
             occurred_at: Some(port),
@@ -1492,6 +1493,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            principal: None,
         };
         assert_eq!(
             request(&mut s, &note).unwrap().unwrap(),
@@ -1511,6 +1513,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            principal: None,
         };
         assert!(matches!(
             request(&mut s, &forget).unwrap().unwrap(),
