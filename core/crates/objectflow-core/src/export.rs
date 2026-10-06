@@ -37,6 +37,12 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
             refused: Some(why.to_string()),
         })
     };
+    // a type's attempt counts page by settled day, their cursor a date
+    if let Some(type_) = source.strip_suffix(".attempt_counts")
+        && world.lib.type_(type_).is_some()
+    {
+        return Ok(counts_page(world, type_, cursor));
+    }
     let after = match cursor {
         None => 0,
         Some(c) => match c.parse::<i64>() {
@@ -98,11 +104,6 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
                     .collect();
                 object_rows(world, on, after)
             }
-            "attempt_counts" => {
-                return Err(NotRun(format!(
-                    "the export of {source}, whose rows have no shape in library-api.md and whose rollup rows no event pages"
-                )));
-            }
             _ => return refuse("unknown_source"),
         }
     };
@@ -114,6 +115,65 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
         cursor: next.to_string(),
         refused: None,
     })
+}
+
+/// A type's attempt counts after the cursor's day, a day's once the day is
+/// over (ADR-0160): `declaration-syntax.md` §6.9's rows, the rollup's counts
+/// and the remaining rows' together, by day and then by key; the cursor is
+/// the last day exported, `YYYY-MM-DD`, an empty one the start. A day's
+/// counts never change once it is over, attempts being dated by when they
+/// were recorded, and a prune moves a count without changing it.
+fn counts_page(world: &World<'_>, type_: &str, cursor: Option<&str>) -> ExportPage {
+    let day_of = |text: &str| {
+        crate::value::parse_timestamp(&format!("{text}T00:00:00Z")).map(|t| t.div_euclid(86_400))
+    };
+    let after = match cursor {
+        None | Some("") => None,
+        Some(c) => match day_of(c) {
+            Some(d) => Some(d),
+            None => {
+                return ExportPage {
+                    lines: Vec::new(),
+                    cursor: c.to_string(),
+                    refused: Some("invalid_cursor".into()),
+                };
+            }
+        },
+    };
+    let today = world.now.div_euclid(86_400);
+    let mut rows: Vec<(i64, String)> = crate::metric::attempt_count_rows(world, type_)
+        .into_iter()
+        .filter_map(|r| {
+            let crate::value::Value::Row(f) = r else {
+                return None;
+            };
+            let crate::value::Value::Date(day) = f.get("day")? else {
+                return None;
+            };
+            let day = *day;
+            if day >= today || after.is_some_and(|a| day <= a) {
+                return None;
+            }
+            let row: serde_json::Map<String, Json> = f
+                .iter()
+                .map(|(k, v)| (k.clone(), wire::encode(v)))
+                .collect();
+            Some((day, Json::Object(row).to_string()))
+        })
+        .collect();
+    rows.sort();
+    let last = rows.last().map(|(d, _)| *d);
+    ExportPage {
+        cursor: match (last, cursor) {
+            (Some(d), _) => match wire::encode(&crate::value::Value::Date(d)) {
+                Json::String(t) => t,
+                other => other.to_string(),
+            },
+            (None, c) => c.unwrap_or_default().to_string(),
+        },
+        lines: rows.into_iter().map(|(_, r)| r).collect(),
+        refused: None,
+    }
 }
 
 /// Each object after the cursor by its latest event, which a correction or a
@@ -517,7 +577,52 @@ types:
                 Some(why)
             );
         }
-        assert!(export(&w, "Job.attempt_counts", None).is_err());
+        drop(w);
+        // a type's attempt counts: today's wait until the day is over, then
+        // come once, a prune changing nothing a consumer read (ADR-0160)
+        assert_eq!(
+            page(&s, "Job.attempt_counts", None),
+            (Vec::new(), String::new())
+        );
+        s.now += 86_400;
+        let (counts, day) = page(&s, "Job.attempt_counts", None);
+        assert_eq!(day, "1970-01-01");
+        assert_eq!(counts.len(), 1);
+        assert_eq!(
+            (
+                &counts[0]["day"],
+                &counts[0]["clause"],
+                &counts[0]["count"],
+                &counts[0]["object"]
+            ),
+            (
+                &json!("1970-01-01"),
+                &json!("calm"),
+                &json!(1),
+                &json!(cross)
+            )
+        );
+        assert_eq!(
+            page(&s, "Job.attempt_counts", Some(&day)),
+            (Vec::new(), day.clone())
+        );
+        s.attempt_retention = Some(1);
+        assert!(matches!(
+            s.maintain(&crate::store::MaintenanceTask {
+                name: "prune_attempts".into(),
+                before: s.now - 1
+            }),
+            Ok(Ok(Ok(_)))
+        ));
+        assert_eq!(page(&s, "Job.attempt_counts", None).0, counts);
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            export(&w, "Job.attempt_counts", Some("yesterday"))
+                .unwrap()
+                .refused
+                .as_deref(),
+            Some("invalid_cursor")
+        );
         drop(w);
         // a type's transitions: its family's log, and no other type's
         let (rows, _) = page(&s, "Job.transitions", None);

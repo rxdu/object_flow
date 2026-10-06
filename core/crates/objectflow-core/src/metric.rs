@@ -41,6 +41,68 @@ pub struct Found {
     pub module: String,
 }
 
+/// A type's family's attempt counts (`declaration-syntax.md` §6.9): each
+/// UTC day, object and combination of the members, counted, the rows
+/// `maintain` pruned, from the rollup, with those that remain; each a row of
+/// the members with its `count`.
+pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Vec<Value> {
+    const MEMBERS: [&str; 9] = [
+        "object",
+        "transition",
+        "verdict",
+        "clause",
+        "remedy",
+        "actor_kind",
+        "enforced",
+        "flagged",
+        "declaration_version",
+    ];
+    let key_of = |day: Value, f: &BTreeMap<String, Value>| -> Vec<Value> {
+        std::iter::once(day)
+            .chain(
+                MEMBERS
+                    .iter()
+                    .map(|m| f.get(*m).cloned().unwrap_or(Value::Absent)),
+            )
+            .collect()
+    };
+    let mut counts: Vec<(Vec<Value>, i64)> = Vec::new();
+    let mut add = |key: Vec<Value>, n: i64| match counts.iter_mut().find(|(k, _)| *k == key) {
+        Some((_, c)) => *c += n,
+        None => counts.push((key, n)),
+    };
+    for (f, n) in &world.rollup {
+        if matches!(f.get("type"), Some(Value::Text(t)) if world.lib.is_a(t, owner)) {
+            add(
+                key_of(f.get("day").cloned().unwrap_or(Value::Absent), f),
+                *n,
+            );
+        }
+    }
+    for a in world
+        .attempts
+        .iter()
+        .filter(|a| a.type_.as_deref().is_some_and(|t| world.lib.is_a(t, owner)))
+    {
+        let Value::Row(f) = attempt_row(a) else {
+            continue;
+        };
+        add(key_of(Value::Date(a.at.div_euclid(86_400)), &f), 1);
+    }
+    counts
+        .into_iter()
+        .map(|(key, n)| {
+            let mut f: BTreeMap<String, Value> = std::iter::once("day")
+                .chain(MEMBERS)
+                .map(str::to_string)
+                .zip(key)
+                .collect();
+            f.insert("count".into(), Value::Int(n));
+            Value::Row(f)
+        })
+        .collect()
+}
+
 /// The standard metrics every type has (`declaration-syntax.md` §6.11), as
 /// `flow-format.md` §4.9 writes a formula, over a type `<T>`.
 fn standard(name: &str) -> Option<Json> {
@@ -795,68 +857,8 @@ impl<'w> Reader<'w> {
                     by_kind: "actor_kind",
                 });
             }
-            // each UTC day, object and combination of the members, counted:
-            // the rows maintain pruned, from the rollup, with those that remain
-            const MEMBERS: [&str; 9] = [
-                "object",
-                "transition",
-                "verdict",
-                "clause",
-                "remedy",
-                "actor_kind",
-                "enforced",
-                "flagged",
-                "declaration_version",
-            ];
-            let mut counts: Vec<(Vec<Value>, i64)> = Vec::new();
-            for (f, n) in &world.rollup {
-                if !matches!(f.get("type"), Some(Value::Text(t)) if world.lib.is_a(t, owner)) {
-                    continue;
-                }
-                let key: Vec<Value> =
-                    std::iter::once(f.get("day").cloned().unwrap_or(Value::Absent))
-                        .chain(
-                            MEMBERS
-                                .iter()
-                                .map(|m| f.get(*m).cloned().unwrap_or(Value::Absent)),
-                        )
-                        .collect();
-                match counts.iter_mut().find(|(k, _)| *k == key) {
-                    Some((_, c)) => *c += n,
-                    None => counts.push((key, *n)),
-                }
-            }
-            for row in &mine {
-                let Value::Row(f) = row else { continue };
-                let day = match f.get("at") {
-                    Some(Value::Timestamp(t)) => Value::Date(t.div_euclid(86_400)),
-                    _ => Value::Absent,
-                };
-                let key: Vec<Value> = std::iter::once(day)
-                    .chain(
-                        MEMBERS
-                            .iter()
-                            .map(|m| f.get(*m).cloned().unwrap_or(Value::Absent)),
-                    )
-                    .collect();
-                match counts.iter_mut().find(|(k, _)| *k == key) {
-                    Some((_, n)) => *n += 1,
-                    None => counts.push((key, 1)),
-                }
-            }
             return Ok(Rows {
-                rows: counts
-                    .into_iter()
-                    .map(|(key, n)| {
-                        let mut f: BTreeMap<String, Value> = std::iter::once("day")
-                            .chain(MEMBERS)
-                            .map(str::to_string)
-                            .zip(key)
-                            .collect();
-                        f.insert("count".into(), Value::Int(n));
-                        Value::Row(f)
-                    })
-                    .collect(),
+                rows: attempt_count_rows(world, owner),
                 kind: Kind::AttemptCount(owner.to_string()),
                 by_kind: "actor_kind",
             });
