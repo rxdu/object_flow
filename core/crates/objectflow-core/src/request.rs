@@ -372,6 +372,10 @@ struct Ctx<'w> {
     /// Each past event's personal input an erasure redacts, by the event's
     /// position and the input's name.
     redacted_inputs: Vec<(i64, String)>,
+    /// The external identifiers it writes, and those it no longer holds:
+    /// source, value and object, with the attribute of a written one.
+    external: Vec<(String, String, String, String)>,
+    external_removed: Vec<(String, String, String)>,
     /// Every event, in the order recorded.
     events: Vec<Event>,
     created: BTreeSet<String>,
@@ -563,6 +567,8 @@ fn decide_or_stop(
         admits: BTreeSet::new(),
         erased: BTreeMap::new(),
         redacted_inputs: Vec::new(),
+        external: Vec::new(),
+        external_removed: Vec::new(),
         context: req.context.clone(),
         events: Vec::new(),
         created: BTreeSet::new(),
@@ -584,6 +590,9 @@ fn decide_or_stop(
     // invariant holds again (ADR-0054); an assertion admits what it names
     let first = ctx.events.iter().map(|e| e.position).min().unwrap_or(0);
     let mut admitted = Vec::new();
+    // every failing invariant on every object, by object id, then in the
+    // order the type declares them (library-api.md §4, InvariantViolated)
+    let mut violated: Vec<InvariantFailure> = Vec::new();
     let mut discharged = Vec::new();
     let ids: Vec<String> = ctx.work.in_order().iter().map(|o| o.id.clone()).collect();
     for id in ids {
@@ -625,23 +634,13 @@ fn decide_or_stop(
             if named { &mut admit } else { &mut refusing }.push(n);
         }
         if !refusing.is_empty() {
-            let failures: Vec<InvariantFailure> = refusing
-                .iter()
-                .map(|n| InvariantFailure {
-                    object_id: obj.id.clone(),
-                    type_: obj.type_.clone(),
-                    invariant: n.clone(),
-                    remedy: invariant_remedy(&ctx.work, x, obj, n, &root),
-                })
-                .collect();
-            let remedy = failures.first().and_then(|f| f.remedy);
-            return Err(Stop::Refused(
-                Verdict::InvariantViolated { failures, remedy },
-                Box::new(Refusal {
-                    reads: refused_reads(&ctx),
-                    ..Refusal::default()
-                }),
-            ));
+            violated.extend(refusing.iter().map(|n| InvariantFailure {
+                object_id: obj.id.clone(),
+                type_: obj.type_.clone(),
+                invariant: n.clone(),
+                remedy: invariant_remedy(&ctx.work, x, obj, n, &root),
+            }));
+            continue;
         }
         if let Some(o) = ctx.work.objects.get_mut(&id) {
             for n in holding {
@@ -653,6 +652,19 @@ fn decide_or_stop(
                 admitted.push((id.clone(), n, first, reason.clone()));
             }
         }
+    }
+    if !violated.is_empty() {
+        let remedy = violated.first().and_then(|f| f.remedy);
+        return Err(Stop::Refused(
+            Verdict::InvariantViolated {
+                failures: violated,
+                remedy,
+            },
+            Box::new(Refusal {
+                reads: refused_reads(&ctx),
+                ..Refusal::default()
+            }),
+        ));
     }
     // each event's read set, its own object's entry left to its order
     // (DESIGN.md §6)
@@ -716,6 +728,8 @@ fn decide_or_stop(
             attempts: observed,
             merged: ctx.merged,
             redacted_inputs: ctx.redacted_inputs,
+            external: ctx.external,
+            external_removed: ctx.external_removed,
             ..Change::default()
         }),
     ))
@@ -1474,6 +1488,25 @@ fn take(
     let Some(o) = ctx.work.objects.get(&id) else {
         return stop_not_run(format!("the object {id}, which its own effect removed"));
     };
+    // an external identifier it wrote: `lookup` finds the object by the new
+    // value, and no longer by the old (declaration-syntax.md §4, DESIGN.md §10)
+    for (a, spec) in &t.attributes {
+        let Some(source) = &spec.external else {
+            continue;
+        };
+        let was = before_attrs.get(a).cloned().unwrap_or(Value::Absent);
+        let now = o.attr(a);
+        if was == now {
+            continue;
+        }
+        if let Some(v) = external_text(&was) {
+            ctx.external_removed.push((source.clone(), v, id.clone()));
+        }
+        if let Some(v) = external_text(&now) {
+            ctx.external
+                .push((source.clone(), v, id.clone(), a.clone()));
+        }
+    }
     let event = Event {
         position,
         object_id: id.clone(),
@@ -1527,6 +1560,19 @@ fn take(
     ctx.events.push(event);
     ctx.causes.pop();
     Ok(id)
+}
+
+/// An external identifier's value as `of_external_id` keeps it: text, or a
+/// number written out; none where it is absent.
+fn external_text(v: &Value) -> Option<String> {
+    match v {
+        Value::Absent => None,
+        Value::Text(t) => Some(t.clone()),
+        other => Some(match wire::encode(other) {
+            Json::String(s) => s,
+            j => j.to_string(),
+        }),
+    }
 }
 
 /// The callers that passed a personal value on (`storage-schema.md` §9 step
@@ -3402,6 +3448,31 @@ fn failing_invariants_reading(
                 out.push(format!("{a}_unique"));
                 break;
             }
+        }
+    }
+    // an external identifier is unique per source, across every type that
+    // holds one of that source, an absent value excepted
+    // (declaration-syntax.md §4)
+    for (a, spec) in &t.attributes {
+        let Some(source) = &spec.external else {
+            continue;
+        };
+        let mine = o.attr(a);
+        let name = format!("{a}_unique");
+        if mine.is_absent() || out.contains(&name) {
+            continue;
+        }
+        let taken = world.in_order().into_iter().any(|other| {
+            other.id != o.id
+                && world.lib.type_(&other.type_).is_some_and(|ot| {
+                    ot.attributes.iter().any(|(b, bs)| {
+                        bs.external.as_deref() == Some(source.as_str())
+                            && other.attr(b).equals(&mine)
+                    })
+                })
+        });
+        if taken {
+            out.push(name);
         }
     }
     Ok(out)
@@ -6840,5 +6911,114 @@ types:
             inputs(&s, &office, "rename_in_turn"),
             json!({"aliases": null, "why": "nicknames"})
         );
+    }
+
+    /// An owned type's external identifiers (`declaration-syntax.md` §4,
+    /// `DESIGN.md` §10): a transition that writes one makes `lookup` find the
+    /// object by it, and no longer by the value it replaced; it is unique per
+    /// source across every type holding one, a value given up taken freely;
+    /// and an erased personal one is no longer found.
+    #[test]
+    fn an_external_identifier_is_found_by_its_source_and_unique_per_source() {
+        const BOOKS: &str = r#"
+module: books
+categories: [live, closed]
+types:
+  Customer:
+    attributes:
+      xero_id: { type: string, external: xero, optional: true }
+      nick: { type: string, external: crm, optional: true, personal: true }
+    states:
+      ACTIVE: { category: live }
+    transitions:
+      add: { kind: initial, to: ACTIVE, optional_inputs: [xero_id, nick] }
+      relink: { kind: internal, from: [ACTIVE], required_inputs: [xero_id] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Vendor:
+    attributes:
+      xero_ref: { type: string, external: xero, optional: true }
+    states:
+      ACTIVE: { category: live }
+    transitions:
+      add: { kind: initial, to: ACTIVE, optional_inputs: [xero_ref] }
+"#;
+        let lib = Library::load(&[("books.yaml".into(), BOOKS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let found = |s: &Store, source: &str, value: &str| {
+            s.snapshot()
+                .unwrap()
+                .external
+                .get(&(source.to_string(), value.to_string()))
+                .cloned()
+        };
+        // each object's failure, the new one's and that of whichever it
+        // collides with
+        let refused_as = |v: Verdict| match v {
+            Verdict::InvariantViolated { failures, .. } => failures
+                .iter()
+                .map(|f| format!("{}.{}", f.type_, f.invariant))
+                .collect::<Vec<_>>(),
+            other => panic!("{other:?}"),
+        };
+        let c1 = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Customer", true),
+            json!({"xero_id": "X1", "nick": "dd"}),
+        ));
+        assert_eq!(found(&s, "xero", "X1"), Some(c1.clone()));
+        assert_eq!(found(&s, "crm", "dd"), Some(c1.clone()));
+        // relinked, it is found by the new value and not the old
+        created(&req(
+            &mut s,
+            "relink",
+            OPERATOR,
+            (&c1, false),
+            json!({"xero_id": "X2"}),
+        ));
+        assert_eq!(found(&s, "xero", "X1"), None);
+        assert_eq!(found(&s, "xero", "X2"), Some(c1.clone()));
+        // unique per source, within the type and across types
+        assert!(
+            refused_as(req(
+                &mut s,
+                "add",
+                OPERATOR,
+                ("Customer", true),
+                json!({"xero_id": "X2"})
+            ))
+            .contains(&"Customer.xero_id_unique".to_string())
+        );
+        // each side of the collision named, the existing one first by id
+        assert_eq!(
+            refused_as(req(
+                &mut s,
+                "add",
+                OPERATOR,
+                ("Vendor", true),
+                json!({"xero_ref": "X2"})
+            )),
+            ["Customer.xero_id_unique", "Vendor.xero_ref_unique"]
+        );
+        // the value given up is free
+        let vendor = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Vendor", true),
+            json!({"xero_ref": "X1"}),
+        ));
+        assert_eq!(found(&s, "xero", "X1"), Some(vendor));
+        // erased, the personal one is no longer found, the other still is
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&c1, false),
+            json!({"reason": "request"}),
+        ));
+        assert_eq!(found(&s, "crm", "dd"), None);
+        assert_eq!(found(&s, "xero", "X2"), Some(c1));
     }
 }

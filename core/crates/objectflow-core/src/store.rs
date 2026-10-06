@@ -108,6 +108,9 @@ pub struct Change {
     /// External identifiers it keeps: source, value, object and attribute,
     /// a legacy key's attribute empty (ADR-0154).
     pub external: Vec<(String, String, String, String)>,
+    /// External identifiers an object no longer holds: source, value and
+    /// object, removed before any is kept.
+    pub external_removed: Vec<(String, String, String)>,
     /// Sequences it raises past a value, never lowering one: sequence, scope
     /// and value (ADR-0154).
     pub raised: Vec<(String, String, i64)>,
@@ -2455,6 +2458,12 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
             "UPDATE of_event SET payload = json_set(payload, ?2, json('null')) \
              WHERE position = ?1 AND json_type(payload, ?2) IS NOT NULL",
             params![position, path],
+        )?;
+    }
+    for (source, value, id) in &change.external_removed {
+        tx.execute(
+            "DELETE FROM of_external_id WHERE source = ?1 AND value = ?2 AND object_id = ?3",
+            params![source, value, id],
         )?;
     }
     for (source, value, id, attribute) in &change.external {
