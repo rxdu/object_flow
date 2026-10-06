@@ -319,8 +319,9 @@ class ReadSet:
     re-evaluate them from the record."""
 
     objects: Mapping[str, int]            # object id -> the version read
-    scans: Mapping[str, Sequence[str]]    # each type-scan clause -> the ids it matched,
-                                          # an empty match recorded as empty (ADR-0088)
+    scans: Mapping[str, Mapping[str, Sequence[str]]]   # each guard -> each type it scanned ->
+                                          # the ids satisfying the scan's `where`, an empty
+                                          # match recorded as empty (ADR-0088, ADR-0158)
     now: datetime                         # fixed once per request
 
 
@@ -698,6 +699,7 @@ Twenty operations: the seventeen of §10, the write path of §6, and the operati
 - `metric` returns a `MetricPage`, and `diagnostics` a short fixed list, each computed over every row its source and filter select (ADR-0114).
 - `import_batch` writes a port through the built-in assertion, and only into a type declared `mirror` and the observations and labels on a mirror's objects; it never rewrites a personal value an erasure removed, redacts the legacy entries and intervals it attaches to an erased object as the erasure would have, and marks every event it writes `imported` (ADR-0100, ADR-0101). It applies its disposition file by class, the only way it admits, and a batch it cannot place is refused whole, written as nothing, its report's `refusal` naming the first object and why; it names no object it wrote, so a caller finds one by `lookup` with the source `legacy` and the legacy key qualified by its family's root type (ADR-0154). Its event opens each current interval at the time `entered` gives, so a stay is not split at the port; a refresh does the same for what changed since the last import; and no legacy interval may cross a silent span (ADR-0106). A legacy interval pages in the export by the cursor of the import event that wrote its object. `maintain` refuses a prune inside the store's attempt or idempotency retention, changes no governed state or history, and is never needed for correctness (ADR-0100, ADR-0101, ADR-0103). The idempotency retention must cover the longest period over which any caller repeats a key, a scheduler's periodic sweep and an at-least-once reader's re-delivery included, since a repeat after the prune is a new request.
 - `export` pages an attempt source by its writing transaction's settled cursor, and an interval source by the cursor of the event that last opened or closed each row, so a closing re-emits the row and a reader keeps the latest per object, dimension and entry (ADR-0100).
+- `export` pages each row by the position of the event that last wrote it, so a row written again, an interval given its end, comes again, and a reader keeps the latest by the row's key (ADR-0158).
 - `export` takes a source — `log`, `<Type>.intervals`, `<Type>.transitions`, `<Type>.attempts`, `<Type>.attempt_counts`, `<Type>.labels`, or an observation kind — and returns JSON lines of the corresponding shape above, with every personal value omitted, so the permanent refusal counts and the labels can leave the store after a prune (ADR-0094, ADR-0106).
 - `pull` and `acknowledge` take a subscription's id; who may use one is the upper layer's (ADR-0114). The core posts nothing: a relay that posts to an endpoint is an upper-layer application pulling as its own actor (ADR-0105).
 - `get` and `query` evaluate a derived attribute that reads other objects over every object it reads (ADR-0114). `query` accepts a time-dependent derived attribute the publish report lists as queryable, and filters on the stored operand it compares against `now` (ADR-0048).
