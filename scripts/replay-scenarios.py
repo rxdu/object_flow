@@ -462,19 +462,83 @@ class Driver:
         return str(v)
 
     def other(self, spec_):
-        """A read of a check's answer or of a request's, as its table writes it."""
+        """A read the core answers through its operations, as its table writes it: its rows, its columns, and the
+        columns it quotes that no operation returns, which are named and left out."""
         m = re.fullmatch(r"check ([\w-]+)", spec_)
         if m:
             c = self.checks[m.group(1)]
             o = self.outcome(c["verdict"])
             return [tuple(self.show(o[k]) for k in ("verdict", "clause", "remedy", "call"))], \
-                ["verdict", "clause", "remedy", "call"]
+                ["verdict", "clause", "remedy", "call"], []
         m = re.fullmatch(r"answer ([\w-]+)", spec_)
         if m:
             v = self.answers[m.group(1)]
             flags = v.get("flags") or [{"clause": None, "remedy": None}]
             return [(self.show(v["kind"]), self.show(f["clause"]), self.show(f["remedy"])) for f in flags], \
-                ["verdict", "flag", "remedy"]
+                ["verdict", "flag", "remedy"], []
+        m = re.fullmatch(r"(events|history|provenance|payloads)\(([\w-]+)\)", spec_)
+        if m:
+            # an object's own events, in the order recorded (library-api.md §6)
+            evs = self.core.call("/v1/history", {"id": self.oid(m.group(2))})["events"]
+            if m.group(1) == "events":
+                return [(self.show(e["transition"]), self.show(e["occurred_at"]), self.show(e["recorded_at"]))
+                        for e in evs], ["transition", "occurred_at", "recorded_at"], []
+            if m.group(1) == "history":
+                # an event's cause, which the core does not yet record, is no column the history returns
+                return [(self.show(e["transition"]), self.show(e["occurred_at"]), self.show(e["actor_id"]),
+                         self.show(e["actor_kind"])) for e in evs], \
+                    ["transition", "occurred_at", "actor", "actor_kind"], ["cause"]
+            if m.group(1) == "provenance":
+                return [(self.show(e["transition"]), self.show(e["actor_id"]), self.show(e["actor_kind"]),
+                         self.show(e["principal"])) for e in evs], ["transition", "actor", "actor_kind", "principal"], []
+            return [(self.show(e["transition"]), a, self.show(v)) for e in evs
+                    for a, v in sorted(((e.get("payload") or {}).get("inputs") or {}).items())], \
+                ["transition", "attribute", "value"], []
+        m = re.fullmatch(r"get\(([\w-]+)\)", spec_)
+        if m:
+            # its stored attributes, an erased one absent; a derived value is no attribute it stores
+            o = self.core.call("/v1/get", {"id": self.oid(m.group(1))})
+            decl = self.core.call("/v1/declaration", {"type": o["type"]})
+            stored = decl.get("attributes") or {}
+            return [(a, self.show(v)) for a, v in sorted(o["attributes"].items()) if a in stored], \
+                ["attribute", "value"], []
+        m = re.fullmatch(r"(results|recorded|labels)\(([\w-]+)(?:\.(\w+))?\)", spec_)
+        if m:
+            what, alias, collection = m.groups()
+            subject = self.oid(alias)
+            if what == "labels":
+                kind, fields, by = "label", ["name", "recorded_by_kind", "subject_state"], None
+            else:
+                kind_of = self.core.call("/v1/get", {"id": subject})["type"]
+                decl = self.core.call("/v1/declaration", {"type": kind_of})
+                kind = (decl.get("observations") or {})[collection or "pdi_results"]["kind"]
+                fields = ["unit", "check", "outcome", "remark"] if what == "results" else \
+                    ["occurred_at", "min_health", "samples"]
+                by = "recorded_at" if what == "results" else "occurred_at"
+            asked = fields + ["corrects"] + ([by] if by and by not in fields else [])
+            page = self.core.call("/v1/query", {"actor": {"id": OPERATOR}, "type": kind,
+                                                "filter": f'subject.id == "{subject}"', "fields": asked})
+            if page.get("refused"):
+                raise Differs(f"the query of its {kind} is refused as {page['refused']}")
+            # the observations nothing has corrected, which every read of a kind sees (declaration-syntax.md §6.8)
+            corrected = {i["fields"].get("corrects") for i in page["items"]}
+            items = [i for i in page["items"] if i["id"] not in corrected]
+            if by:
+                items.sort(key=lambda i: i["fields"].get(by) or "")
+            return [tuple([self.show(i["id"])] + [self.show(i["fields"].get(f)) for f in fields]) for i in items], \
+                ["object"] + fields, []
+        m = re.fullmatch(r"proposal ([\w-]+)", spec_)
+        if m:
+            # who filed it and who approved it, from its own events, and its state (DESIGN.md §9)
+            pid = self.oid(m.group(1))
+            p = self.core.call("/v1/get", {"id": pid})
+            evs = self.core.call("/v1/history", {"id": pid})["events"]
+            filed = evs[0] if evs else {}
+            approved = next((e for e in evs if e["transition"] == "approve"), {})
+            return [(self.show(filed.get("actor_id")), self.show(filed.get("actor_kind")),
+                     self.show(approved.get("actor_id")), self.show(approved.get("actor_kind")),
+                     self.show(p["state"].lower()))], \
+                ["proposed_by", "proposed_kind", "approved_by", "approved_kind", "state"], []
         raise NotRun(f"a read the driver does not compare: {spec_}")
 
     def query(self, spec_, header):
@@ -561,7 +625,8 @@ def main():
             # a read named by its text, and by its place among reads of the same text
             seen[spec_] = seen.get(spec_, 0) + 1
             key = spec_ if seen[spec_] == 1 else f"{spec_} #{seen[spec_]}"
-            if not spec_.startswith(("metric(", "query(", "check ", "answer ")):
+            if not spec_.startswith(("metric(", "query(", "check ", "answer ", "events(", "history(", "provenance(",
+                                     "payloads(", "get(", "results(", "recorded(", "labels(", "proposal ")):
                 outcomes.append("not compared")
                 continue
             if stopped:
@@ -582,16 +647,14 @@ def main():
                 continue
             beyond = []
             try:
-                if spec_.startswith(("check ", "answer ")):
-                    got, cols = d.other(spec_)
-                elif spec_.startswith("query("):
-                    got, cols, beyond = d.query(spec_, header)
-                    # the columns a page does not return are left out of the comparison, and named
+                if spec_.startswith(("metric(",)):
+                    got, cols = d.metric(spec_)
+                else:
+                    got, cols, beyond = d.query(spec_, header) if spec_.startswith("query(") else d.other(spec_)
+                    # the columns no operation returns are left out of the comparison, and named
                     keep = [header.index(c) for c in cols if c in header]
                     rows = [[r[i] for i in keep] for r in rows]
                     header = [header[i] for i in keep]
-                else:
-                    got, cols = d.metric(spec_)
             except NotRun as e:
                 outcomes.append(f"not run: {e}")
                 unrun.append(f"line {line}: `{spec_}`: {e}")
@@ -603,7 +666,7 @@ def main():
             want = [tuple(r) for r in rows]
             # a query's page is ordered where it names an order; otherwise it ascends by id, which the document's
             # labels do not show
-            ordered = "order:" in spec_
+            ordered = "order:" in spec_ or spec_.startswith(cs.ORDERED)
             if header != cols:
                 outcomes.append("differs")
                 findings.append(f"line {line}: `{spec_}` has columns {header}, and the read returns {cols}")
@@ -615,7 +678,7 @@ def main():
                 (waiting if key in awaiting else findings).append(text + (f"\n    awaiting: {awaiting[key]}"
                                                                           if key in awaiting else ""))
             elif beyond:
-                outcomes.append("matches, but for columns no query returns")
+                outcomes.append("matches, but for columns no operation returns")
                 partial.append(f"line {line}: `{spec_}`: {', '.join(beyond)}")
             else:
                 outcomes.append("matches")
@@ -640,7 +703,7 @@ def main():
     for u in unrun:
         print(f"  not run: {u}")
     for p in partial:
-        print(f"  matches on what a query returns, and quotes what it does not: {p}")
+        print(f"  matches on what the core returns, and quotes what it does not: {p}")
     for w in waiting:
         print(f"  awaiting a decision: {w}")
     for f in findings:

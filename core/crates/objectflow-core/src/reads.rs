@@ -240,14 +240,24 @@ pub fn query(
         let reader = Evaluator::new(world, Some(ot), Some(&o.id));
         let mut out = Vec::new();
         for f in &asked {
-            let known = f == "state"
-                || f == "created_at"
-                || ot.attribute(f).is_some()
-                || ot.derived.iter().any(|(d, _)| d == f);
+            // an attribute, a derived value, or a member every object has
+            // (flow-format.md §5)
+            let known = ot.attribute(f).is_some()
+                || ot.derived.iter().any(|(d, _)| d == f)
+                || [
+                    "state",
+                    "open",
+                    "created_at",
+                    "created_by_kind",
+                    "recorded_by_kind",
+                    "recorded_from",
+                ]
+                .contains(&f.as_str());
             if !known {
                 return refuse("unknown_field");
             }
-            out.push((f.clone(), reader.eval(&Expr::Name(f.clone()))?));
+            let member = Expr::Path(Box::new(Expr::Name("this".into())), f.clone());
+            out.push((f.clone(), reader.eval(&member)?));
         }
         items.push(Item {
             id: o.id.clone(),
@@ -699,7 +709,7 @@ types:
             "Job",
             Some("hours < 5"),
             &[],
-            Some(&order(&["title", "hours", "long"])),
+            Some(&order(&["title", "hours", "long", "created_by_kind"])),
         )
         .unwrap();
         assert_eq!(
@@ -707,7 +717,8 @@ types:
             vec![
                 ("title".to_string(), Value::Text("Job".into())),
                 ("hours".to_string(), Value::Int(3)),
-                ("long".to_string(), Value::Bool(false))
+                ("long".to_string(), Value::Bool(false)),
+                ("created_by_kind".to_string(), Value::Text("human".into()))
             ]
         );
         // each refusal a value

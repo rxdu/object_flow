@@ -173,10 +173,11 @@ fn event(e: &Event) -> J {
         "declaration_version": e.declaration_version,
         "recorded_at": timestamp_text(e.recorded_at),
         "occurred_at": e.occurred_at.map(timestamp_text), "imported": e.imported,
+        "payload": e.payload,
     })
 }
 
-const EVENT_NOT_COMPUTED: [&str; 12] = [
+const EVENT_NOT_COMPUTED: [&str; 11] = [
     "object_seq",
     "source",
     "context",
@@ -184,7 +185,6 @@ const EVENT_NOT_COMPUTED: [&str; 12] = [
     "taint_version",
     "txn",
     "retries",
-    "payload",
     "reads",
     "consulted",
     "as_of",

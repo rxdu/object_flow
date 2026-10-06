@@ -1,4 +1,4 @@
-# Each metric read of docs/design/metric-scenarios.md the core matches when scripts/replay-scenarios.py replays the
+# Each read of docs/design/metric-scenarios.md the core matches when scripts/replay-scenarios.py replays the
 # history without stepping past anything; a read no longer matching fails the replay. A read repeated in the document
 # is named with its place among reads of the same text, `#2` and on.
 # A read recorded as awaiting a decision differs for a reason TODO records; its difference is reported and is no
@@ -7,6 +7,15 @@ answer AN1
 answer AN2
 check CK1
 check CK2
+events(M-ARM)
+events(R30)
+events(R40)
+events(S1)
+events(T6)
+get(C-DANA)
+get(C-DANA) #2
+get(W5)
+labels(L07)
 metric(BatteryDay.refusals, keep: [transition, clause, remedy])
 metric(Delivery.oldest_open, keep: [state])
 metric(Delivery.refusal_rate, bind: {transition: complete_sale}, keep: [actor_kind])
@@ -67,6 +76,10 @@ metric(supplier_lead_time_p80, keep: [supplier], over: "365 days")
 metric(supplier_lead_time_p80, keep: [supplier], over: "365 days") as A-BUYER
 metric(trial_refusals, keep: [clause, actor])
 metric(weak_battery_units, keep: [model, week])
+payloads(C-DANA)
+proposal PR1
+provenance(J3)
+provenance(J4)
 query(Delivery, filter: "date_at_risk")
 query(Engagement, filter: "overdue")
 query(Engagement, filter: "overdue") #2
@@ -77,4 +90,8 @@ query(Robot, filter: "state == REQUESTED or state == PROCUREMENT", order: "creat
 query(RobotModel, filter: "low_stock")
 query(Shipment, filter: "overdue")
 query(Warranty, filter: "expiring")
+recorded(R08.battery_days)
+results(D10)
+results(D18)
+results(D18) #2
 awaiting: metric(time_to_done, keep: [version]) -- the scenario numbers versions from the journey, where its own port makes the journey version 2 (TODO, 2026-10-06)
