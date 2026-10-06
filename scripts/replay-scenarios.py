@@ -130,7 +130,7 @@ class Driver:
         publishes = [yaml.safe_load(b) for i, _s, b in cs.fences(text) if i == "yaml publish"]
         self.publishes = sorted((p for p in publishes if not p.get("change")), key=lambda p: cs.when(p["at"]))
         self.governed = {p["change"]: p for p in publishes if p.get("change")}
-        self.changes = {}
+        self.changes, self.answers, self.advice = {}, {}, []
         self.now = None
         self.taken = 0
 
@@ -313,9 +313,19 @@ class Driver:
 
     # ── the requests ────────────────────────────────────────────────────────────────────
     def request(self, r):
-        for k in ("principal", "subscribe", "check", "answer", "forget", "propose", "approve_proposal"):
+        for k in ("principal", "subscribe"):
             if k in r:
-                raise NotRun(f"a request's `{k}`, which this driver does not yet send")
+                raise NotRun(f"a request's `{k}`, which the core does not yet take")
+        if r.get("check"):
+            # `check` is advice and has no effect (library-api.md §6), so the store every later read sees is the same
+            # whether or not it ran; the core does not yet give it, and the read of its answer is not compared
+            self.advice.append(f"{r['at']}: {r['check']}, a check of {r['object']}.{r['transition']}")
+            return
+        if r.get("approve_proposal"):
+            r = {**r, "object": r["approve_proposal"], "transition": "approve"}
+        if r.get("forget"):
+            # an observation's own erasure, its kind's generated `forget` (declaration-syntax.md §6.8)
+            r = {**r, "object": r["forget"], "transition": "forget"}
         if r.get("draft"):
             self.changes[r["draft"]] = self.draft(self.published(self.governed[r["draft"]]), self.oid(r["actor"]))
             return
@@ -333,6 +343,8 @@ class Driver:
             body["expected_version"] = self.core.call("/v1/get", {"id": self.oid(r["object"])})["version"] - 1
         if r.get("occurred_at"):
             body["occurred_at"] = stamp(r["occurred_at"])
+        if r.get("propose"):
+            body["propose"] = True
         if r.get("record"):
             subject = self.core.call("/v1/get", {"id": self.oid(r["subject"])})
             decl = self.core.call("/v1/declaration", {"type": subject["type"]})
@@ -369,8 +381,13 @@ class Driver:
             return
         if v["kind"] != "satisfied":
             raise Differs(f"it is answered {v}, and the history says it applies")
-        if r.get("record") or r.get("label") or r.get("create"):
+        if r.get("propose"):
+            # a proposal filed, which the verdict names (ADR-0147)
+            self.name(r["propose"], v["object_id"])
+        elif r.get("record") or r.get("label") or r.get("create"):
             self.name(r["object"], v["object_id"])
+        if r.get("answer"):
+            self.answers[r["answer"]] = v
         made = list(r.get("creates") or [])
         if made:
             events = self.core.call("/v1/events", {"positions": v["events"]})["events"]
@@ -384,14 +401,16 @@ class Driver:
         """The block's history; in a survey, each step it cannot take recorded in `survey` and stepped past."""
         if block.get("port"):
             self.port(block)
-        elif block.get("imported"):
-            gap = NotRun("an import after the port, a refresh, which this driver does not yet send")
-            if survey is None:
-                raise gap
-            survey.append(f"not run: {gap}")
+        # an import after the port, a refresh of a mirror, at its own time among the requests (publish-and-import.md §7)
+        refreshes = [] if block.get("port") else sorted(block.get("imported") or [], key=lambda i: cs.when(i["at"]))
         for r in block.get("requests") or []:
             where = f"the request at {r['at']} on {r.get('object') or r.get('subject') or r.get('draft') or r.get('approve')}"
             try:
+                while refreshes and cs.when(refreshes[0]["at"]) <= cs.when(r["at"]):
+                    imp = refreshes.pop(0)
+                    self.publish_due(cs.when(imp["at"]))
+                    self.clock(imp["at"])
+                    self.imported([imp])
                 self.publish_due(cs.when(r["at"]))
                 self.clock(r["at"])
                 self.request(r)
@@ -493,8 +512,12 @@ def main():
                     got, cols = d.metric(spec_)
                     same = sorted([tuple(r) for r in rows]) == sorted(got) and header == cols
                     outcomes.append("after a gap, " + ("matches" if same else "differs"))
+                    if not same:
+                        survey.append(f"read at line {line}, `{spec_}`, after a gap, expects\n      "
+                                      f"{sorted(tuple(r) for r in rows)}\n      and the core gives\n      {sorted(got)}")
                 except (NotRun, Differs) as e:
                     outcomes.append(f"after a gap, {'not run' if isinstance(e, NotRun) else 'refused'}")
+                    survey.append(f"read at line {line}, `{spec_}`, after a gap: {e}")
                 continue
             try:
                 got, cols = d.metric(spec_)
@@ -533,6 +556,8 @@ def main():
         for gap in survey:
             print(f"    {gap}")
         return 0
+    for a in d.advice:
+        print(f"  stepped past, as advice that changes nothing: {a}")
     for u in unrun:
         print(f"  not run: {u}")
     for f in findings:

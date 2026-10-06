@@ -1112,7 +1112,7 @@ Read: `metric(supplier_lead_time_p80, keep: [supplier], over: "365 days") as A-B
 
 The procurement application Buyer works through serves the Roverline desk, and narrows every read it passes on to Roverline's units. The narrowed read gives the value over the rows the filter selects:
 
-Read: `metric(supplier_lead_time_p80, keep: [supplier], filter: "o.model.manufacturer == Roverline", over: "365 days") as A-BUYER`
+Read: `metric(supplier_lead_time_p80, keep: [supplier], filter: "o.model.manufacturer == \"Roverline\"", over: "365 days") as A-BUYER`
 
 | supplier | value | gaps |
 |---|---|---|
@@ -2058,7 +2058,7 @@ Read: `events(R40)`
 | ship | 2026-11-03T01:00Z | 2026-11-03T01:00Z |
 | receive | 2027-02-14T16:00Z | 2027-02-15T09:10Z |
 
-Read: `metric(supplier_lead_time, keep: [supplier, month], filter: "o.model.manufacturer == Roverline")`
+Read: `metric(supplier_lead_time, keep: [supplier, month], filter: "o.model.manufacturer == \"Roverline\"")`
 
 | supplier | month | value | gaps |
 |---|---|---|---|
