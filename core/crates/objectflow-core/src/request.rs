@@ -372,6 +372,11 @@ struct Ctx<'w> {
     /// Each past event's personal input an erasure redacts, by the event's
     /// position and the input's name.
     redacted_inputs: Vec<(i64, String)>,
+    /// What an erasure's walk down clears on another object: the object,
+    /// the attribute, and the event that carried the erased value in; and
+    /// the interval spans so redacted, by object, dimension and entry.
+    cleared: Vec<(String, String, i64)>,
+    redacted_spans: Vec<(String, String, i64)>,
     /// The external identifiers it writes, and those it no longer holds:
     /// source, value and object, with the attribute of a written one.
     external: Vec<(String, String, String, String)>,
@@ -569,6 +574,8 @@ fn decide_or_stop(
         redacted_inputs: Vec::new(),
         external: Vec::new(),
         external_removed: Vec::new(),
+        cleared: Vec::new(),
+        redacted_spans: Vec::new(),
         context: req.context.clone(),
         events: Vec::new(),
         created: BTreeSet::new(),
@@ -730,6 +737,7 @@ fn decide_or_stop(
             redacted_inputs: ctx.redacted_inputs,
             external: ctx.external,
             external_removed: ctx.external_removed,
+            redacted_spans: ctx.redacted_spans,
             ..Change::default()
         }),
     ))
@@ -1286,6 +1294,15 @@ fn take(
             }
         }
         o.erased = true;
+        let redacted_since = ctx.redacted_inputs.len();
+        // what the erased object holds that is personal, the source of
+        // every value the walks follow
+        let holding: BTreeSet<String> = t
+            .attributes
+            .iter()
+            .filter(|(_, spec)| spec.personal)
+            .map(|(a, _)| a.clone())
+            .collect();
         // each input personal under the transition its event recorded,
         // redacted there alone, since an input personal in one transition
         // may not be in another (storage-schema.md §9 step 8)
@@ -1310,9 +1327,14 @@ fn take(
                     }
                 }
             }
+            // and what flowed down from it into other objects (§9 step 12)
+            walk_down(ctx, e, &tainted, &holding);
             // and the callers that passed one on (§9 step 3)
             caller_taint(ctx, e, tainted);
         }
+        // every other object whose value it redacted gets an event
+        // (DESIGN.md §8)
+        redact_others(ctx, alloc, &o.id, redacted_since);
         ctx.erased.entry(o.id.clone()).or_default().extend(erased);
         invalidate_proposals(ctx, alloc, &o.id)?;
     }
@@ -1621,6 +1643,208 @@ fn caller_taint(ctx: &mut Ctx<'_>, from: &Event, mut tainted: BTreeSet<String>) 
         }
         tainted = passed;
         callee = caller;
+    }
+}
+
+/// What flowed down from an erased value (`storage-schema.md` §9 step 12,
+/// ADR-0160): each event the given one caused on another object, the inputs
+/// its step filled from what carries the erased value, the event's tainted
+/// inputs or an attribute holding it, redacted in the caused event, marked
+/// personal or not, since a copy there is none of the limits `DESIGN.md` §8
+/// lists; each personal attribute such an input writes cleared on the object
+/// while the object still holds what flowed in, its last write being that
+/// event; and so on down.
+fn walk_down(
+    ctx: &mut Ctx<'_>,
+    from: &Event,
+    tainted: &BTreeSet<String>,
+    holding: &BTreeSet<String>,
+) {
+    let lib = ctx.work.lib;
+    let Some(fx) = ctx
+        .work
+        .get(&from.object_id)
+        .and_then(|o| lib.type_(&o.type_))
+        .and_then(|t| t.transition(&from.transition))
+    else {
+        return;
+    };
+    let caused: Vec<Event> = ctx
+        .work
+        .events
+        .iter()
+        .filter(|f| f.cause == Some(from.position) && f.object_id != from.object_id)
+        .cloned()
+        .collect();
+    for f in caused {
+        let Some(p) = ctx.work.get(&f.object_id).cloned() else {
+            continue;
+        };
+        let Some(pt) = lib.type_(&p.type_) else {
+            continue;
+        };
+        let Some(px) = pt.transition(&f.transition) else {
+            continue;
+        };
+        let mut passed = BTreeSet::new();
+        for (input, exprs) in steps_taking(lib, &fx.effect, &f.transition, Some(&p.type_)) {
+            if exprs.iter().any(|e| carries(e, tainted, holding)) {
+                passed.insert(input.clone());
+            }
+        }
+        let recorded = f.payload["inputs"].as_object();
+        let mut next_inputs = BTreeSet::new();
+        let mut next_holding = BTreeSet::new();
+        for n in &passed {
+            if recorded.is_some_and(|r| r.contains_key(n)) {
+                ctx.redacted_inputs.push((f.position, n.clone()));
+            }
+            next_inputs.insert(n.clone());
+            for a in attributes_written(pt, px, n) {
+                if !pt.attribute(&a).is_some_and(|s| s.personal) {
+                    continue;
+                }
+                next_holding.insert(a.clone());
+                if p.writes.get(&a) == Some(&f.position) {
+                    ctx.cleared.push((p.id.clone(), a, f.position));
+                }
+            }
+        }
+        if !next_inputs.is_empty() {
+            walk_down(ctx, &f, &next_inputs, &next_holding);
+        }
+    }
+}
+
+/// Whether an expression carries a tainted value: it reads a tainted input,
+/// or an attribute holding one, bare or through `this`.
+fn carries(e: &Expr, inputs: &BTreeSet<String>, attributes: &BTreeSet<String>) -> bool {
+    let mut read = BTreeSet::new();
+    e.inputs_read(&mut read);
+    read.iter().any(|n| inputs.contains(n)) || reads_attribute(e, attributes)
+}
+
+fn reads_attribute(e: &Expr, attributes: &BTreeSet<String>) -> bool {
+    match e {
+        Expr::Name(n) => attributes.contains(n),
+        Expr::Path(b, m) if matches!(b.as_ref(), Expr::Name(t) if t == "this") => {
+            attributes.contains(m)
+        }
+        _ => e
+            .children()
+            .into_iter()
+            .any(|c| reads_attribute(c, attributes)),
+    }
+}
+
+/// The attributes an input writes: itself where it is an attribute's input,
+/// and each location an effect step assigns or adds it to.
+fn attributes_written(t: &Type, x: &Transition, input: &str) -> BTreeSet<String> {
+    fn walk(steps: &[Step], input: &str, out: &mut BTreeSet<String>) {
+        for st in steps {
+            match st {
+                Step::Assign { location, expr } | Step::Add { location, expr } => {
+                    let mut read = BTreeSet::new();
+                    expr.inputs_read(&mut read);
+                    if read.contains(input) {
+                        out.insert(location.clone());
+                    }
+                }
+                Step::Foreach { steps, .. } => walk(steps, input, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = BTreeSet::new();
+    if x.required_inputs
+        .iter()
+        .chain(&x.optional_inputs)
+        .any(|k| k == input)
+        && t.attribute(input).is_some()
+    {
+        out.insert(input.to_string());
+    }
+    walk(&x.effect, input, &mut out);
+    out
+}
+
+/// A `redact` event on every object other than the erased one whose value
+/// the erasure redacted, an attribute it held or a value in a past event
+/// (`DESIGN.md` §7, §8, ADR-0147): source `erased`, caused by the erasure's
+/// event, naming what it redacted and never the values; the object's version
+/// advances, and the object is not itself erased. One already erased holds
+/// nothing personal to redact, and records none.
+fn redact_others(ctx: &mut Ctx<'_>, alloc: &mut Allocator, erased: &str, since: usize) {
+    let mut names: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (position, n) in &ctx.redacted_inputs[since..] {
+        if let Some(e) = ctx.work.events.iter().find(|e| e.position == *position)
+            && e.object_id != erased
+        {
+            names
+                .entry(e.object_id.clone())
+                .or_default()
+                .insert(n.clone());
+        }
+    }
+    let cleared = std::mem::take(&mut ctx.cleared);
+    for (id, a, _) in &cleared {
+        if id != erased {
+            names.entry(id.clone()).or_default().insert(a.clone());
+        }
+    }
+    for (id, redacted) in names {
+        let Some(mut p) = ctx.work.get(&id).cloned() else {
+            continue;
+        };
+        if p.erased {
+            continue;
+        }
+        let stored_set = |a: &str| {
+            ctx.work
+                .lib
+                .type_(&p.type_)
+                .and_then(|t| t.attribute(a))
+                .is_some_and(|s| s.stored_set())
+        };
+        for (_, a, flowed) in cleared.iter().filter(|(o, _, _)| *o == id) {
+            if stored_set(a) {
+                p.attrs.insert(a.clone(), Value::Set(Vec::new()));
+            } else {
+                p.attrs.remove(a);
+            }
+            if let Some(spans) = p.spans.get_mut(a) {
+                for sp in spans.iter_mut().filter(|sp| sp.entered_position == *flowed) {
+                    sp.value = Value::Absent;
+                    ctx.redacted_spans.push((id.clone(), a.clone(), *flowed));
+                }
+            }
+        }
+        let position = alloc.position();
+        p.version += 1;
+        let event = Event {
+            position,
+            object_id: id.clone(),
+            object_seq: p.version,
+            transition: "redact".into(),
+            from_state: Some(p.state.clone()),
+            to_state: p.state.clone(),
+            changes_state: false,
+            source: "erased".into(),
+            actor_id: ctx.who.id.clone(),
+            actor_kind: ctx.who.kind.clone(),
+            principal: ctx.who.principal.clone(),
+            cause: ctx.causes.last().copied(),
+            declaration_version: ctx.work.lib.version,
+            recorded_at: ctx.work.now,
+            occurred_at: Some(ctx.at),
+            context: ctx.context.clone(),
+            imported: false,
+            payload: json!({ "redacted": redacted }),
+            reads: json!({}),
+        };
+        ctx.work.events.push(event.clone());
+        ctx.events.push(event);
+        ctx.work.objects.insert(id, p);
     }
 }
 
@@ -6783,17 +7007,50 @@ types:
         const DESKS: &str = r#"
 module: desks
 categories: [live, closed]
+enumerations: { Tier: [GOLD, SILVER] }
 types:
   Person:
     attributes:
       name: { type: string, optional: true, personal: true }
+      level: { type: Tier, optional: true, personal: true }
       desk: { reference: Desk }
     states:
       ACTIVE: { category: live }
     transitions:
       add: { kind: initial, to: ACTIVE, required_inputs: [name, desk] }
       rename: { kind: internal, from: [ACTIVE], required_inputs: [name] }
+      grade: { kind: internal, from: [ACTIVE], required_inputs: [level] }
       forget: { kind: erasure, inputs: { reason: { type: string } } }
+      issue_badge:
+        kind: internal
+        from: [ACTIVE]
+        effect:
+          - create: { type: Badge, transition: issue, inputs: { holder_name: name, tier: level, echo: name, person: this } }
+  Badge:
+    attributes:
+      holder_name: { type: string, optional: true, personal: true }
+      tier: { type: Tier, optional: true, personal: true }
+      person: { reference: Person }
+    states:
+      ACTIVE: { category: live }
+    transitions:
+      issue:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [holder_name, person]
+        optional_inputs: [tier]
+        inputs: { echo: { type: string } }
+        effect:
+          - create: { type: Card, transition: print, inputs: { text: inputs.holder_name, badge: this } }
+      rewrite: { kind: internal, from: [ACTIVE], required_inputs: [holder_name] }
+  Card:
+    attributes:
+      text: { type: string, optional: true, personal: true }
+      badge: { reference: Badge }
+    states:
+      ACTIVE: { category: live }
+    transitions:
+      print: { kind: initial, to: ACTIVE, required_inputs: [text, badge] }
   Desk:
     attributes:
       person: { reference: Person, optional: true }
@@ -6877,6 +7134,50 @@ types:
             Value::Object(p) => p,
             other => panic!("{other:?}"),
         };
+        // two badges copy the name and the grade down, each name on to a
+        // card, and into an input no attribute keeps; the first's name is
+        // since replaced by another value
+        created(&req(
+            &mut s,
+            "grade",
+            OPERATOR,
+            (&person, false),
+            json!({"level": "GOLD"}),
+        ));
+        for _ in 0..2 {
+            created(&req(
+                &mut s,
+                "issue_badge",
+                OPERATOR,
+                (&person, false),
+                json!({}),
+            ));
+        }
+        let of_type = |s: &Store, t: &str| -> Vec<String> {
+            s.snapshot()
+                .unwrap()
+                .of_type(t)
+                .iter()
+                .map(|o| o.id.clone())
+                .collect()
+        };
+        let (badges, cards) = (of_type(&s, "Badge"), of_type(&s, "Card"));
+        assert_eq!((badges.len(), cards.len()), (2, 2));
+        created(&req(
+            &mut s,
+            "rewrite",
+            OPERATOR,
+            (&badges[0], false),
+            json!({"holder_name": "Visitor"}),
+        ));
+        let versions = |s: &Store| -> Vec<i64> {
+            let w = s.snapshot().unwrap();
+            [&desk, &office, &badges[0], &badges[1], &cards[0], &cards[1]]
+                .iter()
+                .map(|id| w.get(id).unwrap().version)
+                .collect()
+        };
+        let before = versions(&s);
         created(&req(
             &mut s,
             "forget",
@@ -6910,6 +7211,75 @@ types:
         assert_eq!(
             inputs(&s, &office, "rename_in_turn"),
             json!({"aliases": null, "why": "nicknames"})
+        );
+        // down: each copy redacted in the event that carried it, two levels
+        // deep, and cleared where the object still holds it
+        for b in &badges {
+            let issued = inputs(&s, b, "issue");
+            assert_eq!(
+                (&issued["holder_name"], &issued["tier"], &issued["echo"]),
+                (&Json::Null, &Json::Null, &Json::Null)
+            );
+        }
+        for c in &cards {
+            assert_eq!(inputs(&s, c, "print")["text"], Json::Null);
+        }
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.get(&badges[0]).unwrap().attr("holder_name"),
+            Value::Text("Visitor".into())
+        );
+        assert_eq!(
+            w.get(&badges[1]).unwrap().attr("holder_name"),
+            Value::Absent
+        );
+        // the grade it copied leaves the attribute and its interval
+        for b in &badges {
+            let o = w.get(b).unwrap();
+            assert_eq!(o.attr("tier"), Value::Absent);
+            assert!(o.spans["tier"].iter().all(|sp| sp.value == Value::Absent));
+        }
+        for c in &cards {
+            assert_eq!(w.get(c).unwrap().attr("text"), Value::Absent);
+        }
+        // every other object redacted gets one redact event, caused by the
+        // erasure, naming what it redacted, its version advanced
+        let forget = w
+            .events
+            .iter()
+            .rfind(|e| e.transition == "forget")
+            .unwrap()
+            .position;
+        drop(w);
+        assert_eq!(
+            versions(&s),
+            before.iter().map(|v| v + 1).collect::<Vec<_>>()
+        );
+        let redacted = |s: &Store, id: &str| -> Json {
+            let last = s.history(id).unwrap().pop().unwrap();
+            assert_eq!(
+                (last.transition.as_str(), last.source.as_str(), last.cause),
+                ("redact", "erased", Some(forget))
+            );
+            last.payload["redacted"].clone()
+        };
+        assert_eq!(redacted(&s, &desk), json!(["full_name", "new_name"]));
+        assert_eq!(redacted(&s, &office), json!(["aliases", "who"]));
+        assert_eq!(
+            redacted(&s, &badges[0]),
+            json!(["echo", "holder_name", "tier"])
+        );
+        assert_eq!(
+            redacted(&s, &badges[1]),
+            json!(["echo", "holder_name", "tier"])
+        );
+        assert_eq!(redacted(&s, &cards[0]), json!(["text"]));
+        // the erased object records its own erasure, and no redact
+        assert!(
+            s.history(&person)
+                .unwrap()
+                .iter()
+                .all(|e| e.transition != "redact")
         );
     }
 

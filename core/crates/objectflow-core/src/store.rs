@@ -111,6 +111,9 @@ pub struct Change {
     /// External identifiers an object no longer holds: source, value and
     /// object, removed before any is kept.
     pub external_removed: Vec<(String, String, String)>,
+    /// Interval spans an erasure's walk down redacted on another object: the
+    /// object, the dimension and the span's entry (§9 step 12).
+    pub redacted_spans: Vec<(String, String, i64)>,
     /// Sequences it raises past a value, never lowering one: sequence, scope
     /// and value (ADR-0154).
     pub raised: Vec<(String, String, i64)>,
@@ -2458,6 +2461,12 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
             "UPDATE of_event SET payload = json_set(payload, ?2, json('null')) \
              WHERE position = ?1 AND json_type(payload, ?2) IS NOT NULL",
             params![position, path],
+        )?;
+    }
+    for (id, dimension, entered) in &change.redacted_spans {
+        tx.execute(
+            "UPDATE of_interval SET value = NULL WHERE object_id = ?1 AND dimension = ?2 AND entered_position = ?3",
+            params![id, dimension, entered],
         )?;
     }
     for (source, value, id) in &change.external_removed {
