@@ -327,6 +327,63 @@ async fn check(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     ))
 }
 
+/// A settled cursor as the wire carries it, an opaque string, which on
+/// SQLite is a position (ADR-0089).
+fn cursor_of(body: &J) -> Result<Option<i64>, Fault> {
+    match body.get("cursor") {
+        None | Some(J::Null) => Ok(None),
+        Some(J::String(c)) => c
+            .parse::<i64>()
+            .map(Some)
+            .map_err(|_| Fault::Bad(format!("{c} is no cursor this store handed out"))),
+        Some(other) => Err(Fault::Bad(format!(
+            "{other} is no cursor this store handed out"
+        ))),
+    }
+}
+
+/// A page of the events a subscription selects after a cursor, or its
+/// acknowledged one, and the settled cursor (`library-api.md` §6).
+async fn pull(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let (Some(_actor), Some(subscription)) = (
+        body.get("actor").and_then(|a| text(a, "id")),
+        text(&body, "subscription"),
+    ) else {
+        return Err(Fault::Bad(
+            "pull names its actor and the subscription".to_string(),
+        ));
+    };
+    let cursor = cursor_of(&body)?;
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    let world = s.snapshot()?;
+    let page = objectflow_core::subscription::pull(&world, subscription, cursor);
+    Ok(Json(json!({
+        "events": page.events.iter().map(event).collect::<Vec<_>>(),
+        "settled": page.settled.to_string(),
+        "refused": page.refused,
+        "not_computed": EVENT_NOT_COMPUTED,
+    })))
+}
+
+/// A subscription's progress moved, back as well as forward; a refusal is
+/// a value (`library-api.md` §6).
+async fn acknowledge(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+    let (Some(_actor), Some(subscription), Some(cursor)) = (
+        body.get("actor").and_then(|a| text(a, "id")),
+        text(&body, "subscription"),
+        cursor_of(&body)?,
+    ) else {
+        return Err(Fault::Bad(
+            "acknowledge names its actor, the subscription and a cursor".to_string(),
+        ));
+    };
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    let refused = s.acknowledge(subscription, cursor)?;
+    Ok(Json(json!({ "refused": refused })))
+}
+
 /// A request as the wire carries it (`library-api.md` §3).
 fn request_of(body: &J) -> Result<Request, Fault> {
     if body.get("idempotency_key").is_some_and(|v| !v.is_null()) {
@@ -942,6 +999,8 @@ fn app(shared: Shared) -> Router {
         .route("/v1/metric", post(metric))
         .route("/v1/query", post(query))
         .route("/v1/check", post(check))
+        .route("/v1/pull", post(pull))
+        .route("/v1/acknowledge", post(acknowledge))
         .route("/v1/import_batch", post(import_op))
         .route("/v1/lookup", post(lookup))
         .route("/v1/publish", post(publish))

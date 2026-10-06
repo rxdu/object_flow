@@ -16,8 +16,8 @@ it talks to the core's service over HTTP, as a caller would, and
 The ids are labels: each object the history names is the core's object its creation or its import made. The replay
 stops at the first step the core cannot take as the history says, whether it does not run it or answers otherwise,
 since every later value stands on it; each read after that is unreached. Two kinds of step change nothing a compared read
-reads, and are stepped past and recorded where the core cannot take them: a `check`, which is advice with no effect, and
-a subscription, which feeds only `pull`. A query is not run, since the core has no
+reads, and were stepped past while the core could not take them: a `check`, which is advice with no effect, and a
+subscription, which feeds only `pull`; the core now takes both. A query is not run, since the core has no
 `query`, and the other reads, of history, events and the rest, are not this driver's to compare.
 
 It prints how far the replay reached and each read's outcome. It exits 1 where a read it reached disagrees with its
@@ -323,10 +323,16 @@ class Driver:
     # ── the requests ────────────────────────────────────────────────────────────────────
     def request(self, r):
         if r.get("subscribe"):
-            # a subscription is the store's delivery state, which no metric reads: it feeds `pull`, whose reads this
-            # driver does not compare, so the store every compared read sees is the same whether or not it is made;
-            # the core does not yet take one (DESIGN.md §7)
-            self.advice.append(f"{r['at']}: {r['subscribe']}, a subscription the core does not yet take")
+            # a subscription, a request on the built-in type, its filter a type and transition names (DESIGN.md §7)
+            f = r.get("filter") or {}
+            inputs = {"target_type": f["type"]}
+            if f.get("transitions"):
+                inputs["transitions"] = f["transitions"]
+            v = self.core.call("/v1/request", {"actor": self.actor(r["actor"]), "type": "Subscription",
+                                               "transition": "subscribe", "inputs": inputs})
+            if v["kind"] != "satisfied":
+                raise Differs(f"the subscription is refused: {v}")
+            self.name(r["subscribe"], v["object_id"])
             return
         if r.get("check"):
             # `check` is advice with no effect: the verdict the request would receive (library-api.md §6)
@@ -503,6 +509,14 @@ class Driver:
             return [(self.show(e["transition"]), a, self.show(v)) for e in evs
                     for a, v in sorted(((e.get("payload") or {}).get("inputs") or {}).items())], \
                 ["transition", "attribute", "value"], []
+        m = re.fullmatch(r"pull\(([\w-]+)\)", spec_)
+        if m:
+            # the events its filter selects after its acknowledged cursor (DESIGN.md §7)
+            page = self.core.call("/v1/pull", {"actor": {"id": OPERATOR}, "subscription": self.oid(m.group(1))})
+            if page.get("refused"):
+                raise Differs(f"the pull is refused as {page['refused']}")
+            return [(self.show(e["object_id"]), self.show(e["transition"]), self.show(e["occurred_at"]))
+                    for e in page["events"]], ["object", "transition", "occurred_at"], []
         m = re.fullmatch(r"caused by\(([\w-]+)\.(\w+)\)", spec_)
         if m:
             # every event the named one caused (DESIGN.md §6 step 8)
@@ -644,7 +658,7 @@ def main():
             key = spec_ if seen[spec_] == 1 else f"{spec_} #{seen[spec_]}"
             if not spec_.startswith(("metric(", "query(", "check ", "answer ", "events(", "history(", "provenance(",
                                      "payloads(", "get(", "results(", "recorded(", "labels(", "proposal ",
-                                     "caused by(")):
+                                     "caused by(", "pull(")):
                 outcomes.append("not compared")
                 continue
             if stopped:

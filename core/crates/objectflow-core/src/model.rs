@@ -1687,10 +1687,153 @@ fn label_type() -> Type {
     }
 }
 
+/// The built-in type of a subscription (`DESIGN.md` §7): its filter, over a
+/// type or its family, transition names, every one where it names none, and
+/// whether only a change of state; its lag thresholds; and its lifecycle,
+/// `subscribe` creating one `ACTIVE` and `revoke` ending it.
+pub const SUBSCRIPTION: &str = "Subscription";
+
+fn subscription_type() -> Type {
+    let attribute = |t: &str, many: bool, optional: bool, default: Option<Expr>| Attribute {
+        declared: Declared::Scalar(t.to_string()),
+        many,
+        optional,
+        default,
+        unique: Unique::No,
+        assignee: false,
+        personal: false,
+        actor_kind: None,
+        identifier: None,
+        opposite: None,
+        composite: false,
+        cascade: Vec::new(),
+        external: None,
+        survives_always: false,
+    };
+    let state = |category: &str, is_final: bool| State {
+        category: category.to_string(),
+        is_final,
+        required_attributes: Vec::new(),
+        superseding: false,
+    };
+    let transition =
+        |kind: Kind, from: Option<From>, to: &str, required: &[&str], optional: &[&str]| {
+            Transition {
+                kind,
+                from,
+                to: vec![to.to_string()],
+                only_via: Vec::new(),
+                proposable: false,
+                required_inputs: required.iter().map(|s| s.to_string()).collect(),
+                optional_inputs: optional.iter().map(|s| s.to_string()).collect(),
+                inputs: Vec::new(),
+                guards: Vec::new(),
+                effect: Vec::new(),
+                backdating_limit: None,
+                may_admit: Vec::new(),
+                corrects: Vec::new(),
+            }
+        };
+    Type {
+        name: SUBSCRIPTION.to_string(),
+        module: String::new(),
+        attributes: vec![
+            (
+                "target_type".into(),
+                attribute("string", false, false, None),
+            ),
+            (
+                "target_family".into(),
+                attribute("bool", false, false, Some(Expr::Bool(false))),
+            ),
+            ("transitions".into(), attribute("string", true, true, None)),
+            (
+                "changes_state_only".into(),
+                attribute("bool", false, false, Some(Expr::Bool(false))),
+            ),
+            (
+                "lagging_after".into(),
+                attribute("duration", false, true, None),
+            ),
+            (
+                "dead_after".into(),
+                attribute("duration", false, true, None),
+            ),
+        ],
+        derived: Vec::new(),
+        states: vec![
+            ("ACTIVE".into(), state("live", false)),
+            ("REVOKED".into(), state("closed", true)),
+        ],
+        conditions: Vec::new(),
+        invariants: Vec::new(),
+        transitions: vec![
+            (
+                "subscribe".into(),
+                transition(
+                    Kind::Initial,
+                    None,
+                    "ACTIVE",
+                    &["target_type"],
+                    &[
+                        "target_family",
+                        "transitions",
+                        "changes_state_only",
+                        "lagging_after",
+                        "dead_after",
+                    ],
+                ),
+            ),
+            (
+                "revoke".into(),
+                transition(
+                    Kind::External,
+                    Some(From::States(vec!["ACTIVE".into()])),
+                    "REVOKED",
+                    &[],
+                    &[],
+                ),
+            ),
+        ],
+        beyond: Vec::new(),
+        at_outcome: Vec::new(),
+        observations: Vec::new(),
+        observation_on: None,
+        state_machine: None,
+        extends: None,
+        mirror: false,
+        abstract_: false,
+        retired: false,
+        inherited: BTreeMap::new(),
+        source: serde_json::json!({
+            "description": "A subscription: a filter over the log that a reader pulls and acknowledges (DESIGN.md §7).",
+            "attributes": {
+                "target_type": { "type": "string" },
+                "target_family": { "type": "bool", "default": false },
+                "transitions": { "type": "string[]" },
+                "changes_state_only": { "type": "bool", "default": false },
+                "lagging_after": { "type": "duration", "optional": true },
+                "dead_after": { "type": "duration", "optional": true }
+            },
+            "states": {
+                "ACTIVE": { "category": "live" },
+                "REVOKED": { "category": "closed", "final": true }
+            },
+            "transitions": {
+                "subscribe": {
+                    "kind": "initial", "to": "ACTIVE", "required_inputs": ["target_type"],
+                    "optional_inputs": ["target_family", "transitions", "changes_state_only", "lagging_after", "dead_after"]
+                },
+                "revoke": { "kind": "external", "from": ["ACTIVE"], "to": "REVOKED" }
+            }
+        }),
+    }
+}
+
 impl Library {
     /// The library of modules given as (file, text), in import order, with
-    /// the built-in Operator, Proposal and DeclarationChange types and the
-    /// label kind.
+    /// the built-in Operator, Proposal, DeclarationChange and Subscription
+    /// types and the label kind.
     pub fn load(files: &[(String, String)]) -> Result<Library, LoadError> {
         let mut lib = Library::default();
         let mut machines: BTreeMap<String, Type> = BTreeMap::new();
@@ -1699,6 +1842,8 @@ impl Library {
         lib.types
             .insert(DECLARATION_CHANGE.to_string(), declaration_change_type());
         lib.types.insert(LABEL.to_string(), label_type());
+        lib.types
+            .insert(SUBSCRIPTION.to_string(), subscription_type());
         lib.version = 1;
         for (file, text) in files {
             // an examples file is part of the source, and no module of it

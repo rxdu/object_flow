@@ -100,6 +100,9 @@ pub struct World<'l> {
     /// The attempt log, in the order written, which a metric over
     /// `attempts` or `attempt_counts` reads (`storage-schema.md` §6).
     pub attempts: Vec<crate::store::Attempt>,
+    /// Each subscription's acknowledged cursor, where one was acknowledged:
+    /// runtime state, not versioned (`DESIGN.md` §7).
+    pub acknowledged: BTreeMap<String, i64>,
 }
 
 impl<'l> World<'l> {
@@ -113,6 +116,7 @@ impl<'l> World<'l> {
             admitting: BTreeSet::new(),
             imported: BTreeSet::new(),
             attempts: Vec::new(),
+            acknowledged: BTreeMap::new(),
         }
     }
 

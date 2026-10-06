@@ -645,6 +645,8 @@ pub(crate) fn builtin(type_: &str) -> bool {
         crate::model::OPERATOR_TYPE,
         PROPOSAL,
         crate::model::DECLARATION_CHANGE,
+        crate::model::SUBSCRIPTION,
+        crate::model::LABEL,
     ]
     .contains(&type_)
 }

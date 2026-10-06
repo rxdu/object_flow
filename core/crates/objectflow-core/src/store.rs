@@ -726,6 +726,11 @@ INSERT INTO of_counter (name, value) VALUES ('position', 0), ('txn', 0), ('objec
 -- clause's would-be refusal, and every raised flag. No personal value
 -- (storage-schema.md §6; the rollup a prune fills is not kept, since
 -- nothing prunes).
+CREATE TABLE of_subscription_position (
+  subscription_id  TEXT    PRIMARY KEY REFERENCES of_object(id),
+  acknowledged     TEXT    NOT NULL,
+  acknowledged_at  TEXT    NOT NULL
+);
 CREATE TABLE of_attempt (
   id                  INTEGER PRIMARY KEY,
   at                  TEXT    NOT NULL,
@@ -937,6 +942,33 @@ impl Store {
         let out = decide(&world, &mut alloc);
         tx.rollback()?;
         Ok(out)
+    }
+
+    /// A subscription's progress moved to a cursor, back as well as forward:
+    /// runtime state, written beside the log and never in it, so it is not
+    /// versioned and emits no event (`DESIGN.md` §7). A subscription the
+    /// store does not hold is refused as `unknown` and a revoked one as
+    /// `revoked`, each a value (`library-api.md` §6).
+    pub fn acknowledge(&mut self, subscription: &str, cursor: i64) -> Stored<Option<String>> {
+        let refusal = {
+            let world = self.snapshot()?;
+            match world.get(subscription) {
+                Some(s) if s.type_ == crate::model::SUBSCRIPTION => {
+                    (s.state == "REVOKED").then(|| "revoked".to_string())
+                }
+                _ => Some("unknown".to_string()),
+            }
+        };
+        if refusal.is_some() {
+            return Ok(refusal);
+        }
+        self.conn.execute(
+            "INSERT INTO of_subscription_position (subscription_id, acknowledged, acknowledged_at) \
+             VALUES (?1, ?2, ?3) ON CONFLICT (subscription_id) DO UPDATE SET \
+             acknowledged = excluded.acknowledged, acknowledged_at = excluded.acknowledged_at",
+            params![subscription, cursor.to_string(), timestamp_text(self.now)],
+        )?;
+        Ok(None)
     }
 
     pub fn transact<T, E>(
@@ -1830,6 +1862,17 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
     )?;
     let rows = attempts.query_map([], attempt_row)?;
     world.attempts = rows.collect::<Result<Vec<_>, _>>()?;
+    // each subscription's acknowledged cursor, a position on SQLite
+    let mut positions =
+        conn.prepare("SELECT subscription_id, acknowledged FROM of_subscription_position")?;
+    let rows = positions.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    for row in rows {
+        let (id, cursor) = row?;
+        let Ok(at) = cursor.parse::<i64>() else {
+            return Err(StoreError(format!("{id}'s acknowledged cursor {cursor}")));
+        };
+        world.acknowledged.insert(id, at);
+    }
     // the log, and the events that recorded an admission
     let mut log = conn.prepare(&format!("{EVENT_SELECT} ORDER BY position"))?;
     let rows = log.query_map([], event_row)?;

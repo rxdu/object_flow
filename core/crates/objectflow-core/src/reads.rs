@@ -35,6 +35,14 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
     for (n, e) in &t.derived {
         derived.push((n.clone(), Evaluator::new(world, Some(t), Some(id)).eval(e)?));
     }
+    // a subscription carries its lag, and whether it is lagging or dead,
+    // derived from its acknowledged cursor (DESIGN.md §7)
+    if o.type_ == crate::model::SUBSCRIPTION {
+        let (lag, lagging, dead) = crate::subscription::lag(world, o);
+        derived.push(("lag".into(), Value::Duration(lag)));
+        derived.push(("lagging".into(), Value::Bool(lagging)));
+        derived.push(("dead".into(), Value::Bool(dead)));
+    }
     // a proposal carries the verdict its latest refused approval left it
     // with, read from that approval's attempt row and never stored, since
     // the refusal records no event on it (DESIGN.md §9, ADR-0157)

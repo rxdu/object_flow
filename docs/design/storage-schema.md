@@ -473,10 +473,14 @@ CREATE TABLE t_subscription (
   target_family  INTEGER NOT NULL DEFAULT 0,
   transitions    TEXT,                       -- null means every transition
   changes_state_only INTEGER NOT NULL DEFAULT 0,
-  lag_warn       INTEGER,                    -- seconds: lag is the age of the oldest
-  lag_fail       INTEGER,                    -- unacknowledged event the filter selects (ADR-0100)
-  CONSTRAINT t_subscription_state CHECK (state IN ('active','revoked'))
+  lagging_after  INTEGER,                    -- seconds: lag is the age of the oldest
+  dead_after     INTEGER,                    -- unacknowledged event the filter selects (ADR-0100)
+  CONSTRAINT t_subscription_state CHECK (state IN ('ACTIVE','REVOKED'))
 );
+-- (Corrected 2026-10-06: the thresholds were lag_warn and lag_fail and the
+-- states lower case, where DESIGN.md §7, the rule's home, names them
+-- lagging_after and dead_after and the states ACTIVE and REVOKED; building
+-- the core's subscriptions found it.)
 
 -- Runtime state, deliberately not an object: no version, no events, no history.
 CREATE TABLE of_subscription_position (

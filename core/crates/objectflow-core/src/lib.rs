@@ -26,6 +26,7 @@ pub mod verdict;
 pub mod wire;
 
 pub mod store;
+pub mod subscription;
 
 pub mod request;
 
