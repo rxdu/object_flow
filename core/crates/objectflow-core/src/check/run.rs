@@ -317,6 +317,7 @@ impl Player {
             occurred_at: None,
             propose: verb == "propose",
             expires_at: None,
+            expected_version: None,
         };
         if matches!(verb, "approve" | "reject" | "withdraw") {
             req.object_id = Some(self.alias(&str_or(r, "proposal", ""))?);

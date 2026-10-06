@@ -102,17 +102,14 @@ def stamp(t):
     return str(t)[:-1] + ":00Z"
 
 
+UNITS = {"week": 604_800, "weeks": 604_800, "day": 86_400, "days": 86_400, "h": 3600, "min": 60, "s": 1}
+
+
 def duration(text):
-    """A duration as the wire writes one, `3d 12h 5m 2s` or `P3DT12H`, as a timedelta."""
-    m = re.fullmatch(r"P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?", text)
-    if m:
-        d, h, mi, s = (int(g or 0) for g in m.groups())
-        return datetime.timedelta(days=d, hours=h, minutes=mi, seconds=s)
-    units = {"d": 86400, "h": 3600, "m": 60, "s": 1}
-    parts = re.findall(r"(-?\d+)\s*([dhms])", text)
-    if not parts:
-        return None
-    return datetime.timedelta(seconds=sum(int(n) * units[u] for n, u in parts))
+    """A duration as the wire writes one, a number in the largest unit it fills, `6 days` or `7630 min`, as a
+    timedelta; none for text that is not one."""
+    m = re.fullmatch(r"(-?\d+) (weeks?|days?|h|min|s)", text)
+    return datetime.timedelta(seconds=int(m.group(1)) * UNITS[m.group(2)]) if m else None
 
 
 def without_migration(text):
@@ -330,10 +327,10 @@ class Driver:
             self.approve(self.changes[r["approve"]], self.changes[r["approve"] + "@version"], self.published(p),
                          self.oid(r["actor"]))
             return
-        if (r.get("refused") or {}).get("verdict") == "stale":
-            # a stale request named the version its caller read, which the core does not yet take
-            raise NotRun("a request's expected_version, refused as stale")
         body = {"actor": self.actor(r["actor"])}
+        if (r.get("refused") or {}).get("verdict") == "stale":
+            # a request carrying an old version of its object, the one before the version it is at (ADR-0023)
+            body["expected_version"] = self.core.call("/v1/get", {"id": self.oid(r["object"])})["version"] - 1
         if r.get("occurred_at"):
             body["occurred_at"] = stamp(r["occurred_at"])
         if r.get("record"):
@@ -417,7 +414,7 @@ class Driver:
                 return self.aliases[v]
             if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", v):
                 return v[:-4] + "Z"
-            d = duration(v) if re.fullmatch(r"P[\dDTHMS]+|(-?\d+\s*[dhms]\s*)+", v) else None
+            d = duration(v)
             if d is not None:
                 return cs.show(d)
             return v
@@ -441,7 +438,10 @@ class Driver:
         if m.group(2):
             body["bind"] = {m.group(2): self.wire(m.group(3))}
         if m.group(5):
-            body["filter"] = m.group(5).replace('\\"', '"')
+            # an object the filter names by its label, which the language names by its id (flow-format.md §5)
+            body["filter"] = re.sub(r"([\w.]+) == ([A-Z][\w-]*)",
+                                    lambda g: f'{g.group(1)}.id == "{self.ids[g.group(2)]}"' if g.group(2) in self.ids
+                                    else g.group(0), m.group(5).replace('\\"', '"'))
         if m.group(6):
             body["over"] = m.group(6)
         page = self.core.call("/v1/metric", body)
@@ -461,7 +461,7 @@ def main():
     total = sum(len(h.get("requests") or []) for _s, h in histories)
     survey = [] if "--survey" in sys.argv[1:] else None
     service = Service()
-    findings, matched, outcomes, stopped = [], set(), [], None
+    findings, matched, outcomes, unrun, stopped = [], set(), [], [], None
     seen = {}
     try:
         d = Driver(service, text, journey)
@@ -500,6 +500,7 @@ def main():
                 got, cols = d.metric(spec_)
             except NotRun as e:
                 outcomes.append(f"not run: {e}")
+                unrun.append(f"line {line}: `{spec_}`: {e}")
                 continue
             except Differs as e:
                 outcomes.append("differs")
@@ -532,6 +533,8 @@ def main():
         for gap in survey:
             print(f"    {gap}")
         return 0
+    for u in unrun:
+        print(f"  not run: {u}")
     for f in findings:
         print(f"  finding: {f}")
     held = {line.strip() for line in PASSING.read_text().splitlines()

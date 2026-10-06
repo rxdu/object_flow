@@ -49,6 +49,9 @@ pub struct Request {
     pub propose: bool,
     /// A proposal's expiry, with `propose` only.
     pub expires_at: Option<i64>,
+    /// The version of the object its caller read, the optimistic check of
+    /// ADR-0023: a request finding it moved is refused as `stale`.
+    pub expected_version: Option<i64>,
 }
 
 fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
@@ -121,6 +124,25 @@ impl std::convert::From<NotRun> for Stop {
 
 fn refused<T>(v: Verdict) -> Result<T, Stop> {
     Err(Stop::Refused(v, Refusal::default()))
+}
+
+/// The optimistic check of ADR-0023: a request naming the version of its
+/// object that its caller read is refused as `stale` where the object has
+/// moved since, after its transition is found and before anything else of it
+/// is checked (`DESIGN.md` §6 step 3). A creation names no object, and so has
+/// no version to find moved.
+fn stale(world: &World<'_>, req: &Request) -> Result<(), Stop> {
+    if let (Some(expected), Some(o)) = (
+        req.expected_version,
+        req.object_id.as_deref().and_then(|id| world.get(id)),
+    ) && o.version != expected
+    {
+        return refused(Verdict::Stale {
+            expected,
+            actual: o.version,
+        });
+    }
+    Ok(())
 }
 
 fn stop_not_run<T>(what: impl Into<String>) -> Result<T, Stop> {
@@ -291,6 +313,7 @@ fn decide_or_stop(
             });
         }
     };
+    stale(world, req)?;
     // 3. not requestable, and unavailable
     if !x.only_via.is_empty() {
         return refused(Verdict::NotRequestable {
@@ -1180,25 +1203,44 @@ fn take(
         // an erasure names what it erased, and never the values
         payload: if x.kind == Kind::Erasure {
             json!({ "erased": ctx.erased.get(&id).cloned().unwrap_or_default() })
-        } else if !corrections.is_empty() {
-            // and its reason, unless the reason is personal (§6.4)
-            let mut p = json!({ "inputs": written, "corrected": corrections });
-            if let Some(r) = x
-                .inputs
-                .iter()
-                .find(|(n, i)| n == "reason" && !i.personal)
-                .and_then(|_| inputs.get("reason"))
+        } else {
+            let mut p = json!({ "inputs": written });
+            if !corrections.is_empty() {
+                p["corrected"] = Json::Object(corrections);
+            }
+            // an override's reason, by which overrides are counted, and a
+            // correction's, unless the reason is personal (flow-format.md
+            // §4.8, declaration-syntax.md §6.4)
+            if (x.kind == Kind::Assertion || !x.corrects.is_empty())
+                && !input_personal(t, x, "reason")
+                && let Some(r) = inputs.get("reason")
             {
                 p["reason"] = wire::encode(r);
             }
             p
-        } else {
-            json!({ "inputs": written })
         },
     };
     ctx.work.events.push(event.clone());
     ctx.events.push(event);
     Ok(id)
+}
+
+/// Whether an input is personal (`declaration-syntax.md` §10, check 10):
+/// marked so, or written by the transition's effect into a personal
+/// attribute, which makes it personal without the marking.
+fn input_personal(t: &Type, x: &Transition, name: &str) -> bool {
+    fn writes(steps: &[Step], t: &Type, name: &str) -> bool {
+        steps.iter().any(|st| match st {
+            Step::Assign { location, expr } | Step::Add { location, expr } => {
+                let mut read = BTreeSet::new();
+                expr.inputs_read(&mut read);
+                read.contains(name) && t.attribute(location).is_some_and(|a| a.personal)
+            }
+            Step::Foreach { steps, .. } => writes(steps, t, name),
+            _ => false,
+        })
+    }
+    x.inputs.iter().any(|(n, i)| n == name && i.personal) || writes(&x.effect, t, name)
 }
 
 /// A correction of a tracked member: its current interval relabelled with
@@ -1450,6 +1492,7 @@ fn file(
         Some(x) if (x.kind == Kind::Initial) == oid.is_none() => x,
         _ => return refused(unknown()),
     };
+    stale(world, req)?;
     if !x.proposable {
         return refused(Verdict::NotRequestable {
             parents: x.only_via.clone(),
@@ -1737,6 +1780,7 @@ fn decide_change(
         ("reject", true) => (&["SUBMITTED"], "REJECTED"),
         ("withdraw", true) => (&["DRAFTED", "SUBMITTED"], "WITHDRAWN"),
         ("supersede", true) => {
+            stale(world, req)?;
             return refused(Verdict::NotRequestable {
                 parents: vec!["publish".into()],
             });
@@ -1748,6 +1792,7 @@ fn decide_change(
         }
         _ => return refused(unknown()),
     };
+    stale(world, req)?;
     if let Some(h) = held
         && !from.contains(&h.state.as_str())
     {
@@ -1910,6 +1955,7 @@ fn decide_proposal(
         "withdraw" => "WITHDRAWN",
         // only a publish or an erasure invalidates a proposal
         "invalidate" => {
+            stale(world, req)?;
             return refused(Verdict::NotRequestable {
                 parents: Vec::new(),
             });
@@ -1920,6 +1966,7 @@ fn decide_proposal(
             });
         }
     };
+    stale(world, req)?;
     if p.state != "PENDING" {
         return refused(Verdict::Unavailable {
             state: p.state.clone(),
@@ -2006,6 +2053,7 @@ fn decide_proposal(
         },
         propose: false,
         expires_at: None,
+        expected_version: None,
     };
     let filed_at = match p.attr("filed_at") {
         Value::Timestamp(t) => Some(t),
@@ -3016,7 +3064,11 @@ fn refused_attempt(
                 format!("{}.{}", f.type_, f.invariant)
             }
         }),
-        Verdict::CallRefused { clause, .. } => clause.clone(),
+        // a refused call's own clause, so the causes of one clause count
+        // together under the transition requested (metric-scenarios.md §12)
+        Verdict::CallRefused { clause, .. } => clause
+            .as_deref()
+            .map(|c| c.rsplit('.').next().unwrap_or(c).to_string()),
         _ => None,
     };
     let t = type_.as_deref().and_then(|n| lib.type_(n));
@@ -3131,6 +3183,7 @@ types:
             occurred_at: None,
             propose: false,
             expires_at: None,
+            expected_version: None,
         };
         request(s, &r).unwrap().unwrap()
     }
@@ -3140,6 +3193,207 @@ types:
             Verdict::Satisfied { object_id, .. } => object_id.clone(),
             other => panic!("{other:?}"),
         }
+    }
+
+    /// The optimistic check of ADR-0023 (`DESIGN.md` §6 step 3): a request
+    /// naming the version of its object its caller read is refused as
+    /// `stale` where the object has moved, after its transition is found and
+    /// before it is found not requestable or unavailable, in each kind of
+    /// request; and a refusal is a row of the attempt log.
+    #[test]
+    fn a_request_naming_a_moved_version_is_stale() {
+        let text = JOBS.replace(
+            "      finish: { kind: external, from: [WORKING], to: DONE }",
+            "      finish: { kind: external, from: [WORKING], to: DONE, proposable: true }",
+        );
+        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask = |s: &mut Store, xn: &str, object: &str, version: Option<i64>, propose: bool| {
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: Some(object.to_string()),
+                type_: None,
+                inputs: if xn == "estimate" {
+                    [("hours".to_string(), json!(3))].into()
+                } else {
+                    BTreeMap::new()
+                },
+                occurred_at: None,
+                propose,
+                expires_at: None,
+                expected_version: version,
+            };
+            request(s, &r).unwrap().unwrap()
+        };
+        // a creation names no object, and so no version to find moved
+        let creation = Request {
+            transition: "open".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Job".into()),
+            inputs: [("title".to_string(), json!("Fix"))].into(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: Some(7),
+        };
+        let job = created(&request(&mut s, &creation).unwrap().unwrap());
+        // the version read applies, and moves the object on
+        let Verdict::Satisfied { version, .. } = ask(&mut s, "estimate", &job, Some(1), false)
+        else {
+            panic!("the version read applies")
+        };
+        assert_eq!(version, 2);
+        let moved = Verdict::Stale {
+            expected: 1,
+            actual: 2,
+        };
+        assert_eq!(ask(&mut s, "estimate", &job, Some(1), false), moved);
+        // after an unknown transition, and before not requestable and
+        // unavailable
+        assert_eq!(
+            ask(&mut s, "nonesuch", &job, Some(1), false),
+            Verdict::UnknownTransition {
+                transition: "nonesuch".into()
+            }
+        );
+        assert_eq!(ask(&mut s, "archive", &job, Some(1), false), moved);
+        assert_eq!(ask(&mut s, "finish", &job, Some(1), false), moved);
+        // a proposal filed against a moved version, and a decision on a
+        // proposal its caller read before it moved
+        assert_eq!(ask(&mut s, "finish", &job, Some(1), true), moved);
+        let p = created(&ask(&mut s, "finish", &job, Some(2), true));
+        assert_eq!(
+            ask(&mut s, "reject", &p, Some(0), false),
+            Verdict::Stale {
+                expected: 0,
+                actual: 1
+            }
+        );
+        assert_eq!(
+            ask(&mut s, "invalidate", &p, Some(0), false),
+            Verdict::Stale {
+                expected: 0,
+                actual: 1
+            }
+        );
+        // and a change to the declaration, its transitions and a publish's
+        let draft = Request {
+            transition: "draft".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some(crate::model::DECLARATION_CHANGE.into()),
+            inputs: [
+                ("source".to_string(), json!({ "jobs": JOBS })),
+                ("source_ref".to_string(), json!("git:jobs@2")),
+            ]
+            .into(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+        };
+        let change = created(&request(&mut s, &draft).unwrap().unwrap());
+        let read_before = Verdict::Stale {
+            expected: 0,
+            actual: 1,
+        };
+        assert_eq!(
+            ask(&mut s, "withdraw", &change, Some(0), false),
+            read_before
+        );
+        assert_eq!(
+            ask(&mut s, "supersede", &change, Some(0), false),
+            read_before
+        );
+        // each refusal is a row of the attempt log, its remedy re-reading
+        let w = s.snapshot().unwrap();
+        let stale: Vec<_> = w
+            .attempts
+            .iter()
+            .filter(|a| a.verdict == "stale")
+            .map(|a| (a.clause.clone(), a.remedy.clone()))
+            .collect();
+        assert_eq!(stale.len(), 8);
+        assert!(
+            stale
+                .iter()
+                .all(|(c, r)| c.is_none() && r == "self_serviceable")
+        );
+    }
+
+    /// A refused call's attempt row is a row of the transition requested,
+    /// carrying the call's own clause, unqualified, so a call's
+    /// `occurred_within` and the request's own count together
+    /// (`declaration-syntax.md` §6.9, `metric-scenarios.md` §12).
+    #[test]
+    fn a_refused_call_is_a_row_of_the_request_with_the_call_s_clause() {
+        const SHOP: &str = r#"
+module: shop
+categories: [live, closed]
+types:
+  Line:
+    attributes:
+      qty: { type: int }
+    states:
+      OPEN: { category: live }
+      PACKED: { category: closed, final: true }
+    conditions:
+      small: { expression: qty < 10, remedy: self_serviceable }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [qty] }
+      pack: { kind: external, from: [OPEN], to: PACKED, guards: { small: deny } }
+  Order:
+    attributes:
+      line: { reference: Line }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [line] }
+      ship: { kind: external, from: [OPEN], to: DONE, effect: [ { call: { target: line, transition: pack } } ] }
+"#;
+        let lib = Library::load(&[("shop.yaml".into(), SHOP.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let line = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"qty": 20}),
+        ));
+        let order = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Order", true),
+            json!({"line": line}),
+        ));
+        let v = req(&mut s, "ship", OPERATOR, (&order, false), json!({}));
+        let Verdict::CallRefused { clause, .. } = &v else {
+            panic!("{v:?}")
+        };
+        // the verdict names the call's clause qualified, as an expectation does
+        assert_eq!(clause.as_deref(), Some("Line.small"));
+        let w = s.snapshot().unwrap();
+        let a = w.attempts.last().unwrap();
+        assert_eq!(
+            (
+                a.type_.as_deref(),
+                a.transition.as_deref(),
+                a.verdict.as_str(),
+                a.clause.as_deref(),
+                a.remedy.as_str()
+            ),
+            (
+                Some("Order"),
+                Some("ship"),
+                "call_refused",
+                Some("small"),
+                "self_serviceable"
+            )
+        );
     }
 
     #[test]
@@ -3804,6 +4058,7 @@ types:
                 occurred_at: Some(when),
                 propose: false,
                 expires_at: None,
+                expected_version: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -4113,6 +4368,7 @@ types:
                  forget: { kind: erasure, inputs: { reason: { type: string } } }\n      \
                  renote: { kind: internal, from: any, required_inputs: [note] }\n      \
                  fix_note: { kind: internal, from: any, required_inputs: [note], corrects: [note], inputs: { reason: { type: string } } }\n      \
+                 fix_by_reason: { kind: internal, from: any, corrects: [note], inputs: { reason: { type: string } }, effect: [ { assign: { location: note, expr: inputs.reason } } ] }\n      \
                  stamp: { kind: internal, from: any, effect: [ { assign: { location: note, expr: '\"x\"' } } ] }",
             )
             .replace(
@@ -4164,6 +4420,13 @@ types:
             (&job, false),
             json!({"note": "secret!", "reason": "typo"}),
         ));
+        created(&req(
+            &mut s,
+            "fix_by_reason",
+            OPERATOR,
+            (&job, false),
+            json!({"reason": "ana's number"}),
+        ));
         // the erasure admits the invariant it breaks, and forgets the check
         let v = req(
             &mut s,
@@ -4187,6 +4450,15 @@ types:
         assert_eq!(history[0].payload["inputs"]["title"], json!("Fix"));
         assert_eq!(history.last().unwrap().source, "erased");
         assert_eq!(history.last().unwrap().payload, json!({"erased": ["note"]}));
+        // a reason the effect writes into a personal attribute is personal
+        // without the marking, and stays off the event (check 10)
+        assert!(
+            history
+                .iter()
+                .filter(|e| e.transition == "fix_by_reason")
+                .all(|e| e.payload.get("reason").is_none())
+        );
+        assert!(history.iter().any(|e| e.transition == "fix_by_reason"));
         // a correction's record of the value it replaced and wrote goes too,
         // its reason kept
         let fixed = history.iter().find(|e| e.source == "corrected").unwrap();
@@ -4469,6 +4741,7 @@ types:
                 occurred_at: None,
                 propose: true,
                 expires_at,
+                expected_version: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -4563,6 +4836,7 @@ types:
                 occurred_at: None,
                 propose: true,
                 expires_at: Some(s.now + 60),
+                expected_version: None,
             };
             created(&request(&mut s, &r).unwrap().unwrap())
         };
@@ -4769,6 +5043,7 @@ types:
             occurred_at: Some(s.now - 3600),
             propose: false,
             expires_at: None,
+            expected_version: None,
         };
         created(&request(&mut s, &dated).unwrap().unwrap());
         created(&req(

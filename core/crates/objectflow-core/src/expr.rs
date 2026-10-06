@@ -109,6 +109,59 @@ pub enum Expr {
     If(Box<Expr>, Box<Expr>, Box<Expr>),
 }
 
+impl Expr {
+    /// The expressions directly within this one.
+    pub fn children(&self) -> Vec<&Expr> {
+        match self {
+            Expr::Num(_)
+            | Expr::Str(_)
+            | Expr::Bool(_)
+            | Expr::Dur(..)
+            | Expr::Money(..)
+            | Expr::Name(_) => Vec::new(),
+            Expr::Path(b, _) => vec![b.as_ref()],
+            Expr::Call(f, args) => std::iter::once(f.as_ref()).chain(args).collect(),
+            Expr::Agg {
+                collection,
+                filter,
+                body,
+                ..
+            } => [collection, filter, body]
+                .into_iter()
+                .flatten()
+                .map(AsRef::as_ref)
+                .collect(),
+            Expr::Metric {
+                name,
+                binds,
+                over,
+                fresh,
+            } => std::iter::once(name.as_ref())
+                .chain(binds.iter().map(|(_, e)| e))
+                .chain([over, fresh].into_iter().flatten().map(AsRef::as_ref))
+                .collect(),
+            Expr::Changed(_, e) | Expr::Not(e) | Expr::Neg(e) | Expr::IsNull(e, _) => {
+                vec![e.as_ref()]
+            }
+            Expr::Set(items) => items.iter().collect(),
+            Expr::In(l, r) | Expr::Bin(_, l, r) => vec![l.as_ref(), r.as_ref()],
+            Expr::If(c, a, b) => vec![c.as_ref(), a.as_ref(), b.as_ref()],
+        }
+    }
+
+    /// Each input it reads, as `inputs.<name>`.
+    pub fn inputs_read(&self, out: &mut std::collections::BTreeSet<String>) {
+        if let Expr::Path(b, m) = self
+            && matches!(b.as_ref(), Expr::Name(n) if n == "inputs")
+        {
+            out.insert(m.clone());
+        }
+        for c in self.children() {
+            c.inputs_read(out);
+        }
+    }
+}
+
 /// Why an expression does not parse, and where.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParseError {

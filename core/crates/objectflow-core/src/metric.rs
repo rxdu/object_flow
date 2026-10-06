@@ -2157,6 +2157,7 @@ module: jobs
 categories: [inbound, live, closed]
 enumerations:
   Outcome: [PASS, FAIL, NA]
+  Why: [MISKEYED, SUPPLIER]
 types:
   User:
     description: A user.
@@ -2202,6 +2203,7 @@ types:
       finish: { kind: external, from: [WORKING], to: DONE, guards: { good: deny }, proposable: true }
       review: { kind: internal, from: [WORKING], guards: { checked: warn } }
       inspect: { kind: internal, from: [WORKING], guards: { checked: audit } }
+      override: { kind: assertion, to: [OPEN, WORKING], inputs: { reason: { type: Why } } }
     metrics:
       pass_rate: { description: x, source: checks, item: r, filter: r.outcome != Outcome.NA, dimensions: { engineer: r.subject.engineer }, time_dimension: r.occurred_at, expression: count(where r.outcome == Outcome.PASS) * 1.000 / count(), flag_when: { low: "value < 0.900" } }
       pass_share: { description: x, source: checks, item: r, dimensions: { engineer: r.subject.engineer }, expression: count(where r.outcome == Outcome.PASS) * 1.00 / count() }
@@ -2262,6 +2264,7 @@ metrics:
             occurred_at: None,
             propose: false,
             expires_at: None,
+            expected_version: None,
         };
         match request(s, &r).unwrap().unwrap() {
             Verdict::Satisfied { object_id, .. } => Ok(object_id),
@@ -2999,6 +3002,7 @@ types:
             occurred_at: None,
             propose,
             expires_at: None,
+            expected_version: None,
         };
         // an actor the store does not hold
         request(&mut s, &ask("review", "nobody", &jr, false))
@@ -3261,6 +3265,7 @@ types:
                 occurred_at: Some(s.now - 60),
                 propose: false,
                 expires_at: None,
+                expected_version: None,
             };
             match request(&mut s, &r).unwrap().unwrap() {
                 Verdict::Unsatisfied { clause, .. } => Err(("unsatisfied".to_string(), clause)),
@@ -3370,6 +3375,51 @@ types:
             )
             .refused,
             Some("personal")
+        );
+    }
+
+    /// An override's reason, an input of its own, is recorded on its event,
+    /// so the standard `override_counts` counts overrides by reason
+    /// (`flow-format.md` §4.8, `metric-scenarios.md` UC-3).
+    #[test]
+    fn an_override_is_counted_by_its_reason() {
+        let mut s = world();
+        let j = job(&mut s, json!({}));
+        req(
+            &mut s,
+            "Job",
+            "override",
+            Some(&j),
+            json!({"to": "WORKING", "reason": "MISKEYED"}),
+        )
+        .unwrap();
+        let p = page_of(
+            &s,
+            "Job.override_counts",
+            &[],
+            Some(&["state", "reason"]),
+            None,
+            None,
+        );
+        let rows: Vec<_> = p
+            .rows
+            .iter()
+            .map(|r| (r.dimensions.clone(), r.value.clone()))
+            .collect();
+        let working = Value::State {
+            type_: "Job".into(),
+            name: "WORKING".into(),
+        };
+        let miskeyed = Value::Member {
+            enumeration: "Why".into(),
+            member: "MISKEYED".into(),
+        };
+        assert_eq!(
+            rows,
+            vec![(
+                dims(&[("state", working), ("reason", miskeyed)]),
+                Value::Int(1)
+            )]
         );
     }
 }

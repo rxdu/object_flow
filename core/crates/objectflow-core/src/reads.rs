@@ -376,6 +376,7 @@ types:
             occurred_at: None,
             propose: false,
             expires_at: None,
+            expected_version: None,
         };
         let job = match request(&mut s, &r).unwrap().unwrap() {
             Verdict::Satisfied { object_id, .. } => object_id,

@@ -304,11 +304,16 @@ async fn evaluators(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
 
 // ── the library's operations ──────────────────────────────────────────────
 async fn request_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
-    for k in ["expected_version", "idempotency_key"] {
-        if body.get(k).is_some_and(|v| !v.is_null()) {
-            return Err(Fault::NotRun(format!("a request's {k}")));
-        }
+    if body.get("idempotency_key").is_some_and(|v| !v.is_null()) {
+        return Err(Fault::NotRun("a request's idempotency_key".to_string()));
     }
+    // the version of its object the caller read (library-api.md §3)
+    let expected_version = match body.get("expected_version") {
+        None | Some(J::Null) => None,
+        Some(v) => Some(v.as_i64().ok_or_else(|| {
+            Fault::Bad("expected_version takes an object's version, an integer".to_string())
+        })?),
+    };
     let propose = body.get("propose").and_then(J::as_bool) == Some(true);
     // a proposal's expiry, with `propose` only (library-api.md §3)
     let expires_at =
@@ -361,6 +366,7 @@ async fn request_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
         occurred_at,
         propose,
         expires_at,
+        expected_version,
     };
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;

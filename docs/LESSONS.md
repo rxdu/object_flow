@@ -360,3 +360,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The scenario replay drafted each published version with only the modules the version changed. The core installs a change's source as the version, so every module left out was retired, and requests on its types answered `unknown_transition` two versions later, which looked like a core bug until the declarations were read version by version.
 - **Correction:** Draft a `DeclarationChange` with every module of the new version; when a publish's effect is surprising, read the installed declaration after each version before suspecting the engine.
 - **Context:** ObjectFlow's `DeclarationChange` and `scripts/replay-scenarios.py`; ADR-0155, `declaration-syntax.md` §6.6; found 2026-10-06.
+
+### Assert every scripted replacement, after rustfmt above all
+- **Pattern:** Python edit scripts replaced text with a bare `str.replace`, which does nothing where the text is not found. Twice in one session the target had been reflowed by `cargo fmt` since it was read: a mutation ran unmutated and passed, and a test kept an expectation the script meant to change, costing a debugging round each time.
+- **Correction:** In every edit script, assert the count of each target before replacing (`assert s.count(old) == 1`), and after `cargo fmt` re-read the region before scripting an edit to it; a mutation that passes is first checked for having applied at all.
+- **Context:** Scripted edits to the Rust core in ObjectFlow; found 2026-10-05 and again 2026-10-06.

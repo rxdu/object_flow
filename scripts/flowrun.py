@@ -109,10 +109,12 @@ def attempt_row(store, tn, oid, xn, actor, r, proposal=None):
     """A refusal's row of the attempt log (DESIGN.md §6, library-api.md §5): who asked, as the request named them where
     the store holds no such actor, and their kind, `unknown` then; the type, none where the request named an unknown id;
     the object, none for a refused creation or an unknown id; the transition; the verdict, its clause, the first
-    invariant for violated invariants, and its remedy; whether the clause was unknown; and the proposal an approval
-    executed, which the row names."""
+    invariant for violated invariants, and its remedy, a refused call's being the call's own, so the causes of one
+    clause count together under the transition requested (metric-scenarios.md §12); whether the clause was unknown; and
+    the proposal an approval executed, which the row names."""
     marked = store.actor_attr(store.type_of(actor)) if actor in store.objects else None
-    return {"type": tn, "object": oid, "transition": xn, "verdict": r.verdict, "clause": r.clause, "remedy": r.remedy,
+    clause = r.clause.split(".")[-1] if r.verdict == "call_refused" and r.clause else r.clause
+    return {"type": tn, "object": oid, "transition": xn, "verdict": r.verdict, "clause": clause, "remedy": r.remedy,
             "unknown": r.unknown, "enforced": True, "flagged": False,
             "actor_id": store.objects[actor].attrs.get(marked[0], actor) if marked else actor,
             "actor_kind": marked[1] if marked else "unknown", "at": store.now, "declaration_version": 1,
@@ -2734,6 +2736,8 @@ def self_test():
         check("a call refused", "applied", "call_refused")
     except Refused as e:
         check("a call refused", (e.verdict, e.clause, e.remedy), ("call_refused", "Line.small", "self_serviceable"))
+    check("a refused call's attempt row carries the call's own clause, under the transition requested",
+          (s.attempts[-1]["transition"], s.attempts[-1]["verdict"], s.attempts[-1]["clause"]), ("ship", "call_refused", "small"))
     check("a refused request changes nothing", s.objects[order].state, "OPEN")
     r, s, order, _ = fresh(1, 1, 1)
     try:

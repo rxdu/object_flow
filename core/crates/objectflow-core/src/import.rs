@@ -1491,6 +1491,7 @@ types:
             occurred_at: None,
             propose: false,
             expires_at: None,
+            expected_version: None,
         };
         assert_eq!(
             request(&mut s, &note).unwrap().unwrap(),
@@ -1509,6 +1510,7 @@ types:
             occurred_at: None,
             propose: false,
             expires_at: None,
+            expected_version: None,
         };
         assert!(matches!(
             request(&mut s, &forget).unwrap().unwrap(),

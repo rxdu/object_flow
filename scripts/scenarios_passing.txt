@@ -1,3 +1,28 @@
 # Each metric read of docs/design/metric-scenarios.md the core matches when scripts/replay-scenarios.py replays the
 # history without stepping past anything; a read no longer matching fails the replay. A read repeated in the document
 # is named with its place among reads of the same text, `#2` and on.
+metric(BatteryDay.refusals, keep: [transition, clause, remedy])
+metric(Delivery.oldest_open, keep: [state])
+metric(Delivery.refusals, keep: [clause, remedy, actor_kind])
+metric(Delivery.refusals, keep: [clause, remedy, actor_kind, week], filter: "a.clause == \"all_checked\"")
+metric(Delivery.refusals, keep: [transition, clause, remedy, actor_kind, week])
+metric(Delivery.time_in_state, keep: [state])
+metric(delivery_wait, keep: [state, customer, configuration])
+metric(Delivery.work_in_progress, keep: [state])
+metric(first_pass_yield, keep: [model, month]) as A-SCOUT
+metric(first_pass_yield, keep: [model, month]) as S-REPORTS
+metric(first_pass_yield, keep: [model, month]) as U-ANA
+metric(on_time_rate, keep: [month])
+metric(open_shortfall, keep: [model])
+metric(open_shortfall, keep: [model, week])
+metric(PdiResult.refusals, keep: [transition, clause, remedy])
+metric(Robot.override_counts, keep: [state, reason])
+metric(Robot.override_counts, keep: [state, reason, week])
+metric(Robot.refusals, keep: [transition, clause, remedy])
+metric(Robot.time_in_state, keep: [state], filter: "i.state == Robot.PROCUREMENT")
+metric(Shipment.refusals, keep: [transition, clause, remedy])
+metric(supplier_lead_time, keep: [supplier, month])
+metric(supplier_lead_time, keep: [supplier], over: "365 days")
+metric(supplier_lead_time_p80, keep: [supplier], over: "365 days")
+metric(weak_battery_units, keep: [model, week])
+metric(on_time_rate, keep: [month], filter: "t.object.customer == C-ACME")
