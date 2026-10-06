@@ -1,6 +1,7 @@
 *.pyc
 __pycache__/
 .remember/
+scripts/.venv/
 apps/flow-studio/server/.venv/
 apps/flow-studio/web/node_modules/
 apps/flow-studio/web/dist/

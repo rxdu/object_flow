@@ -129,9 +129,9 @@ In design, under review by its author. What exists:
 - **Jira's typical flows**: [a catalogue](docs/design/jira-flows.md) of the workflows Jira's templates ship, each a checked module with its state diagram, saying which parts Atlassian states and which the catalogue chose.
 - **Can a builder recover a flow?** [A review](docs/design/flow-recoverability-review.md) of the robot inventory and the Jira flows by readers given only the specification and the YAML, with its open findings.
 
-Next come the author's review of the open decisions, then the first implementation; its language and the service's transport are still open. [`TODO.md`](TODO.md) says exactly where things stand.
+The engine's core is being built in Rust behind an HTTP service (ADR-0132, ADR-0150), slice by slice, with the [Flow Studio](apps/flow-studio/README.md) as its first application. [`TODO.md`](TODO.md) says exactly where things stand.
 
-To check the record, run `python3 scripts/check-corpus.py`. It runs every checker: the declaration language's rules over every example, the storage schema's SQL, the library API, the agent tool schemas, and the traceability map.
+To check the record, build the scripts' pinned Python environment once with `scripts/setup/python-env`, then run `scripts/.venv/bin/python scripts/check-corpus.py`. It runs every checker: the declaration language's rules over every example, the storage schema's SQL, the library API, the agent tool schemas, and the traceability map.
 
 ## License
 

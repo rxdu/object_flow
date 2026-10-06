@@ -4,6 +4,8 @@
 //! transition with the same kind, states, guards and inputs.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -77,10 +79,10 @@ fn summary(m: &Module) -> Value {
 
 #[test]
 fn every_module_of_the_design_loads_as_python_reads_it() {
-    let out = Command::new("python3")
+    let out = Command::new(common::interpreter())
         .arg(repo().join("scripts/dump-modules.py"))
         .output()
-        .expect("python3 runs the reference loader");
+        .expect("the pinned Python runs the reference loader");
     assert!(out.status.success(), "the reference loader failed");
     let lines: Vec<Value> = String::from_utf8(out.stdout)
         .unwrap()

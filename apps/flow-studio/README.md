@@ -24,11 +24,11 @@ It starts the studio's server, waits until it answers, which takes longer the fi
 
 ## The server
 
-Python's standard library over the repository's reference runner and flow checker, in a virtual environment that sees the system interpreter's PyYAML and jsonschema, which the checkers use.
+Python's standard library over the repository's reference runner and flow checker, in a virtual environment holding the versions of PyYAML and jsonschema the scripts are pinned to (`scripts/requirements-dev.txt`), and pytest.
 
 ```sh
 cd apps/flow-studio/server
-python3 -m venv --system-site-packages .venv
+python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m flowstudio          # listens on 127.0.0.1, port from ../config.json
 .venv/bin/python -m pytest              # the wire's tests, and every example replayed through it

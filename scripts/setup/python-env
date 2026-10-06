@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Build scripts/.venv, the Python environment the repository's scripts run in,
+# from python3 and scripts/requirements-dev.txt. Run it again after the
+# requirements change; it installs over what is there.
+#
+# Usage: scripts/setup/python-env
+set -euo pipefail
+
+scripts=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+python3 -m venv "$scripts/.venv"
+"$scripts/.venv/bin/pip" install --quiet --requirement "$scripts/requirements-dev.txt"
+"$scripts/.venv/bin/python" -c \
+  "import yaml, jsonschema; print('scripts/.venv: PyYAML', yaml.__version__, '| jsonschema', jsonschema.__version__)"

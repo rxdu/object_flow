@@ -4,6 +4,8 @@
 //! the tree the Python parser gives it, or to its refusing it.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -16,13 +18,13 @@ fn repo() -> PathBuf {
 }
 
 fn python(args: &[&str], input: Option<&str>) -> Vec<Value> {
-    let mut child = Command::new("python3")
+    let mut child = Command::new(common::interpreter())
         .arg(repo().join("scripts/dump-expressions.py"))
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
-        .expect("python3 runs the reference parser");
+        .expect("the pinned Python runs the reference parser");
     if let Some(text) = input {
         child
             .stdin

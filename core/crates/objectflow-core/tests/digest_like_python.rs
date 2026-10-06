@@ -4,6 +4,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -36,12 +38,12 @@ fn every_design_module_digests_as_the_flow_checker_digests_it() {
             })
             .collect();
         let ours = digest(&files).unwrap();
-        let out = Command::new("python3")
+        let out = Command::new(common::interpreter())
             .arg(repo().join("scripts/check-flows.py"))
             .arg("--digest")
             .args(&paths)
             .output()
-            .expect("python3 runs the flow checker");
+            .expect("the pinned Python runs the flow checker");
         let theirs = String::from_utf8(out.stdout).unwrap().trim().to_string();
         assert_eq!(ours, theirs, "{name}");
         checked += 1;
