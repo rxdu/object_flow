@@ -381,3 +381,18 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Checking a mutation by hand, I restored the file with `git checkout --`, which put back the last commit and discarded the slice's uncommitted edits to it along with the mutation. Only a later grep showed the edits were gone.
 - **Correction:** Before mutating a file, copy it aside and restore from the copy, as the mutation scripts do; and before any command that rewrites a tracked file from git, check `git diff --stat` for that file and treat uncommitted changes as work that command destroys.
 - **Context:** Mutation checks during a slice, with uncommitted changes in the mutated file; ObjectFlow, 2026-10-06.
+
+### A process a test or a server starts must stop when its parent does
+- **Pattern:** The studio's server, started by the front end's tests and stopped with SIGTERM, started the core's service as its child and closed it in a `finally`; Python's default SIGTERM handling exits without running `finally`, so every test run left the core's services running under init. A Python test of my own then failed before its cleanup and left its server and core running too. Only listing the processes afterwards showed them.
+- **Correction:** A server that starts a child turns SIGTERM into an ordinary exit (`signal.signal(SIGTERM, lambda *_: sys.exit(0))`) and closes the child on every path; a test that starts a process stops it in a `finally`; and after a run that starts processes, list them (`ps -eo pid,ppid,comm`) and confirm none is left, before and after a mutation as well.
+- **Context:** The Flow Studio's core backend, its pytest and Vitest suites; ObjectFlow, 2026-10-06.
+
+### A mutation that does not build tests nothing
+- **Pattern:** Checking that a parity test catches a reordered type list, I mutated the Rust service with an expression that did not compile; the test run reported "2 failed, 5 errors in 0.52s", which reads as the mutation caught, though every test had failed at building the service.
+- **Correction:** Build the mutated code first and confirm it builds, then confirm the failure is the assertion the mutation targets (print the `E ... assert` line), not an error before it; a run that ends far faster than the passing one is the sign.
+- **Context:** Mutation checks across a language boundary, a Python test over a Rust service; ObjectFlow, 2026-10-06.
+
+### A gate that prints nothing has not been shown to run
+- **Pattern:** I listed "the flowrun self-test" among the gates and ran it as `python3 scripts/flowrun.py --self-test`; the script has no entry point, so the command imported the module, did nothing and exited 0, and the gate list reported it as passing for several commits. The runner's self-test does run, inside `check-flows.py`.
+- **Correction:** A gate's evidence is its output, not its exit code: confirm each gate prints what it checked (a count, a summary line) the first time it joins the list, and read that line on every run; drop any that prints nothing.
+- **Context:** ObjectFlow's gate list, `scripts/flowrun.py`, whose self-test `check-flows.py` calls; found 2026-10-06.

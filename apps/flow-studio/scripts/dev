@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Run the Flow Studio for use by hand: the studio's server, its wire answered
+# by the backend config.json names or the one given, and the front end's
+# development server. Ctrl-C stops both, and the core's service with them.
+#
+# Usage: apps/flow-studio/scripts/dev [runner|core]
+set -euo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+backend=${1:-}
+case "$backend" in
+  "" | runner | core) ;;
+  *) echo "usage: $0 [runner|core]" >&2; exit 2 ;;
+esac
+
+if [[ ! -x "$here/server/.venv/bin/python" ]]; then
+  echo "no server environment: create it as apps/flow-studio/README.md says" >&2
+  exit 1
+fi
+if [[ ! -d "$here/web/node_modules" ]]; then
+  echo "no front end packages: run 'corepack pnpm install' in apps/flow-studio/web" >&2
+  exit 1
+fi
+
+port() {
+  "$here/server/.venv/bin/python" -c \
+    "import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])" \
+    "$here/config.json" "$1"
+}
+server_port=$(port server_port)
+web_port=$(port web_port)
+
+args=()
+[[ -n "$backend" ]] && args+=(--backend "$backend")
+(cd "$here/server" && exec .venv/bin/python -m flowstudio ${args[@]+"${args[@]}"}) &
+server=$!
+trap 'kill "$server" 2>/dev/null || true; wait "$server" 2>/dev/null || true' EXIT
+
+# the server answers once the core, if chosen, is built and started
+for _ in $(seq 1 600); do
+  if curl -sf "http://127.0.0.1:$server_port/studio/backend" >/dev/null; then
+    break
+  fi
+  if ! kill -0 "$server" 2>/dev/null; then
+    echo "the studio's server stopped; its log is above" >&2
+    exit 1
+  fi
+  sleep 0.5
+done
+if ! answering=$(curl -sf "http://127.0.0.1:$server_port/studio/backend"); then
+  echo "the studio's server did not answer within five minutes" >&2
+  exit 1
+fi
+echo
+echo "Flow Studio: http://127.0.0.1:$web_port  (wire: $answering)"
+echo
+
+cd "$here/web"
+corepack pnpm dev

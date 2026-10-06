@@ -6,12 +6,16 @@ Routes (ADR-0150):
   `get`, `history`, `events`, `availability`, `metric`, `declaration`,
   `import_batch` and `lookup` (ADR-0154);
 - `POST /sandbox/<control>`: load, reset, clock, evaluators;
-- `GET /studio/...`: the module catalogue, a module's files, a diagram;
+- `GET /studio/...`: the module catalogue, a module's files, a diagram, and
+  which backend answers the wire;
 - `POST /studio/...`: check a text, draw a text, save to the workspace, copy a
   design module into it, and add an example a check passes.
 
 A refusal is a 200 carrying the verdict; a fault is a 4xx or 5xx carrying a
 `fault` message; a construct the reference runner cannot run is a 501.
+
+With the Rust core chosen as the backend, every `/v1` and `/sandbox` call is
+forwarded to the core's service and answered as it answers (`core.py`).
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import catalogue
 from .catalogue import Catalogue
+from .core import FORWARDED, Core
 from .sandbox import Fault, Sandbox
 
 log = logging.getLogger("flowstudio")
@@ -59,9 +64,13 @@ def routes(box: Sandbox, cat: Catalogue) -> dict[str, Callable[[dict], Any]]:
     }
 
 
-def studio(cat: Catalogue, path: str, query: dict) -> Any:
+def studio(cat: Catalogue, core: Core | None, path: str,
+           query: dict) -> Any:
     one = {k: v[0] for k, v in query.items()}
     source = one.get("source", "design")
+    if path == "/studio/backend":
+        return ({"backend": "core", "service": core.url} if core
+                else {"backend": "runner"})
     if path == "/studio/modules":
         return cat.modules()
     if path == "/studio/module":
@@ -72,7 +81,8 @@ def studio(cat: Catalogue, path: str, query: dict) -> Any:
     raise Fault(404, f"no studio route {path}")
 
 
-def handler(box: Sandbox, cat: Catalogue, origin: str | None) -> type:
+def handler(box: Sandbox, cat: Catalogue, origin: str | None,
+            core: Core | None = None) -> type:
     table = routes(box, cat)
 
     class Handler(BaseHTTPRequestHandler):
@@ -102,11 +112,13 @@ def handler(box: Sandbox, cat: Catalogue, origin: str | None) -> type:
 
         def do_GET(self) -> None:  # noqa: N802
             url = urlparse(self.path)
-            self.answer(lambda: studio(cat, url.path, parse_qs(url.query)))
+            self.answer(
+                lambda: studio(cat, core, url.path, parse_qs(url.query)))
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
-            if path not in table:
+            forwarded = core is not None and path.startswith(FORWARDED)
+            if path not in table and not forwarded:
                 self.send(404, {"fault": f"no operation {path}"})
                 return
             length = int(self.headers.get("Content-Length") or 0)
@@ -120,6 +132,10 @@ def handler(box: Sandbox, cat: Catalogue, origin: str | None) -> type:
                 return
             if not isinstance(body, dict):
                 self.send(400, {"fault": "the body is a JSON object"})
+                return
+            if forwarded:
+                assert core is not None
+                self.send(*core.forward(path, body))
                 return
             with box.lock:
                 self.answer(lambda: table[path](body))
@@ -143,9 +159,11 @@ def handler(box: Sandbox, cat: Catalogue, origin: str | None) -> type:
 
 
 def serve(host: str, port: int, workspace: pathlib.Path,
-          origin: str | None = None,
-          box: Sandbox | None = None) -> ThreadingHTTPServer:
+          origin: str | None = None, box: Sandbox | None = None,
+          core: Core | None = None) -> ThreadingHTTPServer:
     """A server bound to the address given, editing flows in the workspace
-    given; the caller runs it."""
+    given, its wire answered by the core when one is given and otherwise by
+    the reference runner; the caller runs it."""
     return ThreadingHTTPServer(
-        (host, port), handler(box or Sandbox(), Catalogue(workspace), origin))
+        (host, port),
+        handler(box or Sandbox(), Catalogue(workspace), origin, core))

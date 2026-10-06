@@ -258,14 +258,9 @@ async fn load(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
                 {"file": e.file, "line": e.line, "code": "load", "message": e.message}]})));
         }
     };
-    let types: Vec<String> = lib
-        .types
-        .keys()
-        .filter(|t| *t != "Operator")
-        .cloned()
-        .collect();
+    // the types the load installed, as the reference runner lists them
     let answer = json!({"loaded": true, "modules": lib.modules, "notices": 0, "now": CLOCK_START,
-                        "types": types, "evaluators": lib.evaluators});
+                        "types": lib.declared, "evaluators": lib.evaluators});
     let now = parse_timestamp(CLOCK_START).unwrap_or(0);
     let mut store = Store::sandbox(lib, now)?;
     (store.attempt_retention, store.idempotency_retention) = retentions;

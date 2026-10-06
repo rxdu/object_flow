@@ -1,23 +1,38 @@
-// The studio's real server on a free loopback port, for a test file. It
-// needs the server's virtual environment (apps/flow-studio/README.md), and
-// fails, not skips, without it.
+// The studio's real server on a free loopback port, for a test file, its wire
+// answered by the backend named. It needs the server's virtual environment
+// (apps/flow-studio/README.md), and, for the core, the pinned Rust toolchain;
+// it fails, not skips, without them.
 
 import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type Wire, httpWire } from "../src/api/wire";
+import { type Backend, type Wire, httpWire } from "../src/api/wire";
 
 const SERVER = fileURLToPath(new URL("../../server", import.meta.url));
 
+/** The backends every wire test runs against. */
+export const BACKENDS: Backend["backend"][] = ["runner", "core"];
+
 /** A server whose workspace is a fresh directory of its own, so no test
  * writes the author's. */
-export async function startServer(): Promise<{ wire: Wire; stop: () => void }> {
+export async function startServer(
+  backend: Backend["backend"],
+): Promise<{ wire: Wire; stop: () => void }> {
   const workspace = mkdtempSync(join(tmpdir(), "flow-studio-"));
   const server = spawn(
     ".venv/bin/python",
-    ["-m", "flowstudio", "--port", "0", "--workspace", workspace],
+    [
+      "-m",
+      "flowstudio",
+      "--port",
+      "0",
+      "--workspace",
+      workspace,
+      "--backend",
+      backend,
+    ],
     {
       cwd: SERVER,
     },
@@ -34,5 +49,13 @@ export async function startServer(): Promise<{ wire: Wire; stop: () => void }> {
     );
     server.on("error", reject);
   });
-  return { wire: httpWire(base), stop: () => server.kill() };
+  const wire = httpWire(base);
+  // the wire answered by the backend asked for, so a test named for the core
+  // never passes on the runner
+  const answering = (await wire.backend()).backend;
+  if (answering !== backend) {
+    server.kill();
+    throw new Error(`asked for the ${backend}, answered by the ${answering}`);
+  }
+  return { wire, stop: () => server.kill() };
 }

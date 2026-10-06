@@ -1149,6 +1149,10 @@ pub struct Library {
     pub evaluators: Vec<String>,
     /// The modules loaded, in import order.
     pub modules: Vec<String>,
+    /// The types the modules declare, in the order read: neither the
+    /// built-ins every store holds nor the observation kinds, which a
+    /// recording creates. What a sandbox's load reports it installed.
+    pub declared: Vec<String>,
     /// The declaration version it is installed as (`storage-schema.md` §5).
     pub version: i64,
     /// Its source: each module's description by its name, and each examples
@@ -1906,6 +1910,9 @@ impl Library {
                 lib.enumerations.insert(n, members);
             }
             for t in m.types {
+                if !m.observation_kinds.contains(&t.name) {
+                    lib.declared.push(t.name.clone());
+                }
                 lib.types.insert(t.name.clone(), t);
             }
             lib.observation_kinds.extend(m.observation_kinds);

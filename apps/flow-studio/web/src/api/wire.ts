@@ -227,6 +227,13 @@ export class WireFault extends Error {
 /** A construct the backend cannot run, which it never guesses (a 501). */
 export class NotRun extends WireFault {}
 
+/** what answers the wire: the reference runner, or the Rust core's service
+ * the studio's server forwards to (docs/design/flow-studio.md §2) */
+export interface Backend {
+  backend: "runner" | "core";
+  service?: string;
+}
+
 export interface Wire {
   request(body: RequestBody): Promise<Verdict>;
   get(id: string): Promise<FlowObject | null>;
@@ -253,6 +260,7 @@ export interface Wire {
     change: { advance: string } | { set: string },
   ): Promise<{ now: string }>;
   evaluators(answers: Record<string, unknown>): Promise<unknown>;
+  backend(): Promise<Backend>;
   modules(): Promise<ModuleEntry[]>;
   module(file: string, source?: Source): Promise<ModuleBundle>;
   diagram(
@@ -317,6 +325,7 @@ export function httpWire(base = ""): Wire {
     reset: () => post("/sandbox/reset", {}),
     clock: (change) => post("/sandbox/clock", change),
     evaluators: (answers) => post("/sandbox/evaluators", { answers }),
+    backend: () => call("GET", "/studio/backend"),
     modules: () => call("GET", "/studio/modules"),
     module: (file, source = "design") =>
       call("GET", `/studio/module?file=${q(file)}&source=${source}`),

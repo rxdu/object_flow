@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  type Backend,
   type Declaration,
   type LoadResult,
   type ModuleBundle,
@@ -52,6 +53,7 @@ export function App() {
   const [actor, setActor] = useState(OPERATOR);
   const [last, setLast] = useState<Verdict | null>(null);
   const [tab, setTab] = useState<"view" | "edit">("view");
+  const [backend, setBackend] = useState<Backend | null>(null);
 
   const changed = useCallback((p: Player) => {
     setPlayer(p);
@@ -79,6 +81,13 @@ export function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    wire
+      .backend()
+      .then(setBackend)
+      .catch(() => setBackend(null));
+  }, [wire]);
 
   const entry = modules.find(
     (m) => m.file === chosen?.file && m.source === chosen?.source,
@@ -201,9 +210,19 @@ export function App() {
       <header className="flex items-baseline gap-3 border-b border-slate-200 bg-white px-4 py-2">
         <h1 className="text-lg font-semibold">Flow Studio</h1>
         <span className="text-sm text-slate-500">
-          ObjectFlow's flows, edited, run and measured against the reference
-          runner
+          ObjectFlow's flows, edited, run and measured
         </span>
+        {backend && (
+          <span
+            className="ml-auto rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700"
+            title={backend.service ?? "the Python reference runner"}
+            data-testid="backend"
+          >
+            {backend.backend === "core"
+              ? "backend: the Rust core"
+              : "backend: the reference runner"}
+          </span>
+        )}
       </header>
       {error && (
         <p className="m-4 rounded bg-red-50 px-3 py-2 text-sm text-red-800">
