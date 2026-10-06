@@ -1,6 +1,7 @@
 # ADR-0154: The core's import
 
 - **Status:** Accepted, 2026-10-05, at the author's direction ("go with your recommendation, importing first"), given the recommendation that importing be the core's next slice, since the two examples that wait against both the core and the reference runner wait for it. Decisions 2 to 4 settle three gaps the slice found, D524 to D526; decision 5 answers the third cold reading's open questions the import reaches, as ADR-0148 decision 3 assigns them to the builder that reaches them. Each is open to the author's revision.
+- **Refined by:** ADR-0163 — a legacy entry's shape in a batch, the kept fields per kind, and a label's subject as `<Type>:<key>`.
 - **Date:** 2026-10-05
 - **Refines:** ADR-0150 (the wire), ADR-0153 (the core's slices), ADR-0146 decision 7 and ADR-0148 decision 3 (the import, and its open questions), ADR-0101 (the import batch)
 - **Relates to:** `design/library-api.md` §5, §6; `design/publish-and-import.md` §4, §6; `design/storage-schema.md` §2, §6; `design/flow-format.md` §4.15, §11.3; `design/cold-reading-3-review.md` §3

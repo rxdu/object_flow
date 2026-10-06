@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-28 ("accept all three as annotated"), as refined by ADR-0087. Decided 2026-09-09 at the author's direction ("rule on D190"), with the recommendation and its evidence below.
 - **Date:** 2026-09-09
-- **Refined by:** ADR-0087 — "wherever it was recorded" is made true by the cause chain and the taint analysis; the proposal clause names whose values.
+- **Refined by:** ADR-0087 — "wherever it was recorded" is made true by the cause chain and the taint analysis; the proposal clause names whose values. ADR-0163 — a batch carries each entry kind's kept fields, and each entry is written with the list it was ported under.
 - **Refines:** ADR-0015, ADR-0031, ADR-0044, ADR-0051
 
 ## Context

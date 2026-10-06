@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D03, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0075 — a mirror is written only by the built-in assertion the import path uses. ADR-0054 — import and migration use a built-in assertion, not a declared one, and an admission is tolerated until the invariant holds again. ADR-0105 — the built-in assertion is the import's alone; a flow change's migration is F2's own route, and its only override is a publish's `admit`.
+- **Refined by:** ADR-0075 — a mirror is written only by the built-in assertion the import path uses. ADR-0054 — import and migration use a built-in assertion, not a declared one, and an admission is tolerated until the invariant holds again. ADR-0105 — the built-in assertion is the import's alone; a flow change's migration is F2's own route, and its only override is a publish's `admit`. ADR-0163 — no `call` or `create` names an assertion, so an override is always requested.
 
 ## Context
 

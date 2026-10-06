@@ -2,7 +2,7 @@
 
 - **Status:** Accepted, 2026-10-01. Decisions 1 to 4 by the author, one at a time, each given a sample; decisions 5 to 14 at the author's direction ("review the open questions, unless particularly important, you may infer and make the decisions"), as `cold-reading-review.md` §5 decides each finding.
 - **Date:** 2026-10-01
-- **Refined by:** ADR-0147 — a second cold reading of the text written for this ADR: `time_in` is real elapsed time, correcting triage item 55; the corrections, erasure, publishing, import and metric decisions are completed where the text stopped short. ADR-0154 — decision 7 built: the disposition file defined, a refused batch reported, and how each class is shaped and applied.
+- **Refined by:** ADR-0147 — a second cold reading of the text written for this ADR: `time_in` is real elapsed time, correcting triage item 55; the corrections, erasure, publishing, import and metric decisions are completed where the text stopped short. ADR-0154 — decision 7 built: the disposition file defined, a refused batch reported, and how each class is shaped and applied. ADR-0163 — an entry marks a field about another object with `about`, which the `FIELD` class decides.
 - **Refines:** ADR-0028 and ADR-0087 (erasure follows the chain), ADR-0049 (evaluators), ADR-0054 and ADR-0105 (admissions and migrations), ADR-0095 and ADR-0099 (recording and correcting), ADR-0101 (the import and mirrors), ADR-0106 (metric rules), ADR-0122 (the objects a refusal names)
 - **Relates to:** `cold-reading-review.md`; `DESIGN.md` §5.5, §5.11, §5.12, §6 to §9, §11; `publish-and-import.md`; `storage-schema.md`; `adversarial-harness.md`; `declaration-syntax.md` §6.4, §6.6, §6.8, §6.9, §6.11, §8; `flow-format.md` §4, §6, §11; D495 to D504
 

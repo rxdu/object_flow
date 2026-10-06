@@ -56,7 +56,7 @@ The same day PRD revision 18 added F11, a description validated automatically, a
 
 The same day PRD revision 19 added F12, a description checked for logical errors, and extended UC-15 again, with ADR-0137 refusing the contradictions within one type that an analysis sound for refusal proves.
 
-Current: 85 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goals are not rows here; G4 is met through C2's.
+Current: 86 covered, 0 partial, 0 gaps, 0 unverifiable, 0 revision proposed. Goals are not rows here; G4 is met through C2's.
 
 ## Requirements
 
@@ -90,7 +90,7 @@ Current: 85 covered, 0 partial, 0 gaps, 1 unverifiable, 0 revision proposed. Goa
 | C2 | DESIGN §5.2, §5.12; ADR-0084, ADR-0098; declaration-syntax.md §6.9; renderers.md §2, §3; library-api.md §5, §6; ADR-0106; ADR-0114 | covered | |
 | C3 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9; ADR-0098; ADR-0142, over periods | covered |  |
 | C4 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9 | covered | |
-| C5 | DESIGN §5.12; ADR-0084; data-driven-engine.md §7 | unverifiable | the PRD leaves the target to be set by measurement; data-driven-engine.md §7 records an indicative SQLite probe, and the author sets the target |
+| C5 | DESIGN §5.12; ADR-0084; ADR-0162, scoped-reads.md; storage-schema.md §5, §6, the indexes its reads use | covered | |
 | C6 | DESIGN §5.12; ADR-0084; declaration-syntax.md §6.9 | covered | |
 | M1 | DESIGN §5.12; ADR-0083, ADR-0084, ADR-0096; storage-schema.md §6; ADR-0098; declaration-syntax.md §6.11; ADR-0101; ADR-0105, ADR-0106 | covered |  |
 | M2 | DESIGN §5.2, §5.12, §10; ADR-0084; library-api.md §6; ADR-0098; ADR-0106; ADR-0114 | covered |  |

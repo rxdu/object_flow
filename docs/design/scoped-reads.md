@@ -1,6 +1,6 @@
 # Reads that reach only what a request needs
 
-**Status: a proposal for the author's discussion, 2026-10-06** (ADR-0162, Proposed). Nothing here is decided. It sets out what the core does today, what that costs as measured, the options, and a recommendation, so the author can decide the architecture and set PRD C5's target.
+**Status: decided by the author, 2026-10-07** (ADR-0162), as recommended in §5 and §6, the day after it was proposed for discussion. It sets out what the core does today, what that costs as measured, the options, and the decision, and the target PRD revision 22 gives C5.
 
 ## 1. What the core does today
 
