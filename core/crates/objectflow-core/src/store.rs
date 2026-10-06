@@ -109,6 +109,11 @@ pub struct Change {
     /// raised flag and an observing clause's would-be refusal (`DESIGN.md`
     /// §7, `storage-schema.md` §6).
     pub attempts: Vec<Attempt>,
+    /// The record of a request its actor sent with a key: the actor's id,
+    /// the key, the request's digest, its first event and its verdict,
+    /// written in its transaction so a retry replays only what committed
+    /// (`storage-schema.md` §6).
+    pub idempotency: Option<(String, String, String, Option<i64>, serde_json::Value)>,
 }
 
 /// A row of the attempt log (`library-api.md` §5, `of_attempt`): a request
@@ -806,6 +811,18 @@ CREATE TABLE of_external_id (
   attribute  TEXT NOT NULL,
   PRIMARY KEY (source, value)
 );
+-- Idempotency: the verdict of each request an actor's key applied, replayed
+-- verbatim to a retry; scoped to the actor's id (storage-schema.md §6,
+-- ADR-0077). Nothing prunes it yet.
+CREATE TABLE of_idempotency (
+  actor_id       TEXT    NOT NULL,
+  key            TEXT    NOT NULL,
+  request_digest TEXT    NOT NULL,
+  first_position INTEGER REFERENCES of_event(position),
+  verdict        TEXT    NOT NULL,
+  applied_at     TEXT    NOT NULL,
+  PRIMARY KEY (actor_id, key)
+);
 CREATE TABLE of_admission (
   object_id           TEXT    NOT NULL REFERENCES of_object(id),
   invariant           TEXT    NOT NULL,
@@ -1153,6 +1170,7 @@ impl Store {
                 version,
                 events,
                 flags: Vec::new(),
+                replayed: false,
             },
             Some(report),
         )))
@@ -1929,6 +1947,23 @@ fn snapshot<'l>(conn: &Connection, lib: &'l Library, now: i64) -> Stored<World<'
     for row in rows {
         world.admitting.insert(row?);
     }
+    // each key an actor applied, which a retry replays
+    let mut keys =
+        conn.prepare("SELECT actor_id, key, request_digest, verdict FROM of_idempotency")?;
+    let rows = keys.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+        ))
+    })?;
+    for row in rows {
+        let (actor, key, digest, verdict) = row?;
+        let verdict = serde_json::from_str(&verdict)
+            .map_err(|e| StoreError(format!("{actor}'s key {key}'s verdict: {e}")))?;
+        world.idempotency.insert((actor, key), (digest, verdict));
+    }
     // the admissions that stand
     let mut standing = conn.prepare(
         "SELECT object_id, invariant FROM of_admission WHERE discharged_position IS NULL",
@@ -2197,6 +2232,14 @@ fn write(tx: &Transaction<'_>, lib: &Library, change: &Change) -> Stored<()> {
     // the event each is linked to (storage-schema.md §6)
     for a in &change.attempts {
         insert_attempt(tx, a, "(SELECT value FROM of_counter WHERE name = 'txn')")?;
+    }
+    if let Some((actor, key, digest, first, verdict)) = &change.idempotency {
+        let applied = change.writes.first().map_or(0, |(_, _, e)| e.recorded_at);
+        tx.execute(
+            "INSERT INTO of_idempotency (actor_id, key, request_digest, first_position, verdict, applied_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![actor, key, digest, first, verdict.to_string(), timestamp_text(applied)],
+        )?;
     }
     // personal values leave the log and the interval index, the events and
     // their shape kept (§9, steps 2 and 9)

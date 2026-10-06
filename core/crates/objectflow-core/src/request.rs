@@ -55,6 +55,99 @@ pub struct Request {
     /// The principal its actor acts for, an object's id or the identity it
     /// holds, recorded and never read by a rule (`DESIGN.md` §5.8).
     pub principal: Option<String>,
+    /// The key that makes a retry safe: a request its actor applied before
+    /// under it is replayed, not applied again (`DESIGN.md` §6 step 2,
+    /// ADR-0041, ADR-0077).
+    pub idempotency_key: Option<String>,
+}
+
+/// Why a request gets no verdict: a construct the slice does not run, or a
+/// key its actor applied before to a different request, a fault in the
+/// caller's key generation (`library-api.md` §7, ADR-0077).
+#[derive(Clone, Debug, PartialEq)]
+pub enum NoVerdict {
+    NotRun(NotRun),
+    KeyReused { key: String },
+}
+
+impl std::convert::From<NotRun> for NoVerdict {
+    fn from(e: NotRun) -> NoVerdict {
+        NoVerdict::NotRun(e)
+    }
+}
+
+/// A request's digest, over everything it carries but its key and the
+/// version it names: a retry is the original request re-sent, its occurred
+/// time among what the key identifies, and it replays whatever version it
+/// carries, a body's difference being the digest's to find and not the
+/// version's (`DESIGN.md` §6 step 2, ADR-0076).
+fn request_digest(req: &Request) -> String {
+    use sha2::{Digest, Sha256};
+    let body = json!({
+        "transition": req.transition,
+        "actor": req.actor,
+        "object_id": req.object_id,
+        "type": req.type_,
+        "inputs": req.inputs,
+        "occurred_at": req.occurred_at,
+        "propose": req.propose,
+        "expires_at": req.expires_at,
+        "principal": req.principal,
+    });
+    let hex: String = Sha256::digest(body.to_string().as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("sha256:{hex}")
+}
+
+/// A satisfied verdict as `of_idempotency` records it, and back.
+fn recorded_verdict(v: &Verdict) -> Json {
+    match v {
+        Verdict::Satisfied {
+            object_id,
+            version,
+            events,
+            flags,
+            ..
+        } => json!({
+            "object_id": object_id,
+            "version": version,
+            "events": events,
+            "flags": flags.iter().map(|f| json!({
+                "clause": f.clause,
+                "remedy": f.remedy.map(|r| r.text()),
+            })).collect::<Vec<_>>(),
+        }),
+        _ => Json::Null,
+    }
+}
+
+fn replayed_verdict(recorded: &Json) -> Result<Verdict, NotRun> {
+    let text = |k: &str| recorded[k].as_str().map(str::to_string);
+    let (Some(object_id), Some(version), Some(events), Some(flags)) = (
+        text("object_id"),
+        recorded["version"].as_i64(),
+        recorded["events"].as_array(),
+        recorded["flags"].as_array(),
+    ) else {
+        return not_run(format!(
+            "a recorded verdict the core cannot read: {recorded}"
+        ));
+    };
+    Ok(Verdict::Satisfied {
+        object_id,
+        version,
+        events: events.iter().filter_map(Json::as_i64).collect(),
+        flags: flags
+            .iter()
+            .map(|f| Flag {
+                clause: f["clause"].as_str().unwrap_or_default().to_string(),
+                remedy: f["remedy"].as_str().and_then(Remedy::parse),
+            })
+            .collect(),
+        replayed: true,
+    })
 }
 
 fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
@@ -590,6 +683,7 @@ fn decide_or_stop(
             version,
             events: positions,
             flags: ctx.flags,
+            replayed: false,
         },
         Some(Change {
             writes,
@@ -1788,6 +1882,7 @@ fn file(
             version: 1,
             events: vec![position],
             flags: Vec::new(),
+            replayed: false,
         },
         Some(Change {
             writes: vec![(o, true, event)],
@@ -2155,6 +2250,7 @@ fn decide_change(
             version,
             events: vec![position],
             flags: Vec::new(),
+            replayed: false,
         },
         Some(Change {
             writes: vec![(o, held.is_none(), event)],
@@ -2302,6 +2398,7 @@ fn decide_proposal(
                 version: decided.version,
                 events: vec![position],
                 flags: Vec::new(),
+                replayed: false,
             },
             Some(Change {
                 writes: vec![(decided, false, event)],
@@ -2337,6 +2434,7 @@ fn decide_proposal(
         expires_at: None,
         expected_version: None,
         principal: req.principal.clone(),
+        idempotency_key: None,
     };
     let filed_at = match p.attr("filed_at") {
         Value::Timestamp(t) => Some(t),
@@ -2369,6 +2467,7 @@ fn decide_proposal(
                 version,
                 mut events,
                 flags,
+                ..
             } => {
                 events.push(position);
                 events.sort_unstable();
@@ -2377,6 +2476,7 @@ fn decide_proposal(
                     version,
                     events,
                     flags,
+                    replayed: false,
                 }
             }
             other => other,
@@ -3312,13 +3412,68 @@ fn invariant_remedy(
 pub fn request(
     store: &mut crate::store::Store,
     req: &Request,
-) -> Result<Result<Verdict, NotRun>, crate::store::StoreError> {
+) -> Result<Result<Verdict, NoVerdict>, crate::store::StoreError> {
     let answers = store.answers.clone();
     let decided = store.transact(|world, alloc| {
-        decide(world, alloc, req, &answers).map(|(v, change, r)| ((v, r), change))
+        // 2. a key its actor applied before replays that request's verdict,
+        // whatever version the retry names, and a different request under it
+        // is a fault (DESIGN.md §6, ADR-0041, ADR-0076, ADR-0077); an actor
+        // the store does not know has applied nothing, and is refused next
+        let keyed = req
+            .idempotency_key
+            .as_ref()
+            .and_then(|key| resolve_actor(world, &req.actor).map(|who| (who.id, key.clone())));
+        let digest = request_digest(req);
+        if let Some((actor, key)) = &keyed
+            && let Some((applied, recorded)) = world.idempotency.get(&(actor.clone(), key.clone()))
+        {
+            if *applied != digest {
+                return Err(NoVerdict::KeyReused { key: key.clone() });
+            }
+            let v = replayed_verdict(recorded)?;
+            return Ok(((v, Refusal::default()), None));
+        }
+        let (v, change, r) = decide(world, alloc, req, &answers)?;
+        // what a key applied is recorded with it, so only what commits replays
+        let change = match (change, &keyed) {
+            (Some(mut c), Some((actor, key))) => {
+                let first = c.writes.iter().map(|(_, _, e)| e.position).min();
+                c.idempotency = Some((
+                    actor.clone(),
+                    key.clone(),
+                    digest,
+                    first,
+                    recorded_verdict(&v),
+                ));
+                Some(c)
+            }
+            (change, _) => change,
+        };
+        Ok(((v, r), change))
     })?;
     let (verdict, refusal) = match decided {
         Ok(decided) => decided,
+        Err(NoVerdict::KeyReused { key }) => {
+            // a fault, logged with the remedy a fresh key corrects
+            // (ADR-0105 §6)
+            let attempt = {
+                let world = store.snapshot()?;
+                let mut a = refused_attempt(
+                    &world,
+                    req,
+                    &Verdict::Unsatisfied {
+                        clause: String::new(),
+                        remedy: Some(Remedy::SelfServiceable),
+                    },
+                    &Refusal::default(),
+                );
+                a.verdict = "key_reused".into();
+                a.clause = None;
+                a
+            };
+            store.record_attempt(&attempt)?;
+            return Ok(Err(NoVerdict::KeyReused { key }));
+        }
         Err(e) => return Ok(Err(e)),
     };
     // a request that did not apply is a row of the attempt log, written in
@@ -3545,6 +3700,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         request(s, &r).unwrap().unwrap()
     }
@@ -3585,6 +3741,7 @@ types:
                 expires_at: None,
                 expected_version: version,
                 principal: None,
+                idempotency_key: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -3600,6 +3757,7 @@ types:
             expires_at: None,
             expected_version: Some(7),
             principal: None,
+            idempotency_key: None,
         };
         let job = created(&request(&mut s, &creation).unwrap().unwrap());
         // the version read applies, and moves the object on
@@ -3657,6 +3815,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         let change = created(&request(&mut s, &draft).unwrap().unwrap());
         let read_before = Verdict::Stale {
@@ -3834,6 +3993,7 @@ types:
                 expires_at: None,
                 expected_version: None,
                 principal: principal.map(str::to_string),
+                idempotency_key: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -3959,6 +4119,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         let before = |s: &Store| {
             let w = s.snapshot().unwrap();
@@ -4004,6 +4165,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         let Verdict::Satisfied {
             object_id: would, ..
@@ -4169,7 +4331,9 @@ types:
                 version,
                 events,
                 flags,
+                replayed,
             } => {
+                assert!(!replayed);
                 assert_eq!(object_id, job);
                 assert_eq!(version, 2);
                 assert_eq!(events.len(), 1);
@@ -4678,6 +4842,7 @@ types:
                 expires_at: None,
                 expected_version: None,
                 principal: None,
+                idempotency_key: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -5362,6 +5527,7 @@ types:
                 expires_at,
                 expected_version: None,
                 principal: None,
+                idempotency_key: None,
             };
             request(s, &r).unwrap().unwrap()
         };
@@ -5461,6 +5627,7 @@ types:
                 expires_at: Some(s.now + 60),
                 expected_version: None,
                 principal: None,
+                idempotency_key: None,
             };
             created(&request(&mut s, &r).unwrap().unwrap())
         };
@@ -5672,6 +5839,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         created(&request(&mut s, &dated).unwrap().unwrap());
         created(&req(
@@ -5824,5 +5992,189 @@ types:
             w.attempts.last().unwrap().clause.as_deref(),
             Some("every_cleared")
         );
+    }
+
+    /// Idempotency (`DESIGN.md` §6 step 2, ADR-0041, ADR-0076, ADR-0077): a
+    /// key its actor applied replays that request's verdict, marked so and
+    /// writing nothing, whatever version the retry names; a different
+    /// request under it is a fault, logged as `self_serviceable`; a key is
+    /// its actor's alone; a refused request records nothing, so its key
+    /// stays free; and an actor the store does not know replays nothing.
+    #[test]
+    fn a_key_replays_what_it_applied_and_refuses_another_request() {
+        let mut s = store();
+        let ana = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        let keyed = |actor: &str,
+                     xn: &str,
+                     object: Option<&str>,
+                     inputs: Json,
+                     version: Option<i64>,
+                     key: &str| Request {
+            transition: xn.into(),
+            actor: actor.into(),
+            object_id: object.map(str::to_string),
+            type_: object.is_none().then(|| "Job".to_string()),
+            inputs: inputs
+                .as_object()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: version,
+            principal: None,
+            idempotency_key: Some(key.to_string()),
+        };
+        let counts = |s: &Store| {
+            let w = s.snapshot().unwrap();
+            (w.objects.len(), w.events.len(), w.attempts.len())
+        };
+        // applied, then replayed: the same verdict, marked, nothing written
+        let open = keyed(OPERATOR, "open", None, json!({"title": "Fix"}), None, "k1");
+        let first = request(&mut s, &open).unwrap().unwrap();
+        let Verdict::Satisfied {
+            object_id: job,
+            version,
+            events,
+            replayed: false,
+            ..
+        } = first.clone()
+        else {
+            panic!("{first:?}")
+        };
+        let before = counts(&s);
+        assert_eq!(
+            request(&mut s, &open).unwrap().unwrap(),
+            Verdict::Satisfied {
+                object_id: job.clone(),
+                version,
+                events,
+                flags: Vec::new(),
+                replayed: true,
+            }
+        );
+        assert_eq!(counts(&s), before);
+        // a retry names the version the original was checked against, now
+        // moved: it replays, and is not stale
+        let start = keyed(
+            OPERATOR,
+            "start",
+            Some(&job),
+            json!({"engineer": ana}),
+            Some(1),
+            "k2",
+        );
+        let started = request(&mut s, &start).unwrap().unwrap();
+        let Verdict::Satisfied { flags, .. } = &started else {
+            panic!("{started:?}")
+        };
+        // the warning it raised is replayed with it
+        assert_eq!(flags.len(), 1);
+        let again = request(&mut s, &start).unwrap().unwrap();
+        assert!(
+            matches!(&again, Verdict::Satisfied { replayed: true, flags: f, .. } if f == flags)
+        );
+        // whatever version the retry names
+        let mut renamed = start.clone();
+        renamed.expected_version = Some(7);
+        assert!(matches!(
+            request(&mut s, &renamed).unwrap().unwrap(),
+            Verdict::Satisfied { replayed: true, .. }
+        ));
+        // but a different occurred time is another request
+        let mut dated = start.clone();
+        dated.occurred_at = Some(1_767_225_000);
+        assert_eq!(
+            request(&mut s, &dated).unwrap(),
+            Err(NoVerdict::KeyReused { key: "k2".into() })
+        );
+        // a different request under the key is a fault, logged, and writes
+        // nothing
+        let before = counts(&s);
+        let other = keyed(
+            OPERATOR,
+            "estimate",
+            Some(&job),
+            json!({"hours": 3}),
+            None,
+            "k2",
+        );
+        assert_eq!(
+            request(&mut s, &other).unwrap(),
+            Err(NoVerdict::KeyReused { key: "k2".into() })
+        );
+        assert_eq!(counts(&s), (before.0, before.1, before.2 + 1));
+        let w = s.snapshot().unwrap();
+        let row = w.attempts.last().unwrap();
+        assert_eq!(
+            (
+                row.verdict.as_str(),
+                row.remedy.as_str(),
+                row.clause.as_deref()
+            ),
+            ("key_reused", "self_serviceable", None)
+        );
+        drop(w);
+        // a key is its actor's: another actor's identical key applies anew
+        let anas = keyed("ana", "open", None, json!({"title": "Fix"}), None, "k1");
+        let Verdict::Satisfied {
+            object_id: second,
+            replayed: false,
+            ..
+        } = request(&mut s, &anas).unwrap().unwrap()
+        else {
+            panic!("ana's own key applies")
+        };
+        assert_ne!(second, job);
+        // a refused request records nothing: its retry is refused afresh,
+        // and the key then applies another request
+        let big = keyed(
+            OPERATOR,
+            "estimate",
+            Some(&job),
+            json!({"hours": 20}),
+            None,
+            "k3",
+        );
+        for _ in 0..2 {
+            assert!(matches!(
+                request(&mut s, &big).unwrap().unwrap(),
+                Verdict::Unsatisfied { .. }
+            ));
+        }
+        let small = keyed(
+            OPERATOR,
+            "estimate",
+            Some(&job),
+            json!({"hours": 4}),
+            None,
+            "k3",
+        );
+        assert!(matches!(
+            request(&mut s, &small).unwrap().unwrap(),
+            Verdict::Satisfied {
+                replayed: false,
+                ..
+            }
+        ));
+        // once applied, a body differing in its inputs alone is another request
+        assert_eq!(
+            request(&mut s, &big).unwrap(),
+            Err(NoVerdict::KeyReused { key: "k3".into() })
+        );
+        // an actor the store does not know has applied nothing
+        let stranger = keyed("nobody", "open", None, json!({"title": "Fix"}), None, "k1");
+        assert!(matches!(
+            request(&mut s, &stranger).unwrap().unwrap(),
+            Verdict::Unsatisfied { ref clause, .. } if clause == "actor_known"
+        ));
     }
 }

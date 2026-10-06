@@ -154,6 +154,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         match request(s, &r).unwrap().unwrap() {
             Verdict::Satisfied { object_id, .. } => object_id,

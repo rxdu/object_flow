@@ -972,6 +972,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         request(s, &r).unwrap().unwrap()
     }
@@ -1018,6 +1019,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         let proposal = created(&request(&mut s, &proposal).unwrap().unwrap());
         let other = created(&req(
@@ -1342,6 +1344,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         assert!(matches!(
             request(&mut s, &r).unwrap().unwrap(),
@@ -1888,6 +1891,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         assert!(request(&mut s, &submit).unwrap().is_err());
     }

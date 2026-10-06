@@ -74,6 +74,19 @@ impl From<NotRun> for Fault {
     }
 }
 
+/// A key reused for a different request is the caller's fault, a conflict
+/// with what the key already applied (`library-api.md` §7, ADR-0077).
+impl From<request::NoVerdict> for Fault {
+    fn from(e: request::NoVerdict) -> Fault {
+        match e {
+            request::NoVerdict::NotRun(n) => Fault::NotRun(n.0),
+            request::NoVerdict::KeyReused { key } => Fault::Conflict(format!(
+                "key_reused: this actor applied the idempotency key {key} to a different request"
+            )),
+        }
+    }
+}
+
 impl From<objectflow_core::store::StoreError> for Fault {
     fn from(e: objectflow_core::store::StoreError) -> Fault {
         Fault::Internal(e.to_string())
@@ -120,8 +133,9 @@ fn verdict(v: &Verdict) -> J {
             version,
             events,
             flags: fs,
+            replayed,
         } => {
-            json!({"object_id": object_id, "version": version, "events": events, "replayed": false, "flags": flags(fs),
+            json!({"object_id": object_id, "version": version, "events": events, "replayed": replayed, "flags": flags(fs),
                     "not_computed": ["flags[].unknown", "flags[].objects"]})
         }
         Verdict::Unsatisfied { clause, .. } => {
@@ -455,9 +469,16 @@ async fn acknowledge(State(shared): State<Shared>, Json(body): Json<J>) -> Answe
 
 /// A request as the wire carries it (`library-api.md` §3).
 fn request_of(body: &J) -> Result<Request, Fault> {
-    if body.get("idempotency_key").is_some_and(|v| !v.is_null()) {
-        return Err(Fault::NotRun("a request's idempotency_key".to_string()));
-    }
+    // the key that makes a retry safe, scoped to the actor (library-api.md §3)
+    let idempotency_key = match body.get("idempotency_key") {
+        None | Some(J::Null) => None,
+        Some(J::String(k)) if !k.is_empty() => Some(k.clone()),
+        Some(_) => {
+            return Err(Fault::Bad(
+                "idempotency_key takes a non-empty string".to_string(),
+            ));
+        }
+    };
     // the version of its object the caller read (library-api.md §3)
     let expected_version = match body.get("expected_version") {
         None | Some(J::Null) => None,
@@ -523,6 +544,7 @@ fn request_of(body: &J) -> Result<Request, Fault> {
             .get("actor")
             .and_then(|a| text(a, "principal"))
             .map(str::to_string),
+        idempotency_key,
     };
     Ok(req)
 }

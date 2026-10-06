@@ -29,6 +29,9 @@ pub enum Verdict {
         /// The positions of every event it appended, the parent's first.
         events: Vec<i64>,
         flags: Vec<Flag>,
+        /// Returned for a retry of a request its actor's key applied before,
+        /// the first result replayed (`DESIGN.md` §6 step 2, ADR-0041).
+        replayed: bool,
     },
     /// The object moved since the caller read it: the version expected, and
     /// the one it is at (`library-api.md` §4, cause `expected_version`).

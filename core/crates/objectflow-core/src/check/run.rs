@@ -79,6 +79,17 @@ impl From<crate::eval::NotRun> for Stop {
     }
 }
 
+impl From<crate::request::NoVerdict> for Stop {
+    fn from(e: crate::request::NoVerdict) -> Stop {
+        match e {
+            crate::request::NoVerdict::NotRun(n) => Stop::NotRun(n.0),
+            crate::request::NoVerdict::KeyReused { key } => {
+                Stop::Failed(format!("the key {key} was applied to another request"))
+            }
+        }
+    }
+}
+
 /// One example's run: the store it runs in, and the aliases it has bound.
 struct Player {
     store: Store,
@@ -319,6 +330,7 @@ impl Player {
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         if matches!(verb, "approve" | "reject" | "withdraw") {
             req.object_id = Some(self.alias(&str_or(r, "proposal", ""))?);

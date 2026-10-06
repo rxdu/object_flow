@@ -108,6 +108,10 @@ pub struct World<'l> {
     /// (`storage-schema.md` §3, `state_source`), which `exceptions` reads; a
     /// request's working copy does not move it.
     pub state_sources: BTreeMap<String, String>,
+    /// Each key an actor applied, by the actor's id and the key: the digest
+    /// of the request it applied and the verdict it was given, which a retry
+    /// replays (`storage-schema.md` §6, `of_idempotency`, ADR-0077).
+    pub idempotency: BTreeMap<(String, String), (String, serde_json::Value)>,
 }
 
 impl<'l> World<'l> {
@@ -123,6 +127,7 @@ impl<'l> World<'l> {
             attempts: Vec::new(),
             acknowledged: BTreeMap::new(),
             state_sources: BTreeMap::new(),
+            idempotency: BTreeMap::new(),
         }
     }
 

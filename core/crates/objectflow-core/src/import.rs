@@ -1496,6 +1496,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         assert_eq!(
             request(&mut s, &note).unwrap().unwrap(),
@@ -1516,6 +1517,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         assert!(matches!(
             request(&mut s, &forget).unwrap().unwrap(),

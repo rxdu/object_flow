@@ -284,6 +284,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         request(s, &r).unwrap().unwrap()
     }
@@ -392,6 +393,7 @@ types:
             expires_at: None,
             expected_version: None,
             principal: None,
+            idempotency_key: None,
         };
         assert!(matches!(
             request(&mut s, &tool).unwrap().unwrap(),
