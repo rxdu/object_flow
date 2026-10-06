@@ -2,28 +2,6 @@
 # each by module, operation and path (tests/test_backends_agree.py). Each group names
 # the TODO.md entry that accounts for it; a difference not listed fails the test.
 
-# TODO "The reference runner's proposals are not objects": a proposal's get lacks the
-# built-in type's attributes, an approval's events lack the proposal's own, which
-# shifts every later position, and refusing to approve a decided proposal names the
-# target's state rather than the proposal's.
-delivery.yaml /v1/events .events[]
-delivery.yaml /v1/events .events[].from_state
-delivery.yaml /v1/events .events[].object_id
-delivery.yaml /v1/events .events[].to_state
-delivery.yaml /v1/events .events[].transition
-delivery.yaml /v1/get .attributes.context
-delivery.yaml /v1/get .attributes.expires_at
-delivery.yaml /v1/get .attributes.filed_at
-delivery.yaml /v1/get .attributes.inputs
-delivery.yaml /v1/get .attributes.last_verdict
-delivery.yaml /v1/get .attributes.occurred
-delivery.yaml /v1/get .attributes.proposer
-delivery.yaml /v1/get .attributes.target_type
-delivery.yaml /v1/get .open
-delivery.yaml /v1/request .events
-delivery.yaml /v1/request .events[]
-delivery.yaml /v1/request .state
-
 # TODO "The reference runner does not walk an erasure down": a customer's forget
 # writes no `redact` event on the contact whose input it erases (ADR-0160 decision
 # 2), so the request's events, the positions after it and the contact's version differ.

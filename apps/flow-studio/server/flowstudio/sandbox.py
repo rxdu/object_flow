@@ -15,6 +15,7 @@ runner leaves out, so nothing here fills one in by guessing
 from __future__ import annotations
 
 import copy
+import json
 
 import threading
 from fractions import Fraction
@@ -311,9 +312,13 @@ class Sandbox:
             except flowrun.ExampleError as e:
                 raise Fault(400, str(e))
             key = aliases["__new__"][1]
+            # the request it holds as the wire gave it, as the core keeps it
+            s.objects[key].attrs["inputs"] = json.dumps(
+                body.get("inputs") or {}, sort_keys=True,
+                separators=(",", ":"), ensure_ascii=False)
             return {"kind": "satisfied", "object_id": key, "version": 1,
-                    "events": [], "replayed": False, "flags": [],
-                    "not_computed": ["events", "version"]}
+                    "events": [s.position], "replayed": False, "flags": [],
+                    "not_computed": []}
         if xn not in PROPOSAL_VERBS:
             return {"kind": "unknown_transition", "transition": xn,
                     "remedy": "self_serviceable"}
@@ -327,9 +332,16 @@ class Sandbox:
         except flowrun.NotRunnable as e:
             raise not_run(e)
         if outcome is None:
-            return {"kind": "satisfied", "object_id": oid, "version": 1,
-                    "events": [], "replayed": False, "flags": [],
-                    "not_computed": ["events", "version"]}
+            p = s.objects[oid]
+            return {"kind": "satisfied", "object_id": oid,
+                    "version": p.version,
+                    "events": [e["position"] for e in s.events
+                               if e["position"] > before],
+                    "replayed": False, "flags": [], "not_computed": []}
+        if outcome[0] == "refused" and getattr(outcome[1], "on_proposal",
+                                               False):
+            # the proposal's own state refuses the decision (DESIGN.md §9)
+            return self.refusal(outcome[1], flowrun.PROPOSAL, oid, {}, xn)
         if outcome[0] == "refused":
             held = s.proposals[oid]
             return self.refusal(outcome[1], held["type"], held["object"],
@@ -441,16 +453,6 @@ class Sandbox:
         self.loaded()
         oid = body.get("id")
         s = self.store
-        if oid in s.proposals:
-            p = s.proposals[oid]
-            # the state as the built-in type names it (DESIGN.md §9, D521)
-            return {"id": oid, "type": "Proposal",
-                    "state": p["state"].upper(),
-                    "attributes": {"transition": p["transition"],
-                                   "target": p["object"]},
-                    "not_computed": ["version", "declaration_version",
-                                     "created_at", "created_by_kind",
-                                     "recorded_from", "created_dated"]}
         if oid not in s.objects:
             return None
         o = s.objects[oid]
@@ -469,6 +471,8 @@ class Sandbox:
                 attrs[k] = values.encode(ev.member(o.id, k), typ)
             built = {k: values.encode(ev.member(o.id, k), typ)
                      for k, typ in BUILT_IN.items()}
+            if o.type == flowrun.PROPOSAL:
+                attrs["last_verdict"] = self.last_verdict(oid)
         except flowrun.NotRunnable as e:
             raise not_run(e)
         except values.Unencodable as e:
@@ -480,6 +484,18 @@ class Sandbox:
                 "created_by_kind": built["created_by_kind"],
                 "attributes": attrs, "recorded_from": built["recorded_from"],
                 "open": built["open"], "not_computed": ["created_dated"]}
+
+    def last_verdict(self, oid: str) -> dict | None:
+        """What a proposal's last refused approval was told, derived from
+        its attempt row and never stored (ADR-0157); none where no approval
+        was refused."""
+        rows = [a for a in self.store.attempts if a.get("proposal") == oid]
+        if not rows:
+            return None
+        a = rows[-1]
+        return {"verdict": a["verdict"], "clause": a["clause"],
+                "remedy": a["remedy"],
+                "at": values.timestamp_text(a["at"])}
 
     def history(self, body: dict) -> dict:
         self.loaded()

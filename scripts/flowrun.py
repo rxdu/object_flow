@@ -18,6 +18,7 @@ set is a tuple of values.
 import copy
 import datetime
 import functools
+import json
 import math
 import re
 from fractions import Fraction
@@ -472,9 +473,51 @@ def label_kind():
                             "forget": {"kind": "erasure", "inputs": {"reason": {"type": "string"}}}}}
 
 
+# the built-in type a request filed for approval becomes (DESIGN.md §9)
+PROPOSAL = "Proposal"
+
+
+def proposal_kind():
+    """A proposal as the built-in type it is (DESIGN.md §9, D521): the request it holds, who filed it and when, and its
+    states, which only the built-in verbs move: `propose` files it, `approve`, `reject` and `withdraw` decide it, and
+    an erasure of its target invalidates it."""
+    def a(t, optional=False):
+        return {"type": t, **({"optional": True} if optional else {})}
+    return {"attributes": {"target": a("string", True), "target_type": a("string"), "transition": a("string"),
+                           "inputs": a("string"), "proposer": a("string"), "context": a("string", True),
+                           "occurred": a("timestamp", True), "filed_at": a("timestamp"),
+                           "expires_at": a("timestamp", True)},
+            "states": {"PENDING": {"category": "live"},
+                       **{st: {"category": "closed", "final": True}
+                          for st in ("EXECUTED", "REJECTED", "WITHDRAWN", "INVALIDATED")}}}
+
+
 def with_labels(kinds):
-    """The types with the built-in label kind, as every store is created with it (ADR-0126)."""
-    return kinds if LABEL in kinds else {**kinds, LABEL: label_kind()}
+    """The types with the built-in label kind and the built-in proposal, as every store is created with them
+    (ADR-0126, DESIGN.md §9)."""
+    kinds = kinds if LABEL in kinds else {**kinds, LABEL: label_kind()}
+    return kinds if PROPOSAL in kinds else {**kinds, PROPOSAL: proposal_kind()}
+
+
+def proposal_event(store, key, verb, before, after, actor, position=None):
+    """A proposal's own event: filed, decided or invalidated, by the actor given, the next position or the one
+    reserved for it; the object moves to its new state and version (DESIGN.md §9)."""
+    if position is None:
+        store.position += 1
+        position = store.position
+    marked = store.actor_attr(store.type_of(actor)) if actor in store.objects else None
+    p = store.objects[key]
+    p.state = after
+    p.version += 1
+    store.events.append({"position": position, "object": key, "type": PROPOSAL, "transition": verb,
+                         "from_state": ("state", PROPOSAL, before) if before else ABSENT,
+                         "to_state": ("state", PROPOSAL, after), "completes": bool(before), "returns": False,
+                         "occurred_at": store.now, "recorded_at": store.now, "actor_id": actor,
+                         "actor_kind": marked[1] if marked else "unknown", "asserted": False, "overrides": False,
+                         "imported": False, "migrated": False, "redacted": False, "reason": ABSENT,
+                         "declaration_version": 1, "held": {}})
+    store.events.sort(key=lambda e: e["position"])
+    return position
 
 
 class Store:
@@ -2198,9 +2241,11 @@ class Runner:
         ctx.erased.setdefault(o.id, set()).update(erased)
         # every pending proposal targeting the erased object is invalidated, its redaction and invalidation one event
         # (DESIGN.md §8, ADR-0147)
-        for proposal in work.proposals.values():
+        for key, proposal in work.proposals.items():
             if proposal["state"] == "pending" and proposal["object"] == o.id:
                 proposal["state"] = "invalidated"
+                if key in work.objects:
+                    proposal_event(work, key, "invalidate", "PENDING", "INVALIDATED", ctx.who["id"])
 
     def forget_observations(self, ctx, o, inputs, depth):
         """An erasure reaches its object's observations through each one's generated `forget`, taken after its declared
@@ -2564,8 +2609,18 @@ def file_proposal(runner, store, st, aliases):
             limit = x.get("backdating_limit")
             if limit is None or not store.now - seconds(limit) <= occurred <= store.now:
                 raise Refused("unsatisfied", "occurred_within", GENERATED_REMEDY["occurred_within"])
-        store.counter += 1
-        key = f"proposal-{store.counter}"
+        key = store.new_id(PROPOSAL)
+        proposer = aliases.get(r.get("actor", OPERATOR), r.get("actor"))
+        p = Obj(key, PROPOSAL, "PENDING", store.now)
+        p.id_order = store.counter
+        p.created_by_kind = (store.actor_attr(store.type_of(proposer)) or (None, "unknown"))[1] \
+            if proposer in store.objects else "unknown"
+        held = {"target": oid, "target_type": tn, "transition": r["transition"],
+                "inputs": json.dumps(r.get("inputs") or {}, sort_keys=True, separators=(",", ":")),
+                "proposer": proposer, "occurred": occurred, "filed_at": store.now}
+        p.attrs.update({k: v for k, v in held.items() if v is not None})
+        store.objects[key] = p
+        proposal_event(store, key, "propose", None, "PENDING", proposer)
         store.proposals[key] = {"type": tn, "object": oid, "transition": r["transition"], "inputs": r.get("inputs"),
                                 "aliases": dict(aliases), "proposer": aliases.get(r.get("actor", OPERATOR), r.get("actor")),
                                 "state": "pending", "verdict": None, "occurred": occurred, "filed_at": store.now}
@@ -2587,17 +2642,30 @@ def decide_or_request(runner, store, st, aliases, stubs, under_test):
                 if actor not in store.objects or store.actor_attr(store.type_of(actor)) is None:
                     raise Refused("unsatisfied", "actor_known", "dependent")
                 if store.proposals[key]["state"] != "pending":
-                    raise Refused("unavailable", remedy="unreachable_from_here", detail=f"the proposal is {store.proposals[key]['state']}")
+                    decided = Refused("unavailable", remedy="unreachable_from_here",
+                                      detail=f"the proposal is {store.proposals[key]['state']}")
+                    decided.on_proposal = True      # the proposal's state refuses, not its target's
+                    raise decided
             except Refused as decision:
                 store.attempts.append(attempt_row(store, "Proposal", key, verb, actor, decision))
                 raise
             if verb != "approve":
                 store.proposals[key]["state"] = "rejected" if verb == "reject" else "withdrawn"
+                proposal_event(store, key, verb, "PENDING", "REJECTED" if verb == "reject" else "WITHDRAWN", actor)
                 return None
-            # approving executes the request as the approver, every guard evaluated now; a refusal leaves it pending
+            # approving executes the request as the approver, every guard evaluated now; a refusal leaves it pending.
+            # The proposal's event comes first, its position reserved and given back on a refusal (DESIGN.md §9)
             held = store.proposals[key]
-            result = runner.attempt(store, held["type"], held["transition"], held["object"], actor, held["inputs"],
-                                    held["aliases"], stubs, held.get("occurred"), held.get("filed_at"), proposal=key)
+            store.position += 1
+            reserved = store.position
+            try:
+                result = runner.attempt(store, held["type"], held["transition"], held["object"], actor, held["inputs"],
+                                        held["aliases"], stubs, held.get("occurred"), held.get("filed_at"),
+                                        proposal=key)
+            except Refused:
+                store.position -= 1
+                raise
+            proposal_event(store, key, "approve", "PENDING", "EXECUTED", actor, position=reserved)
         except Refused as refusal:
             if key in store.proposals and store.proposals[key]["state"] == "pending":
                 store.proposals[key]["verdict"] = refusal
