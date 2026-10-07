@@ -294,7 +294,9 @@ fn interval_rows(world: &World<'_>, type_: &str, after: i64) -> Result<Vec<(i64,
             .map(|i| log[i].transition.clone())
     };
     let mut rows = Vec::new();
-    for o in world.of_type(type_)? {
+    let objects = world.of_type(type_)?;
+    world.with_parts(&objects)?;
+    for o in objects {
         let imported = log
             .iter()
             .find(|e| e.object_id == o.id && e.imported)
@@ -302,7 +304,7 @@ fn interval_rows(world: &World<'_>, type_: &str, after: i64) -> Result<Vec<(i64,
         let Some(t) = world.lib.type_(&o.type_) else {
             continue;
         };
-        for (dimension, spans) in &o.spans {
+        for (dimension, spans) in &world.parts(o)?.spans {
             let personal =
                 dimension != "state" && t.attribute(dimension).is_some_and(|a| a.personal);
             for sp in spans {

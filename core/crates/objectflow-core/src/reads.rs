@@ -109,12 +109,14 @@ pub fn exceptions(world: &World<'_>, type_: &str) -> Result<QueryPage, NotRun> {
             refused: Some("unknown_type".into()),
         });
     }
-    let items = world
-        .of_type(type_)?
-        .into_iter()
-        .filter(|o| o.state_source.as_deref() == Some("asserted") || !o.admissions.is_empty())
-        .map(state_item)
-        .collect();
+    let mut items = Vec::new();
+    let objects = world.of_type(type_)?;
+    world.with_parts(&objects)?;
+    for o in objects {
+        if o.state_source.as_deref() == Some("asserted") || !world.parts(o)?.admissions.is_empty() {
+            items.push(state_item(o));
+        }
+    }
     Ok(QueryPage {
         items,
         refused: None,
@@ -286,16 +288,45 @@ pub fn query(
         }
     }
     let lib = world.lib;
-    // a key's value for an object, and how two values of one key order
-    let value = |o: &Object, key: &Key| -> Value {
-        match key {
-            Key::CreatedAt => Value::Timestamp(o.created_at),
-            Key::EnteredAt(m) => o
+    // the entry time of each chosen object's current interval an order key
+    // or an asked field names, read before sorting, since a comparison
+    // cannot stop the read
+    let mut entered: BTreeMap<(String, String), Value> = BTreeMap::new();
+    let members: BTreeSet<String> = keys
+        .iter()
+        .filter_map(|(key, _)| match key {
+            Key::EnteredAt(m) => Some(m.clone()),
+            _ => None,
+        })
+        .chain(asked.iter().filter_map(|f| {
+            f.strip_prefix("entered_at(")
+                .and_then(|r| r.strip_suffix(')'))
+                .map(|m| m.trim().to_string())
+        }))
+        .collect();
+    if !members.is_empty() {
+        world.with_parts(&chosen)?;
+    }
+    for m in &members {
+        for o in &chosen {
+            let v = world
+                .parts(o)?
                 .spans
                 .get(m)
                 .and_then(|s| s.last())
                 .filter(|sp| sp.left_position.is_none())
-                .map_or(Value::Absent, |sp| Value::Timestamp(sp.entered_at)),
+                .map_or(Value::Absent, |sp| Value::Timestamp(sp.entered_at));
+            entered.insert((o.id.clone(), m.clone()), v);
+        }
+    }
+    // a key's value for an object, and how two values of one key order
+    let value = |o: &Object, key: &Key| -> Value {
+        match key {
+            Key::CreatedAt => Value::Timestamp(o.created_at),
+            Key::EnteredAt(m) => entered
+                .get(&(o.id.clone(), m.clone()))
+                .cloned()
+                .unwrap_or(Value::Absent),
             Key::Attribute(a) => o.attr(a),
         }
     };
@@ -598,7 +629,7 @@ pub fn availability(
         }
         // decided on what its effect writes; what its inputs would write waits
         // for them (ADR-0147)
-        if x.kind != Kind::Erasure && o.erased {
+        if x.kind != Kind::Erasure && world.parts(o)?.erased {
             let writes_personal = x.effect.iter().any(|st| match st {
                 crate::model::Step::Assign { location, .. }
                 | crate::model::Step::Add { location, .. } => {
@@ -997,7 +1028,13 @@ types:
         .unwrap();
         assert_eq!((p.refused.as_deref(), p.items.len()), (None, 3));
         for item in &p.items {
-            let entered = w.get(&item.id).unwrap().unwrap().spans["state"]
+            let entered = w
+                .whole(&item.id)
+                .unwrap()
+                .unwrap()
+                .held_parts()
+                .unwrap()
+                .spans["state"]
                 .last()
                 .unwrap()
                 .entered_at;
@@ -1228,6 +1265,8 @@ types:
         let mut w = s.snapshot().unwrap();
         w.get_mut(&big)
             .unwrap()
+            .unwrap()
+            .parts_mut()
             .unwrap()
             .admissions
             .insert("bounded".into());

@@ -640,8 +640,8 @@ fn decide_or_stop(
         if let Some(position) = last {
             ctx.readings.entry(position).or_default().merge(read);
         }
-        let holding: Vec<String> = obj
-            .admissions
+        let standing = &ctx.work.parts(obj)?.admissions;
+        let holding: Vec<String> = standing
             .iter()
             .filter(|n| !failing.contains(n))
             .cloned()
@@ -649,7 +649,7 @@ fn decide_or_stop(
         let mut admit = Vec::new();
         let mut refusing = Vec::new();
         for n in failing {
-            if obj.admissions.contains(&n) {
+            if standing.contains(&n) {
                 continue;
             }
             // an assertion admits what it names; an erasure what it leaves
@@ -669,6 +669,7 @@ fn decide_or_stop(
             continue;
         }
         if let Some(o) = ctx.work.get_mut(&id)? {
+            let o = o.parts_mut()?;
             for n in holding {
                 o.admissions.remove(&n);
                 discharged.push((id.clone(), n, first));
@@ -935,6 +936,7 @@ fn take(
     // and no transition the request takes precedes the current interval of
     // what it changes on its object
     if let Some(o) = ctx.work.get_if(oid.as_deref())? {
+        let spans = &ctx.work.parts(o)?.spans;
         let mut changing: Vec<String> = lib
             .tracked(t)
             .into_iter()
@@ -946,7 +948,7 @@ fn take(
             changing.push("state".into());
         }
         if changing.iter().any(|m| {
-            o.spans
+            spans
                 .get(m)
                 .and_then(|s| s.last())
                 .is_some_and(|last| ctx.at < last.entered_at)
@@ -986,7 +988,7 @@ fn take(
     // absence and passes (ADR-0147)
     if x.kind != Kind::Erasure
         && let Some(o) = ctx.work.get_if(oid.as_deref())?
-        && o.erased
+        && ctx.work.parts(o)?.erased
     {
         let by_input = x
             .required_inputs
@@ -1247,7 +1249,12 @@ fn take(
     }
     alloc.txn();
     let (mut o, from_state) = match ctx.work.get_if(oid.as_deref())? {
-        Some(o) => (o.clone(), Some(o.state.clone())),
+        // the object as it stands, the rest of its record read, which the
+        // transition extends
+        Some(o) => {
+            ctx.work.parts(o)?;
+            (o.clone(), Some(o.state.clone()))
+        }
         None => {
             let Some(to) = x.to.first() else {
                 return stop_not_run(format!("an initial transition with no target ({tn}.{xn})"));
@@ -1263,10 +1270,7 @@ fn take(
                 created_by_kind: ctx.who.kind.clone(),
                 order: ctx.work.next_order()?,
                 superseded_by: None,
-                spans: BTreeMap::new(),
-                writes: BTreeMap::new(),
-                admissions: BTreeSet::new(),
-                erased: false,
+                parts: crate::world::Parts::default().held(),
                 created_dated: true,
                 recorded_from: ctx.at,
                 state_source: None,
@@ -1312,8 +1316,9 @@ fn take(
         // the log, read once for the erasure and its walks, this request's
         // own events among it (ADR-0162 step 1)
         let log: Vec<Event> = ctx.work.log()?.cloned().collect();
+        let writes = o.held_parts()?.writes.clone();
         let written_personal = |a: &str| {
-            o.writes.get(a).is_some_and(|position| {
+            writes.get(a).is_some_and(|position| {
                 log.iter()
                     .find(|e| e.position == *position)
                     .is_some_and(|e| ctx.work.personal_under(e.declaration_version, &o.type_, a))
@@ -1332,19 +1337,20 @@ fn take(
         }
         // each span personal under the installed version or the version it
         // was written under
-        for (a, spans) in o.spans.iter_mut() {
+        let (id, type_) = (o.id.clone(), o.type_.clone());
+        for (a, spans) in o.parts_mut()?.spans.iter_mut() {
             let now_personal = t.attribute(a).is_some_and(|spec| spec.personal);
             for sp in spans {
-                if now_personal || ctx.work.personal_under(sp.declaration_version, &o.type_, a) {
+                if now_personal || ctx.work.personal_under(sp.declaration_version, &type_, a) {
                     sp.value = Value::Absent;
                     // written by the store, which writes only the spans an
                     // event opens or closes, as the walk down's are
                     ctx.redacted_spans
-                        .push((o.id.clone(), a.clone(), sp.entered_position));
+                        .push((id.clone(), a.clone(), sp.entered_position));
                 }
             }
         }
-        o.erased = true;
+        o.parts_mut()?.erased = true;
         let redacted_since = ctx.redacted_inputs.len();
         // what the erased object holds that is personal, the source of
         // every value the walks follow
@@ -1508,7 +1514,8 @@ fn take(
         let mut span = Json::Null;
         if was != value
             && tracked.contains(m)
-            && let Some((since, gone)) = correct_span(lib, t, o, m, &value, position, &imported)
+            && let Some((since, gone)) =
+                correct_span(lib, t, o.parts_mut()?, m, &value, position, &imported)
         {
             span = json!(since);
             if let Some((p, at)) = gone {
@@ -1525,7 +1532,7 @@ fn take(
             json!({ "replaced": wire::encode(&was), "value": wire::encode(&value), "span": span }),
         );
     }
-    if !record_spans(lib, t, o, before.as_ref(), position, ctx.at, &ctx.who) {
+    if !record_spans(lib, t, o, before.as_ref(), position, ctx.at, &ctx.who)? {
         // what an effect changed, which no guard could see, precedes its
         // current interval
         return refused(occurred_within());
@@ -1574,7 +1581,10 @@ fn take(
     }
     for (object, attribute) in index {
         if let Some(target) = ctx.work.get_mut(&object)? {
-            target.writes.insert(attribute.clone(), position);
+            target
+                .parts_mut()?
+                .writes
+                .insert(attribute.clone(), position);
         }
         ctx.index.push((object, attribute, position));
     }
@@ -1761,9 +1771,11 @@ fn walk_down(
         .cloned()
         .collect();
     for f in caused {
-        let Some(p) = ctx.work.get(&f.object_id)?.cloned() else {
+        let Some(p) = ctx.work.get(&f.object_id)? else {
             continue;
         };
+        ctx.work.parts(p)?;
+        let p = p.clone();
         let Some(pt) = lib.type_(&p.type_) else {
             continue;
         };
@@ -1789,7 +1801,7 @@ fn walk_down(
                     continue;
                 }
                 next_holding.insert(a.clone());
-                if p.writes.get(&a) == Some(&f.position) {
+                if p.held_parts()?.writes.get(&a) == Some(&f.position) {
                     ctx.cleared.push((p.id.clone(), a, f.position));
                 }
             }
@@ -1884,10 +1896,12 @@ fn redact_others(
         }
     }
     for (id, redacted) in names {
-        let Some(mut p) = ctx.work.get(&id)?.cloned() else {
+        let Some(held) = ctx.work.get(&id)? else {
             continue;
         };
-        if p.erased {
+        ctx.work.parts(held)?;
+        let mut p = held.clone();
+        if p.held_parts()?.erased {
             continue;
         }
         let stored_set = |a: &str| {
@@ -1903,7 +1917,13 @@ fn redact_others(
             } else {
                 p.attrs.remove(a);
             }
-            if let Some(spans) = p.spans.get_mut(a) {
+            // the parts alone, beside the type the closure above reads
+            let Some(parts) = p.parts.get_mut() else {
+                return Err(NotRun::Unsupported(format!(
+                    "the record of {id}, which was not read"
+                )));
+            };
+            if let Some(spans) = parts.spans.get_mut(a) {
                 for sp in spans.iter_mut().filter(|sp| sp.entered_position == *flowed) {
                     sp.value = Value::Absent;
                     ctx.redacted_spans.push((id.clone(), a.clone(), *flowed));
@@ -2018,14 +2038,14 @@ pub(crate) fn input_personal(t: &Type, x: &Transition, name: &str) -> bool {
 fn correct_span(
     lib: &Library,
     t: &Type,
-    o: &mut Object,
+    o: &mut crate::world::Parts,
     m: &str,
     value: &Value,
     position: i64,
     imported: &BTreeSet<i64>,
 ) -> Option<(i64, Option<(i64, i64)>)> {
     type Rows = BTreeMap<(String, i64, i64), Value>;
-    let held_of = |o: &Object| -> Rows {
+    let held_of = |o: &crate::world::Parts| -> Rows {
         let mut out = Rows::new();
         for (d, spans) in &o.spans {
             for sp in spans {
@@ -2108,27 +2128,30 @@ fn record_spans(
     position: i64,
     now: i64,
     who: &Who,
-) -> bool {
-    let changed: Vec<(String, Value)> = tracked_values(lib, t, o)
+) -> Result<bool, NotRun> {
+    let tracked = tracked_values(lib, t, o);
+    let parts = o.parts_mut()?;
+    let changed: Vec<(String, Value)> = tracked
         .into_iter()
         .filter(|(m, v)| {
             let was = before.and_then(|b| b.iter().find(|(n, _)| n == m).map(|(_, w)| w));
-            let spans = o.spans.get(m).map_or(0, Vec::len);
+            let spans = parts.spans.get(m).map_or(0, Vec::len);
             before.is_none() || spans == 0 || was != Some(v)
         })
         .collect();
     if before.is_some()
         && changed.iter().any(|(m, _)| {
-            o.spans
+            parts
+                .spans
                 .get(m)
                 .and_then(|s| s.last())
                 .is_some_and(|last| now < last.entered_at)
         })
     {
-        return false;
+        return Ok(false);
     }
     for (m, v) in changed {
-        let spans = o.spans.entry(m).or_default();
+        let spans = parts.spans.entry(m).or_default();
         if let Some(last) = spans.last_mut()
             && last.left_position.is_none()
         {
@@ -2149,7 +2172,7 @@ fn record_spans(
             corrected_by: None,
         });
     }
-    true
+    Ok(true)
 }
 
 /// Every proposal still pending on an erased object is invalidated, its
@@ -2173,7 +2196,7 @@ fn invalidate_proposals(
         .map(|p| p.id.clone())
         .collect();
     for id in pending {
-        let Some(mut p) = ctx.work.get(&id)?.cloned() else {
+        let Some(mut p) = ctx.work.whole(&id)?.cloned() else {
             continue;
         };
         let names: BTreeSet<String> = match p.attr("inputs") {
@@ -2186,7 +2209,7 @@ fn invalidate_proposals(
         let before = tracked_values(lib, pt, &p);
         p.state = "INVALIDATED".into();
         p.attrs.insert("inputs".into(), Value::Text("{}".into()));
-        record_spans(lib, pt, &mut p, Some(&before), position, ctx.at, &ctx.who);
+        record_spans(lib, pt, &mut p, Some(&before), position, ctx.at, &ctx.who)?;
         p.version += 1;
         let invalidated = Event {
             position,
@@ -2373,15 +2396,12 @@ fn file(
         created_by_kind: who.kind.clone(),
         order: world.next_order()?,
         superseded_by: None,
-        spans: BTreeMap::new(),
-        writes: BTreeMap::new(),
-        admissions: BTreeSet::new(),
-        erased: false,
+        parts: crate::world::Parts::default().held(),
         state_source: None,
         created_dated: true,
         recorded_from: world.now,
     };
-    record_spans(lib, pt, &mut o, None, position, world.now, &who);
+    record_spans(lib, pt, &mut o, None, position, world.now, &who)?;
     o.version = 1;
     let event = Event {
         position,
@@ -2437,10 +2457,10 @@ fn store_event(
     now: i64,
     who: &Who,
     payload: Json,
-) -> Event {
-    record_spans(lib, t, o, before, position, now, who);
+) -> Result<Event, NotRun> {
+    record_spans(lib, t, o, before, position, now, who)?;
     o.version += 1;
-    Event {
+    Ok(Event {
         position,
         object_id: o.id.clone(),
         object_seq: o.version,
@@ -2460,7 +2480,7 @@ fn store_event(
         imported: false,
         payload,
         reads: json!({}),
-    }
+    })
 }
 
 /// A change's source from the wire: each file's name to its text, and its
@@ -2591,6 +2611,10 @@ fn decide_change(
     };
     let xn = req.transition.as_str();
     let held = world.get_if(req.object_id.as_deref())?;
+    // the change's own record, which its event extends
+    if let Some(h) = held {
+        world.parts(h)?;
+    }
     let unknown = || Verdict::UnknownTransition {
         transition: req.transition.clone(),
     };
@@ -2636,10 +2660,7 @@ fn decide_change(
             created_by_kind: who.kind.clone(),
             order: world.next_order()?,
             superseded_by: None,
-            spans: BTreeMap::new(),
-            writes: BTreeMap::new(),
-            admissions: BTreeSet::new(),
-            erased: false,
+            parts: crate::world::Parts::default().held(),
             state_source: None,
             created_dated: true,
             recorded_from: now,
@@ -2771,7 +2792,7 @@ fn decide_change(
         now,
         &who,
         payload,
-    );
+    )?;
     event.context = req.context.clone();
     let id = o.id.clone();
     let version = o.version;
@@ -2906,6 +2927,8 @@ fn decide_proposal(
     // the proposal's own event, first
     let position = alloc.position();
     alloc.txn();
+    // the proposal's own record, which its decision extends
+    world.parts(p)?;
     let mut decided = p.clone();
     let before = tracked_values(lib, pt, &decided);
     decided.state = to.into();
@@ -2917,7 +2940,7 @@ fn decide_proposal(
         position,
         world.now,
         &who,
-    );
+    )?;
     decided.version += 1;
     let event = Event {
         position,
@@ -3143,7 +3166,11 @@ fn erase_chain(
     }
     members.sort();
     for (_, member, type_) in members {
-        if ctx.erased.contains_key(&member) && ctx.work.get(&member)?.is_some_and(|o| o.erased) {
+        let member_erased = match ctx.work.get(&member)? {
+            Some(o) => ctx.work.parts(o)?.erased,
+            None => false,
+        };
+        if ctx.erased.contains_key(&member) && member_erased {
             continue;
         }
         let Some((xn, x)) = ctx
@@ -4894,7 +4921,7 @@ types:
             created(&sign(&mut s, Some(named)));
             let w = s.snapshot().unwrap();
             assert_eq!(
-                w.get(&job).unwrap().unwrap().attr("for_whom"),
+                w.whole(&job).unwrap().unwrap().attr("for_whom"),
                 Value::Text("ana".into())
             );
             let last = s.history(&job).unwrap().last().cloned().unwrap();
@@ -5018,7 +5045,7 @@ types:
             (
                 w.log().unwrap().count(),
                 w.attempts().unwrap().len(),
-                w.get(&fine).unwrap().unwrap().version,
+                w.whole(&fine).unwrap().unwrap().version,
             )
         };
         let was = before(&s);
@@ -5241,7 +5268,7 @@ types:
             other => panic!("{other:?}"),
         }
         let world = s.snapshot().unwrap();
-        let j = world.get(&job).unwrap().unwrap();
+        let j = world.whole(&job).unwrap().unwrap();
         assert_eq!(j.state, "WORKING");
         assert_eq!(j.attr("engineer"), Value::Object(ana.clone()));
         let h = s.history(&job).unwrap();
@@ -5326,17 +5353,17 @@ types:
         let b = created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
         let w = s.snapshot().unwrap();
         assert_eq!(
-            w.get(&a).unwrap().unwrap().attr("number"),
+            w.whole(&a).unwrap().unwrap().attr("number"),
             Value::Text("ORD-0001".into())
         );
         // a field read from the object, and a segment left out whole where
         // its value is absent
         assert_eq!(
-            w.get(&a).unwrap().unwrap().attr("code"),
+            w.whole(&a).unwrap().unwrap().attr("code"),
             Value::Text("ORD-0001-EU".into())
         );
         assert_eq!(
-            w.get(&b).unwrap().unwrap().attr("code"),
+            w.whole(&b).unwrap().unwrap().attr("code"),
             Value::Text("ORD-0002".into())
         );
         // a sequence numbered per scope
@@ -5362,7 +5389,7 @@ types:
             json!({"order": &b}),
         ));
         let w = s.snapshot().unwrap();
-        let pos = |id: &str| w.get(id).unwrap().unwrap().attr("position");
+        let pos = |id: &str| w.whole(id).unwrap().unwrap().attr("position");
         assert_eq!(pos(&l1), Value::Text("ORD-0001-01".into()));
         assert_eq!(pos(&l2), Value::Text("ORD-0001-02".into()));
         assert_eq!(pos(&l3), Value::Text("ORD-0002-01".into()));
@@ -5380,7 +5407,7 @@ types:
         let c = created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
         let w = s.snapshot().unwrap();
         assert_eq!(
-            w.get(&c).unwrap().unwrap().attr("number"),
+            w.whole(&c).unwrap().unwrap().attr("number"),
             Value::Text("ORD-0003".into())
         );
     }
@@ -5454,7 +5481,7 @@ types:
         // an effect's writes, in order
         created(&req(&mut s, "finish", OPERATOR, (&job, false), json!({})));
         let w = s.snapshot().unwrap();
-        let j = w.get(&job).unwrap().unwrap();
+        let j = w.whole(&job).unwrap().unwrap();
         assert_eq!(j.state, "DONE");
         assert_eq!(j.attr("note"), Value::Text("done".into()));
         assert_eq!(j.attr("hours"), Value::Absent);
@@ -5462,9 +5489,88 @@ types:
         created(&req(&mut s, "retire", OPERATOR, (&job, false), json!({})));
         let w = s.snapshot().unwrap();
         assert_eq!(
-            w.get(&job).unwrap().unwrap().superseded_by.as_deref(),
+            w.whole(&job).unwrap().unwrap().superseded_by.as_deref(),
             Some(ana.as_str())
         );
+    }
+
+    /// An object's record beyond its row, its intervals, write index,
+    /// admissions and erasure, is read where an operation first reaches it:
+    /// for the one object, or, once a few of a type have been read alone,
+    /// for every object of the type the operation holds, as each would be
+    /// read alone; and an object without it is refused, never read as one
+    /// with no history (ADR-0165).
+    #[test]
+    fn an_objects_record_is_read_on_first_use_and_a_types_together_past_a_few() {
+        use crate::world::BATCH;
+        let mut s = store();
+        let n = 3 * BATCH;
+        let jobs: Vec<String> = (0..n)
+            .map(|k| {
+                let job = created(&req(
+                    &mut s,
+                    "open",
+                    OPERATOR,
+                    ("Job", true),
+                    json!({"title": format!("J{k}")}),
+                ));
+                // records that differ, so one read in place of another shows
+                if k % 2 == 0 {
+                    s.now += 60;
+                    created(&req(
+                        &mut s,
+                        "estimate",
+                        OPERATOR,
+                        (&job, false),
+                        json!({"hours": 1}),
+                    ));
+                }
+                job
+            })
+            .collect();
+        let alone = |id: &str| {
+            let w = s.snapshot().unwrap();
+            let o = w.get(id).unwrap().unwrap();
+            w.parts(o).unwrap().clone()
+        };
+        // a read by id and a scan read the rows alone
+        let w = s.snapshot().unwrap();
+        assert!(w.get(&jobs[0]).unwrap().unwrap().parts.get().is_none());
+        let scanned = w.of_type("Job").unwrap();
+        assert_eq!(scanned.len(), n);
+        let read = || scanned.iter().filter(|o| o.parts.get().is_some()).count();
+        assert_eq!(read(), 0);
+        // the first few reached are read one by one, as the store holds them
+        for (k, o) in scanned.iter().take(BATCH).enumerate() {
+            assert_eq!(w.parts(o).unwrap(), &alone(&o.id));
+            assert_eq!(read(), k + 1);
+        }
+        assert!(w.parts(scanned[0]).unwrap().writes.contains_key("hours"));
+        assert!(!w.parts(scanned[1]).unwrap().writes.contains_key("hours"));
+        // the next reads the rest of the type together, each as it is
+        // alone
+        w.parts(scanned[BATCH]).unwrap();
+        assert_eq!(read(), n);
+        for o in &scanned {
+            assert_eq!(o.parts.get(), Some(&alone(&o.id)), "{}", o.id);
+        }
+        // an object without its record is refused, never taken as one
+        // with no history
+        let fresh = s.snapshot().unwrap();
+        let mut unread = fresh.get(&jobs[0]).unwrap().unwrap().clone();
+        assert!(unread.parts.get().is_none());
+        assert!(matches!(unread.held_parts(), Err(NotRun::Unsupported(_))));
+        assert!(matches!(unread.parts_mut(), Err(NotRun::Unsupported(_))));
+        let mut bare = World::new(fresh.lib, fresh.now);
+        assert!(matches!(bare.parts(&unread), Err(NotRun::Unsupported(_))));
+        assert!(matches!(
+            bare.insert(unread.clone()),
+            Err(NotRun::Unsupported(_))
+        ));
+        // a change reads it first
+        let mut w = s.snapshot().unwrap();
+        let changing = w.get_mut(&jobs[0]).unwrap().unwrap();
+        assert_eq!(changing.parts_mut().unwrap(), &mut alone(&jobs[0]));
     }
 
     #[test]
@@ -5506,9 +5612,14 @@ types:
         s.now += 600;
         // read back from the store, as the next request reads them
         let w = s.snapshot().unwrap();
-        let o = w.get(&job).unwrap().unwrap();
-        let counts: Vec<(&str, usize)> =
-            o.spans.iter().map(|(m, v)| (m.as_str(), v.len())).collect();
+        let o = w.whole(&job).unwrap().unwrap();
+        let counts: Vec<(&str, usize)> = o
+            .held_parts()
+            .unwrap()
+            .spans
+            .iter()
+            .map(|(m, v)| (m.as_str(), v.len()))
+            .collect();
         assert_eq!(counts, vec![("engineer", 2), ("priority", 1), ("state", 3)]);
         let t = w.lib.type_("Job");
         let at = |e: &str| {
@@ -5598,7 +5709,7 @@ types:
             json!({"subject": &job, "outcome": "HIGH", "corrects": &first}),
         ));
         let w = s.snapshot().unwrap();
-        let f = w.get(&fixed).unwrap().unwrap();
+        let f = w.whole(&fixed).unwrap().unwrap();
         assert_eq!(f.attr("occurred_at"), Value::Timestamp(t0));
         assert_eq!(f.attr("recorded_at"), Value::Timestamp(t0 + 3600));
         // the subject reads only what nothing has corrected
@@ -5754,10 +5865,13 @@ types:
         let v = at(&mut s, "start", &job, now - day);
         assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
         let w = s.snapshot().unwrap();
-        let o = w.get(&job).unwrap().unwrap();
-        let working = o.spans["state"].last().unwrap();
+        let o = w.whole(&job).unwrap().unwrap();
+        let working = o.held_parts().unwrap().spans["state"].last().unwrap();
         assert_eq!(working.entered_at, now - day);
-        assert_eq!(o.spans["state"][0].left_at, Some(now - day));
+        assert_eq!(
+            o.held_parts().unwrap().spans["state"][0].left_at,
+            Some(now - day)
+        );
         let events = s.history(&job).unwrap();
         assert_eq!(events.last().unwrap().occurred_at, Some(now - day));
         assert_eq!(events.last().unwrap().recorded_at, now);
@@ -5880,8 +5994,24 @@ types:
             json!({"ref": "W"}),
         ));
         let w = s.snapshot().unwrap();
-        assert!(w.get(&a).unwrap().unwrap().admissions.is_empty());
-        assert!(w.get(&c).unwrap().unwrap().admissions.is_empty());
+        assert!(
+            w.whole(&a)
+                .unwrap()
+                .unwrap()
+                .held_parts()
+                .unwrap()
+                .admissions
+                .is_empty()
+        );
+        assert!(
+            w.whole(&c)
+                .unwrap()
+                .unwrap()
+                .held_parts()
+                .unwrap()
+                .admissions
+                .is_empty()
+        );
     }
 
     #[test]
@@ -6036,8 +6166,8 @@ types:
         );
         // the index is the store's: it holds across requests
         let w = s.snapshot().unwrap();
-        let o = w.get(&job).unwrap().unwrap();
-        assert!(o.writes["note"] > o.writes["signed"]);
+        let o = w.whole(&job).unwrap().unwrap();
+        assert!(o.held_parts().unwrap().writes["note"] > o.held_parts().unwrap().writes["signed"]);
         created(&req(&mut s, "sign", OPERATOR, (&job, false), json!({})));
         created(&req(&mut s, "finish", OPERATOR, (&job, false), json!({})));
     }
@@ -6104,10 +6234,12 @@ types:
             to("WORKING", &["working_invariant"]),
         ));
         let w = s.snapshot().unwrap();
-        assert_eq!(w.get(&job).unwrap().unwrap().state, "WORKING");
+        assert_eq!(w.whole(&job).unwrap().unwrap().state, "WORKING");
         assert!(
-            w.get(&job)
+            w.whole(&job)
                 .unwrap()
+                .unwrap()
+                .held_parts()
                 .unwrap()
                 .admissions
                 .contains("working_invariant")
@@ -6139,8 +6271,10 @@ types:
         assert!(
             s.snapshot()
                 .unwrap()
-                .get(&job)
+                .whole(&job)
                 .unwrap()
+                .unwrap()
+                .held_parts()
                 .unwrap()
                 .admissions
                 .is_empty()
@@ -6245,11 +6379,13 @@ types:
         };
         assert_eq!(events.len(), 2);
         let w = s.snapshot().unwrap();
-        let o = w.get(&job).unwrap().unwrap();
+        let o = w.whole(&job).unwrap().unwrap();
         assert_eq!(o.attr("note"), Value::Absent);
-        assert!(o.erased && o.admissions.contains("noted"));
+        assert!(
+            o.held_parts().unwrap().erased && o.held_parts().unwrap().admissions.contains("noted")
+        );
         assert_eq!(
-            w.get(&check).unwrap().unwrap().attr("remark"),
+            w.whole(&check).unwrap().unwrap().attr("remark"),
             Value::Absent
         );
         // the past event keeps its place and shape, and loses the value
@@ -6282,9 +6418,13 @@ types:
         );
         // its label's note leaves the label's row and its creation event, as
         // no transition, the name kept (declaration-syntax.md §6.8)
-        let l = w.get(&tag).unwrap().unwrap();
+        let l = w.whole(&tag).unwrap().unwrap();
         assert_eq!(
-            (l.attr("note"), l.attr("name"), l.erased),
+            (
+                l.attr("note"),
+                l.attr("name"),
+                l.held_parts().unwrap().erased
+            ),
             (Value::Absent, Value::Text("vip".into()), false)
         );
         let labelled = s.history(&tag).unwrap();
@@ -6307,8 +6447,11 @@ types:
             json!({"reason": "asked"}),
         ));
         let w = s.snapshot().unwrap();
-        let l = w.get(&own).unwrap().unwrap();
-        assert_eq!((l.attr("note"), l.erased), (Value::Absent, true));
+        let l = w.whole(&own).unwrap().unwrap();
+        assert_eq!(
+            (l.attr("note"), l.held_parts().unwrap().erased),
+            (Value::Absent, true)
+        );
         // what was erased stays erased, and the rest is still written
         let not_erased = Verdict::Unsatisfied {
             clause: "not_erased".into(),
@@ -6583,7 +6726,12 @@ types:
             }
         );
         assert_eq!(
-            s.snapshot().unwrap().get(&handover).unwrap().unwrap().state,
+            s.snapshot()
+                .unwrap()
+                .whole(&handover)
+                .unwrap()
+                .unwrap()
+                .state,
             "PENDING"
         );
         let ana = created(&req(
@@ -6620,8 +6768,8 @@ types:
         let w = s.snapshot().unwrap();
         assert_eq!(
             (
-                w.get(&job).unwrap().unwrap().state.as_str(),
-                w.get(&handover).unwrap().unwrap().state.as_str()
+                w.whole(&job).unwrap().unwrap().state.as_str(),
+                w.whole(&handover).unwrap().unwrap().state.as_str()
             ),
             ("DONE", "EXECUTED")
         );
@@ -6673,7 +6821,7 @@ types:
             json!({"reason": "asked"}),
         ));
         let w = s.snapshot().unwrap();
-        let p = w.get(&late).unwrap().unwrap();
+        let p = w.whole(&late).unwrap().unwrap();
         assert_eq!(p.state, "INVALIDATED");
         let erasure = s.history(&other).unwrap().last().cloned().unwrap();
         let invalidated = s.history(&late).unwrap().last().cloned().unwrap();
@@ -6750,9 +6898,9 @@ types:
         };
         let at = events[0];
         let w = s.snapshot().unwrap();
-        let o = w.get(&j).unwrap().unwrap();
+        let o = w.whole(&j).unwrap().unwrap();
         let t = w.lib.type_("Job").unwrap();
-        let spans = &o.spans["crew"];
+        let spans = &o.held_parts().unwrap().spans["crew"];
         assert_eq!(
             (spans.len(), spans[0].value.clone(), spans[0].corrected_by),
             (1, crew("SOUTH"), Some(at))
@@ -6766,7 +6914,7 @@ types:
             .log()
             .unwrap()
             .filter(|e| e.object_id == j)
-            .map(|e| crate::eval::transition_row(&w, o, t, e))
+            .map(|e| crate::eval::transition_row(&w, o, w.parts(o).unwrap(), t, e))
             .collect();
         // the original write's event is not changed, and the start credits
         // the corrected crew
@@ -6817,9 +6965,9 @@ types:
             json!({"crew": "NORTH", "reason": "never moved"}),
         ));
         let w = s.snapshot().unwrap();
-        let o = w.get(&j).unwrap().unwrap();
+        let o = w.whole(&j).unwrap().unwrap();
         let t = w.lib.type_("Job").unwrap();
-        let spans = &o.spans["crew"];
+        let spans = &o.held_parts().unwrap().spans["crew"];
         assert_eq!(
             (
                 spans.len(),
@@ -6831,7 +6979,13 @@ types:
         );
         let last = w.log().unwrap().rfind(|e| e.object_id == j).unwrap();
         assert_eq!(
-            held_crew(&crate::eval::transition_row(&w, o, t, last)),
+            held_crew(&crate::eval::transition_row(
+                &w,
+                o,
+                w.parts(o).unwrap(),
+                t,
+                last
+            )),
             crew("NORTH")
         );
         drop(w);
@@ -6877,15 +7031,21 @@ types:
             json!({"crew": "EAST", "reason": "mis-keyed"}),
         ));
         let w = s.snapshot().unwrap();
-        let o = w.get(&j).unwrap().unwrap();
+        let o = w.whole(&j).unwrap().unwrap();
         let t = w.lib.type_("Job").unwrap();
         let states = crate::eval::interval_rows(&w, o, t, "state").unwrap();
         let start = w.log().unwrap().find(|e| e.transition == "start").unwrap();
         assert_eq!(
             (
                 held_crew(states.last().unwrap()),
-                held_crew(&crate::eval::transition_row(&w, o, t, start)),
-                o.spans["crew"]
+                held_crew(&crate::eval::transition_row(
+                    &w,
+                    o,
+                    w.parts(o).unwrap(),
+                    t,
+                    start
+                )),
+                o.held_parts().unwrap().spans["crew"]
                     .iter()
                     .map(|sp| sp.value.clone())
                     .collect::<Vec<_>>()
@@ -6968,7 +7128,7 @@ types:
         );
         assert_eq!(
             refused["objects"][&ana],
-            json!(w.get(&ana).unwrap().unwrap().version)
+            json!(w.whole(&ana).unwrap().unwrap().version)
         );
     }
 
@@ -7379,11 +7539,12 @@ types:
         ));
         {
             let w = s.snapshot().unwrap();
-            let o = w.get(&job).unwrap().unwrap();
+            let o = w.whole(&job).unwrap().unwrap();
             let t = w.lib.type_("Job").unwrap();
             let e = w.log().unwrap().rfind(|e| e.transition == "fix").unwrap();
             assert_eq!(e.payload["inputs"]["reason"], json!("Dana asked"));
-            let Value::Row(row) = crate::eval::transition_row(&w, o, t, e) else {
+            let Value::Row(row) = crate::eval::transition_row(&w, o, w.parts(o).unwrap(), t, e)
+            else {
                 panic!("a transition's row")
             };
             assert_eq!(row.get("reason"), Some(&Value::Absent));
@@ -7643,7 +7804,12 @@ types:
             Verdict::Satisfied { .. }
         ));
         assert_eq!(
-            s.snapshot().unwrap().get(OPERATOR).unwrap().unwrap().state,
+            s.snapshot()
+                .unwrap()
+                .whole(OPERATOR)
+                .unwrap()
+                .unwrap()
+                .state,
             "RETIRED"
         );
     }
@@ -7783,7 +7949,7 @@ types:
         let person = match s
             .snapshot()
             .unwrap()
-            .get(&desk)
+            .whole(&desk)
             .unwrap()
             .unwrap()
             .attr("person")
@@ -7832,7 +7998,7 @@ types:
             let w = s.snapshot().unwrap();
             [&desk, &office, &badges[0], &badges[1], &cards[0], &cards[1]]
                 .iter()
-                .map(|id| w.get(id).unwrap().unwrap().version)
+                .map(|id| w.whole(id).unwrap().unwrap().version)
                 .collect()
         };
         let before = versions(&s);
@@ -7884,21 +8050,25 @@ types:
         }
         let w = s.snapshot().unwrap();
         assert_eq!(
-            w.get(&badges[0]).unwrap().unwrap().attr("holder_name"),
+            w.whole(&badges[0]).unwrap().unwrap().attr("holder_name"),
             Value::Text("Visitor".into())
         );
         assert_eq!(
-            w.get(&badges[1]).unwrap().unwrap().attr("holder_name"),
+            w.whole(&badges[1]).unwrap().unwrap().attr("holder_name"),
             Value::Absent
         );
         // the grade it copied leaves the attribute and its interval
         for b in &badges {
-            let o = w.get(b).unwrap().unwrap();
+            let o = w.whole(b).unwrap().unwrap();
             assert_eq!(o.attr("tier"), Value::Absent);
-            assert!(o.spans["tier"].iter().all(|sp| sp.value == Value::Absent));
+            assert!(
+                o.held_parts().unwrap().spans["tier"]
+                    .iter()
+                    .all(|sp| sp.value == Value::Absent)
+            );
         }
         for c in &cards {
-            assert_eq!(w.get(c).unwrap().unwrap().attr("text"), Value::Absent);
+            assert_eq!(w.whole(c).unwrap().unwrap().attr("text"), Value::Absent);
         }
         // every other object redacted gets one redact event, caused by the
         // erasure, naming what it redacted, its version advanced

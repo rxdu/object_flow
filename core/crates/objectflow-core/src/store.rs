@@ -551,7 +551,7 @@ fn event_of(
     declaration_version: i64,
     opened_under: i64,
     payload: serde_json::Value,
-) -> Event {
+) -> Stored<Event> {
     if let Some(before) = before {
         for (d, was) in before {
             let v = if d == "state" {
@@ -565,7 +565,7 @@ fn event_of(
             if *was == v {
                 continue;
             }
-            let spans = o.spans.entry(d.clone()).or_default();
+            let spans = o.parts_mut()?.spans.entry(d.clone()).or_default();
             if let Some(last) = spans.last_mut()
                 && last.left_position.is_none()
             {
@@ -588,7 +588,7 @@ fn event_of(
         }
     }
     o.version += 1;
-    Event {
+    Ok(Event {
         position,
         object_id: o.id.clone(),
         object_seq: o.version,
@@ -608,7 +608,7 @@ fn event_of(
         payload,
         reads: serde_json::json!({}),
         context: None,
-    }
+    })
 }
 
 /// What a version kept for history on an erased object, cleared where it
@@ -1636,12 +1636,15 @@ impl Store {
             return refused_with("fatal");
         };
         new.version = self.lib.version + 1;
+        // the change's own record, which its publish event extends
+        world.parts(c)?;
         let change_obj = c.clone();
-        let old_objects: BTreeMap<String, Object> = world
-            .in_order()?
-            .into_iter()
-            .map(|o| (o.id.clone(), o.clone()))
-            .collect();
+        // every object whole, the identifiers each held before the version
+        // read from its record, the actor's among them, read by id before
+        let all = world.in_order()?;
+        world.with_parts(&all)?;
+        let old_objects: BTreeMap<String, Object> =
+            all.into_iter().map(|o| (o.id.clone(), o.clone())).collect();
         drop(world);
         self.conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
         let installed = self.install(
@@ -1811,7 +1814,7 @@ impl Store {
             new.version,
             new.version,
             serde_json::json!({ "version": new.version }),
-        );
+        )?;
         let mut change_set = Change::default();
         let mut positions = vec![publish_position];
         change_set.writes.push((change_obj, false, publish_event));
@@ -1869,23 +1872,31 @@ impl Store {
             // marks or a mapping wrote among them, and none it no longer
             // marks or holds, nor a personal one of an erased object, which
             // is absent or redacted below (DESIGN.md §10, D533)
-            let identifiers = |ty: Option<&Type>, obj: &Object| -> Vec<(String, String, String)> {
-                ty.map(|ty| {
-                    ty.attributes
-                        .iter()
-                        .filter(|(_, spec)| !(obj.erased && spec.personal))
-                        .filter_map(|(a, spec)| {
-                            let source = spec.external.as_ref()?;
-                            let v = crate::request::external_text(&obj.attr(a))?;
-                            Some((source.clone(), v, a.clone()))
+            let identifiers =
+                |ty: Option<&Type>, obj: &Object| -> Stored<Vec<(String, String, String)>> {
+                    let erased = obj.parts.get().map(|p| p.erased).ok_or_else(|| {
+                        StoreError(format!(
+                            "{}'s record, which the publish did not read",
+                            obj.id
+                        ))
+                    })?;
+                    Ok(ty
+                        .map(|ty| {
+                            ty.attributes
+                                .iter()
+                                .filter(|(_, spec)| !(erased && spec.personal))
+                                .filter_map(|(a, spec)| {
+                                    let source = spec.external.as_ref()?;
+                                    let v = crate::request::external_text(&obj.attr(a))?;
+                                    Some((source.clone(), v, a.clone()))
+                                })
+                                .collect()
                         })
-                        .collect()
-                })
-                .unwrap_or_default()
-            };
+                        .unwrap_or_default())
+                };
             if let Some(was) = old_objects.get(&o.id) {
-                let held = identifiers(Some(t), o);
-                for (source, value, _) in identifiers(old.type_(&was.type_), was) {
+                let held = identifiers(Some(t), o)?;
+                for (source, value, _) in identifiers(old.type_(&was.type_), was)? {
                     if !held.iter().any(|(s, v, _)| *s == source && *v == value) {
                         change_set
                             .external_removed
@@ -1920,7 +1931,7 @@ impl Store {
                 publish_position
             };
             let mut extra = Vec::new();
-            for (d, spans) in &mut x.spans {
+            for (d, spans) in &mut x.parts_mut()?.spans {
                 if !tracked_now.contains(d)
                     && let Some(last) = spans.last_mut()
                     && last.left_position.is_none()
@@ -1932,10 +1943,11 @@ impl Store {
             }
             // what each tracked member held before the migration: its open
             // span's value
+            let spans_now = &x.parts_mut()?.spans;
             let before: Vec<(String, Value)> = tracked_now
                 .iter()
                 .filter_map(|d| {
-                    x.spans
+                    spans_now
                         .get(d)
                         .and_then(|s| s.last())
                         .filter(|sp| sp.left_position.is_none())
@@ -1943,14 +1955,18 @@ impl Store {
                 })
                 .collect();
             for d in &tracked_now {
-                if x.spans.get(d).is_none_or(Vec::is_empty) {
+                if x.parts_mut()?.spans.get(d).is_none_or(Vec::is_empty) {
                     let at = if migrates && backfilled(d) {
                         position
                     } else {
                         publish_position
                     };
                     let sp = opened(&x, d, at, now, who, new.version);
-                    x.spans.entry(d.clone()).or_default().push(sp.clone());
+                    x.parts_mut()?
+                        .spans
+                        .entry(d.clone())
+                        .or_default()
+                        .push(sp.clone());
                     if !migrates || at == publish_position {
                         extra.push((d.clone(), sp));
                     }
@@ -1962,13 +1978,13 @@ impl Store {
             if migrates {
                 positions.push(position);
                 for (n, reason) in &admits {
-                    x.admissions.insert(n.clone());
+                    x.parts_mut()?.admissions.insert(n.clone());
                     change_set
                         .admitted
                         .push((x.id.clone(), n.clone(), position, reason.clone()));
                 }
                 for n in &discharges {
-                    x.admissions.remove(n);
+                    x.parts_mut()?.admissions.remove(n);
                     change_set
                         .discharged
                         .push((x.id.clone(), n.clone(), position));
@@ -1989,7 +2005,7 @@ impl Store {
                         "admits": admits.iter().map(|(n, _)| n).collect::<Vec<_>>(),
                         "discharges": discharges,
                     }),
-                );
+                )?;
                 // a migration is caused by the publish's event (DESIGN.md §5.9)
                 let event = Event {
                     cause: Some(publish_position),
@@ -2001,11 +2017,12 @@ impl Store {
             // object already erased, by a redact event (publish-and-import.md
             // §1 step 5), which admits what the absence breaks, as the
             // erasure it completes does (declaration-syntax.md §6.4)
+            let erased = x.parts_mut()?.erased;
             let newly: Vec<String> = t
                 .attributes
                 .iter()
                 .filter(|(n, a)| {
-                    x.erased
+                    erased
                         && a.personal
                         && old_t
                             .and_then(|ot| ot.attribute(n))
@@ -2018,7 +2035,7 @@ impl Store {
                 positions.push(position);
                 for n in &newly {
                     x.attrs.remove(n);
-                    for sp in x.spans.get_mut(n).into_iter().flatten() {
+                    for sp in x.parts_mut()?.spans.get_mut(n).into_iter().flatten() {
                         sp.value = Value::Absent;
                     }
                 }
@@ -2028,10 +2045,10 @@ impl Store {
                 }
                 after.insert(x.clone())?;
                 for n in failing_invariants(&after, &x).map_err(StoreError::from)? {
-                    if !x.admissions.contains(&n)
+                    if !x.parts_mut()?.admissions.contains(&n)
                         && invariant_reads(t, &n).iter().any(|r| newly.contains(r))
                     {
-                        x.admissions.insert(n.clone());
+                        x.parts_mut()?.admissions.insert(n.clone());
                         change_set
                             .admitted
                             .push((x.id.clone(), n, position, String::new()));
@@ -2050,7 +2067,7 @@ impl Store {
                     new.version,
                     new.version,
                     serde_json::json!({ "redacted": newly }),
-                );
+                )?;
                 // a migration is caused by the publish's event (DESIGN.md §5.9)
                 let event = Event {
                     cause: Some(publish_position),
@@ -2093,7 +2110,7 @@ impl Store {
                     new.version,
                     new.version,
                     serde_json::json!({ "by": change.id }),
-                );
+                )?;
                 // a migration is caused by the publish's event (DESIGN.md §5.9)
                 let event = Event {
                     cause: Some(publish_position),
@@ -2575,7 +2592,14 @@ pub(crate) fn read_all(conn: &Connection, lib: &Library) -> Stored<Vec<Object>> 
     for type_ in &types {
         objects.append(&mut read_rows(conn, lib, type_, &Scope::All)?);
     }
-    read_parts(conn, lib, &Scope::All, &mut objects)?;
+    let of: BTreeMap<String, String> = objects
+        .iter()
+        .map(|(id, o)| (id.clone(), o.type_.clone()))
+        .collect();
+    let mut parts = read_parts(conn, lib, &Scope::All, &of)?;
+    for (id, o) in &mut objects {
+        o.parts = parts.remove(id).unwrap_or_default().held();
+    }
     let mut all: Vec<Object> = objects.into_values().collect();
     all.sort_by_key(|o| o.order);
     Ok(all)
@@ -2672,6 +2696,35 @@ pub(crate) fn read_ids_with(
     Ok(Some(ids))
 }
 
+/// The parts of one object's record beyond its row (ADR-0165).
+pub(crate) fn read_parts_of(
+    conn: &Connection,
+    lib: &Library,
+    id: &str,
+    type_: &str,
+) -> Stored<crate::world::Parts> {
+    let types = BTreeMap::from([(id.to_string(), type_.to_string())]);
+    Ok(read_parts(conn, lib, &Scope::One(id), &types)?
+        .remove(id)
+        .unwrap_or_default())
+}
+
+/// The parts of the records of every object of a concrete type, by id, in
+/// one read of each part's table (ADR-0165).
+pub(crate) fn read_type_parts(
+    conn: &Connection,
+    lib: &Library,
+    type_: &str,
+) -> Stored<BTreeMap<String, crate::world::Parts>> {
+    let name = table(type_);
+    let mut ids = conn.prepare(&format!("SELECT id FROM {name}"))?;
+    let types: BTreeMap<String, String> = ids
+        .query_map([], |r| r.get::<_, String>(0))?
+        .map(|id| id.map(|id| (id, type_.to_string())))
+        .collect::<Result<_, _>>()?;
+    read_parts(conn, lib, &Scope::Type(name), &types)
+}
+
 /// The highest place in creation order the store holds, 0 where it holds
 /// no object.
 pub(crate) fn read_max_order(conn: &Connection) -> Stored<i64> {
@@ -2692,8 +2745,7 @@ fn read_objects(
     type_: &str,
     scope: Scope<'_>,
 ) -> Stored<Vec<Object>> {
-    let mut objects = read_rows(conn, lib, type_, &scope)?;
-    read_parts(conn, lib, &scope, &mut objects)?;
+    let objects = read_rows(conn, lib, type_, &scope)?;
     let mut all: Vec<Object> = objects.into_values().collect();
     all.sort_by_key(|o| o.order);
     Ok(all)
@@ -2806,10 +2858,8 @@ fn read_rows(
                 created_at,
                 created_by_kind: kind,
                 order,
-                spans: BTreeMap::new(),
-                writes: BTreeMap::new(),
-                admissions: std::collections::BTreeSet::new(),
-                erased: false,
+                // the rest of its record is read on first use (ADR-0165)
+                parts: std::cell::OnceCell::new(),
                 created_dated,
                 recorded_from,
                 state_source: Some(source),
@@ -2836,17 +2886,22 @@ fn read_rows(
     Ok(objects)
 }
 
-/// The parts of the records of the objects given beyond their rows, for the
-/// scope given: their flow data, write index, standing admissions and
-/// whether their own erasure is recorded.
+/// The parts of the records of the objects given, by id with their types,
+/// beyond their rows, for the scope given: their flow data, write index,
+/// standing admissions and whether their own erasure is recorded, an object
+/// with none of a part holding it empty.
 fn read_parts(
     conn: &Connection,
     lib: &Library,
     scope: &Scope<'_>,
-    objects: &mut BTreeMap<String, Object>,
-) -> Stored<()> {
+    types: &BTreeMap<String, String>,
+) -> Stored<BTreeMap<String, crate::world::Parts>> {
     let only = scope.bound();
-    spans(conn, lib, scope, objects)?;
+    let mut parts: BTreeMap<String, crate::world::Parts> = types
+        .keys()
+        .map(|id| (id.clone(), crate::world::Parts::default()))
+        .collect();
+    spans(conn, lib, scope, types, &mut parts)?;
     let mut index = conn.prepare(&format!(
         "SELECT object_id, attribute, position FROM of_attribute_write{}",
         scope.on_object("WHERE")
@@ -2860,8 +2915,8 @@ fn read_parts(
     })?;
     for row in rows {
         let (id, attribute, position) = row?;
-        if let Some(o) = objects.get_mut(&id) {
-            o.writes.insert(attribute, position);
+        if let Some(p) = parts.get_mut(&id) {
+            p.writes.insert(attribute, position);
         }
     }
     // an object whose own erasure is recorded
@@ -2871,8 +2926,8 @@ fn read_parts(
     ))?;
     let rows = erasures.query_map(rusqlite::params_from_iter(&only), |r| r.get::<_, String>(0))?;
     for row in rows {
-        if let Some(o) = objects.get_mut(&row?) {
-            o.erased = true;
+        if let Some(p) = parts.get_mut(&row?) {
+            p.erased = true;
         }
     }
     // the admissions that stand
@@ -2885,11 +2940,11 @@ fn read_parts(
     })?;
     for row in rows {
         let (id, invariant) = row?;
-        if let Some(o) = objects.get_mut(&id) {
-            o.admissions.insert(invariant);
+        if let Some(p) = parts.get_mut(&id) {
+            p.admissions.insert(invariant);
         }
     }
-    Ok(())
+    Ok(parts)
 }
 
 /// The flow data of the objects given, from the interval index, in each
@@ -2898,7 +2953,8 @@ fn spans(
     conn: &Connection,
     lib: &Library,
     scope: &Scope<'_>,
-    objects: &mut BTreeMap<String, Object>,
+    types: &BTreeMap<String, String>,
+    parts: &mut BTreeMap<String, crate::world::Parts>,
 ) -> Stored<()> {
     let only = scope.bound();
     let mut stmt = conn.prepare(&format!(
@@ -2940,7 +2996,7 @@ fn spans(
             legacy,
             corrected_by,
         ) = row?;
-        let Some(o) = objects.get_mut(&id) else {
+        let (Some(type_), Some(p)) = (types.get(&id), parts.get_mut(&id)) else {
             return Err(StoreError(format!(
                 "an interval of {id}, which the directory lacks"
             )));
@@ -2948,7 +3004,7 @@ fn spans(
         let value = if dimension == "state" {
             match value {
                 Sql::Text(name) => Value::State {
-                    type_: o.type_.clone(),
+                    type_: type_.clone(),
                     name,
                 },
                 other => return Err(StoreError(format!("{id}'s state interval holds {other:?}"))),
@@ -2956,7 +3012,7 @@ fn spans(
         } else {
             // a dropped attribute's intervals, and a set-aside's, stay as
             // history, and nothing the version declares reads them (§10)
-            let Some(a) = lib.type_(&o.type_).and_then(|t| t.attribute(&dimension)) else {
+            let Some(a) = lib.type_(type_).and_then(|t| t.attribute(&dimension)) else {
                 continue;
             };
             from_sql(value, &a.declared, lib)?
@@ -2977,7 +3033,7 @@ fn spans(
             legacy,
             corrected_by,
         };
-        o.spans.entry(dimension).or_default().push(span);
+        p.spans.entry(dimension).or_default().push(span);
     }
     Ok(())
 }
@@ -3101,7 +3157,12 @@ fn write(
         }
         // the spans this event opened or ended, written with it, in the same
         // transaction (storage-schema.md, of_interval)
-        for (dimension, spans) in &o.spans {
+        // a written object's record was read before it was changed
+        let parts = o
+            .parts
+            .get()
+            .ok_or_else(|| StoreError(format!("{}'s record, written without being read", o.id)))?;
+        for (dimension, spans) in &parts.spans {
             // and those a correction relabelled or reached (§6.4)
             for sp in spans.iter().filter(|sp| {
                 sp.entered_position == event.position
@@ -3244,7 +3305,7 @@ fn write(
     // does every field of its legacy entries their kind does not keep (§9
     // step 6, ADR-0078)
     for (o, _, _) in &change.writes {
-        if o.erased {
+        if o.parts.get().is_some_and(|p| p.erased) {
             clear_kept(tx, lib, earlier, o)?;
             redact_legacy(tx, &o.id)?;
         }
@@ -3304,7 +3365,7 @@ mod tests {
         let lib = Library::load(&[]).unwrap();
         let store = Store::sandbox(lib, 1_767_225_600).unwrap();
         let world = store.snapshot().unwrap();
-        let op = world.get(OPERATOR).unwrap().unwrap();
+        let op = world.whole(OPERATOR).unwrap().unwrap();
         assert_eq!(op.type_, "Operator");
         assert_eq!(op.state, "ACTIVE");
         assert_eq!(op.attr("identity"), Value::Text(OPERATOR.into()));
@@ -3329,13 +3390,13 @@ mod tests {
         // an id the store does not hold is none, and is held once made
         assert_eq!(world.get("nobody").unwrap(), None);
         let order = world.next_order().unwrap();
-        assert!(order > world.get(OPERATOR).unwrap().unwrap().order);
-        let mut made = world.get(OPERATOR).unwrap().unwrap().clone();
+        assert!(order > world.whole(OPERATOR).unwrap().unwrap().order);
+        let mut made = world.whole(OPERATOR).unwrap().unwrap().clone();
         made.id = "nobody".into();
         made.order = order;
         made.state_source = None;
         world.insert(made).unwrap();
-        assert_eq!(world.get("nobody").unwrap().unwrap().order, order);
+        assert_eq!(world.whole("nobody").unwrap().unwrap().order, order);
         assert_eq!(world.next_order().unwrap(), order + 1);
         assert_eq!(world.of_type("Operator").unwrap().len(), 2);
     }

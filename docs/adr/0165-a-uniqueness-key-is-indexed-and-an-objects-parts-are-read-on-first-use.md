@@ -29,4 +29,4 @@ Building ADR-0162's step 3 left two costs measured and unremoved.
 
 - `storage-schema.md` §3 and §5 name the key index; `design/scoped-reads.md` §7 records what each decision measured.
 - A store whose tables were built before decision 1 gains a key index when a publish next rebuilds the table, or by an engine release's installation (`storage-schema.md` §12).
-- The core's `Object` keeps its parts behind accessors that read them on first use, and every reader goes through them.
+- The core's `Object` keeps its parts behind accessors that read them on first use, and every reader goes through them. A read that reaches many objects' records, a metric's family, a query's page, an export or a publish's simulation, reads them together, a type at a time; and an operation that reaches more than eight of a type's records one at a time, as a scan's filter calling a flow function does, reads the rest it holds of the type together, so no loop reads record by record. An object reaching a change or a write without its record is an error, never an object with no history.

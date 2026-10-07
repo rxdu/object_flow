@@ -52,6 +52,8 @@ pub fn diagnostics(
     let since = world.now - window;
     let within = |at: i64| at >= since && at <= world.now;
     let objects = world.of_type(type_)?;
+    // their flow data, which the waits, the entries and the assignees read
+    world.with_parts(&objects)?;
     let family: BTreeSet<&str> = objects.iter().map(|o| o.id.as_str()).collect();
     // each of the family's events in the window, as the transitions source
     // reads it
@@ -67,7 +69,7 @@ pub fn diagnostics(
         let Some(ot) = lib.type_(&o.type_) else {
             continue;
         };
-        if let Value::Row(f) = transition_row(world, o, ot, e) {
+        if let Value::Row(f) = transition_row(world, o, world.parts(o)?, ot, e) {
             rows.push(std::sync::Arc::unwrap_or_clone(f));
         }
     }
@@ -114,12 +116,14 @@ pub fn diagnostics(
             .collect(),
         false,
     );
-    let entered: BTreeSet<String> = objects
-        .iter()
-        .flat_map(|o| o.spans.get("state").into_iter().flatten())
-        .filter(|sp| within(sp.entered_at))
-        .map(|sp| text(Some(&sp.value)))
-        .collect();
+    let mut entered: BTreeSet<String> = BTreeSet::new();
+    for o in &objects {
+        for sp in world.parts(o)?.spans.get("state").into_iter().flatten() {
+            if within(sp.entered_at) {
+                entered.insert(text(Some(&sp.value)));
+            }
+        }
+    }
     let held_now: BTreeSet<&str> = objects.iter().map(|o| o.state.as_str()).collect();
     emit(
         "unused_state",
@@ -242,7 +246,7 @@ pub fn diagnostics(
     // (ADR-0147)
     let mut waits: BTreeMap<String, Vec<i64>> = BTreeMap::new();
     for o in &objects {
-        for sp in o.spans.get("state").into_iter().flatten() {
+        for sp in world.parts(o)?.spans.get("state").into_iter().flatten() {
             if within(sp.entered_at) {
                 waits
                     .entry(text(Some(&sp.value)))
@@ -289,7 +293,7 @@ pub fn diagnostics(
     let mut acted: BTreeMap<String, (i64, i64)> = BTreeMap::new();
     if let Some(a) = &assignee {
         for o in &objects {
-            let spans = o.spans.get(a).map_or(&[][..], Vec::as_slice);
+            let spans = world.parts(o)?.spans.get(a).map_or(&[][..], Vec::as_slice);
             for (i, sp) in spans.iter().enumerate() {
                 if within(sp.entered_at)
                     && !sp.value.is_absent()

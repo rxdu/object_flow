@@ -24,19 +24,9 @@ pub struct Object {
     pub order: i64,
     /// The object that supersedes it, once a `supersede` step names one.
     pub superseded_by: Option<String>,
-    /// Its flow data: for the state and each tracked member, the spans it
-    /// held each value for, in order (`storage-schema.md`, `of_interval`).
-    pub spans: BTreeMap<String, Vec<Span>>,
-    /// The attribute write index: for each attribute, part relationship or
-    /// collection, the position of the event that last wrote it
-    /// (`storage-schema.md`, `of_attribute_write`).
-    pub writes: BTreeMap<String, i64>,
-    /// The invariants whose violation an admission lets stand on it, until
-    /// they hold again (ADR-0054, `of_admission`).
-    pub admissions: std::collections::BTreeSet<String>,
-    /// Its own erasure is recorded, so a later write of a personal attribute
-    /// is refused (`DESIGN.md` §8).
-    pub erased: bool,
+    /// The rest of its record, beyond its row: read on first use, through
+    /// [`World::parts`], and held from then on (ADR-0165).
+    pub parts: std::cell::OnceCell<Parts>,
     /// Whether its creation time is known; an object the import created with
     /// none is undated, and a measure from its creation counts it as a gap.
     pub created_dated: bool,
@@ -47,6 +37,32 @@ pub struct Object {
     /// §3, `state_source`), which `exceptions` reads; none for an object the
     /// operation made, and a request's working copy does not move it.
     pub state_source: Option<String>,
+}
+
+/// The parts of an object's record beyond its row, which a read of the store
+/// gives on first use (ADR-0165).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Parts {
+    /// Its flow data: for the state and each tracked member, the spans it
+    /// held each value for, in order (`storage-schema.md`, `of_interval`).
+    pub spans: BTreeMap<String, Vec<Span>>,
+    /// The attribute write index: for each attribute, part relationship or
+    /// collection, the position of the event that last wrote it
+    /// (`storage-schema.md`, `of_attribute_write`).
+    pub writes: BTreeMap<String, i64>,
+    /// The invariants whose violation an admission lets stand on it, until
+    /// they hold again (ADR-0054, `of_admission`).
+    pub admissions: BTreeSet<String>,
+    /// Its own erasure is recorded, so a later write of a personal attribute
+    /// is refused (`DESIGN.md` §8).
+    pub erased: bool,
+}
+
+impl Parts {
+    /// Parts already held, as an object an operation makes holds them.
+    pub fn held(self) -> std::cell::OnceCell<Parts> {
+        std::cell::OnceCell::from(self)
+    }
 }
 
 /// How long an object held a state, or a value of a tracked member, as one
@@ -81,6 +97,29 @@ pub struct Span {
 impl Object {
     pub fn attr(&self, name: &str) -> Value {
         self.attrs.get(name).cloned().unwrap_or(Value::Absent)
+    }
+
+    /// The parts of its record it holds already, for code given an object
+    /// whose record was read, or made with it: an error where it was not,
+    /// never parts empty in its place (ADR-0165).
+    pub fn held_parts(&self) -> Result<&Parts, crate::eval::NotRun> {
+        self.parts.get().ok_or_else(|| {
+            crate::eval::NotRun::Unsupported(format!(
+                "the record of {}, which was not read",
+                self.id
+            ))
+        })
+    }
+
+    /// The parts of its record it holds already, to change: an error where
+    /// they have not been read, never parts empty in their place (ADR-0165).
+    pub fn parts_mut(&mut self) -> Result<&mut Parts, crate::eval::NotRun> {
+        let id = self.id.clone();
+        self.parts.get_mut().ok_or_else(|| {
+            crate::eval::NotRun::Unsupported(format!(
+                "a change to the record of {id}, whose record was not read"
+            ))
+        })
     }
 }
 
@@ -204,7 +243,14 @@ struct Held {
     stored_max: std::cell::OnceCell<Result<i64, String>>,
     /// The objects the operation changed or made, by id.
     written: BTreeSet<String>,
+    /// The records read alone, by type, past [`BATCH`] of which the rest
+    /// of a type's are read together.
+    alone: std::cell::RefCell<BTreeMap<String, usize>>,
 }
+
+/// How many of a type's records an operation reads one by one before it
+/// reads the rest it holds together (ADR-0165).
+pub(crate) const BATCH: usize = 8;
 
 /// No earlier version's library: a store with one version, or a world
 /// built without them.
@@ -553,6 +599,94 @@ impl<'l> World<'l> {
         Ok(self.held_in_order(|o| self.lib.is_a(&o.type_, type_)))
     }
 
+    /// The parts of an object's record beyond its row, read from the store
+    /// on first use and held from then on; a world without a store holds
+    /// what it was given, and an object it was given without them is an
+    /// error, never an object with no history (ADR-0165).
+    pub fn parts<'a>(&self, o: &'a Object) -> Result<&'a Parts, crate::eval::NotRun> {
+        if let Some(p) = o.parts.get() {
+            return Ok(p);
+        }
+        let Some(conn) = self.conn else {
+            return Err(crate::eval::NotRun::Unsupported(format!(
+                "the record of {}, which a world without a store was given without it",
+                o.id
+            )));
+        };
+        // an operation reaching record after record of a type, as a scan's
+        // filter does, reads the rest it holds of the type together
+        let alone = {
+            let mut alone = self.held.alone.borrow_mut();
+            let n = alone.entry(o.type_.clone()).or_default();
+            *n += 1;
+            *n
+        };
+        if alone > BATCH {
+            let lacking: Vec<&Object> = self
+                .held
+                .slots
+                .iter()
+                .filter(|x| x.type_ == o.type_ && x.parts.get().is_none())
+                .collect();
+            if lacking.len() > BATCH {
+                self.read_together(conn, &o.type_, &lacking)?;
+            }
+            if let Some(p) = o.parts.get() {
+                return Ok(p);
+            }
+        }
+        let read = crate::store::read_parts_of(conn, self.lib, &o.id, &o.type_).map_err(|e| {
+            crate::eval::NotRun::Unreadable(format!(
+                "the record of {}, which could not be read: {e}",
+                o.id
+            ))
+        })?;
+        Ok(o.parts.get_or_init(|| read))
+    }
+
+    /// The parts of the records of the objects given, read in one read of
+    /// each part's table a type, where many of a type lack them, and else
+    /// each alone (ADR-0165).
+    pub fn with_parts(&self, objects: &[&Object]) -> Result<(), crate::eval::NotRun> {
+        let mut lacking: BTreeMap<&str, Vec<&Object>> = BTreeMap::new();
+        for o in objects {
+            if o.parts.get().is_none() {
+                lacking.entry(o.type_.as_str()).or_default().push(o);
+            }
+        }
+        for (t, os) in lacking {
+            match self.conn {
+                Some(conn) if os.len() > BATCH => self.read_together(conn, t, &os)?,
+                _ => {
+                    for o in os {
+                        self.parts(o)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The records of objects of one concrete type, in one read of each
+    /// part's table.
+    fn read_together(
+        &self,
+        conn: &rusqlite::Connection,
+        type_: &str,
+        objects: &[&Object],
+    ) -> Result<(), crate::eval::NotRun> {
+        let mut read = crate::store::read_type_parts(conn, self.lib, type_).map_err(|e| {
+            crate::eval::NotRun::Unreadable(format!(
+                "the records of {type_}, which could not be read: {e}"
+            ))
+        })?;
+        for o in objects {
+            let p = read.remove(&o.id).unwrap_or_default();
+            let _ = o.parts.set(p);
+        }
+        Ok(())
+    }
+
     /// Every object of a type, its own or a subtype's, in one of the states
     /// given, in ascending id order, as [`World::of_type_where`] reads them.
     pub fn of_type_in(
@@ -647,8 +781,13 @@ impl<'l> World<'l> {
 
     /// An object to change, fetched first where it is not held.
     pub fn get_mut(&mut self, id: &str) -> Result<Option<&mut Object>, crate::eval::NotRun> {
+        // an object to change holds the rest of its record, so a change to
+        // it changes what the store holds and not parts never read
         let slot = match self.get(id)? {
-            Some(_) => self.held.by_id.get_mut().get(id).copied().flatten(),
+            Some(o) => {
+                self.parts(o)?;
+                self.held.by_id.get_mut().get(id).copied().flatten()
+            }
             None => None,
         };
         if slot.is_some() {
@@ -658,8 +797,10 @@ impl<'l> World<'l> {
     }
 
     /// An object the operation makes or replaces, held from now on as it
-    /// is given.
+    /// is given: refused where the rest of its record was not read, which a
+    /// write would replace with what it holds (ADR-0165).
     pub fn insert(&mut self, o: Object) -> Result<(), crate::eval::NotRun> {
+        o.held_parts()?;
         self.held.written.insert(o.id.clone());
         let held = self.held.by_id.get_mut().get(&o.id).copied().flatten();
         match held.and_then(|n| self.held.slots.get_mut(n)) {
@@ -678,6 +819,18 @@ impl<'l> World<'l> {
     /// altered them.
     pub fn written(&self) -> impl Iterator<Item = &String> + '_ {
         self.held.written.iter()
+    }
+
+    /// An object with the rest of its record read, as [`World::get`] and
+    /// [`World::parts`] together give it.
+    pub fn whole(&self, id: &str) -> Result<Option<&Object>, crate::eval::NotRun> {
+        match self.get(id)? {
+            Some(o) => {
+                self.parts(o)?;
+                Ok(Some(o))
+            }
+            None => Ok(None),
+        }
     }
 
     /// The objects held so far, in the order first held, without reading

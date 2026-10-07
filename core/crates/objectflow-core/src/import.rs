@@ -399,7 +399,11 @@ fn decide(
         }
         let held = match external.get(&key) {
             Some(id) => match world.get(id)? {
-                Some(h) if h.type_ == o.type_ => Some(h.clone()),
+                // a refresh carries the held object's record, read first
+                Some(h) if h.type_ == o.type_ => {
+                    world.parts(h)?;
+                    Some(h.clone())
+                }
                 Some(h) => {
                     return refused(
                         report,
@@ -487,7 +491,11 @@ fn decide(
                 continue;
             }
             // an erased object's personal values are not written again
-            if a.personal && p.held.as_ref().is_some_and(|h| h.erased) {
+            let erased = match &p.held {
+                Some(h) => h.held_parts()?.erased,
+                None => false,
+            };
+            if a.personal && erased {
                 continue;
             }
             if let Declared::Reference(target) = &a.declared {
@@ -701,10 +709,7 @@ fn decide(
                     created_by_kind: "unknown".into(),
                     order: work.next_order()?,
                     superseded_by: None,
-                    spans: BTreeMap::new(),
-                    writes: BTreeMap::new(),
-                    admissions: BTreeSet::new(),
-                    erased: false,
+                    parts: crate::world::Parts::default().held(),
                     state_source: None,
                     created_dated: false,
                     recorded_from: world.now,
@@ -802,8 +807,9 @@ fn decide(
                     }
                 }
             }
+            let admissions = &work.parts(obj)?.admissions;
             for n in failing_invariants(&work, obj)? {
-                if !obj.admissions.contains(&n) {
+                if !admissions.contains(&n) {
                     found(
                         &mut these,
                         o,
@@ -944,7 +950,10 @@ fn decide(
         let held_entries = world.legacy_of(&id)?;
         let held = held_entries.as_slice();
         let mut next = held.iter().map(|h| h.ordinal).max().unwrap_or(0);
-        let erased = world.get(&id)?.is_some_and(|w| w.erased);
+        let erased = match world.get(&id)? {
+            Some(w) => world.parts(w)?.erased,
+            None => false,
+        };
         for mut n in new {
             let same = |h: &crate::world::LegacyEntry| {
                 h.kind == n.kind
@@ -978,7 +987,7 @@ fn decide(
         };
         // a refresh's intermediate values, which are a change of their own
         let intermediate = match &p.held {
-            Some(h) => match intermediate_spans(lib, t, h, o, &resolve, port) {
+            Some(h) => match intermediate_spans(lib, t, h.held_parts()?, o, &resolve, port) {
                 Ok(spans) => spans,
                 Err(r) => return refused(report, refusal(o, r)),
             },
@@ -999,17 +1008,17 @@ fn decide(
         let position = alloc.position();
         alloc.txn();
         let refresh = p.held.as_ref().map(|h| (h, &intermediate));
-        if let Some(r) = open_spans(lib, t, &mut obj, refresh, o, position, port) {
+        if let Some(r) = open_spans(lib, t, &mut obj, refresh, o, position, port)? {
             return refused(report, refusal(o, r));
         }
         if p.held.is_none() {
             // the earlier values the legacy record gives, at position 0, and
             // the times the record supplies held to its creation and its
             // silent spans (publish-and-import.md §4)
-            match legacy_spans(lib, t, &obj, o, &resolve) {
+            match legacy_spans(lib, t, obj.held_parts()?, o, &resolve) {
                 Ok(spans) => {
                     for (d, sp) in spans {
-                        let row = obj.spans.entry(d.clone()).or_default();
+                        let row = obj.parts_mut()?.spans.entry(d.clone()).or_default();
                         let at = row.iter().position(|x| !x.legacy).unwrap_or(row.len());
                         row.insert(at, sp.clone());
                         change.spans.push((obj.id.clone(), d, sp));
@@ -1017,14 +1026,14 @@ fn decide(
                 }
                 Err(r) => return refused(report, refusal(o, r)),
             }
-            created(lib, t, &mut obj, o, port);
+            created(lib, t, &mut obj, o, port)?;
         }
         // admissions: what an ADMIT class holds, with its reason; one that
         // holds again is discharged (ADR-0054, C14)
         let failing = failing_invariants(&work, &obj)?;
-        for n in obj.admissions.clone() {
+        for n in obj.held_parts()?.admissions.clone() {
             if !failing.contains(&n) {
-                obj.admissions.remove(&n);
+                obj.parts_mut()?.admissions.remove(&n);
                 change.discharged.push((obj.id.clone(), n, position));
             }
         }
@@ -1033,7 +1042,7 @@ fn decide(
                 let reason = decided(c)
                     .and_then(|f| f.reason.clone())
                     .unwrap_or_default();
-                obj.admissions.insert(c.rule.clone());
+                obj.parts_mut()?.admissions.insert(c.rule.clone());
                 change
                     .admitted
                     .push((obj.id.clone(), c.rule.clone(), position, reason));
@@ -1105,10 +1114,16 @@ fn decide(
 /// begins there, the latest of those that apply; for an object none
 /// describes, the earliest entry its state's intervals and those supplied
 /// for a tracked member give.
-fn created(lib: &Library, t: &Type, obj: &mut Object, o: &ImportedObject, port: i64) {
+fn created(
+    lib: &Library,
+    t: &Type,
+    obj: &mut Object,
+    o: &ImportedObject,
+    port: i64,
+) -> Result<(), NotRun> {
     let tracked = lib.tracked(t);
-    let entries: Vec<i64> = obj
-        .spans
+    let spans = &obj.held_parts()?.spans;
+    let entries: Vec<i64> = spans
         .iter()
         .filter(|(m, _)| tracked.contains(*m))
         .flat_map(|(m, spans)| {
@@ -1119,19 +1134,19 @@ fn created(lib: &Library, t: &Type, obj: &mut Object, o: &ImportedObject, port: 
         })
         .collect();
     let earliest = entries.iter().copied().min();
-    obj.created_dated = o.created_at.is_some();
-    obj.created_at = o.created_at.or(earliest).unwrap_or(port).min(port);
-    obj.created_by_kind = o
-        .created_by_kind
-        .clone()
-        .unwrap_or_else(|| "unknown".into());
-    let state = obj.spans.get("state").map_or(&[][..], Vec::as_slice);
+    let state = spans.get("state").map_or(&[][..], Vec::as_slice);
     let whole = o.created_at.is_some_and(|c| {
         state.first().is_some_and(|first| first.entered_at == c)
             && state
                 .windows(2)
                 .all(|w| w[0].left_at == Some(w[1].entered_at))
     });
+    obj.created_dated = o.created_at.is_some();
+    obj.created_at = o.created_at.or(earliest).unwrap_or(port).min(port);
+    obj.created_by_kind = o
+        .created_by_kind
+        .clone()
+        .unwrap_or_else(|| "unknown".into());
     let mut apply = Vec::new();
     if whole {
         apply.extend(o.created_at);
@@ -1141,6 +1156,7 @@ fn created(lib: &Library, t: &Type, obj: &mut Object, o: &ImportedObject, port: 
         apply.push(port);
     }
     obj.recorded_from = apply.into_iter().max().or(earliest).unwrap_or(port);
+    Ok(())
 }
 
 /// The earlier values the legacy record gives, as spans marked legacy at
@@ -1153,7 +1169,7 @@ fn created(lib: &Library, t: &Type, obj: &mut Object, o: &ImportedObject, port: 
 fn legacy_spans(
     lib: &Library,
     t: &Type,
-    obj: &Object,
+    parts: &crate::world::Parts,
     o: &ImportedObject,
     resolve: &dyn Fn(&str, &str) -> Option<String>,
 ) -> Result<Vec<(String, Span)>, String> {
@@ -1188,7 +1204,7 @@ fn legacy_spans(
         intervals.sort_by_key(|l| l.entered_at);
         // the current interval opens at its entry, which no earlier one may
         // reach past
-        let current = obj
+        let current = parts
             .spans
             .get(d)
             .and_then(|spans| spans.iter().find(|sp| !sp.legacy))
@@ -1298,7 +1314,7 @@ fn earlier_value(
 fn intermediate_spans(
     lib: &Library,
     t: &Type,
-    held: &Object,
+    held_parts: &crate::world::Parts,
     o: &ImportedObject,
     resolve: &dyn Fn(&str, &str) -> Option<String>,
     port: i64,
@@ -1320,7 +1336,7 @@ fn intermediate_spans(
             ));
         }
         given.sort_by_key(|l| l.entered_at);
-        let spans = held.spans.get(d).map_or(&[][..], Vec::as_slice);
+        let spans = held_parts.spans.get(d).map_or(&[][..], Vec::as_slice);
         let mut fresh = Vec::new();
         for l in given {
             let value = earlier_value(lib, t, d, &l.value, resolve, "an intermediate value")?;
@@ -1403,7 +1419,7 @@ fn open_spans(
     o: &ImportedObject,
     position: i64,
     port: i64,
-) -> Option<String> {
+) -> Result<Option<String>, NotRun> {
     let held = refresh.map(|(h, _)| h);
     for m in lib.tracked(t) {
         let now = if m == "state" {
@@ -1432,13 +1448,13 @@ fn open_spans(
         }
         let entered = o.entered.get(&m);
         let at = entered.map_or(port, |e| e.at);
-        let spans = obj.spans.entry(m.clone()).or_default();
+        let spans = obj.parts_mut()?.spans.entry(m.clone()).or_default();
         if let Some(last) = spans.last_mut() {
             let ends = between.first().map_or(at, |sp| sp.entered_at);
             if ends < last.entered_at {
-                return Some(format!(
+                return Ok(Some(format!(
                     "its {m} entered before the latest interval the store holds"
-                ));
+                )));
             }
             if last.left_position.is_none() {
                 last.left_position = Some(position);
@@ -1467,7 +1483,7 @@ fn open_spans(
             corrected_by: None,
         });
     }
-    None
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -1589,7 +1605,7 @@ types:
         assert_eq!((r.written, r.refusal.clone()), (1, None), "{r:?}");
         let id = id_of(&s, "E-1");
         let w = s.snapshot().unwrap();
-        let o = w.get(&id).unwrap().unwrap();
+        let o = w.whole(&id).unwrap().unwrap();
         assert_eq!(
             (o.state.as_str(), o.attr("name")),
             ("EMPLOYED", Value::Text("Dana".into()))
@@ -1633,7 +1649,7 @@ types:
         assert_eq!(moved.written, 1);
         assert_eq!(s.history(&id).unwrap().len(), 2);
         assert_eq!(
-            s.snapshot().unwrap().get(&id).unwrap().unwrap().state,
+            s.snapshot().unwrap().whole(&id).unwrap().unwrap().state,
             "LEFT"
         );
     }
@@ -1754,14 +1770,19 @@ types:
             .unwrap()
             .get(&("legacy".to_string(), "Team:T-1".to_string()))
             .unwrap();
-        assert_eq!(w.get(team_id).unwrap().unwrap().attr("lead"), Value::Absent);
+        assert_eq!(
+            w.whole(team_id).unwrap().unwrap().attr("lead"),
+            Value::Absent
+        );
         // the admitted violation stands, and a refresh that cures it discharges it
         let low_id = id_of(&s, "E-3");
         assert!(
             s.snapshot()
                 .unwrap()
-                .get(&low_id)
+                .whole(&low_id)
                 .unwrap()
+                .unwrap()
+                .held_parts()
                 .unwrap()
                 .admissions
                 .contains("graded")
@@ -1771,8 +1792,10 @@ types:
         assert!(
             s.snapshot()
                 .unwrap()
-                .get(&low_id)
+                .whole(&low_id)
                 .unwrap()
+                .unwrap()
+                .held_parts()
                 .unwrap()
                 .admissions
                 .is_empty()
@@ -1807,8 +1830,8 @@ types:
             .unwrap();
         assert_eq!(r.written, 1);
         let w = s.snapshot().unwrap();
-        let o = w.get(&id_of(&s, "E-1")).unwrap().unwrap().clone();
-        let span = o.spans["state"][0].clone();
+        let o = w.whole(&id_of(&s, "E-1")).unwrap().unwrap().clone();
+        let span = o.held_parts().unwrap().spans["state"][0].clone();
         assert_eq!(
             (
                 span.entered_at,
@@ -1915,7 +1938,7 @@ types:
             false,
         );
         let w = s.snapshot().unwrap();
-        let o = w.get(&id).unwrap().unwrap();
+        let o = w.whole(&id).unwrap().unwrap();
         assert_eq!(
             (o.attr("name"), o.attr("department")),
             (Value::Absent, Value::Text("Ops".into()))
@@ -2012,34 +2035,37 @@ types:
             id_of(&s, "E-4"),
         );
         let t1 = w.external_all().unwrap()[&("legacy".to_string(), "Team:T-1".to_string())].clone();
-        let o1 = w.get(&e1).unwrap().unwrap();
-        let first = &o1.spans["state"][0];
+        let o1 = w.whole(&e1).unwrap().unwrap();
+        let first = &o1.held_parts().unwrap().spans["state"][0];
         assert!(first.legacy && first.entered_position == 0 && first.left_position == Some(0));
         assert_eq!(
             (first.entered_at, first.left_at),
             (port - 100 * day, Some(port - 60 * day))
         );
-        assert_eq!(o1.spans["state"].len(), 2);
+        assert_eq!(o1.held_parts().unwrap().spans["state"].len(), 2);
         assert!(o1.created_dated);
         assert_eq!(
             (o1.created_at, o1.recorded_from),
             (port - 100 * day, port - 100 * day)
         );
         let ev = |id: &str, text: &str| {
-            let t = w.lib.type_(&w.get(id).unwrap().unwrap().type_);
+            let t = w.lib.type_(&w.whole(id).unwrap().unwrap().type_);
             crate::eval::Evaluator::new(&w, t, Some(id))
                 .eval(&crate::expr::parse(text).unwrap())
                 .unwrap()
         };
         assert_eq!(ev(&e1, "time_in(LEFT)"), Value::Duration(40 * day));
-        let o2 = w.get(&e2).unwrap().unwrap();
+        let o2 = w.whole(&e2).unwrap().unwrap();
         assert!(!o2.created_dated);
         assert_eq!(
             (o2.created_at, o2.recorded_from),
             (port - 90 * day, port - 90 * day)
         );
-        assert_eq!(w.get(&e3).unwrap().unwrap().recorded_from, port - 15 * day);
-        assert_eq!(w.get(&e4).unwrap().unwrap().recorded_from, port);
+        assert_eq!(
+            w.whole(&e3).unwrap().unwrap().recorded_from,
+            port - 15 * day
+        );
+        assert_eq!(w.whole(&e4).unwrap().unwrap().recorded_from, port);
         let t2 = w
             .get(&w.external_all().unwrap()[&("legacy".to_string(), "Team:T-2".to_string())])
             .unwrap()
@@ -2047,7 +2073,7 @@ types:
         assert!(!t2.created_dated);
         assert_eq!((t2.created_at, t2.recorded_from), (port - 70 * day, port));
         // the team's assignee, earlier values resolved by legacy key
-        let lead: Vec<Value> = w.get(&t1).unwrap().unwrap().spans["lead"]
+        let lead: Vec<Value> = w.whole(&t1).unwrap().unwrap().held_parts().unwrap().spans["lead"]
             .iter()
             .map(|sp| sp.value.clone())
             .collect();
@@ -2303,7 +2329,14 @@ types:
         refresh.legacy_intervals = vec![between];
         assert_eq!(run(&mut s, vec![refresh.clone()], &[], false).written, 1);
         let leads = |s: &Store| {
-            s.snapshot().unwrap().get(&t1).unwrap().unwrap().spans["lead"]
+            s.snapshot()
+                .unwrap()
+                .whole(&t1)
+                .unwrap()
+                .unwrap()
+                .held_parts()
+                .unwrap()
+                .spans["lead"]
                 .iter()
                 .map(|sp| {
                     (
@@ -2329,7 +2362,7 @@ types:
         assert_eq!(leads(&s), expected);
         // the closed spans are the refresh's event's, as the store reads them
         let w = s.snapshot().unwrap();
-        let spans = &w.get(&t1).unwrap().unwrap().spans["lead"];
+        let spans = &w.whole(&t1).unwrap().unwrap().held_parts().unwrap().spans["lead"];
         assert_eq!(spans[1].entered_position, spans[1].left_position.unwrap());
         assert_eq!(spans[0].left_position, Some(spans[1].entered_position));
         drop(w);
@@ -2450,12 +2483,12 @@ types:
         let id =
             |key: &str| w.external_all().unwrap()[&("legacy".to_string(), key.to_string())].clone();
         let (e1, n1, l1) = (id("Employee:E-1"), id("Note:N-1"), id("label:L-1"));
-        let n = w.get(&n1).unwrap().unwrap();
+        let n = w.whole(&n1).unwrap().unwrap();
         assert_eq!(n.attr("subject"), Value::Object(e1.clone()));
         assert_eq!(n.attr("occurred_at"), Value::Timestamp(port - 30 * day));
         assert_eq!(n.attr("recorded_at"), Value::Timestamp(port));
         assert_eq!(
-            w.get(&l1).unwrap().unwrap().attr("subject"),
+            w.whole(&l1).unwrap().unwrap().attr("subject"),
             Value::Object(e1)
         );
         drop(w);

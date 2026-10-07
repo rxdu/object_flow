@@ -455,12 +455,14 @@ impl<'a> Evaluator<'a> {
                     Some(id) => self.world.get(id)?,
                     None => None,
                 };
-                Term::Value(match (o, since) {
-                    (Some(o), Value::Int(p)) => Value::Bool(
-                        names
-                            .iter()
-                            .any(|n| o.writes.get(n).is_some_and(|w| *w > p)),
-                    ),
+                let writes = match o {
+                    Some(o) => Some(&self.world.parts(o)?.writes),
+                    None => None,
+                };
+                Term::Value(match (writes, since) {
+                    (Some(writes), Value::Int(p)) => {
+                        Value::Bool(names.iter().any(|n| writes.get(n).is_some_and(|w| *w > p)))
+                    }
                     (_, Value::Absent) | (None, _) => Value::Absent,
                     (_, other) => {
                         return not_run(format!("changed_since an event that is {other:?}"));
@@ -608,13 +610,16 @@ impl<'a> Evaluator<'a> {
                 None => Value::Absent,
             },
             "intervals" => self.intervals(o, t, "state")?,
-            "transitions" => Value::Set(
-                self.world
-                    .log()?
-                    .filter(|e| e.object_id == o.id)
-                    .map(|e| transition_row(self.world, o, t, e))
-                    .collect(),
-            ),
+            "transitions" => {
+                let p = self.world.parts(o)?;
+                Value::Set(
+                    self.world
+                        .log()?
+                        .filter(|e| e.object_id == o.id)
+                        .map(|e| transition_row(self.world, o, p, t, e))
+                        .collect(),
+                )
+            }
             "attempts" => Value::Set(
                 self.world
                     .attempts()?
@@ -1230,8 +1235,9 @@ impl<'a> Evaluator<'a> {
         let Some(t) = self.type_named(&o.type_) else {
             return not_run(format!("the type {}", o.type_));
         };
+        let p = self.world.parts(o)?;
         let state_spans = || {
-            o.spans
+            p.spans
                 .get("state")
                 .into_iter()
                 .flatten()
@@ -1244,7 +1250,7 @@ impl<'a> Evaluator<'a> {
             "entered_at" if t.state(arg).is_some() => Ok(state_spans()
                 .next_back()
                 .map_or(Value::Absent, |sp| Value::Timestamp(sp.entered_at))),
-            "entered_at" => match o.spans.get(arg).and_then(|spans| spans.last()) {
+            "entered_at" => match p.spans.get(arg).and_then(|spans| spans.last()) {
                 Some(sp) => Ok(Value::Timestamp(sp.entered_at)),
                 None => not_run(format!(
                     "`entered_at({arg})`, which names neither a state nor a tracked member"
@@ -1360,14 +1366,15 @@ pub(crate) fn interval_rows(
     member: &str,
 ) -> Result<Vec<Value>, NotRun> {
     {
-        let Some(spans) = o.spans.get(member) else {
+        let p = world.parts(o)?;
+        let Some(spans) = p.spans.get(member) else {
             return not_run(format!(
                 "the intervals of {}.{member}, which is not tracked",
                 o.type_
             ));
         };
         let now = world.now;
-        let closed = closed_periods(o, t, now);
+        let closed = closed_periods(p, t, now);
         let imported = world.imported()?;
         let rows = spans
             .iter()
@@ -1401,7 +1408,7 @@ pub(crate) fn interval_rows(
                 );
                 row.insert(
                     "duration".to_string(),
-                    span_duration(t, o, member, sp, &closed, now),
+                    span_duration(t, o, p, member, sp, &closed, now),
                 );
                 // the values held when it began, after the writes of the
                 // transition that began it; on a span whose entry precedes
@@ -1412,9 +1419,9 @@ pub(crate) fn interval_rows(
                 row.insert(
                     "held".to_string(),
                     if by_time {
-                        held_at(world.lib, t, o, sp.entered_at)
+                        held_at(world.lib, t, p, sp.entered_at)
                     } else {
-                        held(world.lib, t, o, sp.entered_position, true)
+                        held(world.lib, t, p, sp.entered_position, true)
                     },
                 );
                 Value::row(row)
@@ -1656,8 +1663,8 @@ pub fn combine(op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
 
 /// The stretches, by occurred time, an object spent in a closed or terminal
 /// state.
-pub(crate) fn closed_periods(o: &Object, t: &Type, now: i64) -> Vec<(i64, i64)> {
-    o.spans
+pub(crate) fn closed_periods(p: &crate::world::Parts, t: &Type, now: i64) -> Vec<(i64, i64)> {
+    p.spans
         .get("state")
         .into_iter()
         .flatten()
@@ -1673,13 +1680,13 @@ pub(crate) fn closed_periods(o: &Object, t: &Type, now: i64) -> Vec<(i64, i64)> 
 pub(crate) fn held(
     lib: &crate::model::Library,
     t: &Type,
-    o: &Object,
+    p: &crate::world::Parts,
     position: i64,
     after: bool,
 ) -> Value {
     let mut out = BTreeMap::new();
     for m in lib.tracked(t) {
-        let covering = o.spans.get(&m).into_iter().flatten().find(|sp| {
+        let covering = p.spans.get(&m).into_iter().flatten().find(|sp| {
             if after {
                 sp.entered_position <= position && sp.left_position.is_none_or(|l| l > position)
             } else {
@@ -1696,10 +1703,15 @@ pub(crate) fn held(
 /// The value each tracked member held at a time, by the interval index,
 /// legacy intervals included: absent where no span covers it (§6.9,
 /// ADR-0147).
-pub(crate) fn held_at(lib: &crate::model::Library, t: &Type, o: &Object, at: i64) -> Value {
+pub(crate) fn held_at(
+    lib: &crate::model::Library,
+    t: &Type,
+    p: &crate::world::Parts,
+    at: i64,
+) -> Value {
     let mut out = BTreeMap::new();
     for m in lib.tracked(t) {
-        let covering = o
+        let covering = p
             .spans
             .get(&m)
             .into_iter()
@@ -1718,6 +1730,7 @@ pub(crate) fn held_at(lib: &crate::model::Library, t: &Type, o: &Object, at: i64
 pub(crate) fn transition_row(
     world: &World<'_>,
     o: &Object,
+    p: &crate::world::Parts,
     t: &Type,
     e: &crate::store::Event,
 ) -> Value {
@@ -1728,7 +1741,7 @@ pub(crate) fn transition_row(
     let open = |name: &str| !t.finished(name);
     // a transition into a state the object held before, read over every
     // span the index held when it was recorded (§6.9, ADR-0147)
-    let visited = o
+    let visited = p
         .spans
         .get("state")
         .into_iter()
@@ -1807,7 +1820,7 @@ pub(crate) fn transition_row(
         "declaration_version".to_string(),
         Value::Int(e.declaration_version),
     );
-    row.insert("held".to_string(), held(world.lib, t, o, e.position, false));
+    row.insert("held".to_string(), held(world.lib, t, p, e.position, false));
     Value::row(row)
 }
 
@@ -1874,6 +1887,7 @@ pub(crate) fn bucket(unit: &str, seconds: i64) -> String {
 fn span_duration(
     t: &Type,
     o: &Object,
+    p: &crate::world::Parts,
     member: &str,
     sp: &crate::world::Span,
     closed: &[(i64, i64)],
@@ -1898,7 +1912,7 @@ fn span_duration(
     // the stretch begins where it entered its current state, which is now
     // while the transition into it is being taken and its span not yet
     // recorded, and runs back over the closed spans before
-    let spans = o.spans.get("state").map_or(&[][..], Vec::as_slice);
+    let spans = p.spans.get("state").map_or(&[][..], Vec::as_slice);
     let name = |sp: &crate::world::Span| match &sp.value {
         Value::State { name, .. } => name.clone(),
         _ => String::new(),
@@ -1967,10 +1981,7 @@ types:
             created_by_kind: "human".into(),
             order,
             superseded_by: None,
-            spans: BTreeMap::new(),
-            writes: BTreeMap::new(),
-            admissions: std::collections::BTreeSet::new(),
-            erased: false,
+            parts: crate::world::Parts::default().held(),
             created_dated: true,
             recorded_from: 0,
             state_source: None,

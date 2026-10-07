@@ -819,10 +819,13 @@ impl<'w> Reader<'w> {
         if source == "transitions" {
             let by_id: BTreeMap<&str, &Object> =
                 family.iter().map(|o| (o.id.as_str(), *o)).collect();
+            // what each transition held, which its row reads from the flow data
+            world.with_parts(&family)?;
             let mut rows = Vec::new();
             for e in world.log()? {
                 if let Some(o) = by_id.get(e.object_id.as_str()) {
-                    rows.push(transition_row(world, o, self.type_of(&o.type_)?, e));
+                    let p = world.parts(o)?;
+                    rows.push(transition_row(world, o, p, self.type_of(&o.type_)?, e));
                 }
             }
             return Ok(Rows {
@@ -892,12 +895,15 @@ impl<'w> Reader<'w> {
     /// each piece with its period, its bounds and its duration (ADR-0142).
     fn pieces(&self, owner: &str, member: &str, unit: &str) -> Result<Vec<Value>, NotRun> {
         let mut out = Vec::new();
-        for o in self.world.of_type(owner)? {
+        let family = self.world.of_type(owner)?;
+        self.world.with_parts(&family)?;
+        for o in family {
             let t = self.type_of(&o.type_)?;
-            let spans = o.spans.get(member).map_or(&[][..], Vec::as_slice);
+            let p = self.world.parts(o)?;
+            let spans = p.spans.get(member).map_or(&[][..], Vec::as_slice);
             let rows = interval_rows(self.world, o, t, member)?;
             for (sp, row) in spans.iter().zip(rows) {
-                out.extend(pieces(self.world, o, t, member, sp, row, unit));
+                out.extend(pieces(self.world, p, t, member, sp, row, unit));
             }
         }
         Ok(out)
@@ -1447,7 +1453,7 @@ fn rounded(v: Num, kind: &Kind) -> Result<Value, NotRun> {
 /// member's span counts only the time its object was open (ADR-0148).
 fn pieces(
     world: &World<'_>,
-    o: &Object,
+    p: &crate::world::Parts,
     t: &Type,
     member: &str,
     sp: &crate::world::Span,
@@ -1479,7 +1485,7 @@ fn pieces(
     } else {
         (
             sp.left_at.unwrap_or(world.now),
-            closed_periods(o, t, world.now),
+            closed_periods(p, t, world.now),
         )
     };
     let mut out = Vec::new();
@@ -1806,12 +1812,19 @@ impl<'w> Reader<'w> {
             return Ok(None);
         };
         let before = |t: i64| t < o.recorded_from;
+        let flow_before = matches!(r, Value::Object(_))
+            && sel.reads_flow
+            && self
+                .world
+                .parts(o)?
+                .spans
+                .values()
+                .flatten()
+                .any(|sp| before(sp.entered_at));
         let gapped = since.is_some_and(before)
             || window_start.is_some_and(|w| before(w) && o.created_at < w)
             || (sel.reads_created && !o.created_dated)
-            || (matches!(r, Value::Object(_))
-                && sel.reads_flow
-                && o.spans.values().flatten().any(|sp| before(sp.entered_at)));
+            || flow_before;
         Ok(gapped.then_some(id))
     }
 
@@ -3352,7 +3365,7 @@ types:
         .unwrap();
         let w = s.snapshot().unwrap();
         let held = |id: &str| {
-            let o = w.get(id).unwrap().unwrap();
+            let o = w.whole(id).unwrap().unwrap();
             (
                 o.attr("name"),
                 o.attr("subject_state"),
@@ -3386,8 +3399,20 @@ types:
         );
         // labelling stamps the subject's labels position
         assert_eq!(
-            w.get(&jl).unwrap().unwrap().writes.get("labels"),
-            w.get(&l2).unwrap().unwrap().writes.get("name")
+            w.whole(&jl)
+                .unwrap()
+                .unwrap()
+                .held_parts()
+                .unwrap()
+                .writes
+                .get("labels"),
+            w.whole(&l2)
+                .unwrap()
+                .unwrap()
+                .held_parts()
+                .unwrap()
+                .writes
+                .get("name")
         );
         drop(w);
         let backdated = {
@@ -3457,12 +3482,12 @@ types:
         let w = s.snapshot().unwrap();
         assert_eq!(
             (
-                w.get(&l5).unwrap().unwrap().attr("name"),
-                w.get(&l5).unwrap().unwrap().attr("occurred_at")
+                w.whole(&l5).unwrap().unwrap().attr("name"),
+                w.whole(&l5).unwrap().unwrap().attr("occurred_at")
             ),
             (
                 text("odd-two"),
-                w.get(&l4).unwrap().unwrap().attr("occurred_at")
+                w.whole(&l4).unwrap().unwrap().attr("occurred_at")
             )
         );
         // labelling offered on a finished subject is unavailable
@@ -3658,7 +3683,7 @@ types:
         let w = s.snapshot().unwrap();
         assert_eq!(
             e.reads["objects"][&ana],
-            json!(w.get(&ana).unwrap().unwrap().version)
+            json!(w.whole(&ana).unwrap().unwrap().version)
         );
         drop(w);
         // an untagged job is refused on the rate; its row holds what the
@@ -3700,7 +3725,7 @@ types:
         assert_eq!(row.clause.as_deref(), Some("checked"));
         assert_eq!(
             row.reads["objects"],
-            json!({ bare.clone(): w.get(&bare).unwrap().unwrap().version - 1 })
+            json!({ bare.clone(): w.whole(&bare).unwrap().unwrap().version - 1 })
         );
         assert_eq!(row.consulted, Json::Null);
         drop(w);

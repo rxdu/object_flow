@@ -412,3 +412,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** A background gate run removed and rewrote a shared `gates.out` only after a first step, and the wait that polled that file for its last line found the previous run's complete file and showed its results as current; the stale counts were caught only by noticing they had not moved.
 - **Correction:** Wait on the background task's own output file, or have the run write to a fresh file it names, and check a figure that must have changed, such as the test count after adding a test.
 - **Context:** ObjectFlow's gates run in the background from the agent's shell; 2026-10-07.
+
+### Before narrowing a bulk read, find what it checks over the whole
+- **Pattern:** To save a read of a type's ids, the bulk read of objects' records was given only the ids it would fill; the read of the type's intervals refuses any interval whose object is not among the ids it is given, as a sign of a damaged store, so every other object's intervals were refused and the probe failed. The narrowing would have silently weakened that check had the reader skipped unknown ids instead.
+- **Correction:** Before narrowing what a bulk read is given, read what the read validates against it; where the full set is the check's reference, keep it, and measure the cost instead of removing it.
+- **Context:** ObjectFlow's core, `store::read_type_parts` and `spans`, building ADR-0165 decision 2; 2026-10-07.
+
+### Test a lazy part with the object already held in its lighter form
+- **Pattern:** Making an object's record lazy, a bulk read of every object kept the objects already held, so one read earlier by id, as the actor of a request is, came back without its record. It was missed twice in one session, in a publish's simulation and then in its install, because every publish test was approved by the built-in operator, whose type the install skips; the second was found only by the scenarios' replay, whose actor is a declared user.
+- **Correction:** When a value becomes lazy, list every bulk read and test each after the same object has been read alone first, by a path a real caller takes (here, an actor of a declared type); keep the refusal of an unread value at the write, which turned both misses into errors rather than lost history.
+- **Context:** ObjectFlow's core, `World::in_order` beside `World::get`, ADR-0165 decision 2; 2026-10-07.
