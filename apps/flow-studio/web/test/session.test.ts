@@ -238,6 +238,106 @@ describe.each(BACKENDS)("against the %s", (backend) => {
     }, 120_000);
   });
 
+  describe("a session with a publish", () => {
+    async function aJobAnaStarted(p: Player): Promise<[string, string]> {
+      const job = await anaWithAJob(p);
+      const ana = String((await wire.get(job))?.attributes["engineer"]);
+      const started = await p.request(
+        { transition: "start", actor: { id: ana }, object_id: job },
+        "start",
+      );
+      if (started.kind !== "satisfied")
+        throw new Error("the job is not started");
+      return [ana, job];
+    }
+
+    it("publishes a second version, written as the format writes it, and holds", async () => {
+      const p = await fresh();
+      const [ana, job] = await aJobAnaStarted(p);
+      await p.advance("1 h");
+      const v2 = await wire.module("service-v2.yaml");
+      const files = v2.files.map((f) => f.name);
+      expect(files).toEqual(["people.yaml", "service-v2.yaml"]);
+      const d = await p.draftVersion(v2.files, "service-v2.yaml");
+      expect(d.submitted.kind).toBe("satisfied");
+      expect(d.report?.accepted).toBe(true);
+      // the migration the report names: the job given its site
+      expect(d.report?.affected["mapping:backfill:ServiceJob.site"]).toEqual([
+        job,
+      ]);
+      const v = await p.approveVersion(d.change, "service-v2.yaml", {
+        source: files,
+      });
+      expect(v?.kind).toBe("satisfied");
+      expect((await wire.get(job))?.attributes["site"]).toBe("HQ");
+      // the photo version 2 requires
+      const refused = await p.request(
+        {
+          transition: "finish",
+          actor: { id: ana },
+          object_id: job,
+          inputs: { signed_off_by: ana },
+        },
+        "finish",
+      );
+      expect(refused).toMatchObject({
+        kind: "unsatisfied",
+        clause: "photo_attached",
+      });
+      const draft = await draftExample(
+        p,
+        "Version 2 asks for the photo of a job started before it.",
+      );
+      expect(draft.problems).toEqual([]);
+      const ex = draft.example as Record<string, unknown>;
+      expect((ex["steps"] as unknown[]).at(-1)).toEqual({
+        publish: { source: files, after: "1 h" },
+      });
+      expect(ex["expect"]).toEqual({
+        verdict: "unsatisfied",
+        clause: "photo_attached",
+        remedy: "self_serviceable",
+      });
+      const saved = await wire.addExample(
+        "service.yaml",
+        "version_2_asks_for_the_photo_freely",
+        ex,
+      );
+      expect(saved.findings ?? []).toEqual([]);
+      expect(saved.saved).toBe(true);
+    }, 120_000);
+
+    it("says why a session publishing unsaved text cannot be an example", async () => {
+      const p = await fresh();
+      await aJobAnaStarted(p);
+      const v2 = await wire.module("service-v2.yaml");
+      const d = await p.draftVersion(v2.files, "the editor's text");
+      expect(
+        (
+          await p.approveVersion(
+            d.change,
+            "the editor's text",
+            null,
+            "A version published from the editor's unsaved text is no file beside the examples file, so no publish step can name it.",
+          )
+        )?.kind,
+      ).toBe("satisfied");
+      await p.request(
+        {
+          transition: "add",
+          actor: { id: OPERATOR },
+          type: "User",
+          inputs: { login: "ben", name: "Ben" },
+        },
+        "User.add",
+      );
+      const draft = await draftExample(p, "Ben joins after version 2.");
+      expect(draft.problems).toEqual([
+        "A version published from the editor's unsaved text is no file beside the examples file, so no publish step can name it.",
+      ]);
+    }, 120_000);
+  });
+
   describe("a session with an import", () => {
     async function desk(): Promise<Player> {
       const bundle = await wire.module("servicedesk.yaml", "workspace");

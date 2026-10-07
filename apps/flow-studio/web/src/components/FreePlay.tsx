@@ -5,6 +5,7 @@ import { writtenValue } from "../session/notation";
 import { OPERATOR, type Player } from "../session/player";
 import { InputForm, type Known } from "./InputForm";
 import { SaveExample } from "./SaveExample";
+import { type EditorVersion, Publish } from "./Publish";
 
 const ANSWERS = ["satisfied", "unsatisfied", "unanswered"] as const;
 
@@ -33,6 +34,8 @@ export function FreePlay({
   tick,
   onDone,
   editable,
+  editor,
+  onSelect,
 }: {
   wire: Wire;
   player: Player;
@@ -44,6 +47,9 @@ export function FreePlay({
   onDone: (v: Verdict | null) => void;
   /** the workspace module free play may save an example of, if any */
   editable: string | null;
+  /** the editor's text, where the editor asked to publish it */
+  editor: EditorVersion | null;
+  onSelect: (id: string) => void;
 }) {
   const [known, setKnown] = useState<Known[]>([]);
   const [actors, setActors] = useState<Known[]>([]);
@@ -363,6 +369,14 @@ export function FreePlay({
           )}
         </div>
       )}
+
+      <Publish
+        wire={wire}
+        player={player}
+        editor={editor}
+        onDone={onDone}
+        onSelect={onSelect}
+      />
 
       {player.log.length > 0 && (
         <div>

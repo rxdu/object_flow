@@ -129,10 +129,12 @@ class Catalogue:
         return diagrams.diagram(doc, type_name)
 
     @staticmethod
-    def check(files: list[dict]) -> dict:
+    def check(files: list[dict], read=None) -> dict:
         """The flow checker's findings over files given in import order: what
-        the editor marks against its lines (`flow-format.md` §11.5)."""
-        found, notes = flows.check([(f["name"], f["text"]) for f in files])
+        the editor marks against its lines (`flow-format.md` §11.5); `read`
+        reads a file an example's `publish` step names."""
+        found, notes = flows.check([(f["name"], f["text"]) for f in files],
+                                   None, None, None, read)
         as_json = [{"file": f, "line": line, "severity": sev, "code": code,
                     "message": msg} for f, line, sev, code, msg in found]
         as_json += [{"file": f, "line": line, "severity": sev, "code": code,
@@ -164,6 +166,22 @@ class Catalogue:
             self.path("workspace", ex.name).write_text(ex.read_text())
             copied.append(ex.name)
         return {"copied": copied}
+
+    def beside(self, source: str):
+        """A reader of the files beside an examples file of a source, which
+        an example's `publish` step names, each found in that source and
+        else in the design's, as a module's imports are (ADR-0166 decision
+        3); none for a name that is not a plain module file's."""
+        def read(name: str) -> str | None:
+            for s in dict.fromkeys((source, "design")):
+                try:
+                    p = self.path(s, name)
+                except Unknown:
+                    return None
+                if p.is_file():
+                    return p.read_text()
+            return None
+        return read
 
     def add_example(self, module_file: str, name: str, example: dict) -> dict:
         """An example appended to a workspace module's examples file, created
@@ -197,7 +215,7 @@ class Catalogue:
         files = [{"name": f["name"], "text": f["text"]}
                  for f in bundle["files"]] + [{"name": path.name,
                                                "text": text}]
-        checked = self.check(files)
+        checked = self.check(files, self.beside("workspace"))
         if checked["fatal"]:
             return {"saved": False, "findings": checked["findings"],
                     "text": text}

@@ -37,6 +37,7 @@ export function Editor({
   deps,
   type,
   onLoaded,
+  onPublish,
   onSaved,
   onCopied,
 }: {
@@ -49,6 +50,9 @@ export function Editor({
   deps: ModuleFile[];
   type: string | null;
   onLoaded: (result: LoadResult) => void;
+  /** publish the text as the next version over the running sandbox, where
+   * one runs (ADR-0166) */
+  onPublish: ((files: ModuleFile[]) => void) | null;
   onSaved: () => void;
   onCopied: () => void;
 }) {
@@ -187,6 +191,16 @@ export function Editor({
         >
           Load into the sandbox
         </button>
+        {onPublish && (
+          <button
+            className="btn-quiet"
+            disabled={fatal.length > 0}
+            title="Publish the text as the next version over the running sandbox's objects, its report read first"
+            onClick={() => onPublish([...deps, { name: file, text }])}
+          >
+            Publish into the sandbox
+          </button>
+        )}
         <span className="text-xs text-slate-500">
           {source === "design"
             ? "the design's module, read-only"

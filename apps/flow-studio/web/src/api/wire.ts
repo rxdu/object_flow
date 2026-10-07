@@ -219,6 +219,28 @@ export type LoadResult =
     };
 
 /** One object of an import batch, as the mapping produced it (ADR-0154). */
+/** One finding of a change's dry run: what it is, how many objects it
+ * reaches, and the first of them (publish-and-import.md §2). */
+export interface PublishFinding {
+  severity: "fatal" | "decision" | "notice";
+  code: string;
+  message: string;
+  affected: number;
+  sample: string[];
+}
+
+/** A change's impact report, as its dry run computes it: the version it
+ * would install, whether it may be approved, its findings, and every
+ * object each category reaches, by id (publish-and-import.md §2). */
+export interface PublishReport {
+  version: number;
+  accepted: boolean;
+  now: string;
+  findings: PublishFinding[];
+  affected: Record<string, string[]>;
+  proposals_invalidated: number;
+}
+
 export interface ImportedObject {
   type: string;
   legacy_key: string;
@@ -283,7 +305,7 @@ export interface Wire {
     actor: string,
     change: string,
     how: { dry_run: true } | { expected_version: number },
-  ): Promise<{ verdict: Verdict | null; report: unknown }>;
+  ): Promise<{ verdict: Verdict | null; report: PublishReport | null }>;
   /** A reader's read of a metric: a row per group of the dimensions
    *  `keep` names, every declared one where it names none. */
   metric(actor: string, name: string, keep?: string[]): Promise<MetricPage>;

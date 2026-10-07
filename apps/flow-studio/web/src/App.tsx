@@ -11,6 +11,7 @@ import {
 } from "./api/wire";
 import { Diagram } from "./components/Diagram";
 import { Editor } from "./components/Editor";
+import type { EditorVersion } from "./components/Publish";
 import { FreePlay } from "./components/FreePlay";
 import { Metrics } from "./components/Metrics";
 import { Objects } from "./components/Objects";
@@ -55,6 +56,8 @@ export function App() {
   const [tick, setTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  // the editor's text it asked to publish into the running sandbox
+  const [publishing, setPublishing] = useState<EditorVersion | null>(null);
   const [actor, setActor] = useState(OPERATOR);
   const [last, setLast] = useState<Verdict | null>(null);
   const [tab, setTab] = useState<"view" | "edit">("view");
@@ -318,6 +321,18 @@ export function App() {
                 deps={bundle.files.slice(0, -1)}
                 type={type}
                 onLoaded={loadedEdit}
+                onPublish={
+                  player && load?.loaded
+                    ? (files) => {
+                        // the publish panel in free play takes it up
+                        setPublishing({
+                          files,
+                          label: `${chosen.file} (edited)`,
+                        });
+                        setTab("view");
+                      }
+                    : null
+                }
                 onSaved={() => {
                   void refresh();
                   void wire.module(chosen.file, chosen.source).then(setBundle);
@@ -392,6 +407,8 @@ export function App() {
                 tick={tick}
                 onDone={done}
                 editable={editable}
+                editor={publishing}
+                onSelect={setSelected}
               />
               {last && (
                 <p

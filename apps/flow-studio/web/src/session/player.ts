@@ -8,7 +8,9 @@ import {
   type AttributeSpec,
   type Declaration,
   type FlowEvent,
+  type ModuleFile,
   NotRun,
+  type PublishReport,
   type RequestBody,
   type Verdict,
   type Source,
@@ -71,15 +73,22 @@ export function besideModule(
   examples: string,
   source?: Source,
 ): Beside {
+  // in the examples file's own source, and else in the design's, as a
+  // module's imports are found
+  const sources = [...new Set([source ?? "design", "design"])] as Source[];
   return {
     examples,
     read: async (name) => {
-      try {
-        const bundle = await wire.module(name, source);
-        return bundle.files.find((f) => f.name === name)?.text ?? null;
-      } catch {
-        return null;
+      for (const s of sources) {
+        try {
+          const bundle = await wire.module(name, s);
+          const text = bundle.files.find((f) => f.name === name)?.text;
+          if (text !== undefined) return text;
+        } catch {
+          // not in this source; the next is tried
+        }
       }
+      return null;
     },
   };
 }
@@ -142,8 +151,15 @@ export class Waiting extends Error {}
 export type TrailEntry =
   | { kind: "evaluators"; answers: Record<string, unknown> }
   | { kind: "clock"; by: string }
-  /** a step's verdict, or null for an import, which no verdict answers */
-  | { kind: "step"; step: ExampleStep; verdict: Verdict | null }
+  /** a step's verdict, or null for an import or a publish, which no
+   * verdict answers; and why it cannot be written as an example's step,
+   * where it cannot */
+  | {
+      kind: "step";
+      step: ExampleStep;
+      verdict: Verdict | null;
+      unwritable?: string;
+    }
   | {
       kind: "free";
       body: RequestBody;
@@ -524,6 +540,84 @@ export class Player {
     this.log.push({
       summary: `import ${im.type ?? ""} as ${im.as ?? ""}`,
       verdict: null,
+    });
+  }
+
+  /** A version the session would publish (ADR-0166): a change drafted with
+   * the files given, each keyed by the name it declares and its source
+   * reference the studio's, then submitted, which runs its dry run. The
+   * report is read again, so a submission its dry run refused still shows
+   * what refused it. Nothing is logged until the change is approved. */
+  async draftVersion(
+    files: ModuleFile[],
+    label: string,
+  ): Promise<{
+    change: string;
+    submitted: Verdict;
+    report: PublishReport | null;
+  }> {
+    const source: Record<string, string> = {};
+    for (const f of files) source[declaredName(f.text) ?? f.name] = f.text;
+    const actor = { id: OPERATOR };
+    const drafted = await this.wire.request({
+      type: "DeclarationChange",
+      transition: "draft",
+      actor,
+      // a change's source is a map of its files, which the wire carries and
+      // `WireValue`, a request's value, does not describe
+      inputs: {
+        source: source as unknown as WireValue,
+        source_ref: `studio:${label}`,
+      },
+    });
+    if (drafted.kind !== "satisfied")
+      throw new Failed(`the change is not drafted: ${drafted.kind}`);
+    const change = drafted.object_id;
+    const submitted = await this.wire.request({
+      transition: "submit",
+      actor,
+      object_id: change,
+    });
+    const { report } = await this.wire.publish(OPERATOR, change, {
+      dry_run: true,
+    });
+    return { change, submitted, report };
+  }
+
+  /** A submitted change approved, its version installed over the session's
+   * objects: logged, and kept as a `publish` step of the files given, or,
+   * for a version no file beside the examples file holds, with why it
+   * cannot be written (flow-format.md §11.3, ADR-0166). */
+  async approveVersion(
+    change: string,
+    label: string,
+    step: PublishStep | null,
+    unwritable?: string,
+  ): Promise<Verdict | null> {
+    const version = (await this.wire.get(change))?.version ?? 0;
+    const { verdict } = await this.wire.publish(OPERATOR, change, {
+      expected_version: version,
+    });
+    if (verdict?.kind === "satisfied") {
+      this.decls.clear(); // each type as the version installed has it
+      this.trail.push({
+        kind: "step",
+        step: { publish: step ?? { source: [] } },
+        verdict: null,
+        unwritable: step ? undefined : unwritable,
+      });
+      this.log.push({ summary: `publish ${label}`, verdict });
+    }
+    return verdict;
+  }
+
+  /** A drafted or submitted change withdrawn, which installs nothing and is
+   * no part of the session. */
+  async withdrawVersion(change: string): Promise<Verdict> {
+    return this.wire.request({
+      transition: "withdraw",
+      actor: { id: OPERATOR },
+      object_id: change,
     });
   }
 

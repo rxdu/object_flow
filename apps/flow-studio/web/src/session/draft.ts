@@ -187,6 +187,8 @@ export async function draftExample(
       notes.push(
         "A refused request is left out, since an example's steps must apply.",
       );
+    } else if (e.kind === "step" && e.unwritable) {
+      problems.push(e.unwritable);
     } else if (e.kind === "step") {
       const step = structuredClone(e.step) as Record<
         string,
