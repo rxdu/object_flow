@@ -1327,10 +1327,12 @@ class Evaluator:
         for d, v in zip(keep, key):
             if v is ABSENT:
                 out.append((1,))
-            elif isinstance(v, tuple) and v[:1] == ("state",):
-                out.append((0, list(((s.kinds.get(v[1]) or {}).get("states") or {})).index(v[2])))
-            elif isinstance(v, tuple) and v[:1] == ("enum",):
-                out.append((0, list(s.enums.get(v[1]) or []).index(v[2])))
+            elif isinstance(v, tuple) and v[:1] in (("state",), ("enum",)):
+                # in the installed version's order, and one it no longer declares, from before a publish, after
+                # those it does, by name (D536)
+                order = list(((s.kinds.get(v[1]) or {}).get("states") or {})) if v[0] == "state" \
+                    else list(s.enums.get(v[1]) or [])
+                out.append((0, order.index(v[2]), "") if v[2] in order else (0, len(order), v[2]))
             elif d == "actor_kind" and v in ACTOR_KINDS + ("unknown",):
                 out.append((0, (ACTOR_KINDS + ("unknown",)).index(v)))
             elif isinstance(v, str) and v in s.objects:

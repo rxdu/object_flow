@@ -547,6 +547,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D533](#d533) | `lookup` missed an identifier a publish made one | Resolved |
 | [D534](#d534) | The reference runner took a flow function for an evaluator wherever every evaluator is left unanswered | Resolved |
 | [D535](#d535) | A pending proposal offered none of its decisions | Resolved |
+| [D536](#d536) | A metric's page had no place for a state or member the installed version no longer declares | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3505,3 +3506,8 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **A pending proposal offered none of its decisions.** `DESIGN.md` §9 makes `approve`, `reject` and `withdraw` a proposal's transitions out of `PENDING`, "requested on the proposal like any transition", and §10's `availability` lists each requestable transition of an object. Both backends hold the built-in `Proposal` with no executable transitions, a request for a decision taking its own path, so `availability` on a pending proposal listed only labelling, in the core and in the reference runner alike, and a caller reading the offer could not see that a proposal can be decided. Found 2026-10-07 checking, before adding proposals to the Flow Studio's free play, what each backend offers on the proposal `delivery.yaml`'s example files.
 
 **Resolved** in place, in both backends: a proposal offers its three decisions, each guarded by nothing of its own, the proposed request's guards being decided when an approval executes it, as §9 says; refused `actor_known` for an unknown actor, and `unavailable` in the proposal's state once it is no longer pending, as a request for one is; `invalidate`, only via a publish or an erasure, is not offered. The core's proposal test and the runner's self-test hold the offer pending, to an unknown actor and once decided; each of six mutations, three a backend, fails its side.
+
+### D536
+**A metric's page had no place for a state or member the installed version no longer declares.** `library-api.md` orders a page's states and enumeration members in declaration order (ADR-0127), and after a publish that removes a state, the intervals and transitions from before it still hold the state, which the installed declaration does not list. The core gave such a value no position, which its comparison puts before every declared one, an accident of how an absent position compares; the reference runner refused the read with a fault. Found 2026-10-08 building the runner's approval (ADR-0166), reading `Robot.time_in_state` after a version removing `HOLD`.
+
+**Resolved** in place, in both backends: a state or member the installed version no longer declares follows those it declares, by name, as an absent value follows every present one; `library-api.md` says so. The publishing comparison reads the page after such a publish through both backends and holds its order, `READY`, `RETIRED`, `HOLD`.

@@ -2090,31 +2090,28 @@ impl<'w> Reader<'w> {
         let rank = |d: &str, v: &Value| -> (u8, Option<i128>, Option<Rat>, String) {
             match v {
                 Value::Absent => (1, None, None, String::new()),
+                // in the installed version's order, and one it no longer
+                // declares, from before a publish, after those it does, by
+                // name (D536)
                 Value::State { type_, name } => {
-                    let at = lib
+                    let states = lib
                         .type_(type_)
-                        .and_then(|t| t.states.iter().position(|(s, _)| s == name));
-                    (
-                        0,
-                        at.and_then(|i| i128::try_from(i).ok()),
-                        None,
-                        String::new(),
-                    )
+                        .map(|t| t.states.as_slice())
+                        .unwrap_or_default();
+                    let at = states.iter().position(|(s, _)| s == name);
+                    declared_rank(at, states.len(), name)
                 }
                 Value::Member {
                     enumeration,
                     member,
                 } => {
-                    let at = lib
+                    let members = lib
                         .enumerations
                         .get(enumeration)
-                        .and_then(|ms| ms.iter().position(|m| m == member));
-                    (
-                        0,
-                        at.and_then(|i| i128::try_from(i).ok()),
-                        None,
-                        String::new(),
-                    )
+                        .map(Vec::as_slice)
+                        .unwrap_or_default();
+                    let at = members.iter().position(|m| m == member);
+                    declared_rank(at, members.len(), member)
                 }
                 Value::Text(t) if d == "actor_kind" && KINDS.contains(&t.as_str()) => (
                     0,
@@ -2298,6 +2295,20 @@ pub fn page(
         flags,
         refused: None,
     })
+}
+
+/// A declared value's place in a page's order: its position in the installed
+/// version's declaration, and one the version no longer declares after them
+/// all, by name (D536).
+fn declared_rank(
+    at: Option<usize>,
+    declared: usize,
+    name: &str,
+) -> (u8, Option<i128>, Option<Rat>, String) {
+    match at {
+        Some(i) => (0, i128::try_from(i).ok(), None, String::new()),
+        None => (0, i128::try_from(declared).ok(), None, name.to_string()),
+    }
 }
 
 #[cfg(test)]

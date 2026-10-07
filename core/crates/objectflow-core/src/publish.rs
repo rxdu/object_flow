@@ -1591,6 +1591,41 @@ types:
         assert!(!indexed(&s));
     }
 
+    /// A state the installed version no longer declares, which a robot's
+    /// history holds from before the publish removed it, follows those it
+    /// declares in a page's order (D536).
+    #[test]
+    fn a_removed_state_follows_the_declared_ones_in_a_page() {
+        let (mut s, _, _, _) = fleet();
+        let (change, v) = submitted(&mut s, &v2(true, true, true));
+        assert!(matches!(
+            approve(&mut s, &change, v).0,
+            Verdict::Satisfied { .. }
+        ));
+        let w = s.snapshot().unwrap();
+        let keep = vec!["state".to_string()];
+        let page = crate::metric::page(
+            &w,
+            None,
+            "Robot.time_in_state",
+            &BTreeMap::new(),
+            Some(&keep),
+            None,
+            None,
+        )
+        .unwrap();
+        let states: Vec<Value> = page
+            .rows
+            .iter()
+            .map(|r| r.dimensions[0].1.clone())
+            .collect();
+        let state = |n: &str| Value::State {
+            type_: "Robot".into(),
+            name: n.into(),
+        };
+        assert_eq!(states, [state("READY"), state("HOLD")]);
+    }
+
     #[test]
     fn an_approval_installs_what_its_dry_run_reported() {
         let (mut s, [ready, held, bare], proposal, other) = fleet();
