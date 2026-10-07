@@ -379,3 +379,437 @@ def test_an_impact_the_approver_was_not_shown_refuses_the_approval(tee):
                           for _m, p, w, what, _b in tee.found})
     assert differences == [], "\n".join(differences)
 
+
+
+# What R2's and R3's fleet does not reach, each case a version that names a
+# category of the report no other case does; the modules are the core's
+# tests' own (`publish.rs`), so the two backends meet what the core's tests
+# hold it to.
+
+SHOP_V1 = """module: shop
+categories: [live, closed]
+enumerations:
+  Tier: [GOLD, SILVER]
+  Size: [S, L]
+types:
+  Customer:
+    description: A customer.
+    tracking: record
+    attributes:
+      name: { type: string, optional: true, personal: true }
+      nick: { type: string, optional: true }
+      tier: { type: Tier, optional: true }
+      size: { type: Size, optional: true }
+    states:
+      ACTIVE: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ACTIVE, optional_inputs: [name, nick, tier, size] }
+      leave: { kind: external, from: [ACTIVE], to: GONE }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Coupon:
+    description: A coupon.
+    tracking: record
+    attributes:
+      code: { type: string }
+    states:
+      ISSUED: { category: live }
+      USED: { category: closed, final: true }
+    transitions:
+      issue: { kind: initial, to: ISSUED, required_inputs: [code] }
+      redeem: { kind: external, from: [ISSUED], to: USED }
+"""
+
+
+def shop_v2(rename: bool = True, size: str = "string") -> str:
+    """`tier` renamed, or dropped where `level` of its type is added, `size`
+    an enumeration no more, `nick` personal and required by an invariant,
+    `band` newly tracked, and `Coupon` dropped. Retyped to an enumeration,
+    `size` stays tracked, and a metric counts its intervals holding no
+    value: the attribute of the new type opens its own at the publish, as a
+    newly tracked member does (D528)."""
+    metric = "" if size == "string" else (
+        "    metrics:\n      unsized: { description: Spans of no size., "
+        "source: intervals(size), item: i, filter: i.value is null, "
+        "expression: count() }\n")
+    return """module: shop
+categories: [live, closed]
+enumerations:
+  Tier: [GOLD, SILVER]
+  Band: [LOW, HIGH]
+types:
+  Customer:
+    description: A customer.
+    tracking: record
+    attributes:
+      name: { type: string, optional: true, personal: true }
+      nick: { type: string, optional: true, personal: true }
+      level: { type: Tier, optional: true }
+      size: { type: """ + size + """, optional: true }
+      band: { type: Band, optional: true }
+    states:
+      ACTIVE: { category: live }
+      GONE: { category: closed, final: true }
+    invariants:
+      nicknamed: { description: A rule., expression: nick is not null }
+    transitions:
+      join: { kind: initial, to: ACTIVE, optional_inputs: [name, nick, level, size, band] }
+      leave: { kind: external, from: [ACTIVE], to: GONE }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+""" + metric + """migration:
+  description: What the new version does to the objects of the old.
+""" + ("  renamed_attributes:\n    Customer: { tier: level }\n" if rename
+       else "")
+
+
+LAB = """module: lab
+categories: [live, closed]
+enumerations:
+  Grade: [A, B, OLD]
+types:
+  Sample:
+    description: A sample.
+    tracking: record
+    attributes:
+      label: { type: string }
+    observations:
+      checks:
+        description: A check of a sample.
+        kind: Check
+        attributes:
+          grade: { type: Grade }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      take: { kind: initial, to: OPEN, required_inputs: [label] }
+      finish: { kind: external, from: [OPEN], to: DONE }
+"""
+
+
+def lab_v2(members: str, migration: str = "") -> str:
+    """The lab with a kind's invariant, every check grading A."""
+    return LAB.replace("Grade: [A, B, OLD]", members).replace(
+        "          grade: { type: Grade }\n",
+        "          grade: { type: Grade }\n        invariants:\n"
+        "          graded_a: { description: A check grades A., "
+        "expression: grade == Grade.A }\n") + migration
+
+
+RACKS = """module: racks
+categories: [live, closed]
+types:
+  Rack:
+    description: A rack of bays.
+    tracking: record
+    attributes:
+      label: { type: string }
+      bays:
+        reference: "Bay[]"
+        aggregation: composite
+        opposite: rack
+        cascade:
+          - { on: [close], transition: retire, limit: 10 }
+    states:
+      OPEN: { category: live }
+      PARKED: { category: live }
+      CLOSED: { category: closed, final: true }
+    transitions:
+      build: { kind: initial, to: OPEN, required_inputs: [label] }
+      add_bay:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - create: { type: Bay, transition: add, inputs: { rack: this } }
+      park: { kind: external, from: [OPEN], to: PARKED }
+      unpark: { kind: external, from: [PARKED], to: OPEN }
+      close: { kind: external, from: [OPEN], to: CLOSED }
+  Bay:
+    description: A bay of a rack.
+    tracking: record
+    attributes:
+      rack: { reference: Rack, opposite: bays }
+    states:
+      LIVE: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LIVE, only_via: [Rack.add_bay], required_inputs: [rack] }
+      retire: { kind: external, from: [LIVE], to: GONE }
+"""
+
+# the racks without PARKED, a parked rack mapped into CLOSED with its bays
+# live (`publish-and-import.md` §2, a mapping into a final state)
+RACKS_V2 = RACKS.replace("      PARKED: { category: live }\n", "").replace(
+    "      park: { kind: external, from: [OPEN], to: PARKED }\n"
+    "      unpark: { kind: external, from: [PARKED], to: OPEN }\n", "") + (
+    "migration:\n  description: The racks without parking.\n"
+    "  removed_states:\n    Rack: { PARKED: CLOSED }\n")
+
+
+def fleet_examples(expect: str) -> str:
+    """The fleet's examples file, retiring a graded robot."""
+    return ("examples_for: fleet\nexamples:\n  a_graded_robot_is_retired:\n"
+            "    description: A graded robot is retired.\n    steps:\n"
+            "      - request: { type: Robot, transition: add, as: r, inputs: "
+            "{ serial: R1, site: north, grade: Grade.A } }\n"
+            "    request: { object: r, transition: retire }\n"
+            f"    expect: {expect}\n")
+
+
+def metered(text: str, currency: str = "USD",
+            guards: str = "graded: deny, settled: deny",
+            settled: str = "metric(priced) < USD 3.00") -> str:
+    """A version whose `retire` also guards on a metric, robots priced in a
+    currency, which a dry run consults no more than an evaluator
+    (`publish-and-import.md` §1 step 3). Neither backend knows a peso's minor
+    unit, so a request reading the metric in pesos is not run; the core
+    cannot hold a literal in pesos either, which the runner can, so the
+    peso's case reads only whether the metric has a value."""
+    return text.replace(
+        "migration:\n",
+        "    metrics:\n      priced: { description: Robots priced in pesos., "
+        "source: objects, item: o, expression: count() * PHP 1.00 }\n"
+        "migration:\n", 1).replace(
+        "remedy: self_serviceable }\n",
+        "remedy: self_serviceable }\n      settled: { description: Few "
+        f"robots priced., expression: \"{settled}\", "
+        "remedy: dependent }\n", 1).replace(
+        "guards: { graded: deny }", f"guards: {{ {guards} }}").replace(
+        "PHP", currency)
+
+
+def load(tee, name: str, text: str) -> None:
+    assert tee.post("/sandbox/load", {"files": [
+        {"name": f"{name}.yaml", "text": text}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+
+
+def made(tee, tn: str, xn: str, **inputs) -> str:
+    v = tee.post("/v1/request", {"transition": xn, "actor": OP, "type": tn,
+                                 "inputs": inputs})
+    assert v["kind"] == "satisfied", v
+    return v["object_id"]
+
+
+def took(tee, oid: str, xn: str, **inputs) -> dict:
+    v = tee.post("/v1/request", {"transition": xn, "actor": OP,
+                                 "object_id": oid, "inputs": inputs})
+    assert v["kind"] == "satisfied", v
+    return v
+
+
+def dry_run(tee, source: dict) -> tuple[str, set]:
+    """A change drafted with the source and dry run; its id and the codes
+    its report names."""
+    c = change(tee, "draft", source=source,
+               source_ref="git:case@2")["object_id"]
+    report = tee.post("/v1/publish", {"actor": OP, "change": c,
+                                      "dry_run": True})["report"]
+    return c, {f["code"] for f in report["findings"]}
+
+
+def approved(tee, c: str) -> dict:
+    assert tee.post("/v1/request", {"transition": "submit", "actor": OP,
+                                    "object_id": c})["kind"] == "satisfied"
+    version = tee.post("/v1/get", {"id": c})["version"]
+    v = tee.post("/v1/publish", {"actor": OP, "change": c,
+                                 "expected_version": version})
+    assert v["verdict"]["kind"] == "satisfied", v
+    return v
+
+
+def alike(tee) -> None:
+    differences = sorted({f"{p} {w}: {what}"
+                          for _m, p, w, what, _b in tee.found})
+    assert differences == [], "\n".join(differences)
+
+
+def fleet_case(tee, text: str, extra: dict | None = None) -> set:
+    fleet(tee)
+    tee.found.clear()
+    return dry_run(tee, {"fleet": text, **(extra or {})})[1]
+
+
+def shop_case(tee, text: str) -> set:
+    load(tee, "shop", SHOP_V1)
+    made(tee, "Customer", "join", nick="b", tier="SILVER", size="L")
+    made(tee, "Coupon", "issue", code="C1")
+    tee.found.clear()
+    return dry_run(tee, {"shop": text})[1]
+
+
+def racks_case(tee, text: str) -> set:
+    load(tee, "racks", RACKS)
+    parked = made(tee, "Rack", "build", label="K1")
+    took(tee, parked, "add_bay")
+    took(tee, parked, "park")
+    made(tee, "Rack", "build", label="K2")
+    tee.found.clear()
+    return dry_run(tee, {"racks": text})[1]
+
+
+def lab_case(tee, text: str) -> set:
+    load(tee, "lab", LAB)
+    sample = made(tee, "Sample", "take", label="S1")
+    made(tee, "Check", "record", subject=sample, grade="OLD")
+    tee.found.clear()
+    return dry_run(tee, {"lab": text})[1]
+
+
+# each case: how its store is made and the version dry run over it, and a
+# code its report must name, so a case that stops reaching its category
+# fails rather than passes alike
+CASES = {
+    "unreachable_state": (lambda tee: fleet_case(tee, fleet_v2(
+        False, True, True).replace(
+        "      RETIRED: { category: closed, final: true }\n",
+        "      HOLD: { category: live }\n"
+        "      RETIRED: { category: closed, final: true }\n").replace(
+        "      retire:", "      release: { kind: external, from: [HOLD], "
+        "to: READY }\n      retire:")), "unreachable_state:Robot.HOLD"),
+    "unmapped_member": (lambda tee: fleet_case(tee, fleet_v2(
+        True, True, True).replace(
+        "  removed_members:\n    Grade: { OLD: B }\n", "")),
+        "removed_member:Grade.OLD"),
+    "example_passes": (lambda tee: fleet_case(
+        tee, fleet_v2(True, True, True), {"fleet.examples": fleet_examples(
+            "{ verdict: applied, state: RETIRED }")}), "superseded"),
+    "example_fails": (lambda tee: fleet_case(
+        tee, fleet_v2(True, True, True), {"fleet.examples": fleet_examples(
+            "{ verdict: unsatisfied, clause: graded, "
+            "remedy: self_serviceable }")}), "example_failed"),
+    "metric_guard": (lambda tee: fleet_case(
+        tee, metered(fleet_v2(True, True, True))), "lost:Robot.retire"),
+    "metric_guard_first": (lambda tee: fleet_case(
+        tee, metered(fleet_v2(True, True, True),
+                     guards="settled: deny, graded: deny")),
+        "lost:Robot.retire"),
+    "metric_guard_audited": (lambda tee: fleet_case(
+        tee, metered(fleet_v2(True, True, True),
+                     guards="graded: deny, settled: audit")),
+        "gained:Robot.retire"),
+    "example_not_run": (lambda tee: fleet_case(
+        tee, metered(fleet_v2(True, True, True), "PHP",
+                     settled="metric(priced) is not null"),
+        {"fleet.examples": fleet_examples(
+            "{ verdict: applied, state: RETIRED }")}), "example_not_run"),
+    "type_changed_and_dropped_type": (
+        lambda tee: shop_case(tee, shop_v2()), "type_changed:Customer.size"),
+    "possible_rename": (lambda tee: shop_case(tee, shop_v2(rename=False)),
+                        "possible_rename:Customer.tier"),
+    "stranded": (lambda tee: racks_case(tee, RACKS_V2), "stranded:Rack.bays"),
+    "observation_member": (lambda tee: lab_case(tee, lab_v2(
+        "Grade: [A, B]", "migration:\n  description: The lab without OLD.\n"
+        "  removed_members:\n    Grade: { OLD: B }\n")),
+        "removed_member:Grade.OLD"),
+    "observation_invariant": (
+        lambda tee: lab_case(tee, lab_v2("Grade: [A, B, OLD]")),
+        "observation_invariant:Check.graded_a"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(CASES))
+def test_a_category_of_the_report_is_reported_alike(tee, case):
+    """Each category of a dry run's report that the fleet's variants do not
+    reach, reached by a version over a store made for it, through both
+    backends: the report compared whole, and the category named."""
+    made_and_run, code = CASES[case]
+    codes = made_and_run(tee)
+    alike(tee)
+    assert code in codes, sorted(codes)
+
+
+def test_a_discharge_is_installed_alike(tee):
+    """A violation the second version admits, and a third version without
+    the invariant, which discharges the admission: both approved through
+    both backends and the fleet read back whole after each
+    (`publish-and-import.md` §1 step 3, D531)."""
+    ids = fleet(tee)
+    tee.found.clear()
+    v2 = fleet_v2(True, True, True)
+    ids["second"] = c = change(tee, "draft", source={"fleet": v2},
+                               source_ref="git:fleet@2")["object_id"]
+    approved(tee, c)
+    read_back(tee, ids)
+    v3 = v2.split("migration:")[0].replace(
+        "    invariants:\n      graded_when_ready: { description: A ready "
+        "robot is graded., expression: \"state != Robot.READY or grade is "
+        "not null\" }\n", "")
+    assert "graded_when_ready" not in v3
+    ids["third"], codes = dry_run(tee, {"fleet": v3})
+    assert "discharged:Robot.graded_when_ready" in codes, sorted(codes)
+    approved(tee, ids["third"])
+    read_back(tee, ids)
+    alike(tee)
+
+
+def test_a_kinds_new_invariant_binds_later_recordings_alike(tee):
+    """A kind's invariant the recorded checks violate, published, binds the
+    recordings after it and leaves those before it as they are (ADR-0146,
+    D532), through both backends."""
+    load(tee, "lab", LAB)
+    sample = made(tee, "Sample", "take", label="S1")
+    check = made(tee, "Check", "record", subject=sample, grade="OLD")
+    tee.found.clear()
+    c, codes = dry_run(tee, {"lab": lab_v2("Grade: [A, B, OLD]")})
+    assert "observation_invariant:Check.graded_a" in codes, sorted(codes)
+    approved(tee, c)
+    refused = tee.post("/v1/request", {"transition": "record", "actor": OP,
+                                       "type": "Check", "inputs": {
+                                           "subject": sample,
+                                           "grade": "OLD"}})
+    assert refused["kind"] == "invariant_violated", refused
+    made(tee, "Check", "record", subject=sample, grade="A")
+    for oid in (sample, check, c):
+        tee.post("/v1/get", {"id": oid})
+        tee.post("/v1/history", {"id": oid})
+    alike(tee)
+
+
+def test_a_version_redacting_retyping_and_dropping_installs_alike(tee):
+    """The shop's second version approved over an erased customer, a kept
+    one and a coupon: the rename carried, the retyped `size` set aside, the
+    newly personal `nick` redacted on the erased customer and the invariant
+    its absence breaks admitted, `band` newly tracked, and `Coupon` dropped,
+    its object kept and readable; then the version's requests, through both
+    backends (`publish-and-import.md` §1 step 5, ADR-0146)."""
+    load(tee, "shop", SHOP_V1)
+    erased = made(tee, "Customer", "join", name="N", nick="a", tier="GOLD",
+                  size="S")
+    kept = made(tee, "Customer", "join", nick="b", tier="SILVER", size="L")
+    coupon = made(tee, "Coupon", "issue", code="C1")
+    took(tee, erased, "forget", reason="asked")
+    tee.found.clear()
+    c, codes = dry_run(tee, {"shop": shop_v2(size="Band")})
+    # the redaction's absence an erasure admits, as it does its own, so it is
+    # no decision
+    assert "type_changed:Customer.size" in codes and not any(
+        k.startswith("invariant:") for k in codes), sorted(codes)
+    approved(tee, c)
+    tee.post("/sandbox/clock", {"advance": "1 h"})
+    joined = made(tee, "Customer", "join", nick="c", level="GOLD",
+                  size="HIGH", band="LOW")
+    issued = tee.post("/v1/request", {"transition": "issue", "actor": OP,
+                                      "type": "Coupon",
+                                      "inputs": {"code": "C2"}})
+    assert issued["kind"] != "satisfied", issued
+    took(tee, kept, "leave")
+    for oid in (erased, kept, coupon, joined, c):
+        tee.post("/v1/get", {"id": oid})
+        tee.post("/v1/history", {"id": oid})
+        tee.post("/v1/availability", {"actor": OP, "id": oid})
+    tee.post("/v1/metric", {"actor": OP, "name": "Customer.time_in_state",
+                            "keep": ["state"]})
+    # the kept customer and the erased one hold `size` of the new type
+    # absent from the publish on, an interval of their own, and the
+    # intervals of the old type are set aside, read by nothing (D528)
+    page = tee.post("/v1/metric", {"actor": OP, "name": "Customer.unsized",
+                                   "keep": []})
+    assert [r["value"] for r in page["rows"]] == [2], page
+    # the redaction admitted the invariant its absence broke, an override
+    # `override_counts` counts (declaration-syntax.md §6.9)
+    page = tee.post("/v1/metric", {"actor": OP,
+                                   "name": "Customer.override_counts",
+                                   "keep": []})
+    assert [r["value"] for r in page["rows"]] == [1], page
+    alike(tee)

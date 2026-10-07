@@ -432,3 +432,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** A scratch script that started the core's service through the studio's `Core()` was piped into `tail`; when the script failed partway, the service it started outlived it holding the pipe's write end, so `tail` never saw the end of its input and the command hung, twice, while a mutation the command was to restore stayed in the source file.
 - **Correction:** Write such a probe's output to a file, close what it starts in a `finally`, and restore a mutated file before anything that can hang, not after it; when a command hangs, look for a child still holding its output before blaming the code.
 - **Context:** The agent's shell, probing the Flow Studio's backends; 2026-10-08.
+
+### A rule's precondition read before calling a backend wrong
+- **Pattern:** A design sentence (D528, "the attribute of the new type opens its own as a newly tracked member does") was read against the core's test, which asserts no interval for a retyped `size`, and the core was declared wrong in the conversation as a new defect. `size` was retyped from an enumeration to a string, which check 58 does not track at all, so the core was right; the claim was retracted.
+- **Correction:** Before naming a defect against either backend, check every precondition the rule rests on in the format (what is tracked, what a check admits), and make the difference show on the wire with a probe before writing it down; a test assertion that contradicts a design sentence is evidence to examine, not a verdict.
+- **Context:** ObjectFlow's publishing, the comparison of the core and the reference runner (ADR-0166); 2026-10-08.

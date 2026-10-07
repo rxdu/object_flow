@@ -691,9 +691,12 @@ class Sandbox:
         t = self.runner.kinds.get(tn)
         if t is None:
             raise Fault(404, f"no type {tn} is declared")
-        out = jsonable(flowpublish.change_declaration()
-                       if tn == flowrun.DECLARATION_CHANGE
-                       else self.written.get(tn, t))
+        # a generated kind is the runner's own, less the keys it keeps for
+        # itself, marked `_`
+        out = jsonable({k: v for k, v in (
+            flowpublish.change_declaration()
+            if tn == flowrun.DECLARATION_CHANGE
+            else self.written.get(tn, t)).items() if not k.startswith("_")})
         # the members of each enumeration the type's attributes are of, which
         # its rules are read against
         used = {str((spec or {}).get("type", "")).removesuffix("[]")

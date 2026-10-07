@@ -8,6 +8,7 @@ The flow checker, a dry run's step 1, is given by the caller, the studio's sandb
 checker imports the runner.
 """
 
+import copy
 import hashlib
 import json
 import re
@@ -723,20 +724,15 @@ def install(store, installed, report, change_id, identity, kind):
     version before it its `declaration_version`, renames writing none; the intervals of a member newly tracked opened,
     at the migration where a backfill writes it and else at the publish event, and of one no longer tracked closed at
     the publish event; then each other open change superseded and each pending proposal the version breaks invalidated,
-    each caused by the publish. Returns the positions of its events, the publish's first."""
+    each caused by the publish; an attribute whose type changed left with no value and no interval, the simulation
+    having dropped both, so the attribute of the new type, where tracked, opens its own as a newly tracked member does
+    (D528), the runner keeping none of the intervals the core sets aside, which no read reaches; and on
+    each object already erased, an attribute the version newly marks personal redacted by a `redact` event, which
+    admits every invariant the absence leaves violated (D527). Returns the positions of its events, the publish's
+    first."""
     import flowrun
     sim, new, retired = installed
     old_version, new_version, old_kinds = store.version, store.version + 1, store.kinds
-    # what §1 step 5 installs that the runner does not yet, not run rather than passed over (ADR-0166 decision 5)
-    for oid, o in store.objects.items():
-        t, nt = old_kinds.get(o.type) or {}, sim.kinds.get(o.type) or {}
-        for a, spec in (nt.get("attributes") or {}).items():
-            was = (t.get("attributes") or {}).get(a)
-            if o.erased and (spec or {}).get("personal") and not (was or {}).get("personal") and a in o.attrs:
-                raise NotRunnable(f"the redaction of {o.type}.{a}, which the version newly marks personal, on {oid}, "
-                                  f"which is erased")
-            if was is not None and declared_as(was) != declared_as(spec) and o.spans.get(a):
-                raise NotRunnable(f"setting aside the intervals of {o.type}.{a}, whose type the version changes")
     affected = report["affected"]
     positions = []
 
@@ -800,6 +796,31 @@ def install(store, installed, report, change_id, identity, kind):
                   {"mappings": codes, "admits": admits, "discharges": discharges}, publish)
             x.version += 1
         store.objects[oid] = x
+    # on each object already erased, what the version newly marks personal redacted, the absence admitting every
+    # invariant it leaves violated, as the erasure it completes would have (DESIGN.md §8, D527)
+    judge = flowrun.Runner(kinds, sim.enums)
+    renamed = {(tn, to): frm for tn, maps in new.migration["renamed_attributes"].items()
+               for frm, to in (maps or {}).items()}
+    for oid, x in sorted(sim.objects.items(), key=lambda kv: kv[1].id_order):
+        if not x.erased or oid not in store.objects or x.type in retired or x.type not in kinds:
+            continue
+        old_attrs = (old_kinds.get(x.type) or {}).get("attributes") or {}
+        redacted = []
+        for a, spec in ((kinds[x.type].get("attributes") or {}).items()):
+            before = old_attrs.get(renamed.get((x.type, a), a)) or {}
+            if (spec or {}).get("personal") and not before.get("personal") and x.attrs.get(a, ABSENT) not in (ABSENT, ()):
+                if flowrun.is_set_attribute(spec):
+                    x.attrs[a] = ()     # a personal set is emptied, a set being never absent (ADR-0148)
+                else:
+                    del x.attrs[a]
+                redacted.append(a)
+        if not redacted:
+            continue
+        admitted_now = [n for n in judge.failing_invariants(sim, x) if n not in x.admissions]
+        x.admissions.update(admitted_now)
+        event(oid, x.type, "redact", x.state, x.state, new_version, {"redacted": redacted}, publish)
+        store.events[-1].update({"redacted": True, "overrides": bool(admitted_now)})
+        x.version += 1
     # the other open changes, superseded, and the pending proposals the version breaks, invalidated
     for oid in affected.get("superseded") or []:
         o = store.objects[oid]

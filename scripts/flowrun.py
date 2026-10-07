@@ -1806,7 +1806,10 @@ class Runner:
             # 7. every invariant the writes could violate, in ascending id order of the object it fails on, except
             # a violation an admission lets stand, which is discharged once the invariant holds again (ADR-0054)
             requested = oid if oid is not None else root
+            written = {e["object"] for e in work.events[len(store.events):]}
             for obj in sorted(work.objects.values(), key=lambda o: o.id_order):
+                if (self.kinds.get(obj.type) or {}).get("_observation_on") and obj.id not in written:
+                    continue                    # a kind's invariants hold of a recording as written, and bind none older (D539)
                 failing = self.failing_invariants(work, obj)
                 obj.admissions &= set(failing)
                 refused = []
@@ -2673,6 +2676,7 @@ def observation_kinds(modules):
             for ob in (t.get("observations") or {}).values():
                 fields = ob.get("attributes") or {}
                 kinds[ob["kind"]] = {
+                    "_observation_on": tn,
                     "attributes": dict(fields, subject={"reference": tn}, corrects={"reference": ob["kind"], "optional": True},
                                        recorded_at={"type": "timestamp"}, occurred_at={"type": "timestamp"}),
                     "states": {"RECORDED": {"category": "closed", "final": True}},
