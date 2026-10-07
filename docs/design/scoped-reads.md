@@ -80,4 +80,4 @@ The author decided B and C5's target as recommended on 2026-10-07 (ADR-0162, PRD
 | 2,000 | 66.1 → 27.9 ms | 38.8 → 18.5 ms | 41.7 → 19.5 ms | 125.7 → 105.9 ms | 39.0 → 17.1 ms |
 | 4,000 | 149.3 → 59.9 ms | 83.0 → 37.9 ms | 86.7 → 41.6 ms | 276.1 → 224.6 ms | 82.0 → 38.5 ms |
 
-A request and a read now cost about 40% of what they did, the objects and their spans being what remains of a load; a metric read over transitions still reads the whole log, which step 3's index ranges remove. Step 2, objects by id, is next.
+A request and a read now cost about 40% of what they did, the objects and their spans being what remains of a load; a metric read over transitions still reads the whole log, which step 3's index ranges remove. Step 2, objects by id, is next. Its first part reads each type's rows, and each set's items, in one query rather than one an object, which measured neutral on SQLite in memory, a request at 2,000 objects 28.7 ms against 27.9 and one load 17.5 against 17.1, and saves a query an object on a backend reached over a connection. Runs of the probe differ by up to a quarter from one another, so a change smaller than that is not shown by one run.

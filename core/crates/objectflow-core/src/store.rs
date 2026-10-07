@@ -786,6 +786,10 @@ pub(crate) fn read_idempotency(
     Ok(Some((digest, verdict)))
 }
 
+/// An object's row as its type's table holds it: its state, version, state
+/// source, successor where its type supersedes, and its scalar columns.
+type RowFields = (String, i64, String, Option<String>, Vec<Sql>);
+
 /// The log the store holds, in position order, which a world reads where an
 /// operation reads it (ADR-0162 step 1).
 pub(crate) fn read_log(conn: &Connection) -> rusqlite::Result<Vec<Event>> {
@@ -2236,25 +2240,62 @@ fn snapshot<'l>(
         let scalars: Vec<&(String, Attribute)> =
             t.attributes.iter().filter(|(_, a)| !a.many).collect();
         let cols: Vec<String> = scalars.iter().map(|(n, a)| quote(&column(n, a))).collect();
+        let superseding = t.states.iter().any(|(_, s)| s.superseding);
+        // every row of the type in one read, and each set's items in one
+        // more, rather than one read an object (ADR-0162 step 2)
         let select = format!(
-            "SELECT state, version, state_source{}{} FROM {name} WHERE id = ?1",
+            "SELECT id, state, version, state_source{}{}{} FROM {name}",
+            if superseding { ", superseded_by" } else { "" },
             if cols.is_empty() { "" } else { ", " },
             cols.join(", ")
         );
+        let first = if superseding { 5 } else { 4 };
         let mut stmt = conn.prepare(&select)?;
-        for (order, id, created_at, kind) in objects {
-            let (state, version, source, values) = stmt.query_row(params![id], |r| {
-                let mut values = Vec::new();
-                for i in 0..scalars.len() {
-                    values.push(r.get::<_, Sql>(i + 3)?);
-                }
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, i64>(1)?,
-                    r.get::<_, String>(2)?,
+        let read = stmt.query_map([], |r| {
+            let mut values = Vec::new();
+            for i in 0..scalars.len() {
+                values.push(r.get::<_, Sql>(i + first)?);
+            }
+            Ok((
+                r.get::<_, String>(0)?,
+                (
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, String>(3)?,
+                    if superseding {
+                        r.get::<_, Option<String>>(4)?
+                    } else {
+                        None
+                    },
                     values,
-                ))
-            })?;
+                ),
+            ))
+        })?;
+        let mut rows: BTreeMap<String, RowFields> = BTreeMap::new();
+        for row in read {
+            let (id, fields) = row?;
+            rows.insert(id, fields);
+        }
+        let mut sets: BTreeMap<(String, String), Vec<Value>> = BTreeMap::new();
+        for (n, a) in t.attributes.iter().filter(|(_, a)| a.stored_set()) {
+            let mut set = conn.prepare(&format!(
+                "SELECT object_id, value FROM {} ORDER BY object_id, ordinal",
+                quote(&format!("{name}__{n}"))
+            ))?;
+            let items = set.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Sql>(1)?)))?;
+            for item in items {
+                let (id, v) = item?;
+                sets.entry((id, n.clone()))
+                    .or_default()
+                    .push(from_sql(v, &a.declared, lib)?);
+            }
+        }
+        for (order, id, created_at, kind) in objects {
+            let Some((state, version, source, superseded_by, values)) = rows.remove(&id) else {
+                return Err(StoreError(format!(
+                    "the directory names {id}, which {name} does not hold"
+                )));
+            };
             world.state_sources.insert(id.clone(), source);
             let mut attrs = BTreeMap::new();
             for ((n, a), v) in scalars.iter().zip(values) {
@@ -2263,30 +2304,14 @@ fn snapshot<'l>(
                     attrs.insert(n.clone(), v);
                 }
             }
-            for (n, a) in t.attributes.iter().filter(|(_, a)| a.stored_set()) {
-                let mut set = conn.prepare(&format!(
-                    "SELECT value FROM {} WHERE object_id = ?1 ORDER BY ordinal",
-                    quote(&format!("{name}__{n}"))
-                ))?;
-                let items = set.query_map(params![id], |r| r.get::<_, Sql>(0))?;
-                let mut values = Vec::new();
-                for item in items {
-                    values.push(from_sql(item?, &a.declared, lib)?);
-                }
-                attrs.insert(n.clone(), Value::Set(values));
+            for (n, _) in t.attributes.iter().filter(|(_, a)| a.stored_set()) {
+                let items = sets.remove(&(id.clone(), n.clone())).unwrap_or_default();
+                attrs.insert(n.clone(), Value::Set(items));
             }
             world.objects.insert(
                 id.clone(),
                 Object {
-                    superseded_by: if t.states.iter().any(|(_, s)| s.superseding) {
-                        conn.query_row(
-                            &format!("SELECT superseded_by FROM {name} WHERE id = ?1"),
-                            params![id],
-                            |r| r.get::<_, Option<String>>(0),
-                        )?
-                    } else {
-                        None
-                    },
+                    superseded_by,
                     id,
                     type_: type_.clone(),
                     state,

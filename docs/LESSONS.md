@@ -396,3 +396,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** I listed "the flowrun self-test" among the gates and ran it as `python3 scripts/flowrun.py --self-test`; the script has no entry point, so the command imported the module, did nothing and exited 0, and the gate list reported it as passing for several commits. The runner's self-test does run, inside `check-flows.py`.
 - **Correction:** A gate's evidence is its output, not its exit code: confirm each gate prints what it checked (a count, a summary line) the first time it joins the list, and read that line on every run; drop any that prints nothing.
 - **Context:** ObjectFlow's gate list, `scripts/flowrun.py`, whose self-test `check-flows.py` calls; found 2026-10-06.
+
+### Run clippy before the gates, not through them
+- **Pattern:** Twice in one session a Rust change built and passed its tests, then failed the full gates on a clippy lint (`type_complexity`, `double_ended_iterator_last`), costing a gate run of over ten minutes each time.
+- **Correction:** After any Rust change, run `cargo clippy --all-targets --all-features -- -D warnings` before starting the gates; the gates confirm, they are not where a lint is first seen.
+- **Context:** ObjectFlow's core, whose `scripts/check` denies warnings; 2026-10-07.
