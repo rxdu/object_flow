@@ -45,7 +45,7 @@ pub struct Found {
 /// UTC day, object and combination of the members, counted, the rows
 /// `maintain` pruned, from the rollup, with those that remain; each a row of
 /// the members with its `count`.
-pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Vec<Value> {
+pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Result<Vec<Value>, NotRun> {
     const MEMBERS: [&str; 9] = [
         "object",
         "transition",
@@ -71,7 +71,7 @@ pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Vec<Value> {
         Some((_, c)) => *c += n,
         None => counts.push((key, n)),
     };
-    for (f, n) in &world.rollup {
+    for (f, n) in world.rollup()? {
         if matches!(f.get("type"), Some(Value::Text(t)) if world.lib.is_a(t, owner)) {
             add(
                 key_of(f.get("day").cloned().unwrap_or(Value::Absent), f),
@@ -80,7 +80,7 @@ pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Vec<Value> {
         }
     }
     for a in world
-        .attempts
+        .attempts()?
         .iter()
         .filter(|a| a.type_.as_deref().is_some_and(|t| world.lib.is_a(t, owner)))
     {
@@ -89,7 +89,7 @@ pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Vec<Value> {
         };
         add(key_of(Value::Date(a.at.div_euclid(86_400)), &f), 1);
     }
-    counts
+    Ok(counts
         .into_iter()
         .map(|(key, n)| {
             let mut f: BTreeMap<String, Value> = std::iter::once("day")
@@ -100,7 +100,7 @@ pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Vec<Value> {
             f.insert("count".into(), Value::Int(n));
             Value::Row(f)
         })
-        .collect()
+        .collect())
 }
 
 /// The standard metrics every type has (`declaration-syntax.md` §6.11), as
@@ -818,7 +818,7 @@ impl<'w> Reader<'w> {
         }
         if source == "transitions" {
             let mut rows = Vec::new();
-            for e in &world.events {
+            for e in world.log()? {
                 if let Some(o) = family.iter().find(|o| o.id == e.object_id) {
                     rows.push(transition_row(world, o, self.type_of(&o.type_)?, e));
                 }
@@ -865,7 +865,7 @@ impl<'w> Reader<'w> {
             // the rows of the family's types; a row of no type, an unknown
             // id's, is none of them (DESIGN.md §7)
             let mine: Vec<Value> = world
-                .attempts
+                .attempts()?
                 .iter()
                 .filter(|a| a.type_.as_deref().is_some_and(|t| world.lib.is_a(t, owner)))
                 .map(attempt_row)
@@ -878,7 +878,7 @@ impl<'w> Reader<'w> {
                 });
             }
             return Ok(Rows {
-                rows: attempt_count_rows(world, owner),
+                rows: attempt_count_rows(world, owner)?,
                 kind: Kind::AttemptCount(owner.to_string()),
                 by_kind: "actor_kind",
             });
@@ -3092,7 +3092,8 @@ types:
             .unwrap();
         let w = s.snapshot().unwrap();
         let rows: Vec<_> = w
-            .attempts
+            .attempts()
+            .unwrap()
             .iter()
             .map(|a| {
                 (
@@ -3196,10 +3197,19 @@ types:
             ]
         );
         // a flag and an audit name the event they were raised on
-        assert!(w.attempts[..2].iter().all(|a| a.applied_position.is_some()));
+        assert!(
+            w.attempts().unwrap()[..2]
+                .iter()
+                .all(|a| a.applied_position.is_some())
+        );
         // the refused approval's row names the proposal in a column of its
         // own, not among the request's values (storage-schema.md §6)
-        let approval = w.attempts.iter().find(|a| a.proposal.is_some()).unwrap();
+        let approval = w
+            .attempts()
+            .unwrap()
+            .iter()
+            .find(|a| a.proposal.is_some())
+            .unwrap();
         assert_eq!(approval.proposal.as_deref(), Some(p.as_str()));
         assert!(approval.request_values.get("proposal").is_none());
         // the proposal's read carries the verdict its refused approval left
@@ -3607,7 +3617,7 @@ types:
             Err(("unsatisfied".into(), "tagged_or_good".into()))
         );
         let w = s.snapshot().unwrap();
-        let row = w.attempts.last().unwrap();
+        let row = w.attempts().unwrap().last().unwrap();
         assert_eq!(row.clause.as_deref(), Some("tagged_or_good"));
         assert_eq!(
             row.consulted["tagged_or_good"]["values"],
@@ -3622,7 +3632,7 @@ types:
             Ok(tagged.clone())
         );
         let w = s.snapshot().unwrap();
-        let row = w.attempts.last().unwrap();
+        let row = w.attempts().unwrap().last().unwrap();
         assert_eq!(row.clause.as_deref(), Some("login_unknown"));
         assert!(row.reads["objects"].get(&ana).is_some());
         drop(w);
@@ -3634,7 +3644,7 @@ types:
             Ok(bare.clone())
         );
         let w = s.snapshot().unwrap();
-        let row = w.attempts.last().unwrap();
+        let row = w.attempts().unwrap().last().unwrap();
         assert_eq!(row.clause.as_deref(), Some("checked"));
         assert_eq!(
             row.reads["objects"],
@@ -3657,8 +3667,8 @@ types:
         let taken = s
             .snapshot()
             .unwrap()
-            .events
-            .iter()
+            .log()
+            .unwrap()
             .rfind(|e| e.transition == "take")
             .unwrap()
             .clone();
@@ -3751,7 +3761,7 @@ types:
                 .unwrap(),
             Ok(2)
         );
-        assert_eq!(s.snapshot().unwrap().attempts.len(), 1);
+        assert_eq!(s.snapshot().unwrap().attempts().unwrap().len(), 1);
         assert_eq!(refusals(&s), counted);
         assert_eq!(
             s.maintain(&task("prune_attempts", first + 3 * 3600))
@@ -3759,7 +3769,7 @@ types:
                 .unwrap(),
             Ok(1)
         );
-        assert!(s.snapshot().unwrap().attempts.is_empty());
+        assert!(s.snapshot().unwrap().attempts().unwrap().is_empty());
         assert_eq!(refusals(&s), counted);
         // a pruned key's retry is a new request
         let keyed = Request {

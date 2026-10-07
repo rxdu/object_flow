@@ -696,6 +696,104 @@ fn redact_legacy(tx: &Transaction<'_>, id: &str) -> Stored<()> {
     Ok(())
 }
 
+/// The attempt log, in the order written, which a world reads where an
+/// operation reads it (ADR-0162 step 1).
+pub(crate) fn read_attempts(conn: &Connection) -> rusqlite::Result<Vec<Attempt>> {
+    let mut attempts = conn.prepare(
+        "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
+         flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn, call, context, \
+         proposal FROM of_attempt ORDER BY id",
+    )?;
+    let rows = attempts.query_map([], attempt_row)?;
+    rows.collect()
+}
+
+/// The pruned attempt rows' daily counts, as rows of the `attempt_counts`
+/// source, which a world reads where an operation reads them.
+pub(crate) fn read_rollup(
+    conn: &Connection,
+) -> rusqlite::Result<Vec<(BTreeMap<String, Value>, i64)>> {
+    let mut rolled = conn.prepare(
+        "SELECT day, object_id, verdict, type, transition, clause, remedy, actor_kind, enforced, flagged, \
+         declaration_version, count FROM of_attempt_rollup",
+    )?;
+    let rows = rolled.query_map([], |r| {
+        let text = |i: usize| -> rusqlite::Result<Value> {
+            let t: String = r.get(i)?;
+            Ok(if t.is_empty() {
+                Value::Absent
+            } else {
+                Value::Text(t)
+            })
+        };
+        let day: String = r.get(0)?;
+        let object: String = r.get(1)?;
+        let mut f = BTreeMap::new();
+        f.insert(
+            "day".to_string(),
+            crate::value::parse_timestamp(&format!("{day}T00:00:00Z"))
+                .map_or(Value::Absent, |t| Value::Date(t.div_euclid(86_400))),
+        );
+        f.insert(
+            "object".to_string(),
+            if object.is_empty() {
+                Value::Absent
+            } else {
+                Value::Object(object)
+            },
+        );
+        f.insert("verdict".to_string(), text(2)?);
+        f.insert("type".to_string(), text(3)?);
+        f.insert("transition".to_string(), text(4)?);
+        f.insert("clause".to_string(), text(5)?);
+        f.insert("remedy".to_string(), text(6)?);
+        f.insert("actor_kind".to_string(), text(7)?);
+        f.insert(
+            "enforced".to_string(),
+            Value::Bool(r.get::<_, i64>(8)? != 0),
+        );
+        f.insert("flagged".to_string(), Value::Bool(r.get::<_, i64>(9)? != 0));
+        f.insert("declaration_version".to_string(), Value::Int(r.get(10)?));
+        Ok((f, r.get::<_, i64>(11)?))
+    })?;
+    rows.collect()
+}
+
+/// What a key an actor applied recorded: the digest of the request it
+/// applied and the verdict it was given, which a retry replays; none for a
+/// key it has not applied (`storage-schema.md` §6, `of_idempotency`).
+pub(crate) fn read_idempotency(
+    conn: &Connection,
+    actor: &str,
+    key: &str,
+) -> Result<Option<(String, serde_json::Value)>, StoreError> {
+    let row: Option<(String, String)> = conn
+        .query_row(
+            "SELECT request_digest, verdict FROM of_idempotency WHERE actor_id = ?1 AND key = ?2",
+            params![actor, key],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })?;
+    let Some((digest, verdict)) = row else {
+        return Ok(None);
+    };
+    let verdict = serde_json::from_str(&verdict)
+        .map_err(|e| StoreError(format!("{actor}'s key {key}'s verdict: {e}")))?;
+    Ok(Some((digest, verdict)))
+}
+
+/// The log the store holds, in position order, which a world reads where an
+/// operation reads it (ADR-0162 step 1).
+pub(crate) fn read_log(conn: &Connection) -> rusqlite::Result<Vec<Event>> {
+    let mut log = conn.prepare(&format!("{EVENT_SELECT} ORDER BY position"))?;
+    let rows = log.query_map([], event_row)?;
+    rows.collect()
+}
+
 /// One span of the interval index, inserted or brought up to date.
 fn upsert_span(tx: &Transaction<'_>, id: &str, dimension: &str, sp: &Span) -> Stored<()> {
     tx.execute(
@@ -2100,12 +2198,12 @@ fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
 }
 
 fn snapshot<'l>(
-    conn: &Connection,
+    conn: &'l Connection,
     lib: &'l Library,
     earlier: &'l BTreeMap<i64, Library>,
     now: i64,
 ) -> Stored<World<'l>> {
-    let mut world = World::new(lib, now);
+    let mut world = World::new(lib, now).reading_from(conn);
     world.earlier = earlier;
     let mut directory =
         conn.prepare("SELECT rowid, id, type, created_at, created_by_kind FROM of_object")?;
@@ -2289,14 +2387,6 @@ fn snapshot<'l>(
             o.erased = true;
         }
     }
-    // the attempt log, in the order written
-    let mut attempts = conn.prepare(
-        "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
-         flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn, call, context, \
-         proposal FROM of_attempt ORDER BY id",
-    )?;
-    let rows = attempts.query_map([], attempt_row)?;
-    world.attempts = rows.collect::<Result<Vec<_>, _>>()?;
     // each subscription's acknowledged cursor, a position on SQLite
     let mut positions =
         conn.prepare("SELECT subscription_id, acknowledged FROM of_subscription_position")?;
@@ -2308,82 +2398,17 @@ fn snapshot<'l>(
         };
         world.acknowledged.insert(id, at);
     }
-    // the log, and the events that recorded an admission
-    let mut log = conn.prepare(&format!("{EVENT_SELECT} ORDER BY position"))?;
-    let rows = log.query_map([], event_row)?;
-    world.events = rows.collect::<Result<Vec<_>, _>>()?;
-    world.imported = world
-        .events
-        .iter()
-        .filter(|e| e.imported)
-        .map(|e| e.position)
-        .collect();
+    // the imported events, and those that recorded an admission; the log
+    // itself is read where an operation reads it (ADR-0162 step 1)
+    let mut imported = conn.prepare("SELECT position FROM of_event WHERE imported = 1")?;
+    let rows = imported.query_map([], |r| r.get::<_, i64>(0))?;
+    for row in rows {
+        world.imported.insert(row?);
+    }
     let mut admitting = conn.prepare("SELECT DISTINCT position FROM of_admission")?;
     let rows = admitting.query_map([], |r| r.get::<_, i64>(0))?;
     for row in rows {
         world.admitting.insert(row?);
-    }
-    // the pruned rows' daily counts, as rows of the attempt_counts source
-    let mut rolled = conn.prepare(
-        "SELECT day, object_id, verdict, type, transition, clause, remedy, actor_kind, enforced, flagged, \
-         declaration_version, count FROM of_attempt_rollup",
-    )?;
-    let rows = rolled.query_map([], |r| {
-        let text = |i: usize| -> rusqlite::Result<Value> {
-            let t: String = r.get(i)?;
-            Ok(if t.is_empty() {
-                Value::Absent
-            } else {
-                Value::Text(t)
-            })
-        };
-        let day: String = r.get(0)?;
-        let object: String = r.get(1)?;
-        let mut f = BTreeMap::new();
-        f.insert(
-            "day".to_string(),
-            crate::value::parse_timestamp(&format!("{day}T00:00:00Z"))
-                .map_or(Value::Absent, |t| Value::Date(t.div_euclid(86_400))),
-        );
-        f.insert(
-            "object".to_string(),
-            if object.is_empty() {
-                Value::Absent
-            } else {
-                Value::Object(object)
-            },
-        );
-        f.insert("verdict".to_string(), text(2)?);
-        f.insert("type".to_string(), text(3)?);
-        f.insert("transition".to_string(), text(4)?);
-        f.insert("clause".to_string(), text(5)?);
-        f.insert("remedy".to_string(), text(6)?);
-        f.insert("actor_kind".to_string(), text(7)?);
-        f.insert(
-            "enforced".to_string(),
-            Value::Bool(r.get::<_, i64>(8)? != 0),
-        );
-        f.insert("flagged".to_string(), Value::Bool(r.get::<_, i64>(9)? != 0));
-        f.insert("declaration_version".to_string(), Value::Int(r.get(10)?));
-        Ok((f, r.get::<_, i64>(11)?))
-    })?;
-    world.rollup = rows.collect::<Result<Vec<_>, _>>()?;
-    // each key an actor applied, which a retry replays
-    let mut keys =
-        conn.prepare("SELECT actor_id, key, request_digest, verdict FROM of_idempotency")?;
-    let rows = keys.query_map([], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, String>(2)?,
-            r.get::<_, String>(3)?,
-        ))
-    })?;
-    for row in rows {
-        let (actor, key, digest, verdict) = row?;
-        let verdict = serde_json::from_str(&verdict)
-            .map_err(|e| StoreError(format!("{actor}'s key {key}'s verdict: {e}")))?;
-        world.idempotency.insert((actor, key), (digest, verdict));
     }
     // the admissions that stand
     let mut standing = conn.prepare(

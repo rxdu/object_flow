@@ -20,7 +20,7 @@ This was the first slice's choice, never a decision: it kept the evaluator a fun
 | 2,000 | 9,041 | 66.1 ms | 38.8 ms | 41.7 ms | 125.7 ms | 39.0 ms |
 | 4,000 | 18,051 | 149.3 ms | 83.0 ms | 86.7 ms | 276.1 ms | 82.0 ms |
 
-Every operation costs at least one load of the store, about 20 µs an object at this shape. A request costs about two loads and a metric read about three. The cost grows with everything the store holds, closed objects and history included, and not with what the operation reads: a `get` of one object costs what a query over all of them does.
+Every operation costs at least one load of the store, about 20 µs an object at this shape. Where that load's time goes, measured 2026-10-07 by timing each stage of `Store::snapshot` over 2,000 objects and 9,041 events, a release build, the third of three successive loads: the event log 17.7 ms, 53% of the load; the objects and their interval spans 13.0 ms, 39%; the attribute write index, creation dates, erased objects and the rest about 2.6 ms together; and the attempt log, the idempotency records and the rollup, under 0.1 ms, small at this shape since the probe's requests are refused rarely and carry no key. A request costs about two loads and a metric read about three. The cost grows with everything the store holds, closed objects and history included, and not with what the operation reads: a `get` of one object costs what a query over all of them does.
 
 At the first consumer's scale (PRD N3: 279 live deliveries, 81 services, 203 warranty contracts and 123 live customers on 2026-09-01, and 6,391 audit rows over its system's life), the line puts a request in the tens of milliseconds and a metric read near or above a hundred. The store never shrinks, since history is kept, so both grow with every year of operation, and N3's own range, "hundreds to thousands of live objects per type, and their history", reaches several hundred milliseconds.
 
@@ -67,8 +67,17 @@ The reference runner stays a whole-store evaluator: it is the oracle for what an
 
 PRD C5 asks that reading a derived datapoint or a metric be fast enough for interactive use at the first consumer's scale, its target "to be set by measurement". The measurement now exists, and **the target is the author's to set**. A proposal, for discussion: a request and a `get` within 100 ms, and a metric read within 1 s, at the 95th percentile, on the deployment's hardware, over a store of N3's upper range with several years of its history. The two bounds are the response-time limits usability practice gives for an action that feels immediate and for one that keeps a person's flow of thought (Nielsen, "Response Times: The 3 Important Limits", 1993); the store size is the part only the author can fix, since it is a statement about the first consumer's growth.
 
-## 7. What deciding needs
+## 7. Decided, and built so far
 
-1. The architecture: B as recommended, or another of §4.
-2. C5's target: the bounds, the percentile and the store size it is stated at, after which C5 becomes verifiable and the probe becomes its test.
-3. Whether the steps of B come before or after the first consumer's cutover, which the measurements above allow either way.
+The author decided B and C5's target as recommended on 2026-10-07 (ADR-0162, PRD revision 22), and the steps proceed in order, each measured with the probe.
+
+**Step 1 is built** (2026-10-07). The log is read on an operation's first use of it and kept for the operation, which appends its own events beside it; the attempt log and the rollup likewise; and a request carrying an idempotency key reads that key's record alone. A store whose log cannot be read stops the operation that reads it as not run, naming why, never as an empty log. An erasure reads the log once and walks it. Measured with the same probe, before and after, the log's change alone:
+
+| objects | request | `get` | query | metric read | one load |
+|---|---|---|---|---|---|
+| 500 | 15.6 → 6.2 ms | 9.1 → 4.1 ms | 9.3 → 4.5 ms | 29.8 → 24.8 ms | 9.0 → 4.1 ms |
+| 1,000 | 34.9 → 12.6 ms | 19.3 → 8.0 ms | 19.8 → 9.8 ms | 60.7 → 51.6 ms | 18.8 → 8.1 ms |
+| 2,000 | 66.1 → 27.9 ms | 38.8 → 18.5 ms | 41.7 → 19.5 ms | 125.7 → 105.9 ms | 39.0 → 17.1 ms |
+| 4,000 | 149.3 → 59.9 ms | 83.0 → 37.9 ms | 86.7 → 41.6 ms | 276.1 → 224.6 ms | 82.0 → 38.5 ms |
+
+A request and a read now cost about 40% of what they did, the objects and their spans being what remains of a load; a metric read over transitions still reads the whole log, which step 3's index ranges remove. Step 2, objects by id, is next.

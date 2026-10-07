@@ -56,7 +56,7 @@ pub fn diagnostics(
     // each of the family's events in the window, as the transitions source
     // reads it
     let mut rows: Vec<BTreeMap<String, Value>> = Vec::new();
-    for e in &world.events {
+    for e in world.log()? {
         if !family.contains(e.object_id.as_str()) || !within(e.occurred_at.unwrap_or(e.recorded_at))
         {
             continue;
@@ -132,7 +132,7 @@ pub fn diagnostics(
     );
     // the clauses that refuse most, by remedy and kind of actor
     let attempts: Vec<&crate::store::Attempt> = world
-        .attempts
+        .attempts()?
         .iter()
         .filter(|a| a.type_.as_deref().is_some_and(|at| lib.is_a(at, type_)) && within(a.at))
         .collect();

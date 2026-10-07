@@ -1283,11 +1283,12 @@ fn take(
         // personal under the installed version, or under the version of
         // the event that last wrote it, an attribute a later version no
         // longer marks keeping what it was written as (ADR-0146 decision 2)
+        // the log, read once for the erasure and its walks, this request's
+        // own events among it (ADR-0162 step 1)
+        let log: Vec<Event> = ctx.work.log()?.cloned().collect();
         let written_personal = |a: &str| {
             o.writes.get(a).is_some_and(|position| {
-                ctx.work
-                    .events
-                    .iter()
+                log.iter()
                     .find(|e| e.position == *position)
                     .is_some_and(|e| ctx.work.personal_under(e.declaration_version, &o.type_, a))
             })
@@ -1321,9 +1322,7 @@ fn take(
         let redacted_since = ctx.redacted_inputs.len();
         // what the erased object holds that is personal, the source of
         // every value the walks follow
-        let own_versions: BTreeSet<i64> = ctx
-            .work
-            .events
+        let own_versions: BTreeSet<i64> = log
             .iter()
             .filter(|e| e.object_id == o.id)
             .map(|e| e.declaration_version)
@@ -1342,9 +1341,7 @@ fn take(
         // each input personal under the transition its event recorded,
         // redacted there alone, since an input personal in one transition
         // may not be in another (storage-schema.md §9 step 8)
-        let own: Vec<Event> = ctx
-            .work
-            .events
+        let own: Vec<Event> = log
             .iter()
             .filter(|e| e.object_id == o.id)
             .cloned()
@@ -1376,13 +1373,13 @@ fn take(
                 }
             }
             // and what flowed down from it into other objects (§9 step 12)
-            walk_down(ctx, e, &tainted, &holding);
+            walk_down(ctx, &log, e, &tainted, &holding);
             // and the callers that passed one on (§9 step 3)
-            caller_taint(ctx, e, tainted);
+            caller_taint(ctx, &log, e, tainted);
         }
         // every other object whose value it redacted gets an event
         // (DESIGN.md §8)
-        redact_others(ctx, alloc, &o.id, redacted_since);
+        redact_others(ctx, alloc, &log, &o.id, redacted_since);
         ctx.erased.entry(o.id.clone()).or_default().extend(erased);
         invalidate_proposals(ctx, alloc, &o.id)?;
     }
@@ -1634,7 +1631,7 @@ fn take(
         },
         reads: json!({}),
     };
-    ctx.work.events.push(event.clone());
+    ctx.work.appended.push(event.clone());
     ctx.events.push(event);
     ctx.causes.pop();
     Ok(id)
@@ -1661,13 +1658,13 @@ fn external_text(v: &Value) -> Option<String> {
 /// inferred, so two calls of one transition name on different types taint
 /// both, which redacts more and never less; the installed version's steps are
 /// read, as for every erasure here (TODO: an earlier version's).
-fn caller_taint(ctx: &mut Ctx<'_>, from: &Event, mut tainted: BTreeSet<String>) {
+fn caller_taint(ctx: &mut Ctx<'_>, log: &[Event], from: &Event, mut tainted: BTreeSet<String>) {
     let lib = ctx.work.lib;
     let mut callee = from.clone();
     while !tainted.is_empty() {
         let Some(caller) = callee
             .cause
-            .and_then(|c| ctx.work.events.iter().find(|e| e.position == c))
+            .and_then(|c| log.iter().find(|e| e.position == c))
             .cloned()
         else {
             break;
@@ -1712,6 +1709,7 @@ fn caller_taint(ctx: &mut Ctx<'_>, from: &Event, mut tainted: BTreeSet<String>) 
 /// event; and so on down.
 fn walk_down(
     ctx: &mut Ctx<'_>,
+    log: &[Event],
     from: &Event,
     tainted: &BTreeSet<String>,
     holding: &BTreeSet<String>,
@@ -1725,9 +1723,7 @@ fn walk_down(
     else {
         return;
     };
-    let caused: Vec<Event> = ctx
-        .work
-        .events
+    let caused: Vec<Event> = log
         .iter()
         .filter(|f| f.cause == Some(from.position) && f.object_id != from.object_id)
         .cloned()
@@ -1767,7 +1763,7 @@ fn walk_down(
             }
         }
         if !next_inputs.is_empty() {
-            walk_down(ctx, &f, &next_inputs, &next_holding);
+            walk_down(ctx, log, &f, &next_inputs, &next_holding);
         }
     }
 }
@@ -1830,10 +1826,16 @@ fn attributes_written(t: &Type, x: &Transition, input: &str) -> BTreeSet<String>
 /// event, naming what it redacted and never the values; the object's version
 /// advances, and the object is not itself erased. One already erased holds
 /// nothing personal to redact, and records none.
-fn redact_others(ctx: &mut Ctx<'_>, alloc: &mut Allocator, erased: &str, since: usize) {
+fn redact_others(
+    ctx: &mut Ctx<'_>,
+    alloc: &mut Allocator,
+    log: &[Event],
+    erased: &str,
+    since: usize,
+) {
     let mut names: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (position, n) in &ctx.redacted_inputs[since..] {
-        if let Some(e) = ctx.work.events.iter().find(|e| e.position == *position)
+        if let Some(e) = log.iter().find(|e| e.position == *position)
             && e.object_id != erased
         {
             names
@@ -1898,7 +1900,7 @@ fn redact_others(ctx: &mut Ctx<'_>, alloc: &mut Allocator, erased: &str, since: 
             payload: json!({ "redacted": redacted }),
             reads: json!({}),
         };
-        ctx.work.events.push(event.clone());
+        ctx.work.appended.push(event.clone());
         ctx.events.push(event);
         ctx.work.objects.insert(id, p);
     }
@@ -2174,7 +2176,7 @@ fn invalidate_proposals(
             payload: json!({ "redacted": ["inputs"] }),
             reads: json!({}),
         };
-        ctx.work.events.push(invalidated.clone());
+        ctx.work.appended.push(invalidated.clone());
         ctx.events.push(invalidated);
         // the inputs leave the proposal's own creation event too
         ctx.erased.entry(id.clone()).or_default().extend(names);
@@ -4006,9 +4008,11 @@ pub fn request(
             .as_ref()
             .and_then(|key| resolve_actor(world, &req.actor).map(|who| (who.id, key.clone())));
         let digest = request_digest(req);
-        if let Some((actor, key)) = &keyed
-            && let Some((applied, recorded)) = world.idempotency.get(&(actor.clone(), key.clone()))
-        {
+        let held = match &keyed {
+            Some((actor, key)) => world.idempotency_of(actor, key)?,
+            None => None,
+        };
+        if let (Some((_, key)), Some((applied, recorded))) = (&keyed, &held) {
             if *applied != digest {
                 return Err(NoVerdict::KeyReused { key: key.clone() });
             }
@@ -4418,7 +4422,8 @@ types:
         // each refusal is a row of the attempt log, its remedy re-reading
         let w = s.snapshot().unwrap();
         let stale: Vec<_> = w
-            .attempts
+            .attempts()
+            .unwrap()
             .iter()
             .filter(|a| a.verdict == "stale")
             .map(|a| (a.clause.clone(), a.remedy.clone()))
@@ -4512,7 +4517,7 @@ types:
             [("ship", None), ("pack", Some(evs[0].position))]
         );
         let w = s.snapshot().unwrap();
-        let a = w.attempts.last().unwrap();
+        let a = w.attempts().unwrap().last().unwrap();
         assert_eq!(
             (
                 a.type_.as_deref(),
@@ -4615,7 +4620,7 @@ types:
             }
         );
         let w = s.snapshot().unwrap();
-        let a = w.attempts.last().unwrap();
+        let a = w.attempts().unwrap().last().unwrap();
         assert_eq!(
             (
                 a.clause.as_deref(),
@@ -4711,8 +4716,8 @@ types:
         let before = |s: &Store| {
             let w = s.snapshot().unwrap();
             (
-                w.events.len(),
-                w.attempts.len(),
+                w.log().unwrap().count(),
+                w.attempts().unwrap().len(),
                 w.get(&fine).unwrap().version,
             )
         };
@@ -6333,8 +6338,8 @@ types:
         let Value::Row(f) = working else { panic!() };
         assert_eq!(f["corrected_by"], Value::Int(at));
         let rows: Vec<Value> = w
-            .events
-            .iter()
+            .log()
+            .unwrap()
             .filter(|e| e.object_id == j)
             .map(|e| crate::eval::transition_row(&w, o, t, e))
             .collect();
@@ -6346,7 +6351,7 @@ types:
         );
         // the correction's event names the attribute, the value it replaces,
         // the new value, the span it corrects and the reason
-        let e = w.events.iter().find(|e| e.position == at).unwrap();
+        let e = w.log().unwrap().find(|e| e.position == at).unwrap();
         assert_eq!(e.source, "corrected");
         assert_eq!(
             (
@@ -6399,7 +6404,7 @@ types:
             ),
             (1, crew("NORTH"), None, true)
         );
-        let last = w.events.iter().rfind(|e| e.object_id == j).unwrap();
+        let last = w.log().unwrap().rfind(|e| e.object_id == j).unwrap();
         assert_eq!(
             held_crew(&crate::eval::transition_row(&w, o, t, last)),
             crew("NORTH")
@@ -6450,7 +6455,7 @@ types:
         let o = w.get(&j).unwrap();
         let t = w.lib.type_("Job").unwrap();
         let states = crate::eval::interval_rows(&w, o, t, "state").unwrap();
-        let start = w.events.iter().find(|e| e.transition == "start").unwrap();
+        let start = w.log().unwrap().find(|e| e.transition == "start").unwrap();
         assert_eq!(
             (
                 held_crew(states.last().unwrap()),
@@ -6531,7 +6536,7 @@ types:
             Verdict::InvariantViolated { .. }
         ));
         let w = s.snapshot().unwrap();
-        let refused = &w.attempts.last().unwrap().reads;
+        let refused = &w.attempts().unwrap().last().unwrap().reads;
         assert_eq!(
             refused["scans"]["login_unique"],
             json!({ "User": [ana.clone()] })
@@ -6591,7 +6596,13 @@ types:
             }
         );
         assert!(
-            s.snapshot().unwrap().attempts.last().unwrap().consulted["small_and_cleared"]
+            s.snapshot()
+                .unwrap()
+                .attempts()
+                .unwrap()
+                .last()
+                .unwrap()
+                .consulted["small_and_cleared"]
                 .get("values")
                 .is_none_or(|v| v.as_object().is_none_or(|m| m.is_empty()))
         );
@@ -6629,7 +6640,7 @@ types:
             }
         );
         let w = s.snapshot().unwrap();
-        let row = w.attempts.last().unwrap();
+        let row = w.attempts().unwrap().last().unwrap();
         assert!(!row.unknown);
         assert_eq!(
             row.consulted["small_and_cleared"]["values"],
@@ -6668,7 +6679,7 @@ types:
         );
         let w = s.snapshot().unwrap();
         assert_eq!(
-            w.attempts.last().unwrap().clause.as_deref(),
+            w.attempts().unwrap().last().unwrap().clause.as_deref(),
             Some("every_cleared")
         );
     }
@@ -6715,7 +6726,11 @@ types:
         };
         let counts = |s: &Store| {
             let w = s.snapshot().unwrap();
-            (w.objects.len(), w.events.len(), w.attempts.len())
+            (
+                w.objects.len(),
+                w.log().unwrap().count(),
+                w.attempts().unwrap().len(),
+            )
         };
         // applied, then replayed: the same verdict, marked, nothing written
         let open = keyed(OPERATOR, "open", None, json!({"title": "Fix"}), None, "k1");
@@ -6793,7 +6808,7 @@ types:
         );
         assert_eq!(counts(&s), (before.0, before.1, before.2 + 1));
         let w = s.snapshot().unwrap();
-        let row = w.attempts.last().unwrap();
+        let row = w.attempts().unwrap().last().unwrap();
         assert_eq!(
             (
                 row.verdict.as_str(),
@@ -6941,7 +6956,7 @@ types:
             let w = s.snapshot().unwrap();
             let o = w.get(&job).unwrap();
             let t = w.lib.type_("Job").unwrap();
-            let e = w.events.iter().rfind(|e| e.transition == "fix").unwrap();
+            let e = w.log().unwrap().rfind(|e| e.transition == "fix").unwrap();
             assert_eq!(e.payload["inputs"]["reason"], json!("Dana asked"));
             let Value::Row(row) = crate::eval::transition_row(&w, o, t, e) else {
                 panic!("a transition's row")
@@ -7089,7 +7104,7 @@ types:
             false,
         );
         let w = s.snapshot().unwrap();
-        let audit = w.attempts.last().unwrap();
+        let audit = w.attempts().unwrap().last().unwrap();
         assert_eq!(
             (audit.clause.as_deref(), audit.context.as_deref()),
             (Some("counted"), Some("job:audited"))
@@ -7109,7 +7124,7 @@ types:
         ));
         let w = s.snapshot().unwrap();
         assert_eq!(
-            w.attempts.last().unwrap().context.as_deref(),
+            w.attempts().unwrap().last().unwrap().context.as_deref(),
             Some("job:refused")
         );
         drop(w);
@@ -7455,8 +7470,8 @@ types:
         // every other object redacted gets one redact event, caused by the
         // erasure, naming what it redacted, its version advanced
         let forget = w
-            .events
-            .iter()
+            .log()
+            .unwrap()
             .rfind(|e| e.transition == "forget")
             .unwrap()
             .position;

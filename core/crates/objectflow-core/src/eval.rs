@@ -576,7 +576,7 @@ impl<'a> Evaluator<'a> {
             "created_at" => Value::Timestamp(o.created_at),
             "recorded_from" => Value::Timestamp(o.recorded_from),
             "created_by_kind" | "recorded_by_kind" => Value::Text(o.created_by_kind.clone()),
-            "declaration_version" => Value::Int(self.world.version_of(&o.id)),
+            "declaration_version" => Value::Int(self.world.version_of(&o.id)?),
             "open" => Value::Bool(!t.finished(&o.state)),
             "actor_id" => match t.actor_identity() {
                 Some((attr, _)) => o.attr(attr),
@@ -585,15 +585,14 @@ impl<'a> Evaluator<'a> {
             "intervals" => self.intervals(o, t, "state")?,
             "transitions" => Value::Set(
                 self.world
-                    .events
-                    .iter()
+                    .log()?
                     .filter(|e| e.object_id == o.id)
                     .map(|e| transition_row(self.world, o, t, e))
                     .collect(),
             ),
             "attempts" => Value::Set(
                 self.world
-                    .attempts
+                    .attempts()?
                     .iter()
                     .filter(|a| a.object_id.as_deref() == Some(o.id.as_str()))
                     .map(attempt_row)

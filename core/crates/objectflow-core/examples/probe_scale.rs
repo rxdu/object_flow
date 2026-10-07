@@ -104,7 +104,7 @@ fn main() {
             last = life(&mut s, made);
             made += 1;
         }
-        let events = s.snapshot().unwrap().events.len();
+        let events = s.snapshot().unwrap().log().unwrap().count();
         // a request on a live ticket, its open and park alternating so each
         // run applies
         let probe = ask(&mut s, "open", None, json!({}));

@@ -109,6 +109,9 @@ impl LegacyEntry {
     }
 }
 
+/// A row of the attempt rollup: the counted fields, and the count.
+pub type RolledUp = (BTreeMap<String, crate::value::Value>, i64);
+
 /// No earlier version's library: a store with one version, or a world
 /// built without them.
 static NO_EARLIER: BTreeMap<i64, Library> = BTreeMap::new();
@@ -128,9 +131,16 @@ pub struct World<'l> {
     /// Each external identifier, by source and value, and the object that
     /// holds it, a legacy key among them (`storage-schema.md`, `of_external_id`).
     pub external: BTreeMap<(String, String), String>,
-    /// The log, in position order: every event recorded, which a metric over
-    /// transitions reads (`storage-schema.md`, `of_event`).
-    pub events: Vec<Event>,
+    /// The events the operation appended, in position order, after the log
+    /// the store holds, which [`World::log`] reads with them.
+    pub appended: Vec<Event>,
+    /// The log the store holds, read on first use and kept for the
+    /// operation, so one that never reads it never loads it (ADR-0162 step
+    /// 1); an error where it could not be read.
+    stored: std::cell::OnceCell<Result<Vec<Event>, String>>,
+    /// The store's connection, which the log is read through; none for a
+    /// world built without a store.
+    conn: Option<&'l rusqlite::Connection>,
     /// The position of each event that recorded an admission, which is an
     /// override (`declaration-syntax.md` §6.9, `of_admission`).
     pub admitting: BTreeSet<i64>,
@@ -138,8 +148,9 @@ pub struct World<'l> {
     /// before it, at the legacy time of the change (ADR-0106).
     pub imported: BTreeSet<i64>,
     /// The attempt log, in the order written, which a metric over
-    /// `attempts` or `attempt_counts` reads (`storage-schema.md` §6).
-    pub attempts: Vec<crate::store::Attempt>,
+    /// `attempts` or `attempt_counts` reads (`storage-schema.md` §6), read
+    /// on first use (ADR-0162 step 1).
+    stored_attempts: std::cell::OnceCell<Result<Vec<crate::store::Attempt>, String>>,
     /// Each subscription's acknowledged cursor, where one was acknowledged:
     /// runtime state, not versioned (`DESIGN.md` §7).
     pub acknowledged: BTreeMap<String, i64>,
@@ -148,14 +159,10 @@ pub struct World<'l> {
     /// (`storage-schema.md` §3, `state_source`), which `exceptions` reads; a
     /// request's working copy does not move it.
     pub state_sources: BTreeMap<String, String>,
-    /// Each key an actor applied, by the actor's id and the key: the digest
-    /// of the request it applied and the verdict it was given, which a retry
-    /// replays (`storage-schema.md` §6, `of_idempotency`, ADR-0077).
-    pub idempotency: BTreeMap<(String, String), (String, serde_json::Value)>,
     /// The daily counts of the attempt rows `maintain` pruned, each a row of
     /// the `attempt_counts` source as the rows it counted were
-    /// (`storage-schema.md` §6, `of_attempt_rollup`).
-    pub rollup: Vec<(BTreeMap<String, crate::value::Value>, i64)>,
+    /// (`storage-schema.md` §6, `of_attempt_rollup`), read on first use.
+    stored_rollup: std::cell::OnceCell<Result<Vec<RolledUp>, String>>,
 }
 
 impl<'l> World<'l> {
@@ -167,14 +174,15 @@ impl<'l> World<'l> {
             objects: BTreeMap::new(),
             now,
             external: BTreeMap::new(),
-            events: Vec::new(),
+            appended: Vec::new(),
+            stored: std::cell::OnceCell::new(),
+            conn: None,
             admitting: BTreeSet::new(),
             imported: BTreeSet::new(),
-            attempts: Vec::new(),
+            stored_attempts: std::cell::OnceCell::new(),
             acknowledged: BTreeMap::new(),
             state_sources: BTreeMap::new(),
-            idempotency: BTreeMap::new(),
-            rollup: Vec::new(),
+            stored_rollup: std::cell::OnceCell::new(),
         }
     }
 
@@ -213,6 +221,73 @@ impl<'l> World<'l> {
             .is_some_and(|a| a.personal)
     }
 
+    /// A world that reads its log through the connection given.
+    pub(crate) fn reading_from(mut self, conn: &'l rusqlite::Connection) -> World<'l> {
+        self.conn = Some(conn);
+        self
+    }
+
+    /// The log, in position order: every event the store holds, read on first
+    /// use, then those the operation appended (`storage-schema.md`, `of_event`,
+    /// ADR-0162). A log that cannot be read stops the operation as not run,
+    /// naming why, never as an empty log.
+    pub fn log(&self) -> Result<impl DoubleEndedIterator<Item = &Event> + '_, crate::eval::NotRun> {
+        let stored = self.stored.get_or_init(|| match self.conn {
+            Some(conn) => crate::store::read_log(conn).map_err(|e| e.to_string()),
+            None => Ok(Vec::new()),
+        });
+        match stored {
+            Ok(events) => Ok(events.iter().chain(self.appended.iter())),
+            Err(e) => Err(crate::eval::NotRun(format!(
+                "the store's log, which could not be read: {e}"
+            ))),
+        }
+    }
+
+    /// The attempt log, in the order written, read on first use; a log that
+    /// cannot be read stops the operation as not run, naming why.
+    pub fn attempts(&self) -> Result<&[crate::store::Attempt], crate::eval::NotRun> {
+        let stored = self.stored_attempts.get_or_init(|| match self.conn {
+            Some(conn) => crate::store::read_attempts(conn).map_err(|e| e.to_string()),
+            None => Ok(Vec::new()),
+        });
+        stored.as_deref().map_err(|e| {
+            crate::eval::NotRun(format!(
+                "the store's attempt log, which could not be read: {e}"
+            ))
+        })
+    }
+
+    /// The pruned attempt rows' daily counts, read on first use.
+    pub fn rollup(&self) -> Result<&[RolledUp], crate::eval::NotRun> {
+        let stored = self.stored_rollup.get_or_init(|| match self.conn {
+            Some(conn) => crate::store::read_rollup(conn).map_err(|e| e.to_string()),
+            None => Ok(Vec::new()),
+        });
+        stored.as_deref().map_err(|e| {
+            crate::eval::NotRun(format!(
+                "the store's attempt rollup, which could not be read: {e}"
+            ))
+        })
+    }
+
+    /// What a key an actor applied recorded, the request's digest and its
+    /// verdict, read by the key alone (ADR-0162 step 1).
+    pub fn idempotency_of(
+        &self,
+        actor: &str,
+        key: &str,
+    ) -> Result<Option<(String, serde_json::Value)>, crate::eval::NotRun> {
+        match self.conn {
+            Some(conn) => crate::store::read_idempotency(conn, actor, key).map_err(|e| {
+                crate::eval::NotRun(format!(
+                    "the store's idempotency records, which could not be read: {e}"
+                ))
+            }),
+            None => Ok(None),
+        }
+    }
+
     pub fn get(&self, id: &str) -> Option<&Object> {
         self.objects.get(id)
     }
@@ -234,12 +309,11 @@ impl<'l> World<'l> {
 
     /// The version an object's last event was recorded under, the
     /// installed one for an object with none.
-    pub fn version_of(&self, id: &str) -> i64 {
-        self.events
-            .iter()
-            .rev()
-            .find(|e| e.object_id == id)
-            .map_or(self.lib.version, |e| e.declaration_version)
+    pub fn version_of(&self, id: &str) -> Result<i64, crate::eval::NotRun> {
+        Ok(self
+            .log()?
+            .rfind(|e| e.object_id == id)
+            .map_or(self.lib.version, |e| e.declaration_version))
     }
 
     /// The next place in creation order.

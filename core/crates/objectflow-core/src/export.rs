@@ -6,6 +6,8 @@
 //! row, so a row closed or relabelled since comes again and a consumer keeps
 //! the latest per object, dimension and entry (ADR-0100 §6).
 
+use std::collections::BTreeMap;
+
 use serde_json::{Value as Json, json};
 
 use crate::eval::NotRun;
@@ -41,7 +43,7 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
     if let Some(type_) = source.strip_suffix(".attempt_counts")
         && world.lib.type_(type_).is_some()
     {
-        return Ok(counts_page(world, type_, cursor));
+        return counts_page(world, type_, cursor);
     }
     let after = match cursor {
         None => 0,
@@ -52,8 +54,7 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
     };
     let mut rows: Vec<(i64, Json)> = if source == "log" {
         world
-            .events
-            .iter()
+            .log()?
             .filter(|e| e.position > after)
             .map(|e| (e.position, event_row(world, e)))
             .collect()
@@ -63,7 +64,7 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
         .is_some_and(|t| t.observation_on.is_some())
     {
         // an observation kind's records, each by its latest event
-        object_rows(world, world.of_type(source), after)
+        object_rows(world, world.of_type(source), after)?
     } else {
         let Some((type_, kind)) = source.split_once('.') else {
             return refuse("unknown_source");
@@ -72,9 +73,9 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
             return refuse("unknown_source");
         }
         match kind {
-            "intervals" => interval_rows(world, type_, after),
+            "intervals" => interval_rows(world, type_, after)?,
             "attempts" => world
-                .attempts
+                .attempts()?
                 .iter()
                 .filter(|a| a.txn > after)
                 .filter(|a| a.type_.as_deref().is_some_and(|t| world.lib.is_a(t, type_)))
@@ -82,8 +83,7 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
                 .collect(),
             // the log of the type's family
             "transitions" => world
-                .events
-                .iter()
+                .log()?
                 .filter(|e| e.position > after)
                 .filter(|e| {
                     world
@@ -102,7 +102,7 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
                             if world.get(&s).is_some_and(|o| world.lib.is_a(&o.type_, type_)))
                     })
                     .collect();
-                object_rows(world, on, after)
+                object_rows(world, on, after)?
             }
             _ => return refuse("unknown_source"),
         }
@@ -123,7 +123,7 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
 /// the last day exported, `YYYY-MM-DD`, an empty one the start. A day's
 /// counts never change once it is over, attempts being dated by when they
 /// were recorded, and a prune moves a count without changing it.
-fn counts_page(world: &World<'_>, type_: &str, cursor: Option<&str>) -> ExportPage {
+fn counts_page(world: &World<'_>, type_: &str, cursor: Option<&str>) -> Result<ExportPage, NotRun> {
     let day_of = |text: &str| {
         crate::value::parse_timestamp(&format!("{text}T00:00:00Z")).map(|t| t.div_euclid(86_400))
     };
@@ -132,16 +132,16 @@ fn counts_page(world: &World<'_>, type_: &str, cursor: Option<&str>) -> ExportPa
         Some(c) => match day_of(c) {
             Some(d) => Some(d),
             None => {
-                return ExportPage {
+                return Ok(ExportPage {
                     lines: Vec::new(),
                     cursor: c.to_string(),
                     refused: Some("invalid_cursor".into()),
-                };
+                });
             }
         },
     };
     let today = world.now.div_euclid(86_400);
-    let mut rows: Vec<(i64, String)> = crate::metric::attempt_count_rows(world, type_)
+    let mut rows: Vec<(i64, String)> = crate::metric::attempt_count_rows(world, type_)?
         .into_iter()
         .filter_map(|r| {
             let crate::value::Value::Row(f) = r else {
@@ -163,7 +163,7 @@ fn counts_page(world: &World<'_>, type_: &str, cursor: Option<&str>) -> ExportPa
         .collect();
     rows.sort();
     let last = rows.last().map(|(d, _)| *d);
-    ExportPage {
+    Ok(ExportPage {
         cursor: match (last, cursor) {
             (Some(d), _) => match wire::encode(&crate::value::Value::Date(d)) {
                 Json::String(t) => t,
@@ -173,29 +173,35 @@ fn counts_page(world: &World<'_>, type_: &str, cursor: Option<&str>) -> ExportPa
         },
         lines: rows.into_iter().map(|(_, r)| r).collect(),
         refused: None,
-    }
+    })
 }
 
 /// Each object after the cursor by its latest event, which a correction or a
 /// forget moves, so the row comes again (ADR-0100 §6).
-fn object_rows(world: &World<'_>, objects: Vec<&Object>, after: i64) -> Vec<(i64, Json)> {
-    objects
-        .into_iter()
-        .filter_map(|o| {
-            let last = world
-                .events
-                .iter()
-                .filter(|e| e.object_id == o.id)
-                .map(|e| e.position)
-                .max()?;
-            (last > after).then(|| (last, object_row(world, o)))
-        })
-        .collect()
+fn object_rows(
+    world: &World<'_>,
+    objects: Vec<&Object>,
+    after: i64,
+) -> Result<Vec<(i64, Json)>, NotRun> {
+    // each object's latest event, read from the log once
+    let mut last: BTreeMap<&str, i64> = BTreeMap::new();
+    for e in world.log()? {
+        last.insert(e.object_id.as_str(), e.position);
+    }
+    let mut rows = Vec::new();
+    for o in objects {
+        if let Some(at) = last.get(o.id.as_str()).copied()
+            && at > after
+        {
+            rows.push((at, object_row(world, o)?));
+        }
+    }
+    Ok(rows)
 }
 
 /// An object in `Object`'s shape (`library-api.md` §5), its personal
 /// attributes omitted (ADR-0094 §3).
-fn object_row(world: &World<'_>, o: &Object) -> Json {
+fn object_row(world: &World<'_>, o: &Object) -> Result<Json, NotRun> {
     let t = world.lib.type_(&o.type_);
     let attributes: serde_json::Map<String, Json> = o
         .attrs
@@ -203,18 +209,18 @@ fn object_row(world: &World<'_>, o: &Object) -> Json {
         .filter(|(a, _)| !t.and_then(|t| t.attribute(a)).is_some_and(|s| s.personal))
         .map(|(a, v)| (a.clone(), wire::encode(v)))
         .collect();
-    json!({
+    Ok(json!({
         "id": o.id,
         "type": o.type_,
         "state": o.state,
         "version": o.version,
-        "declaration_version": world.version_of(&o.id),
+        "declaration_version": world.version_of(&o.id)?,
         "created_at": timestamp_text(o.created_at),
         "created_by_kind": o.created_by_kind,
         "attributes": attributes,
         "recorded_from": timestamp_text(o.recorded_from),
         "created_dated": o.created_dated,
-    })
+    }))
 }
 
 /// An event as the log exports it, its personal inputs and corrected
@@ -266,18 +272,16 @@ fn personal(lib: &Library, type_: Option<&str>, transition: &str, name: &str) ->
 /// last wrote it: the one that opened it, closed it, or relabelled it in a
 /// correction; a legacy span, which no event opened, by the import event
 /// that wrote its object (`library-api.md` §6).
-fn interval_rows(world: &World<'_>, type_: &str, after: i64) -> Vec<(i64, Json)> {
+fn interval_rows(world: &World<'_>, type_: &str, after: i64) -> Result<Vec<(i64, Json)>, NotRun> {
+    let log: Vec<&Event> = world.log()?.collect();
     let transition_at = |position: i64| {
-        world
-            .events
-            .binary_search_by_key(&position, |e| e.position)
+        log.binary_search_by_key(&position, |e| e.position)
             .ok()
-            .map(|i| world.events[i].transition.clone())
+            .map(|i| log[i].transition.clone())
     };
     let mut rows = Vec::new();
     for o in world.of_type(type_) {
-        let imported = world
-            .events
+        let imported = log
             .iter()
             .find(|e| e.object_id == o.id && world.imported.contains(&e.position))
             .map_or(0, |e| e.position);
@@ -304,7 +308,7 @@ fn interval_rows(world: &World<'_>, type_: &str, after: i64) -> Vec<(i64, Json)>
             }
         }
     }
-    rows
+    Ok(rows)
 }
 
 /// A span as the export writes it, in `Interval`'s shape

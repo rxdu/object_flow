@@ -3,6 +3,7 @@
 //! by a settled cursor, which on SQLite, whose writers are serial, is the
 //! position (ADR-0089).
 
+use crate::eval::NotRun;
 use crate::model::SUBSCRIPTION;
 use crate::store::Event;
 use crate::value::Value;
@@ -22,45 +23,51 @@ pub struct EventPage {
 /// The events a subscription selects after a cursor, exclusive, or after
 /// its acknowledged cursor where none is given; a subscription the store
 /// does not hold is refused as `unknown` and a revoked one as `revoked`.
-pub fn pull(world: &World<'_>, subscription: &str, cursor: Option<i64>) -> EventPage {
-    let settled = world.events.iter().map(|e| e.position).max().unwrap_or(0);
+pub fn pull(
+    world: &World<'_>,
+    subscription: &str,
+    cursor: Option<i64>,
+) -> Result<EventPage, NotRun> {
+    let settled = world.log()?.map(|e| e.position).max().unwrap_or(0);
     let refuse = |why: &str| EventPage {
         events: Vec::new(),
         settled,
         refused: Some(why.to_string()),
     };
     let Some(s) = world.get(subscription).filter(|s| s.type_ == SUBSCRIPTION) else {
-        return refuse("unknown");
+        return Ok(refuse("unknown"));
     };
     if s.state == "REVOKED" {
-        return refuse("revoked");
+        return Ok(refuse("revoked"));
     }
-    let from = cursor.unwrap_or_else(|| acknowledged(world, s));
+    let from = match cursor {
+        Some(c) => c,
+        None => acknowledged(world, s)?,
+    };
     let mut events: Vec<Event> = world
-        .events
-        .iter()
+        .log()?
         .filter(|e| e.position > from && selects(world, s, e))
         .cloned()
         .collect();
     events.sort_by_key(|e| e.position);
-    EventPage {
+    Ok(EventPage {
         events,
         settled,
         refused: None,
-    }
+    })
 }
 
 /// Its acknowledged cursor: the one last acknowledged, or the log's settled
 /// cursor at its creation, its own creation's position, so it starts with
 /// nothing old (`DESIGN.md` §7).
-pub fn acknowledged(world: &World<'_>, s: &Object) -> i64 {
-    world.acknowledged.get(&s.id).copied().unwrap_or_else(|| {
-        world
-            .events
-            .iter()
-            .find(|e| e.object_id == s.id)
-            .map_or(0, |e| e.position)
-    })
+pub fn acknowledged(world: &World<'_>, s: &Object) -> Result<i64, NotRun> {
+    if let Some(at) = world.acknowledged.get(&s.id) {
+        return Ok(*at);
+    }
+    Ok(world
+        .log()?
+        .find(|e| e.object_id == s.id)
+        .map_or(0, |e| e.position))
 }
 
 /// Whether its filter selects an event: one of an object of its type, or of
@@ -92,17 +99,16 @@ fn selects(world: &World<'_>, s: &Object, e: &Event) -> bool {
 /// after its acknowledged cursor, zero where none is pending; and whether it
 /// is lagging, or dead, from the moment the lag reaches `lagging_after`, or
 /// `dead_after`, derived and never moved into (`DESIGN.md` §7, ADR-0100).
-pub fn lag(world: &World<'_>, s: &Object) -> (i64, bool, bool) {
-    let from = acknowledged(world, s);
+pub fn lag(world: &World<'_>, s: &Object) -> Result<(i64, bool, bool), NotRun> {
+    let from = acknowledged(world, s)?;
     let oldest = world
-        .events
-        .iter()
+        .log()?
         .filter(|e| e.position > from && selects(world, s, e))
         .map(|e| e.recorded_at)
         .min();
     let lag = oldest.map_or(0, |at| (world.now - at).max(0));
     let reached = |threshold: &str| matches!(s.attr(threshold), Value::Duration(d) if lag >= d);
-    (lag, reached("lagging_after"), reached("dead_after"))
+    Ok((lag, reached("lagging_after"), reached("dead_after")))
 }
 
 #[cfg(test)]
@@ -165,7 +171,7 @@ types:
 
     fn pulled(s: &Store, sub: &str, cursor: Option<i64>) -> Vec<(String, String)> {
         let w = s.snapshot().unwrap();
-        let page = pull(&w, sub, cursor);
+        let page = pull(&w, sub, cursor).unwrap();
         assert_eq!(page.refused, None);
         page.events
             .into_iter()
@@ -224,14 +230,14 @@ types:
         // acknowledging records nothing in the log, and moves it forward
         let (events, version) = {
             let w = s.snapshot().unwrap();
-            (w.events.len(), w.get(&sub).unwrap().version)
+            (w.log().unwrap().count(), w.get(&sub).unwrap().version)
         };
-        let settled = pull(&s.snapshot().unwrap(), &sub, None).settled;
+        let settled = pull(&s.snapshot().unwrap(), &sub, None).unwrap().settled;
         assert_eq!(s.acknowledge(&sub, settled).unwrap(), None);
         {
             let w = s.snapshot().unwrap();
             assert_eq!(
-                (w.events.len(), w.get(&sub).unwrap().version),
+                (w.log().unwrap().count(), w.get(&sub).unwrap().version),
                 (events, version)
             );
         }
@@ -246,8 +252,14 @@ types:
         // revoked, or unknown, it is refused, a value
         req(&mut s, "", "revoke", Some(&sub), json!({}));
         let w = s.snapshot().unwrap();
-        assert_eq!(pull(&w, &sub, None).refused.as_deref(), Some("revoked"));
-        assert_eq!(pull(&w, &j, None).refused.as_deref(), Some("unknown"));
+        assert_eq!(
+            pull(&w, &sub, None).unwrap().refused.as_deref(),
+            Some("revoked")
+        );
+        assert_eq!(
+            pull(&w, &j, None).unwrap().refused.as_deref(),
+            Some("unknown")
+        );
         drop(w);
         assert_eq!(s.acknowledge(&sub, 0).unwrap().as_deref(), Some("revoked"));
         assert_eq!(

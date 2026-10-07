@@ -2317,10 +2317,10 @@ types:
         drop(w);
         // sent again, it writes nothing, and is not refused: what the store
         // holds is left as it is (publish-and-import.md §4)
-        let events = s.snapshot().unwrap().events.len();
+        let events = s.snapshot().unwrap().log().unwrap().count();
         let again = run(&mut s, vec![refresh], &[], false);
         assert_eq!((again.written, again.refusal), (0, None));
-        assert_eq!(s.snapshot().unwrap().events.len(), events);
+        assert_eq!(s.snapshot().unwrap().log().unwrap().count(), events);
         assert_eq!(leads(&s), expected);
         // E-1 led again for a day before E-3 came back: the current value is
         // unchanged, and the refresh still writes the stretch between

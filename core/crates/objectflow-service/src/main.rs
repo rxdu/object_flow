@@ -382,7 +382,7 @@ async fn pull(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
     let world = s.snapshot()?;
-    let page = objectflow_core::subscription::pull(&world, subscription, cursor);
+    let page = objectflow_core::subscription::pull(&world, subscription, cursor)?;
     Ok(Json(json!({
         "events": page.events.iter().map(event).collect::<Vec<_>>(),
         "settled": page.settled.to_string(),

@@ -39,7 +39,7 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
     // a subscription carries its lag, and whether it is lagging or dead,
     // derived from its acknowledged cursor (DESIGN.md §7)
     if o.type_ == crate::model::SUBSCRIPTION {
-        let (lag, lagging, dead) = crate::subscription::lag(world, o);
+        let (lag, lagging, dead) = crate::subscription::lag(world, o)?;
         derived.push(("lag".into(), Value::Duration(lag)));
         derived.push(("lagging".into(), Value::Bool(lagging)));
         derived.push(("dead".into(), Value::Bool(dead)));
@@ -49,7 +49,7 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
     // the refusal records no event on it (DESIGN.md §9, ADR-0157)
     if o.type_ == crate::model::PROPOSAL {
         let refused = world
-            .attempts
+            .attempts()?
             .iter()
             .rev()
             .find(|a| a.proposal.as_deref() == Some(id));
