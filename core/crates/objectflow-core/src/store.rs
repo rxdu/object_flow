@@ -1812,6 +1812,40 @@ impl Store {
             let Some(was) = old_objects.get(&o.id) else {
                 continue;
             };
+            // the external identifiers the version marks, which `lookup`
+            // finds the object by: each it holds now, one the version newly
+            // marks or a mapping wrote among them, and none it no longer
+            // marks or holds, nor a personal one of an erased object, which
+            // is absent or redacted below (DESIGN.md §10, D533)
+            let identifiers = |ty: Option<&Type>, obj: &Object| -> Vec<(String, String, String)> {
+                ty.map(|ty| {
+                    ty.attributes
+                        .iter()
+                        .filter(|(_, spec)| !(obj.erased && spec.personal))
+                        .filter_map(|(a, spec)| {
+                            let source = spec.external.as_ref()?;
+                            let v = crate::request::external_text(&obj.attr(a))?;
+                            Some((source.clone(), v, a.clone()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+            };
+            if let Some(was) = old_objects.get(&o.id) {
+                let held = identifiers(Some(t), o);
+                for (source, value, _) in identifiers(old.type_(&was.type_), was) {
+                    if !held.iter().any(|(s, v, _)| *s == source && *v == value) {
+                        change_set
+                            .external_removed
+                            .push((source, value, o.id.clone()));
+                    }
+                }
+                for (source, value, attribute) in held {
+                    change_set
+                        .external
+                        .push((source, value, o.id.clone(), attribute));
+                }
+            }
             let codes = codes_of(&o.id);
             let admits = admitted_of(&o.id);
             let discharges = discharged_of(&o.id);

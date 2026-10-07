@@ -1665,7 +1665,7 @@ fn take(
 
 /// An external identifier's value as `of_external_id` keeps it: text, or a
 /// number written out; none where it is absent.
-fn external_text(v: &Value) -> Option<String> {
+pub(crate) fn external_text(v: &Value) -> Option<String> {
     match v {
         Value::Absent => None,
         Value::Text(t) => Some(t.clone()),

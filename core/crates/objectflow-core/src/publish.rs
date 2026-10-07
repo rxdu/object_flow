@@ -1444,6 +1444,70 @@ types:
     }
 
     #[test]
+    fn a_publish_indexes_the_identifiers_its_version_marks() {
+        let (mut s, [ready, _, _], _, _) = fleet();
+        let lookup = |s: &Store| s.snapshot().unwrap().external_id("crm", "R1").unwrap();
+        // marked external, a robot is found by the serial it held already
+        let marked = V1.replace(
+            "      serial: { type: string }",
+            "      serial: { type: string, external: crm }",
+        );
+        let (change, v) = submitted(&mut s, &marked);
+        assert!(matches!(
+            approve(&mut s, &change, v).0,
+            Verdict::Satisfied { .. }
+        ));
+        assert_eq!(lookup(&s), Some(ready.clone()));
+        // and no longer once unmarked (D533)
+        let (change, v) = submitted(&mut s, V1);
+        assert!(matches!(
+            approve(&mut s, &change, v).0,
+            Verdict::Satisfied { .. }
+        ));
+        assert_eq!(lookup(&s), None);
+    }
+
+    #[test]
+    fn an_erased_value_a_version_marks_is_never_indexed() {
+        let lib = Library::load(&[("shop.yaml".into(), SHOP_V1.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let ana = created(&req(
+            &mut s,
+            "join",
+            ("Customer", true),
+            json!({"nick": "ana"}),
+        ));
+        created(&req(
+            &mut s,
+            "forget",
+            (&ana, false),
+            json!({"reason": "asked"}),
+        ));
+        // the nick, not personal, outlives the erasure, and the version
+        // makes it personal and an identifier at once: it is redacted, and
+        // lookup never finds it (D533)
+        let text = SHOP_V1.replace(
+            "      nick: { type: string, optional: true }",
+            "      nick: { type: string, optional: true, personal: true, external: crm }",
+        );
+        let change = created(&req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"shop": &text}, "source_ref": "git:shop@1"}),
+        ));
+        created(&req(&mut s, "submit", (&change, false), json!({})));
+        let v = s.snapshot().unwrap().get(&change).unwrap().unwrap().version;
+        assert!(matches!(
+            approve(&mut s, &change, v).0,
+            Verdict::Satisfied { .. }
+        ));
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.get(&ana).unwrap().unwrap().attr("nick"), Value::Absent);
+        assert_eq!(w.external_id("crm", "ana").unwrap(), None);
+    }
+
+    #[test]
     fn an_approval_installs_what_its_dry_run_reported() {
         let (mut s, [ready, held, bare], proposal, other) = fleet();
         let (change, v) = submitted(&mut s, &v2(true, true, true));

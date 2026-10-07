@@ -544,6 +544,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D530](#d530) | A publish's rename did not carry the attribute write index | Resolved |
 | [D531](#d531) | A publish left standing an admission its version cures | Resolved |
 | [D532](#d532) | A kind's new invariant its old observations violate refused every later request | Resolved |
+| [D533](#d533) | `lookup` missed an identifier a publish made one | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3487,4 +3488,9 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **A kind's new invariant its old observations violate refused every later request.** ADR-0146 lets a publish add an invariant to an observation kind that recordings already made violate, reported as a notice, since it "applies to recordings after the publish" and nothing can change an observation; `DESIGN.md` §5.11 checks a kind's invariants "when it is recorded". The core's request step 7 and the reference runner's checked every object's invariants, so after such a publish every request, whatever it wrote, was refused as an invariant violation naming the old observation. Found 2026-10-07 while scoping a request's invariant check (ADR-0162), observed with a lab whose check kind gained `graded_a` over a check graded `OLD`: a request taking a new sample was refused naming the check. The runner, which runs no publish, cannot reach the state.
 
 **Resolved** in the core, as `DESIGN.md` §5.6 and §6 step 7 already read: a request checks the invariants its writes could violate, those of each object it changed or made and, for a type whose invariants reach other objects, every object of that type, a kind's invariants on the recording alone (`request.rs`, `affected_by_writes`). The two tests `publish::tests::no_migration_reaches_an_observation` and `a_kinds_invariant_is_checked_on_the_recording_alone` hold it, and a mutation restoring the whole-store check fails the first. Every other answer is the whole-store check's wherever every violation in the store is admitted, which every route keeps, D531 completing the publish's part, but a kind's new invariant, whose violating observations stand unadmitted by ADR-0146; the replays and the backend comparison hold the rest to the runner's.
+
+### D533
+**`lookup` missed an identifier a publish made one.** A request that writes an external identifier keeps `of_external_id`, which `lookup` reads (`DESIGN.md` §10), and a publish kept nothing: an attribute the version newly marks external, one a backfill or a rename writes, and one it unmarks all left the table as it was. Found 2026-10-07 reading the table's writers while reading uniqueness by key (ADR-0162 step 3), and observed with a fleet whose robots' `serial` a version marked external: `lookup("crm", "R1")` answered nothing for the robot holding R1.
+
+**Resolved** in place: the publish keeps each object's identifiers as its version marks them, every one it holds upserted and each no longer marked or held removed, a personal one of an erased object never indexed, since it is absent or redacted; `publish-and-import.md` §1 step 5 says so. Two tests hold it, a robot found once marked and not once unmarked, and a nick made personal and an identifier at once on an erased customer never found, each part mutation-tested. A store whose table missed rows before this is mended at its next publish, every identifier being upserted.
 
