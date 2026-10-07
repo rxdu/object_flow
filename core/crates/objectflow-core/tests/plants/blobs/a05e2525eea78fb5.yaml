@@ -23,7 +23,7 @@ setups:
     description: The payments service, with two responders on call and two change approvers.
     steps:
       - request:
-          type: Service
+          type: RegisteredService
           transition: register
           as: payments
           inputs: { name: Payments, tier: 1, responders: [oncall-1, oncall-2], change_approvers: [cab-1, cab-2] }
@@ -285,7 +285,7 @@ examples:
     description: A laptop and then a server are keyed in one series, since both are assets.
     steps:
       - request: { type: Laptop, transition: receive, inputs: { name: ThinkPad 14 } }
-    request: { type: Asset, transition: receive, inputs: { name: db-01 } }
+    request: { type: Server, transition: receive, inputs: { name: db-01 } }
     expect: { verdict: applied, state: IN_STOCK, values: { key: IT-2 } }
 
   a_laptop_in_use_is_assigned:
@@ -325,7 +325,7 @@ examples:
     description: Receiving a negative quantity would leave less on hand than is reserved, and the caller gives a quantity received.
     given: a_stock_of_power_supplies
     request: { object: stock, transition: receive, inputs: { quantity: -8 } }
-    expect: { verdict: invariant_violated, clause: reserved_bounded, remedy: self_serviceable }
+    expect: { verdict: invariant_violated, clause: reserved_bounded, remedy: unreachable_from_here }
 
   a_stock_is_withdrawn_only_when_empty:
     description: A stock with parts on hand is not withdrawn until they are used.

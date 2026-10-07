@@ -1166,6 +1166,15 @@ pub struct Library {
     pub metrics: BTreeMap<String, BTreeMap<String, (Option<String>, serde_json::Value)>>,
 }
 
+/// The line a name is declared on in a module's text, a key indented once
+/// under its section; the first line where none is found.
+fn declared_line(text: &str, name: &str) -> usize {
+    let key = format!("  {name}:");
+    text.lines()
+        .position(|l| l.starts_with(&key) && !l.starts_with("   "))
+        .map_or(1, |i| i + 1)
+}
+
 /// The bases a type extends, nearest first; the walk stops at an unknown
 /// name or where it would come back to a type it has passed.
 fn bases(name: &str, types: &BTreeMap<String, Type>) -> Vec<String> {
@@ -1895,6 +1904,9 @@ impl Library {
         lib.types
             .insert(SUBSCRIPTION.to_string(), subscription_type());
         lib.version = 1;
+        // which module declared each type, enumeration and machine: a store
+        // holds one of a name (ADR-0163 decision 5)
+        let mut owner: BTreeMap<String, String> = BTreeMap::new();
         for (file, text) in files {
             // an examples file is part of the source, and no module of it
             if let Some(name) = crate::source::name_of(text)
@@ -1904,6 +1916,29 @@ impl Library {
                 continue;
             }
             let m = load_module(file, text)?;
+            let names = m
+                .types
+                .iter()
+                .map(|t| ("type", t.name.as_str()))
+                .chain(
+                    m.enumerations
+                        .iter()
+                        .map(|(n, _)| ("enumeration", n.as_str())),
+                )
+                .chain(m.machines.iter().map(|t| ("machine", t.name.as_str())));
+            for (kind, n) in names {
+                if let Some(other) = owner.insert(n.to_string(), m.name.clone())
+                    && other != m.name
+                {
+                    return Err(LoadError {
+                        file: file.clone(),
+                        line: declared_line(text, n),
+                        message: format!(
+                            "the {kind} {n} is also declared by {other}; a store holds one type, enumeration or machine of a name (ADR-0163)"
+                        ),
+                    });
+                }
+            }
             lib.source.push((m.name.clone(), text.clone()));
             lib.migration.extend(m.migration);
             for (n, members) in m.enumerations {
@@ -2084,5 +2119,46 @@ types:
         assert!(src["transitions"].get("draft").is_none());
         assert!(src["transitions"].get("approve").is_some());
         assert_eq!(src["states"]["DONE"]["final"], serde_json::json!(true));
+    }
+
+    /// A store holds one type, enumeration or machine of a name (ADR-0163):
+    /// a load refuses a name a second module declares, naming both and the
+    /// line, as two modules each declaring `Service` once did (D529).
+    #[test]
+    fn a_load_refuses_a_name_two_modules_declare() {
+        let people = "module: people\ncategories: [live]\ntypes:\n  Service:\n    attributes:\n      name: { type: identity, actor_kind: service }\n    states: { ACTIVE: { category: live } }\n";
+        let desk = "module: desk\ncategories: [live]\nenumerations:\n  Tier: [A, B]\ntypes:\n  Service:\n    states: { ON: { category: live } }\n";
+        let err = Library::load(&[
+            ("people.yaml".into(), people.into()),
+            ("desk.yaml".into(), desk.into()),
+        ])
+        .unwrap_err();
+        assert_eq!((err.file.as_str(), err.line), ("desk.yaml", 6));
+        assert!(
+            err.message
+                .contains("the type Service is also declared by people"),
+            "{}",
+            err.message
+        );
+        // an enumeration clashes as a type does
+        let tiers = "module: tiers\ncategories: [live]\nenumerations:\n  Tier: [X]\n";
+        let err = Library::load(&[
+            ("desk.yaml".into(), desk.replace("  Service:", "  Desk:")),
+            ("tiers.yaml".into(), tiers.into()),
+        ])
+        .unwrap_err();
+        assert!(
+            err.message
+                .contains("the enumeration Tier is also declared by desk"),
+            "{}",
+            err.message
+        );
+        assert!(
+            Library::load(&[
+                ("people.yaml".into(), people.into()),
+                ("tiers.yaml".into(), tiers.into())
+            ])
+            .is_ok()
+        );
     }
 }

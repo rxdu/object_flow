@@ -23,7 +23,7 @@ setups:
     description: The payments service, with two responders on call and two change approvers.
     steps:
       - request:
-          type: Service
+          type: RegisteredService
           transition: register
           as: payments
           inputs: { name: Payments, tier: 1, responders: [oncall-1, oncall-2], change_approvers: [cab-1, cab-2] }

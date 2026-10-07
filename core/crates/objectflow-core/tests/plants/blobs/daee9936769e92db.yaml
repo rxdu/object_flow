@@ -28,7 +28,7 @@ machines:
     requires:
       attributes:
         name:    { type: string }
-        service: { reference: Service, optional: true }
+        service: { reference: RegisteredService, optional: true }
     states:
       IN_STOCK: { category: pending }
       IN_USE:   { category: active }
@@ -55,7 +55,7 @@ types:
       create:  { kind: initial, to: ACTIVE, required_inputs: [name, support_level] }
       archive: { kind: external, from: ACTIVE, to: ARCHIVED }
 
-  Service:
+  RegisteredService:
     description: A service in the service registry, with the people who respond to its incidents and approve its changes.
     tracking: record
     attributes:
@@ -311,7 +311,7 @@ types:
       impact:           { type: Level }
       urgency:          { type: Level }
       major:            { type: bool }
-      affected_service: { reference: Service, optional: true, opposite: incidents }
+      affected_service: { reference: RegisteredService, optional: true, opposite: incidents }
       asset:            { reference: Asset, optional: true, opposite: incidents }
       problem:          { reference: Problem, optional: true, opposite: incidents }
       responders:       { type: "identity[]" }
@@ -509,7 +509,7 @@ types:
       summary:          { type: string }
       change_type:      { type: ChangeType }
       risk:             { type: Risk, optional: true }
-      affected_service: { reference: Service, opposite: changes }
+      affected_service: { reference: RegisteredService, opposite: changes }
       problem:          { reference: Problem, optional: true, opposite: changes }
       planned_start:    { type: timestamp, optional: true }
       planned_end:      { type: timestamp, optional: true }
@@ -708,7 +708,7 @@ types:
         identifier: { sequence: asset_key, format: "IT-{n}" }
         unique: true
       name:      { type: string }
-      service:   { reference: Service, optional: true, opposite: assets }
+      service:   { reference: RegisteredService, optional: true, opposite: assets }
       incidents: { reference: "Incident[]", opposite: asset }
 
   Laptop:
@@ -716,7 +716,7 @@ types:
     extends: Asset
     state_machine: AssetLifecycle
     attributes:
-      assigned_to: { reference: Employee, optional: true }
+      assigned_to: { reference: Employee, optional: true, external: hr }
     transitions:
       assign:
         kind: internal
@@ -845,7 +845,7 @@ metrics:
   problems_per_incident:
     description: Problems opened for each incident opened, by month, which says how much of the incident load is being traced to a cause.
     input_metrics:
-      problems: problems_per_incident
+      problems: Problem.problems_opened
       incidents: Incident.incidents_opened
     group_by: [month]
     expression: problems * 1.000 / incidents

@@ -513,11 +513,11 @@
    ],
    [
     "servicedesk.yaml",
-    "99ac20951a5add57"
+    "a910e23b7e2f7baa"
    ],
    [
     "servicedesk.examples.yaml",
-    "ba320fb65877d10f"
+    "3ee9e0300e2d128a"
    ]
   ],
   "previous": {},
@@ -527,7 +527,7 @@
     59,
     "notice",
     "coverage",
-    "no example requests 60 transitions of servicedesk: Alert.acknowledge, Alert.close, Alert.delete, Alert.link_incident, Alert.reopen, Alert.unacknowledge, Change.approve_peer, Change.archive, Change.cancel, Change.complete, Change.decline, Change.implement, Change.request, Change.roll_back, Change.submit_to_cab, ChangeWindow.schedule, ChangeWindow.withdraw, Incident.cancel, Incident.close, Incident.escalate, Incident.investigate, Incident.link_problem, Incident.open, Incident.pend, Incident.reopen, Incident.resolve, Incident.resume, Laptop.deploy, Laptop.dispose, Laptop.receive, Laptop.retire, Organization.archive, Organization.create, PartStock.release, PartStock.set_reorder_level, PostIncidentReview.archive, PostIncidentReview.draft, PostIncidentReview.publish, Problem.archive, Problem.cancel, Problem.complete, Problem.investigate, Problem.open, Problem.review, Request.cancel, Request.customer_replies, Request.escalate, Request.pend, Request.prioritise, Request.reopen, Request.respond_to_customer, Request.resume, Request.share, Request.start, Server.deploy, Server.dispose, Server.name_host, Server.retire, Service.register, Service.retire"
+    "no example requests 60 transitions of servicedesk: Alert.acknowledge, Alert.close, Alert.delete, Alert.link_incident, Alert.reopen, Alert.unacknowledge, Change.approve_peer, Change.archive, Change.cancel, Change.complete, Change.decline, Change.implement, Change.request, Change.roll_back, Change.submit_to_cab, ChangeWindow.schedule, ChangeWindow.withdraw, Incident.cancel, Incident.close, Incident.escalate, Incident.investigate, Incident.link_problem, Incident.open, Incident.pend, Incident.reopen, Incident.resolve, Incident.resume, Laptop.deploy, Laptop.dispose, Laptop.receive, Laptop.retire, Organization.archive, Organization.create, PartStock.release, PartStock.set_reorder_level, PostIncidentReview.archive, PostIncidentReview.draft, PostIncidentReview.publish, Problem.archive, Problem.cancel, Problem.complete, Problem.investigate, Problem.open, Problem.review, RegisteredService.register, RegisteredService.retire, Request.cancel, Request.customer_replies, Request.escalate, Request.pend, Request.prioritise, Request.reopen, Request.respond_to_customer, Request.resume, Request.share, Request.start, Server.deploy, Server.dispose, Server.name_host, Server.retire"
    ]
   ],
   "analysed": {
@@ -572,6 +572,10 @@
     0
    ],
    "Problem": [
+    0,
+    0
+   ],
+   "RegisteredService": [
     0,
     0
    ],
@@ -1844,7 +1848,7 @@
    ],
    [
     "servicedesk.yaml",
-    "cfcbcdb83b3fb7df"
+    "a90636f7c29d3eea"
    ]
   ],
   "previous": {},
@@ -1882,7 +1886,7 @@
    ],
    [
     "servicedesk.yaml",
-    "fe35d28df86af928"
+    "f0a684d85984a1ad"
    ]
   ],
   "previous": {},
@@ -1906,7 +1910,7 @@
    ],
    [
     "servicedesk.yaml",
-    "56cde14b20bf1987"
+    "60f9cde1d248c5ac"
    ]
   ],
   "previous": {},
@@ -1937,7 +1941,7 @@
    ],
    [
     "servicedesk.yaml",
-    "e0d77fc492d17462"
+    "2f158eb14a3c5642"
    ]
   ],
   "previous": {},
@@ -1968,7 +1972,7 @@
    ],
    [
     "servicedesk.yaml",
-    "3a38b1a5f6b41c35"
+    "058bfc63235de233"
    ]
   ],
   "previous": {},
@@ -1992,7 +1996,7 @@
    ],
    [
     "servicedesk.yaml",
-    "4f3d6418a7f90c6a"
+    "daee9936769e92db"
    ]
   ],
   "previous": {},
@@ -2016,7 +2020,7 @@
    ],
    [
     "servicedesk.yaml",
-    "b22040950abf0dcf"
+    "7b0628e56d5c8d62"
    ]
   ],
   "previous": {},
@@ -2254,7 +2258,7 @@
    ],
    [
     "servicedesk.yaml",
-    "ee9aa0b9b3e6d5f9"
+    "842e0f4d16a00f4b"
    ]
   ],
   "previous": {},
@@ -2278,7 +2282,7 @@
    ],
    [
     "servicedesk.yaml",
-    "9ba3b69410a14dc4"
+    "2e4b8f01d2eaac37"
    ]
   ],
   "previous": {},
@@ -2302,7 +2306,7 @@
    ],
    [
     "servicedesk.yaml",
-    "1de15db7390c70b3"
+    "4a8131c536951de2"
    ]
   ],
   "previous": {},
@@ -2340,7 +2344,7 @@
    ],
    [
     "servicedesk.yaml",
-    "d8775619da7dd0a2"
+    "01754c81502716a3"
    ]
   ],
   "previous": {},
@@ -2364,7 +2368,7 @@
    ],
    [
     "servicedesk.yaml",
-    "0cfae4ea70332c20"
+    "30ead1fc1c86b433"
    ]
   ],
   "previous": {},
@@ -2388,7 +2392,7 @@
    ],
    [
     "servicedesk.yaml",
-    "35b0b58b2d2295fd"
+    "d15d7bce80ebb667"
    ]
   ],
   "previous": {},
@@ -2928,7 +2932,7 @@
    ],
    [
     "servicedesk.yaml",
-    "d86d4a3f7a595cf9"
+    "8908105a7c3d6cbf"
    ]
   ],
   "previous": {},
@@ -2959,7 +2963,7 @@
    ],
    [
     "servicedesk.yaml",
-    "6844ae11ae9102a9"
+    "047ddcc00fef1496"
    ]
   ],
   "previous": {},
@@ -2983,7 +2987,7 @@
    ],
    [
     "servicedesk.yaml",
-    "f364faa01464b541"
+    "d007d8e2923511b5"
    ]
   ],
   "previous": {},
@@ -3007,7 +3011,7 @@
    ],
    [
     "servicedesk.yaml",
-    "ae147d035db8c93a"
+    "a6a1659be3dbb45c"
    ]
   ],
   "previous": {},
@@ -3031,7 +3035,7 @@
    ],
    [
     "servicedesk.yaml",
-    "eabeb3f614dbac98"
+    "d8520ffcd44f6763"
    ]
   ],
   "previous": {},
@@ -3483,6 +3487,30 @@
     "notice",
     "audit",
     "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "self_test: a name a module checked with it, outside its closure, also declares",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "06c5cf76b97cd3c4"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    9,
+    "fatal",
+    "names",
+    "Service is also declared by people, which is checked with this module; a store holds one type, enumeration or machine of a name (ADR-0163)"
    ]
   ],
   "analysed": {}
@@ -6276,11 +6304,11 @@
    ],
    [
     "module.yaml",
-    "99ac20951a5add57"
+    "a910e23b7e2f7baa"
    ],
    [
     "module.examples.yaml",
-    "84010c989c1a8be2"
+    "a05e2525eea78fb5"
    ]
   ],
   "previous": {},
@@ -6290,7 +6318,7 @@
     59,
     "notice",
     "coverage",
-    "no example requests 60 transitions of servicedesk: Alert.acknowledge, Alert.close, Alert.delete, Alert.link_incident, Alert.reopen, Alert.unacknowledge, Change.approve_peer, Change.archive, Change.cancel, Change.complete, Change.decline, Change.implement, Change.request, Change.roll_back, Change.submit_to_cab, ChangeWindow.schedule, ChangeWindow.withdraw, Incident.cancel, Incident.close, Incident.escalate, Incident.investigate, Incident.link_problem, Incident.open, Incident.pend, Incident.reopen, Incident.resolve, Incident.resume, Laptop.deploy, Laptop.dispose, Laptop.receive, Laptop.retire, Organization.archive, Organization.create, PartStock.release, PartStock.set_reorder_level, PostIncidentReview.archive, PostIncidentReview.draft, PostIncidentReview.publish, Problem.archive, Problem.cancel, Problem.complete, Problem.investigate, Problem.open, Problem.review, Request.cancel, Request.customer_replies, Request.escalate, Request.pend, Request.prioritise, Request.reopen, Request.respond_to_customer, Request.resume, Request.share, Request.start, Server.deploy, Server.dispose, Server.name_host, Server.retire, Service.register, Service.retire"
+    "no example requests 60 transitions of servicedesk: Alert.acknowledge, Alert.close, Alert.delete, Alert.link_incident, Alert.reopen, Alert.unacknowledge, Change.approve_peer, Change.archive, Change.cancel, Change.complete, Change.decline, Change.implement, Change.request, Change.roll_back, Change.submit_to_cab, ChangeWindow.schedule, ChangeWindow.withdraw, Incident.cancel, Incident.close, Incident.escalate, Incident.investigate, Incident.link_problem, Incident.open, Incident.pend, Incident.reopen, Incident.resolve, Incident.resume, Laptop.deploy, Laptop.dispose, Laptop.receive, Laptop.retire, Organization.archive, Organization.create, PartStock.release, PartStock.set_reorder_level, PostIncidentReview.archive, PostIncidentReview.draft, PostIncidentReview.publish, Problem.archive, Problem.cancel, Problem.complete, Problem.investigate, Problem.open, Problem.review, RegisteredService.register, RegisteredService.retire, Request.cancel, Request.customer_replies, Request.escalate, Request.pend, Request.prioritise, Request.reopen, Request.respond_to_customer, Request.resume, Request.share, Request.start, Server.deploy, Server.dispose, Server.name_host, Server.retire"
    ],
    [
     "module.examples.yaml",
@@ -6342,6 +6370,10 @@
     0
    ],
    "Problem": [
+    0,
+    0
+   ],
+   "RegisteredService": [
     0,
     0
    ],
@@ -6557,11 +6589,11 @@
   "files": [
    [
     "servicedesk.yaml",
-    "99ac20951a5add57"
+    "a910e23b7e2f7baa"
    ],
    [
     "servicedesk.examples.yaml",
-    "e569cd7c107ab8f1"
+    "2e4cc8c9597ee466"
    ]
   ],
   "previous": {},
@@ -6581,11 +6613,11 @@
   "files": [
    [
     "servicedesk.yaml",
-    "99ac20951a5add57"
+    "a910e23b7e2f7baa"
    ],
    [
     "servicedesk.examples.yaml",
-    "5a0f275ac0f7b790"
+    "a6f3e7d40212fd1a"
    ]
   ],
   "previous": {},
@@ -6640,11 +6672,11 @@
   "files": [
    [
     "servicedesk.yaml",
-    "99ac20951a5add57"
+    "a910e23b7e2f7baa"
    ],
    [
     "servicedesk.examples.yaml",
-    "e8b829120b50628f"
+    "0f878c755a77f6f6"
    ]
   ],
   "previous": {},
@@ -8093,11 +8125,18 @@
    ],
    [
     "servicedesk.yaml",
-    "b97870555d383238"
+    "8ea7b639171fa5d3"
    ]
   ],
   "previous": {},
   "findings": [
+   [
+    "servicedesk.yaml",
+    746,
+    "fatal",
+    "names",
+    "Employee references Service, which is neither declared in this module nor imported"
+   ],
    [
     "servicedesk.yaml",
     746,
@@ -8117,7 +8156,7 @@
    ],
    [
     "servicedesk.yaml",
-    "99ac20951a5add57"
+    "a910e23b7e2f7baa"
    ]
   ],
   "previous": {},
@@ -8164,6 +8203,10 @@
     0
    ],
    "Problem": [
+    0,
+    0
+   ],
+   "RegisteredService": [
     0,
     0
    ],
@@ -8499,7 +8542,7 @@
    ],
    [
     "servicedesk.yaml",
-    "7d402a1db77228c0"
+    "055e870b5fccdc2c"
    ]
   ],
   "previous": {},
@@ -8523,7 +8566,7 @@
    ],
    [
     "servicedesk.yaml",
-    "99ac20951a5add57"
+    "a910e23b7e2f7baa"
    ]
   ],
   "previous": {},
@@ -8570,6 +8613,10 @@
     0
    ],
    "Problem": [
+    0,
+    0
+   ],
+   "RegisteredService": [
     0,
     0
    ],
@@ -8693,7 +8740,7 @@
    ],
    [
     "servicedesk.yaml",
-    "59f3779ee95611d7"
+    "e84bf76afad531f0"
    ]
   ],
   "previous": {},
@@ -8717,7 +8764,7 @@
    ],
    [
     "servicedesk.yaml",
-    "99ac20951a5add57"
+    "a910e23b7e2f7baa"
    ]
   ],
   "previous": {},
@@ -8764,6 +8811,10 @@
     0
    ],
    "Problem": [
+    0,
+    0
+   ],
+   "RegisteredService": [
     0,
     0
    ],
@@ -9527,7 +9578,7 @@
    ],
    [
     "servicedesk.yaml",
-    "9eaafc63ff0be28f"
+    "9644f9e0e37a3fa2"
    ]
   ],
   "previous": {},
@@ -9616,7 +9667,7 @@
    ],
    [
     "servicedesk.yaml",
-    "0d459d92c00bd85e"
+    "604cf4d26e1d2998"
    ]
   ],
   "previous": {},
@@ -9626,7 +9677,7 @@
     712,
     "fatal",
     "names",
-    "Asset.service is a mirror's reference to Service, which this store owns: a type is cut over only after every type that references it (ADR-0075), so a mirror references only mirrors"
+    "Asset.service is a mirror's reference to RegisteredService, which this store owns: a type is cut over only after every type that references it (ADR-0075), so a mirror references only mirrors"
    ],
    [
     "servicedesk.yaml",

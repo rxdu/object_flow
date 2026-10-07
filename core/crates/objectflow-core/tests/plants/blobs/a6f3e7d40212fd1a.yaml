@@ -23,10 +23,10 @@ setups:
     description: The payments service, with two responders on call and two change approvers.
     steps:
       - request:
-          type: Service
+          type: RegisteredService
           transition: register
           as: payments
-          inputs: { name: Payments, tier: 1, responders: [oncall-1, oncall-2], change_approvers: [cab-1, cab-2] }
+          inputs: { name: Payments, tier: one, responders: [oncall-1, oncall-2], change_approvers: [cab-1, cab-2] }
   an_incident_on_payments:
     description: An incident on the payments service, one responder on it, being worked on.
     given: the_payments_service
@@ -325,7 +325,7 @@ examples:
     description: Receiving a negative quantity would leave less on hand than is reserved, and the caller gives a quantity received.
     given: a_stock_of_power_supplies
     request: { object: stock, transition: receive, inputs: { quantity: -8 } }
-    expect: { verdict: invariant_violated, clause: reserved_bounded, remedy: unreachable_from_here }
+    expect: { verdict: invariant_violated, clause: reserved_bounded, remedy: self_serviceable }
 
   a_stock_is_withdrawn_only_when_empty:
     description: A stock with parts on hand is not withdrawn until they are used.

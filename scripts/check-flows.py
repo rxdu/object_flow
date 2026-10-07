@@ -3361,6 +3361,7 @@ def check(files, previous=None, analysed=None):
     against all it read, which the publish report carries (ADR-0137)."""
     found, notes, loaded, library, declared, uses = [], [], [], {}, {}, {}
     modules, example_files = {}, []
+    stored = {}                 # module -> its types, enumerations and machines, which one store holds together
     for f, text in files:
         try:
             idx = line_index(text)
@@ -3412,6 +3413,15 @@ def check(files, previous=None, analysed=None):
             for n in sorted(set(mine) & declared[m]):
                 found.append((f, line_of(idx, (mine[n], n)), "fatal", "names",
                               f"{n} is also declared by {m}, which is in this module's closure; a name is declared once across the closure (the model's check 33)"))
+        # and across every module checked with it, since one store holds them all: a type, an enumeration or a
+        # machine of a name once (ADR-0163 decision 5)
+        held = {n for n, k in mine.items() if k in ("enumerations", "machines", "types")}
+        for m in sorted(set(stored) - closure):
+            for n in sorted(held & stored[m]):
+                found.append((f, line_of(idx, (mine[n], n)), "fatal", "names",
+                              f"{n} is also declared by {m}, which is checked with this module; a store holds one "
+                              f"type, enumeration or machine of a name (ADR-0163)"))
+        stored[doc["module"]] = held
         declared[doc["module"]] = set(mine)
         modules[doc["module"]] = doc
         uses[doc["module"]] = list(doc.get("imports") or {})
@@ -3706,6 +3716,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
                                               "        expression: serial is not null\n\n    conditions:\n")),
         ("a name a module in the closure also declares", "names", "service.yaml",
          plant(service, "enumerations:\n", "enumerations:\n  Service: [A, B]\n")),
+        ("a name a module checked with it, outside its closure, also declares", "names", "servicedesk.yaml",
+         plant(servicedesk, "enumerations:\n", "enumerations:\n  Service: [A, B]\n")),
         ("a set of references with no opposite", "names", "delivery.yaml",
          plant(delivery, "      price:        { type: money(SGD) }\n", "      price:        { type: money(SGD) }\n      helpers:      { reference: \"Courier[]\" }\n")),
         ("a step made conditional on an optional input", "names", "service.yaml",

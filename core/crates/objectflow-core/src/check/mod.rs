@@ -130,6 +130,9 @@ pub fn checked(files: &[(String, String)], previous: &BTreeMap<String, String>) 
     // every type of the modules checked so far, as the view holds it
     let mut library = doc::Obj::new();
     let mut uses: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // each module's types, enumerations and machines, which one store holds
+    // together (ADR-0163 decision 5)
+    let mut stored: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (index, (file, text)) in files.iter().enumerate() {
         let fatal = |found: &mut Vec<Finding>, line: usize, code: &str, message: String| {
             found.push(Finding {
@@ -277,6 +280,29 @@ pub fn checked(files: &[(String, String)], previous: &BTreeMap<String, String>) 
                 }
             }
         }
+        // and across every module checked with it, since one store holds them
+        // all: a type, an enumeration or a machine of a name once (ADR-0163)
+        let held: BTreeSet<String> = mine
+            .iter()
+            .filter(|(_, k)| matches!(**k, "enumerations" | "machines" | "types"))
+            .map(|(n, _)| n.clone())
+            .collect();
+        for (m, theirs) in &stored {
+            if closure.contains(m) {
+                continue;
+            }
+            for n in held.intersection(theirs) {
+                fatal(
+                    found,
+                    node.line_at(&[Seg::Key(mine[n].to_string()), Seg::Key(n.clone())]),
+                    "names",
+                    format!(
+                        "{n} is also declared by {m}, which is checked with this module; a store holds one type, enumeration or machine of a name (ADR-0163)"
+                    ),
+                );
+            }
+        }
+        stored.insert(module.clone(), held);
         declared.insert(module.clone(), mine.keys().cloned().collect());
         uses.insert(module, imports.into_iter().map(|(m, _)| m).collect());
         // step 3: the module's names and relationships, over its view

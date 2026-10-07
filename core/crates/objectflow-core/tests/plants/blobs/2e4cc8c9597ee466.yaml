@@ -23,10 +23,10 @@ setups:
     description: The payments service, with two responders on call and two change approvers.
     steps:
       - request:
-          type: Service
+          type: RegisteredService
           transition: register
           as: payments
-          inputs: { name: Payments, tier: one, responders: [oncall-1, oncall-2], change_approvers: [cab-1, cab-2] }
+          inputs: { name: Payments, tier: 1, responders: [oncall-1, oncall-2], change_approvers: [cab-1, cab-2] }
   an_incident_on_payments:
     description: An incident on the payments service, one responder on it, being worked on.
     given: the_payments_service
@@ -35,7 +35,7 @@ setups:
           type: Incident
           transition: open
           as: incident
-          inputs: { summary: Card payments fail, impact: Level.HIGH, urgency: Level.HIGH, major: false, responders: [oncall-1] }
+          inputs: { summary: Card payments fail, impact: Level.HIGH, urgency: Level.HIGH, major: maybe, responders: [oncall-1] }
       - request: { object: incident, transition: investigate }
   a_change_in_planning:
     description: A normal change to payments, approved by a peer and being planned.
