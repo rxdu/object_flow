@@ -552,17 +552,14 @@ struct Reader<'w> {
     answers: Option<&'w BTreeMap<String, String>>,
 }
 
-/// The observations given that are on an object of the family and that no
-/// observation among them corrects, as rows, in the order given.
-fn uncorrected_on(family: &[&Object], observations: &[&Object]) -> Vec<Value> {
+/// The observations given that are on an object of the family and that
+/// none corrects, as rows, in the order given.
+fn uncorrected_on(
+    family: &[&Object],
+    observations: &[&Object],
+    corrected: &BTreeSet<String>,
+) -> Vec<Value> {
     let subjects: BTreeSet<&str> = family.iter().map(|o| o.id.as_str()).collect();
-    let corrected: BTreeSet<String> = observations
-        .iter()
-        .filter_map(|x| match x.attr("corrects") {
-            Value::Object(id) => Some(id),
-            _ => None,
-        })
-        .collect();
     observations
         .iter()
         .filter(|x| matches!(x.attr("subject"), Value::Object(s) if subjects.contains(s.as_str())))
@@ -679,11 +676,30 @@ impl<'w> Reader<'w> {
         let text = |k: &str| f.get(k).and_then(Json::as_str).map(str::to_string);
         let source = text("source").unwrap_or_default();
         let item = text("item").unwrap_or_default();
+        let filter = text("filter").map(|t| parsed(&t)).transpose()?;
+        // what the read may narrow its rows to before it judges them: the
+        // formula's filter and a reader's, each selecting nothing it leaves
+        // unknown
+        let narrow = match (&filter, theirs) {
+            (Some(a), Some(b)) => Some(Expr::Bin(
+                BinOp::And,
+                Box::new(a.clone()),
+                Box::new(b.clone()),
+            )),
+            (Some(a), None) => Some(a.clone()),
+            (None, Some(b)) => Some(b.clone()),
+            (None, None) => None,
+        };
         let Rows {
             mut rows,
             kind: rowkind,
             by_kind,
-        } = self.rows(owner, owner_t, &source)?;
+        } = self.rows(
+            owner,
+            owner_t,
+            &source,
+            narrow.as_ref().map(|e| (item.as_str(), e)),
+        )?;
         let split = text("split_by");
         if let Some(unit) = &split {
             if !matches!(rowkind, Kind::Interval(_)) {
@@ -733,7 +749,6 @@ impl<'w> Reader<'w> {
             (Some(_), Some(t), None) => Some(parsed(&t)?),
             (Some(_), None, None) => return not_run("a window on a metric with no time dimension"),
         };
-        let filter = text("filter").map(|t| parsed(&t)).transpose()?;
         let now = self.world.now;
         let mut picked = Vec::new();
         for r in rows {
@@ -809,7 +824,13 @@ impl<'w> Reader<'w> {
     /// type or its family, each span of its state or of a tracked member,
     /// each event of a transition, or each observation of one of its kinds
     /// that nothing has corrected.
-    fn rows(&self, owner: &str, t: &Type, source: &str) -> Result<Rows, NotRun> {
+    fn rows(
+        &self,
+        owner: &str,
+        t: &Type,
+        source: &str,
+        narrow: Option<(&str, &Expr)>,
+    ) -> Result<Rows, NotRun> {
         let world = self.world;
         let family = world.of_type(owner)?;
         if source == "objects" {
@@ -855,16 +876,30 @@ impl<'w> Reader<'w> {
         }
         if let Some((_, kind)) = t.observations.iter().find(|(c, _)| c == source) {
             return Ok(Rows {
-                rows: uncorrected_on(&family, &world.of_type(kind)?),
+                rows: uncorrected_on(&family, &world.of_type(kind)?, &world.corrected(kind)?),
                 kind: Kind::Object(kind.clone()),
                 by_kind: "recorded_by_kind",
             });
         }
         if source == "labels" {
             // each label on an object of the family that nothing has
-            // corrected (declaration-syntax.md §6.9)
+            // corrected (declaration-syntax.md §6.9): where the filters
+            // require values of a label's stored attributes, only the labels
+            // holding them are read, by the label table's indexes, any other
+            // failing a conjunct outright, and the corrections by their own
+            // index, since a correction may carry another name (ADR-0162
+            // step 3, storage-schema.md §6)
+            let label = crate::model::LABEL;
+            let narrowed = narrow.and_then(|(item, e)| {
+                self.row_eval(None)
+                    .narrowing(label, item, e, &BTreeMap::new())
+            });
+            let labels = match narrowed {
+                Some((states, columns)) => world.of_type_where(label, states.as_ref(), &columns)?,
+                None => world.of_type(label)?,
+            };
             return Ok(Rows {
-                rows: uncorrected_on(&family, &world.of_type(crate::model::LABEL)?),
+                rows: uncorrected_on(&family, &labels, &world.corrected(label)?),
                 kind: Kind::Label(owner.to_string()),
                 by_kind: "recorded_by_kind",
             });
@@ -2355,6 +2390,8 @@ types:
       done_spans: { description: x, source: intervals, item: i, filter: i.state == DONE, dimensions: { engineer: i.held(engineer) }, expression: max(i.duration), flag_when: { long: "value > 1 h" } }
       labelled: { description: x, source: labels, item: l, dimensions: { name: l.name, state: l.subject_state, engineer: l.subject.engineer }, expression: count() }
       labels_total: { description: x, source: labels, item: l, expression: count() }
+      risky: { description: x, source: labels, item: l, filter: 'l.name == "late-risk"', expression: count() }
+      odd_named: { description: x, source: labels, item: l, filter: 'l.name == "odd"', expression: count() }
 metrics:
   passes_of_all: { description: x, input_metrics: { passes: Job.passes, all: Job.jobs_total }, group_by: [engineer], expression: passes * 1.000 / all }
   passes_per_job: { description: x, input_metrics: { passes: Job.passes, jobs: Job.jobs_opened }, group_by: [engineer], expression: passes * 1.000 / jobs }
@@ -3336,6 +3373,31 @@ types:
         );
     }
 
+    /// A metric over an observation kind reads each observation nothing has
+    /// corrected, its correction among them (`declaration-syntax.md` §6.9).
+    #[test]
+    fn a_metric_over_a_kind_reads_what_nothing_corrects() {
+        let mut s = world();
+        let j = job(&mut s, json!({}));
+        let first = req(
+            &mut s,
+            "Check",
+            "record",
+            None,
+            json!({ "subject": j, "outcome": "FAIL" }),
+        )
+        .unwrap();
+        req(
+            &mut s,
+            "Check",
+            "record",
+            None,
+            json!({ "subject": j, "outcome": "PASS", "corrects": first }),
+        )
+        .unwrap();
+        assert_eq!(num(&read(&s, &j, "metric(Job.pass_share)", &[])), rat(1, 1));
+    }
+
     /// The reference runner's label cases (`flowrun.py`,
     /// `metrics_self_test`, "labels"): the built-in kind every type carries,
     /// its name normalised, its subject's state stamped, dated when it is
@@ -3538,6 +3600,50 @@ types:
                 Value::Int(1)
             ]
         );
+        // a filter on a label's name reads the labels holding it alone, and a
+        // correction carrying another name still corrects one
+        assert_eq!(
+            [
+                read(&s, &jl, "metric(Job.risky)", &[]),
+                read(&s, &jl, "metric(Job.odd_named)", &[]),
+            ],
+            [Value::Int(2), Value::Int(0)]
+        );
+        let names = |w: &World| -> Vec<Value> {
+            w.held()
+                .filter(|o| o.type_ == LABEL)
+                .map(|o| o.attr("name"))
+                .collect()
+        };
+        let w = s.snapshot().unwrap();
+        page(&w, None, "Job.risky", &BTreeMap::new(), None, None, None).unwrap();
+        assert_eq!(names(&w), vec![text("late-risk"); 3]);
+        // and a reader's filter likewise
+        let w = s.snapshot().unwrap();
+        let read_by = page(
+            &w,
+            None,
+            "Job.labels_total",
+            &BTreeMap::new(),
+            None,
+            None,
+            Some(r#"l.name == "odd-two""#),
+        )
+        .unwrap();
+        assert_eq!(read_by.rows[0].value, Value::Int(1));
+        assert_eq!(names(&w), [text("odd-two")]);
+        // a correction the operation holds, and has not stored, corrects
+        let mut w = s.snapshot().unwrap();
+        let mut made = w.whole(&l2).unwrap().unwrap().clone();
+        made.id = "label-made".into();
+        made.order = w.next_order().unwrap();
+        made.attrs.insert("name".into(), text("on-time"));
+        made.attrs
+            .insert("corrects".into(), Value::Object(l1.clone()));
+        w.insert(made).unwrap();
+        let held_correction =
+            page(&w, None, "Job.risky", &BTreeMap::new(), None, None, None).unwrap();
+        assert_eq!(held_correction.rows[0].value, Value::Int(1));
         // a reader's filter on a label's note, which is personal, is refused
         assert_eq!(
             page_of(

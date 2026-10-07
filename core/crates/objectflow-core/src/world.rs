@@ -599,6 +599,32 @@ impl<'l> World<'l> {
         Ok(self.held_in_order(|o| self.lib.is_a(&o.type_, type_)))
     }
 
+    /// The ids of the observations of a kind, or of its subtypes, that one
+    /// of them corrects: read by the store's index on the stored end, and
+    /// those the operation holds, never the kind whole.
+    pub fn corrected(&self, kind: &str) -> Result<BTreeSet<String>, crate::eval::NotRun> {
+        let mut out = BTreeSet::new();
+        if let Some(conn) = self.conn {
+            for t in self.lib.types.keys().filter(|t| self.lib.is_a(t, kind)) {
+                out.extend(
+                    crate::store::read_corrected(conn, self.lib, t).map_err(|e| {
+                        crate::eval::NotRun::Unreadable(format!(
+                            "the corrections of {t}, which could not be read: {e}"
+                        ))
+                    })?,
+                );
+            }
+        }
+        for o in self.held.slots.iter() {
+            if self.lib.is_a(&o.type_, kind)
+                && let crate::value::Value::Object(id) = o.attr("corrects")
+            {
+                out.insert(id);
+            }
+        }
+        Ok(out)
+    }
+
     /// The objects of a type, its own or a subtype's, whose state an
     /// assertion last set or that hold a standing admission, in ascending id
     /// order: read by the store's indexes, never the type whole, what the

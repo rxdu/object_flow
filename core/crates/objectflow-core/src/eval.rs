@@ -831,7 +831,7 @@ impl<'a> Evaluator<'a> {
     /// is absent compares as unknown and is read, as the filter would leave
     /// it undecided.
     #[allow(clippy::type_complexity)]
-    fn narrowing(
+    pub(crate) fn narrowing(
         &self,
         scanned: &str,
         var: &str,

@@ -405,6 +405,14 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
             quote(&format!("{name}_asserted_ix"))
         ),
     ];
+    // the built-in label kind, read by its name and the state its subject
+    // was in (§6)
+    if t.name == crate::model::LABEL {
+        indexes.push(format!(
+            "CREATE INDEX {} ON {name} (name, subject_state);",
+            quote(&format!("{name}_by_name"))
+        ));
+    }
     for (n, a) in &t.attributes {
         if a.derived_end() {
             continue;
@@ -2747,6 +2755,36 @@ pub(crate) fn read_ids_with(
     Ok(Some(ids))
 }
 
+/// The ids of the objects of a concrete type that one of it corrects, read
+/// by the index on its stored `corrects` end; none for a type without one.
+pub(crate) fn read_corrected(
+    conn: &Connection,
+    lib: &Library,
+    type_: &str,
+) -> Stored<BTreeSet<String>> {
+    let Some(t) = lib.type_(type_) else {
+        return Err(StoreError(format!(
+            "the directory names a type {type_} the library lacks"
+        )));
+    };
+    let mut out = BTreeSet::new();
+    let Some(a) = t
+        .attribute("corrects")
+        .filter(|a| !a.many && matches!(a.declared, Declared::Reference(_)))
+    else {
+        return Ok(out);
+    };
+    let col = quote(&column("corrects", a));
+    let mut q = conn.prepare(&format!(
+        "SELECT {col} FROM {} WHERE {col} IS NOT NULL",
+        table(type_)
+    ))?;
+    for id in q.query_map([], |r| r.get::<_, String>(0))? {
+        out.insert(id?);
+    }
+    Ok(out)
+}
+
 /// What `exceptions(type)` lists of the concrete types given, as the store
 /// holds it: the ids of the objects whose state an assertion last set, read
 /// by the asserted-state index, and of those holding a standing admission,
@@ -3539,6 +3577,40 @@ types:
         assert!(
             p.contains("t_ticket_seat_id_ix") && !p.contains("SCAN"),
             "{p}"
+        );
+    }
+
+    /// The built-in label table is read by a label's name through its own
+    /// index (`storage-schema.md` §6).
+    #[test]
+    fn a_label_is_read_by_its_name_through_its_index() {
+        let store = Store::sandbox(Library::load(&[]).unwrap(), 1_767_225_600).unwrap();
+        let late = Value::Text("late".into());
+        let n = narrowing(
+            &store.conn,
+            &store.lib,
+            crate::model::LABEL,
+            None,
+            &[("name", &late)],
+        )
+        .unwrap()
+        .unwrap();
+        let (cond, bound) = n.conditions("t.");
+        let mut st = store
+            .conn
+            .prepare(&format!(
+                "EXPLAIN QUERY PLAN SELECT t.id FROM t_label t WHERE {cond}"
+            ))
+            .unwrap();
+        let plan: Vec<String> = st
+            .query_map(rusqlite::params_from_iter(bound), |r| r.get(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(
+            plan.iter()
+                .any(|p| p.contains("USING INDEX t_label_by_name")),
+            "{plan:?}"
         );
     }
 
