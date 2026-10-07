@@ -25,7 +25,7 @@ pub struct View {
 
 /// The object an id names, with what its type derives from it.
 pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
-    let Some(o) = world.get(id) else {
+    let Some(o) = world.get(id)? else {
         return Ok(None);
     };
     let Some(t) = world.lib.type_(&o.type_) else {
@@ -102,26 +102,23 @@ pub struct QueryPage {
 /// family whose state an assertion last set, the import's excepted, and
 /// those holding an admitted invariant violation, in id order, each with
 /// its state; a type the store does not declare is refused, a value.
-pub fn exceptions(world: &World<'_>, type_: &str) -> QueryPage {
+pub fn exceptions(world: &World<'_>, type_: &str) -> Result<QueryPage, NotRun> {
     if world.lib.type_(type_).is_none() {
-        return QueryPage {
+        return Ok(QueryPage {
             items: Vec::new(),
             refused: Some("unknown_type".into()),
-        };
+        });
     }
     let items = world
-        .of_type(type_)
+        .of_type(type_)?
         .into_iter()
-        .filter(|o| {
-            world.state_sources.get(&o.id).map(String::as_str) == Some("asserted")
-                || !o.admissions.is_empty()
-        })
+        .filter(|o| o.state_source.as_deref() == Some("asserted") || !o.admissions.is_empty())
         .map(state_item)
         .collect();
-    QueryPage {
+    Ok(QueryPage {
         items,
         refused: None,
-    }
+    })
 }
 
 /// An object as a page of objects gives it, with its state.
@@ -168,7 +165,7 @@ pub fn available(
         return refuse("not_requestable");
     }
     let mut items = Vec::new();
-    for o in world.of_type(type_) {
+    for o in world.of_type(type_)? {
         let offers = availability(world, actor, &o.id)?.unwrap_or_default();
         let Some(offer) = offers.iter().find(|f| f.transition == transition) else {
             continue;
@@ -266,7 +263,7 @@ pub fn query(
         .unwrap_or_else(|| vec!["state".to_string()]);
     let asked: Vec<String> = fields.map_or(summary, <[String]>::to_vec);
     let mut chosen = Vec::new();
-    for o in world.of_type(type_) {
+    for o in world.of_type(type_)? {
         let Some(ot) = world.lib.type_(&o.type_) else {
             return Err(NotRun(format!("the type {}", o.type_)));
         };
@@ -292,6 +289,19 @@ pub fn query(
             Key::Attribute(a) => o.attr(a),
         }
     };
+    // the place in creation order of each object a key's value names, read
+    // before sorting, since a comparison cannot stop the read
+    let mut placed: BTreeMap<String, i64> = BTreeMap::new();
+    for o in &chosen {
+        for (key, _) in &keys {
+            if let Value::Object(id) = value(o, key)
+                && !placed.contains_key(&id)
+                && let Some(r) = world.get(&id)?
+            {
+                placed.insert(id, r.order);
+            }
+        }
+    }
     let rank = |v: &Value, w: &Value| -> std::cmp::Ordering {
         use std::cmp::Ordering;
         let position = |v: &Value| -> Option<i64> {
@@ -308,7 +318,7 @@ pub fn query(
                     .type_(type_)
                     .and_then(|t| t.states.iter().position(|(s, _)| s == name))
                     .and_then(|i| i64::try_from(i).ok()),
-                Value::Object(id) => world.get(id).map(|o| o.order),
+                Value::Object(id) => placed.get(id).copied(),
                 _ => None,
             }
         };
@@ -457,7 +467,7 @@ pub fn availability(
     actor: &str,
     id: &str,
 ) -> Result<Option<Vec<Offer>>, NotRun> {
-    let Some(o) = world.get(id) else {
+    let Some(o) = world.get(id)? else {
         return Ok(None);
     };
     let Some(t) = world.lib.type_(&o.type_) else {
@@ -466,7 +476,7 @@ pub fn availability(
     if let Some(what) = t.beyond.first() {
         return Err(NotRun(what.clone()));
     }
-    let who = resolve_actor(world, actor);
+    let who = resolve_actor(world, actor)?;
     let no_inputs = BTreeMap::new();
     let mut offers = Vec::new();
     for (xn, x) in &t.transitions {
@@ -851,7 +861,7 @@ types:
         .unwrap();
         assert_eq!((p.refused.as_deref(), p.items.len()), (None, 3));
         for item in &p.items {
-            let entered = w.get(&item.id).unwrap().spans["state"]
+            let entered = w.get(&item.id).unwrap().unwrap().spans["state"]
                 .last()
                 .unwrap()
                 .entered_at;
@@ -1049,7 +1059,7 @@ types:
             let w = s.snapshot().unwrap();
             available(&w, OPERATOR, "Job", xn).unwrap()
         };
-        let excepted = |s: &Store, t: &str| exceptions(&s.snapshot().unwrap(), t);
+        let excepted = |s: &Store, t: &str| exceptions(&s.snapshot().unwrap(), t).unwrap();
         // the deny guard blocks fifty; the warning blocks none
         assert_eq!(ids(&avail(&s, "finish")), [one.clone(), below.clone()]);
         assert_eq!(ids(&excepted(&s, "Job")), Vec::<String>::new());
@@ -1080,12 +1090,12 @@ types:
         assert_eq!(ids(&avail(&s, "finish")), [one.clone(), below.clone()]);
         // an admitted violation is an exception
         let mut w = s.snapshot().unwrap();
-        w.objects
-            .get_mut(&big)
+        w.get_mut(&big)
+            .unwrap()
             .unwrap()
             .admissions
             .insert("bounded".into());
-        assert_eq!(ids(&exceptions(&w, "Job")), [big.as_str()]);
+        assert_eq!(ids(&exceptions(&w, "Job").unwrap()), [big.as_str()]);
         drop(w);
         // an evaluator's guard is not asked, and is named on every object
         let page = avail(&s, "clear");
@@ -1108,7 +1118,7 @@ types:
             );
         }
         assert_eq!(
-            exceptions(&w, "Nope").refused.as_deref(),
+            exceptions(&w, "Nope").unwrap().refused.as_deref(),
             Some("unknown_type")
         );
     }

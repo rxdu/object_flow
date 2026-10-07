@@ -221,16 +221,17 @@ impl<'a> Evaluator<'a> {
 
     /// An object read, with the version it is at, unless a scan is only
     /// examining it.
-    fn note(&self, id: &str) {
+    fn note(&self, id: &str) -> Result<(), NotRun> {
         if let Some((reading, _)) = self.reading
             && self.quiet.get() == 0
-            && let Some(o) = self.world.get(id)
+            && let Some(o) = self.world.get(id)?
         {
             reading
                 .borrow_mut()
                 .objects
                 .insert(id.to_string(), o.version);
         }
+        Ok(())
     }
 
     /// A part that does not decide, evaluated for the record alone where a
@@ -420,7 +421,10 @@ impl<'a> Evaluator<'a> {
             // whether any of them was written after the event (§8.3)
             Expr::Changed(names, event) => {
                 let since = self.value(event, env)?;
-                let o = self.this.and_then(|id| self.world.get(id));
+                let o = match self.this {
+                    Some(id) => self.world.get(id)?,
+                    None => None,
+                };
                 Term::Value(match (o, since) {
                     (Some(o), Value::Int(p)) => Value::Bool(
                         names
@@ -457,7 +461,7 @@ impl<'a> Evaluator<'a> {
             }
             "inputs" => return Ok(Term::Inputs),
             "actor" => return Ok(Term::Actor),
-            "referrers" => return Ok(Term::Value(self.referrers())),
+            "referrers" => return Ok(Term::Value(self.referrers()?)),
             "this_event" => {
                 return match self.event {
                     Some(p) => Ok(Term::Value(Value::Int(p))),
@@ -557,8 +561,8 @@ impl<'a> Evaluator<'a> {
             Term::Value(Value::Object(id)) => id,
             other => return not_run(format!("a member `{m}` of {other:?}")),
         };
-        self.note(id);
-        let Some(o) = self.world.get(id) else {
+        self.note(id)?;
+        let Some(o) = self.world.get(id)? else {
             return not_run(format!(
                 "a member `{m}` of an object the store does not hold"
             ));
@@ -608,12 +612,12 @@ impl<'a> Evaluator<'a> {
                     } else if let (Declared::Reference(target), Some(opposite)) =
                         (&a.declared, &a.opposite)
                     {
-                        self.opposite_end(o, target, opposite, a.many)
+                        self.opposite_end(o, target, opposite, a.many)?
                     } else {
                         Value::Absent
                     }
                 } else if let Some((_, kind)) = t.observations.iter().find(|(c, _)| c == m) {
-                    self.collection(o, kind)
+                    self.collection(o, kind)?
                 } else if let Some((_, e)) = t.derived.iter().find(|(d, _)| d == m) {
                     // asked with the same answers, as the runner asks it
                     let mut derived = Evaluator::new(self.world, Some(t), Some(&o.id));
@@ -629,19 +633,25 @@ impl<'a> Evaluator<'a> {
 
     /// An end the other side stores: the objects of the target type whose
     /// opposite end names this one.
-    fn opposite_end(&self, o: &Object, target: &str, opposite: &str, many: bool) -> Value {
+    fn opposite_end(
+        &self,
+        o: &Object,
+        target: &str,
+        opposite: &str,
+        many: bool,
+    ) -> Result<Value, NotRun> {
         let found: Vec<Value> = self
             .world
-            .of_type(target)
+            .of_type(target)?
             .into_iter()
             .filter(|x| x.attrs.get(opposite) == Some(&Value::Object(o.id.clone())))
             .map(|x| Value::Object(x.id.clone()))
             .collect();
-        if many {
+        Ok(if many {
             Value::Set(found)
         } else {
             found.into_iter().next().unwrap_or(Value::Absent)
-        }
+        })
     }
 
     fn membership(&self, left: &Expr, right: &Expr, env: &BTreeMap<String, Value>) -> Evaluated {
@@ -722,7 +732,7 @@ impl<'a> Evaluator<'a> {
                 // each element of a collection a rule aggregates is read
                 for i in &items {
                     if let Value::Object(id) = i {
-                        self.note(id);
+                        self.note(id)?;
                     }
                 }
                 items
@@ -730,7 +740,7 @@ impl<'a> Evaluator<'a> {
             Term::TypeRef(t) if self.type_named(&t).is_some() => {
                 let all = self
                     .world
-                    .of_type(&t)
+                    .of_type(&t)?
                     .into_iter()
                     .map(|o| Value::Object(o.id.clone()))
                     .collect();
@@ -775,7 +785,7 @@ impl<'a> Evaluator<'a> {
                 })
                 .collect();
             for id in &matched {
-                self.note(id);
+                self.note(id)?;
             }
             reading
                 .borrow_mut()
@@ -970,9 +980,9 @@ impl<'a> Evaluator<'a> {
 
     /// Every object holding a reference to this one, in ascending id order,
     /// its parts excepted, since they cascade (`declaration-syntax.md` §6.5).
-    fn referrers(&self) -> Value {
+    fn referrers(&self) -> Result<Value, NotRun> {
         let Some(this) = self.this else {
-            return Value::Set(Vec::new());
+            return Ok(Value::Set(Vec::new()));
         };
         let target = Value::Object(this.to_string());
         let lib = self.world.lib;
@@ -998,38 +1008,38 @@ impl<'a> Evaluator<'a> {
                     }
             })
         };
-        Value::Set(
+        Ok(Value::Set(
             self.world
-                .in_order()
+                .in_order()?
                 .into_iter()
                 .filter(|x| x.id != this && holds(x))
                 .map(|x| Value::Object(x.id.clone()))
                 .collect(),
-        )
+        ))
     }
 
     /// A subject's collection of a kind: its observations nothing has
     /// corrected, in ascending id order (`declaration-syntax.md` §6.8).
-    fn collection(&self, o: &Object, kind: &str) -> Value {
-        let of_kind = self.world.of_type(kind);
+    fn collection(&self, o: &Object, kind: &str) -> Result<Value, NotRun> {
+        let of_kind = self.world.of_type(kind)?;
         let corrected: Vec<Value> = of_kind.iter().map(|x| x.attr("corrects")).collect();
         let subject = Value::Object(o.id.clone());
-        Value::Set(
+        Ok(Value::Set(
             of_kind
                 .iter()
                 .filter(|x| x.attr("subject") == subject)
                 .filter(|x| !corrected.contains(&Value::Object(x.id.clone())))
                 .map(|x| Value::Object(x.id.clone()))
                 .collect(),
-        )
+        ))
     }
 
     /// An object's `intervals(<member>)`, `entered_at(<STATE or member>)` or
     /// `time_in(<STATE>)`, read from its flow data (`declaration-syntax.md`
     /// §8.3).
     fn flow_function(&self, id: &str, function: &str, arg: &str) -> Result<Value, NotRun> {
-        self.note(id);
-        let Some(o) = self.world.get(id) else {
+        self.note(id)?;
+        let Some(o) = self.world.get(id)? else {
             return not_run(format!("`{function}` of an object the store does not hold"));
         };
         let Some(t) = self.type_named(&o.type_) else {
@@ -1097,7 +1107,9 @@ impl<'a> Evaluator<'a> {
         for (d, x) in binds {
             let v = self.value(x, env)?;
             if separate {
-                if self.this.is_some_and(|id| committed.get(id).is_none()) {
+                if let Some(id) = self.this
+                    && committed.get(id)?.is_none()
+                {
                     return not_run(
                         "a metric guard of an object the request itself creates, whose arguments no consultation before it can resolve",
                     );
@@ -1775,6 +1787,7 @@ types:
             erased: false,
             created_dated: true,
             recorded_from: 0,
+            state_source: None,
         }
     }
 
@@ -1787,24 +1800,22 @@ types:
     fn names_resolve_as_the_runner_resolves_them() {
         let lib = lib();
         let mut w = World::new(&lib, 100);
-        w.objects.insert(
-            "job-1".into(),
-            job(
-                "job-1",
-                1,
-                "OPEN",
-                &[
-                    ("title", Value::Text("Fix".into())),
-                    (
-                        "priority",
-                        Value::Member {
-                            enumeration: "Priority".into(),
-                            member: "HIGH".into(),
-                        },
-                    ),
-                ],
-            ),
-        );
+        w.insert(job(
+            "job-1",
+            1,
+            "OPEN",
+            &[
+                ("title", Value::Text("Fix".into())),
+                (
+                    "priority",
+                    Value::Member {
+                        enumeration: "Priority".into(),
+                        member: "HIGH".into(),
+                    },
+                ),
+            ],
+        ))
+        .unwrap();
         assert_eq!(eval(&w, "job-1", "title == \"Fix\""), Ok(Value::Bool(true)));
         assert_eq!(eval(&w, "job-1", "urgent"), Ok(Value::Bool(true)));
         assert_eq!(eval(&w, "job-1", "state == OPEN"), Ok(Value::Bool(true)));
@@ -1824,8 +1835,7 @@ types:
     fn unknown_propagates_but_through_is_null_and_or() {
         let lib = lib();
         let mut w = World::new(&lib, 0);
-        w.objects
-            .insert("job-1".into(), job("job-1", 1, "OPEN", &[]));
+        w.insert(job("job-1", 1, "OPEN", &[])).unwrap();
         assert_eq!(eval(&w, "job-1", "hours > 2"), Ok(Value::Absent));
         assert_eq!(eval(&w, "job-1", "hours is null"), Ok(Value::Bool(true)));
         assert_eq!(
@@ -1846,16 +1856,11 @@ types:
     fn a_type_scan_and_its_aggregates() {
         let lib = lib();
         let mut w = World::new(&lib, 0);
-        w.objects.insert(
-            "job-1".into(),
-            job("job-1", 1, "OPEN", &[("hours", Value::Int(3))]),
-        );
-        w.objects.insert(
-            "job-2".into(),
-            job("job-2", 2, "DONE", &[("hours", Value::Int(5))]),
-        );
-        w.objects
-            .insert("job-3".into(), job("job-3", 3, "OPEN", &[]));
+        w.insert(job("job-1", 1, "OPEN", &[("hours", Value::Int(3))]))
+            .unwrap();
+        w.insert(job("job-2", 2, "DONE", &[("hours", Value::Int(5))]))
+            .unwrap();
+        w.insert(job("job-3", 3, "OPEN", &[])).unwrap();
         assert_eq!(
             eval(&w, "job-1", "count(j in Job where j.open)"),
             Ok(Value::Int(2))
@@ -1943,10 +1948,13 @@ types:
     fn an_evaluator_answers_as_the_sandbox_says() {
         let lib = lib();
         let mut w = World::new(&lib, 0);
-        w.objects.insert(
-            "job-1".into(),
-            job("job-1", 1, "OPEN", &[("title", Value::Text("Fix".into()))]),
-        );
+        w.insert(job(
+            "job-1",
+            1,
+            "OPEN",
+            &[("title", Value::Text("Fix".into()))],
+        ))
+        .unwrap();
         let t = w.lib.type_("Job");
         let call = parse("xero.bill_paid(title)").unwrap();
         let answers: BTreeMap<String, String> =
@@ -1979,8 +1987,7 @@ types:
     fn what_the_slice_does_not_run_is_named() {
         let lib = lib();
         let mut w = World::new(&lib, 0);
-        w.objects
-            .insert("job-1".into(), job("job-1", 1, "OPEN", &[]));
+        w.insert(job("job-1", 1, "OPEN", &[])).unwrap();
         assert!(
             eval(&w, "job-1", "metric(x) > 1")
                 .unwrap_err()

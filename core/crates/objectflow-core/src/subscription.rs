@@ -3,6 +3,8 @@
 //! by a settled cursor, which on SQLite, whose writers are serial, is the
 //! position (ADR-0089).
 
+use std::collections::BTreeSet;
+
 use crate::eval::NotRun;
 use crate::model::SUBSCRIPTION;
 use crate::store::Event;
@@ -34,7 +36,7 @@ pub fn pull(
         settled,
         refused: Some(why.to_string()),
     };
-    let Some(s) = world.get(subscription).filter(|s| s.type_ == SUBSCRIPTION) else {
+    let Some(s) = world.get(subscription)?.filter(|s| s.type_ == SUBSCRIPTION) else {
         return Ok(refuse("unknown"));
     };
     if s.state == "REVOKED" {
@@ -44,9 +46,10 @@ pub fn pull(
         Some(c) => c,
         None => acknowledged(world, s)?,
     };
+    let targets = targets(world, s)?;
     let mut events: Vec<Event> = world
         .log()?
-        .filter(|e| e.position > from && selects(world, s, e))
+        .filter(|e| e.position > from && selects(s, &targets, e))
         .cloned()
         .collect();
     events.sort_by_key(|e| e.position);
@@ -70,21 +73,27 @@ pub fn acknowledged(world: &World<'_>, s: &Object) -> Result<i64, NotRun> {
         .map_or(0, |e| e.position))
 }
 
-/// Whether its filter selects an event: one of an object of its type, or of
-/// its family where it says so; of a transition it names, or of any where it
-/// names none; and one changing the state where it asks only for those.
-fn selects(world: &World<'_>, s: &Object, e: &Event) -> bool {
-    let Some(o) = world.get(&e.object_id) else {
-        return false;
-    };
+/// The objects its filter's type selects, by id: its target type's, or its
+/// family's where it says so, each type read in one fetch rather than an
+/// object an event.
+fn targets<'w>(world: &'w World<'_>, s: &Object) -> Result<BTreeSet<&'w str>, NotRun> {
     let Value::Text(target) = s.attr("target_type") else {
-        return false;
+        return Ok(BTreeSet::new());
     };
-    let typed = if s.attr("target_family") == Value::Bool(true) {
-        world.lib.is_a(&o.type_, &target)
-    } else {
-        o.type_ == target
-    };
+    let family = s.attr("target_family") == Value::Bool(true);
+    Ok(world
+        .of_type(&target)?
+        .into_iter()
+        .filter(|o| family || o.type_ == target)
+        .map(|o| o.id.as_str())
+        .collect())
+}
+
+/// Whether its filter selects an event: one of an object its type selects;
+/// of a transition it names, or of any where it names none; and one
+/// changing the state where it asks only for those.
+fn selects(s: &Object, targets: &BTreeSet<&str>, e: &Event) -> bool {
+    let typed = targets.contains(e.object_id.as_str());
     let named = match s.attr("transitions") {
         Value::Set(names) if !names.is_empty() => names
             .iter()
@@ -101,9 +110,10 @@ fn selects(world: &World<'_>, s: &Object, e: &Event) -> bool {
 /// `dead_after`, derived and never moved into (`DESIGN.md` §7, ADR-0100).
 pub fn lag(world: &World<'_>, s: &Object) -> Result<(i64, bool, bool), NotRun> {
     let from = acknowledged(world, s)?;
+    let targets = targets(world, s)?;
     let oldest = world
         .log()?
-        .filter(|e| e.position > from && selects(world, s, e))
+        .filter(|e| e.position > from && selects(s, &targets, e))
         .map(|e| e.recorded_at)
         .min();
     let lag = oldest.map_or(0, |at| (world.now - at).max(0));
@@ -230,14 +240,20 @@ types:
         // acknowledging records nothing in the log, and moves it forward
         let (events, version) = {
             let w = s.snapshot().unwrap();
-            (w.log().unwrap().count(), w.get(&sub).unwrap().version)
+            (
+                w.log().unwrap().count(),
+                w.get(&sub).unwrap().unwrap().version,
+            )
         };
         let settled = pull(&s.snapshot().unwrap(), &sub, None).unwrap().settled;
         assert_eq!(s.acknowledge(&sub, settled).unwrap(), None);
         {
             let w = s.snapshot().unwrap();
             assert_eq!(
-                (w.log().unwrap().count(), w.get(&sub).unwrap().version),
+                (
+                    w.log().unwrap().count(),
+                    w.get(&sub).unwrap().unwrap().version
+                ),
                 (events, version)
             );
         }

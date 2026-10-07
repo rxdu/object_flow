@@ -43,6 +43,14 @@ impl From<rusqlite::Error> for StoreError {
     }
 }
 
+/// An operation of the store's own stopped, its read of the store among the
+/// reasons it can stop.
+impl From<NotRun> for StoreError {
+    fn from(e: NotRun) -> StoreError {
+        StoreError(e.0)
+    }
+}
+
 type Stored<T> = Result<T, StoreError>;
 
 /// An event, as the log holds it (`library-api.md` §5).
@@ -1394,7 +1402,7 @@ impl Store {
     pub fn acknowledge(&mut self, subscription: &str, cursor: i64) -> Stored<Option<String>> {
         let refusal = {
             let world = self.snapshot()?;
-            match world.get(subscription) {
+            match world.get(subscription)? {
                 Some(s) if s.type_ == crate::model::SUBSCRIPTION => {
                     (s.state == "REVOKED").then(|| "revoked".to_string())
                 }
@@ -1465,13 +1473,13 @@ impl Store {
             clause: clause.into(),
             remedy: Some(Remedy::UnreachableFromHere),
         };
-        let Some(who) = resolve_actor(&world, actor) else {
+        let Some(who) = resolve_actor(&world, actor)? else {
             return refusal(Verdict::Unsatisfied {
                 clause: "actor_known".into(),
                 remedy: Some(Remedy::Dependent),
             });
         };
-        let Some(c) = world.get(change).filter(|c| c.type_ == DECLARATION_CHANGE) else {
+        let Some(c) = world.get(change)?.filter(|c| c.type_ == DECLARATION_CHANGE) else {
             return refusal(Verdict::NotFound);
         };
         if c.state != "SUBMITTED" {
@@ -1543,7 +1551,11 @@ impl Store {
         };
         new.version = self.lib.version + 1;
         let change_obj = c.clone();
-        let old_objects = world.objects.clone();
+        let old_objects: BTreeMap<String, Object> = world
+            .in_order()?
+            .into_iter()
+            .map(|o| (o.id.clone(), o.clone()))
+            .collect();
         drop(world);
         self.conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
         let installed = self.install(
@@ -1869,8 +1881,10 @@ impl Store {
                     }
                 }
                 let mut after = World::new(new, now);
-                after.objects = objects.clone();
-                after.objects.insert(x.id.clone(), x.clone());
+                for o in objects.values() {
+                    after.insert(o.clone())?;
+                }
+                after.insert(x.clone())?;
                 for n in failing_invariants(&after, &x).map_err(|e| StoreError(e.0))? {
                     if !x.admissions.contains(&n)
                         && invariant_reads(t, &n).iter().any(|r| newly.contains(r))
@@ -2207,147 +2221,10 @@ fn snapshot<'l>(
     earlier: &'l BTreeMap<i64, Library>,
     now: i64,
 ) -> Stored<World<'l>> {
+    // the objects, and the log, are read where an operation reads them
+    // (ADR-0162 steps 1 and 2)
     let mut world = World::new(lib, now).reading_from(conn);
     world.earlier = earlier;
-    let mut directory =
-        conn.prepare("SELECT rowid, id, type, created_at, created_by_kind FROM of_object")?;
-    let rows = directory.query_map([], |r| {
-        Ok((
-            r.get::<_, i64>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, String>(2)?,
-            r.get::<_, String>(3)?,
-            r.get::<_, String>(4)?,
-        ))
-    })?;
-    let mut by_type: BTreeMap<String, Vec<(i64, String, i64, String)>> = BTreeMap::new();
-    for row in rows {
-        let (order, id, type_, created_at, kind) = row?;
-        let at = parse_timestamp(&created_at)
-            .ok_or_else(|| StoreError(format!("{id}'s creation time")))?;
-        by_type
-            .entry(type_)
-            .or_default()
-            .push((order, id, at, kind));
-    }
-    for (type_, objects) in by_type {
-        let Some(t) = lib.type_(&type_) else {
-            return Err(StoreError(format!(
-                "the directory names a type {type_} the library lacks"
-            )));
-        };
-        let name = table(&type_);
-        let scalars: Vec<&(String, Attribute)> =
-            t.attributes.iter().filter(|(_, a)| !a.many).collect();
-        let cols: Vec<String> = scalars.iter().map(|(n, a)| quote(&column(n, a))).collect();
-        let superseding = t.states.iter().any(|(_, s)| s.superseding);
-        // every row of the type in one read, and each set's items in one
-        // more, rather than one read an object (ADR-0162 step 2)
-        let select = format!(
-            "SELECT id, state, version, state_source{}{}{} FROM {name}",
-            if superseding { ", superseded_by" } else { "" },
-            if cols.is_empty() { "" } else { ", " },
-            cols.join(", ")
-        );
-        let first = if superseding { 5 } else { 4 };
-        let mut stmt = conn.prepare(&select)?;
-        let read = stmt.query_map([], |r| {
-            let mut values = Vec::new();
-            for i in 0..scalars.len() {
-                values.push(r.get::<_, Sql>(i + first)?);
-            }
-            Ok((
-                r.get::<_, String>(0)?,
-                (
-                    r.get::<_, String>(1)?,
-                    r.get::<_, i64>(2)?,
-                    r.get::<_, String>(3)?,
-                    if superseding {
-                        r.get::<_, Option<String>>(4)?
-                    } else {
-                        None
-                    },
-                    values,
-                ),
-            ))
-        })?;
-        let mut rows: BTreeMap<String, RowFields> = BTreeMap::new();
-        for row in read {
-            let (id, fields) = row?;
-            rows.insert(id, fields);
-        }
-        let mut sets: BTreeMap<(String, String), Vec<Value>> = BTreeMap::new();
-        for (n, a) in t.attributes.iter().filter(|(_, a)| a.stored_set()) {
-            let mut set = conn.prepare(&format!(
-                "SELECT object_id, value FROM {} ORDER BY object_id, ordinal",
-                quote(&format!("{name}__{n}"))
-            ))?;
-            let items = set.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Sql>(1)?)))?;
-            for item in items {
-                let (id, v) = item?;
-                sets.entry((id, n.clone()))
-                    .or_default()
-                    .push(from_sql(v, &a.declared, lib)?);
-            }
-        }
-        for (order, id, created_at, kind) in objects {
-            let Some((state, version, source, superseded_by, values)) = rows.remove(&id) else {
-                return Err(StoreError(format!(
-                    "the directory names {id}, which {name} does not hold"
-                )));
-            };
-            world.state_sources.insert(id.clone(), source);
-            let mut attrs = BTreeMap::new();
-            for ((n, a), v) in scalars.iter().zip(values) {
-                let v = from_sql(v, &a.declared, lib)?;
-                if !v.is_absent() {
-                    attrs.insert(n.clone(), v);
-                }
-            }
-            for (n, _) in t.attributes.iter().filter(|(_, a)| a.stored_set()) {
-                let items = sets.remove(&(id.clone(), n.clone())).unwrap_or_default();
-                attrs.insert(n.clone(), Value::Set(items));
-            }
-            world.objects.insert(
-                id.clone(),
-                Object {
-                    superseded_by,
-                    id,
-                    type_: type_.clone(),
-                    state,
-                    version,
-                    attrs,
-                    created_at,
-                    created_by_kind: kind,
-                    order,
-                    spans: BTreeMap::new(),
-                    writes: BTreeMap::new(),
-                    admissions: std::collections::BTreeSet::new(),
-                    erased: false,
-                    created_dated: true,
-                    recorded_from: created_at,
-                },
-            );
-        }
-    }
-    spans(conn, lib, &mut world)?;
-    // whether each creation is dated, and its record's start
-    let mut dated = conn.prepare("SELECT id, created_dated, recorded_from FROM of_object")?;
-    let rows = dated.query_map([], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, i64>(1)?,
-            r.get::<_, String>(2)?,
-        ))
-    })?;
-    for row in rows {
-        let (id, is_dated, from) = row?;
-        if let Some(o) = world.objects.get_mut(&id) {
-            o.created_dated = is_dated != 0;
-            o.recorded_from = parse_timestamp(&from)
-                .ok_or_else(|| StoreError(format!("{id}'s recorded_from")))?;
-        }
-    }
     let mut ids = conn.prepare("SELECT source, value, object_id FROM of_external_id")?;
     let rows = ids.query_map([], |r| {
         Ok((
@@ -2388,30 +2265,6 @@ fn snapshot<'l>(
                 kept: serde_json::from_str(&kept).unwrap_or_default(),
             });
     }
-    let mut index =
-        conn.prepare("SELECT object_id, attribute, position FROM of_attribute_write")?;
-    let rows = index.query_map([], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, i64>(2)?,
-        ))
-    })?;
-    for row in rows {
-        let (id, attribute, position) = row?;
-        if let Some(o) = world.objects.get_mut(&id) {
-            o.writes.insert(attribute, position);
-        }
-    }
-    // an object whose own erasure is recorded
-    let mut erasures =
-        conn.prepare("SELECT DISTINCT object_id FROM of_event WHERE source = 'erased'")?;
-    let rows = erasures.query_map([], |r| r.get::<_, String>(0))?;
-    for row in rows {
-        if let Some(o) = world.objects.get_mut(&row?) {
-            o.erased = true;
-        }
-    }
     // each subscription's acknowledged cursor, a position on SQLite
     let mut positions =
         conn.prepare("SELECT subscription_id, acknowledged FROM of_subscription_position")?;
@@ -2435,29 +2288,320 @@ fn snapshot<'l>(
     for row in rows {
         world.admitting.insert(row?);
     }
-    // the admissions that stand
-    let mut standing = conn.prepare(
-        "SELECT object_id, invariant FROM of_admission WHERE discharged_position IS NULL",
-    )?;
-    let rows = standing.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
-    for row in rows {
-        let (id, invariant) = row?;
-        if let Some(o) = world.objects.get_mut(&id) {
-            o.admissions.insert(invariant);
-        }
-    }
     Ok(world)
 }
 
-/// Every object's flow data, from the interval index, in each dimension's
-/// order.
-fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> {
-    let mut stmt = conn.prepare(
+/// An object the store holds, with every part of its record; none where
+/// the directory holds no such id (ADR-0162 step 2).
+pub(crate) fn read_object(conn: &Connection, lib: &Library, id: &str) -> Stored<Option<Object>> {
+    let mut directory = conn.prepare_cached("SELECT type FROM of_object WHERE id = ?1")?;
+    let mut types = directory.query_map(params![id], |r| r.get::<_, String>(0))?;
+    let Some(type_) = types.next().transpose()? else {
+        return Ok(None);
+    };
+    let mut found = read_objects(conn, lib, &type_, Scope::One(id))?;
+    match (found.pop(), found.is_empty()) {
+        (Some(o), true) => Ok(Some(o)),
+        _ => Err(StoreError(format!(
+            "the directory names {id}, which {} does not hold once",
+            table(&type_)
+        ))),
+    }
+}
+
+/// Every object of a concrete type the store holds, in creation order, in
+/// one read of its table and one of each other part of their records.
+pub(crate) fn read_type(conn: &Connection, lib: &Library, type_: &str) -> Stored<Vec<Object>> {
+    read_objects(conn, lib, type_, Scope::Type(table(type_)))
+}
+
+/// Every object the store holds, in creation order: each type's rows in one
+/// read of its table, and each other part of their records in one read of
+/// its table, as a load of the whole store is cheapest. A type the directory
+/// names that the library lacks is refused, never passed over.
+pub(crate) fn read_all(conn: &Connection, lib: &Library) -> Stored<Vec<Object>> {
+    let mut directory = conn.prepare("SELECT DISTINCT type FROM of_object")?;
+    let types = directory
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<String>, _>>()?;
+    let mut objects = BTreeMap::new();
+    for type_ in &types {
+        objects.append(&mut read_rows(conn, lib, type_, &Scope::All)?);
+    }
+    read_parts(conn, lib, &Scope::All, &mut objects)?;
+    let mut all: Vec<Object> = objects.into_values().collect();
+    all.sort_by_key(|o| o.order);
+    Ok(all)
+}
+
+/// Which objects a read of the store fetches: one by id, every one a type's
+/// table holds, or every one.
+enum Scope<'a> {
+    One(&'a str),
+    Type(String),
+    All,
+}
+
+impl Scope<'_> {
+    /// The condition a read of a part of the records takes on its
+    /// `object_id`, joined to what precedes it by the keyword given; none
+    /// for every object.
+    fn on_object(&self, keyword: &str) -> String {
+        match self {
+            Scope::One(_) => format!(" {keyword} object_id = ?1"),
+            Scope::Type(table) => format!(" {keyword} object_id IN (SELECT id FROM {table})"),
+            Scope::All => String::new(),
+        }
+    }
+
+    /// The id a read binds, for one object.
+    fn bound(&self) -> Option<&str> {
+        match self {
+            Scope::One(id) => Some(id),
+            _ => None,
+        }
+    }
+}
+
+/// The highest place in creation order the store holds, 0 where it holds
+/// no object.
+pub(crate) fn read_max_order(conn: &Connection) -> Stored<i64> {
+    Ok(
+        conn.query_row("SELECT COALESCE(MAX(rowid), 0) FROM of_object", [], |r| {
+            r.get(0)
+        })?,
+    )
+}
+
+/// The objects of a concrete type in the scope given, in creation order,
+/// each with its directory row, its type's row and sets, its flow data, its
+/// write index, its standing admissions and whether its own erasure is
+/// recorded.
+fn read_objects(
+    conn: &Connection,
+    lib: &Library,
+    type_: &str,
+    scope: Scope<'_>,
+) -> Stored<Vec<Object>> {
+    let mut objects = read_rows(conn, lib, type_, &scope)?;
+    read_parts(conn, lib, &scope, &mut objects)?;
+    let mut all: Vec<Object> = objects.into_values().collect();
+    all.sort_by_key(|o| o.order);
+    Ok(all)
+}
+
+/// The objects of a concrete type in the scope given, by id, each with its
+/// directory row and its type's row and sets, the other parts of its record
+/// empty.
+fn read_rows(
+    conn: &Connection,
+    lib: &Library,
+    type_: &str,
+    scope: &Scope<'_>,
+) -> Stored<BTreeMap<String, Object>> {
+    let Some(t) = lib.type_(type_) else {
+        return Err(StoreError(format!(
+            "the directory names a type {type_} the library lacks"
+        )));
+    };
+    let name = table(type_);
+    let only = scope.bound();
+    let of_row = if only.is_some() {
+        "WHERE t.id = ?1"
+    } else {
+        ""
+    };
+    // a type's sets are read whole with its rows, an object's alone
+    let of_set = match scope {
+        Scope::One(_) => " WHERE object_id = ?1",
+        _ => "",
+    };
+    let scalars: Vec<&(String, Attribute)> = t.attributes.iter().filter(|(_, a)| !a.many).collect();
+    let superseding = t.states.iter().any(|(_, s)| s.superseding);
+    let mut cols = vec![
+        "o.rowid".to_string(),
+        "t.id".into(),
+        "o.created_at".into(),
+        "o.created_by_kind".into(),
+        "o.created_dated".into(),
+        "o.recorded_from".into(),
+        "t.state".into(),
+        "t.version".into(),
+        "t.state_source".into(),
+    ];
+    if superseding {
+        cols.push("t.superseded_by".into());
+    }
+    let first = cols.len();
+    cols.extend(
+        scalars
+            .iter()
+            .map(|(n, a)| format!("t.{}", quote(&column(n, a)))),
+    );
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM {name} t JOIN of_object o ON o.id = t.id {of_row}",
+        cols.join(", ")
+    ))?;
+    let read = stmt.query_map(rusqlite::params_from_iter(only), |r| {
+        let mut values = Vec::new();
+        for i in 0..scalars.len() {
+            values.push(r.get::<_, Sql>(i + first)?);
+        }
+        Ok((
+            (
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, i64>(4)? != 0,
+                r.get::<_, String>(5)?,
+            ),
+            (
+                r.get::<_, String>(6)?,
+                r.get::<_, i64>(7)?,
+                r.get::<_, String>(8)?,
+                if superseding {
+                    r.get::<_, Option<String>>(9)?
+                } else {
+                    None
+                },
+                values,
+            ) as RowFields,
+        ))
+    })?;
+    let mut objects: BTreeMap<String, Object> = BTreeMap::new();
+    for row in read {
+        let ((order, id, created_at, kind, created_dated, from), fields) = row?;
+        let (state, version, source, superseded_by, values) = fields;
+        let at = |text: &str, what: &str| {
+            parse_timestamp(text).ok_or_else(|| StoreError(format!("{id}'s {what} {text}")))
+        };
+        let created_at = at(&created_at, "creation time")?;
+        let recorded_from = at(&from, "recorded_from")?;
+        let mut attrs = BTreeMap::new();
+        for ((n, a), v) in scalars.iter().zip(values) {
+            let v = from_sql(v, &a.declared, lib)?;
+            if !v.is_absent() {
+                attrs.insert(n.clone(), v);
+            }
+        }
+        for (n, _) in t.attributes.iter().filter(|(_, a)| a.stored_set()) {
+            attrs.insert(n.clone(), Value::Set(Vec::new()));
+        }
+        objects.insert(
+            id.clone(),
+            Object {
+                superseded_by,
+                id,
+                type_: type_.to_string(),
+                state,
+                version,
+                attrs,
+                created_at,
+                created_by_kind: kind,
+                order,
+                spans: BTreeMap::new(),
+                writes: BTreeMap::new(),
+                admissions: std::collections::BTreeSet::new(),
+                erased: false,
+                created_dated,
+                recorded_from,
+                state_source: Some(source),
+            },
+        );
+    }
+    // each set's items, in order
+    for (n, a) in t.attributes.iter().filter(|(_, a)| a.stored_set()) {
+        let mut set = conn.prepare(&format!(
+            "SELECT object_id, value FROM {}{of_set} ORDER BY object_id, ordinal",
+            quote(&format!("{name}__{n}"))
+        ))?;
+        let items = set.query_map(rusqlite::params_from_iter(only), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Sql>(1)?))
+        })?;
+        for item in items {
+            let (id, v) = item?;
+            let v = from_sql(v, &a.declared, lib)?;
+            if let Some(Value::Set(items)) = objects.get_mut(&id).and_then(|o| o.attrs.get_mut(n)) {
+                items.push(v);
+            }
+        }
+    }
+    Ok(objects)
+}
+
+/// The parts of the records of the objects given beyond their rows, for the
+/// scope given: their flow data, write index, standing admissions and
+/// whether their own erasure is recorded.
+fn read_parts(
+    conn: &Connection,
+    lib: &Library,
+    scope: &Scope<'_>,
+    objects: &mut BTreeMap<String, Object>,
+) -> Stored<()> {
+    let only = scope.bound();
+    spans(conn, lib, scope, objects)?;
+    let mut index = conn.prepare(&format!(
+        "SELECT object_id, attribute, position FROM of_attribute_write{}",
+        scope.on_object("WHERE")
+    ))?;
+    let rows = index.query_map(rusqlite::params_from_iter(only), |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, i64>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (id, attribute, position) = row?;
+        if let Some(o) = objects.get_mut(&id) {
+            o.writes.insert(attribute, position);
+        }
+    }
+    // an object whose own erasure is recorded
+    let mut erasures = conn.prepare(&format!(
+        "SELECT DISTINCT object_id FROM of_event WHERE source = 'erased'{}",
+        scope.on_object("AND")
+    ))?;
+    let rows = erasures.query_map(rusqlite::params_from_iter(only), |r| r.get::<_, String>(0))?;
+    for row in rows {
+        if let Some(o) = objects.get_mut(&row?) {
+            o.erased = true;
+        }
+    }
+    // the admissions that stand
+    let mut standing = conn.prepare(&format!(
+        "SELECT object_id, invariant FROM of_admission WHERE discharged_position IS NULL{}",
+        scope.on_object("AND")
+    ))?;
+    let rows = standing.query_map(rusqlite::params_from_iter(only), |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    })?;
+    for row in rows {
+        let (id, invariant) = row?;
+        if let Some(o) = objects.get_mut(&id) {
+            o.admissions.insert(invariant);
+        }
+    }
+    Ok(())
+}
+
+/// The flow data of the objects given, from the interval index, in each
+/// dimension's order.
+fn spans(
+    conn: &Connection,
+    lib: &Library,
+    scope: &Scope<'_>,
+    objects: &mut BTreeMap<String, Object>,
+) -> Stored<()> {
+    let only = scope.bound();
+    let mut stmt = conn.prepare(&format!(
         "SELECT object_id, dimension, value, entered_position, left_position, entered_at, left_at, \
-         entered_by, entered_by_kind, migrated, declaration_version, legacy, corrected_by FROM of_interval \
-         ORDER BY object_id, dimension, entered_position, entered_at",
-    )?;
-    let rows = stmt.query_map([], |r| {
+         entered_by, entered_by_kind, migrated, declaration_version, legacy, corrected_by FROM of_interval\
+         {} ORDER BY object_id, dimension, entered_position, entered_at",
+        scope.on_object("WHERE")
+    ))?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(only), |r| {
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
@@ -2490,7 +2634,7 @@ fn spans(conn: &Connection, lib: &Library, world: &mut World<'_>) -> Stored<()> 
             legacy,
             corrected_by,
         ) = row?;
-        let Some(o) = world.objects.get_mut(&id) else {
+        let Some(o) = objects.get_mut(&id) else {
             return Err(StoreError(format!(
                 "an interval of {id}, which the directory lacks"
             )));
@@ -2854,12 +2998,71 @@ mod tests {
         let lib = Library::load(&[]).unwrap();
         let store = Store::sandbox(lib, 1_767_225_600).unwrap();
         let world = store.snapshot().unwrap();
-        let op = world.get(OPERATOR).unwrap();
+        let op = world.get(OPERATOR).unwrap().unwrap();
         assert_eq!(op.type_, "Operator");
         assert_eq!(op.state, "ACTIVE");
         assert_eq!(op.attr("identity"), Value::Text(OPERATOR.into()));
         let h = store.history(OPERATOR).unwrap();
         assert_eq!(h.len(), 1);
         assert_eq!(h[0].to_state, "ACTIVE");
+    }
+
+    #[test]
+    fn an_object_is_read_on_first_use_and_held_as_changed() {
+        let lib = Library::load(&[]).unwrap();
+        let store = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let mut world = store.snapshot().unwrap();
+        assert_eq!(world.held().count(), 0);
+        // a change the operation makes outlasts a scan that reads the type
+        // from the store again
+        world.get_mut(OPERATOR).unwrap().unwrap().state = "CHANGED".into();
+        let scanned = world.of_type("Operator").unwrap();
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(scanned[0].state, "CHANGED");
+        assert_eq!(world.in_order().unwrap()[0].state, "CHANGED");
+        // an id the store does not hold is none, and is held once made
+        assert_eq!(world.get("nobody").unwrap(), None);
+        let order = world.next_order().unwrap();
+        assert!(order > world.get(OPERATOR).unwrap().unwrap().order);
+        let mut made = world.get(OPERATOR).unwrap().unwrap().clone();
+        made.id = "nobody".into();
+        made.order = order;
+        made.state_source = None;
+        world.insert(made).unwrap();
+        assert_eq!(world.get("nobody").unwrap().unwrap().order, order);
+        assert_eq!(world.next_order().unwrap(), order + 1);
+        assert_eq!(world.of_type("Operator").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn an_object_that_cannot_be_read_stops_the_operation() {
+        let lib = Library::load(&[]).unwrap();
+        let store = Store::sandbox(lib, 1_767_225_600).unwrap();
+        store.conn.execute_batch("DROP TABLE t_operator;").unwrap();
+        let world = store.snapshot().unwrap();
+        // never read as an object the store does not hold
+        let by_id = world.get(OPERATOR).unwrap_err();
+        assert!(by_id.0.contains(OPERATOR), "{}", by_id.0);
+        assert!(world.of_type("Operator").is_err());
+        assert!(world.in_order().is_err());
+    }
+
+    #[test]
+    fn a_type_the_library_lacks_is_refused_not_passed_over() {
+        let lib = Library::load(&[]).unwrap();
+        let store = Store::sandbox(lib, 1_767_225_600).unwrap();
+        store
+            .conn
+            .execute_batch(
+                "INSERT INTO of_object (id, type, created_at, created_by_kind, recorded_from) \
+                 VALUES ('ghost-1', 'Ghost', '2026-01-01T00:00:00Z', 'human', '2026-01-01T00:00:00Z');",
+            )
+            .unwrap();
+        let world = store.snapshot().unwrap();
+        let whole = world.in_order().unwrap_err();
+        assert!(whole.0.contains("Ghost"), "{}", whole.0);
+        assert!(world.get("ghost-1").is_err());
+        // a scan of another type is not affected
+        assert_eq!(world.of_type("Operator").unwrap().len(), 1);
     }
 }

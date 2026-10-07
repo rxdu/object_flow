@@ -792,7 +792,7 @@ impl<'w> Reader<'w> {
     /// that nothing has corrected.
     fn rows(&self, owner: &str, t: &Type, source: &str) -> Result<Rows, NotRun> {
         let world = self.world;
-        let family = world.of_type(owner);
+        let family = world.of_type(owner)?;
         if source == "objects" {
             return Ok(Rows {
                 rows: family.iter().map(|o| Value::Object(o.id.clone())).collect(),
@@ -817,9 +817,11 @@ impl<'w> Reader<'w> {
             });
         }
         if source == "transitions" {
+            let by_id: BTreeMap<&str, &Object> =
+                family.iter().map(|o| (o.id.as_str(), *o)).collect();
             let mut rows = Vec::new();
             for e in world.log()? {
-                if let Some(o) = family.iter().find(|o| o.id == e.object_id) {
+                if let Some(o) = by_id.get(e.object_id.as_str()) {
                     rows.push(transition_row(world, o, self.type_of(&o.type_)?, e));
                 }
             }
@@ -831,7 +833,7 @@ impl<'w> Reader<'w> {
         }
         if let Some((_, kind)) = t.observations.iter().find(|(c, _)| c == source) {
             let ids: Vec<Value> = family.iter().map(|o| Value::Object(o.id.clone())).collect();
-            let of_kind = world.of_type(kind);
+            let of_kind = world.of_type(kind)?;
             let corrected: Vec<Value> = of_kind.iter().map(|x| x.attr("corrects")).collect();
             return Ok(Rows {
                 rows: of_kind
@@ -848,7 +850,7 @@ impl<'w> Reader<'w> {
             // each label on an object of the family that nothing has
             // corrected (declaration-syntax.md §6.9)
             let ids: Vec<Value> = family.iter().map(|o| Value::Object(o.id.clone())).collect();
-            let labels = world.of_type(crate::model::LABEL);
+            let labels = world.of_type(crate::model::LABEL)?;
             let corrected: Vec<Value> = labels.iter().map(|x| x.attr("corrects")).collect();
             return Ok(Rows {
                 rows: labels
@@ -890,7 +892,7 @@ impl<'w> Reader<'w> {
     /// each piece with its period, its bounds and its duration (ADR-0142).
     fn pieces(&self, owner: &str, member: &str, unit: &str) -> Result<Vec<Value>, NotRun> {
         let mut out = Vec::new();
-        for o in self.world.of_type(owner) {
+        for o in self.world.of_type(owner)? {
             let t = self.type_of(&o.type_)?;
             let spans = o.spans.get(member).map_or(&[][..], Vec::as_slice);
             let rows = interval_rows(self.world, o, t, member)?;
@@ -1758,7 +1760,10 @@ impl<'w> Reader<'w> {
             let value = self.over_rows(&sel.evaluator, &sel.tree, &rows, &sel.item)?;
             let gaps = rows
                 .iter()
-                .filter_map(|r| self.gap(r, &sel, window_start))
+                .map(|r| self.gap(r, &sel, window_start))
+                .collect::<Result<Vec<_>, NotRun>>()?
+                .into_iter()
+                .flatten()
                 .collect();
             out.push((key, value, gaps));
         }
@@ -1774,7 +1779,12 @@ impl<'w> Reader<'w> {
     /// window beginning before it on an object that existed then, an undated
     /// creation the formula reads, or an object's own flow data that began
     /// before it (`declaration-syntax.md` §6.9, ADR-0106, ADR-0146).
-    fn gap(&self, r: &Value, sel: &Selected<'w>, window_start: Option<i64>) -> Option<String> {
+    fn gap(
+        &self,
+        r: &Value,
+        sel: &Selected<'w>,
+        window_start: Option<i64>,
+    ) -> Result<Option<String>, NotRun> {
         let (id, since) = match r {
             Value::Object(id) => (id.clone(), None),
             Value::Row(f) => match (
@@ -1783,11 +1793,13 @@ impl<'w> Reader<'w> {
             ) {
                 (Some(Value::Object(id)), Some(Value::Timestamp(t))) => (id.clone(), Some(*t)),
                 (Some(Value::Object(id)), _) => (id.clone(), None),
-                _ => return None,
+                _ => return Ok(None),
             },
-            _ => return None,
+            _ => return Ok(None),
         };
-        let o = self.world.get(&id)?;
+        let Some(o) = self.world.get(&id)? else {
+            return Ok(None);
+        };
         let before = |t: i64| t < o.recorded_from;
         let gapped = since.is_some_and(before)
             || window_start.is_some_and(|w| before(w) && o.created_at < w)
@@ -1795,7 +1807,7 @@ impl<'w> Reader<'w> {
             || (matches!(r, Value::Object(_))
                 && sel.reads_flow
                 && o.spans.values().flatten().any(|sp| before(sp.entered_at)));
-        gapped.then_some(id)
+        Ok(gapped.then_some(id))
     }
 
     /// Each combination of the kept dimensions' values a row is counted
@@ -2003,7 +2015,15 @@ impl<'w> Reader<'w> {
     /// absent value last, a state, an enumeration member or a kind of actor
     /// in declaration order, an object by id, which is creation order, a time
     /// bucket in time order and a string by code point (ADR-0127, ADR-0147).
-    fn order(&self, keep: &[String], a: &[Value], b: &[Value]) -> std::cmp::Ordering {
+    /// An object's place is read before the sort, in `places`, since a
+    /// comparison cannot stop the read.
+    fn order(
+        &self,
+        places: &BTreeMap<String, i64>,
+        keep: &[String],
+        a: &[Value],
+        b: &[Value],
+    ) -> std::cmp::Ordering {
         use std::cmp::Ordering;
         const KINDS: [&str; 4] = ["human", "agent", "service", "unknown"];
         let lib = self.world.lib;
@@ -2045,12 +2065,7 @@ impl<'w> Reader<'w> {
                     None,
                     String::new(),
                 ),
-                Value::Object(id) => (
-                    0,
-                    self.world.get(id).map(|o| i128::from(o.order)),
-                    None,
-                    id.clone(),
-                ),
+                Value::Object(id) => (0, places.get(id).map(|n| i128::from(*n)), None, id.clone()),
                 Value::Text(t) => (0, None, None, t.clone()),
                 Value::Bool(b) => (0, Some(i128::from(*b)), None, String::new()),
                 other => (
@@ -2068,6 +2083,26 @@ impl<'w> Reader<'w> {
             }
         }
         Ordering::Equal
+    }
+
+    /// The place in creation order of each object the keys given name, which
+    /// [`Reader::order`] ranks objects by.
+    fn places<'k>(
+        &self,
+        keys: impl Iterator<Item = &'k [Value]>,
+    ) -> Result<BTreeMap<String, i64>, NotRun> {
+        let mut places = BTreeMap::new();
+        for key in keys {
+            for v in key {
+                if let Value::Object(id) = v
+                    && !places.contains_key(id)
+                    && let Some(o) = self.world.get(id)?
+                {
+                    places.insert(id.clone(), o.order);
+                }
+            }
+        }
+        Ok(places)
     }
 }
 
@@ -2154,7 +2189,8 @@ pub fn page(
         over,
         theirs.as_ref(),
     )?;
-    groups.sort_by(|a, b| reader.order(&keep, &a.0, &b.0));
+    let places = reader.places(groups.iter().map(|g| g.0.as_slice()))?;
+    groups.sort_by(|a, b| reader.order(&places, &keep, &a.0, &b.0));
     let mut rows = Vec::new();
     for (key, value, gaps) in groups {
         rows.push(PageRow {
@@ -2176,7 +2212,8 @@ pub fn page(
             over,
             theirs.as_ref(),
         )?;
-        every.sort_by(|a, b| reader.order(&declared, &a.0, &b.0));
+        let places = reader.places(every.iter().map(|g| g.0.as_slice()))?;
+        every.sort_by(|a, b| reader.order(&places, &declared, &a.0, &b.0));
         let t = owner.and_then(|o| lib.type_(o));
         for (key, value, _) in every {
             let mut env: BTreeMap<String, Value> =
@@ -3304,7 +3341,7 @@ types:
         .unwrap();
         let w = s.snapshot().unwrap();
         let held = |id: &str| {
-            let o = w.get(id).unwrap();
+            let o = w.get(id).unwrap().unwrap();
             (
                 o.attr("name"),
                 o.attr("subject_state"),
@@ -3338,8 +3375,8 @@ types:
         );
         // labelling stamps the subject's labels position
         assert_eq!(
-            w.get(&jl).unwrap().writes.get("labels"),
-            w.get(&l2).unwrap().writes.get("name")
+            w.get(&jl).unwrap().unwrap().writes.get("labels"),
+            w.get(&l2).unwrap().unwrap().writes.get("name")
         );
         drop(w);
         let backdated = {
@@ -3409,10 +3446,13 @@ types:
         let w = s.snapshot().unwrap();
         assert_eq!(
             (
-                w.get(&l5).unwrap().attr("name"),
-                w.get(&l5).unwrap().attr("occurred_at")
+                w.get(&l5).unwrap().unwrap().attr("name"),
+                w.get(&l5).unwrap().unwrap().attr("occurred_at")
             ),
-            (text("odd-two"), w.get(&l4).unwrap().attr("occurred_at"))
+            (
+                text("odd-two"),
+                w.get(&l4).unwrap().unwrap().attr("occurred_at")
+            )
         );
         // labelling offered on a finished subject is unavailable
         let offered: Vec<_> = crate::reads::availability(&w, OPERATOR, &jm)
@@ -3563,6 +3603,7 @@ types:
             .snapshot()
             .unwrap()
             .of_type("Check")
+            .unwrap()
             .iter()
             .map(|c| c.id.clone())
             .collect();
@@ -3606,7 +3647,7 @@ types:
         let w = s.snapshot().unwrap();
         assert_eq!(
             e.reads["objects"][&ana],
-            json!(w.get(&ana).unwrap().version)
+            json!(w.get(&ana).unwrap().unwrap().version)
         );
         drop(w);
         // an untagged job is refused on the rate; its row holds what the
@@ -3648,7 +3689,7 @@ types:
         assert_eq!(row.clause.as_deref(), Some("checked"));
         assert_eq!(
             row.reads["objects"],
-            json!({ bare.clone(): w.get(&bare).unwrap().version - 1 })
+            json!({ bare.clone(): w.get(&bare).unwrap().unwrap().version - 1 })
         );
         assert_eq!(row.consulted, Json::Null);
         drop(w);

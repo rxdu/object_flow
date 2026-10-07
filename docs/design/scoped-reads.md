@@ -81,3 +81,14 @@ The author decided B and C5's target as recommended on 2026-10-07 (ADR-0162, PRD
 | 4,000 | 149.3 → 59.9 ms | 83.0 → 37.9 ms | 86.7 → 41.6 ms | 276.1 → 224.6 ms | 82.0 → 38.5 ms |
 
 A request and a read now cost about 40% of what they did, the objects and their spans being what remains of a load; a metric read over transitions still reads the whole log, which step 3's index ranges remove. Step 2, objects by id, is next. Its first part reads each type's rows, and each set's items, in one query rather than one an object, which measured neutral on SQLite in memory, a request at 2,000 objects 28.7 ms against 27.9 and one load 17.5 against 17.1, and saves a query an object on a backend reached over a connection. Runs of the probe differ by up to a quarter from one another, so a change smaller than that is not shown by one run.
+
+**Step 2 is built** (2026-10-07). A load reads no object. An object is read on its first use, alone by id, with every part of its record, and held for the operation, which changes and adds to what it holds; a scan reads its type, and a read of every object the whole store, each table in one read, as the load did. What the operation holds is kept over what a later scan reads, so a change it made is never read back from the store. An object that cannot be read stops the operation as not run, naming it, never as an object that is not there, and a type the directory names that the library lacks is refused, never passed over. Each read is a store query inside the operation's transaction, so ADR-0039's guarantee holds as it did. Measured with the same probe, after step 1 and after step 2:
+
+| objects | request | `get` | query | metric read | one load |
+|---|---|---|---|---|---|
+| 500 | 6.2 → 4.5 ms | 4.1 → 0.2 ms | 4.5 → 4.7 ms | 24.8 → 25.0 ms | 4.1 → 0.1 ms |
+| 1,000 | 12.6 → 8.9 ms | 8.0 → 0.3 ms | 9.8 → 9.5 ms | 51.6 → 51.8 ms | 8.1 → 0.2 ms |
+| 2,000 | 27.9 → 18.6 ms | 18.5 → 0.5 ms | 19.5 → 20.1 ms | 105.9 → 107.3 ms | 17.1 → 0.5 ms |
+| 4,000 | 59.9 → 37.7 ms | 37.9 → 1.0 ms | 41.6 → 43.6 ms | 224.6 → 223.4 ms | 38.5 → 1.0 ms |
+
+A `get` no longer grows with the objects, what remains of it being the load's reads of the imported events' positions, the external identifiers and the legacy entries. A query scans its type, as it must until step 3 reads it by index. A request still grows, because step 7 of a request checks the invariants of every object (`request.rs`, as the reference runner does), where `DESIGN.md` §5.6 and ADR-0045 check only those the written objects could violate; the two agree wherever every violation in the store is admitted, and the affected set is the next change, since it is what a request's rules reach. Where an operation reads every object, as that step does, it reads them in the load's whole-table reads, since reading each type's parts apart cost the examples' run of many small stores about a fifth more.

@@ -42,6 +42,11 @@ pub struct Object {
     pub created_dated: bool,
     /// From when its record is continuous (`DESIGN.md` §5.12).
     pub recorded_from: i64,
+    /// The source of the event that last changed its state, as the store
+    /// holds it: `observed`, `asserted` or `imported` (`storage-schema.md`
+    /// §3, `state_source`), which `exceptions` reads; none for an object the
+    /// operation made, and a request's working copy does not move it.
+    pub state_source: Option<String>,
 }
 
 /// How long an object held a state, or a value of a tracked member, as one
@@ -112,6 +117,90 @@ impl LegacyEntry {
 /// A row of the attempt rollup: the counted fields, and the count.
 pub type RolledUp = (BTreeMap<String, crate::value::Value>, i64);
 
+/// The number of chunks [`Slots`] has, the k-th holding 2^k slots.
+const CHUNKS: usize = 48;
+
+/// Slots that only grow, each written once: the k-th chunk holds 2^k of
+/// them, so the n-th is found in constant time, and one written never
+/// moves, so a read through a shared reference can add an object and hand
+/// out references to it that live as long as the world.
+/// A chunk of [`Slots`], each slot written at most once.
+type Chunk<T> = Box<[std::cell::OnceCell<Box<T>>]>;
+
+#[derive(Clone, Debug)]
+struct Slots<T> {
+    chunks: [std::cell::OnceCell<Chunk<T>>; CHUNKS],
+    len: std::cell::Cell<usize>,
+}
+
+impl<T> Default for Slots<T> {
+    fn default() -> Self {
+        Slots {
+            chunks: std::array::from_fn(|_| std::cell::OnceCell::new()),
+            len: std::cell::Cell::new(0),
+        }
+    }
+}
+
+impl<T> Slots<T> {
+    /// The chunk the n-th slot is in, and its place there.
+    fn place(n: usize) -> Option<(usize, usize)> {
+        let one = n.checked_add(1)?;
+        let k = one.ilog2();
+        Some((usize::try_from(k).ok()?, one - 1usize.checked_shl(k)?))
+    }
+
+    /// A slot written with the value given, and its number; none past the
+    /// last chunk.
+    fn push(&self, value: T) -> Option<usize> {
+        let n = self.len.get();
+        let (k, at) = Self::place(n)?;
+        let size = 1usize.checked_shl(u32::try_from(k).ok()?)?;
+        let chunk = self
+            .chunks
+            .get(k)?
+            .get_or_init(|| (0..size).map(|_| std::cell::OnceCell::new()).collect());
+        chunk.get(at)?.set(Box::new(value)).ok()?;
+        self.len.set(n + 1);
+        Some(n)
+    }
+
+    fn get(&self, n: usize) -> Option<&T> {
+        let (k, at) = Self::place(n)?;
+        self.chunks.get(k)?.get()?.get(at)?.get().map(|b| &**b)
+    }
+
+    fn get_mut(&mut self, n: usize) -> Option<&mut T> {
+        let (k, at) = Self::place(n)?;
+        self.chunks
+            .get_mut(k)?
+            .get_mut()?
+            .get_mut(at)?
+            .get_mut()
+            .map(|b| &mut **b)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &T> + '_ {
+        (0..self.len.get()).filter_map(|n| self.get(n))
+    }
+}
+
+/// The objects an operation reads and makes: each fetched from the store
+/// on its first read, alone by id or with its type for a scan, and held for
+/// the operation, which changes and adds to them (ADR-0162 step 2).
+#[derive(Clone, Debug, Default)]
+struct Held {
+    slots: Slots<Object>,
+    /// Each id asked for, and its slot; none where the store holds no such
+    /// object.
+    by_id: std::cell::RefCell<BTreeMap<String, Option<usize>>>,
+    /// The types whose every object in the store is held.
+    whole: std::cell::RefCell<BTreeSet<String>>,
+    /// The highest place in creation order the store holds, read on first
+    /// use.
+    stored_max: std::cell::OnceCell<Result<i64, String>>,
+}
+
 /// No earlier version's library: a store with one version, or a world
 /// built without them.
 static NO_EARLIER: BTreeMap<i64, Library> = BTreeMap::new();
@@ -126,7 +215,7 @@ pub struct World<'l> {
     pub earlier: &'l BTreeMap<i64, Library>,
     /// Each object's legacy entries, by ordinal.
     pub legacy: BTreeMap<String, Vec<LegacyEntry>>,
-    pub objects: BTreeMap<String, Object>,
+    held: Held,
     pub now: i64,
     /// Each external identifier, by source and value, and the object that
     /// holds it, a legacy key among them (`storage-schema.md`, `of_external_id`).
@@ -138,8 +227,8 @@ pub struct World<'l> {
     /// operation, so one that never reads it never loads it (ADR-0162 step
     /// 1); an error where it could not be read.
     stored: std::cell::OnceCell<Result<Vec<Event>, String>>,
-    /// The store's connection, which the log is read through; none for a
-    /// world built without a store.
+    /// The store's connection, which the log and the objects are read
+    /// through; none for a world built without a store.
     conn: Option<&'l rusqlite::Connection>,
     /// The position of each event that recorded an admission, which is an
     /// override (`declaration-syntax.md` §6.9, `of_admission`).
@@ -154,11 +243,6 @@ pub struct World<'l> {
     /// Each subscription's acknowledged cursor, where one was acknowledged:
     /// runtime state, not versioned (`DESIGN.md` §7).
     pub acknowledged: BTreeMap<String, i64>,
-    /// The source of the event that last changed each object's state, as
-    /// the store holds it: `observed`, `asserted` or `imported`
-    /// (`storage-schema.md` §3, `state_source`), which `exceptions` reads; a
-    /// request's working copy does not move it.
-    pub state_sources: BTreeMap<String, String>,
     /// The daily counts of the attempt rows `maintain` pruned, each a row of
     /// the `attempt_counts` source as the rows it counted were
     /// (`storage-schema.md` §6, `of_attempt_rollup`), read on first use.
@@ -171,7 +255,7 @@ impl<'l> World<'l> {
             lib,
             earlier: &NO_EARLIER,
             legacy: BTreeMap::new(),
-            objects: BTreeMap::new(),
+            held: Held::default(),
             now,
             external: BTreeMap::new(),
             appended: Vec::new(),
@@ -181,7 +265,6 @@ impl<'l> World<'l> {
             imported: BTreeSet::new(),
             stored_attempts: std::cell::OnceCell::new(),
             acknowledged: BTreeMap::new(),
-            state_sources: BTreeMap::new(),
             stored_rollup: std::cell::OnceCell::new(),
         }
     }
@@ -221,7 +304,8 @@ impl<'l> World<'l> {
             .is_some_and(|a| a.personal)
     }
 
-    /// A world that reads its log through the connection given.
+    /// A world that reads its log and its objects through the connection
+    /// given.
     pub(crate) fn reading_from(mut self, conn: &'l rusqlite::Connection) -> World<'l> {
         self.conn = Some(conn);
         self
@@ -288,23 +372,152 @@ impl<'l> World<'l> {
         }
     }
 
-    pub fn get(&self, id: &str) -> Option<&Object> {
-        self.objects.get(id)
+    /// An object, fetched from the store on its first read and held for
+    /// the operation; none where neither holds it. A store that cannot be
+    /// read stops the operation as not run, naming why, never as an object
+    /// that is not there.
+    pub fn get(&self, id: &str) -> Result<Option<&Object>, crate::eval::NotRun> {
+        let known = self.held.by_id.borrow().get(id).copied();
+        if let Some(slot) = known {
+            return Ok(slot.and_then(|n| self.held.slots.get(n)));
+        }
+        let fetched = match self.conn {
+            Some(conn) => crate::store::read_object(conn, self.lib, id).map_err(|e| {
+                crate::eval::NotRun(format!(
+                    "the store's object {id}, which could not be read: {e}"
+                ))
+            })?,
+            None => None,
+        };
+        let slot = match fetched {
+            Some(o) => Some(self.hold(o)?),
+            None => None,
+        };
+        self.held.by_id.borrow_mut().insert(id.to_string(), slot);
+        Ok(slot.and_then(|n| self.held.slots.get(n)))
     }
 
-    /// Every object, in ascending id order: creation order.
-    pub fn in_order(&self) -> Vec<&Object> {
-        let mut all: Vec<&Object> = self.objects.values().collect();
+    /// The object an id names where one is given, as [`World::get`] reads
+    /// it; none where none is.
+    pub fn get_if(&self, id: Option<&str>) -> Result<Option<&Object>, crate::eval::NotRun> {
+        match id {
+            Some(id) => self.get(id),
+            None => Ok(None),
+        }
+    }
+
+    /// An object held in a new slot, which is not yet known by its id.
+    fn hold(&self, o: Object) -> Result<usize, crate::eval::NotRun> {
+        self.held
+            .slots
+            .push(o)
+            .ok_or_else(|| crate::eval::NotRun("more objects than an operation can hold".into()))
+    }
+
+    /// Every object of a concrete type the store holds, fetched in one read
+    /// and held, each held already, as the operation may have changed it,
+    /// kept as it is.
+    fn hold_type(&self, type_: &str) -> Result<(), crate::eval::NotRun> {
+        if self.held.whole.borrow().contains(type_) {
+            return Ok(());
+        }
+        if let Some(conn) = self.conn {
+            let fetched = crate::store::read_type(conn, self.lib, type_).map_err(|e| {
+                crate::eval::NotRun(format!(
+                    "the store's objects of {type_}, which could not be read: {e}"
+                ))
+            })?;
+            self.hold_fetched(fetched)?;
+        }
+        self.held.whole.borrow_mut().insert(type_.to_string());
+        Ok(())
+    }
+
+    /// Objects read from the store, held, each held already, as the
+    /// operation may have changed it, kept as it is.
+    fn hold_fetched(&self, fetched: Vec<Object>) -> Result<(), crate::eval::NotRun> {
+        for o in fetched {
+            if matches!(self.held.by_id.borrow().get(&o.id), Some(Some(_))) {
+                continue;
+            }
+            let id = o.id.clone();
+            let slot = self.hold(o)?;
+            self.held.by_id.borrow_mut().insert(id, Some(slot));
+        }
+        Ok(())
+    }
+
+    /// Every object held, in ascending id order: creation order.
+    fn held_in_order(&self, of: impl Fn(&Object) -> bool) -> Vec<&Object> {
+        let mut all: Vec<&Object> = self.held.slots.iter().filter(|o| of(o)).collect();
         all.sort_by_key(|o| o.order);
         all
     }
 
-    /// Every object of a type, in ascending id order.
-    pub fn of_type(&self, type_: &str) -> Vec<&Object> {
-        self.in_order()
-            .into_iter()
-            .filter(|o| self.lib.is_a(&o.type_, type_))
-            .collect()
+    /// Every object, in ascending id order: creation order. It reads the
+    /// whole store, in one read of each table, where any type is not yet
+    /// held whole.
+    pub fn in_order(&self) -> Result<Vec<&Object>, crate::eval::NotRun> {
+        let whole = {
+            let held = self.held.whole.borrow();
+            self.lib.types.keys().all(|t| held.contains(t))
+        };
+        if !whole {
+            if let Some(conn) = self.conn {
+                let fetched = crate::store::read_all(conn, self.lib).map_err(|e| {
+                    crate::eval::NotRun(format!(
+                        "the store's objects, which could not be read: {e}"
+                    ))
+                })?;
+                self.hold_fetched(fetched)?;
+            }
+            self.held
+                .whole
+                .borrow_mut()
+                .extend(self.lib.types.keys().cloned());
+        }
+        Ok(self.held_in_order(|_| true))
+    }
+
+    /// Every object of a type, its own or a subtype's, in ascending id
+    /// order, each type read in one fetch.
+    pub fn of_type(&self, type_: &str) -> Result<Vec<&Object>, crate::eval::NotRun> {
+        for t in self.lib.types.keys() {
+            if self.lib.is_a(t, type_) {
+                self.hold_type(t)?;
+            }
+        }
+        Ok(self.held_in_order(|o| self.lib.is_a(&o.type_, type_)))
+    }
+
+    /// An object to change, fetched first where it is not held.
+    pub fn get_mut(&mut self, id: &str) -> Result<Option<&mut Object>, crate::eval::NotRun> {
+        let slot = match self.get(id)? {
+            Some(_) => self.held.by_id.get_mut().get(id).copied().flatten(),
+            None => None,
+        };
+        Ok(slot.and_then(|n| self.held.slots.get_mut(n)))
+    }
+
+    /// An object the operation makes or replaces, held from now on as it
+    /// is given.
+    pub fn insert(&mut self, o: Object) -> Result<(), crate::eval::NotRun> {
+        let held = self.held.by_id.get_mut().get(&o.id).copied().flatten();
+        match held.and_then(|n| self.held.slots.get_mut(n)) {
+            Some(slot) => *slot = o,
+            None => {
+                let id = o.id.clone();
+                let n = self.hold(o)?;
+                self.held.by_id.get_mut().insert(id, Some(n));
+            }
+        }
+        Ok(())
+    }
+
+    /// The objects held so far, in the order first held, without reading
+    /// the store.
+    pub fn held(&self) -> impl Iterator<Item = &Object> + '_ {
+        self.held.slots.iter()
     }
 
     /// The version an object's last event was recorded under, the
@@ -316,8 +529,56 @@ impl<'l> World<'l> {
             .map_or(self.lib.version, |e| e.declaration_version))
     }
 
-    /// The next place in creation order.
-    pub fn next_order(&self) -> i64 {
-        self.objects.values().map(|o| o.order).max().unwrap_or(0) + 1
+    /// The next place in creation order: after every object the store
+    /// holds and every one the operation made.
+    pub fn next_order(&self) -> Result<i64, crate::eval::NotRun> {
+        let stored = self.held.stored_max.get_or_init(|| match self.conn {
+            Some(conn) => crate::store::read_max_order(conn).map_err(|e| e.to_string()),
+            None => Ok(0),
+        });
+        let stored = *stored.as_ref().map_err(|e| {
+            crate::eval::NotRun(format!(
+                "the store's directory, which could not be read: {e}"
+            ))
+        })?;
+        let made = self.held.slots.iter().map(|o| o.order).max().unwrap_or(0);
+        Ok(stored.max(made) + 1)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slots_grow_without_moving_what_they_hold() {
+        assert_eq!(Slots::<i64>::place(0), Some((0, 0)));
+        assert_eq!(Slots::<i64>::place(1), Some((1, 0)));
+        assert_eq!(Slots::<i64>::place(2), Some((1, 1)));
+        assert_eq!(Slots::<i64>::place(3), Some((2, 0)));
+        assert_eq!(Slots::<i64>::place(6), Some((2, 3)));
+        assert_eq!(Slots::<i64>::place(7), Some((3, 0)));
+        let mut slots = Slots::default();
+        let first: *const i64 = {
+            let n = slots.push(0).unwrap();
+            slots.get(n).unwrap()
+        };
+        for v in 1..1000 {
+            assert_eq!(slots.push(v), Some(usize::try_from(v).unwrap()));
+        }
+        // the first value stayed where it was written
+        assert!(std::ptr::eq(first, slots.get(0).unwrap()));
+        assert_eq!(
+            slots.iter().copied().collect::<Vec<_>>(),
+            (0..1000).collect::<Vec<_>>()
+        );
+        *slots.get_mut(511).unwrap() = -1;
+        assert_eq!(slots.get(511), Some(&-1));
+        assert_eq!(slots.get(1000), None);
+        // a clone holds its own values
+        let copy = slots.clone();
+        *slots.get_mut(0).unwrap() = 7;
+        assert_eq!(copy.get(0), Some(&0));
     }
 }

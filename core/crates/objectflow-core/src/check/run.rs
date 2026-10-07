@@ -112,7 +112,7 @@ impl Player {
             return Ok(t.clone());
         }
         let world = self.store.snapshot()?;
-        let Some(o) = world.get(oid) else {
+        let Some(o) = world.get(oid)? else {
             return failed(format!("no object {oid}"));
         };
         let t = o.type_.clone();
@@ -302,7 +302,7 @@ impl Player {
         else {
             return failed(format!("the import of {key} wrote nothing lookup finds"));
         };
-        let t = world.get(&id).map(|o| o.type_.clone()).unwrap_or(tn);
+        let t = world.get(&id)?.map(|o| o.type_.clone()).unwrap_or(tn);
         drop(world);
         self.aliases.insert(key, id.clone());
         self.types.insert(id, t);

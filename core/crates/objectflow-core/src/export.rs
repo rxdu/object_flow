@@ -53,18 +53,21 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
         },
     };
     let mut rows: Vec<(i64, Json)> = if source == "log" {
+        // every object held first, a type at a time, rather than fetched
+        // one at a time as each event names it
+        world.in_order()?;
         world
             .log()?
             .filter(|e| e.position > after)
-            .map(|e| (e.position, event_row(world, e)))
-            .collect()
+            .map(|e| Ok((e.position, event_row(world, e)?)))
+            .collect::<Result<_, NotRun>>()?
     } else if world
         .lib
         .type_(source)
         .is_some_and(|t| t.observation_on.is_some())
     {
         // an observation kind's records, each by its latest event
-        object_rows(world, world.of_type(source), after)?
+        object_rows(world, world.of_type(source)?, after)?
     } else {
         let Some((type_, kind)) = source.split_once('.') else {
             return refuse("unknown_source");
@@ -82,24 +85,23 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
                 .map(|a| (a.txn, attempt_row(a)))
                 .collect(),
             // the log of the type's family
-            "transitions" => world
-                .log()?
-                .filter(|e| e.position > after)
-                .filter(|e| {
-                    world
-                        .get(&e.object_id)
-                        .is_some_and(|o| world.lib.is_a(&o.type_, type_))
-                })
-                .map(|e| (e.position, event_row(world, e)))
-                .collect(),
+            "transitions" => {
+                let family = family_of(world, type_)?;
+                world
+                    .log()?
+                    .filter(|e| e.position > after && family.contains(e.object_id.as_str()))
+                    .map(|e| Ok((e.position, event_row(world, e)?)))
+                    .collect::<Result<_, NotRun>>()?
+            }
             // the labels on the type's family's objects
             "labels" => {
+                let family = family_of(world, type_)?;
                 let on: Vec<&Object> = world
-                    .of_type(crate::model::LABEL)
+                    .of_type(crate::model::LABEL)?
                     .into_iter()
                     .filter(|l| {
                         matches!(l.attr("subject"), crate::value::Value::Object(s)
-                            if world.get(&s).is_some_and(|o| world.lib.is_a(&o.type_, type_)))
+                            if family.contains(s.as_str()))
                     })
                     .collect();
                 object_rows(world, on, after)?
@@ -223,17 +225,29 @@ fn object_row(world: &World<'_>, o: &Object) -> Result<Json, NotRun> {
     }))
 }
 
+/// The objects of a type's family, by id, the family read a type at a time.
+fn family_of<'w>(
+    world: &'w World<'_>,
+    type_: &str,
+) -> Result<std::collections::BTreeSet<&'w str>, NotRun> {
+    Ok(world
+        .of_type(type_)?
+        .into_iter()
+        .map(|o| o.id.as_str())
+        .collect())
+}
+
 /// An event as the log exports it, its personal inputs and corrected
 /// values omitted (ADR-0094 §3).
-fn event_row(world: &World<'_>, e: &Event) -> Json {
-    let type_ = world.get(&e.object_id).map(|o| o.type_.as_str());
+fn event_row(world: &World<'_>, e: &Event) -> Result<Json, NotRun> {
+    let type_ = world.get(&e.object_id)?.map(|o| o.type_.as_str());
     let mut payload = e.payload.clone();
     for part in ["inputs", "corrected"] {
         if let Some(values) = payload.get_mut(part).and_then(Json::as_object_mut) {
             values.retain(|k, _| !personal(world.lib, type_, &e.transition, k));
         }
     }
-    json!({
+    Ok(json!({
         "position": e.position,
         "object_id": e.object_id,
         "object_seq": e.object_seq,
@@ -253,7 +267,7 @@ fn event_row(world: &World<'_>, e: &Event) -> Json {
         "payload": payload,
         "reads": e.reads,
         "context": e.context,
-    })
+    }))
 }
 
 /// Whether an input an event's payload holds is personal under the
@@ -280,7 +294,7 @@ fn interval_rows(world: &World<'_>, type_: &str, after: i64) -> Result<Vec<(i64,
             .map(|i| log[i].transition.clone())
     };
     let mut rows = Vec::new();
-    for o in world.of_type(type_) {
+    for o in world.of_type(type_)? {
         let imported = log
             .iter()
             .find(|e| e.object_id == o.id && world.imported.contains(&e.position))

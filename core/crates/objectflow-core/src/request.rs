@@ -160,8 +160,10 @@ fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
 }
 
 /// Who acts, resolved from a request's actor: an object of a type that marks
-/// an actor identity (`DESIGN.md` §6 step 1).
-pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Option<Who> {
+/// an actor identity (`DESIGN.md` §6 step 1), named by its id or by its
+/// identity, the earliest created where several hold it. Only the types that
+/// mark an identity are read.
+pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Result<Option<Who>, NotRun> {
     let identity = |o: &Object| -> Option<Who> {
         let t = world.lib.type_(&o.type_)?;
         let (attr, kind) = t.actor_identity()?;
@@ -175,14 +177,24 @@ pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Option<Who> {
             principal: None,
         })
     };
-    if let Some(o) = world.get(actor) {
-        return identity(o);
+    if let Some(o) = world.get(actor)? {
+        return Ok(identity(o));
     }
-    world
-        .in_order()
-        .into_iter()
-        .filter_map(identity)
-        .find(|w| w.id == actor)
+    let mut found: Option<(i64, Who)> = None;
+    for (tn, t) in &world.lib.types {
+        if t.actor_identity().is_none() {
+            continue;
+        }
+        for o in world.of_type(tn)? {
+            if let Some(w) = identity(o)
+                && w.id == actor
+                && found.as_ref().is_none_or(|(n, _)| o.order < *n)
+            {
+                found = Some((o.order, w));
+            }
+        }
+    }
+    Ok(found.map(|(_, w)| w))
 }
 
 /// The states a transition may be taken from (`flow-format.md` §4.8).
@@ -244,11 +256,11 @@ fn request_who(world: &World<'_>, req: &Request) -> Result<Who, Stop> {
             remedy: Some(Remedy::Dependent),
         })
     };
-    let Some(mut who) = resolve_actor(world, &req.actor) else {
+    let Some(mut who) = resolve_actor(world, &req.actor)? else {
         return unknown();
     };
     if let Some(p) = &req.principal {
-        let Some(principal) = resolve_actor(world, p) else {
+        let Some(principal) = resolve_actor(world, p)? else {
             return unknown();
         };
         who.principal = Some(principal.id);
@@ -264,7 +276,7 @@ fn request_who(world: &World<'_>, req: &Request) -> Result<Who, Stop> {
 fn stale(world: &World<'_>, req: &Request) -> Result<(), Stop> {
     if let (Some(expected), Some(o)) = (
         req.expected_version,
-        req.object_id.as_deref().and_then(|id| world.get(id)),
+        world.get_if(req.object_id.as_deref())?,
     ) && o.version != expected
     {
         return refused(Verdict::Stale {
@@ -419,7 +431,7 @@ fn decide_as(
 ) -> Result<(Verdict, Option<Change>, Refusal), NotRun> {
     // a request filed for approval, and one deciding a proposal, are the
     // store's own (DESIGN.md §9)
-    let target = req.object_id.as_deref().and_then(|id| world.get(id));
+    let target = world.get_if(req.object_id.as_deref())?;
     let deciding = target.is_some_and(|o| o.type_ == PROPOSAL);
     let changing = target.is_some_and(|o| o.type_ == DECLARATION_CHANGE)
         || (req.object_id.is_none() && req.type_.as_deref() == Some(DECLARATION_CHANGE));
@@ -453,7 +465,7 @@ fn decide_or_stop(
     let who = request_who(world, req)?;
     // 2. the object and the transition
     let (tn, oid) = match &req.object_id {
-        Some(id) => match world.get(id) {
+        Some(id) => match world.get(id)? {
             None => return refused(Verdict::NotFound),
             Some(o) => (o.type_.clone(), Some(id.clone())),
         },
@@ -496,7 +508,7 @@ fn decide_or_stop(
         });
     }
     // an assertion runs from any state but a final one, an erasure at any
-    if let Some(o) = oid.as_deref().and_then(|id| world.get(id))
+    if let Some(o) = world.get_if(oid.as_deref())?
         && !(match x.kind {
             Kind::Assertion => t.state(&o.state).is_some_and(|s| !s.is_final),
             Kind::Erasure => true,
@@ -587,7 +599,7 @@ fn decide_or_stop(
     let root = match take(&mut ctx, alloc, &tn, &req.transition, oid, inputs, 0) {
         Ok(root) => root,
         Err(Stop::Refused(v, mut r)) => {
-            r.reads = refused_reads(&ctx);
+            r.reads = refused_reads(&ctx)?;
             return Err(Stop::Refused(v, r));
         }
         Err(stop) => return Err(stop),
@@ -601,9 +613,15 @@ fn decide_or_stop(
     // order the type declares them (library-api.md §4, InvariantViolated)
     let mut violated: Vec<InvariantFailure> = Vec::new();
     let mut discharged = Vec::new();
-    let ids: Vec<String> = ctx.work.in_order().iter().map(|o| o.id.clone()).collect();
+    // the requested object's type, which a uniqueness's remedy reads
+    let requested_type = ctx
+        .work
+        .get(&root)?
+        .map(|o| o.type_.clone())
+        .unwrap_or_default();
+    let ids: Vec<String> = ctx.work.in_order()?.iter().map(|o| o.id.clone()).collect();
     for id in ids {
-        let Some(obj) = ctx.work.get(&id) else {
+        let Some(obj) = ctx.work.get(&id)? else {
             continue;
         };
         // what an object's invariants read is recorded on its last event,
@@ -645,11 +663,11 @@ fn decide_or_stop(
                 object_id: obj.id.clone(),
                 type_: obj.type_.clone(),
                 invariant: n.clone(),
-                remedy: invariant_remedy(&ctx.work, x, obj, n, &root),
+                remedy: invariant_remedy(&ctx.work, x, obj, n, &root, &requested_type),
             }));
             continue;
         }
-        if let Some(o) = ctx.work.objects.get_mut(&id) {
+        if let Some(o) = ctx.work.get_mut(&id)? {
             for n in holding {
                 o.admissions.remove(&n);
                 discharged.push((id.clone(), n, first));
@@ -668,7 +686,7 @@ fn decide_or_stop(
                 remedy,
             },
             Box::new(Refusal {
-                reads: refused_reads(&ctx),
+                reads: refused_reads(&ctx)?,
                 ..Refusal::default()
             }),
         ));
@@ -687,7 +705,7 @@ fn decide_or_stop(
     let mut seen = BTreeSet::new();
     let mut writes = Vec::new();
     for e in &ctx.events {
-        let Some(o) = ctx.work.get(&e.object_id) else {
+        let Some(o) = ctx.work.get(&e.object_id)? else {
             return stop_not_run(format!(
                 "an event on {}, which the request did not keep",
                 e.object_id
@@ -702,7 +720,7 @@ fn decide_or_stop(
     }
     let mut positions: Vec<i64> = ctx.events.iter().map(|e| e.position).collect();
     positions.sort_unstable();
-    let version = ctx.work.get(&root).map_or(0, |o| o.version);
+    let version = ctx.work.get(&root)?.map_or(0, |o| o.version);
     // a row of a creation names the object its event made
     let mut observed = std::mem::take(&mut ctx.observed);
     for a in &mut observed {
@@ -794,7 +812,7 @@ fn take(
         return stop_not_run(format!("a caused assertion ({tn}.{xn})"));
     }
     if depth > 0 {
-        if let Some(o) = oid.as_deref().and_then(|id| ctx.work.get(id))
+        if let Some(o) = ctx.work.get_if(oid.as_deref())?
             && x.kind != Kind::Erasure
             && !takes_from(t, x, &o.state)
         {
@@ -815,13 +833,16 @@ fn take(
                 Value::Set(items) => items.iter().collect(),
                 one => vec![one],
             };
-            let fits = ids.iter().all(|i| match i {
-                // a label's subject may be of any type (declaration-syntax.md §6.8)
-                Value::Object(id) => ctx.work.get(id).is_some_and(|o| {
-                    target == crate::model::ANY_TYPE || lib.is_a(&o.type_, target)
-                }),
-                _ => false,
-            });
+            let mut fits = true;
+            for i in &ids {
+                fits &= match i {
+                    // a label's subject may be of any type (declaration-syntax.md §6.8)
+                    Value::Object(id) => ctx.work.get(id)?.is_some_and(|o| {
+                        target == crate::model::ANY_TYPE || lib.is_a(&o.type_, target)
+                    }),
+                    _ => false,
+                };
+            }
             if !fits {
                 wrong.push(k.clone());
             }
@@ -865,10 +886,7 @@ fn take(
     // an assertion's `to` is a state it lists, other than the one the object
     // is in, and its `admits` only invariants it may admit (§4.13)
     if x.kind == Kind::Assertion {
-        let current = oid
-            .as_deref()
-            .and_then(|id| ctx.work.get(id))
-            .map(|o| o.state.clone());
+        let current = ctx.work.get_if(oid.as_deref())?.map(|o| o.state.clone());
         let to = match inputs.get("to") {
             Some(Value::Text(s)) if x.to.contains(s) && current.as_ref() != Some(s) => s.clone(),
             _ => {
@@ -915,7 +933,7 @@ fn take(
     }
     // and no transition the request takes precedes the current interval of
     // what it changes on its object
-    if let Some(o) = oid.as_deref().and_then(|id| ctx.work.get(id)) {
+    if let Some(o) = ctx.work.get_if(oid.as_deref())? {
         let mut changing: Vec<String> = lib
             .tracked(t)
             .into_iter()
@@ -936,7 +954,7 @@ fn take(
         }
     }
     // whole_open: a part is not moved into a whole that is finished
-    if let Some(o) = oid.as_deref().and_then(|id| ctx.work.get(id)) {
+    if let Some(o) = ctx.work.get_if(oid.as_deref())? {
         for k in x.required_inputs.iter().chain(&x.optional_inputs) {
             let (Some(Value::Object(whole)), Some(a)) = (inputs.get(k), t.attribute(k)) else {
                 continue;
@@ -949,7 +967,7 @@ fn take(
                 _ => false,
             };
             let moved = o.attr(k) != Value::Object(whole.clone());
-            let finished = ctx.work.get(whole).is_some_and(|w| {
+            let finished = ctx.work.get(whole)?.is_some_and(|w| {
                 lib.type_(&w.type_)
                     .and_then(|wt| wt.state(&w.state))
                     .is_some_and(|s| s.is_final)
@@ -966,7 +984,7 @@ fn take(
     // again, by an input or by a step that assigns or adds; a clear writes
     // absence and passes (ADR-0147)
     if x.kind != Kind::Erasure
-        && let Some(o) = oid.as_deref().and_then(|id| ctx.work.get(id))
+        && let Some(o) = ctx.work.get_if(oid.as_deref())?
         && o.erased
     {
         let by_input = x
@@ -995,7 +1013,7 @@ fn take(
             && matches!(&**base, Expr::Name(n) if n == "inputs")
             && let Some(Value::Object(successor)) = inputs.get(k)
         {
-            let superseded = ctx.work.get(successor).is_some_and(|s| {
+            let superseded = ctx.work.get(successor)?.is_some_and(|s| {
                 lib.type_(&s.type_)
                     .and_then(|st| st.state(&s.state))
                     .is_some_and(|state| state.superseding)
@@ -1017,25 +1035,31 @@ fn take(
     {
         if let Some(Value::Object(corrected)) = inputs.get("corrects") {
             let named = Value::Object(corrected.clone());
-            if ctx.work.get(corrected).map(|c| c.attr("subject"))
+            if ctx.work.get(corrected)?.map(|c| c.attr("subject"))
                 != Some(Value::Object(subject.clone()))
             {
                 return refused(Verdict::InvalidInput {
                     inputs: vec!["corrects".into()],
                 });
             }
-            if ctx
-                .work
-                .objects
-                .values()
-                .any(|other| other.attr("corrects") == named)
-            {
+            // the observations that correct another, of the types that can
+            let mut current = false;
+            for (kn, k) in &lib.types {
+                if k.attribute("corrects").is_some() {
+                    current |= ctx
+                        .work
+                        .of_type(kn)?
+                        .iter()
+                        .any(|other| other.attr("corrects") == named);
+                }
+            }
+            if current {
                 return refused(Verdict::Unsatisfied {
                     clause: "corrects_current".into(),
                     remedy: Some(Remedy::SelfServiceable),
                 });
             }
-        } else if let Some(s) = ctx.before.get(subject)
+        } else if let Some(s) = ctx.before.get(subject)?
             && lib
                 .type_(&s.type_)
                 .and_then(|st| st.state(&s.state))
@@ -1049,7 +1073,7 @@ fn take(
         // a mirror's observations are the import's to write (ADR-0101)
         if ctx
             .work
-            .get(subject)
+            .get(subject)?
             .and_then(|s| lib.type_(&s.type_))
             .is_some_and(|st| st.mirror)
         {
@@ -1169,15 +1193,15 @@ fn take(
     }
     // the attributes as the transition finds them, what it changed measured
     // against them
-    let before_attrs = oid
-        .as_deref()
-        .and_then(|id| ctx.work.get(id))
+    let before_attrs = ctx
+        .work
+        .get_if(oid.as_deref())?
         .map(|o| o.attrs.clone())
         .unwrap_or_default();
     // the tracked values as the transition finds them, its spans' baseline
-    let before = oid
-        .as_deref()
-        .and_then(|id| ctx.work.get(id))
+    let before = ctx
+        .work
+        .get_if(oid.as_deref())?
         .map(|o| tracked_values(lib, t, o));
     // 6. the outcome, its position allocated as it begins applying; its
     // cause is the transition taking place below it, and it is the cause of
@@ -1221,7 +1245,7 @@ fn take(
         });
     }
     alloc.txn();
-    let (mut o, from_state) = match oid.as_deref().and_then(|id| ctx.work.get(id)) {
+    let (mut o, from_state) = match ctx.work.get_if(oid.as_deref())? {
         Some(o) => (o.clone(), Some(o.state.clone())),
         None => {
             let Some(to) = x.to.first() else {
@@ -1236,7 +1260,7 @@ fn take(
                 attrs: BTreeMap::new(),
                 created_at: ctx.at,
                 created_by_kind: ctx.who.kind.clone(),
-                order: ctx.work.next_order(),
+                order: ctx.work.next_order()?,
                 superseded_by: None,
                 spans: BTreeMap::new(),
                 writes: BTreeMap::new(),
@@ -1244,6 +1268,7 @@ fn take(
                 erased: false,
                 created_dated: true,
                 recorded_from: ctx.at,
+                state_source: None,
             };
             for (a, spec) in &t.attributes {
                 // a set is never absent: created empty unless given, a derived
@@ -1254,7 +1279,7 @@ fn take(
                     o.attrs.insert(a.clone(), Value::Int(0));
                 }
             }
-            ctx.work.objects.insert(id.clone(), o.clone());
+            ctx.work.insert(o.clone())?;
             for (a, spec) in &t.attributes {
                 if let Some(d) = &spec.default {
                     let v = Evaluator::new(&ctx.work, Some(t), Some(&id))
@@ -1373,13 +1398,13 @@ fn take(
                 }
             }
             // and what flowed down from it into other objects (§9 step 12)
-            walk_down(ctx, &log, e, &tainted, &holding);
+            walk_down(ctx, &log, e, &tainted, &holding)?;
             // and the callers that passed one on (§9 step 3)
-            caller_taint(ctx, &log, e, tainted);
+            caller_taint(ctx, &log, e, tainted)?;
         }
         // every other object whose value it redacted gets an event
         // (DESIGN.md §8)
-        redact_others(ctx, alloc, &log, &o.id, redacted_since);
+        redact_others(ctx, alloc, &log, &o.id, redacted_since)?;
         ctx.erased.entry(o.id.clone()).or_default().extend(erased);
         invalidate_proposals(ctx, alloc, &o.id)?;
     }
@@ -1422,7 +1447,7 @@ fn take(
         let occurred = match inputs.get("corrects") {
             Some(Value::Object(c)) => ctx
                 .work
-                .get(c)
+                .get(c)?
                 .map_or(Value::Timestamp(now), |c| c.attr("occurred_at")),
             _ => Value::Timestamp(ctx.at),
         };
@@ -1432,13 +1457,13 @@ fn take(
         // nothing has changed the subject in the request before it
         if tn == crate::model::LABEL
             && let Some(Value::Object(subject)) = inputs.get("subject")
-            && let Some(s) = ctx.work.get(subject)
+            && let Some(s) = ctx.work.get(subject)?
         {
             o.attrs
                 .insert("subject_state".into(), Value::Text(s.state.clone()));
         }
     }
-    ctx.work.objects.insert(id.clone(), o);
+    ctx.work.insert(o)?;
     // the effect, then the cascades to the parts, depth-first (ADR-0038)
     effects(
         ctx,
@@ -1465,7 +1490,7 @@ fn take(
     } else {
         ctx.work.imported.clone()
     };
-    let Some(o) = ctx.work.objects.get_mut(&id) else {
+    let Some(o) = ctx.work.get_mut(&id)? else {
         return stop_not_run(format!("the object {id}, which its own effect removed"));
     };
     // a correction replaces the wrong value for the span it was held,
@@ -1535,7 +1560,7 @@ fn take(
     if t.observation_on.is_some()
         && xn == "record"
         && let Value::Object(subject) = o.attr("subject")
-        && let Some(st) = ctx.work.get(&subject).and_then(|s| lib.type_(&s.type_))
+        && let Some(st) = ctx.work.get(&subject)?.and_then(|s| lib.type_(&s.type_))
     {
         for (collection, kind) in &st.observations {
             if *kind == t.name {
@@ -1547,12 +1572,12 @@ fn take(
         }
     }
     for (object, attribute) in index {
-        if let Some(target) = ctx.work.objects.get_mut(&object) {
+        if let Some(target) = ctx.work.get_mut(&object)? {
             target.writes.insert(attribute.clone(), position);
         }
         ctx.index.push((object, attribute, position));
     }
-    let Some(o) = ctx.work.objects.get(&id) else {
+    let Some(o) = ctx.work.get(&id)? else {
         return stop_not_run(format!("the object {id}, which its own effect removed"));
     };
     // an external identifier it wrote: `lookup` finds the object by the new
@@ -1658,7 +1683,12 @@ fn external_text(v: &Value) -> Option<String> {
 /// inferred, so two calls of one transition name on different types taint
 /// both, which redacts more and never less; the installed version's steps are
 /// read, as for every erasure here (TODO: an earlier version's).
-fn caller_taint(ctx: &mut Ctx<'_>, log: &[Event], from: &Event, mut tainted: BTreeSet<String>) {
+fn caller_taint(
+    ctx: &mut Ctx<'_>,
+    log: &[Event],
+    from: &Event,
+    mut tainted: BTreeSet<String>,
+) -> Result<(), NotRun> {
     let lib = ctx.work.lib;
     let mut callee = from.clone();
     while !tainted.is_empty() {
@@ -1671,13 +1701,13 @@ fn caller_taint(ctx: &mut Ctx<'_>, log: &[Event], from: &Event, mut tainted: BTr
         };
         let Some(cx) = ctx
             .work
-            .get(&caller.object_id)
+            .get(&caller.object_id)?
             .and_then(|o| lib.type_(&o.type_))
             .and_then(|t| t.transition(&caller.transition))
         else {
             break;
         };
-        let callee_type = ctx.work.get(&callee.object_id).map(|o| o.type_.clone());
+        let callee_type = ctx.work.get(&callee.object_id)?.map(|o| o.type_.clone());
         let mut passed = BTreeSet::new();
         for (input, exprs) in
             steps_taking(lib, &cx.effect, &callee.transition, callee_type.as_deref())
@@ -1697,6 +1727,7 @@ fn caller_taint(ctx: &mut Ctx<'_>, log: &[Event], from: &Event, mut tainted: BTr
         tainted = passed;
         callee = caller;
     }
+    Ok(())
 }
 
 /// What flowed down from an erased value (`storage-schema.md` §9 step 12,
@@ -1713,15 +1744,15 @@ fn walk_down(
     from: &Event,
     tainted: &BTreeSet<String>,
     holding: &BTreeSet<String>,
-) {
+) -> Result<(), NotRun> {
     let lib = ctx.work.lib;
     let Some(fx) = ctx
         .work
-        .get(&from.object_id)
+        .get(&from.object_id)?
         .and_then(|o| lib.type_(&o.type_))
         .and_then(|t| t.transition(&from.transition))
     else {
-        return;
+        return Ok(());
     };
     let caused: Vec<Event> = log
         .iter()
@@ -1729,7 +1760,7 @@ fn walk_down(
         .cloned()
         .collect();
     for f in caused {
-        let Some(p) = ctx.work.get(&f.object_id).cloned() else {
+        let Some(p) = ctx.work.get(&f.object_id)?.cloned() else {
             continue;
         };
         let Some(pt) = lib.type_(&p.type_) else {
@@ -1763,9 +1794,10 @@ fn walk_down(
             }
         }
         if !next_inputs.is_empty() {
-            walk_down(ctx, log, &f, &next_inputs, &next_holding);
+            walk_down(ctx, log, &f, &next_inputs, &next_holding)?;
         }
     }
+    Ok(())
 }
 
 /// Whether an expression carries a tainted value: it reads a tainted input,
@@ -1832,7 +1864,7 @@ fn redact_others(
     log: &[Event],
     erased: &str,
     since: usize,
-) {
+) -> Result<(), NotRun> {
     let mut names: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (position, n) in &ctx.redacted_inputs[since..] {
         if let Some(e) = log.iter().find(|e| e.position == *position)
@@ -1851,7 +1883,7 @@ fn redact_others(
         }
     }
     for (id, redacted) in names {
-        let Some(mut p) = ctx.work.get(&id).cloned() else {
+        let Some(mut p) = ctx.work.get(&id)?.cloned() else {
             continue;
         };
         if p.erased {
@@ -1902,8 +1934,9 @@ fn redact_others(
         };
         ctx.work.appended.push(event.clone());
         ctx.events.push(event);
-        ctx.work.objects.insert(id, p);
+        ctx.work.insert(p)?;
     }
+    Ok(())
 }
 
 /// The inputs each step that takes a transition maps, a loop's steps
@@ -2133,13 +2166,13 @@ fn invalidate_proposals(
     let target = Value::Text(erased.to_string());
     let pending: Vec<String> = ctx
         .work
-        .of_type(PROPOSAL)
+        .of_type(PROPOSAL)?
         .iter()
         .filter(|p| p.state == "PENDING" && p.attr("target") == target)
         .map(|p| p.id.clone())
         .collect();
     for id in pending {
-        let Some(mut p) = ctx.work.get(&id).cloned() else {
+        let Some(mut p) = ctx.work.get(&id)?.cloned() else {
             continue;
         };
         let names: BTreeSet<String> = match p.attr("inputs") {
@@ -2180,7 +2213,7 @@ fn invalidate_proposals(
         ctx.events.push(invalidated);
         // the inputs leave the proposal's own creation event too
         ctx.erased.entry(id.clone()).or_default().extend(names);
-        ctx.work.objects.insert(id, p);
+        ctx.work.insert(p)?;
     }
     Ok(())
 }
@@ -2197,7 +2230,7 @@ fn file(
     let lib = world.lib;
     let who = request_who(world, req)?;
     let (tn, oid) = match &req.object_id {
-        Some(id) => match world.get(id) {
+        Some(id) => match world.get(id)? {
             None => return refused(Verdict::NotFound),
             Some(o) => (o.type_.clone(), Some(id.clone())),
         },
@@ -2252,7 +2285,15 @@ fn file(
                         Value::Absent => Vec::new(),
                         one => vec![one],
                     };
-                    let fits = ids.iter().all(|i| matches!(i, Value::Object(id) if world.get(id).is_some_and(|o| lib.is_a(&o.type_, target))));
+                    let mut fits = true;
+                    for i in &ids {
+                        fits &= match i {
+                            Value::Object(id) => {
+                                world.get(id)?.is_some_and(|o| lib.is_a(&o.type_, target))
+                            }
+                            _ => false,
+                        };
+                    }
                     if !fits {
                         wrong.push(k.clone());
                     }
@@ -2329,12 +2370,13 @@ fn file(
         attrs,
         created_at: world.now,
         created_by_kind: who.kind.clone(),
-        order: world.next_order(),
+        order: world.next_order()?,
         superseded_by: None,
         spans: BTreeMap::new(),
         writes: BTreeMap::new(),
         admissions: BTreeSet::new(),
         erased: false,
+        state_source: None,
         created_dated: true,
         recorded_from: world.now,
     };
@@ -2547,7 +2589,7 @@ fn decide_change(
         return stop_not_run("a store without the built-in DeclarationChange");
     };
     let xn = req.transition.as_str();
-    let held = req.object_id.as_deref().and_then(|id| world.get(id));
+    let held = world.get_if(req.object_id.as_deref())?;
     let unknown = || Verdict::UnknownTransition {
         transition: req.transition.clone(),
     };
@@ -2591,12 +2633,13 @@ fn decide_change(
             attrs: BTreeMap::new(),
             created_at: now,
             created_by_kind: who.kind.clone(),
-            order: world.next_order(),
+            order: world.next_order()?,
             superseded_by: None,
             spans: BTreeMap::new(),
             writes: BTreeMap::new(),
             admissions: BTreeSet::new(),
             erased: false,
+            state_source: None,
             created_dated: true,
             recorded_from: now,
         },
@@ -2822,7 +2865,7 @@ fn decide_proposal(
 ) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
     let who = request_who(world, req)?;
-    let Some(p) = req.object_id.as_deref().and_then(|id| world.get(id)) else {
+    let Some(p) = world.get_if(req.object_id.as_deref())? else {
         return refused(Verdict::NotFound);
     };
     let Some(pt) = lib.type_(PROPOSAL) else {
@@ -3016,7 +3059,7 @@ fn forget_observations(
         let subject = Value::Object(id.to_string());
         let ids: Vec<String> = ctx
             .work
-            .of_type(kind)
+            .of_type(kind)?
             .iter()
             .filter(|x| x.attr("subject") == subject)
             .map(|x| x.id.clone())
@@ -3042,13 +3085,13 @@ fn forget_observations(
     let subject = Value::Object(id.to_string());
     let labels: Vec<String> = ctx
         .work
-        .of_type(crate::model::LABEL)
+        .of_type(crate::model::LABEL)?
         .iter()
         .filter(|l| l.attr("subject") == subject && l.attr("note") != Value::Absent)
         .map(|l| l.id.clone())
         .collect();
     for l in labels {
-        if let Some(label) = ctx.work.objects.get_mut(&l) {
+        if let Some(label) = ctx.work.get_mut(&l)? {
             label.attrs.remove("note");
         }
         ctx.erased.entry(l).or_default().insert("note".into());
@@ -3074,29 +3117,32 @@ fn erase_chain(
         if !chain.insert(cur.clone()) {
             continue;
         }
-        if let Some(next) = ctx.work.get(&cur).and_then(|o| o.superseded_by.clone()) {
+        if let Some(next) = ctx.work.get(&cur)?.and_then(|o| o.superseded_by.clone()) {
             todo.push(next);
         }
-        todo.extend(
-            ctx.work
-                .objects
-                .values()
-                .filter(|p| p.superseded_by.as_deref() == Some(cur.as_str()))
-                .map(|p| p.id.clone()),
-        );
+        // its predecessors, of the types whose states supersede, the only
+        // ones that hold a successor
+        for (tn, t) in &ctx.work.lib.types {
+            if t.states.iter().any(|(_, s)| s.superseding) {
+                todo.extend(
+                    ctx.work
+                        .of_type(tn)?
+                        .iter()
+                        .filter(|p| p.superseded_by.as_deref() == Some(cur.as_str()))
+                        .map(|p| p.id.clone()),
+                );
+            }
+        }
     }
-    let mut members: Vec<(i64, String, String)> = chain
-        .iter()
-        .filter(|m| m.as_str() != id)
-        .filter_map(|m| {
-            ctx.work
-                .get(m)
-                .map(|o| (o.order, o.id.clone(), o.type_.clone()))
-        })
-        .collect();
+    let mut members: Vec<(i64, String, String)> = Vec::new();
+    for m in chain.iter().filter(|m| m.as_str() != id) {
+        if let Some(o) = ctx.work.get(m)? {
+            members.push((o.order, o.id.clone(), o.type_.clone()));
+        }
+    }
     members.sort();
     for (_, member, type_) in members {
-        if ctx.erased.contains_key(&member) && ctx.work.get(&member).is_some_and(|o| o.erased) {
+        if ctx.erased.contains_key(&member) && ctx.work.get(&member)?.is_some_and(|o| o.erased) {
             continue;
         }
         let Some((xn, x)) = ctx
@@ -3208,14 +3254,34 @@ fn effect_value(
     }
 }
 
+/// The place in creation order of each object among a loop's items, read
+/// before they are sorted, since a comparison cannot stop the read.
+fn places_of(world: &World<'_>, items: &[Value]) -> Result<BTreeMap<String, i64>, NotRun> {
+    let mut places = BTreeMap::new();
+    for i in items {
+        if let Value::Object(id) = i
+            && !places.contains_key(id)
+            && let Some(o) = world.get(id)?
+        {
+            places.insert(id.clone(), o.order);
+        }
+    }
+    Ok(places)
+}
+
 /// The order a loop takes its items in: objects by ascending id, enumeration
 /// members in declaration order, other values ascending (`DESIGN.md` §6,
-/// ADR-0147).
-fn loop_order(world: &World<'_>, a: &Value, b: &Value) -> std::cmp::Ordering {
+/// ADR-0147), each object's place read before, in `places`.
+fn loop_order(
+    world: &World<'_>,
+    places: &BTreeMap<String, i64>,
+    a: &Value,
+    b: &Value,
+) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     let rank = |v: &Value| -> (u8, i64) {
         match v {
-            Value::Object(id) => (0, world.get(id).map_or(i64::MAX, |o| o.order)),
+            Value::Object(id) => (0, places.get(id).copied().unwrap_or(i64::MAX)),
             Value::Member {
                 enumeration,
                 member,
@@ -3265,7 +3331,7 @@ fn effects(
                         "an assignment of an absent value, which only an unsupplied optional input may be",
                     );
                 }
-                if let Some(o) = ctx.work.objects.get_mut(id) {
+                if let Some(o) = ctx.work.get_mut(id)? {
                     o.attrs.insert(location.clone(), v);
                 }
                 ctx.wrote
@@ -3274,7 +3340,7 @@ fn effects(
                     .insert(location.clone());
             }
             Step::Clear(names) => {
-                if let Some(o) = ctx.work.objects.get_mut(id) {
+                if let Some(o) = ctx.work.get_mut(id)? {
                     for n in names {
                         o.attrs.remove(n);
                     }
@@ -3296,7 +3362,7 @@ fn effects(
                     .entry(id.to_string())
                     .or_default()
                     .insert(location.clone());
-                if let Some(o) = ctx.work.objects.get_mut(id) {
+                if let Some(o) = ctx.work.get_mut(id)? {
                     let mut items = match o.attr(location) {
                         Value::Set(items) => items,
                         _ => Vec::new(),
@@ -3334,13 +3400,13 @@ fn effects(
                     match effect_value(ctx, t, id, inputs, &env, position, target, false)? {
                         // a call through an absent optional end reaches nothing (DESIGN.md §5.4)
                         Value::Absent => continue,
-                        Value::Object(tid) if ctx.work.get(&tid).is_some() => tid,
+                        Value::Object(tid) if ctx.work.get(&tid)?.is_some() => tid,
                         _ => return stop_not_run("a call whose target is not one object"),
                     };
                 let values = arguments(ctx, t, id, inputs, &env, position, binds)?;
                 let ttype = ctx
                     .work
-                    .get(&target_id)
+                    .get(&target_id)?
                     .map(|o| o.type_.clone())
                     .unwrap_or_default();
                 take(
@@ -3383,7 +3449,8 @@ fn effects(
                 } else {
                     Vec::new()
                 };
-                items.sort_by(|a, b| loop_order(&ctx.work, a, b));
+                let places = places_of(&ctx.work, &items)?;
+                items.sort_by(|a, b| loop_order(&ctx.work, &places, a, b));
                 if let Some(f) = filter {
                     let mut kept = Vec::new();
                     for i in items {
@@ -3419,7 +3486,7 @@ fn effects(
             Step::Supersede(expr) => {
                 match effect_value(ctx, t, id, inputs, &env, position, expr, false)? {
                     Value::Object(successor) => {
-                        if let Some(o) = ctx.work.objects.get_mut(id) {
+                        if let Some(o) = ctx.work.get_mut(id)? {
                             o.superseded_by = Some(successor);
                         }
                     }
@@ -3493,17 +3560,19 @@ fn cascades(
                 Value::Object(p) => vec![p],
                 _ => Vec::new(),
             };
-            let mut driven: Vec<&Object> = ids
-                .iter()
-                .filter_map(|p| ctx.work.get(p))
-                .filter(|p| {
-                    ctx.work
+            let mut driven: Vec<&Object> = Vec::new();
+            for p in &ids {
+                if let Some(p) = ctx.work.get(p)?
+                    && ctx
+                        .work
                         .lib
                         .type_(&p.type_)
                         .and_then(|pt| pt.state(&p.state))
                         .is_none_or(|s| !s.is_final)
-                })
-                .collect();
+                {
+                    driven.push(p);
+                }
+            }
             driven.sort_by_key(|p| p.order);
             let driven: Vec<(String, String)> = driven
                 .iter()
@@ -3585,7 +3654,7 @@ fn mint(
             },
         };
         let n = alloc.draw(&ident.sequence, &scope);
-        after.objects.insert(o.id.clone(), o.clone());
+        after.insert(o.clone())?;
         let field = |name: &str| -> Result<Value, NotRun> {
             let e = crate::expr::parse(name)
                 .map_err(|e| NotRun(format!("a format field {name}: {e}")))?;
@@ -3648,7 +3717,7 @@ fn mint(
         }
         o.attrs.insert(a.clone(), Value::Text(text));
     }
-    after.objects.insert(o.id.clone(), o.clone());
+    after.insert(o.clone())?;
     Ok(())
 }
 
@@ -3743,7 +3812,7 @@ fn failing_invariants_reading(
         // key, none where it holds (ADR-0088, ADR-0158)
         let scope = world.lib.unique_scope(t, a);
         let mut matched = Vec::new();
-        for other in world.of_type(scope) {
+        for other in world.of_type(scope)? {
             if other.id != o.id
                 && key(other)?.is_some_and(|k| k.iter().zip(&mine).all(|(x, y)| x.equals(y)))
             {
@@ -3768,19 +3837,28 @@ fn failing_invariants_reading(
         if mine.is_absent() || out.contains(&name) {
             continue;
         }
-        let holders: Vec<&Object> = world
-            .in_order()
-            .into_iter()
-            .filter(|other| {
-                other.id != o.id
-                    && world.lib.type_(&other.type_).is_some_and(|ot| {
-                        ot.attributes.iter().any(|(b, bs)| {
-                            bs.external.as_deref() == Some(source.as_str())
-                                && other.attr(b).equals(&mine)
-                        })
-                    })
-            })
-            .collect();
+        // the objects holding the same identifier, read from the types that
+        // hold one of the source, each object from its own type's read
+        let mut holders: Vec<&Object> = Vec::new();
+        for (tn, ot) in &world.lib.types {
+            let of_source: Vec<&String> = ot
+                .attributes
+                .iter()
+                .filter(|(_, bs)| bs.external.as_deref() == Some(source.as_str()))
+                .map(|(b, _)| b)
+                .collect();
+            if of_source.is_empty() {
+                continue;
+            }
+            for other in world.of_type(tn)? {
+                if other.type_ == *tn
+                    && other.id != o.id
+                    && of_source.iter().any(|b| other.attr(b).equals(&mine))
+                {
+                    holders.push(other);
+                }
+            }
+        }
         // a scan of every type holding an identifier of the source, by type
         for (tn, ot) in &world.lib.types {
             if ot
@@ -3891,12 +3969,9 @@ fn invariant_remedy(
     obj: &Object,
     n: &str,
     requested: &str,
+    mine: &str,
 ) -> Option<Remedy> {
     let lib: &Library = world.lib;
-    let mine = world
-        .get(requested)
-        .map(|o| o.type_.clone())
-        .unwrap_or_default();
     if obj.id != requested && !(n.ends_with("_unique") && mine == obj.type_) {
         return None;
     }
@@ -4003,10 +4078,10 @@ pub fn request(
         // whatever version the retry names, and a different request under it
         // is a fault (DESIGN.md §6, ADR-0041, ADR-0076, ADR-0077); an actor
         // the store does not know has applied nothing, and is refused next
-        let keyed = req
-            .idempotency_key
-            .as_ref()
-            .and_then(|key| resolve_actor(world, &req.actor).map(|who| (who.id, key.clone())));
+        let keyed = match &req.idempotency_key {
+            Some(key) => resolve_actor(world, &req.actor)?.map(|who| (who.id, key.clone())),
+            None => None,
+        };
         let digest = request_digest(req);
         let held = match &keyed {
             Some((actor, key)) => world.idempotency_of(actor, key)?,
@@ -4052,7 +4127,7 @@ pub fn request(
                         remedy: Some(Remedy::SelfServiceable),
                     },
                     &Refusal::default(),
-                );
+                )?;
                 a.verdict = "key_reused".into();
                 a.clause = None;
                 a
@@ -4067,7 +4142,7 @@ pub fn request(
     if !matches!(verdict, Verdict::Satisfied { .. }) {
         let attempt = {
             let world = store.snapshot()?;
-            refused_attempt(&world, req, &verdict, &refusal)
+            refused_attempt(&world, req, &verdict, &refusal)?
         };
         store.record_attempt(&attempt)?;
     }
@@ -4104,14 +4179,14 @@ pub fn check(
 
 /// Everything a request had read when refused, the objects its outcome and
 /// cascades reached included, at the versions it left them (`DESIGN.md` §7).
-fn refused_reads(ctx: &Ctx<'_>) -> Json {
+fn refused_reads(ctx: &Ctx<'_>) -> Result<Json, NotRun> {
     let mut read = ctx.read.clone();
     for e in &ctx.events {
-        if let Some(o) = ctx.work.get(&e.object_id) {
+        if let Some(o) = ctx.work.get(&e.object_id)? {
             read.objects.insert(o.id.clone(), o.version);
         }
     }
-    read.record(ctx.work.now, None)
+    Ok(read.record(ctx.work.now, None))
 }
 
 /// A refused request's row of the attempt log (`DESIGN.md` §6, §9): who
@@ -4128,14 +4203,14 @@ fn refused_attempt(
     req: &Request,
     verdict: &Verdict,
     refusal: &Refusal,
-) -> crate::store::Attempt {
+) -> Result<crate::store::Attempt, NotRun> {
     let lib = world.lib;
     let (asked, proposal) = match refusal.approving.as_deref() {
         Some((p, held)) => (held, Some(p.clone())),
         None => (req, None),
     };
     let (type_, object_id) = match &asked.object_id {
-        Some(id) => match world.get(id) {
+        Some(id) => match world.get(id)? {
             Some(o) => (Some(o.type_.clone()), Some(id.clone())),
             None => (None, None),
         },
@@ -4178,18 +4253,19 @@ fn refused_attempt(
     if let Some(at) = asked.occurred_at {
         request_values["occurred_at"] = json!(crate::value::timestamp_text(at));
     }
-    let who = resolve_actor(world, &req.actor);
-    crate::store::Attempt {
+    let who = resolve_actor(world, &req.actor)?;
+    let principal = match &req.principal {
+        Some(p) => Some(resolve_actor(world, p)?.map_or_else(|| p.clone(), |w| w.id)),
+        None => None,
+    };
+    Ok(crate::store::Attempt {
         at: world.now,
         actor_id: who
             .as_ref()
             .map_or_else(|| req.actor.clone(), |w| w.id.clone()),
         actor_kind: who.map_or_else(|| "unknown".to_string(), |w| w.kind),
         // the principal as resolved, or as named where the store holds none
-        principal: req
-            .principal
-            .as_ref()
-            .map(|p| resolve_actor(world, p).map_or_else(|| p.clone(), |w| w.id)),
+        principal,
         type_,
         object_id,
         transition: Some(asked.transition.clone()),
@@ -4217,7 +4293,7 @@ fn refused_attempt(
             } => json!({ "object": object_id, "verdict": verdict.kind() }),
             _ => Json::Null,
         },
-    }
+    })
 }
 
 #[cfg(test)]
@@ -4594,7 +4670,7 @@ types:
             created(&sign(&mut s, Some(named)));
             let w = s.snapshot().unwrap();
             assert_eq!(
-                w.get(&job).unwrap().attr("for_whom"),
+                w.get(&job).unwrap().unwrap().attr("for_whom"),
                 Value::Text("ana".into())
             );
             let last = s.history(&job).unwrap().last().cloned().unwrap();
@@ -4718,7 +4794,7 @@ types:
             (
                 w.log().unwrap().count(),
                 w.attempts().unwrap().len(),
-                w.get(&fine).unwrap().version,
+                w.get(&fine).unwrap().unwrap().version,
             )
         };
         let was = before(&s);
@@ -4941,7 +5017,7 @@ types:
             other => panic!("{other:?}"),
         }
         let world = s.snapshot().unwrap();
-        let j = world.get(&job).unwrap();
+        let j = world.get(&job).unwrap().unwrap();
         assert_eq!(j.state, "WORKING");
         assert_eq!(j.attr("engineer"), Value::Object(ana.clone()));
         let h = s.history(&job).unwrap();
@@ -4963,7 +5039,7 @@ types:
             ("User", true),
             json!({"login": "ana"}),
         ));
-        let before = s.snapshot().unwrap().objects.len();
+        let before = s.snapshot().unwrap().in_order().unwrap().len();
         assert!(matches!(
             req(
                 &mut s,
@@ -4974,7 +5050,7 @@ types:
             ),
             Verdict::InvariantViolated { .. }
         ));
-        assert_eq!(s.snapshot().unwrap().objects.len(), before);
+        assert_eq!(s.snapshot().unwrap().in_order().unwrap().len(), before);
         let next = created(&req(
             &mut s,
             "add",
@@ -5026,17 +5102,17 @@ types:
         let b = created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
         let w = s.snapshot().unwrap();
         assert_eq!(
-            w.get(&a).unwrap().attr("number"),
+            w.get(&a).unwrap().unwrap().attr("number"),
             Value::Text("ORD-0001".into())
         );
         // a field read from the object, and a segment left out whole where
         // its value is absent
         assert_eq!(
-            w.get(&a).unwrap().attr("code"),
+            w.get(&a).unwrap().unwrap().attr("code"),
             Value::Text("ORD-0001-EU".into())
         );
         assert_eq!(
-            w.get(&b).unwrap().attr("code"),
+            w.get(&b).unwrap().unwrap().attr("code"),
             Value::Text("ORD-0002".into())
         );
         // a sequence numbered per scope
@@ -5062,7 +5138,7 @@ types:
             json!({"order": &b}),
         ));
         let w = s.snapshot().unwrap();
-        let pos = |id: &str| w.get(id).unwrap().attr("position");
+        let pos = |id: &str| w.get(id).unwrap().unwrap().attr("position");
         assert_eq!(pos(&l1), Value::Text("ORD-0001-01".into()));
         assert_eq!(pos(&l2), Value::Text("ORD-0001-02".into()));
         assert_eq!(pos(&l3), Value::Text("ORD-0002-01".into()));
@@ -5080,7 +5156,7 @@ types:
         let c = created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
         let w = s.snapshot().unwrap();
         assert_eq!(
-            w.get(&c).unwrap().attr("number"),
+            w.get(&c).unwrap().unwrap().attr("number"),
             Value::Text("ORD-0003".into())
         );
     }
@@ -5154,7 +5230,7 @@ types:
         // an effect's writes, in order
         created(&req(&mut s, "finish", OPERATOR, (&job, false), json!({})));
         let w = s.snapshot().unwrap();
-        let j = w.get(&job).unwrap();
+        let j = w.get(&job).unwrap().unwrap();
         assert_eq!(j.state, "DONE");
         assert_eq!(j.attr("note"), Value::Text("done".into()));
         assert_eq!(j.attr("hours"), Value::Absent);
@@ -5162,7 +5238,7 @@ types:
         created(&req(&mut s, "retire", OPERATOR, (&job, false), json!({})));
         let w = s.snapshot().unwrap();
         assert_eq!(
-            w.get(&job).unwrap().superseded_by.as_deref(),
+            w.get(&job).unwrap().unwrap().superseded_by.as_deref(),
             Some(ana.as_str())
         );
     }
@@ -5206,7 +5282,7 @@ types:
         s.now += 600;
         // read back from the store, as the next request reads them
         let w = s.snapshot().unwrap();
-        let o = w.get(&job).unwrap();
+        let o = w.get(&job).unwrap().unwrap();
         let counts: Vec<(&str, usize)> =
             o.spans.iter().map(|(m, v)| (m.as_str(), v.len())).collect();
         assert_eq!(counts, vec![("engineer", 2), ("priority", 1), ("state", 3)]);
@@ -5298,7 +5374,7 @@ types:
             json!({"subject": &job, "outcome": "HIGH", "corrects": &first}),
         ));
         let w = s.snapshot().unwrap();
-        let f = w.get(&fixed).unwrap();
+        let f = w.get(&fixed).unwrap().unwrap();
         assert_eq!(f.attr("occurred_at"), Value::Timestamp(t0));
         assert_eq!(f.attr("recorded_at"), Value::Timestamp(t0 + 3600));
         // the subject reads only what nothing has corrected
@@ -5454,7 +5530,7 @@ types:
         let v = at(&mut s, "start", &job, now - day);
         assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
         let w = s.snapshot().unwrap();
-        let o = w.get(&job).unwrap();
+        let o = w.get(&job).unwrap().unwrap();
         let working = o.spans["state"].last().unwrap();
         assert_eq!(working.entered_at, now - day);
         assert_eq!(o.spans["state"][0].left_at, Some(now - day));
@@ -5616,7 +5692,7 @@ types:
         );
         // the index is the store's: it holds across requests
         let w = s.snapshot().unwrap();
-        let o = w.get(&job).unwrap();
+        let o = w.get(&job).unwrap().unwrap();
         assert!(o.writes["note"] > o.writes["signed"]);
         created(&req(&mut s, "sign", OPERATOR, (&job, false), json!({})));
         created(&req(&mut s, "finish", OPERATOR, (&job, false), json!({})));
@@ -5684,9 +5760,10 @@ types:
             to("WORKING", &["working_invariant"]),
         ));
         let w = s.snapshot().unwrap();
-        assert_eq!(w.get(&job).unwrap().state, "WORKING");
+        assert_eq!(w.get(&job).unwrap().unwrap().state, "WORKING");
         assert!(
             w.get(&job)
+                .unwrap()
                 .unwrap()
                 .admissions
                 .contains("working_invariant")
@@ -5719,6 +5796,7 @@ types:
             s.snapshot()
                 .unwrap()
                 .get(&job)
+                .unwrap()
                 .unwrap()
                 .admissions
                 .is_empty()
@@ -5823,10 +5901,13 @@ types:
         };
         assert_eq!(events.len(), 2);
         let w = s.snapshot().unwrap();
-        let o = w.get(&job).unwrap();
+        let o = w.get(&job).unwrap().unwrap();
         assert_eq!(o.attr("note"), Value::Absent);
         assert!(o.erased && o.admissions.contains("noted"));
-        assert_eq!(w.get(&check).unwrap().attr("remark"), Value::Absent);
+        assert_eq!(
+            w.get(&check).unwrap().unwrap().attr("remark"),
+            Value::Absent
+        );
         // the past event keeps its place and shape, and loses the value
         let history = s.history(&job).unwrap();
         assert_eq!(history[0].payload["inputs"]["note"], Json::Null);
@@ -5857,7 +5938,7 @@ types:
         );
         // its label's note leaves the label's row and its creation event, as
         // no transition, the name kept (declaration-syntax.md §6.8)
-        let l = w.get(&tag).unwrap();
+        let l = w.get(&tag).unwrap().unwrap();
         assert_eq!(
             (l.attr("note"), l.attr("name"), l.erased),
             (Value::Absent, Value::Text("vip".into()), false)
@@ -5882,7 +5963,7 @@ types:
             json!({"reason": "asked"}),
         ));
         let w = s.snapshot().unwrap();
-        let l = w.get(&own).unwrap();
+        let l = w.get(&own).unwrap().unwrap();
         assert_eq!((l.attr("note"), l.erased), (Value::Absent, true));
         // what was erased stays erased, and the rest is still written
         let not_erased = Verdict::Unsatisfied {
@@ -6158,7 +6239,7 @@ types:
             }
         );
         assert_eq!(
-            s.snapshot().unwrap().get(&handover).unwrap().state,
+            s.snapshot().unwrap().get(&handover).unwrap().unwrap().state,
             "PENDING"
         );
         let ana = created(&req(
@@ -6195,8 +6276,8 @@ types:
         let w = s.snapshot().unwrap();
         assert_eq!(
             (
-                w.get(&job).unwrap().state.as_str(),
-                w.get(&handover).unwrap().state.as_str()
+                w.get(&job).unwrap().unwrap().state.as_str(),
+                w.get(&handover).unwrap().unwrap().state.as_str()
             ),
             ("DONE", "EXECUTED")
         );
@@ -6248,7 +6329,7 @@ types:
             json!({"reason": "asked"}),
         ));
         let w = s.snapshot().unwrap();
-        let p = w.get(&late).unwrap();
+        let p = w.get(&late).unwrap().unwrap();
         assert_eq!(p.state, "INVALIDATED");
         let erasure = s.history(&other).unwrap().last().cloned().unwrap();
         let invalidated = s.history(&late).unwrap().last().cloned().unwrap();
@@ -6325,7 +6406,7 @@ types:
         };
         let at = events[0];
         let w = s.snapshot().unwrap();
-        let o = w.get(&j).unwrap();
+        let o = w.get(&j).unwrap().unwrap();
         let t = w.lib.type_("Job").unwrap();
         let spans = &o.spans["crew"];
         assert_eq!(
@@ -6392,7 +6473,7 @@ types:
             json!({"crew": "NORTH", "reason": "never moved"}),
         ));
         let w = s.snapshot().unwrap();
-        let o = w.get(&j).unwrap();
+        let o = w.get(&j).unwrap().unwrap();
         let t = w.lib.type_("Job").unwrap();
         let spans = &o.spans["crew"];
         assert_eq!(
@@ -6452,7 +6533,7 @@ types:
             json!({"crew": "EAST", "reason": "mis-keyed"}),
         ));
         let w = s.snapshot().unwrap();
-        let o = w.get(&j).unwrap();
+        let o = w.get(&j).unwrap().unwrap();
         let t = w.lib.type_("Job").unwrap();
         let states = crate::eval::interval_rows(&w, o, t, "state").unwrap();
         let start = w.log().unwrap().find(|e| e.transition == "start").unwrap();
@@ -6543,7 +6624,7 @@ types:
         );
         assert_eq!(
             refused["objects"][&ana],
-            json!(w.get(&ana).unwrap().version)
+            json!(w.get(&ana).unwrap().unwrap().version)
         );
     }
 
@@ -6727,7 +6808,7 @@ types:
         let counts = |s: &Store| {
             let w = s.snapshot().unwrap();
             (
-                w.objects.len(),
+                w.in_order().unwrap().len(),
                 w.log().unwrap().count(),
                 w.attempts().unwrap().len(),
             )
@@ -6954,7 +7035,7 @@ types:
         ));
         {
             let w = s.snapshot().unwrap();
-            let o = w.get(&job).unwrap();
+            let o = w.get(&job).unwrap().unwrap();
             let t = w.lib.type_("Job").unwrap();
             let e = w.log().unwrap().rfind(|e| e.transition == "fix").unwrap();
             assert_eq!(e.payload["inputs"]["reason"], json!("Dana asked"));
@@ -7218,7 +7299,7 @@ types:
             Verdict::Satisfied { .. }
         ));
         assert_eq!(
-            s.snapshot().unwrap().get(OPERATOR).unwrap().state,
+            s.snapshot().unwrap().get(OPERATOR).unwrap().unwrap().state,
             "RETIRED"
         );
     }
@@ -7355,7 +7436,14 @@ types:
             (&office, false),
             json!({"aliases": ["Dee", "D. Doe"], "why": "nicknames"}),
         ));
-        let person = match s.snapshot().unwrap().get(&desk).unwrap().attr("person") {
+        let person = match s
+            .snapshot()
+            .unwrap()
+            .get(&desk)
+            .unwrap()
+            .unwrap()
+            .attr("person")
+        {
             Value::Object(p) => p,
             other => panic!("{other:?}"),
         };
@@ -7382,6 +7470,7 @@ types:
             s.snapshot()
                 .unwrap()
                 .of_type(t)
+                .unwrap()
                 .iter()
                 .map(|o| o.id.clone())
                 .collect()
@@ -7399,7 +7488,7 @@ types:
             let w = s.snapshot().unwrap();
             [&desk, &office, &badges[0], &badges[1], &cards[0], &cards[1]]
                 .iter()
-                .map(|id| w.get(id).unwrap().version)
+                .map(|id| w.get(id).unwrap().unwrap().version)
                 .collect()
         };
         let before = versions(&s);
@@ -7451,21 +7540,21 @@ types:
         }
         let w = s.snapshot().unwrap();
         assert_eq!(
-            w.get(&badges[0]).unwrap().attr("holder_name"),
+            w.get(&badges[0]).unwrap().unwrap().attr("holder_name"),
             Value::Text("Visitor".into())
         );
         assert_eq!(
-            w.get(&badges[1]).unwrap().attr("holder_name"),
+            w.get(&badges[1]).unwrap().unwrap().attr("holder_name"),
             Value::Absent
         );
         // the grade it copied leaves the attribute and its interval
         for b in &badges {
-            let o = w.get(b).unwrap();
+            let o = w.get(b).unwrap().unwrap();
             assert_eq!(o.attr("tier"), Value::Absent);
             assert!(o.spans["tier"].iter().all(|sp| sp.value == Value::Absent));
         }
         for c in &cards {
-            assert_eq!(w.get(c).unwrap().attr("text"), Value::Absent);
+            assert_eq!(w.get(c).unwrap().unwrap().attr("text"), Value::Absent);
         }
         // every other object redacted gets one redact event, caused by the
         // erasure, naming what it redacted, its version advanced

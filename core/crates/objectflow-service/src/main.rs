@@ -418,7 +418,7 @@ async fn exceptions(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
     let world = s.snapshot()?;
-    Ok(Json(page_json(&reads::exceptions(&world, type_))))
+    Ok(Json(page_json(&reads::exceptions(&world, type_)?)))
 }
 
 /// The objects of a type a transition is offered to, asking no evaluator
@@ -970,7 +970,7 @@ async fn publish(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     }
     let world = s.snapshot()?;
     let Some(c) = world
-        .get(change)
+        .get(change)?
         .filter(|c| c.type_ == objectflow_core::model::DECLARATION_CHANGE)
     else {
         return Err(Fault::Missing(format!("no change {change}")));

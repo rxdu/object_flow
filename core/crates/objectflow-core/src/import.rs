@@ -320,7 +320,7 @@ fn decide(
         report.refusal = Some(r);
         Ok((report, None))
     };
-    let Some(who) = resolve_actor(world, actor) else {
+    let Some(who) = resolve_actor(world, actor)? else {
         return refused(
             report,
             ImportRefusal {
@@ -395,7 +395,7 @@ fn decide(
             );
         }
         let held = match world.external.get(&key) {
-            Some(id) => match world.get(id) {
+            Some(id) => match world.get(id)? {
                 Some(h) if h.type_ == o.type_ => Some(h.clone()),
                 Some(h) => {
                     return refused(
@@ -597,11 +597,10 @@ fn decide(
             let Some(id) = ids.get(key).or_else(|| world.external.get(key)) else {
                 continue;
             };
-            let subject = placed_types
-                .get(id.as_str())
-                .map(|t| (*t).to_string())
-                .or_else(|| world.get(id).map(|s| s.type_.clone()))
-                .unwrap_or_default();
+            let subject = match placed_types.get(id.as_str()) {
+                Some(t) => (*t).to_string(),
+                None => world.get(id)?.map(|s| s.type_.clone()).unwrap_or_default(),
+            };
             if lib.type_(&subject).is_none_or(|t| !t.mirror) {
                 return refused(
                     report,
@@ -697,12 +696,13 @@ fn decide(
                     attrs: BTreeMap::new(),
                     created_at: world.now,
                     created_by_kind: "unknown".into(),
-                    order: work.next_order(),
+                    order: work.next_order()?,
                     superseded_by: None,
                     spans: BTreeMap::new(),
                     writes: BTreeMap::new(),
                     admissions: BTreeSet::new(),
                     erased: false,
+                    state_source: None,
                     created_dated: false,
                     recorded_from: world.now,
                 },
@@ -744,12 +744,14 @@ fn decide(
                 };
                 obj.attrs.insert(k.clone(), v);
             }
-            work.objects.insert(obj.id.clone(), obj);
+            work.insert(obj)?;
         }
+        // every object, which an external identifier's uniqueness reads
+        let everyone = work.in_order()?;
         // the classes, found once over every object the batch writes (C34)
         for p in placed.iter().filter(|p| !excluded.contains(&p.index)) {
             let o = &batch.objects[p.index];
-            let (Some(t), Some(obj)) = (lib.type_(&o.type_), work.get(&p.id)) else {
+            let (Some(t), Some(obj)) = (lib.type_(&o.type_), work.get(&p.id)?) else {
                 continue;
             };
             if t.state(&obj.state).is_none() {
@@ -777,7 +779,7 @@ fn decide(
                     && !v.is_absent()
                 {
                     let value = text_of(&v);
-                    let shared = work.objects.values().any(|x| {
+                    let shared = everyone.iter().any(|x| {
                         x.id != obj.id
                             && lib
                                 .type_(&x.type_)
@@ -817,7 +819,7 @@ fn decide(
             // apply the drops to the placed objects
             for (index, attrs) in &dropped {
                 if let Some(p) = placed.iter().find(|p| p.index == *index)
-                    && let Some(obj) = work.objects.get_mut(&p.id)
+                    && let Some(obj) = work.get_mut(&p.id)?
                 {
                     for a in attrs {
                         obj.attrs.remove(a);
@@ -938,7 +940,7 @@ fn decide(
     for (id, new) in entries {
         let held = world.legacy.get(&id).map_or(&[][..], Vec::as_slice);
         let mut next = held.iter().map(|h| h.ordinal).max().unwrap_or(0);
-        let erased = world.get(&id).is_some_and(|w| w.erased);
+        let erased = world.get(&id)?.is_some_and(|w| w.erased);
         for mut n in new {
             let same = |h: &crate::world::LegacyEntry| {
                 h.kind == n.kind
@@ -963,7 +965,7 @@ fn decide(
     }
     for p in placed.iter().filter(|p| !excluded.contains(&p.index)) {
         let o = &batch.objects[p.index];
-        let (Some(t), Some(mut obj)) = (lib.type_(&o.type_), work.get(&p.id).cloned()) else {
+        let (Some(t), Some(mut obj)) = (lib.type_(&o.type_), work.get(&p.id)?.cloned()) else {
             continue;
         };
         let resolve = |key: &str, target: &str| {
@@ -1582,7 +1584,7 @@ types:
         assert_eq!((r.written, r.refusal.clone()), (1, None), "{r:?}");
         let id = id_of(&s, "E-1");
         let w = s.snapshot().unwrap();
-        let o = w.get(&id).unwrap();
+        let o = w.get(&id).unwrap().unwrap();
         assert_eq!(
             (o.state.as_str(), o.attr("name")),
             ("EMPLOYED", Value::Text("Dana".into()))
@@ -1623,7 +1625,10 @@ types:
         );
         assert_eq!(moved.written, 1);
         assert_eq!(s.history(&id).unwrap().len(), 2);
-        assert_eq!(s.snapshot().unwrap().get(&id).unwrap().state, "LEFT");
+        assert_eq!(
+            s.snapshot().unwrap().get(&id).unwrap().unwrap().state,
+            "LEFT"
+        );
     }
 
     #[test]
@@ -1740,13 +1745,14 @@ types:
             .external
             .get(&("legacy".to_string(), "Team:T-1".to_string()))
             .unwrap();
-        assert_eq!(w.get(team_id).unwrap().attr("lead"), Value::Absent);
+        assert_eq!(w.get(team_id).unwrap().unwrap().attr("lead"), Value::Absent);
         // the admitted violation stands, and a refresh that cures it discharges it
         let low_id = id_of(&s, "E-3");
         assert!(
             s.snapshot()
                 .unwrap()
                 .get(&low_id)
+                .unwrap()
                 .unwrap()
                 .admissions
                 .contains("graded")
@@ -1757,6 +1763,7 @@ types:
             s.snapshot()
                 .unwrap()
                 .get(&low_id)
+                .unwrap()
                 .unwrap()
                 .admissions
                 .is_empty()
@@ -1791,7 +1798,7 @@ types:
             .unwrap();
         assert_eq!(r.written, 1);
         let w = s.snapshot().unwrap();
-        let o = w.get(&id_of(&s, "E-1")).unwrap().clone();
+        let o = w.get(&id_of(&s, "E-1")).unwrap().unwrap().clone();
         let span = o.spans["state"][0].clone();
         assert_eq!(
             (
@@ -1899,7 +1906,7 @@ types:
             false,
         );
         let w = s.snapshot().unwrap();
-        let o = w.get(&id).unwrap();
+        let o = w.get(&id).unwrap().unwrap();
         assert_eq!(
             (o.attr("name"), o.attr("department")),
             (Value::Absent, Value::Text("Ops".into()))
@@ -1996,7 +2003,7 @@ types:
             id_of(&s, "E-4"),
         );
         let t1 = w.external[&("legacy".to_string(), "Team:T-1".to_string())].clone();
-        let o1 = w.get(&e1).unwrap();
+        let o1 = w.get(&e1).unwrap().unwrap();
         let first = &o1.spans["state"][0];
         assert!(first.legacy && first.entered_position == 0 && first.left_position == Some(0));
         assert_eq!(
@@ -2010,27 +2017,28 @@ types:
             (port - 100 * day, port - 100 * day)
         );
         let ev = |id: &str, text: &str| {
-            let t = w.lib.type_(&w.get(id).unwrap().type_);
+            let t = w.lib.type_(&w.get(id).unwrap().unwrap().type_);
             crate::eval::Evaluator::new(&w, t, Some(id))
                 .eval(&crate::expr::parse(text).unwrap())
                 .unwrap()
         };
         assert_eq!(ev(&e1, "time_in(LEFT)"), Value::Duration(40 * day));
-        let o2 = w.get(&e2).unwrap();
+        let o2 = w.get(&e2).unwrap().unwrap();
         assert!(!o2.created_dated);
         assert_eq!(
             (o2.created_at, o2.recorded_from),
             (port - 90 * day, port - 90 * day)
         );
-        assert_eq!(w.get(&e3).unwrap().recorded_from, port - 15 * day);
-        assert_eq!(w.get(&e4).unwrap().recorded_from, port);
+        assert_eq!(w.get(&e3).unwrap().unwrap().recorded_from, port - 15 * day);
+        assert_eq!(w.get(&e4).unwrap().unwrap().recorded_from, port);
         let t2 = w
             .get(&w.external[&("legacy".to_string(), "Team:T-2".to_string())])
+            .unwrap()
             .unwrap();
         assert!(!t2.created_dated);
         assert_eq!((t2.created_at, t2.recorded_from), (port - 70 * day, port));
         // the team's assignee, earlier values resolved by legacy key
-        let lead: Vec<Value> = w.get(&t1).unwrap().spans["lead"]
+        let lead: Vec<Value> = w.get(&t1).unwrap().unwrap().spans["lead"]
             .iter()
             .map(|sp| sp.value.clone())
             .collect();
@@ -2285,7 +2293,7 @@ types:
         refresh.legacy_intervals = vec![between];
         assert_eq!(run(&mut s, vec![refresh.clone()], &[], false).written, 1);
         let leads = |s: &Store| {
-            s.snapshot().unwrap().get(&t1).unwrap().spans["lead"]
+            s.snapshot().unwrap().get(&t1).unwrap().unwrap().spans["lead"]
                 .iter()
                 .map(|sp| {
                     (
@@ -2311,7 +2319,7 @@ types:
         assert_eq!(leads(&s), expected);
         // the closed spans are the refresh's event's, as the store reads them
         let w = s.snapshot().unwrap();
-        let spans = &w.get(&t1).unwrap().spans["lead"];
+        let spans = &w.get(&t1).unwrap().unwrap().spans["lead"];
         assert_eq!(spans[1].entered_position, spans[1].left_position.unwrap());
         assert_eq!(spans[0].left_position, Some(spans[1].entered_position));
         drop(w);
@@ -2431,11 +2439,14 @@ types:
         let w = s.snapshot().unwrap();
         let id = |key: &str| w.external[&("legacy".to_string(), key.to_string())].clone();
         let (e1, n1, l1) = (id("Employee:E-1"), id("Note:N-1"), id("label:L-1"));
-        let n = w.get(&n1).unwrap();
+        let n = w.get(&n1).unwrap().unwrap();
         assert_eq!(n.attr("subject"), Value::Object(e1.clone()));
         assert_eq!(n.attr("occurred_at"), Value::Timestamp(port - 30 * day));
         assert_eq!(n.attr("recorded_at"), Value::Timestamp(port));
-        assert_eq!(w.get(&l1).unwrap().attr("subject"), Value::Object(e1));
+        assert_eq!(
+            w.get(&l1).unwrap().unwrap().attr("subject"),
+            Value::Object(e1)
+        );
         drop(w);
         // refused: a label's subject without its type, an occurred time on
         // what is not an observation, and one after the import

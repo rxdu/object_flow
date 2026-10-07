@@ -281,7 +281,7 @@ fn impact(
     let m = new.migration.clone();
     // the objects as the mappings leave them, read under the new version
     let mut mapped: BTreeMap<String, Object> = BTreeMap::new();
-    for o in world.in_order() {
+    for o in world.in_order()? {
         if builtin(&o.type_) {
             // no change touches a built-in type, whose objects, the actors
             // among them, stand as they are
@@ -398,13 +398,15 @@ fn impact(
     }
     let mut sim = World::new(&new, world.now);
     sim.external = world.external.clone();
-    sim.objects = mapped;
+    for o in mapped.into_values() {
+        sim.insert(o)?;
+    }
     // then backfills, in the order written, each reading the object as the
     // mappings before it left it, an erased object's personal values skipped
     for (tn, attr, e) in &m.backfill {
-        let ids: Vec<String> = sim.of_type(tn).iter().map(|o| o.id.clone()).collect();
+        let ids: Vec<String> = sim.of_type(tn)?.iter().map(|o| o.id.clone()).collect();
         for id in ids {
-            let Some(o) = sim.get(&id) else { continue };
+            let Some(o) = sim.get(&id)? else { continue };
             let Some(t) = new.type_(&o.type_).filter(|t| t.observation_on.is_none()) else {
                 continue;
             };
@@ -419,7 +421,7 @@ fn impact(
                     format!("the backfill of {tn}.{attr} writes these objects"),
                     Some(&id),
                 );
-                if let Some(o) = sim.objects.get_mut(&id) {
+                if let Some(o) = sim.get_mut(&id)? {
                     if v.is_absent() {
                         o.attrs.remove(attr);
                     } else {
@@ -441,7 +443,7 @@ fn impact(
                 .collect::<Vec<_>>()
         })
         .collect();
-    for o in sim.in_order() {
+    for o in sim.in_order()? {
         if builtin(&o.type_) {
             continue;
         }
@@ -498,7 +500,7 @@ fn impact(
         }
         // parts a mapping into a final state would strand
         let moved = world
-            .get(&o.id)
+            .get(&o.id)?
             .is_some_and(|before| before.state != o.state);
         if moved && t.state(&o.state).is_some_and(|s| s.is_final) {
             for (a, spec) in &t.attributes {
@@ -517,10 +519,10 @@ fn impact(
                         })
                         .collect(),
                     Value::Object(p) => vec![p],
-                    _ => opposite_parts(&sim, o, spec),
+                    _ => opposite_parts(&sim, o, spec)?,
                 };
                 for p in parts {
-                    let live = sim.get(&p).is_some_and(|po| {
+                    let live = sim.get(&p)?.is_some_and(|po| {
                         new.type_(&po.type_)
                             .and_then(|pt| pt.state(&po.state))
                             .is_some_and(|s| !s.is_final)
@@ -580,9 +582,9 @@ fn impact(
         }
     }
     clauses_and_offers(world, &sim, draft.actor, &mut found)?;
-    report.proposals_invalidated = proposals(world, &new, &mut found);
+    report.proposals_invalidated = proposals(world, &new, &mut found)?;
     // every other open change, which the publish supersedes
-    for c in world.of_type(crate::model::DECLARATION_CHANGE) {
+    for c in world.of_type(crate::model::DECLARATION_CHANGE)? {
         if Some(c.id.as_str()) != draft.change_id
             && (c.state == "DRAFTED" || c.state == "SUBMITTED")
         {
@@ -609,7 +611,11 @@ fn impact(
                 })
             }
         });
-    let objects = std::mem::take(&mut sim.objects);
+    let objects: BTreeMap<String, Object> = sim
+        .in_order()?
+        .into_iter()
+        .map(|o| (o.id.clone(), o.clone()))
+        .collect();
     Ok(Simulated {
         report,
         install: Some((new, objects)),
@@ -636,16 +642,20 @@ fn reachable(t: &Type, state: &str) -> bool {
 }
 
 /// A composite end its parts store, read from their side.
-fn opposite_parts(world: &World<'_>, o: &Object, spec: &crate::model::Attribute) -> Vec<String> {
+fn opposite_parts(
+    world: &World<'_>,
+    o: &Object,
+    spec: &crate::model::Attribute,
+) -> Result<Vec<String>, NotRun> {
     let (Declared::Reference(target), Some(back)) = (&spec.declared, &spec.opposite) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    world
-        .of_type(target)
+    Ok(world
+        .of_type(target)?
         .iter()
         .filter(|p| p.attr(back) == Value::Object(o.id.clone()))
         .map(|p| p.id.clone())
-        .collect()
+        .collect())
 }
 
 /// The clauses the version newly enforces that would refuse an object, and
@@ -658,13 +668,13 @@ fn clauses_and_offers(
     actor: &str,
     found: &mut Found,
 ) -> Result<(), NotRun> {
-    for o in new.in_order() {
+    for o in new.in_order()? {
         if builtin(&o.type_) {
             continue;
         }
         let (Some(nt), Some(before)) = (
             new.lib.type_(&o.type_).filter(|t| !t.retired),
-            old.get(&o.id),
+            old.get(&o.id)?,
         ) else {
             continue;
         };
@@ -757,9 +767,9 @@ fn clauses_and_offers(
 /// The pending proposals the version invalidates: its transition removed or
 /// no longer proposable, an input it no longer takes, or a value its type no
 /// longer holds (`DESIGN.md` §9). Returns how many.
-fn proposals(world: &World<'_>, new: &Library, found: &mut Found) -> usize {
+fn proposals(world: &World<'_>, new: &Library, found: &mut Found) -> Result<usize, NotRun> {
     let mut n = 0;
-    for p in world.of_type(PROPOSAL) {
+    for p in world.of_type(PROPOSAL)? {
         if p.state != "PENDING" {
             continue;
         }
@@ -807,7 +817,7 @@ fn proposals(world: &World<'_>, new: &Library, found: &mut Found) -> usize {
             );
         }
     }
-    n
+    Ok(n)
 }
 
 /// Notices of the declaration alone: an attribute dropped where one of its
@@ -1282,13 +1292,13 @@ types:
         let text = v2(true, true, true);
         let change = draft(&mut s, &text);
         let w = s.snapshot().unwrap();
-        let c = w.get(&change).unwrap();
+        let c = w.get(&change).unwrap().unwrap();
         let want = crate::source::digest(&[("fleet".to_string(), text.clone())]).unwrap();
         assert_eq!(c.attr("source_digest"), Value::Text(want));
         assert_eq!(c.attr("base_version"), Value::Int(1));
         created(&req(&mut s, "submit", (&change, false), json!({})));
         let w = s.snapshot().unwrap();
-        let c = w.get(&change).unwrap();
+        let c = w.get(&change).unwrap().unwrap();
         assert_eq!(c.state, "SUBMITTED");
         let Value::Text(report) = c.attr("report") else {
             panic!("no report attached")
@@ -1339,7 +1349,7 @@ types:
     fn submitted(s: &mut Store, text: &str) -> (String, i64) {
         let change = draft(s, text);
         created(&req(s, "submit", (&change, false), json!({})));
-        let version = s.snapshot().unwrap().get(&change).unwrap().version;
+        let version = s.snapshot().unwrap().get(&change).unwrap().unwrap().version;
         (change, version)
     }
 
@@ -1372,7 +1382,7 @@ types:
         assert_eq!(s.lib.version, 2);
         // every object as the mappings left it, read back under version 2
         let w = s.snapshot().unwrap();
-        let h = w.get(&held).unwrap();
+        let h = w.get(&held).unwrap().unwrap();
         assert_eq!(h.state, "READY");
         let member = |m: &str| Value::Member {
             enumeration: "Grade".into(),
@@ -1380,17 +1390,21 @@ types:
         };
         assert_eq!(h.attr("grade"), member("B"));
         for id in [&ready, &held, &bare] {
-            assert_eq!(w.get(id).unwrap().attr("site"), Value::Text("north".into()));
+            assert_eq!(
+                w.get(id).unwrap().unwrap().attr("site"),
+                Value::Text("north".into())
+            );
         }
         assert!(
             w.get(&bare)
                 .unwrap()
+                .unwrap()
                 .admissions
                 .contains("graded_when_ready")
         );
-        assert_eq!(w.get(&other).unwrap().state, "SUPERSEDED");
-        assert_eq!(w.get(&proposal).unwrap().state, "INVALIDATED");
-        let c = w.get(&change).unwrap();
+        assert_eq!(w.get(&other).unwrap().unwrap().state, "SUPERSEDED");
+        assert_eq!(w.get(&proposal).unwrap().unwrap().state, "INVALIDATED");
+        let c = w.get(&change).unwrap().unwrap();
         assert_eq!(c.state, "PUBLISHED");
         assert_eq!(c.attr("approved_by"), Value::Text(OPERATOR.into()));
         // the held robot's intervals: HOLD and OLD closed at its migration,
@@ -1488,7 +1502,7 @@ types:
         assert_eq!(s.lib.version, 1);
         // a refresh attaches the report again, and the approval of it installs
         created(&req(&mut s, "refresh", (&change, false), json!({})));
-        let v = s.snapshot().unwrap().get(&change).unwrap().version;
+        let v = s.snapshot().unwrap().get(&change).unwrap().unwrap().version;
         assert!(matches!(
             approve(&mut s, &change, v).0,
             Verdict::Satisfied { .. }
@@ -1645,7 +1659,7 @@ types:
                 json!({"source": {"shop": text}, "source_ref": "git:shop@1"}),
             ));
             created(&req(&mut s, "submit", (&change, false), json!({})));
-            let v = s.snapshot().unwrap().get(&change).unwrap().version;
+            let v = s.snapshot().unwrap().get(&change).unwrap().unwrap().version;
             let (verdict, report) = approve(&mut s, &change, v);
             assert!(
                 matches!(verdict, Verdict::Satisfied { .. }),
@@ -1690,7 +1704,12 @@ types:
                     json!({"reason": "asked"}),
                 ));
                 assert_eq!(
-                    s.snapshot().unwrap().get(&bo).unwrap().attr("name"),
+                    s.snapshot()
+                        .unwrap()
+                        .get(&bo)
+                        .unwrap()
+                        .unwrap()
+                        .attr("name"),
                     Value::Text("Bo".into())
                 );
             }
@@ -1732,7 +1751,7 @@ types:
                 json!({"source": {"shop": text}, "source_ref": "git:shop@1"}),
             ));
             created(&req(&mut s, "submit", (&change, false), json!({})));
-            let v = s.snapshot().unwrap().get(&change).unwrap().version;
+            let v = s.snapshot().unwrap().get(&change).unwrap().unwrap().version;
             assert!(
                 matches!(approve(&mut s, &change, v).0, Verdict::Satisfied { .. }),
                 "{what}"
@@ -1786,7 +1805,7 @@ types:
             json!({"source": {"shop": v2}, "source_ref": "git:shop@2"}),
         ));
         created(&req(&mut s, "submit", (&change, false), json!({})));
-        let v = s.snapshot().unwrap().get(&change).unwrap().version;
+        let v = s.snapshot().unwrap().get(&change).unwrap().unwrap().version;
         assert!(matches!(
             approve(&mut s, &change, v).0,
             Verdict::Satisfied { .. }
@@ -1856,7 +1875,7 @@ types:
                 json!({"source": {"shop": text}, "source_ref": format!("git:shop@{n}")}),
             ));
             created(&req(&mut s, "submit", (&change, false), json!({})));
-            let v = s.snapshot().unwrap().get(&change).unwrap().version;
+            let v = s.snapshot().unwrap().get(&change).unwrap().unwrap().version;
             let (verdict, report) = approve(&mut s, &change, v);
             assert!(
                 matches!(verdict, Verdict::Satisfied { .. }),
@@ -1865,7 +1884,7 @@ types:
         }
         assert_eq!(s.lib.version, 3);
         let w = s.snapshot().unwrap();
-        let held = w.get(&ana).unwrap();
+        let held = w.get(&ana).unwrap().unwrap();
         assert_eq!(held.attr("alias"), Value::Text("Ana".into()));
         // the write index follows the rename, so `changed_since` reads it
         assert!(held.writes.contains_key("alias") && !held.writes.contains_key("name"));
@@ -1877,7 +1896,12 @@ types:
             json!({"reason": "asked"}),
         ));
         assert_eq!(
-            s.snapshot().unwrap().get(&ana).unwrap().attr("alias"),
+            s.snapshot()
+                .unwrap()
+                .get(&ana)
+                .unwrap()
+                .unwrap()
+                .attr("alias"),
             Value::Absent
         );
     }
@@ -1955,7 +1979,7 @@ types:
             json!({"source": {"shop": SHOP_V2}, "source_ref": "git:shop@1"}),
         ));
         created(&req(&mut s, "submit", (&change, false), json!({})));
-        let v = s.snapshot().unwrap().get(&change).unwrap().version;
+        let v = s.snapshot().unwrap().get(&change).unwrap().unwrap().version;
         let (verdict, report) = approve(&mut s, &change, v);
         let Verdict::Satisfied { events, .. } = verdict else {
             panic!("{verdict:?} {report:#?}")
@@ -1964,7 +1988,7 @@ types:
         // type change write no event
         assert_eq!(events.len(), 2);
         let w = s.snapshot().unwrap();
-        let k = w.get(&kept).unwrap();
+        let k = w.get(&kept).unwrap().unwrap();
         let tier = |m: &str| Value::Member {
             enumeration: "Tier".into(),
             member: m.into(),
@@ -1981,7 +2005,7 @@ types:
         assert_eq!(band.entered_position, events[0]);
         // the newly personal nick redacted on the erased customer, its
         // history included, and the invariant its absence breaks admitted
-        let e = w.get(&erased).unwrap();
+        let e = w.get(&erased).unwrap().unwrap();
         assert_eq!(e.attr("nick"), Value::Absent);
         assert!(e.admissions.contains("nicknamed"));
         let history = s.history(&erased).unwrap();
@@ -1992,7 +2016,7 @@ types:
             ("redact", &json!({"redacted": ["nick"]}))
         );
         // the dropped type's object stays readable, and nothing creates one
-        assert_eq!(w.get(&coupon).unwrap().state, "ISSUED");
+        assert_eq!(w.get(&coupon).unwrap().unwrap().state, "ISSUED");
         drop(w);
         assert!(!matches!(
             req(&mut s, "issue", ("Coupon", true), json!({"code": "C2"})),
@@ -2068,7 +2092,14 @@ types:
         ]);
         let change = created(&draft(&mut s, cites.clone()));
         let evidence = |s: &Store| -> Json {
-            match s.snapshot().unwrap().get(&change).unwrap().attr("evidence") {
+            match s
+                .snapshot()
+                .unwrap()
+                .get(&change)
+                .unwrap()
+                .unwrap()
+                .attr("evidence")
+            {
                 Value::Text(t) => serde_json::from_str(&t).unwrap(),
                 other => panic!("{other:?}"),
             }

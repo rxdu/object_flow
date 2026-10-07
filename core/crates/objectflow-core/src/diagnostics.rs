@@ -51,7 +51,7 @@ pub fn diagnostics(
     };
     let since = world.now - window;
     let within = |at: i64| at >= since && at <= world.now;
-    let objects = world.of_type(type_);
+    let objects = world.of_type(type_)?;
     let family: BTreeSet<&str> = objects.iter().map(|o| o.id.as_str()).collect();
     // each of the family's events in the window, as the transitions source
     // reads it
@@ -61,7 +61,7 @@ pub fn diagnostics(
         {
             continue;
         }
-        let Some(o) = world.get(&e.object_id) else {
+        let Some(o) = world.get(&e.object_id)? else {
             continue;
         };
         let Some(ot) = lib.type_(&o.type_) else {
@@ -198,8 +198,8 @@ pub fn diagnostics(
         false,
     );
     // labels by frequency, and by the state their subject was in
-    let corrected: BTreeSet<String> = world
-        .of_type(LABEL)
+    let labels = world.of_type(LABEL)?;
+    let corrected: BTreeSet<String> = labels
         .iter()
         .filter_map(|l| match l.attr("corrects") {
             Value::Object(id) => Some(id),
@@ -208,7 +208,7 @@ pub fn diagnostics(
         .collect();
     let mut by_name: BTreeMap<String, i64> = BTreeMap::new();
     let mut by_state: BTreeMap<String, i64> = BTreeMap::new();
-    for l in world.of_type(LABEL) {
+    for l in labels {
         let on_family =
             matches!(l.attr("subject"), Value::Object(s) if family.contains(s.as_str()));
         let at = match l.attr("recorded_at") {
@@ -311,7 +311,7 @@ pub fn diagnostics(
             };
             // an event names its actor by identity, as the assignee's own
             // `actor_id` does (declaration-syntax.md §6.11)
-            let identity = world.get(&holder).and_then(|h| {
+            let identity = world.get(&holder)?.and_then(|h| {
                 let (attr, _) = lib.type_(&h.type_)?.actor_identity()?;
                 match h.attr(attr) {
                     Value::Text(i) => Some(i),
