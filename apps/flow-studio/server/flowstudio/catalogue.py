@@ -139,7 +139,18 @@ class Catalogue:
                     "message": msg} for f, line, sev, code, msg in found]
         as_json += [{"file": f, "line": line, "severity": sev, "code": code,
                      "message": msg} for f, line, sev, code, msg in notes]
-        return {"findings": as_json, "fatal": len(found)}
+        # where nothing is fatal, the types the modules declare, in the order
+        # a load lists them, and the file declaring each: what the page shows
+        # of a version it published (ADR-0166)
+        homes: dict[str, str] = {}
+        if not found:
+            for f in files:
+                doc = flows.load(f["text"])
+                if isinstance(doc, dict) and "examples_for" not in doc:
+                    for tn in doc.get("types") or {}:
+                        homes.setdefault(tn, f["name"])
+        return {"findings": as_json, "fatal": len(found),
+                "types": list(homes), "homes": homes}
 
     # ── writing, the workspace only ───────────────────────────────────────
     def save(self, name: str, text: str) -> dict:

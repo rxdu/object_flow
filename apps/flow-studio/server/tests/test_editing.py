@@ -55,10 +55,15 @@ def test_a_text_is_checked_and_drawn_as_it_is_edited(wire):
     files = bundle["files"]
     clean = wire.post("/studio/check", {"files": files})
     assert clean["fatal"] == 0
+    # the types the files declare, as a load lists them, each with its file
+    assert clean["types"] == wire.post("/sandbox/load",
+                                       {"files": files})["types"]
+    assert clean["homes"]["ServiceJob"] == "service.yaml"
+    assert clean["homes"]["User"] == "people.yaml"
     broken = files[-1]["text"].replace("guards:", "guard:", 1)
     found = wire.post("/studio/check", {"files": files[:-1] + [
         {"name": "service.yaml", "text": broken}]})
-    assert found["fatal"] > 0
+    assert found["fatal"] > 0 and found["types"] == []
     first = next(f for f in found["findings"] if f["severity"] == "fatal")
     assert first["file"] == "service.yaml" and first["line"] > 0
     drawn = wire.post("/studio/draw", {"text": files[-1]["text"],

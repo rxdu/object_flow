@@ -324,7 +324,15 @@ export interface Wire {
     source?: Source,
   ): Promise<{ mermaid: string }>;
   /** the studio's editing tools (docs/design/flow-studio.md §3.1, §5) */
-  check(files: ModuleFile[]): Promise<{ findings: Finding[]; fatal: number }>;
+  /** the checker's findings over files, and, where none is fatal, the
+   * types they declare in the order a load lists them, with the file
+   * declaring each */
+  check(files: ModuleFile[]): Promise<{
+    findings: Finding[];
+    fatal: number;
+    types: string[];
+    homes: Record<string, string>;
+  }>;
   draw(text: string, type: string): Promise<{ mermaid: string }>;
   save(file: string, text: string): Promise<{ saved: string }>;
   copy(file: string): Promise<{ copied: string[] }>;

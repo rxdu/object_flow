@@ -1,5 +1,11 @@
 import { Fragment, useEffect, useState } from "react";
-import type { Declaration, TransitionSpec, Verdict, Wire } from "../api/wire";
+import type {
+  Declaration,
+  ModuleFile,
+  TransitionSpec,
+  Verdict,
+  Wire,
+} from "../api/wire";
 import { explain } from "../session/explain";
 import { writtenValue } from "../session/notation";
 import { OPERATOR, type Player } from "../session/player";
@@ -36,6 +42,7 @@ export function FreePlay({
   editable,
   editor,
   onSelect,
+  onInstalled,
 }: {
   wire: Wire;
   player: Player;
@@ -50,6 +57,7 @@ export function FreePlay({
   /** the editor's text, where the editor asked to publish it */
   editor: EditorVersion | null;
   onSelect: (id: string) => void;
+  onInstalled: (files: ModuleFile[]) => void;
 }) {
   const [known, setKnown] = useState<Known[]>([]);
   const [actors, setActors] = useState<Known[]>([]);
@@ -376,6 +384,7 @@ export function FreePlay({
         editor={editor}
         onDone={onDone}
         onSelect={onSelect}
+        onInstalled={onInstalled}
       />
 
       {player.log.length > 0 && (

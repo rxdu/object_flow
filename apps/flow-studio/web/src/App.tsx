@@ -8,6 +8,7 @@ import {
   type Source,
   type Verdict,
   httpWire,
+  type ModuleFile,
 } from "./api/wire";
 import { Diagram } from "./components/Diagram";
 import { Editor } from "./components/Editor";
@@ -41,6 +42,14 @@ const same = (a: Chosen | null, b: Chosen | null) =>
  * transition the live offer allows, on any object, as any actor, with the
  * clock and the evaluators' answers in hand; and save what was found as an
  * example the checker holds. */
+/** A version a publish installed: its files, the types they declare, and
+ * the file declaring each. */
+interface Installed {
+  files: ModuleFile[];
+  types: string[];
+  homes: Record<string, string>;
+}
+
 export function App() {
   const wire = useMemo(() => httpWire(), []);
   const [modules, setModules] = useState<ModuleEntry[]>([]);
@@ -63,9 +72,15 @@ export function App() {
   const [tab, setTab] = useState<"view" | "edit">("view");
   const [backend, setBackend] = useState<Backend | null>(null);
 
+  // the version a publish in free play installed, which the page shows in
+  // place of the module file's until the sandbox is reset or reloaded
+  const [installed, setInstalled] = useState<Installed | null>(null);
+
+  // a new player is a sandbox reset or reloaded, at the version loaded
   const changed = useCallback((p: Player) => {
     setPlayer(p);
     setTick((t) => t + 1);
+    setInstalled(null);
   }, []);
 
   const refresh = useCallback(
@@ -100,11 +115,10 @@ export function App() {
   const entry = modules.find(
     (m) => m.file === chosen?.file && m.source === chosen?.source,
   );
-  // the type shown: the one picked, if the module declares it, else its first
-  const type =
-    picked && entry?.types.includes(picked)
-      ? picked
-      : (entry?.types[0] ?? null);
+  // the types shown: the installed version's, else the module's
+  const types = installed?.types ?? entry?.types ?? [];
+  // the type shown: the one picked, if the version declares it, else its first
+  const type = picked && types.includes(picked) ? picked : (types[0] ?? null);
 
   useEffect(() => {
     if (!chosen) return;
@@ -137,8 +151,13 @@ export function App() {
   useEffect(() => {
     if (!chosen || !type || !load?.loaded) return;
     let live = true;
+    // drawn from the file declaring the type in the version the sandbox
+    // runs: the installed one's, else the module's
+    const home = installed?.files.find((f) => f.name === installed.homes[type]);
     void Promise.all([
-      wire.diagram(chosen.file, type, chosen.source),
+      home
+        ? wire.draw(home.text, type)
+        : wire.diagram(chosen.file, type, chosen.source),
       wire.declaration(type),
     ])
       .then(([d, t]) => {
@@ -151,7 +170,7 @@ export function App() {
     return () => {
       live = false;
     };
-  }, [wire, chosen, type, load]);
+  }, [wire, chosen, type, load, installed]);
 
   // a module chosen anew starts with nothing loaded until the sandbox says so
   const choose = (next: Chosen) => {
@@ -296,9 +315,15 @@ export function App() {
               ))}
             </div>
           )}
+          {installed && (
+            <p className="text-xs text-slate-500">
+              Showing the version published in free play, which the sandbox runs
+              until it is reset.
+            </p>
+          )}
           {entry && (
             <div className="flex flex-wrap gap-1">
-              {entry.types.map((t) => (
+              {types.map((t) => (
                 <button
                   key={t}
                   className={`rounded-full px-3 py-0.5 text-sm ${t === type ? "bg-slate-800 text-white" : "bg-white ring-1 ring-slate-300"}`}
@@ -400,7 +425,7 @@ export function App() {
               <FreePlay
                 wire={wire}
                 player={player}
-                types={load.types}
+                types={installed?.types ?? load.types}
                 evaluators={load.evaluators}
                 actor={actor}
                 setActor={setActor}
@@ -409,6 +434,12 @@ export function App() {
                 editable={editable}
                 editor={publishing}
                 onSelect={setSelected}
+                onInstalled={(files) =>
+                  void wire
+                    .check(files)
+                    .then((c) => setInstalled({ files, ...c }))
+                    .catch((e: unknown) => setError(String(e)))
+                }
               />
               {last && (
                 <p

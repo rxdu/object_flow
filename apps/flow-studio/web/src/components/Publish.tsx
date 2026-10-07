@@ -49,6 +49,7 @@ export function Publish({
   editor,
   onDone,
   onSelect,
+  onInstalled,
 }: {
   wire: Wire;
   player: Player;
@@ -56,6 +57,8 @@ export function Publish({
   editor: EditorVersion | null;
   onDone: (v: Verdict | null) => void;
   onSelect: (id: string) => void;
+  /** the files of a version installed, which the page then shows */
+  onInstalled: (files: ModuleFile[]) => void;
 }) {
   const [modules, setModules] = useState<ModuleEntry[]>([]);
   const [choice, setChoice] = useState("");
@@ -127,6 +130,7 @@ export function Publish({
       );
       onDone(v);
       if (v?.kind === "satisfied") {
+        onInstalled(d.files);
         // every object a mapping, an admission or a discharge reached
         const reached = Object.entries(d.report?.affected ?? {})
           .filter(([code]) => /^(mapping:|invariant:|discharged:)/.test(code))
