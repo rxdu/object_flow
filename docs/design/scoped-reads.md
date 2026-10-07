@@ -104,3 +104,14 @@ The load's last whole reads went the same day: the imported events' positions ar
 
 **Before step 3** (2026-10-07). Timed in phases at 4,000 objects by a scratch probe built from `probe_scale.rs` and not kept, a release build as before: reading the type's objects took 38.1 ms, reading the log 53.5 ms, the type's interval rows 57.5 ms with that read included, and the metric read `Ticket.time_in_state` 227.9 ms. So about 170 ms of the metric read is spent after its rows are read, on what it computes from them, whether or not that includes reading the log, which this did not separate. Step 3's index ranges shorten the reads of a windowed metric and of a query's filter; they do not shorten that computation, which is where C5's metric target is most at stake at N3's upper range. Whether step 3 begins with the reads it names or with the evaluator's cost is the author's to weigh.
 
+**Step 3, begun with the evaluator** (2026-10-07, ADR-0164 decision 3). Profiled with `valgrind --tool=callgrind`, collecting inside three reads of `Ticket.time_in_state` over 1,000 objects, the metric read spent most of its instructions copying rows: a dimension read through a row copied the whole environment and the row at each step, and the reader copied each row again into each environment and group, the copies, their drops and their allocations together dominating, with reading the store under a fifth. A row's fields are now shared, so a row is copied by its reference, and a dimension reads a row's member by the evaluator's own rule without binding it in a copied environment. The instructions of those three reads fell from 1.31 billion to 420 million, and by the probe:
+
+| objects | metric read |
+|---|---|
+| 500 | 25.2 → 10.0 ms |
+| 1,000 | 51.2 → 26.0 ms |
+| 2,000 | 107.4 → 56.6 ms |
+| 4,000 | 226.7 → 122.0 ms |
+
+What the profile now shows is building the interval rows, a dozen named fields a span, about a third, and the store's read of the type in the first of the reads; the index ranges come next, measured the same way.
+

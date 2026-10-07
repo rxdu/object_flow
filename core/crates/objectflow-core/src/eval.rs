@@ -48,6 +48,19 @@ fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
     Err(NotRun::Unsupported(what.into()))
 }
 
+/// A member of a row of an object's flow data, as an expression reads it:
+/// its field, a span's `corrected_by` absent where no correction relabelled
+/// it (ADR-0146).
+pub(crate) fn row_member(fields: &BTreeMap<String, Value>, m: &str) -> Result<Value, NotRun> {
+    match fields.get(m) {
+        Some(v) => Ok(v.clone()),
+        None if m == "corrected_by" => Ok(Value::Absent),
+        None => not_run(format!(
+            "the member `{m}` of a row of an object's flow data"
+        )),
+    }
+}
+
 /// What an expression's subterm evaluates to: a value, or one of the names a
 /// path continues from.
 #[derive(Clone, Debug, PartialEq)]
@@ -565,16 +578,7 @@ impl<'a> Evaluator<'a> {
                     .unwrap_or_default();
                 return Ok(Term::Category(category));
             }
-            Term::Value(Value::Row(fields)) => {
-                return match fields.get(m) {
-                    Some(v) => Ok(Term::Value(v.clone())),
-                    // a span no correction relabelled (ADR-0146)
-                    None if m == "corrected_by" => Ok(Term::absent()),
-                    None => not_run(format!(
-                        "the member `{m}` of a row of an object's flow data"
-                    )),
-                };
-            }
+            Term::Value(Value::Row(fields)) => return row_member(fields, m).map(Term::Value),
             Term::Value(Value::Object(id)) => id,
             other => return not_run(format!("a member `{m}` of {other:?}")),
         };
@@ -1249,7 +1253,7 @@ pub(crate) fn interval_rows(
                         held(world.lib, t, o, sp.entered_position, true)
                     },
                 );
-                Value::Row(row)
+                Value::row(row)
             })
             .collect();
         Ok(rows)
@@ -1522,7 +1526,7 @@ pub(crate) fn held(
             out.insert(m, sp.value.clone());
         }
     }
-    Value::Row(out)
+    Value::row(out)
 }
 
 /// The value each tracked member held at a time, by the interval index,
@@ -1542,7 +1546,7 @@ pub(crate) fn held_at(lib: &crate::model::Library, t: &Type, o: &Object, at: i64
             out.insert(m, sp.value.clone());
         }
     }
-    Value::Row(out)
+    Value::row(out)
 }
 
 /// An event as a row of `transitions` (`declaration-syntax.md` §6.9): what
@@ -1640,7 +1644,7 @@ pub(crate) fn transition_row(
         Value::Int(e.declaration_version),
     );
     row.insert("held".to_string(), held(world.lib, t, o, e.position, false));
-    Value::Row(row)
+    Value::row(row)
 }
 
 /// A row of the attempt log as a row of `attempts` (`declaration-syntax.md`
@@ -1673,7 +1677,7 @@ pub(crate) fn attempt_row(a: &crate::store::Attempt) -> Value {
         "declaration_version".to_string(),
         Value::Int(a.declaration_version),
     );
-    Value::Row(row)
+    Value::row(row)
 }
 
 /// A time's UTC calendar bucket, as a metric's dimension writes it:

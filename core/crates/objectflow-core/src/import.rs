@@ -2066,7 +2066,7 @@ types:
         let Value::Row(row) = &rows[0] else { panic!() };
         assert_eq!(
             row["held"],
-            Value::Row(BTreeMap::from([
+            Value::row(BTreeMap::from([
                 ("lead".to_string(), Value::Object(e2.clone())),
                 (
                     "state".to_string(),

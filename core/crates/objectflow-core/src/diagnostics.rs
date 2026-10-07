@@ -68,7 +68,7 @@ pub fn diagnostics(
             continue;
         };
         if let Value::Row(f) = transition_row(world, o, ot, e) {
-            rows.push(f);
+            rows.push(std::sync::Arc::unwrap_or_clone(f));
         }
     }
     let flag = |f: &BTreeMap<String, Value>, m: &str| f.get(m) == Some(&Value::Bool(true));
@@ -180,7 +180,7 @@ pub fn diagnostics(
                 m.insert("transition".to_string(), Value::Int(*by_transition));
                 m.insert("override".to_string(), Value::Int(*by_override));
                 m.insert("creation".to_string(), Value::Int(*by_creation));
-                (s.clone(), Value::Row(m), i128::from(*by_override) * 1000)
+                (s.clone(), Value::row(m), i128::from(*by_override) * 1000)
             })
             .collect(),
         false,

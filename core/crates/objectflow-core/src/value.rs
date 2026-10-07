@@ -396,10 +396,17 @@ pub enum Value {
     /// A set, in the order its elements were added.
     Set(Vec<Value>),
     /// A row of an object's own flow data: a span of `intervals` (§6.9).
-    Row(BTreeMap<String, Value>),
+    /// Its fields are shared, so a metric copies a row by its reference
+    /// and not field by field; a row is never changed once built.
+    Row(std::sync::Arc<BTreeMap<String, Value>>),
 }
 
 impl Value {
+    /// A row of the fields given.
+    pub fn row(fields: BTreeMap<String, Value>) -> Value {
+        Value::Row(std::sync::Arc::new(fields))
+    }
+
     pub fn is_absent(&self) -> bool {
         matches!(self, Value::Absent)
     }

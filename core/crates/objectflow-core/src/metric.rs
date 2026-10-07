@@ -98,7 +98,7 @@ pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Result<Vec<V
                 .zip(key)
                 .collect();
             f.insert("count".into(), Value::Int(n));
-            Value::Row(f)
+            Value::row(f)
         })
         .collect())
 }
@@ -1459,12 +1459,12 @@ fn pieces(
     };
     let start = sp.entered_at;
     let with = |period: String, from: Value, to: Value, duration: Value| {
-        let mut f = fields.clone();
+        let mut f = (*fields).clone();
         f.insert("period".into(), Value::Text(period));
         f.insert("piece_start".into(), from);
         f.insert("piece_end".into(), to);
         f.insert("duration".into(), duration);
-        Value::Row(f)
+        Value::row(f)
     };
     let Some(Value::Duration(d)) = fields.get("duration").cloned() else {
         return vec![with(
@@ -1535,27 +1535,28 @@ fn next_boundary(unit: &str, seconds: i64) -> i64 {
 /// The part of a piece between two times, both included, or none where it
 /// has none there (ADR-0142 decision 4).
 fn clipped(piece: Value, low: i64, high: i64) -> Option<Value> {
-    let Value::Row(mut f) = piece else {
+    let Value::Row(mut shared) = piece else {
         return None;
     };
     let time = |v: Option<&Value>| match v {
         Some(Value::Timestamp(t)) => Some(*t),
         _ => None,
     };
-    let start = time(f.get("piece_start"))?;
-    match f.get("duration") {
+    let start = time(shared.get("piece_start"))?;
+    match shared.get("duration") {
         Some(Value::Duration(d)) if *d != 0 => {}
-        _ => return (low <= start && start <= high).then_some(Value::Row(f)),
+        _ => return (low <= start && start <= high).then_some(Value::Row(shared)),
     }
-    let end = time(f.get("piece_end"))?;
+    let end = time(shared.get("piece_end"))?;
     let (a, b) = (start.max(low), end.min(high));
     if b <= a {
         return None;
     }
+    let f = std::sync::Arc::make_mut(&mut shared);
     f.insert("piece_start".into(), Value::Timestamp(a));
     f.insert("piece_end".into(), Value::Timestamp(b));
     f.insert("duration".into(), Value::Duration(b - a));
-    Some(Value::Row(f))
+    Some(Value::Row(shared))
 }
 
 /// A metric's value, as a guard reads it: its rows those of the store as
@@ -1827,8 +1828,12 @@ impl<'w> Reader<'w> {
         env: &BTreeMap<String, Value>,
     ) -> Result<Vec<Vec<Value>>, NotRun> {
         let of = |b: &Value, member: &str| -> Result<Value, NotRun> {
-            if b.is_absent() {
-                return Ok(Value::Absent);
+            match b {
+                Value::Absent => return Ok(Value::Absent),
+                // a row's member read as the evaluator reads it, without
+                // binding the row in a copy of the environment
+                Value::Row(fields) => return crate::eval::row_member(fields, member),
+                _ => {}
             }
             let mut inner = env.clone();
             inner.insert("\u{0}base".into(), b.clone());

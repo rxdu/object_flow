@@ -57,7 +57,7 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
             "last_verdict".into(),
             refused.map_or(Value::Absent, |a| {
                 let text = |t: &Option<String>| t.clone().map_or(Value::Absent, Value::Text);
-                Value::Row(std::collections::BTreeMap::from([
+                Value::row(std::collections::BTreeMap::from([
                     ("verdict".to_string(), Value::Text(a.verdict.clone())),
                     ("clause".to_string(), text(&a.clause)),
                     (
