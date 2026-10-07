@@ -552,6 +552,25 @@ struct Reader<'w> {
     answers: Option<&'w BTreeMap<String, String>>,
 }
 
+/// The observations given that are on an object of the family and that no
+/// observation among them corrects, as rows, in the order given.
+fn uncorrected_on(family: &[&Object], observations: &[&Object]) -> Vec<Value> {
+    let subjects: BTreeSet<&str> = family.iter().map(|o| o.id.as_str()).collect();
+    let corrected: BTreeSet<String> = observations
+        .iter()
+        .filter_map(|x| match x.attr("corrects") {
+            Value::Object(id) => Some(id),
+            _ => None,
+        })
+        .collect();
+    observations
+        .iter()
+        .filter(|x| matches!(x.attr("subject"), Value::Object(s) if subjects.contains(s.as_str())))
+        .filter(|x| !corrected.contains(&x.id))
+        .map(|x| Value::Object(x.id.clone()))
+        .collect()
+}
+
 /// What a metric's rows are: each an object, a span or an event of a type,
 /// and the member that names the kind of actor behind one.
 struct Rows {
@@ -835,16 +854,8 @@ impl<'w> Reader<'w> {
             });
         }
         if let Some((_, kind)) = t.observations.iter().find(|(c, _)| c == source) {
-            let ids: Vec<Value> = family.iter().map(|o| Value::Object(o.id.clone())).collect();
-            let of_kind = world.of_type(kind)?;
-            let corrected: Vec<Value> = of_kind.iter().map(|x| x.attr("corrects")).collect();
             return Ok(Rows {
-                rows: of_kind
-                    .iter()
-                    .filter(|x| ids.contains(&x.attr("subject")))
-                    .filter(|x| !corrected.contains(&Value::Object(x.id.clone())))
-                    .map(|x| Value::Object(x.id.clone()))
-                    .collect(),
+                rows: uncorrected_on(&family, &world.of_type(kind)?),
                 kind: Kind::Object(kind.clone()),
                 by_kind: "recorded_by_kind",
             });
@@ -852,16 +863,8 @@ impl<'w> Reader<'w> {
         if source == "labels" {
             // each label on an object of the family that nothing has
             // corrected (declaration-syntax.md §6.9)
-            let ids: Vec<Value> = family.iter().map(|o| Value::Object(o.id.clone())).collect();
-            let labels = world.of_type(crate::model::LABEL)?;
-            let corrected: Vec<Value> = labels.iter().map(|x| x.attr("corrects")).collect();
             return Ok(Rows {
-                rows: labels
-                    .iter()
-                    .filter(|x| ids.contains(&x.attr("subject")))
-                    .filter(|x| !corrected.contains(&Value::Object(x.id.clone())))
-                    .map(|x| Value::Object(x.id.clone()))
-                    .collect(),
+                rows: uncorrected_on(&family, &world.of_type(crate::model::LABEL)?),
                 kind: Kind::Label(owner.to_string()),
                 by_kind: "recorded_by_kind",
             });
@@ -3506,6 +3509,8 @@ types:
             )]
         );
         drop(w);
+        // a label on an object of another type is none of the family's
+        label(&mut s, json!({ "subject": ana, "name": "late-risk" })).unwrap();
         // a metric over labels counts each label nothing has corrected
         assert_eq!(
             [
