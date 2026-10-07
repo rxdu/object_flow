@@ -939,6 +939,14 @@ fn part_coverage(
             ));
             continue;
         };
+        if kind(called) == "assertion" {
+            out.push(finding(
+                where_.clone(),
+                "names",
+                format!("{tn}.{an} cascades to {target}.{ct}, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)"),
+            ));
+            continue;
+        }
         let given: BTreeSet<String> = keys(c, "inputs").into_iter().collect();
         for i in given.difference(&taken(called)) {
             out.push(finding(
@@ -1210,6 +1218,15 @@ fn call_errors(
             "names",
             format!(
                 "{tn}.{xn} calls {k}.{ct}, an initial transition; create an object with create"
+            ),
+        )];
+    }
+    if kind(called) == "assertion" {
+        return vec![finding(
+            where_.clone(),
+            "names",
+            format!(
+                "{tn}.{xn} calls {k}.{ct}, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)"
             ),
         )];
     }

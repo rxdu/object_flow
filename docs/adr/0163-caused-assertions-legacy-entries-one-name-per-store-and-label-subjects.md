@@ -35,7 +35,7 @@ Four questions building the core raised, each searched for in the record first.
 
 ## Consequences
 
-- `flow-format.md` §4.8 states rule 1, `check-flows.py` and the core's checker report it, and their plants hold it.
+- `flow-format.md` §4.8 states rule 1, `check-flows.py` and the core's checker report it, and their plants hold it. *(Applied 2026-10-07 building it to a part's cascade as well, the third way a transition is caused, by decision 1's own reasoning: a cascade naming an assertion is refused as a call naming one is.)*
 - `library-api.md` §5's `ImportedObject` and `ImportBatch`, `publish-and-import.md` §4's Attach step and §6's `FIELD` class, and `storage-schema.md` §6's `of_legacy_entry` and §9's step 6 state rules 2 to 4; the core imports, reads in `history` and erases legacy entries by them.
 - `servicedesk.yaml` and its examples name `RegisteredService`; the core's library load and its publish, and the flow checker's check of files together, refuse a name two modules declare; D529 is resolved.
 - `publish-and-import.md` §4 and `library-api.md` §5 keep rule 6 as written, now the author's.

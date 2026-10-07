@@ -600,6 +600,10 @@ def part_coverage(tn, t, an, target, part, clauses, survives, here, finals):
         if called is None or called["kind"] == "initial":
             out.append((where, "names", f"{tn}.{an} cascades to {target}.{c['transition']}, which is not a transition of {target} that acts on a part"))
             continue
+        if called["kind"] == "assertion":
+            out.append((where, "names", f"{tn}.{an} cascades to {target}.{c['transition']}, an assertion, which only a request "
+                                        f"takes; an override is requested, never caused (ADR-0163)"))
+            continue
         given = set(c.get("inputs") or {})
         out += [(where, "names", f"{tn}.{an} passes '{i}' to {target}.{c['transition']}, which takes no input '{i}'") for i in sorted(given - taken(called))]
         out += [(where, "names", f"{tn}.{an} cascades to {target}.{c['transition']} without the input '{i}', which it requires")
@@ -1188,6 +1192,9 @@ def call_errors(library, where, t, tn, xn, x, c, env=None):
         return [(where, "names", f"{tn}.{xn} calls {kind}.{c['transition']}, which is not a transition of {kind}")]
     if called["kind"] == "initial":
         return [(where, "names", f"{tn}.{xn} calls {kind}.{c['transition']}, an initial transition; create an object with create")]
+    if called["kind"] == "assertion":
+        return [(where, "names", f"{tn}.{xn} calls {kind}.{c['transition']}, an assertion, which only a request takes; an "
+                                 f"override is requested, never caused (ADR-0163)")]
     given = set(c.get("inputs") or {})
     out = [(where, "names", f"{tn}.{xn} passes '{i}' to {kind}.{c['transition']}, which takes no input '{i}'") for i in sorted(given - taken(called))]
     out += event_errors(where, tn, xn, f"{kind}.{c['transition']}", called, c.get("inputs") or {}, other)
@@ -3716,6 +3723,12 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
                                               "        expression: serial is not null\n\n    conditions:\n")),
         ("a name a module in the closure also declares", "names", "service.yaml",
          plant(service, "enumerations:\n", "enumerations:\n  Service: [A, B]\n")),
+        ("a call of an assertion", "names", "customers.yaml",
+         plant(customers, "transition: merged_into, inputs: { successor: this } }",
+               "transition: correct_state, inputs: { reason: OverrideReason.MIS_KEYED } }")),
+        ("a cascade to an assertion", "names", "customers.yaml",
+         plant(customers, "      discard:\n        kind: external\n        from: LISTED\n        to: REMOVED\n",
+               "      discard:\n        kind: assertion\n        to: [REMOVED]\n        inputs:\n          reason: { type: OverrideReason }\n")),
         ("a name a module checked with it, outside its closure, also declares", "names", "servicedesk.yaml",
          plant(servicedesk, "enumerations:\n", "enumerations:\n  Service: [A, B]\n")),
         ("a set of references with no opposite", "names", "delivery.yaml",

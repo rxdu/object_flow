@@ -3492,6 +3492,54 @@
   "analysed": {}
  },
  {
+  "label": "self_test: a call of an assertion",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "b2a64682818d5c29"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    111,
+    "fatal",
+    "names",
+    "Customer.merge_in calls Customer.correct_state, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "self_test: a cascade to an assertion",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "customers.yaml",
+    "e67d39d65030fefa"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "customers.yaml",
+    51,
+    "fatal",
+    "names",
+    "Customer.contacts cascades to Contact.discard, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
   "label": "self_test: a name a module checked with it, outside its closure, also declares",
   "files": [
    [
