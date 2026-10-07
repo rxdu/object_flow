@@ -554,15 +554,30 @@ impl<'l> World<'l> {
     }
 
     /// Every object of a type, its own or a subtype's, in one of the states
-    /// given, in ascending id order: a type held whole is read from what is
-    /// held, and any other through its state index, the objects the
-    /// operation holds kept as it holds them (ADR-0162 step 3).
+    /// given, in ascending id order, as [`World::of_type_where`] reads them.
     pub fn of_type_in(
         &self,
         type_: &str,
         states: &BTreeSet<String>,
     ) -> Result<Vec<&Object>, crate::eval::NotRun> {
-        let wanted: Vec<String> = states.iter().cloned().collect();
+        self.of_type_where(type_, Some(states), &[])
+    }
+
+    /// Every object of a type, its own or a subtype's, in one of the states
+    /// given, where any are, and whose attributes named each hold the value
+    /// given or none, an absent value comparing as unknown, in ascending id
+    /// order: a type held whole is read from what is held, and any other
+    /// through its state index and its columns, read whole only where a value
+    /// has none to compare in, the objects the operation holds kept as it
+    /// holds them (ADR-0162 step 3).
+    pub fn of_type_where(
+        &self,
+        type_: &str,
+        states: Option<&BTreeSet<String>>,
+        columns: &[(String, Value)],
+    ) -> Result<Vec<&Object>, crate::eval::NotRun> {
+        let wanted: Option<Vec<String>> = states.map(|s| s.iter().cloned().collect());
+        let pairs: Vec<(&str, &Value)> = columns.iter().map(|(a, v)| (a.as_str(), v)).collect();
         for t in self.lib.types.keys() {
             let whole = self.held.whole.borrow().contains(t);
             if self.lib.is_a(t, type_)
@@ -570,15 +585,26 @@ impl<'l> World<'l> {
                 && let Some(conn) = self.conn
             {
                 let fetched =
-                    crate::store::read_type_in(conn, self.lib, t, &wanted).map_err(|e| {
-                        crate::eval::NotRun::Unreadable(format!(
-                            "the store's objects of {t} in {wanted:?}, which could not be read: {e}"
-                        ))
-                    })?;
-                self.hold_fetched(fetched)?;
+                    crate::store::read_type_where(conn, self.lib, t, wanted.as_deref(), &pairs)
+                        .map_err(|e| {
+                            crate::eval::NotRun::Unreadable(format!(
+                                "the store's objects of {t} narrowed, which could not be read: {e}"
+                            ))
+                        })?;
+                match fetched {
+                    Some(fetched) => self.hold_fetched(fetched)?,
+                    None => self.hold_type(t)?,
+                }
             }
         }
-        Ok(self.held_in_order(|o| self.lib.is_a(&o.type_, type_) && states.contains(&o.state)))
+        Ok(self.held_in_order(|o| {
+            self.lib.is_a(&o.type_, type_)
+                && states.is_none_or(|s| s.contains(&o.state))
+                && pairs.iter().all(|(a, v)| {
+                    let x = o.attr(a);
+                    x.is_absent() || x.equals(v)
+                })
+        }))
     }
 
     /// Every object of a type, its own or a subtype's, whose attributes

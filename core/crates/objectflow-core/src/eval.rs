@@ -818,6 +818,74 @@ impl<'a> Evaluator<'a> {
         }
     }
 
+    /// What a scan of a type's filter narrows it to, read by the store: the
+    /// states it requires, and the values its conjuncts `x.a == e` require
+    /// of a stored attribute, `e` reading neither what the scan binds nor any
+    /// call, aggregate or metric, and evaluated as the filter would, without
+    /// being read; none where it narrows nothing. An object whose attribute
+    /// is absent compares as unknown and is read, as the filter would leave
+    /// it undecided.
+    #[allow(clippy::type_complexity)]
+    fn narrowing(
+        &self,
+        scanned: &str,
+        var: &str,
+        e: &Expr,
+        env: &BTreeMap<String, Value>,
+    ) -> Option<(
+        Option<std::collections::BTreeSet<String>>,
+        Vec<(String, Value)>,
+    )> {
+        use crate::expr::BinOp;
+        // whether an expression reads the scan's variable, or a call, an
+        // aggregate or a metric, which narrowing does not evaluate
+        fn plain(e: &Expr, var: &str) -> bool {
+            match e {
+                Expr::Name(n) => n != var,
+                Expr::Call(..) | Expr::Agg { .. } | Expr::Metric { .. } => false,
+                _ => e.children().into_iter().all(|c| plain(c, var)),
+            }
+        }
+        let states = self.required_states(var, e, env);
+        let t = self.world.lib.type_(scanned)?;
+        let mut columns = Vec::new();
+        let mut conjuncts = vec![e];
+        while let Some(c) = conjuncts.pop() {
+            match c {
+                Expr::Bin(BinOp::And, l, r) => {
+                    conjuncts.push(l);
+                    conjuncts.push(r);
+                }
+                Expr::Bin(BinOp::Eq, l, r) => {
+                    for (side, other) in [(l, r), (r, l)] {
+                        let Expr::Path(base, a) = side.as_ref() else {
+                            continue;
+                        };
+                        if !matches!(base.as_ref(), Expr::Name(v) if v == var)
+                            || a == "state"
+                            || t.attribute(a).is_none_or(|spec| spec.many)
+                            || !plain(other, var)
+                        {
+                            continue;
+                        }
+                        // evaluated as the filter evaluates it, and not read
+                        self.quiet.set(self.quiet.get() + 1);
+                        let v = self.value(other, env);
+                        self.quiet.set(self.quiet.get() - 1);
+                        if let Ok(v) = v
+                            && !v.is_absent()
+                            && !matches!(v, Value::Set(_) | Value::Row(_))
+                        {
+                            columns.push((a.clone(), v));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        (states.is_some() || !columns.is_empty()).then_some((states, columns))
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn aggregate(
         &self,
@@ -850,8 +918,11 @@ impl<'a> Evaluator<'a> {
                 // index; any other fails a conjunct of the filter outright,
                 // so it would be neither selected nor undecided (ADR-0162
                 // step 3)
-                let scanned_objects = match filter.and_then(|f| self.required_states(var, f, env)) {
-                    Some(states) => self.world.of_type_in(&t, &states)?,
+                let narrowed = filter.and_then(|f| self.narrowing(&t, var, f, env));
+                let scanned_objects = match narrowed {
+                    Some((states, columns)) => {
+                        self.world.of_type_where(&t, states.as_ref(), &columns)?
+                    }
                     None => self.world.of_type(&t)?,
                 };
                 let all = scanned_objects

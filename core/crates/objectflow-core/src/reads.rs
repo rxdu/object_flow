@@ -943,6 +943,18 @@ types:
         let (whole, all) = counted("(j.state == OPEN and j.hours > 5) or false");
         assert_eq!((pushed, read, all), (whole, 3, 4));
         assert_eq!(counted("j.state == Job.DONE"), (Value::Int(1), 1));
+        // and by a stored attribute's value, an object without one read as
+        // well, since it compares as unknown and leaves the count undecided
+        let narrowed = |filter: &str, reads: usize| {
+            let (pushed, read) = counted(filter);
+            let (whole, all) = counted(&format!("({filter}) or false"));
+            assert_eq!((&pushed, read, all), (&whole, reads, 4), "{filter}");
+        };
+        narrowed("j.title == \"Job\"", 3);
+        narrowed("j.hours == 9", 3);
+        // a decimal compared with an integer column is not compared by the
+        // store, which holds the two in different units
+        narrowed("j.hours == 9.0", 4);
         // a type that declares no summary gives each object's state, and the
         // fields asked for are given
         let p = query(&w, "Job", Some("hours < 5"), &[], None).unwrap();

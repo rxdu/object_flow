@@ -948,6 +948,27 @@ fn to_sql(v: &Value) -> Stored<Sql> {
     })
 }
 
+/// Whether a value compared in SQL with a column of the declared type
+/// finds every row the language's equality would: an integer only in an
+/// integer column, a decimal only in a decimal column of its own scale, as
+/// the language compares the two numerically and the columns hold them in
+/// different units; any other value is held as its column holds it, or not
+/// equal to what the column holds at all.
+fn comparable(v: &Value, declared: &Declared) -> bool {
+    let Declared::Scalar(t) = declared else {
+        return !matches!(v, Value::Int(_) | Value::Decimal(_));
+    };
+    match v {
+        Value::Int(_) => matches!(t.as_str(), "int" | "counter" | "event"),
+        Value::Decimal(d) => t
+            .strip_prefix("decimal(")
+            .and_then(|r| r.trim_end_matches(')').rsplit(',').next())
+            .and_then(|s| s.trim().parse::<u8>().ok())
+            .is_some_and(|s| s == d.scale()),
+        _ => true,
+    }
+}
+
 /// A column's content read back as a value of its declared type.
 fn from_sql(v: Sql, declared: &Declared, lib: &Library) -> Stored<Value> {
     let bad = || StoreError(format!("a column of {declared:?} holds {v:?}"));
@@ -2432,18 +2453,82 @@ pub(crate) fn read_type(conn: &Connection, lib: &Library, type_: &str) -> Stored
 }
 
 /// The objects of a concrete type the store holds in one of the states
-/// given, in creation order, read through the type's state index (ADR-0162
-/// step 3).
-pub(crate) fn read_type_in(
+/// given, where any are, and whose columns named each hold the value given
+/// or none, in creation order, read through the type's state index and its
+/// columns (ADR-0162 step 3); none where a value has no column to compare
+/// in, a set's or an absent one.
+pub(crate) fn read_type_where(
     conn: &Connection,
     lib: &Library,
     type_: &str,
-    states: &[String],
-) -> Stored<Vec<Object>> {
-    if states.is_empty() {
-        return Ok(Vec::new());
+    states: Option<&[String]>,
+    columns: &[(&str, &Value)],
+) -> Stored<Option<Vec<Object>>> {
+    if states.is_some_and(<[String]>::is_empty) {
+        return Ok(Some(Vec::new()));
     }
-    read_objects(conn, lib, type_, Scope::TypeIn(table(type_), states))
+    let Some(t) = lib.type_(type_) else {
+        return Err(StoreError(format!(
+            "the directory names a type {type_} the library lacks"
+        )));
+    };
+    let mut narrowed = Narrowed {
+        states: states.map(<[String]>::to_vec),
+        columns: Vec::new(),
+    };
+    for (n, v) in columns {
+        let Some(a) = t
+            .attribute(n)
+            .filter(|a| !a.many && comparable(v, &a.declared))
+        else {
+            return Ok(None);
+        };
+        match to_sql(v) {
+            Ok(Sql::Null) | Err(_) => return Ok(None),
+            Ok(sql) => narrowed.columns.push((quote(&column(n, a)), sql)),
+        }
+    }
+    Ok(Some(read_objects(
+        conn,
+        lib,
+        type_,
+        Scope::Where(table(type_), narrowed),
+    )?))
+}
+
+/// What a read of a type's objects narrows them to: a state among those
+/// given, where any are, and each column holding its value or none, since an
+/// absent value compares as unknown and not as unequal.
+struct Narrowed {
+    states: Option<Vec<String>>,
+    columns: Vec<(String, Sql)>,
+}
+
+impl Narrowed {
+    /// The conditions on a row of the type's table, its columns prefixed as
+    /// given, and the parameters they bind.
+    fn conditions(&self, prefix: &str) -> (String, Vec<Sql>) {
+        let mut parts = Vec::new();
+        let mut bound = Vec::new();
+        if let Some(states) = &self.states {
+            let marks: Vec<String> = states
+                .iter()
+                .map(|st| {
+                    bound.push(Sql::Text(st.clone()));
+                    format!("?{}", bound.len())
+                })
+                .collect();
+            parts.push(format!("{prefix}state IN ({})", marks.join(", ")));
+        }
+        for (c, v) in &self.columns {
+            bound.push(v.clone());
+            parts.push(format!(
+                "({prefix}{c} = ?{n} OR {prefix}{c} IS NULL)",
+                n = bound.len()
+            ));
+        }
+        (parts.join(" AND "), bound)
+    }
 }
 
 /// Every object the store holds, in creation order: each type's rows in one
@@ -2466,11 +2551,11 @@ pub(crate) fn read_all(conn: &Connection, lib: &Library) -> Stored<Vec<Object>> 
 }
 
 /// Which objects a read of the store fetches: one by id, every one a type's
-/// table holds, those of a type's table in the states given, or every one.
+/// table holds, those of a type's table it narrows to, or every one.
 enum Scope<'a> {
     One(&'a str),
     Type(String),
-    TypeIn(String, &'a [String]),
+    Where(String, Narrowed),
     All,
 }
 
@@ -2479,9 +2564,7 @@ impl Scope<'_> {
     fn on_row(&self) -> String {
         match self {
             Scope::One(_) => "WHERE t.id = ?1".into(),
-            Scope::TypeIn(_, states) => {
-                format!("WHERE t.state IN ({})", placeholders(states.len()))
-            }
+            Scope::Where(_, narrowed) => format!("WHERE {}", narrowed.conditions("t.").0),
             Scope::Type(_) | Scope::All => String::new(),
         }
     }
@@ -2493,30 +2576,22 @@ impl Scope<'_> {
         match self {
             Scope::One(_) => format!(" {keyword} object_id = ?1"),
             Scope::Type(table) => format!(" {keyword} object_id IN (SELECT id FROM {table})"),
-            Scope::TypeIn(table, states) => format!(
-                " {keyword} object_id IN (SELECT id FROM {table} WHERE state IN ({}))",
-                placeholders(states.len())
+            Scope::Where(table, narrowed) => format!(
+                " {keyword} object_id IN (SELECT id FROM {table} WHERE {})",
+                narrowed.conditions("").0
             ),
             Scope::All => String::new(),
         }
     }
 
-    /// What a read binds: the one id, or the states.
-    fn bound(&self) -> Vec<&str> {
+    /// What a read binds: the one id, or what it narrows by.
+    fn bound(&self) -> Vec<Sql> {
         match self {
-            Scope::One(id) => vec![id],
-            Scope::TypeIn(_, states) => states.iter().map(String::as_str).collect(),
+            Scope::One(id) => vec![Sql::Text((*id).to_string())],
+            Scope::Where(_, narrowed) => narrowed.conditions("").1,
             Scope::Type(_) | Scope::All => Vec::new(),
         }
     }
-}
-
-/// `?1, ?2, …` for the number of parameters given.
-fn placeholders(n: usize) -> String {
-    (1..=n)
-        .map(|i| format!("?{i}"))
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// The ids of the objects of a concrete type whose columns hold the values
@@ -2537,7 +2612,10 @@ pub(crate) fn read_ids_with(
     let mut conditions = Vec::new();
     let mut values = Vec::new();
     for (n, v) in key {
-        let Some(a) = t.attribute(n).filter(|a| !a.many) else {
+        let Some(a) = t
+            .attribute(n)
+            .filter(|a| !a.many && comparable(v, &a.declared))
+        else {
             return Ok(None);
         };
         let sql = match to_sql(v) {
@@ -2610,7 +2688,7 @@ fn read_rows(
     // a type's sets are read whole with its rows, an object's alone, and
     // those of a type's objects in some states by the same condition
     let of_set = match scope {
-        Scope::One(_) | Scope::TypeIn(..) => scope.on_object("WHERE"),
+        Scope::One(_) | Scope::Where(..) => scope.on_object("WHERE"),
         Scope::Type(_) | Scope::All => String::new(),
     };
     let scalars: Vec<&(String, Attribute)> = t.attributes.iter().filter(|(_, a)| !a.many).collect();
