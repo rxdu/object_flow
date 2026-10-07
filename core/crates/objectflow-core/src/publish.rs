@@ -1508,6 +1508,38 @@ types:
     }
 
     #[test]
+    fn a_publish_indexes_a_uniqueness_it_adds_and_drops_one_it_removes() {
+        let (mut s, _, _, _) = fleet();
+        let indexed = |s: &Store| -> bool {
+            s.connection()
+                .query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 't_robot_serial_key_ix'",
+                    [],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap()
+                == 1
+        };
+        assert!(!indexed(&s));
+        let unique = V1.replace(
+            "      serial: { type: string }",
+            "      serial: { type: string, unique: true }",
+        );
+        let (change, v) = submitted(&mut s, &unique);
+        assert!(matches!(
+            approve(&mut s, &change, v).0,
+            Verdict::Satisfied { .. }
+        ));
+        assert!(indexed(&s));
+        let (change, v) = submitted(&mut s, V1);
+        assert!(matches!(
+            approve(&mut s, &change, v).0,
+            Verdict::Satisfied { .. }
+        ));
+        assert!(!indexed(&s));
+    }
+
+    #[test]
     fn an_approval_installs_what_its_dry_run_reported() {
         let (mut s, [ready, held, bare], proposal, other) = fleet();
         let (change, v) = submitted(&mut s, &v2(true, true, true));

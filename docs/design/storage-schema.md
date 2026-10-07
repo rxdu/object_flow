@@ -220,6 +220,7 @@ CREATE INDEX t_robot_state_ix   ON t_robot (state);
 CREATE INDEX t_robot_asserted_ix ON t_robot (state_source);  -- exceptions(type)
 CREATE INDEX t_robot_model_ix   ON t_robot (model_id);      -- stored end
 CREATE INDEX t_robot_binding_ix ON t_robot (binding_id);    -- stored end, and the inverse `units`
+CREATE INDEX t_robot_serial_key_ix ON t_robot (serial, model_id);  -- the key `unique in scope` reads by
 ```
 
 Four things to read off it:
@@ -285,6 +286,7 @@ Most indexes are performance. These are not: a stated guarantee is false without
 | the stored end of every relationship | a derived inverse becomes a table scan, so `Delivery.units` is O(all robots). This index **is** the reverse index `referrers` needs, one per declared reference, covering the ends with no declared `inverse` too — which is the case that made `referrers` necessary. ADR-0056 states the cost plainly: a deployment pays index maintenance on every reference write, and takes it because deletion correctness is load-bearing and deletion is rare |
 | `of_attribute_write (object_id, attribute)` | `changed_since` is a scan of the object's whole history, and it is the most-cited guard in the model (ADR-0035). Keyed by part relationship too, it answers the half of `changed_since` that reaches a composition, per relationship (ADR-0057, ADR-0082) |
 | every attribute a type-scan invariant reads | the invariant's affected set is a full scan on every write |
+| every uniqueness's key, its columns together, a plain index and not a constraint: `t_<type>_<attribute>_key_ix`, a reference's key excepted, its column indexed as a stored end | a uniqueness is a scan of its type on every write of a key, and of every other object holding the key; as an index and not a `UNIQUE` constraint, it refuses nothing an admission lets stand (§8, ADR-0165) |
 | `of_interval` on the current interval of each dimension, and on its entry time | work in progress, current age and every ageing condition become scans of the whole index (ADR-0083, ADR-0084) |
 | `of_file_ref (hash)` | erasure cannot tell whether another object still holds a file, and either deletes it too (D207) or never deletes anything (ADR-0087) |
 | `of_event (txn, position)` | the settled cursor becomes a sort of the whole log on every `pull` and `export` (ADR-0089) |

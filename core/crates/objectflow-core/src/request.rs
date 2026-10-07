@@ -3733,7 +3733,7 @@ pub fn failing_invariants(world: &World<'_>, o: &Object) -> Result<Vec<String>, 
 
 /// An attribute's uniqueness as the invariants check it: its own, or, for
 /// a singular stored end whose opposite is singular too, one to one.
-fn effective_unique(lib: &Library, spec: &crate::model::Attribute) -> Unique {
+pub(crate) fn effective_unique(lib: &Library, spec: &crate::model::Attribute) -> Unique {
     if spec.unique == Unique::No
         && let (Declared::Reference(target), Some(opposite), false) =
             (&spec.declared, &spec.opposite, spec.many)
@@ -3748,7 +3748,7 @@ fn effective_unique(lib: &Library, spec: &crate::model::Attribute) -> Unique {
 
 /// The attributes a uniqueness compares, and the filter it holds among,
 /// for an attribute whose uniqueness is not `No`.
-fn unique_key<'u>(
+pub(crate) fn unique_key<'u>(
     a: &str,
     spec: &crate::model::Attribute,
     unique: &'u Unique,

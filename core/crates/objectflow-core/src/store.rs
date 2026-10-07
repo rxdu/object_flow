@@ -464,6 +464,37 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
         }
         columns.push((col, def));
     }
+    // each uniqueness's key, which the uniqueness reads by: an index and
+    // not a constraint, which an admitted conflict would refuse (ADR-0165);
+    // a reference's key is its column, indexed above as a stored end
+    for (n, a) in &t.attributes {
+        if a.many {
+            continue;
+        }
+        let unique = crate::request::effective_unique(lib, a);
+        let Some((attrs, _)) = crate::request::unique_key(n, a, &unique) else {
+            continue;
+        };
+        let Some(cols) = attrs
+            .iter()
+            .map(|k| {
+                t.attribute(k)
+                    .filter(|s| !s.many)
+                    .map(|s| quote(&column(k, s)))
+            })
+            .collect::<Option<Vec<String>>>()
+        else {
+            continue;
+        };
+        if cols.len() == 1 && matches!(a.declared, Declared::Reference(_)) {
+            continue;
+        }
+        indexes.push(format!(
+            "CREATE INDEX {} ON {name} ({});",
+            quote(&format!("{name}_{n}_key_ix")),
+            cols.join(", ")
+        ));
+    }
     TableParts {
         name,
         columns,
@@ -3307,6 +3338,59 @@ mod tests {
         assert_eq!(world.get("nobody").unwrap().unwrap().order, order);
         assert_eq!(world.next_order().unwrap(), order + 1);
         assert_eq!(world.of_type("Operator").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_uniqueness_key_is_indexed_and_read_by_its_index() {
+        let text = r#"
+module: desk
+categories: [open, closed]
+types:
+  Ticket:
+    attributes:
+      ref: { type: string, unique: true }
+      team: { type: string, optional: true }
+      seat: { type: string, optional: true, unique: { with: [team] } }
+    states:
+      OPEN: { category: open }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [ref], optional_inputs: [team, seat] }
+"#;
+        let lib = Library::load(&[("desk.yaml".into(), text.into())]).unwrap();
+        let store = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let indexes: Vec<String> = store
+            .conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 't_ticket'")
+            .unwrap()
+            .query_map([], |r| r.get::<_, Option<String>>(0))
+            .unwrap()
+            .filter_map(|r| r.unwrap())
+            .collect();
+        assert!(
+            indexes
+                .iter()
+                .any(|i| i.contains("t_ticket_ref_key_ix") && i.contains("(\"ref\")")),
+            "{indexes:?}"
+        );
+        assert!(
+            indexes
+                .iter()
+                .any(|i| i.contains("t_ticket_seat_key_ix") && i.contains("(\"seat\", \"team\")")),
+            "{indexes:?}"
+        );
+        // and the read by key goes through it, not the table
+        let plan: Vec<String> = store
+            .conn
+            .prepare("EXPLAIN QUERY PLAN SELECT id FROM t_ticket WHERE \"ref\" = ?1")
+            .unwrap()
+            .query_map(["T-1"], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(
+            plan.iter().any(|p| p.contains("t_ticket_ref_key_ix")),
+            "{plan:?}"
+        );
     }
 
     #[test]

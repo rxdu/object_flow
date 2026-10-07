@@ -2,6 +2,7 @@
 
 - **Status:** Decided by the author, 2026-10-07 ("go with your recommendations on 1 to 3"), on recommendations stated with the questions (`TODO.md`, building ADR-0162 steps 1 and 2).
 - **Date:** 2026-10-07
+- **Refined by:** ADR-0165 — the uniqueness key's index and an object's parts read on first use, which step 3 measured next.
 - **Refines:** ADR-0146 (a kind's new invariant), ADR-0153 decision 3 (what the slice does not run), ADR-0162 decision 2 (the steps)
 - **Relates to:** `DESIGN.md` §5.11; `design/library-api.md` §7; `design/declaration-syntax.md` §10; `design/scoped-reads.md` §7; D532
 

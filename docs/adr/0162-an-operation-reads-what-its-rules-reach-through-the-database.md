@@ -2,7 +2,7 @@
 
 - **Status:** Decided by the author, 2026-10-07 ("go with your recommendations on 1 to 5"), as proposed on 2026-10-06; C5's target is PRD revision 22's. Proposed for the author's discussion the day before, the author having asked for a design note and an ADR on reads that load only what a request reaches and on PRD C5's target.
 - **Date:** 2026-10-06
-- **Refined by:** ADR-0164 — step 3 begins with the evaluator's cost of a metric read, then the index ranges.
+- **Refined by:** ADR-0164 — step 3 begins with the evaluator's cost of a metric read, then the index ranges. ADR-0165 — every uniqueness key is indexed, and an object's other parts are read on first use.
 - **Relates to:** ADR-0039 (serialisable isolation), ADR-0090 (concurrency on each backend), ADR-0132 (the core in Rust); `DESIGN.md` §2; `design/storage-schema.md` §5, §6; `design/scoped-reads.md`; PRD C5, N3
 
 ## Context
