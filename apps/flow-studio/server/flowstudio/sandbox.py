@@ -149,8 +149,13 @@ class Sandbox:
         self.source: dict = {}
 
     # ── sandbox control (ADR-0150 decision 3) ─────────────────────────────
-    def load(self, body: dict) -> dict:
-        files, refused, notices = checked(body)
+    def load(self, body: dict, check: bool = True) -> dict:
+        """The modules loaded, the flow checker refusing what it finds wrong;
+        `check` false loads them unchecked, as the core's own service does,
+        which only the scenarios' replay asks, for a port whose mirrors the
+        checker refuses (TODO, the scenarios' port)."""
+        files, refused, notices = checked(body) if check else (
+            [(f["name"], f["text"]) for f in body.get("files") or []], None, 0)
         if refused:
             return refused
         library, modules = build(files)

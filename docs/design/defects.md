@@ -552,6 +552,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D538](#d538) | A dry run counted a refused offer as waiting, by its guards' order | Resolved |
 | [D539](#d539) | The runner held recordings made before a publish to the kind's new invariant | Resolved |
 | [D540](#d540) | The runner's erasure left a personal enumeration's intervals holding their values | Resolved |
+| [D541](#d541) | The runner's import required an end of a relationship the other end stores | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3535,3 +3536,8 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **The runner's erasure left a personal enumeration's intervals holding their values.** `storage-schema.md` §9 step 9 sets `value` to `NULL` in every interval row of an erased object's personal enumeration attributes, so the interval index agrees with the redacted events it is rebuilt from, each row judged by the version it was written under. The reference runner's erasure cleared the attribute's current value and left every interval it had held, so a metric over `intervals(tier)` still counted an erased customer's `GOLD`; the publish's redaction of a value a version newly marks personal on an erased object, written for ADR-0166's R3, did the same. Found 2026-10-08 probing the core and the runner through the studio's comparison, while building the runner's erasure across versions.
 
 **Resolved** in the runner: after a request has written its own intervals, each erased object's intervals of an attribute personal now, or under the version that wrote the interval, its name taken back through later renames, hold no value; the publish's redaction clears the redacted attribute's intervals too. The publishing comparison reads the intervals by value through both backends after an erasure with no publish, after a version unmarking the attribute, and before and after a version newly marking it.
+
+### D541
+**The runner's import required an end of a relationship the other end stores.** Of a single end and a set end, the single one stores the relationship, and the set end is read from it (`flow-format.md` §4.3), so no write gives it a value. The reference runner's import counted such an end, `RobotModel.units`, the set end of `Robot.model`, among the attributes a placed object must provide, and refused every model the metric scenarios' port imports as failing `units_provided`, which the core imports. Found 2026-10-08 replaying the scenarios through the runner (ADR-0166 R4).
+
+**Resolved** in the runner: an end the other end stores, a set end or a single end whose single opposite is the one marked `stored`, is required of no import. `tests/test_importing.py` imports a model without its units through both backends, alike, and fails without the fix.

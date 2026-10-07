@@ -30,6 +30,10 @@ With `--survey` it steps past each step it cannot take, recording why, so one ru
 a value read after a step it stepped past may stand on that step, so a survey's reads are reported and never held.
 
 It builds the core's service with the pinned toolchain and starts it on a free port, stopping it when done.
+
+With `--runner` it replays the same history through the reference runner's sandbox instead, served in this process by
+the Flow Studio's server, so both backends are held to the values the document derives by hand (ADR-0166 decision 2).
+An operation the runner's sandbox does not serve is not run there; its reads are held by `scenarios_passing_runner.txt`.
 """
 import datetime
 import importlib.util
@@ -38,6 +42,8 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
+import threading
 import urllib.error
 import urllib.request
 
@@ -50,6 +56,9 @@ PASSING = pathlib.Path(__file__).with_name("scenarios_passing.txt")
 spec = importlib.util.spec_from_file_location("scenarios", ROOT / "scripts/check-scenarios.py")
 cs = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cs)
+spec = importlib.util.spec_from_file_location("flows", ROOT / "scripts/check-flows.py")
+flows = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(flows)
 
 OPERATOR = "operator"
 ORDER = ("operations_shared", "inventory_journey", "returns")
@@ -91,8 +100,39 @@ class Service:
         except urllib.error.HTTPError as e:
             fault = json.loads(e.read() or b"{}").get("fault", "")
             if e.code == 501:
-                raise NotRun(fault)
+                raise NotRun(fault.removeprefix("not run: "))     # the driver says it was not run
             raise Differs(f"{path} answered {e.code}: {fault}")
+
+
+class RunnerSandbox(Service):
+    """The reference runner's sandbox, served in this process by the Flow Studio's server, its wire the core's
+    (ADR-0166 decision 2); an operation it does not serve is not run, never a difference."""
+
+    def __init__(self):
+        sys.path.insert(0, str(ROOT / "apps/flow-studio/server"))
+        from flowstudio.catalogue import Catalogue
+        from flowstudio.http import routes, serve
+        from flowstudio.sandbox import Sandbox
+        here = pathlib.Path(tempfile.mkdtemp())
+        self.served = set(routes(Sandbox(), Catalogue(here)))
+        self.box = Sandbox()
+        self.server = serve("127.0.0.1", 0, here, box=self.box)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def call(self, path, body):
+        if path not in self.served:
+            raise NotRun(f"the runner's sandbox serves no {path}")
+        if path == "/sandbox/load":
+            # the port's mirrors loaded unchecked, as the core's service loads them, which the checker refuses
+            # (TODO, the scenarios' port); the cutover's version is checked as every publish's is
+            with self.box.lock:
+                return self.box.load(body, check=False)
+        return super().call(path, body)
 
 
 # ── values ───────────────────────────────────────────────────────────────────────
@@ -205,9 +245,12 @@ class Driver:
         for n in [n for n in ORDER if n in self.texts] + [n for n in self.texts if n not in ORDER]:
             text = self.texts[n]
             if mirror:
-                doc = yaml.safe_load(text)
-                for t in (doc.get("types") or {}).values():
-                    t["mirror"] = True
+                # read as the checker and the core read it: `on` a key and not a truth value, a date the text it is
+                doc = flows.load(text)
+                for tn, t in list((doc.get("types") or {}).items()):
+                    # in the place the format orders it, after the description (flow-format.md §4.1)
+                    head = {k: v for k, v in t.items() if k == "description"}
+                    doc["types"][tn] = {**head, "mirror": True, **{k: v for k, v in t.items() if k not in head}}
                 text = yaml.safe_dump(doc, sort_keys=False, allow_unicode=True)
             out.append({"name": f"{n}.yaml", "text": text})
         return out
@@ -776,10 +819,13 @@ def main():
                    + [(line, "read", (line, sp, hd, rw)) for line, sp, hd, rw in reads], key=lambda x: x[0])
     total = sum(len(h.get("requests") or []) for _s, h in histories)
     survey = [] if "--survey" in sys.argv[1:] else None
-    service = Service()
+    runner = "--runner" in sys.argv[1:]
+    service = RunnerSandbox() if runner else Service()
+    who = "the runner" if runner else "the core"
+    passing = PASSING.with_name("scenarios_passing_runner.txt") if runner else PASSING
     findings, matched, outcomes, unrun, waiting, partial, stopped = [], set(), [], [], [], [], None
     awaiting = {}
-    for line in (PASSING.read_text().splitlines() if PASSING.exists() else []):
+    for line in (passing.read_text().splitlines() if passing.exists() else []):
         if line.startswith("awaiting: "):
             spec_, _, why = line[len("awaiting: "):].partition(" -- ")
             awaiting[spec_.strip()] = why.strip()
@@ -820,7 +866,7 @@ def main():
                     outcomes.append("after a gap, " + ("matches" if same else "differs"))
                     if not same:
                         survey.append(f"read at line {line}, `{spec_}`, after a gap, expects\n      "
-                                      f"{sorted(tuple(r) for r in rows)}\n      and the core gives\n      {sorted(got)}")
+                                      f"{sorted(tuple(r) for r in rows)}\n      and {who} gives\n      {sorted(got)}")
                 except (NotRun, Differs) as e:
                     outcomes.append(f"after a gap, {'not run' if isinstance(e, NotRun) else 'refused'}")
                     survey.append(f"read at line {line}, `{spec_}`, after a gap: {e}")
@@ -852,7 +898,7 @@ def main():
                 findings.append(f"line {line}: `{spec_}` has columns {header}, and the read returns {cols}")
             elif (want != got) if ordered else (sorted(want) != sorted(got)):
                 outcomes.append("differs")
-                text = (f"line {line}: `{spec_}` expects\n      {sorted(want)}\n    and the core gives\n      "
+                text = (f"line {line}: `{spec_}` expects\n      {sorted(want)}\n    and {who} gives\n      "
                         f"{sorted(got)}")
                 # a difference recorded as awaiting a decision is reported, and is no finding
                 (waiting if key in awaiting else findings).append(text + (f"\n    awaiting: {awaiting[key]}"
@@ -883,20 +929,20 @@ def main():
     for u in unrun:
         print(f"  not run: {u}")
     for p in partial:
-        print(f"  matches on what the core returns, and quotes what it does not: {p}")
+        print(f"  matches on what {who} returns, and quotes what it does not: {p}")
     for w in waiting:
         print(f"  awaiting a decision: {w}")
     for f in findings:
         print(f"  finding: {f}")
     for spec_ in sorted(set(awaiting) & matched):
         print(f"  now matching, to move from awaiting to held: {spec_}")
-    held = {line.strip() for line in PASSING.read_text().splitlines()
-            if line.strip() and not line.startswith(("#", "awaiting: "))} if PASSING.exists() else set()
+    held = {line.strip() for line in passing.read_text().splitlines()
+            if line.strip() and not line.startswith(("#", "awaiting: "))} if passing.exists() else set()
     lost = sorted(held - matched)
     for spec_ in lost:
         print(f"  no longer matches: {spec_}")
     for spec_ in sorted(matched - held - set(awaiting)):
-        print(f"  newly matching, to add to {PASSING.name}: {spec_}")
+        print(f"  newly matching, to add to {passing.name}: {spec_}")
     return 1 if findings or lost else 0
 
 

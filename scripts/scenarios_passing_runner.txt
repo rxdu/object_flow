@@ -1,0 +1,5 @@
+# Each read of docs/design/metric-scenarios.md the reference runner matches when scripts/replay-scenarios.py --runner
+# replays the history through the runner's sandbox without stepping past anything (ADR-0166 decision 2); a read no
+# longer matching fails the replay. A read repeated in the document is named with its place among reads of the same
+# text, `#2` and on. A read recorded as awaiting a decision differs for a reason TODO records; its difference is
+# reported and is no finding, and once it matches it is reported, to move here.

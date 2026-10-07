@@ -146,6 +146,19 @@ def is_set_attribute(spec):
     return str(spec.get("type", "")).endswith("[]") or (str(spec.get("reference", "")).endswith("[]") and "opposite" not in spec)
 
 
+def computed_end(kinds, spec):
+    """An end of a relationship the other end stores, read from it and given by no write: a set end, or a single end
+    whose single opposite is the one marked `stored` (flow-format.md §4.3)."""
+    spec = spec or {}
+    ref, opposite = str(spec.get("reference", "")), spec.get("opposite")
+    if not ref or not opposite:
+        return False
+    if ref.endswith("[]"):
+        return True
+    other = ((kinds.get(ref) or {}).get("attributes") or {}).get(opposite) or {}
+    return not str(other.get("reference", "")).endswith("[]") and bool(other.get("stored")) and not spec.get("stored")
+
+
 def half_even(v, places):
     """A value rounded half to even to so many decimal places (declaration-syntax.md §8.3)."""
     scaled = Fraction(v) * 10 ** places
@@ -2818,7 +2831,7 @@ def import_object(runner, store, tn, state, given):
     o.attrs.update({k: v for k, v in given.items() if v is not ABSENT})
     store.objects[o.id] = o
     left_out = [a for a, spec in attrs.items() if not (spec or {}).get("optional") and "default" not in (spec or {})
-                and (spec or {}).get("type") != "counter" and a not in o.attrs]
+                and (spec or {}).get("type") != "counter" and not computed_end(runner.kinds, spec) and a not in o.attrs]
     failing = left_out and [f"{left_out[0]}_provided"] or runner.failing_invariants(store, o)
     if failing:
         del store.objects[o.id]
