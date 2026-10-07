@@ -226,12 +226,9 @@ fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
 
 fn attempt_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Attempt> {
     let at: String = r.get(0)?;
-    let values: Option<String> = r.get(13)?;
-    let values: serde_json::Value = values
-        .and_then(|v| serde_json::from_str(&v).ok())
-        .unwrap_or(serde_json::Value::Null);
+    let values = json_column(r, 13, "an attempt's request_values")?;
     Ok(Attempt {
-        at: parse_timestamp(&at).unwrap_or(0),
+        at: time_column(0, &at, "an attempt's at")?,
         actor_id: r.get(1)?,
         actor_kind: r.get(2)?,
         principal: r.get(15)?,
@@ -255,19 +252,42 @@ fn attempt_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Attempt> {
             })
             .unwrap_or_default(),
         declaration_version: r.get(14)?,
-        reads: json_column(r.get(16)?),
-        consulted: json_column(r.get(17)?),
+        reads: json_column(r, 16, "an attempt's reads")?,
+        consulted: json_column(r, 17, "an attempt's consulted")?,
         txn: r.get(18)?,
-        call: json_column(r.get(19)?),
+        call: json_column(r, 19, "an attempt's call")?,
         context: r.get(20)?,
         proposal: r.get(21)?,
     })
 }
 
 /// A JSON column as written, null where empty.
-fn json_column(text: Option<String>) -> serde_json::Value {
-    text.and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or(serde_json::Value::Null)
+/// A column of a row read that does not decode, which fails the row: a
+/// damaged row is refused, never read as a default. The error names the
+/// column and what it holds, not its text, which may be personal.
+fn undecodable(column: usize, what: &str) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(
+        column,
+        rusqlite::types::Type::Text,
+        Box::new(StoreError(format!("{what}, which does not decode"))),
+    )
+}
+
+/// A time column's text, decoded.
+fn time_column(column: usize, text: &str, what: &str) -> rusqlite::Result<i64> {
+    parse_timestamp(text).ok_or_else(|| undecodable(column, what))
+}
+
+/// A JSON column, decoded; `null` where the column holds none.
+fn json_column(
+    r: &rusqlite::Row<'_>,
+    column: usize,
+    what: &str,
+) -> rusqlite::Result<serde_json::Value> {
+    match r.get::<_, Option<String>>(column)? {
+        None => Ok(serde_json::Value::Null),
+        Some(text) => serde_json::from_str(&text).map_err(|_| undecodable(column, what)),
+    }
 }
 
 fn table(type_: &str) -> String {
@@ -685,12 +705,19 @@ fn redact_legacy(tx: &Transaction<'_>, id: &str) -> Stored<()> {
         rows.collect::<Result<Vec<_>, _>>()?
     };
     for (ordinal, payload, kept) in rows {
+        // a damaged entry stops the erasure, rather than being overwritten
+        // with what a default would keep
+        let damaged = |column: &str| {
+            StoreError(format!(
+                "{id}'s legacy entry {ordinal}'s {column}, which does not decode"
+            ))
+        };
         let entry = crate::world::LegacyEntry {
             ordinal,
             kind: String::new(),
             occurred_at: 0,
-            payload: serde_json::from_str(&payload).unwrap_or_default(),
-            kept: serde_json::from_str(&kept).unwrap_or_default(),
+            payload: serde_json::from_str(&payload).map_err(|_| damaged("payload"))?,
+            kept: serde_json::from_str(&kept).map_err(|_| damaged("kept"))?,
         };
         tx.execute(
             "UPDATE of_legacy_entry SET payload = ?3 WHERE object_id = ?1 AND ordinal = ?2",
@@ -2186,9 +2213,11 @@ const EVENT_SELECT: &str = "SELECT position, object_id, object_seq, transition, 
     cause_position, reads, context FROM of_event";
 
 fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
+    let position: i64 = r.get(0)?;
     let recorded: String = r.get(11)?;
     let occurred: Option<String> = r.get(12)?;
     let payload: String = r.get(14)?;
+    let what = |column: &str| format!("event {position}'s {column}");
     Ok(Event {
         position: r.get(0)?,
         object_id: r.get(1)?,
@@ -2203,11 +2232,14 @@ fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
         principal: r.get(15)?,
         cause: r.get(16)?,
         declaration_version: r.get(10)?,
-        recorded_at: parse_timestamp(&recorded).unwrap_or(0),
-        occurred_at: occurred.as_deref().and_then(parse_timestamp),
+        recorded_at: time_column(11, &recorded, &what("recorded_at"))?,
+        occurred_at: occurred
+            .as_deref()
+            .map(|t| time_column(12, t, &what("occurred_at")))
+            .transpose()?,
         imported: r.get::<_, i64>(13)? != 0,
-        payload: serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null),
-        reads: json_column(r.get(17)?).as_object().map_or_else(
+        payload: serde_json::from_str(&payload).map_err(|_| undecodable(14, &what("payload")))?,
+        reads: json_column(r, 17, &what("reads"))?.as_object().map_or_else(
             || serde_json::json!({}),
             |o| serde_json::Value::Object(o.clone()),
         ),
@@ -2253,17 +2285,19 @@ fn snapshot<'l>(
     })?;
     for row in rows {
         let (id, ordinal, kind, at, payload, kept) = row?;
-        world
-            .legacy
-            .entry(id)
-            .or_default()
-            .push(crate::world::LegacyEntry {
-                ordinal,
-                kind,
-                occurred_at: parse_timestamp(&at).unwrap_or(0),
-                payload: serde_json::from_str(&payload).unwrap_or_default(),
-                kept: serde_json::from_str(&kept).unwrap_or_default(),
-            });
+        let damaged = |column: &str| {
+            StoreError(format!(
+                "{id}'s legacy entry {ordinal}'s {column}, which does not decode"
+            ))
+        };
+        let entry = crate::world::LegacyEntry {
+            ordinal,
+            kind,
+            occurred_at: parse_timestamp(&at).ok_or_else(|| damaged("occurred_at"))?,
+            payload: serde_json::from_str(&payload).map_err(|_| damaged("payload"))?,
+            kept: serde_json::from_str(&kept).map_err(|_| damaged("kept"))?,
+        };
+        world.legacy.entry(id).or_default().push(entry);
     }
     // each subscription's acknowledged cursor, a position on SQLite
     let mut positions =
@@ -3064,5 +3098,65 @@ mod tests {
         assert!(world.get("ghost-1").is_err());
         // a scan of another type is not affected
         assert_eq!(world.of_type("Operator").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_damaged_row_is_refused_not_read_as_a_default() {
+        let sandbox = || Store::sandbox(Library::load(&[]).unwrap(), 1_767_225_600).unwrap();
+        // an event's time and its payload
+        for (column, text) in [
+            ("recorded_at", "later"),
+            ("occurred_at", "soon"),
+            ("payload", "{oops"),
+        ] {
+            let store = sandbox();
+            store
+                .conn
+                .execute(&format!("UPDATE of_event SET {column} = ?1"), [text])
+                .unwrap();
+            let e = store.history(OPERATOR).unwrap_err();
+            assert!(e.0.contains(column), "{column}: {}", e.0);
+            assert!(!e.0.contains(text), "the text is not named: {}", e.0);
+            assert!(store.snapshot().unwrap().log().is_err());
+        }
+        // an attempt's recorded values: an unknown actor's request is one
+        let mut store = sandbox();
+        let refused = crate::request::request(
+            &mut store,
+            &crate::request::Request {
+                transition: "anything".into(),
+                actor: "nobody".into(),
+                object_id: None,
+                type_: Some("Operator".into()),
+                inputs: BTreeMap::new(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            },
+        );
+        assert!(refused.unwrap().is_ok());
+        assert_eq!(store.snapshot().unwrap().attempts().unwrap().len(), 1);
+        store
+            .conn
+            .execute_batch("UPDATE of_attempt SET request_values = '{oops';")
+            .unwrap();
+        let e = store.snapshot().unwrap().attempts().unwrap_err();
+        assert!(e.0.contains("request_values"), "{}", e.0);
+        // a legacy entry
+        let store = sandbox();
+        store
+            .conn
+            .execute(
+                "INSERT INTO of_legacy_entry (object_id, ordinal, kind, occurred_at, payload, kept) \
+                 VALUES (?1, 1, 'note', '2026-01-01T00:00:00Z', '{oops', '[]')",
+                [OPERATOR],
+            )
+            .unwrap();
+        let e = store.legacy_entries(OPERATOR).unwrap_err();
+        assert!(e.0.contains("payload"), "{}", e.0);
     }
 }
