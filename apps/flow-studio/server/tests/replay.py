@@ -15,7 +15,7 @@ import re
 import urllib.error
 import urllib.request
 from fractions import Fraction
-from typing import Any
+from typing import Any, Callable
 
 from flowstudio.scripts import flowrun, flows
 from flowstudio.values import timestamp_text
@@ -361,10 +361,13 @@ def chain(setups: dict, name: str) -> list[dict]:
 
 
 def replay(wire: Wire, module_file: str,
-           bundle: dict | None = None) -> dict[str, tuple[str, str]]:
+           bundle: dict | None = None,
+           after: Callable[[Wire, list], None] | None = None,
+           ) -> dict[str, tuple[str, str]]:
     """Every example of a module's examples file: its outcome and why. The
     module's files come from the studio's catalogue on the same wire, or are
-    given, for an engine's service that serves no studio routes."""
+    given, for an engine's service that serves no studio routes. `after`, if
+    given, reads the sandbox after each example, with the types it holds."""
     if bundle is None:
         bundle = wire.get(f"/studio/module?file={module_file}")
     loaded = wire.post("/sandbox/load", {"files": bundle["files"]})
@@ -406,4 +409,6 @@ def replay(wire: Wire, module_file: str,
             out[name] = ("not run", str(n))
         except Failed as f:
             out[name] = ("failed", str(f))
+        if after is not None:
+            after(wire, loaded.get("types") or [])
     return out

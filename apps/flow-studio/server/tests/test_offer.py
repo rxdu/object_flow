@@ -51,18 +51,28 @@ def test_an_offer_of_an_unknown_object_is_a_fault(service):
     assert "404" in str(e.value)
 
 
-def test_a_metric_is_read_over_every_row(service):
+def test_a_metric_is_read_whole_and_by_its_groups(service):
     wire, ana = service
     for _ in range(2):
         wire.post("/v1/request", {"transition": "open",
                                   "actor": {"id": ana},
                                   "type": "ServiceJob",
                                   "inputs": {"engineer": ana}})
-    page = wire.post("/v1/metric", {"actor": {"id": ana},
-                                    "name": "ServiceJob.work_in_progress"})
-    assert page["rows"] == [{"dimensions": {}, "value": 2}], page
+
+    def read(**kw):
+        return wire.post("/v1/metric", {"actor": {"id": ana},
+                                        "name": "ServiceJob.work_in_progress",
+                                        **kw})
+
+    def rows(page):
+        return [(r["dimensions"], r["value"]) for r in page["rows"]]
+    # whole, nothing kept; by every declared dimension unless keep names some
+    assert rows(read(keep=[])) == [({}, 2)]
+    assert rows(read()) == [({"state": "OPEN"}, 2)]
+    assert rows(read(keep=["state"])) == [({"state": "OPEN"}, 2)]
+    # a dimension it does not have is refused, a value
+    assert read(keep=["nobody"])["refused"] == "unknown_dimension"
+    # a page holds every group, so a cursor has nothing to continue from
     with pytest.raises(Exception) as e:
-        wire.post("/v1/metric", {"actor": {"id": ana},
-                                 "name": "ServiceJob.work_in_progress",
-                                 "keep": ["state"]})
-    assert "not run" in str(e.value) or "501" in str(e.value)
+        read(cursor="x")
+    assert "400" in str(e.value)

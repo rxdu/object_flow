@@ -61,7 +61,7 @@ describe.each(BACKENDS)("against the %s", (backend) => {
       expect(refused.every((o) => o.verdict !== null)).toBe(true);
 
       const wip = async () =>
-        (await wire.metric(ana.object_id, "ServiceJob.work_in_progress"))
+        (await wire.metric(ana.object_id, "ServiceJob.work_in_progress", []))
           .rows[0]?.value;
       expect(await wip()).toBe(1);
 

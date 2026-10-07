@@ -23,7 +23,7 @@ from compare import Tee
 from flowstudio.catalogue import Catalogue
 from flowstudio.core import Core
 from flowstudio.http import serve
-from replay import replay
+from replay import Failed, NotRun, Wire, replay
 
 KNOWN = pathlib.Path(__file__).with_name("backend_differences.txt")
 
@@ -47,12 +47,30 @@ def tee():
     core.close()
 
 
+def read_metrics(wire: Wire, types: list) -> None:
+    """Every metric each type declares, read whole, as the page's metrics
+    strip reads it, and by its declared groups, as a reader does; each
+    answer is compared by the tee, a read either backend refuses with it."""
+    for t in types:
+        decl = wire.post("/v1/declaration", {"type": t})
+        for n in sorted(decl.get("metrics") or {}):
+            for keep in ([], None):
+                body = {"actor": {"id": "operator"}, "name": f"{t}.{n}"}
+                if keep is not None:
+                    body["keep"] = keep
+                try:
+                    wire.post("/v1/metric", body)
+                except (Failed, NotRun):
+                    pass
+
+
 def test_the_backends_differ_only_where_known(tee):
     design = Catalogue(pathlib.Path(tempfile.mkdtemp()))
     for m in design.modules():
         if m["examples"] and m["source"] == "design":
             tee.module = m["file"]
-            replay(tee, m["file"], bundle=design.bundle(m["file"]))
+            replay(tee, m["file"], bundle=design.bundle(m["file"]),
+                   after=read_metrics)
     found = tee.kinds()
     known = {line.strip() for line in KNOWN.read_text().splitlines()
              if line.strip() and not line.startswith("#")}

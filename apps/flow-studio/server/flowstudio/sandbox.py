@@ -532,34 +532,58 @@ class Sandbox:
         return out
 
     def metric(self, body: dict) -> dict:
-        """A metric read over every row it selects (`library-api.md` §5).
-        The runner reads a metric as a guard does, one value with its
-        dimensions bound, so a read that groups by a dimension, or filters,
-        is not run."""
+        """A reader's read of a metric (`library-api.md` §5), the runner's
+        `read_page`: a row per group of the dimensions kept, every declared
+        one unless `keep` names them, each declared flag on each declared
+        group, and a refusal, a value. The page holds every group, so a
+        cursor has nothing to continue from, as the core says."""
         self.loaded()
         name = body.get("name")
         if not name:
             raise Fault(400, "metric names the metric")
-        if body.get("keep") or body.get("filter") or body.get("cursor"):
-            raise not_run("a metric read grouped by a dimension, filtered or "
-                          "paged, which the runner reads only bound")
+        if body.get("cursor") is not None:
+            raise Fault(400, "a metric's page holds every group, so it has "
+                             "no cursor to continue from")
+        keep = body.get("keep")
+        if keep is not None and not (isinstance(keep, list) and all(
+                isinstance(d, str) for d in keep)):
+            raise Fault(400, "keep takes dimension names")
         s = self.store
+        ev = flowrun.Evaluator(s, None, stubs=flowrun.NEVER_ASKED)
         try:
-            owner, spec, module = s.find_metric(flowrun.parsed(name))
             window = flowrun.seconds(body["over"]) if body.get("over") \
                 else None
-            ev = flowrun.Evaluator(s, owner, stubs=flowrun.NEVER_ASKED)
-            bound = dict(body.get("bind") or {})
-            v, kind = ev.read_metric(owner, spec, module, bound, window)
-            value = values.encode(v, values.type_of_kind(kind))
+            page = ev.read_page(name, bind=dict(body.get("bind") or {}),
+                                keep=keep, over=window,
+                                filt=body.get("filter"))
+            if page["refused"]:
+                return {"rows": [], "cursor": None, "flags": [],
+                        "history_complete": True,
+                        "refused": page["refused"]}
+            owner, spec, module = s.find_metric(flowrun.parsed(name))
+            value_kind, dim_kinds = ev.page_kinds(
+                owner, spec, module, sorted(s.metric_dimensions(owner, spec)))
+
+            def group(dims: dict) -> dict:
+                return {d: values.encode(v, values.type_of_kind(dim_kinds[d]))
+                        for d, v in dims.items()}
+            rows = [{"dimensions": group(r["dimensions"]),
+                     "value": values.encode(
+                         r["value"], values.type_of_kind(value_kind)),
+                     "gaps": r["gaps"], "time_basis": r["time_basis"]}
+                    for r in page["rows"]]
+            flags = [{"flag": f["flag"], "group": group(f["group"]),
+                      "unknown": f["unknown"]} for f in page["flags"]]
         except flowrun.NotRunnable as e:
             raise not_run(e)
         except values.Unencodable as e:
-            raise Fault(500, f"cannot encode {name}'s value: {e}")
-        return {"rows": [{"dimensions": bound, "value": value}],
-                "cursor": None, "flags": [],
-                "not_computed": ["rows[].gaps", "flags",
-                                 "history_complete", "refused"]}
+            raise Fault(500, f"cannot encode {name}'s page: {e}")
+        # every object the runner holds has its whole record, so it reads no
+        # gap, which the core alone computes (TODO, the metric read)
+        return {"rows": rows, "cursor": None, "flags": flags,
+                "history_complete": page["history_complete"],
+                "refused": None,
+                "not_computed": ["rows[].gaps", "history_complete"]}
 
     def events(self, body: dict) -> dict:
         """The event at each position given, in the order given, and null

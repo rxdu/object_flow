@@ -1153,6 +1153,28 @@ class Evaluator:
                         flags.append({"flag": flag, "group": dict(zip(declared, key)), "unknown": t is ABSENT})
         return {"rows": rows, "flags": flags, "history_complete": not any(r["gaps"] for r in rows), "refused": None}
 
+    def page_kinds(self, owner, spec, module, keep):
+        """The type of a metric page's values and of each dimension named, as an encoder of the page reads them: a
+        combined metric's dimension typed as its first input having it (declaration-syntax.md §6.9)."""
+        s = self.s
+        if "input_metrics" in spec:
+            kinds, dims = {}, {}
+            for n, ref in spec["input_metrics"].items():
+                o2, s2, m2 = s.find_metric(parsed(ref), module=module)
+                mine = s.metric_dimensions(o2, s2)
+                kinds[n], got = self.page_kinds(o2, s2, m2, [d for d in keep if d in mine])
+                for d, k in got.items():
+                    dims.setdefault(d, k)
+            return self.kind(parsed(spec["expression"]), kinds), dims
+        f = formula(s.kinds, s.enums, owner, spec)
+        _rows, rowkind, by_kind = self.metric_rows(owner, f["source"])
+        item = f["item"]
+        row = Evaluator(s, owner, stubs=self.stubs, filter_mode=True)
+        exprs = {"version": f"{item}.declaration_version", "actor_kind": f"{item}.{by_kind}"}
+        exprs.update(f.get("dimensions") or {})
+        env = {item: rowkind}
+        return row.kind(parsed(f["expression"]), env), {d: row.kind(parsed(exprs[d]), env) for d in keep}
+
     def windowed(self, owner, spec, module):
         """Whether a read may window a metric: one with a time dimension or a split, or a combined one whose every input
         may be (ADR-0147)."""

@@ -273,7 +273,9 @@ export interface Wire {
     value: string,
   ): Promise<FlowObject | null>;
   availability(actor: string, id: string): Promise<TransitionOffer[]>;
-  metric(actor: string, name: string): Promise<MetricPage>;
+  /** A reader's read of a metric: a row per group of the dimensions
+   *  `keep` names, every declared one where it names none. */
+  metric(actor: string, name: string, keep?: string[]): Promise<MetricPage>;
   load(files: ModuleFile[]): Promise<LoadResult>;
   reset(): Promise<{ now: string }>;
   clock(
@@ -351,7 +353,8 @@ export function httpWire(base = ""): Wire {
       call("GET", `/studio/module?file=${q(file)}&source=${source}`),
     availability: (actor, id) =>
       post("/v1/availability", { actor: { id: actor }, id }),
-    metric: (actor, name) => post("/v1/metric", { actor: { id: actor }, name }),
+    metric: (actor, name, keep) =>
+      post("/v1/metric", { actor: { id: actor }, name, keep }),
     diagram: (file, type, source = "design") =>
       call(
         "GET",
