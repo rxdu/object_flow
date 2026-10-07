@@ -1,6 +1,7 @@
 //! Indicative evidence for PRD C5 and N3: how the core's request and read
-//! times grow with the store, since every request and read loads the whole
-//! store into memory (`TODO.md`, "a request reads the whole store").
+//! times grow with the store, which ADR-0162's steps were each measured by
+//! (`docs/design/scoped-reads.md` §7); a request and a `get` read what they
+//! reach, a query and a metric read their type.
 //!
 //! A probe, not a test: it asserts nothing. Its limits, stated so it is not
 //! over-read: one type, five events an object, an in-memory SQLite store,
