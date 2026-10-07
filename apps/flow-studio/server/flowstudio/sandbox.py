@@ -146,6 +146,7 @@ class Sandbox:
         # each declared type as its module writes it, which `declaration`
         # returns, where the runner's own entry is its loader's normal form
         self.written: dict = {}
+        self.written_at_load: dict = {}
         self.source: dict = {}
 
     # ── sandbox control (ADR-0150 decision 3) ─────────────────────────────
@@ -159,7 +160,8 @@ class Sandbox:
         if refused:
             return refused
         library, modules = build(files)
-        self.written = written(modules)
+        # each type as the loaded version writes it, which a reset returns to
+        self.written = self.written_at_load = written(modules)
         enums = {
             n: list(v)
             for m in modules.values()
@@ -199,6 +201,7 @@ class Sandbox:
 
     def fresh(self) -> None:
         kinds, enums, declared, homes = self.parts
+        self.written = self.written_at_load
         self.runner = flowrun.Runner(kinds, enums)
         self.store = flowrun.Store(kinds, enums, declared, homes)
         self.store.source = dict(self.source)
@@ -358,8 +361,11 @@ class Sandbox:
             verdict = self.refusal(result, tn, change, None, "publish")
         else:
             # the store now holds the new version, which every later request
-            # is decided under, until a reset reloads the modules loaded
+            # is decided under, until a reset reloads the modules loaded; and
+            # `declaration` returns its types as its modules write them
             self.runner = flowrun.Runner(s.kinds, s.enums)
+            _library, modules = build(flowpublish.import_order(flows, s.source))
+            self.written = written(modules)
             verdict = self.satisfied(("applied", change, [], []), tn, before)
         return {"verdict": verdict, "report": report}
 

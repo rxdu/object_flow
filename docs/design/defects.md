@@ -554,6 +554,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D540](#d540) | The runner's erasure left a personal enumeration's intervals holding their values | Resolved |
 | [D541](#d541) | The runner's import required an end of a relationship the other end stores | Resolved |
 | [D542](#d542) | The runner's dry run stopped on a guard naming no condition | Resolved |
+| [D543](#d543) | The runner's sandbox declared each type as the loaded version wrote it after a publish | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3547,3 +3548,8 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **The runner's dry run stopped on a guard naming no condition.** A dry run goes on past the fatal findings of its checks, reporting everything, and where the rules they refuse cannot be run over the objects it reports the impact as `not_computed` (`publish-and-import.md` §1 step 4); the core does so. The reference runner's offers read each guard's condition by name, and a version whose guard named no condition, which its step 1 had refused, raised a fault out of the dry run instead, so a submission of such a version failed with a server fault rather than being refused as `dry_run_clean`. Found 2026-10-08 by the flow checker's plant of a `publish` step whose version the dry run refuses (ADR-0166 R5).
 
 **Resolved** in the runner: an offer of a guard on no declared condition is not run, which the dry run's step past refused checks reports as `not_computed`, as the core's does. The plant, a `publish` of `service-v2.yaml` with a guard misspelled, is held by both checkers through the core's oracle.
+
+### D543
+**The runner's sandbox declared each type as the loaded version wrote it after a publish.** `declaration` returns a type as the version the store holds declares it (`library-api.md` §6). The studio's runner sandbox answers it from each type as its modules write it, which it built at `load` and did not rebuild when a publish installed another version (ADR-0166 R3), so after `service-v2.yaml` was published a job's declaration still named `photo`, where the core's named `completion_photo` and `site`; every request the runner decided was under the version installed, and only what it declared lagged. Found 2026-10-08, the comparison of every example given the reader its `publish` steps need, which it had lacked.
+
+**Resolved** in the runner's sandbox: an approval rebuilds the declarations from the installed version's source, its modules in import order, and a reset returns them to the loaded version's. The publishing comparison reads each changed type's declaration after a publish, and the comparison of every example plays the examples' publishes through both backends; each fails without the fix.

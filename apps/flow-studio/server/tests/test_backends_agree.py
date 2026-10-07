@@ -23,6 +23,7 @@ from compare import Tee
 from flowstudio.catalogue import Catalogue
 from flowstudio.core import Core
 from flowstudio.http import serve
+from flowstudio.scripts import flows
 from replay import Failed, NotRun, Wire, replay
 
 KNOWN = pathlib.Path(__file__).with_name("backend_differences.txt")
@@ -69,8 +70,10 @@ def test_the_backends_differ_only_where_known(tee):
     for m in design.modules():
         if m["examples"] and m["source"] == "design":
             tee.module = m["file"]
+            # a `publish` step's files read beside the design's examples, so
+            # every example's publishes run through both (ADR-0166)
             replay(tee, m["file"], bundle=design.bundle(m["file"]),
-                   after=read_metrics)
+                   after=read_metrics, read=flows.beside(flows.EXAMPLES))
     found = tee.kinds()
     known = {line.strip() for line in KNOWN.read_text().splitlines()
              if line.strip() and not line.startswith("#")}

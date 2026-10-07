@@ -303,6 +303,8 @@ def read_back(tee, ids: dict) -> None:
         ids = {**ids, "added": added["object_id"]}
     tee.post("/v1/metric", {"actor": OP, "name": "Robot.time_in_state",
                             "keep": ["state"]})
+    # the type as the version installed declares it
+    tee.post("/v1/declaration", {"type": "Robot"})
     for oid in ids.values():
         tee.post("/v1/get", {"id": oid})
         tee.post("/v1/history", {"id": oid})
@@ -800,6 +802,7 @@ def test_a_version_redacting_retyping_and_dropping_installs_alike(tee):
         tee.post("/v1/availability", {"actor": OP, "id": oid})
     tee.post("/v1/metric", {"actor": OP, "name": "Customer.time_in_state",
                             "keep": ["state"]})
+    tee.post("/v1/declaration", {"type": "Customer"})
     # the kept customer and the erased one hold `size` of the new type
     # absent from the publish on, an interval of their own, and the
     # intervals of the old type are set aside, read by nothing (D528)
