@@ -974,20 +974,22 @@ class Evaluator:
 
     def call(self, e, env):
         fn, args = e[1], e[2]
-        if fn[0] == "path" and fn[1][0] == "name" and fn[1][1] not in env and fn[1][1] != "this" \
-                and fn[1][1] not in (self.t.get("attributes") or {}):
+        # an evaluator's function, named on a base that is no binder, no `this` and no attribute: only it is answered
+        # by the stubs, so a flow function on a row or an object, `i.held(r)` or `this.intervals(r)`, is computed
+        # even where every evaluator is left unanswered (D534)
+        evaluator = fn[0] == "path" and fn[1][0] == "name" and fn[1][1] not in env and fn[1][1] != "this" \
+            and fn[1][1] not in (self.t.get("attributes") or {})
+        if evaluator:
             # an evaluator is asked nothing where an argument is absent: its guard is unknown, refused with the condition's
             # own remedy, not as an unanswered call (ADR-0146)
             if any(self.value(a, env) is ABSENT for a in args):
                 return ABSENT
-        if fn[0] == "path" and fn[1][0] == "name" and f"{fn[1][1]}.{fn[2]}" in self.stubs:
-            answer = self.stubs[f"{fn[1][1]}.{fn[2]}"]
-            if answer == "unanswered":
-                self.unanswered = True
-                return ABSENT
-            return answer == "satisfied"
-        if fn[0] == "path" and fn[1][0] == "name" and fn[1][1] not in env and fn[1][1] != "this" \
-                and fn[1][1] not in (self.t.get("attributes") or {}):
+            if f"{fn[1][1]}.{fn[2]}" in self.stubs:
+                answer = self.stubs[f"{fn[1][1]}.{fn[2]}"]
+                if answer == "unanswered":
+                    self.unanswered = True
+                    return ABSENT
+                return answer == "satisfied"
             raise ExampleError(f"the evaluator function {fn[1][1]}.{fn[2]} is called, and the example stubs no answer for it")
         if fn[0] == "path" and fn[2] in ("held", "intervals", "entered_at", "time_in") and len(args) == 1 and args[0][0] == "name":
             base = self.value(fn[1], env)
@@ -3053,6 +3055,14 @@ def self_test():
     settle = next(x for x in r.availability(s, OPERATOR, order) if x[0] == "settle")
     check("an offer lists a guard that would ask an evaluator as unevaluated, and asks nothing",
           (settle[2], settle[3], settle[5]), ("available", None, ["paid"]))
+    # a flow function on the object is computed, never taken for an evaluator left unanswered (D534)
+    k["Order"]["conditions"]["aged"] = {"expression": "this.time_in(OPEN) >= 1 h", "remedy": "temporal"}
+    k["Order"]["transitions"]["settle"]["guards"] = {"aged": "deny"}
+    r, s = Runner(k, {}), Store(k, {})
+    order = r.attempt(s, "Order", "open", None, OPERATOR, {}, {}, {})[1]
+    settle = next(x for x in r.availability(s, OPERATOR, order) if x[0] == "settle")
+    check("an offer decides a guard reading a flow function, which asks no evaluator",
+          (settle[2], settle[3].clause if settle[3] else None, settle[5]), ("unavailable", "aged", []))
     # slice 4a: a document signed off, edited, sent back, and timed, over its own history
     doc = {"Operator": kinds["Operator"], "Doc": {
         "attributes": {"note": {"type": "string", "optional": True}, "signed": {"type": "event", "optional": True}},
@@ -3497,6 +3507,9 @@ def metrics_self_test(operator):
         req(r, s, "Job", x, k3)
     check("a flag unknown on a group whose value is", [(f["flag"], f["group"], f["unknown"]) for f in page("Job.done_spans")["flags"]],
           [("long", {"engineer": ana}, True)])
+    # read leaving every evaluator unanswered, as an offer and the studio read it, a row's flow function is computed (D534)
+    check("a page asking no evaluator reads a row's flow function", rows(Evaluator(s, None, stubs=NEVER_ASKED).read_page("Job.done_spans")),
+          rows(page("Job.done_spans")))
     check("each refusal a value", [page(*a, **kw)["refused"] for a, kw in [
         (("nonesuch",), {}), (("Job.pass_rate",), {"keep": ["nobody"]}), (("passes_per_job",), {"filt": "true"}),
         (("Job.tagged",), {"over": 7 * day}), (("Job.jobs_opened",), {"filt": 'o.memo == "x"'})]],

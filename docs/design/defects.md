@@ -545,6 +545,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D531](#d531) | A publish left standing an admission its version cures | Resolved |
 | [D532](#d532) | A kind's new invariant its old observations violate refused every later request | Resolved |
 | [D533](#d533) | `lookup` missed an identifier a publish made one | Resolved |
+| [D534](#d534) | The reference runner took a flow function for an evaluator wherever every evaluator is left unanswered | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3494,3 +3495,7 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 
 **Resolved** in place: the publish keeps each object's identifiers as its version marks them, every one it holds upserted and each no longer marked or held removed, a personal one of an erased object never indexed, since it is absent or redacted; `publish-and-import.md` §1 step 5 says so. Two tests hold it, a robot found once marked and not once unmarked, and a nick made personal and an identifier at once on an erased customer never found, each part mutation-tested. A store whose table missed rows before this is mended at its next publish, every identifier being upserted.
 
+### D534
+**The reference runner took a flow function for an evaluator wherever every evaluator is left unanswered.** An offer, and the studio's metric read over the runner, evaluate with `NEVER_ASKED`, a table answering every evaluator's call as unanswered, so nothing is asked (ADR-0048, ADR-0152). The runner consulted that table for any call on a named base before deciding the call was an evaluator's, so a flow function on a row or an object, `i.held(engineer)` or `this.intervals(engineer)`, was taken as an unanswered evaluator and read as absent: an offer listed a guard reading one as unevaluated where it decides it, and a metric grouped by a value held, or valued by a derived attribute over intervals, read absent. Found 2026-10-07 by comparing every declared metric's page through both backends after each example, where `service.yaml`'s `time_working` grouped a working job under no engineer in the runner and under its engineer in the core, and `handoffs_per_job` read absent in the runner and 0 in the core.
+
+**Resolved** in place: only a call on a base that is no binder, no `this` and no attribute is an evaluator's and answered by the table (`scripts/flowrun.py`, `call`). The runner's self-test holds an offer deciding a guard on `this.time_in(OPEN)` and a page read asking no evaluator equal to the ordinary read, each failing with the defect restored; the studio's comparison now reads every declared metric, whole and grouped, through both backends after each example, and finds no difference.
