@@ -156,7 +156,7 @@ fn replayed_verdict(recorded: &Json) -> Result<Verdict, NotRun> {
 }
 
 fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
-    Err(NotRun(what.into()))
+    Err(NotRun::Unsupported(what.into()))
 }
 
 /// Who acts, resolved from a request's actor: an object of a type that marks
@@ -288,7 +288,7 @@ fn stale(world: &World<'_>, req: &Request) -> Result<(), Stop> {
 }
 
 fn stop_not_run<T>(what: impl Into<String>) -> Result<T, Stop> {
-    Err(Stop::NotRun(NotRun(what.into())))
+    Err(Stop::NotRun(NotRun::Unsupported(what.into())))
 }
 
 /// A clause qualified by the type it is of, unless it names one already.
@@ -3658,7 +3658,7 @@ fn mint(
         after.insert(o.clone())?;
         let field = |name: &str| -> Result<Value, NotRun> {
             let e = crate::expr::parse(name)
-                .map_err(|e| NotRun(format!("a format field {name}: {e}")))?;
+                .map_err(|e| NotRun::Unsupported(format!("a format field {name}: {e}")))?;
             Evaluator::new(after, Some(t), Some(&o.id)).eval(&e)
         };
         // a field's text: the number, padded, or a value of the object
@@ -5477,7 +5477,7 @@ types:
             Evaluator::new(&w, t, Some(&job))
                 .eval(&crate::expr::parse("count(i in this.intervals(title): i)").unwrap())
                 .unwrap_err()
-                .0
+                .what()
                 .contains("not tracked")
         );
     }

@@ -23,7 +23,7 @@ use crate::value::{Decimal, Value, minor_unit};
 use crate::world::{Object, World};
 
 fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
-    Err(NotRun(what.into()))
+    Err(NotRun::Unsupported(what.into()))
 }
 
 /// An average of integers is a decimal to six places (ADR-0139).
@@ -390,7 +390,7 @@ fn dimensions(lib: &Library, owner: Option<&str>, spec: &Json) -> Result<Vec<Str
 }
 
 fn parsed(text: &str) -> Result<Expr, NotRun> {
-    parse(text).map_err(|e| NotRun(format!("the metric expression {text:?}: {e}")))
+    parse(text).map_err(|e| NotRun::Unsupported(format!("the metric expression {text:?}: {e}")))
 }
 
 /// An expression's type, as far as a metric's scale needs it
@@ -431,7 +431,7 @@ impl Num {
     fn of(v: &Value) -> Result<Num, NotRun> {
         let frac = |r: Option<Rat>| {
             r.map(Num::Frac)
-                .ok_or_else(|| NotRun("a metric's value past 128 bits".into()))
+                .ok_or_else(|| NotRun::Unsupported("a metric's value past 128 bits".into()))
         };
         match v {
             Value::Absent => Ok(Num::Absent),
@@ -456,7 +456,7 @@ impl Num {
     /// An operator between two values, as the language's arithmetic gives
     /// it, exactly: `int / int` discards the remainder (§8.3).
     fn combine(op: BinOp, a: Num, b: Num) -> Result<Num, NotRun> {
-        let past = || NotRun("a metric's value past 128 bits".into());
+        let past = || NotRun::Unsupported("a metric's value past 128 bits".into());
         let (Some(x), Some(y)) = (a.rat(), b.rat()) else {
             return Ok(Num::Absent);
         };
@@ -575,7 +575,7 @@ impl<'w> Reader<'w> {
         self.world
             .lib
             .type_(name)
-            .ok_or_else(|| NotRun(format!("the type {name}")))
+            .ok_or_else(|| NotRun::Unsupported(format!("the type {name}")))
     }
 
     /// A metric's value over the rows its filter, the bound dimensions and
@@ -1045,7 +1045,9 @@ impl<'w> Reader<'w> {
                         for v in &values {
                             total = total
                                 .checked_add(v.rat().unwrap_or(Rat::int(0)))
-                                .ok_or_else(|| NotRun("a metric's value past 128 bits".into()))?;
+                                .ok_or_else(|| {
+                                    NotRun::Unsupported("a metric's value past 128 bits".into())
+                                })?;
                         }
                         Ok(total
                             .checked_div(Rat::int(n))
@@ -1070,7 +1072,9 @@ impl<'w> Reader<'w> {
                         let n = i128::try_from(ordered.len()).unwrap_or(i128::MAX);
                         let rank = p
                             .checked_mul(Rat::int(n))
-                            .ok_or_else(|| NotRun("a metric's value past 128 bits".into()))?
+                            .ok_or_else(|| {
+                                NotRun::Unsupported("a metric's value past 128 bits".into())
+                            })?
                             .ceil()
                             .max(1);
                         let at = usize::try_from(rank - 1)
@@ -1104,7 +1108,7 @@ impl<'w> Reader<'w> {
             Expr::Name(n) => values
                 .get(n)
                 .copied()
-                .ok_or_else(|| NotRun(format!("the input metric {n}"))),
+                .ok_or_else(|| NotRun::Unsupported(format!("the input metric {n}"))),
             Expr::Bin(op, a, b) => {
                 Num::combine(*op, self.combined(a, values)?, self.combined(b, values)?)
             }
@@ -1407,7 +1411,7 @@ fn rounded(v: Num, kind: &Kind) -> Result<Value, NotRun> {
     let Some(r) = v.rat() else {
         return Ok(Value::Absent);
     };
-    let past = || NotRun("a metric's value past its type's range".into());
+    let past = || NotRun::Unsupported("a metric's value past its type's range".into());
     let whole = |places: u8| r.half_even(places).ok_or_else(past);
     let int64 = |n: i128| i64::try_from(n).map_err(|_| past());
     Ok(match kind {

@@ -222,12 +222,13 @@ pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRu
     let checked = found.0.clone();
     let refused = checked.iter().any(|f| f.severity == Severity::Fatal);
     match impact(world, draft, found, report.clone()) {
-        Err(e) if refused => {
+        // a read of the store that failed is not a rule that cannot run
+        Err(NotRun::Unsupported(e)) if refused => {
             let mut found = Found(checked);
             found.add(
                 Severity::Notice,
                 "not_computed".into(),
-                format!("the impact past the checks' fatal findings, whose rules cannot be run over the objects: {}", e.0),
+                format!("the impact past the checks' fatal findings, whose rules cannot be run over the objects: {e}"),
                 None,
             );
             let mut report = report;
@@ -1696,6 +1697,9 @@ types:
       finish: { kind: external, from: [OPEN], to: DONE }
 "#;
 
+    /// Check 54 refuses a kind's invariant reading its subject, and this
+    /// loads one without the checks, as `Library::load` does, to hold step
+    /// 7's rule alone: a kind's invariants are checked on the recording.
     #[test]
     fn a_kinds_invariant_is_checked_on_the_recording_alone() {
         let text = LAB

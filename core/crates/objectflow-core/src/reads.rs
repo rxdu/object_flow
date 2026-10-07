@@ -29,7 +29,7 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
         return Ok(None);
     };
     let Some(t) = world.lib.type_(&o.type_) else {
-        return Err(NotRun(format!("the type {}", o.type_)));
+        return Err(NotRun::Unsupported(format!("the type {}", o.type_)));
     };
     let mut derived = Vec::new();
     for (n, e) in &t.derived {
@@ -265,7 +265,7 @@ pub fn query(
     let mut chosen = Vec::new();
     for o in world.of_type(type_)? {
         let Some(ot) = world.lib.type_(&o.type_) else {
-            return Err(NotRun(format!("the type {}", o.type_)));
+            return Err(NotRun::Unsupported(format!("the type {}", o.type_)));
         };
         let held = match &filter {
             None => true,
@@ -347,7 +347,7 @@ pub fn query(
     let mut items = Vec::new();
     for o in chosen {
         let Some(ot) = lib.type_(&o.type_) else {
-            return Err(NotRun(format!("the type {}", o.type_)));
+            return Err(NotRun::Unsupported(format!("the type {}", o.type_)));
         };
         let reader = Evaluator::new(world, Some(ot), Some(&o.id));
         let mut out = Vec::new();
@@ -471,10 +471,10 @@ pub fn availability(
         return Ok(None);
     };
     let Some(t) = world.lib.type_(&o.type_) else {
-        return Err(NotRun(format!("the type {}", o.type_)));
+        return Err(NotRun::Unsupported(format!("the type {}", o.type_)));
     };
     if let Some(what) = t.beyond.first() {
-        return Err(NotRun(what.clone()));
+        return Err(NotRun::Unsupported(what.clone()));
     }
     let who = resolve_actor(world, actor)?;
     let no_inputs = BTreeMap::new();
@@ -551,7 +551,7 @@ pub fn availability(
         let mut denied = None;
         for (g, mode) in &x.guards {
             let Some(c) = t.condition(g) else {
-                return Err(NotRun(format!(
+                return Err(NotRun::Unsupported(format!(
                     "the guard {g}, which {} does not declare",
                     t.name
                 )));
@@ -612,10 +612,10 @@ pub fn availability(
     let label = crate::model::LABEL.to_string();
     for kind in t.observations.iter().map(|(_, k)| k).chain([&label]) {
         let Some(k) = world.lib.type_(kind) else {
-            return Err(NotRun(format!("the observation kind {kind}")));
+            return Err(NotRun::Unsupported(format!("the observation kind {kind}")));
         };
         let Some(x) = k.transition("record") else {
-            return Err(NotRun(format!("{kind}, which has no record")));
+            return Err(NotRun::Unsupported(format!("{kind}, which has no record")));
         };
         let inputs: Vec<(String, String)> = input_schema(k, x)
             .into_iter()

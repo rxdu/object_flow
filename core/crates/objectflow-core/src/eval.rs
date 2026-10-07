@@ -15,20 +15,37 @@ use crate::model::{Declared, Type};
 use crate::value::{Decimal, Value, minor_unit, unit_seconds};
 use crate::world::{Object, World};
 
-/// A construct the first slice does not run (ADR-0153 decision 3).
+/// Why the core did not run what it was asked: a construct the first slice
+/// does not run (ADR-0153 decision 3), or a read of the store that failed,
+/// which is unavailable storage, never a construct not run (`library-api.md`
+/// §7, ADR-0164).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NotRun(pub String);
+pub enum NotRun {
+    /// A construct the core does not run, named.
+    Unsupported(String),
+    /// A read of the store that failed, naming what it read and why.
+    Unreadable(String),
+}
+
+impl NotRun {
+    /// What was not run, or what could not be read.
+    pub fn what(&self) -> &str {
+        match self {
+            NotRun::Unsupported(w) | NotRun::Unreadable(w) => w,
+        }
+    }
+}
 
 impl fmt::Display for NotRun {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.what())
     }
 }
 
 impl std::error::Error for NotRun {}
 
 fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
-    Err(NotRun(what.into()))
+    Err(NotRun::Unsupported(what.into()))
 }
 
 /// What an expression's subterm evaluates to: a value, or one of the names a
@@ -1981,7 +1998,13 @@ types:
         // and a sandbox that gives no answer is not guessed
         let none = BTreeMap::new();
         let asking = Evaluator::new(&w, t, Some("job-1")).with_answers(&none);
-        assert!(asking.eval(&call).unwrap_err().0.contains("xero.bill_paid"));
+        assert!(
+            asking
+                .eval(&call)
+                .unwrap_err()
+                .what()
+                .contains("xero.bill_paid")
+        );
     }
 
     #[test]
@@ -1992,7 +2015,7 @@ types:
         assert!(
             eval(&w, "job-1", "metric(x) > 1")
                 .unwrap_err()
-                .0
+                .what()
                 .contains("metric")
         );
     }

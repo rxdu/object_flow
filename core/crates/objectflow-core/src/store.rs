@@ -47,7 +47,7 @@ impl From<rusqlite::Error> for StoreError {
 /// reasons it can stop.
 impl From<NotRun> for StoreError {
     fn from(e: NotRun) -> StoreError {
-        StoreError(e.0)
+        StoreError(e.what().to_string())
     }
 }
 
@@ -1335,7 +1335,7 @@ impl Store {
             "prune_attempts" => self.attempt_retention,
             "prune_idempotency" => self.idempotency_retention,
             "archive_events" => {
-                return Ok(Err(NotRun(
+                return Ok(Err(NotRun::Unsupported(
                     "archiving events, which a single SQLite file has no tier for".into(),
                 )));
             }
@@ -1941,7 +1941,7 @@ impl Store {
                     after.insert(o.clone())?;
                 }
                 after.insert(x.clone())?;
-                for n in failing_invariants(&after, &x).map_err(|e| StoreError(e.0))? {
+                for n in failing_invariants(&after, &x).map_err(StoreError::from)? {
                     if !x.admissions.contains(&n)
                         && invariant_reads(t, &n).iter().any(|r| newly.contains(r))
                     {
@@ -3124,7 +3124,9 @@ mod tests {
         let world = store.snapshot().unwrap();
         // never read as an object the store does not hold
         let by_id = world.get(OPERATOR).unwrap_err();
-        assert!(by_id.0.contains(OPERATOR), "{}", by_id.0);
+        // unavailable storage, never a construct the core does not run
+        assert!(matches!(by_id, NotRun::Unreadable(_)), "{by_id:?}");
+        assert!(by_id.what().contains(OPERATOR), "{by_id}");
         assert!(world.of_type("Operator").is_err());
         assert!(world.in_order().is_err());
         // nor an identifier as one the store does not hold
@@ -3150,7 +3152,8 @@ mod tests {
             .unwrap();
         let world = store.snapshot().unwrap();
         let whole = world.in_order().unwrap_err();
-        assert!(whole.0.contains("Ghost"), "{}", whole.0);
+        assert!(matches!(whole, NotRun::Unreadable(_)), "{whole:?}");
+        assert!(whole.what().contains("Ghost"), "{whole}");
         assert!(world.get("ghost-1").is_err());
         // a scan of another type is not affected
         assert_eq!(world.of_type("Operator").unwrap().len(), 1);
@@ -3201,7 +3204,8 @@ mod tests {
             .execute_batch("UPDATE of_attempt SET request_values = '{oops';")
             .unwrap();
         let e = store.snapshot().unwrap().attempts().unwrap_err();
-        assert!(e.0.contains("request_values"), "{}", e.0);
+        assert!(matches!(e, NotRun::Unreadable(_)), "{e:?}");
+        assert!(e.what().contains("request_values"), "{e}");
         // a legacy entry
         let store = sandbox();
         store

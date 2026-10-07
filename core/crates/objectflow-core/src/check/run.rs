@@ -73,16 +73,21 @@ impl From<crate::store::StoreError> for Stop {
     }
 }
 
+/// A construct the core does not run is an example not run; a read of the
+/// store that failed is the store's failure (ADR-0164).
 impl From<crate::eval::NotRun> for Stop {
     fn from(e: crate::eval::NotRun) -> Stop {
-        Stop::NotRun(e.0)
+        match e {
+            crate::eval::NotRun::Unsupported(w) => Stop::NotRun(w),
+            crate::eval::NotRun::Unreadable(w) => Stop::Failed(format!("the store failed: {w}")),
+        }
     }
 }
 
 impl From<crate::request::NoVerdict> for Stop {
     fn from(e: crate::request::NoVerdict) -> Stop {
         match e {
-            crate::request::NoVerdict::NotRun(n) => Stop::NotRun(n.0),
+            crate::request::NoVerdict::NotRun(n) => Stop::from(n),
             crate::request::NoVerdict::KeyReused { key } => {
                 Stop::Failed(format!("the key {key} was applied to another request"))
             }

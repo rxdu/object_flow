@@ -317,7 +317,7 @@ fn decide(
     let external = world.external_all()?;
     let mut report = ImportReport::default();
     if let Some(what) = batch.objects.iter().find_map(|o| o.beyond.first()) {
-        return Err(NotRun(format!("an import of {what}")));
+        return Err(NotRun::Unsupported(format!("an import of {what}")));
     }
     let refused = |mut report: ImportReport, r: ImportRefusal| {
         report.refusal = Some(r);
@@ -388,7 +388,7 @@ fn decide(
             }
         }
         if let Some(what) = t.beyond.first() {
-            return Err(NotRun(what.clone()));
+            return Err(NotRun::Unsupported(what.clone()));
         }
         let key = legacy(lib, &o.type_, &o.legacy_key);
         if ids.contains_key(&key) {

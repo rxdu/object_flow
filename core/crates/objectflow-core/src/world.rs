@@ -327,7 +327,7 @@ impl<'l> World<'l> {
         });
         match stored {
             Ok(events) => Ok(events.iter().chain(self.appended.iter())),
-            Err(e) => Err(crate::eval::NotRun(format!(
+            Err(e) => Err(crate::eval::NotRun::Unreadable(format!(
                 "the store's log, which could not be read: {e}"
             ))),
         }
@@ -341,7 +341,7 @@ impl<'l> World<'l> {
             None => Ok(Vec::new()),
         });
         stored.as_deref().map_err(|e| {
-            crate::eval::NotRun(format!(
+            crate::eval::NotRun::Unreadable(format!(
                 "the store's attempt log, which could not be read: {e}"
             ))
         })
@@ -354,7 +354,7 @@ impl<'l> World<'l> {
             None => Ok(Vec::new()),
         });
         stored.as_deref().map_err(|e| {
-            crate::eval::NotRun(format!(
+            crate::eval::NotRun::Unreadable(format!(
                 "the store's attempt rollup, which could not be read: {e}"
             ))
         })
@@ -368,7 +368,7 @@ impl<'l> World<'l> {
             None => Ok(BTreeMap::new()),
         });
         stored.as_ref().map_err(|e| {
-            crate::eval::NotRun(format!(
+            crate::eval::NotRun::Unreadable(format!(
                 "the store's external identifiers, which could not be read: {e}"
             ))
         })
@@ -386,7 +386,7 @@ impl<'l> World<'l> {
         }
         match self.conn {
             Some(conn) => crate::store::read_external(conn, source, value).map_err(|e| {
-                crate::eval::NotRun(format!(
+                crate::eval::NotRun::Unreadable(format!(
                     "the store's external identifier {source} {value}, which could not be read: {e}"
                 ))
             }),
@@ -398,7 +398,7 @@ impl<'l> World<'l> {
     pub fn legacy_of(&self, id: &str) -> Result<Vec<LegacyEntry>, crate::eval::NotRun> {
         match self.conn {
             Some(conn) => crate::store::read_legacy(conn, id).map_err(|e| {
-                crate::eval::NotRun(format!(
+                crate::eval::NotRun::Unreadable(format!(
                     "{id}'s legacy entries, which could not be read: {e}"
                 ))
             }),
@@ -413,7 +413,7 @@ impl<'l> World<'l> {
             None => Ok(BTreeSet::new()),
         });
         stored.as_ref().map_err(|e| {
-            crate::eval::NotRun(format!(
+            crate::eval::NotRun::Unreadable(format!(
                 "the store's imported events, which could not be read: {e}"
             ))
         })
@@ -428,7 +428,7 @@ impl<'l> World<'l> {
     ) -> Result<Option<(String, serde_json::Value)>, crate::eval::NotRun> {
         match self.conn {
             Some(conn) => crate::store::read_idempotency(conn, actor, key).map_err(|e| {
-                crate::eval::NotRun(format!(
+                crate::eval::NotRun::Unreadable(format!(
                     "the store's idempotency records, which could not be read: {e}"
                 ))
             }),
@@ -447,7 +447,7 @@ impl<'l> World<'l> {
         }
         let fetched = match self.conn {
             Some(conn) => crate::store::read_object(conn, self.lib, id).map_err(|e| {
-                crate::eval::NotRun(format!(
+                crate::eval::NotRun::Unreadable(format!(
                     "the store's object {id}, which could not be read: {e}"
                 ))
             })?,
@@ -472,10 +472,9 @@ impl<'l> World<'l> {
 
     /// An object held in a new slot, which is not yet known by its id.
     fn hold(&self, o: Object) -> Result<usize, crate::eval::NotRun> {
-        self.held
-            .slots
-            .push(o)
-            .ok_or_else(|| crate::eval::NotRun("more objects than an operation can hold".into()))
+        self.held.slots.push(o).ok_or_else(|| {
+            crate::eval::NotRun::Unsupported("more objects than an operation can hold".into())
+        })
     }
 
     /// Every object of a concrete type the store holds, fetched in one read
@@ -487,7 +486,7 @@ impl<'l> World<'l> {
         }
         if let Some(conn) = self.conn {
             let fetched = crate::store::read_type(conn, self.lib, type_).map_err(|e| {
-                crate::eval::NotRun(format!(
+                crate::eval::NotRun::Unreadable(format!(
                     "the store's objects of {type_}, which could not be read: {e}"
                 ))
             })?;
@@ -529,7 +528,7 @@ impl<'l> World<'l> {
         if !whole {
             if let Some(conn) = self.conn {
                 let fetched = crate::store::read_all(conn, self.lib).map_err(|e| {
-                    crate::eval::NotRun(format!(
+                    crate::eval::NotRun::Unreadable(format!(
                         "the store's objects, which could not be read: {e}"
                     ))
                 })?;
@@ -612,7 +611,7 @@ impl<'l> World<'l> {
             None => Ok(0),
         });
         let stored = *stored.as_ref().map_err(|e| {
-            crate::eval::NotRun(format!(
+            crate::eval::NotRun::Unreadable(format!(
                 "the store's directory, which could not be read: {e}"
             ))
         })?;

@@ -754,7 +754,7 @@ Everything in §4 is a value. These are the five things that raise, and the list
 | Raised | When |
 |---|---|
 | `DeclarationError` | the installed declaration will not load. A store is created at declaration version 0, holding the built-ins, so there is always one installed (ADR-0105) |
-| `StorageUnavailable` | the database is unreachable, or a transaction failed for a reason that is neither a serialisation conflict nor, on SQLite, a busy timeout. Both of those are retried and then become `stale`, which is a verdict (ADR-0090) |
+| `StorageUnavailable` | the database is unreachable, or a transaction failed for a reason that is neither a serialisation conflict nor, on SQLite, a busy timeout. Both of those are retried and then become `stale`, which is a verdict (ADR-0090). A read an operation makes as it goes that fails, a row that does not decode among the reasons, is this too, and never a construct not run, so a caller retries it as it would the database's (ADR-0164) |
 | `SchemaMismatch` | the installed declaration and the tables disagree, which means a publish did not complete |
 | `EngineMismatch` | the store records a different engine release from this core's: an upgrade has run, or is due, and this copy of the service must be replaced. Every request reads the release in its transaction, so no two releases serve one store at once (ADR-0110) |
 | `KeyReused` | this actor applied the idempotency key before, to a different request. A retry is the same request, so a different body under a used key is a defect in the caller's key generation, and neither replaying the other request's result nor applying this one under its key would be honest (ADR-0077) |

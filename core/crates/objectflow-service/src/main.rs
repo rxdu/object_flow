@@ -71,9 +71,15 @@ impl IntoResponse for Fault {
     }
 }
 
+/// A construct the core does not run is 501; a read of the store that
+/// failed is unavailable storage, the service's own fault, 500, as the
+/// store's other errors are (`library-api.md` §7, ADR-0164).
 impl From<NotRun> for Fault {
     fn from(e: NotRun) -> Fault {
-        Fault::NotRun(e.0)
+        match e {
+            NotRun::Unsupported(w) => Fault::NotRun(w),
+            NotRun::Unreadable(w) => Fault::Internal(format!("storage unavailable: {w}")),
+        }
     }
 }
 
@@ -82,7 +88,7 @@ impl From<NotRun> for Fault {
 impl From<request::NoVerdict> for Fault {
     fn from(e: request::NoVerdict) -> Fault {
         match e {
-            request::NoVerdict::NotRun(n) => Fault::NotRun(n.0),
+            request::NoVerdict::NotRun(n) => Fault::from(n),
             request::NoVerdict::KeyReused { key } => Fault::Conflict(format!(
                 "key_reused: this actor applied the idempotency key {key} to a different request"
             )),
@@ -1262,4 +1268,29 @@ async fn main() -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
     eprintln!("listening on http://{}", listener.local_addr()?);
     axum::serve(listener, app(Shared::default())).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_read_is_unavailable_storage_and_a_construct_not_run_is_501() {
+        let status = |f: Fault| f.into_response().status();
+        let unreadable = || NotRun::Unreadable("the store's log, which could not be read".into());
+        assert_eq!(
+            status(Fault::from(unreadable())),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(
+            status(Fault::from(request::NoVerdict::NotRun(unreadable()))),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(
+            status(Fault::from(NotRun::Unsupported(
+                "a metric in a filter".into()
+            ))),
+            StatusCode::NOT_IMPLEMENTED
+        );
+    }
 }
