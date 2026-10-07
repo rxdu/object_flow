@@ -677,13 +677,42 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
             },
         );
     }
-    // what the core does not yet import, named (ADR-0154 decision 6)
-    let mut beyond = Vec::new();
-    if o.get("legacy_entries")
+    // its history from before the store (ADR-0163 decision 2)
+    let mut legacy_entries = Vec::new();
+    for e in o
+        .get("legacy_entries")
         .and_then(J::as_array)
-        .is_some_and(|a| !a.is_empty())
+        .into_iter()
+        .flatten()
     {
-        beyond.push(format!("legacy entries, on {type_} {legacy_key}"));
+        let (Some(kind), Some(occurred_at)) = (
+            text(e, "kind").map(str::to_string),
+            instant(e.get("occurred_at"), "legacy_entries.occurred_at")?,
+        ) else {
+            return Err(Fault::Bad(format!(
+                "a legacy entry of {type_} {legacy_key} names its kind and occurred_at"
+            )));
+        };
+        let payload = e
+            .get("payload")
+            .and_then(J::as_object)
+            .cloned()
+            .unwrap_or_default();
+        let mut about = std::collections::BTreeMap::new();
+        for (field, target) in e.get("about").and_then(J::as_object).into_iter().flatten() {
+            let Some(target) = target.as_str() else {
+                return Err(Fault::Bad(format!(
+                    "a legacy entry's about maps {field} to <Type>:<key>"
+                )));
+            };
+            about.insert(field.clone(), target.to_string());
+        }
+        legacy_entries.push(import::EntryIn {
+            kind,
+            occurred_at,
+            payload,
+            about,
+        });
     }
     // the earlier values the legacy record gives, and where it is silent
     let mut legacy_intervals = Vec::new();
@@ -743,7 +772,9 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
         created_at: instant(o.get("created_at"), "created_at")?,
         created_by_kind: field("created_by_kind"),
         occurred_at: instant(o.get("occurred_at"), "occurred_at")?,
-        beyond,
+        legacy_entries,
+        // everything a batch carries is imported (ADR-0154 decision 6)
+        beyond: Vec::new(),
     })
 }
 
@@ -818,6 +849,27 @@ async fn import_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer 
     let mut batch = ImportBatch::default();
     for o in b.get("objects").and_then(J::as_array).into_iter().flatten() {
         batch.objects.push(imported_object(o)?);
+    }
+    // each entry kind's fields kept through an erasure (ADR-0163 decision 3)
+    for (kind, fields) in b
+        .get("legacy_kinds")
+        .and_then(J::as_object)
+        .into_iter()
+        .flatten()
+    {
+        let fields = fields
+            .as_array()
+            .and_then(|a| {
+                a.iter()
+                    .map(|f| f.as_str().map(str::to_string))
+                    .collect::<Option<Vec<_>>>()
+            })
+            .ok_or_else(|| {
+                Fault::Bad(format!(
+                    "legacy_kinds.{kind} lists the field names it keeps"
+                ))
+            })?;
+        batch.legacy_kinds.insert(kind.clone(), fields);
     }
     for r in b
         .get("sequences")
@@ -965,10 +1017,18 @@ async fn lookup(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
 async fn history(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
-    let events = s.history(text(&body, "id").unwrap_or_default())?;
-    Ok(Json(
-        json!({"events": events.iter().map(event).collect::<Vec<_>>(), "not_computed": EVENT_NOT_COMPUTED}),
-    ))
+    let id = text(&body, "id").unwrap_or_default();
+    let events = s.history(id)?;
+    // its legacy entries first, which predate the store, then its events
+    // (library-api.md §6, ADR-0015)
+    let entries = s.legacy_entries(id)?.into_iter().map(|e| {
+        json!({"legacy": true, "object_id": id, "ordinal": e.ordinal, "kind": e.kind,
+               "occurred_at": timestamp_text(e.occurred_at), "payload": e.payload})
+    });
+    Ok(Json(json!({
+        "events": entries.chain(events.iter().map(event)).collect::<Vec<_>>(),
+        "not_computed": EVENT_NOT_COMPUTED,
+    })))
 }
 
 async fn events(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {

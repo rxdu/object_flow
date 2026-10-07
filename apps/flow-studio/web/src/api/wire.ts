@@ -90,6 +90,24 @@ export interface FlowEvent {
   imported: boolean;
 }
 
+/** History from before the store, attached to an object at import, which
+ * `history` returns before its events (library-api.md §6, ADR-0163). */
+export interface LegacyEntry {
+  legacy: true;
+  object_id: string;
+  ordinal: number;
+  kind: string;
+  occurred_at: string;
+  payload: Record<string, unknown>;
+}
+
+/** What `history` returns: an object's legacy entries, then its events. */
+export type HistoryItem = FlowEvent | LegacyEntry;
+
+export function isLegacy(e: HistoryItem): e is LegacyEntry {
+  return "legacy" in e;
+}
+
 export interface RequestBody {
   transition: string;
   actor: { id: string; principal?: string };
@@ -237,7 +255,9 @@ export interface Backend {
 export interface Wire {
   request(body: RequestBody): Promise<Verdict>;
   get(id: string): Promise<FlowObject | null>;
-  history(id: string): Promise<{ events: FlowEvent[]; not_computed: string[] }>;
+  history(
+    id: string,
+  ): Promise<{ events: HistoryItem[]; not_computed: string[] }>;
   /** the event at each position given, in the order given, and null where
    * the log holds none (ADR-0151) */
   events(

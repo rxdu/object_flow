@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import type { FlowEvent, FlowObject, Wire } from "../api/wire";
+import {
+  type FlowObject,
+  type HistoryItem,
+  type Wire,
+  isLegacy,
+} from "../api/wire";
 import { OPERATOR, type Player } from "../session/player";
 
 /** Every object the session's requests wrote, each read through `get`,
@@ -19,7 +24,7 @@ export function Objects({
   onSelect: (id: string) => void;
 }) {
   const [objects, setObjects] = useState<[string, FlowObject][]>([]);
-  const [events, setEvents] = useState<FlowEvent[]>([]);
+  const [events, setEvents] = useState<HistoryItem[]>([]);
 
   useEffect(() => {
     let live = true;
@@ -115,19 +120,36 @@ export function Objects({
             </tr>
           </thead>
           <tbody>
-            {events.map((e) => (
-              <tr key={e.position} className="border-t border-slate-200">
-                <td className="pr-2">{e.position}</td>
-                <td className="pr-2 font-mono">{e.transition}</td>
-                <td className="pr-2">
-                  {e.from_state ?? "●"} → {e.to_state}
-                </td>
-                <td className="pr-2">
-                  {e.actor_id} ({e.actor_kind})
-                </td>
-                <td className="font-mono">{e.occurred_at}</td>
-              </tr>
-            ))}
+            {events.map((e) =>
+              isLegacy(e) ? (
+                // history from before the store, attached at import
+                <tr
+                  key={`L${e.ordinal}`}
+                  className="border-t border-slate-200 text-slate-500"
+                >
+                  <td className="pr-2">L{e.ordinal}</td>
+                  <td className="pr-2 font-mono">legacy {e.kind}</td>
+                  <td className="pr-2 font-mono" colSpan={2}>
+                    {Object.entries(e.payload)
+                      .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+                      .join("  ")}
+                  </td>
+                  <td className="font-mono">{e.occurred_at}</td>
+                </tr>
+              ) : (
+                <tr key={e.position} className="border-t border-slate-200">
+                  <td className="pr-2">{e.position}</td>
+                  <td className="pr-2 font-mono">{e.transition}</td>
+                  <td className="pr-2">
+                    {e.from_state ?? "●"} → {e.to_state}
+                  </td>
+                  <td className="pr-2">
+                    {e.actor_id} ({e.actor_kind})
+                  </td>
+                  <td className="font-mono">{e.occurred_at}</td>
+                </tr>
+              ),
+            )}
           </tbody>
         </table>
       )}

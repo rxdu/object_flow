@@ -3013,6 +3013,7 @@ types:
                 unit("U-2", None, None),
             ],
             sequences: Vec::new(),
+            legacy_kinds: BTreeMap::new(),
         };
         let report = import_batch(&mut s, OPERATOR, &batch, &[], false)
             .unwrap()

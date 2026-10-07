@@ -561,8 +561,11 @@ CREATE TABLE t_operator (
 CREATE TABLE of_legacy_entry (
   object_id   TEXT    NOT NULL REFERENCES of_object(id),
   ordinal     INTEGER NOT NULL,
+  kind        TEXT    NOT NULL,              -- its entry kind (ADR-0163)
   occurred_at TEXT    NOT NULL,
   payload     TEXT    NOT NULL,
+  kept        TEXT    NOT NULL,              -- the fields its kind kept through an erasure when it
+                                             -- was ported, a JSON list; none for a kind not listed
   PRIMARY KEY (object_id, ordinal)
 );
 
@@ -729,7 +732,7 @@ Erasure (§8 of the model, ADR-0087) does these things to storage:
 3. Walks each of those events up its `cause_position` chain, and redacts in each **caller's event** the inputs that flowed into the erased objects' personal attributes. Check 10's taint analysis identifies which, per declaration version.
 4. Marks every `of_file_ref` row it reaches as erased. After commit it deletes the content of any hash whose references are now **all** erased, setting `of_file.erased_at`. A deletion that fails sets `erase_pending`. Every later erasure request retries the pending deletions before its own, and `diagnostics` lists them under the type of each object whose `of_file_ref` rows the erasure reached, so a deployment that sees one re-requests an erasure, which is idempotent: it records an `erased` event naming what it retried, and writes nothing else (ADR-0146); no background process is needed (ADR-0096, PRD N2). A file another object still holds survives, because its reference is not erased (D207). **The blob store's own lifecycle expiry must be off** (ADR-0017): the log is permanent and a reference outlives any expiry policy, so a bucket rule that deletes after ninety days silently breaks history.
 5. Records an event with source `erased`, carrying the names of the attributes erased and the files deleted and **never their values**, and an admission for every invariant that read what it erased (ADR-0060).
-6. Redacts every legacy entry attached to the object. Each payload field the import mapping did not list as **kept** for that entry kind is replaced by absence, and a kind with no list loses its whole payload. The event of step 5 records how many (ADR-0078).
+6. Redacts every legacy entry attached to the object. Each payload field the import mapping did not list as **kept** for that entry kind, as the entry's `kept` records it, is replaced by absence, and a kind with no list loses its whole payload. The event of step 5 records how many (ADR-0078, ADR-0163).
 7. Redacts `t_proposal.inputs` on every proposal targeting an erased object, or whose inputs flow into an erased object's personal attributes, and invalidates the pending ones (ADR-0044, ADR-0078, ADR-0087).
 8. Redacts personal **inputs** as well as personal attribute values in step 2 — an input marked `personal`, or one that flows into a personal attribute — so a value passed only to an evaluator does not survive in a payload (ADR-0078).
 9. Sets `value` to `NULL` in every `of_interval` row of an erased object's personal enum attributes, as step 2 does in the events the index is rebuilt from, so a rebuilt index and the redacted one agree (ADR-0096). Each row is judged by the version it was written under, and a set-aside dimension, `<name>__v<n>`, by version `n`.

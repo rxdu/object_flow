@@ -287,6 +287,7 @@ impl Player {
                 ..ImportedObject::default()
             }],
             sequences: Vec::new(),
+            legacy_kinds: BTreeMap::new(),
         };
         let report = import_batch(&mut self.store, OPERATOR, &batch, &[], false)??;
         if let Some(r) = report.refusal {

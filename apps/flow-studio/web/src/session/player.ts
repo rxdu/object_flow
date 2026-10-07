@@ -13,6 +13,7 @@ import {
   type Verdict,
   type Wire,
   type WireValue,
+  isLegacy,
 } from "../api/wire";
 import {
   durationSeconds,
@@ -569,7 +570,9 @@ export class Player {
     }
     if (want.occurred_at !== undefined) {
       const { events } = await this.wire.history(v.object_id);
-      const mine = events.find((e) => e.position === v.events[0]);
+      const mine = events.find(
+        (e) => !isLegacy(e) && e.position === v.events[0],
+      );
       if (
         !mine ||
         mine.occurred_at !== resolveInstant(want.occurred_at, this.now)

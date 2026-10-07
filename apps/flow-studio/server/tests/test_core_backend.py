@@ -80,6 +80,46 @@ def test_a_load_the_checker_refuses_never_reaches_the_core(studio):
     assert wire.post("/v1/declaration", {"type": "ServiceJob"})["states"]
 
 
+def test_an_imported_objects_legacy_entries_come_before_its_events(workspace):
+    # ADR-0163: an entry's own fields, the kind's kept fields with it, and
+    # `history` returning the entries, by ordinal, before the events
+    core = Core()
+    server, wire = running(workspace, core)
+    try:
+        bundle = wire.get("/studio/module?file=servicedesk.yaml")
+        assert wire.post("/sandbox/load", {"files": bundle["files"]})["loaded"]
+        report = wire.post("/v1/import_batch", {
+            "actor": {"id": "operator"},
+            "batch": {
+                "objects": [{
+                    "type": "Employee", "legacy_key": "E-1",
+                    "state": "EMPLOYED",
+                    "attributes": {"employee_id": "1", "name": "Ana"},
+                    "legacy_entries": [
+                        {"kind": "audit", "occurred_at": "2025-06-01T00:00:00Z",
+                         "payload": {"action": "hired", "by": "hr"}},
+                        {"kind": "audit", "occurred_at": "2025-07-01T00:00:00Z",
+                         "payload": {"action": "moved"}},
+                    ],
+                }],
+                "legacy_kinds": {"audit": ["action"]},
+            },
+            "disposition": [], "dry_run": False,
+        })
+        assert report["written"] == 1, report
+        oid = wire.post("/v1/lookup", {"actor": {"id": "operator"},
+                                       "source": "hr", "value": "1"})["id"]
+        items = wire.post("/v1/history", {"id": oid})["events"]
+        assert [i.get("ordinal") for i in items[:2]] == [1, 2]
+        assert items[0]["legacy"] and items[0]["payload"] == {
+            "action": "hired", "by": "hr"}
+        assert "position" in items[2] and items[2]["transition"] == "import"
+    finally:
+        server.shutdown()
+        server.server_close()
+        core.close()
+
+
 def test_the_tooling_stays_the_servers(studio):
     wire, _ = studio
     bundle = wire.get(f"/studio/module?file={SERVICE}")

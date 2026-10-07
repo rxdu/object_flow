@@ -356,10 +356,13 @@ class Event:
 
 @dataclass(frozen=True)
 class LegacyEntry:
-    """History that predates the store, attached at import (ADR-0015)."""
+    """History that predates the store, attached at import (ADR-0015);
+    `history` returns an object's entries, by ordinal, before its events
+    (ADR-0163)."""
 
     object_id: str
     ordinal: int
+    kind: str                             # its entry kind, whose kept fields an erasure leaves
     occurred_at: datetime
     payload: Mapping[str, Any]
 
@@ -527,6 +530,20 @@ class EnteredAt:
 
 
 @dataclass(frozen=True)
+class ImportedEntry:
+    """A legacy entry as a batch gives it (ADR-0163): the import gives it its
+    ordinal, after those the store holds for the object."""
+
+    kind: str
+    occurred_at: datetime
+    payload: Mapping[str, Any]            # its fields
+    about: Mapping[str, str] = field(default_factory=dict)
+                                          # a field describing another object -> that object's
+                                          # "<Type>:<key>"; moved to its history where the store
+                                          # or the batch holds it, a FIELD class otherwise
+
+
+@dataclass(frozen=True)
 class ImportedObject:
     """One object of a port, or of a mirror's refresh, as the mapping
     produced it (ADR-0100, ADR-0106)."""
@@ -536,7 +553,7 @@ class ImportedObject:
     state: str
     attributes: Mapping[str, Any]         # references by legacy key; one that may name any
                                           # type, a label's subject, as "<Type>:<key>"
-    legacy_entries: Sequence[Mapping[str, Any]] = ()   # only this object's fields
+    legacy_entries: Sequence["ImportedEntry"] = ()     # its own fields, and in `about` other objects'
     legacy_intervals: Sequence["LegacyInterval"] = ()  # earlier values only; on a refresh,
                                           # the values since the last import
     entered: Mapping[str, EnteredAt] = field(default_factory=dict)
@@ -565,6 +582,9 @@ class SequenceValue:
 class ImportBatch:
     objects: Sequence[ImportedObject]
     sequences: Sequence[SequenceValue] = ()
+    # each entry kind's fields kept through an erasure, written with each entry;
+    # a kind it does not list keeps nothing (ADR-0078, ADR-0163)
+    legacy_kinds: Mapping[str, Sequence[str]] = field(default_factory=dict)
     # an object's admissions come from its disposition file's ADMIT classes
     # alone (ADR-0154)
 

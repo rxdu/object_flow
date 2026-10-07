@@ -79,6 +79,36 @@ impl Object {
     }
 }
 
+/// A legacy entry attached to an object at import (ADR-0015, ADR-0163): its
+/// ordinal, kind and occurred time, its fields, and the fields its kind keeps
+/// through an erasure, as it was ported.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LegacyEntry {
+    pub ordinal: i64,
+    pub kind: String,
+    pub occurred_at: i64,
+    pub payload: serde_json::Map<String, serde_json::Value>,
+    pub kept: Vec<String>,
+}
+
+impl LegacyEntry {
+    /// Its fields as an erasure leaves them: those its kind keeps, every
+    /// other replaced by absence (`storage-schema.md` §9 step 6, ADR-0078).
+    pub fn redacted(&self) -> serde_json::Map<String, serde_json::Value> {
+        self.payload
+            .iter()
+            .map(|(k, v)| {
+                let v = if self.kept.contains(k) {
+                    v.clone()
+                } else {
+                    serde_json::Value::Null
+                };
+                (k.clone(), v)
+            })
+            .collect()
+    }
+}
+
 /// No earlier version's library: a store with one version, or a world
 /// built without them.
 static NO_EARLIER: BTreeMap<i64, Library> = BTreeMap::new();
@@ -91,6 +121,8 @@ pub struct World<'l> {
     /// what was personal under (ADR-0146 decision 2); empty where the store
     /// has published one version.
     pub earlier: &'l BTreeMap<i64, Library>,
+    /// Each object's legacy entries, by ordinal.
+    pub legacy: BTreeMap<String, Vec<LegacyEntry>>,
     pub objects: BTreeMap<String, Object>,
     pub now: i64,
     /// Each external identifier, by source and value, and the object that
@@ -131,6 +163,7 @@ impl<'l> World<'l> {
         World {
             lib,
             earlier: &NO_EARLIER,
+            legacy: BTreeMap::new(),
             objects: BTreeMap::new(),
             now,
             external: BTreeMap::new(),

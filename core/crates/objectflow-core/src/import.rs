@@ -24,6 +24,17 @@ pub struct EnteredAt {
     pub by_kind: Option<String>,
 }
 
+/// A legacy entry as a batch gives it (ADR-0163 decisions 2 and 4): its
+/// kind, when it happened, its fields, and each field about another object
+/// mapped to that object's `<Type>:<key>`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EntryIn {
+    pub kind: String,
+    pub occurred_at: i64,
+    pub payload: serde_json::Map<String, Json>,
+    pub about: BTreeMap<String, String>,
+}
+
 /// One object of a port, or of a mirror's refresh, as the mapping produced
 /// it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -47,6 +58,9 @@ pub struct ImportedObject {
     /// An observation's occurred time, where the legacy record gives it; a
     /// label's is when it was recorded (`library-api.md` §5).
     pub occurred_at: Option<i64>,
+    /// Its history from before the store, each entry its own fields and,
+    /// in `about`, those describing another object (ADR-0163).
+    pub legacy_entries: Vec<EntryIn>,
     /// What the object carries that the core does not yet import, by name.
     pub beyond: Vec<String>,
 }
@@ -78,6 +92,9 @@ pub struct Raise {
 pub struct ImportBatch {
     pub objects: Vec<ImportedObject>,
     pub sequences: Vec<Raise>,
+    /// Each legacy entry kind's fields kept through an erasure; a kind it
+    /// does not list keeps nothing (ADR-0078, ADR-0163 decision 3).
+    pub legacy_kinds: BTreeMap<String, Vec<String>>,
 }
 
 /// What kind of rule a class of objects fails (`publish-and-import.md` §6).
@@ -192,6 +209,9 @@ const NOT_DECLARED: &str = "is not declared";
 const NOT_OF_ITS_TYPE: &str = "is not of its type";
 const IS_SHARED: &str = "is shared";
 const NAMES_EXCLUDED: &str = "names an excluded object";
+/// A `FIELD` class's shape: a field an entry says is about an object the
+/// batch, as it stands, and the store do not hold (ADR-0163 decision 4).
+const ABOUT_NOT_HELD: &str = "is about an object neither the batch nor the store holds";
 
 /// Import a batch, or report what importing it would decide (`dry_run`).
 pub fn import_batch(
@@ -221,6 +241,39 @@ struct Placed {
     held: Option<Object>,
     state: String,
     values: BTreeMap<String, Value>,
+}
+
+/// The legacy key a field's `about` names, `<Type>:<key>`, qualified as the
+/// store keeps it; none where it names no type.
+fn about_target(lib: &Library, target: &str) -> Option<(String, String)> {
+    let (tn, key) = target.split_once(':')?;
+    lib.type_(tn).map(|_| legacy(lib, tn, key))
+}
+
+/// Whether the store, or the batch as it stands, holds the object a legacy
+/// key names.
+fn held_key(
+    key: &(String, String),
+    ids: &BTreeMap<(String, String), String>,
+    excluded: &BTreeSet<(String, String)>,
+    world: &World<'_>,
+) -> bool {
+    world.external.contains_key(key) || (ids.contains_key(key) && !excluded.contains(key))
+}
+
+/// A legacy entry of an object, its ordinal given when it is attached.
+fn entry(
+    e: &EntryIn,
+    payload: serde_json::Map<String, Json>,
+    kept: &[String],
+) -> crate::world::LegacyEntry {
+    crate::world::LegacyEntry {
+        ordinal: 0,
+        kind: e.kind.clone(),
+        occurred_at: e.occurred_at,
+        payload,
+        kept: kept.to_vec(),
+    }
 }
 
 /// A refusal of the batch at an object.
@@ -311,6 +364,25 @@ fn decide(
         }
         if o.occurred_at.is_some_and(|at| at > world.now) {
             return refused(report, refusal(o, "an occurred time after the import"));
+        }
+        // a legacy entry names its kind, and happened before the import and
+        // not before a creation time the mapping supplies (§4)
+        for e in &o.legacy_entries {
+            if e.kind.trim().is_empty() {
+                return refused(report, refusal(o, "a legacy entry that names no kind"));
+            }
+            if e.occurred_at > world.now {
+                return refused(report, refusal(o, "a legacy entry after the import"));
+            }
+            if o.created_at.is_some_and(|c| e.occurred_at < c) {
+                return refused(
+                    report,
+                    refusal(
+                        o,
+                        "a legacy entry earlier than the creation time it is given",
+                    ),
+                );
+            }
         }
         if let Some(what) = t.beyond.first() {
             return Err(NotRun(what.clone()));
@@ -592,6 +664,27 @@ fn decide(
                 dropped.entry(*index).or_default().insert(k.clone());
             }
         }
+        // a field an entry says is about another object, where neither the
+        // batch, as it stands, nor the store holds that object (ADR-0163)
+        for p in placed.iter().filter(|p| !excluded.contains(&p.index)) {
+            let o = &batch.objects[p.index];
+            for e in &o.legacy_entries {
+                for (field, target) in &e.about {
+                    if about_target(lib, target)
+                        .is_none_or(|k| !held_key(&k, &ids, &excluded_keys, world))
+                    {
+                        found(
+                            &mut these,
+                            o,
+                            p.index,
+                            ViolationKind::Field,
+                            format!("{}.{field}", e.kind),
+                            ABOUT_NOT_HELD,
+                        );
+                    }
+                }
+            }
+        }
         for p in placed.iter().filter(|p| !excluded.contains(&p.index)) {
             let o = &batch.objects[p.index];
             let mut obj = match &p.held {
@@ -774,6 +867,9 @@ fn decide(
                 Some(format!("is decided {} with no reason", disposition.text()))
             }
             (ViolationKind::Invariant, Disposition::Admit) | (_, Disposition::Exclude) => None,
+            (ViolationKind::Field, Disposition::Admit) => {
+                Some("is a field, which nothing admits".to_string())
+            }
             (_, Disposition::Admit) => Some("is a guard, which nothing admits".to_string()),
             (ViolationKind::Reference, Disposition::Drop) => {
                 let required = references
@@ -781,6 +877,7 @@ fn decide(
                     .any(|r| objects.contains(&r.index) && r.attribute == c.rule && !r.optional);
                 required.then(|| "drops a required reference".to_string())
             }
+            (ViolationKind::Field, Disposition::Drop) => None,
             (_, Disposition::Drop) => Some("drops what is not a reference".to_string()),
         };
         if let Some(why) = wrong {
@@ -799,6 +896,71 @@ fn decide(
     // the writes, in the batch's order
     let mut change = Change::default();
     let port = world.now;
+    // the legacy entries: each entry's own fields stay with its object, a
+    // field about another object moves to that object's history where the
+    // batch or the store holds it, and one a FIELD class decides DROP is left
+    // behind; an entry the store already holds is left as it is, and one
+    // attached to an erased object is written redacted (ADR-0163, ADR-0078)
+    let excluded_keys: BTreeSet<(String, String)> = excluded
+        .iter()
+        .map(|i| legacy(lib, &batch.objects[*i].type_, &batch.objects[*i].legacy_key))
+        .filter(|k| !world.external.contains_key(k))
+        .collect();
+    let mut entries: BTreeMap<String, Vec<crate::world::LegacyEntry>> = BTreeMap::new();
+    for p in placed.iter().filter(|p| !excluded.contains(&p.index)) {
+        let o = &batch.objects[p.index];
+        for e in &o.legacy_entries {
+            let kept = batch.legacy_kinds.get(&e.kind).cloned().unwrap_or_default();
+            let mut own = e.payload.clone();
+            for (field, target) in &e.about {
+                let value = own.remove(field);
+                let held = about_target(lib, target)
+                    .filter(|k| held_key(k, &ids, &excluded_keys, world))
+                    .and_then(|k| ids.get(&k).or_else(|| world.external.get(&k)).cloned());
+                if let (Some(id), Some(v)) = (held, value) {
+                    let payload = serde_json::Map::from_iter([(field.clone(), v)]);
+                    entries
+                        .entry(id)
+                        .or_default()
+                        .push(entry(e, payload, &kept));
+                }
+            }
+            if !own.is_empty() {
+                entries
+                    .entry(p.id.clone())
+                    .or_default()
+                    .push(entry(e, own, &kept));
+            }
+        }
+    }
+    // each object's new entries, after those it holds, the held ones left
+    let mut attached: BTreeMap<String, Vec<crate::world::LegacyEntry>> = BTreeMap::new();
+    for (id, new) in entries {
+        let held = world.legacy.get(&id).map_or(&[][..], Vec::as_slice);
+        let mut next = held.iter().map(|h| h.ordinal).max().unwrap_or(0);
+        let erased = world.get(&id).is_some_and(|w| w.erased);
+        for mut n in new {
+            let same = |h: &crate::world::LegacyEntry| {
+                h.kind == n.kind
+                    && h.occurred_at == n.occurred_at
+                    && (h.payload == n.payload || h.payload == n.redacted())
+            };
+            if held.iter().any(same) {
+                continue;
+            }
+            next += 1;
+            n.ordinal = next;
+            if erased {
+                n.payload = n.redacted();
+            }
+            attached.entry(id.clone()).or_default().push(n);
+        }
+    }
+    for (id, new) in &attached {
+        for n in new {
+            change.legacy.push((id.clone(), n.clone()));
+        }
+    }
     for p in placed.iter().filter(|p| !excluded.contains(&p.index)) {
         let o = &batch.objects[p.index];
         let (Some(t), Some(mut obj)) = (lib.type_(&o.type_), work.get(&p.id).cloned()) else {
@@ -818,7 +980,12 @@ fn decide(
         };
         let changed = match &p.held {
             None => true,
-            Some(h) => h.state != obj.state || h.attrs != obj.attrs || !intermediate.is_empty(),
+            Some(h) => {
+                h.state != obj.state
+                    || h.attrs != obj.attrs
+                    || !intermediate.is_empty()
+                    || attached.contains_key(&p.id)
+            }
         };
         if !changed {
             continue; // a refresh that changes nothing writes nothing
@@ -1376,6 +1543,7 @@ types:
         let batch = ImportBatch {
             objects,
             sequences: Vec::new(),
+            legacy_kinds: BTreeMap::new(),
         };
         import_batch(s, OPERATOR, &batch, file, dry_run)
             .unwrap()
@@ -1616,6 +1784,7 @@ types:
                 scope: String::new(),
                 last: 512,
             }],
+            legacy_kinds: BTreeMap::new(),
         };
         let r = import_batch(&mut s, OPERATOR, &batch, &[], false)
             .unwrap()
@@ -2288,5 +2457,156 @@ types:
             assert!(reason.contains(words), "{words}: {reason}");
             assert_eq!(r.written, 0, "{words}");
         }
+    }
+
+    /// Legacy entries (ADR-0163 decisions 2 to 4, `publish-and-import.md` §4):
+    /// each entry's own fields stay with its object, a field about another
+    /// object moves to that object's history, the kind's kept fields are
+    /// written with each entry, a batch sent again writes nothing, a field
+    /// about an object nobody holds is a `FIELD` class, and an erasure leaves
+    /// an entry its kept fields alone, counting them on its event.
+    #[test]
+    fn legacy_entries_port_move_and_are_erased_by_their_kept_fields() {
+        let day = 86_400;
+        let mut s = store();
+        let port = s.now;
+        let audit = |at: i64, payload: Json, about: &[(&str, &str)]| EntryIn {
+            kind: "audit".into(),
+            occurred_at: at,
+            payload: payload.as_object().cloned().unwrap_or_default(),
+            about: about
+                .iter()
+                .map(|(f, t)| (f.to_string(), t.to_string()))
+                .collect(),
+        };
+        let mut ana = employee(
+            "E-1",
+            "EMPLOYED",
+            json!({"employee_id": "1", "name": "Ana"}),
+        );
+        ana.legacy_entries = vec![
+            audit(port - 10 * day, json!({"action": "hired", "by": "hr"}), &[]),
+            audit(
+                port - 5 * day,
+                json!({"action": "moved", "team_name": "Tools"}),
+                &[("team_name", "Team:T-1")],
+            ),
+        ];
+        let mut team = employee("T-1", "ACTIVE", json!({"code": "T1"}));
+        team.type_ = "Team".into();
+        let batch = ImportBatch {
+            objects: vec![ana.clone(), team.clone()],
+            sequences: Vec::new(),
+            legacy_kinds: BTreeMap::from([("audit".to_string(), vec!["action".to_string()])]),
+        };
+        let r = import_batch(&mut s, OPERATOR, &batch, &[], false)
+            .unwrap()
+            .unwrap();
+        assert_eq!((r.written, r.refusal.clone()), (2, None));
+        let entries = |s: &Store, key: &str| {
+            let w = s.snapshot().unwrap();
+            let id = w.external[&("legacy".to_string(), key.to_string())].clone();
+            w.legacy.get(&id).cloned().unwrap_or_default()
+        };
+        let e = entries(&s, "Employee:E-1");
+        assert_eq!(e.len(), 2);
+        assert_eq!((e[0].ordinal, e[1].ordinal), (1, 2));
+        assert_eq!(
+            serde_json::Value::Object(e[1].payload.clone()),
+            json!({"action": "moved"})
+        );
+        assert_eq!(e[0].kept, vec!["action".to_string()]);
+        let t = entries(&s, "Team:T-1");
+        assert_eq!(t.len(), 1);
+        assert_eq!(
+            serde_json::Value::Object(t[0].payload.clone()),
+            json!({"team_name": "Tools"})
+        );
+        assert_eq!(t[0].occurred_at, port - 5 * day);
+        // sent again, it writes nothing and is not refused
+        let again = import_batch(&mut s, OPERATOR, &batch, &[], false)
+            .unwrap()
+            .unwrap();
+        assert_eq!((again.written, again.refusal), (0, None));
+        assert_eq!(entries(&s, "Employee:E-1").len(), 2);
+        // a field about a team neither the batch nor the store holds is a
+        // FIELD class: reported by a dry run, refused undecided, and left
+        // behind when the file drops it
+        let mut bo = employee("E-2", "EMPLOYED", json!({"employee_id": "2"}));
+        bo.legacy_entries = vec![audit(
+            port - day,
+            json!({"action": "moved", "team_name": "Ghosts"}),
+            &[("team_name", "Team:T-9")],
+        )];
+        let lone = ImportBatch {
+            objects: vec![bo],
+            sequences: Vec::new(),
+            legacy_kinds: BTreeMap::new(),
+        };
+        let dry = import_batch(&mut s, OPERATOR, &lone, &[], true)
+            .unwrap()
+            .unwrap();
+        let class = dry
+            .findings
+            .iter()
+            .find(|c| c.kind == ViolationKind::Field)
+            .cloned()
+            .expect("a FIELD class");
+        assert_eq!(class.rule, "audit.team_name");
+        let undecided = import_batch(&mut s, OPERATOR, &lone, &[], false)
+            .unwrap()
+            .unwrap();
+        assert!(undecided.refusal.unwrap().reason.contains("is undecided"));
+        let file = [decided(&class, Disposition::Drop, "no such team")];
+        let r = import_batch(&mut s, OPERATOR, &lone, &file, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!((r.written, r.refusal), (1, None));
+        assert_eq!(
+            serde_json::Value::Object(entries(&s, "Employee:E-2")[0].payload.clone()),
+            json!({"action": "moved"})
+        );
+        // an entry that names no kind is refused
+        let mut nameless = employee("E-3", "EMPLOYED", json!({"employee_id": "3"}));
+        nameless.legacy_entries = vec![EntryIn {
+            kind: " ".into(),
+            ..audit(port - day, json!({}), &[])
+        }];
+        let r = run(&mut s, vec![nameless], &[], false);
+        assert!(r.refusal.unwrap().reason.contains("names no kind"));
+        // an erasure leaves each entry its kept fields, and counts them
+        let id = id_of(&s, "E-1");
+        let erase = Request {
+            transition: "forget".into(),
+            actor: OPERATOR.into(),
+            object_id: Some(id.clone()),
+            type_: None,
+            inputs: [("reason".to_string(), json!("asked"))]
+                .into_iter()
+                .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        assert!(matches!(
+            request(&mut s, &erase).unwrap().unwrap(),
+            Verdict::Satisfied { .. }
+        ));
+        let e = entries(&s, "Employee:E-1");
+        assert_eq!(
+            serde_json::Value::Object(e[0].payload.clone()),
+            json!({"action": "hired", "by": null})
+        );
+        let forgot = s.history(&id).unwrap().pop().unwrap();
+        assert_eq!(forgot.payload["legacy_entries"], json!(2));
+        // the team's entry, a field moved from the employee's, is the team's
+        assert_eq!(
+            entries(&s, "Team:T-1")[0].payload["team_name"],
+            json!("Tools")
+        );
     }
 }

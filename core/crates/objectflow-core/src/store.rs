@@ -114,6 +114,9 @@ pub struct Change {
     /// Interval spans an erasure's walk down redacted on another object: the
     /// object, the dimension and the span's entry (§9 step 12).
     pub redacted_spans: Vec<(String, String, i64)>,
+    /// The legacy entries an import attaches, each to its object, with the
+    /// ordinal the import gave it (ADR-0163).
+    pub legacy: Vec<(String, crate::world::LegacyEntry)>,
     /// Sequences it raises past a value, never lowering one: sequence, scope
     /// and value (ADR-0154).
     pub raised: Vec<(String, String, i64)>,
@@ -664,6 +667,35 @@ fn clear_kept(
     Ok(())
 }
 
+/// An erased object's legacy entries, each left with the fields its kind
+/// keeps, every other replaced by absence (`storage-schema.md` §9 step 6).
+fn redact_legacy(tx: &Transaction<'_>, id: &str) -> Stored<()> {
+    let rows: Vec<(i64, String, String)> = {
+        let mut q =
+            tx.prepare("SELECT ordinal, payload, kept FROM of_legacy_entry WHERE object_id = ?1")?;
+        let rows = q.query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+    for (ordinal, payload, kept) in rows {
+        let entry = crate::world::LegacyEntry {
+            ordinal,
+            kind: String::new(),
+            occurred_at: 0,
+            payload: serde_json::from_str(&payload).unwrap_or_default(),
+            kept: serde_json::from_str(&kept).unwrap_or_default(),
+        };
+        tx.execute(
+            "UPDATE of_legacy_entry SET payload = ?3 WHERE object_id = ?1 AND ordinal = ?2",
+            params![
+                id,
+                ordinal,
+                serde_json::Value::Object(entry.redacted()).to_string()
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 /// One span of the interval index, inserted or brought up to date.
 fn upsert_span(tx: &Transaction<'_>, id: &str, dimension: &str, sp: &Span) -> Stored<()> {
     tx.execute(
@@ -957,6 +989,15 @@ CREATE TABLE of_declaration (
   change_id     TEXT,
   release       TEXT,
   report        TEXT    NOT NULL
+);
+CREATE TABLE of_legacy_entry (
+  object_id   TEXT    NOT NULL REFERENCES of_object(id),
+  ordinal     INTEGER NOT NULL,
+  kind        TEXT    NOT NULL,
+  occurred_at TEXT    NOT NULL,
+  payload     TEXT    NOT NULL,
+  kept        TEXT    NOT NULL,
+  PRIMARY KEY (object_id, ordinal)
 );
 CREATE TABLE of_external_id (
   source     TEXT NOT NULL,
@@ -1884,6 +1925,12 @@ impl Store {
     }
 
     /// An object's events, in its order.
+    /// An object's legacy entries, by ordinal, which `history` returns
+    /// before its events (`library-api.md` §6, ADR-0015).
+    pub fn legacy_entries(&self, id: &str) -> Stored<Vec<crate::world::LegacyEntry>> {
+        Ok(self.snapshot()?.legacy.remove(id).unwrap_or_default())
+    }
+
     pub fn history(&self, id: &str) -> Stored<Vec<Event>> {
         let mut stmt = self.conn.prepare(&format!(
             "{EVENT_SELECT} WHERE object_id = ?1 ORDER BY object_seq"
@@ -2189,6 +2236,34 @@ fn snapshot<'l>(
     for row in rows {
         let (source, value, id) = row?;
         world.external.insert((source, value), id);
+    }
+    // each object's legacy entries, by ordinal
+    let mut entries = conn.prepare(
+        "SELECT object_id, ordinal, kind, occurred_at, payload, kept FROM of_legacy_entry ORDER BY object_id, ordinal",
+    )?;
+    let rows = entries.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, String>(4)?,
+            r.get::<_, String>(5)?,
+        ))
+    })?;
+    for row in rows {
+        let (id, ordinal, kind, at, payload, kept) = row?;
+        world
+            .legacy
+            .entry(id)
+            .or_default()
+            .push(crate::world::LegacyEntry {
+                ordinal,
+                kind,
+                occurred_at: parse_timestamp(&at).unwrap_or(0),
+                payload: serde_json::from_str(&payload).unwrap_or_default(),
+                kept: serde_json::from_str(&kept).unwrap_or_default(),
+            });
     }
     let mut index =
         conn.prepare("SELECT object_id, attribute, position FROM of_attribute_write")?;
@@ -2649,11 +2724,29 @@ fn write(
             }
         }
     }
+    // the legacy entries an import attaches (ADR-0163)
+    for (id, e) in &change.legacy {
+        tx.execute(
+            "INSERT INTO of_legacy_entry (object_id, ordinal, kind, occurred_at, payload, kept) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                id,
+                e.ordinal,
+                e.kind,
+                timestamp_text(e.occurred_at),
+                serde_json::Value::Object(e.payload.clone()).to_string(),
+                serde_json::json!(e.kept).to_string()
+            ],
+        )?;
+    }
     // what a version kept for history, personal under the version it
-    // belongs to, leaves an erased object too (ADR-0146 decision 2)
+    // belongs to, leaves an erased object too (ADR-0146 decision 2), and so
+    // does every field of its legacy entries their kind does not keep (§9
+    // step 6, ADR-0078)
     for (o, _, _) in &change.writes {
         if o.erased {
             clear_kept(tx, lib, earlier, o)?;
+            redact_legacy(tx, &o.id)?;
         }
     }
     for (position, name) in &change.redacted_inputs {

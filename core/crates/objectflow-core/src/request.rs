@@ -1603,7 +1603,15 @@ fn take(
         imported: false,
         // an erasure names what it erased, and never the values
         payload: if x.kind == Kind::Erasure {
-            json!({ "erased": ctx.erased.get(&id).cloned().unwrap_or_default() })
+            {
+                let mut p = json!({ "erased": ctx.erased.get(&id).cloned().unwrap_or_default() });
+                // and how many legacy entries it redacted (§9 step 6, ADR-0078)
+                let entries = ctx.work.legacy.get(&id).map_or(0, Vec::len);
+                if entries > 0 {
+                    p["legacy_entries"] = json!(entries);
+                }
+                p
+            }
         } else {
             let mut p = json!({ "inputs": written });
             if !corrections.is_empty() {
