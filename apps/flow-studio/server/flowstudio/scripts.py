@@ -18,6 +18,7 @@ if str(SCRIPTS) not in sys.path:
 
 import flowexpr  # noqa: E402
 import flowrun  # noqa: E402
+import flowpublish  # noqa: E402
 
 
 def _script(name: str, file: str):

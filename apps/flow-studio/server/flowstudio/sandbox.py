@@ -22,7 +22,7 @@ from fractions import Fraction
 from typing import Any
 
 from . import values
-from .scripts import flowexpr, flowrun, flows
+from .scripts import flowexpr, flowpublish, flowrun, flows
 
 PROPOSAL_VERBS = ("approve", "reject", "withdraw")
 UNSUPPORTED = ("expected_version", "idempotency_key", "expires_at")
@@ -248,6 +248,10 @@ class Sandbox:
         s = self.store
         if oid in s.proposals or (body.get("propose") and xn):
             return self.proposal(body, actor)
+        if tn == flowrun.DECLARATION_CHANGE or (
+                oid in s.objects
+                and s.objects[oid].type == flowrun.DECLARATION_CHANGE):
+            return self.change(body, actor)
         if oid is not None:
             tn = s.objects[oid].type if oid in s.objects else None
         x = ((self.runner.kinds.get(tn) or {}).get("transitions")
@@ -271,6 +275,22 @@ class Sandbox:
         except flowrun.ExampleError as e:
             raise Fault(400, str(e))
         return self.satisfied(result, tn, before)
+
+    def change(self, body: dict, actor: str) -> dict:
+        """A request on a change to the declaration, which the runner's
+        publishing decides (`DESIGN.md` §9, ADR-0166); its inputs are taken
+        as given, a source being a map of files."""
+        s = self.store
+        xn, oid = body["transition"], body.get("object_id")
+        before = s.position
+        try:
+            result = flowpublish.request(s, xn, oid, actor,
+                                         body.get("inputs"))
+        except flowrun.Refused as r:
+            return self.refusal(r, flowrun.DECLARATION_CHANGE, oid, None, xn)
+        except flowrun.NotRunnable as e:
+            raise not_run(e)
+        return self.satisfied(result, flowrun.DECLARATION_CHANGE, before)
 
     def inputs(self, tn: str | None, xn: str, given: dict | None) -> dict:
         """A request's inputs from the wire, as the runner reads an
@@ -605,7 +625,9 @@ class Sandbox:
         t = self.runner.kinds.get(tn)
         if t is None:
             raise Fault(404, f"no type {tn} is declared")
-        out = jsonable(self.written.get(tn, t))
+        out = jsonable(flowpublish.change_declaration()
+                       if tn == flowrun.DECLARATION_CHANGE
+                       else self.written.get(tn, t))
         # the members of each enumeration the type's attributes are of, which
         # its rules are read against
         used = {str((spec or {}).get("type", "")).removesuffix("[]")
@@ -682,10 +704,12 @@ class Sandbox:
                             if oid in self.store.objects else None)
         elif v == "unknown_transition":
             out["transition"] = xn
+        elif v == "invalid_input" and r.inputs is not None:
+            out["inputs"] = list(r.inputs)
         elif v == "invalid_input":
             out.update(inputs=[], not_computed=["inputs"])
         elif v == "not_requestable":
-            parents = (x or {}).get("only_via") or []
+            parents = r.parents or (x or {}).get("only_via") or []
             out["parents"] = list(parents) if isinstance(parents, list) \
                 else [parents]
         elif v == "over_limit":

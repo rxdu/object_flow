@@ -74,11 +74,13 @@ class Refused(Exception):
     refusal (library-api.md §4), which the Flow Studio's server reports (ADR-0150)."""
 
     def __init__(self, verdict, clause=None, remedy=None, detail="", object_id=None, object_type=None, step=None,
-                 inner=None, unknown=False):
+                 inner=None, unknown=False, inputs=None, parents=None):
         super().__init__(f"{verdict} {clause or ''} {remedy or ''} {detail}".strip())
         self.verdict, self.clause, self.remedy, self.detail = verdict, clause, remedy, detail
         self.object_id, self.object_type, self.step, self.inner = object_id, object_type, step, inner
         self.unknown = unknown      # its clause was unknown rather than false (§8.2), as the attempt log records
+        # the inputs an `invalid_input` names, and the parents a `not_requestable` names, where the runner knows them
+        self.inputs, self.parents = inputs, parents
 
 
 def seconds(duration):
@@ -118,7 +120,7 @@ def attempt_row(store, tn, oid, xn, actor, r, proposal=None):
     return {"type": tn, "object": oid, "transition": xn, "verdict": r.verdict, "clause": clause, "remedy": r.remedy,
             "unknown": r.unknown, "enforced": True, "flagged": False,
             "actor_id": store.objects[actor].attrs.get(marked[0], actor) if marked else actor,
-            "actor_kind": marked[1] if marked else "unknown", "at": store.now, "declaration_version": 1,
+            "actor_kind": marked[1] if marked else "unknown", "at": store.now, "declaration_version": store.version,
             "applied_position": None, "proposal": proposal}
 
 
@@ -492,11 +494,32 @@ def proposal_kind():
                           for st in ("EXECUTED", "REJECTED", "WITHDRAWN", "INVALIDATED")}}}
 
 
+# the built-in type a change to the declaration is (DESIGN.md §9), whose requests flowpublish.py decides (ADR-0166)
+DECLARATION_CHANGE = "DeclarationChange"
+
+
+def change_kind():
+    """A change to the declaration as the built-in type it is (DESIGN.md §9): its source, each file by the name it
+    declares, held as JSON text; where the source came from and its digest; the version it was drafted against; its
+    report and the evidence it cites, as JSON text; who drafted and approved it, with their kinds; and its states,
+    which only its own requests and the publish move (ADR-0166)."""
+    def a(t, optional=False):
+        return {"type": t, **({"optional": True} if optional else {})}
+    return {"attributes": {"source": a("string"), "source_ref": a("string"), "source_digest": a("string"),
+                           "base_version": a("int"), "report": a("string", True), "evidence": a("string", True),
+                           "drafted_by": a("string"), "drafted_by_kind": a("string"),
+                           "approved_by": a("string", True), "approved_by_kind": a("string", True)},
+            "states": {"DRAFTED": {"category": "live"}, "SUBMITTED": {"category": "live"},
+                       **{st: {"category": "closed", "final": True}
+                          for st in ("PUBLISHED", "REJECTED", "WITHDRAWN", "SUPERSEDED")}}}
+
+
 def with_labels(kinds):
-    """The types with the built-in label kind and the built-in proposal, as every store is created with them
-    (ADR-0126, DESIGN.md §9)."""
+    """The types with the built-in label kind, the built-in proposal and the built-in change to the declaration, as
+    every store is created with them (ADR-0126, DESIGN.md §9)."""
     kinds = kinds if LABEL in kinds else {**kinds, LABEL: label_kind()}
-    return kinds if PROPOSAL in kinds else {**kinds, PROPOSAL: proposal_kind()}
+    kinds = kinds if PROPOSAL in kinds else {**kinds, PROPOSAL: proposal_kind()}
+    return kinds if DECLARATION_CHANGE in kinds else {**kinds, DECLARATION_CHANGE: change_kind()}
 
 
 def proposal_event(store, key, verb, before, after, actor, position=None):
@@ -515,7 +538,7 @@ def proposal_event(store, key, verb, before, after, actor, position=None):
                          "occurred_at": store.now, "recorded_at": store.now, "actor_id": actor,
                          "actor_kind": marked[1] if marked else "unknown", "asserted": False, "overrides": False,
                          "imported": False, "migrated": False, "redacted": False, "reason": ABSENT,
-                         "declaration_version": 1, "held": {}})
+                         "declaration_version": store.version, "held": {}})
     store.events.sort(key=lambda e: e["position"])
     return position
 
@@ -525,6 +548,9 @@ class Store:
 
     def __init__(self, kinds, enums, metrics=None, homes=None):
         self.kinds, self.enums = with_labels(kinds), enums
+        # the installed declaration version: an example's store, like a sandbox's load, starts at the version under
+        # test, 1, over version 0's built-ins and operator (ADR-0155 decision 4); a publish moves it on (ADR-0166)
+        self.version = 1
         # module -> each metric its types and it declare, as (type or None, declaration); type -> its module
         self.decl = Shared(metrics=metrics or {}, homes=homes or {})
         self.now = timestamp(CLOCK_START)
@@ -2107,7 +2133,7 @@ class Runner:
             ctx.observed.append({"type": tn, "object": o.id, "transition": xn, "verdict": "unsatisfied", "clause": g,
                                  "remedy": remedy, "unknown": unknown, "enforced": False, "flagged": mode == "warn",
                                  "actor_id": ctx.who["id"], "actor_kind": ctx.who["kind"], "at": work.now,
-                                 "declaration_version": 1, "applied_position": pos, "proposal": None})
+                                 "declaration_version": work.version, "applied_position": pos, "proposal": None})
         ctx.attr_writes[o.id] = set(inputs) & set(x.get("required_inputs", []) + x.get("optional_inputs", []))
         for w in wholes:
             if w is not None:
@@ -2173,7 +2199,7 @@ class Runner:
                     spans[-1]["left_at"] = ctx.at
                 key = "state" if m == "state" else "value"
                 spans.append(span_row(pos, {"object": o.id, key: v, "entered_at": ctx.at, "left_at": ABSENT,
-                                            "entered_by_kind": ctx.who["kind"], "declaration_version": 1, "legacy": False,
+                                            "entered_by_kind": ctx.who["kind"], "declaration_version": work.version, "legacy": False,
                                             "migrated": False, "held": dict(now_values)}))
         written = ctx.attr_writes.get(o.id, set()) | ctx.erased.get(o.id, set())
         written |= {a for a in set(before_attrs) | set(o.attrs) if before_attrs.get(a, ABSENT) != o.attrs.get(a, ABSENT)}
@@ -2207,7 +2233,7 @@ class Runner:
             "asserted": x["kind"] == "assertion",
             "overrides": x["kind"] == "assertion" or (x["kind"] == "erasure" and bool(self.failing_invariants(work, o))),
             "imported": False, "migrated": False,
-            "redacted": False, "reason": reason, "declaration_version": 1, "held": held,
+            "redacted": False, "reason": reason, "declaration_version": work.version, "held": held,
             # what caused it, and the inputs it took by name, which an erasure's walk down follows (ADR-0160)
             "cause": cause, "inputs": sorted(inputs)})
 
@@ -2418,7 +2444,7 @@ class Runner:
                 "from_state": state, "to_state": state, "completes": False, "returns": False,
                 "occurred_at": ctx.at, "recorded_at": work.now, "actor_id": ctx.who["id"],
                 "actor_kind": ctx.who["kind"], "asserted": False, "overrides": False, "imported": False,
-                "migrated": False, "redacted": True, "reason": ABSENT, "declaration_version": 1, "held": {},
+                "migrated": False, "redacted": True, "reason": ABSENT, "declaration_version": work.version, "held": {},
                 "cause": ctx.causes[-1] if ctx.causes else None, "inputs": []})
 
     def walk_down(self, ctx, e, tainted, holding, redacted, cleared):
@@ -2739,7 +2765,7 @@ def import_object(runner, store, tn, state, given):
     for m, v in values.items():
         o.spans[m] = [span_row(store.position, {"object": o.id, "state" if m == "state" else "value": v,
                                                 "entered_at": store.now, "left_at": ABSENT, "entered_by_kind": "unknown",
-                                                "declaration_version": 1, "legacy": False, "migrated": False,
+                                                "declaration_version": store.version, "legacy": False, "migrated": False,
                                                 "held": dict(values)})]
     for a in o.attrs:
         o.writes[a] = store.position
@@ -2747,7 +2773,7 @@ def import_object(runner, store, tn, state, given):
                          "to_state": ("state", o.type, o.state), "completes": False, "returns": False,
                          "occurred_at": store.now, "recorded_at": store.now, "actor_id": OPERATOR, "actor_kind": "human",
                          "asserted": True, "overrides": False, "imported": True, "migrated": False, "redacted": False,
-                         "reason": ABSENT, "declaration_version": 1, "held": {}})
+                         "reason": ABSENT, "declaration_version": store.version, "held": {}})
     o.version += 1
     return o.id
 
