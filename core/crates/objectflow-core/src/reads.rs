@@ -700,6 +700,40 @@ pub fn availability(
             flags,
         });
     }
+    // a proposal's decisions, which its declared lifecycle names and a
+    // request takes on it by their own path: each requestable out of
+    // PENDING and guarded by nothing of its own, the proposed request's
+    // guards being decided when an approval executes it; `invalidate` is
+    // only via a publish or an erasure (DESIGN.md §9, D535)
+    if o.type_ == crate::model::PROPOSAL {
+        for xn in ["approve", "reject", "withdraw"] {
+            let verdict = if who.is_none() {
+                Some(Verdict::Unsatisfied {
+                    clause: "actor_known".into(),
+                    remedy: Some(Remedy::Dependent),
+                })
+            } else if o.state != "PENDING" {
+                Some(Verdict::Unavailable {
+                    state: o.state.clone(),
+                })
+            } else {
+                None
+            };
+            offers.push(Offer {
+                transition: xn.into(),
+                creates: None,
+                availability: if verdict.is_some() {
+                    Availability::Unavailable
+                } else {
+                    Availability::Available
+                },
+                verdict,
+                inputs: Vec::new(),
+                unevaluated: Vec::new(),
+                flags: Vec::new(),
+            });
+        }
+    }
     // and recording each kind on it, and labelling, which every type
     // carries, its generated guards decided on the subject and its fields
     // waiting for the caller (ADR-0099)

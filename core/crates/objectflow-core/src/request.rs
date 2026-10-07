@@ -6718,6 +6718,37 @@ types:
             Verdict::Satisfied { .. }
         ));
         let handover = created(&propose(&mut s, "finish", json!({}), None));
+        // a pending proposal offers its decisions, guarded by nothing of their
+        // own, and one no longer pending refuses them in its state (D535)
+        let decisions = |s: &Store, actor: &str| {
+            let w = s.snapshot().unwrap();
+            crate::reads::availability(&w, actor, &handover)
+                .unwrap()
+                .unwrap()
+                .into_iter()
+                .filter(|o| o.creates.is_none())
+                .map(|o| (o.transition, o.availability, o.verdict))
+                .collect::<Vec<_>>()
+        };
+        let all = |a: crate::reads::Availability, v: Option<Verdict>| {
+            ["approve", "reject", "withdraw"]
+                .map(|x| (x.to_string(), a, v.clone()))
+                .to_vec()
+        };
+        assert_eq!(
+            decisions(&s, OPERATOR),
+            all(crate::reads::Availability::Available, None)
+        );
+        assert_eq!(
+            decisions(&s, "nobody"),
+            all(
+                crate::reads::Availability::Unavailable,
+                Some(Verdict::Unsatisfied {
+                    clause: "actor_known".into(),
+                    remedy: Some(Remedy::Dependent),
+                })
+            )
+        );
         // approved too soon, it is refused as the request would be, and waits
         assert_eq!(
             req(&mut s, "approve", OPERATOR, (&handover, false), json!({})),
@@ -6773,12 +6804,21 @@ types:
             ),
             ("DONE", "EXECUTED")
         );
-        // a decided proposal is decided once
+        // a decided proposal is decided once, and offers no decision
         assert_eq!(
             req(&mut s, "reject", OPERATOR, (&handover, false), json!({})),
             Verdict::Unavailable {
                 state: "EXECUTED".into()
             }
+        );
+        assert_eq!(
+            decisions(&s, OPERATOR),
+            all(
+                crate::reads::Availability::Unavailable,
+                Some(Verdict::Unavailable {
+                    state: "EXECUTED".into()
+                })
+            )
         );
         // an expired one is not approved
         let other = created(&req(

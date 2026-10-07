@@ -1806,6 +1806,18 @@ class Runner:
             if x["kind"] == "initial" or x.get("only_via"):
                 continue
             offers.append(self.offer(store, o, t, xn, x, who))
+        if o.type == PROPOSAL:
+            # a proposal's decisions, which its declared lifecycle names and a request takes on it by their own path: each
+            # requestable out of PENDING and guarded by nothing of its own, the proposed request's guards being decided when
+            # an approval executes it; `invalidate` is only via a publish or an erasure (DESIGN.md §9, D535)
+            for xn in ("approve", "reject", "withdraw"):
+                if who is None:
+                    r = Refused("unsatisfied", "actor_known", GENERATED_REMEDY["actor_known"])
+                elif o.state != "PENDING":
+                    r = Refused("unavailable", remedy="unreachable_from_here", detail=f"it is in {o.state}")
+                else:
+                    r = None
+                offers.append((xn, None, "unavailable" if r else "available", r, {}, [], []))
         for kn, k in self.kinds.items():
             ref = ((k.get("attributes") or {}).get("subject") or {}).get("reference")
             if "record" in (k.get("transitions") or {}) and ref and (ref == ANY_TYPE or store.is_a(o.type, ref)):
@@ -3333,9 +3345,17 @@ def self_test():
     step(r, s, {"propose": {"object": "u", "transition": "receive", "after": "1 day", "occurred_at": "now - 1 day",
                             "proposal": "p"}}, aliases, {})
     filed = s.now
+    # a pending proposal offers its decisions, guarded by nothing of their own, and one no longer pending refuses them
+    # in its state (D535)
+    decisions = lambda actor=OPERATOR: [(x[0], x[2], x[3].verdict if x[3] else None)
+                                        for x in r.availability(s, actor, aliases["p"][1]) if x[1] is None]
+    every = lambda how, why: [(x, how, why) for x in ("approve", "reject", "withdraw")]
+    check("a pending proposal offers its decisions", decisions(), every("available", None))
+    check("a pending proposal refuses an unknown actor its decisions", decisions("nobody"), every("unavailable", "unsatisfied"))
     applied = step(r, s, {"approve": {"proposal": "p", "after": "2 days"}}, aliases, {})
     check("an approved proposal records the occurred time it was filed with, bounded at filing",
           (applied[0], applied[5], s.proposals[aliases["p"][1]]["state"]), ("applied", filed - 86400, "executed"))
+    check("a decided proposal offers no decision", decisions(), every("unavailable", "unavailable"))
     try:
         step(r, s, {"propose": {"object": "u", "transition": "receive", "occurred_at": "now - 3 days", "proposal": "q"}},
              aliases, {})
