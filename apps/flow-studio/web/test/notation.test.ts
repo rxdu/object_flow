@@ -4,6 +4,7 @@ import {
   instantText,
   resolveInstant,
   sameDecimal,
+  writtenValue,
 } from "../src/session/notation";
 
 describe("the model's notation", () => {
@@ -38,5 +39,17 @@ describe("the model's notation", () => {
     expect(sameDecimal("9007199254740993.01", "9007199254740993.010")).toBe(
       true,
     );
+  });
+
+  it("writes a typed value as an example's values write it", () => {
+    const enums = { Grade: ["A", "B"] };
+    expect(writtenValue("42", { type: "int" }, enums)).toBe(42);
+    expect(writtenValue("4.2", { type: "int" }, enums)).toBe("4.2");
+    expect(writtenValue("true", { type: "bool" }, enums)).toBe(true);
+    expect(writtenValue("no", { type: "bool" }, enums)).toBe("no");
+    expect(writtenValue("A", { type: "Grade" }, enums)).toBe("Grade.A");
+    expect(writtenValue("Grade.B", { type: "Grade" }, enums)).toBe("Grade.B");
+    expect(writtenValue("dana", { reference: "Employee" }, enums)).toBe("dana");
+    expect(writtenValue("E-1001", { type: "string" }, enums)).toBe("E-1001");
   });
 });

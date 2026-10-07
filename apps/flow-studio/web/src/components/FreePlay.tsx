@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { Declaration, TransitionSpec, Verdict, Wire } from "../api/wire";
 import { explain } from "../session/explain";
+import { writtenValue } from "../session/notation";
 import { OPERATOR, type Player } from "../session/player";
 import { InputForm, type Known } from "./InputForm";
 import { SaveExample } from "./SaveExample";
@@ -52,6 +53,13 @@ export function FreePlay({
   const [initial, setInitial] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [proposing, setProposing] = useState(false);
+  // an import: a mirror type's object as a legacy system held it (§4)
+  const [mirrors, setMirrors] = useState<string[]>([]);
+  const [importing, setImporting] = useState("");
+  const [importDecl, setImportDecl] = useState<Declaration | null>(null);
+  const [legacyKey, setLegacyKey] = useState("");
+  const [arrives, setArrives] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -91,6 +99,33 @@ export function FreePlay({
       live = false;
     };
   }, [player, type]);
+
+  useEffect(() => {
+    let live = true;
+    void Promise.all(
+      types.map(async (t) => ((await player.decl(t)).mirror ? t : null)),
+    ).then((found) => {
+      if (live) setMirrors(found.filter((t): t is string => t !== null));
+    });
+    return () => {
+      live = false;
+    };
+  }, [player, types]);
+
+  useEffect(() => {
+    let live = true;
+    if (importing) {
+      void player.decl(importing).then((d) => {
+        if (!live) return;
+        setImportDecl(d);
+        setArrives(Object.keys(d.states ?? {})[0] ?? "");
+        setValues({});
+      });
+    }
+    return () => {
+      live = false;
+    };
+  }, [player, importing]);
 
   async function guarded(action: () => Promise<Verdict | null>) {
     try {
@@ -236,6 +271,99 @@ export function FreePlay({
         )}
       </div>
 
+      {mirrors.length > 0 && (
+        <div>
+          <h3 className="label">Import</h3>
+          <p className="mb-1 text-xs text-slate-500">
+            An object of a mirror type as a legacy system held it: by its legacy
+            key, which later steps name it by, in a state, with its values in
+            the model&apos;s notation.
+          </p>
+          <div className="grid grid-cols-[6rem_1fr] items-center gap-2">
+            <span className="text-xs text-slate-500">type</span>
+            <select
+              className="field"
+              value={importing}
+              onChange={(e) => setImporting(e.target.value)}
+            >
+              <option value="">(a mirror type)</option>
+              {mirrors.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+            {importing && importDecl && (
+              <>
+                <span className="text-xs text-slate-500">legacy key</span>
+                <input
+                  className="field"
+                  value={legacyKey}
+                  onChange={(e) => setLegacyKey(e.target.value)}
+                />
+                <span className="text-xs text-slate-500">state</span>
+                <select
+                  className="field"
+                  value={arrives}
+                  onChange={(e) => setArrives(e.target.value)}
+                >
+                  {Object.keys(importDecl.states ?? {}).map((st) => (
+                    <option key={st}>{st}</option>
+                  ))}
+                </select>
+                {Object.entries(importDecl.attributes ?? {}).map(
+                  ([a, spec]) => (
+                    <Fragment key={a}>
+                      <span className="font-mono text-xs">{a}</span>
+                      <input
+                        className="field"
+                        placeholder={
+                          spec.reference
+                            ? `${spec.reference}, by legacy key`
+                            : (spec.type ?? "")
+                        }
+                        value={values[a] ?? ""}
+                        onChange={(e) =>
+                          setValues((prev) => ({
+                            ...prev,
+                            [a]: e.target.value,
+                          }))
+                        }
+                      />
+                    </Fragment>
+                  ),
+                )}
+              </>
+            )}
+          </div>
+          {importing && importDecl && (
+            <button
+              className="btn mt-2"
+              disabled={!legacyKey || !arrives}
+              onClick={() =>
+                void guarded(async () => {
+                  const attrs = importDecl.attributes ?? {};
+                  const enums = importDecl.enumerations ?? {};
+                  await player.importStep({
+                    type: importing,
+                    as: legacyKey,
+                    state: arrives,
+                    values: Object.fromEntries(
+                      Object.entries(values)
+                        .filter(([, v]) => v !== "")
+                        .map(([a, v]) => [a, writtenValue(v, attrs[a], enums)]),
+                    ),
+                  });
+                  setLegacyKey("");
+                  setValues({});
+                  return null;
+                })
+              }
+            >
+              Import
+            </button>
+          )}
+        </div>
+      )}
+
       {player.log.length > 0 && (
         <div>
           <h3 className="label">This session</h3>
@@ -245,12 +373,12 @@ export function FreePlay({
                 <span className="font-mono">{entry.summary}</span>{" "}
                 <span
                   className={
-                    entry.verdict.kind === "satisfied"
+                    entry.verdict === null || entry.verdict.kind === "satisfied"
                       ? "text-emerald-800"
                       : "text-amber-800"
                   }
                 >
-                  {explain(entry.verdict)}
+                  {entry.verdict === null ? "imported" : explain(entry.verdict)}
                 </span>
               </li>
             ))}

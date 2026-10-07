@@ -1,5 +1,8 @@
 // The model's notation for the values an example writes and the wire carries
-// as strings (ADR-0150 decision 2): instants, durations and exact decimals.
+// as strings (ADR-0150 decision 2): instants, durations and exact decimals,
+// and a value typed into a form, written as an example writes it.
+
+import type { AttributeSpec } from "../api/wire";
 
 const SECONDS: Record<string, number> = {
   s: 1,
@@ -56,4 +59,21 @@ export function sameDecimal(a: string | number, b: string | number): boolean {
   const [y, ys] = scaled(b);
   const places = Math.max(xs, ys);
   return x * 10n ** BigInt(places - xs) === y * 10n ** BigInt(places - ys);
+}
+
+/** A value typed into the import form, as an example's `values` writes it
+ * (flow-format.md §11.3): an integer or a truth value as one, an
+ * enumeration member qualified, a reference by the legacy key of an object
+ * imported before it, and the rest as the text given. */
+export function writtenValue(
+  text: string,
+  spec: AttributeSpec | undefined,
+  enums: Record<string, string[]>,
+): unknown {
+  const typ = spec?.type ?? "";
+  if (typ === "int" && /^-?\d+$/.test(text)) return Number(text);
+  if (typ === "bool" && (text === "true" || text === "false"))
+    return text === "true";
+  if (typ in enums && !text.includes(".")) return `${typ}.${text}`;
+  return text;
 }

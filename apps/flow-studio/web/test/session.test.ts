@@ -30,6 +30,7 @@ describe.each(BACKENDS)("against the %s", (backend) => {
     ({ wire, stop } = await startServer(backend));
     await wire.copy("service.yaml");
     await wire.copy("delivery.yaml");
+    await wire.copy("servicedesk.yaml");
   }, 300_000);
 
   afterAll(() => stop?.());
@@ -235,5 +236,91 @@ describe.each(BACKENDS)("against the %s", (backend) => {
       expect(draft.example).toBeNull();
       expect(draft.problems.join(" ")).toMatch(/files a proposal/);
     }, 120_000);
+  });
+
+  describe("a session with an import", () => {
+    async function desk(): Promise<Player> {
+      const bundle = await wire.module("servicedesk.yaml", "workspace");
+      const loaded = await wire.load(bundle.files);
+      expect(loaded.loaded).toBe(true);
+      return new Player(wire, (await wire.reset()).now);
+    }
+
+    it("imports a legacy object, written as the format writes it, and holds", async () => {
+      const p = await desk();
+      const dana = {
+        type: "Employee",
+        as: "dana",
+        state: "EMPLOYED",
+        values: {
+          employee_id: "E-1001",
+          name: "Dana Lee",
+          department: "Finance",
+        },
+      };
+      await p.importStep(dana);
+      expect(p.log).toEqual([
+        { summary: "import Employee as dana", verdict: null },
+      ]);
+      const op = { id: OPERATOR };
+      const laptop = await p.request(
+        {
+          transition: "receive",
+          actor: op,
+          type: "Laptop",
+          inputs: { name: "ThinkPad 14" },
+        },
+        "Laptop.receive",
+      );
+      if (laptop.kind !== "satisfied") throw new Error("no laptop");
+      await p.request(
+        { transition: "deploy", actor: op, object_id: laptop.object_id },
+        "deploy",
+      );
+      const assigned = await p.request(
+        {
+          transition: "assign",
+          actor: op,
+          object_id: laptop.object_id,
+          inputs: { assigned_to: p.alias("dana") },
+        },
+        "assign",
+      );
+      expect(assigned.kind).toBe("satisfied");
+      const draft = await draftExample(
+        p,
+        "A laptop goes to Dana, whom HR sent.",
+      );
+      expect(draft.problems).toEqual([]);
+      const ex = draft.example as Record<string, unknown>;
+      expect((ex["steps"] as unknown[])[0]).toEqual({ import: dana });
+      expect(ex["request"]).toEqual({
+        object: "laptop1",
+        transition: "assign",
+        inputs: { assigned_to: "dana" },
+      });
+      expect(ex["expect"]).toEqual({ verdict: "applied", state: "IN_USE" });
+      const saved = await wire.addExample(
+        "servicedesk.yaml",
+        "a_laptop_goes_to_an_imported_employee_freely",
+        ex,
+      );
+      expect(saved.findings ?? []).toEqual([]);
+      expect(saved.saved).toBe(true);
+    }, 120_000);
+
+    it("refuses an import its type cannot hold, and records nothing", async () => {
+      const p = await desk();
+      await expect(
+        p.importStep({
+          type: "Employee",
+          as: "nobody",
+          state: "EMPLOYED",
+          values: {},
+        }),
+      ).rejects.toThrow(/refused/);
+      expect(p.log).toEqual([]);
+      expect(p.trail).toEqual([]);
+    }, 60_000);
   });
 });

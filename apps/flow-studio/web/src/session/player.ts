@@ -377,7 +377,7 @@ export class Player {
 
   /** What the session did beyond its example: each request a person made in
    * free play, and its verdict, in order. */
-  readonly log: { summary: string; verdict: Verdict }[] = [];
+  readonly log: { summary: string; verdict: Verdict | null }[] = [];
   /** everything done to the sandbox since it was reset, in order */
   readonly trail: TrailEntry[] = [];
 
@@ -399,6 +399,19 @@ export class Player {
     this.log.push({ summary, verdict: v });
     this.trail.push({ kind: "free", body, verdict: v, created });
     return v;
+  }
+
+  /** An object imported in free play, as an example's `import` step writes
+   * it (flow-format.md §11.3): its legacy key the alias later steps name it
+   * by, logged, and drafted as that step. A refused import throws, naming
+   * why, and leaves nothing behind. */
+  async importStep(im: StepRequest): Promise<void> {
+    await this.imported(im);
+    this.trail.push({ kind: "step", step: { import: im }, verdict: null });
+    this.log.push({
+      summary: `import ${im.type ?? ""} as ${im.as ?? ""}`,
+      verdict: null,
+    });
   }
 
   /** Every object the session knows, by the name the example gives it where

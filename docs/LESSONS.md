@@ -422,3 +422,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Making an object's record lazy, a bulk read of every object kept the objects already held, so one read earlier by id, as the actor of a request is, came back without its record. It was missed twice in one session, in a publish's simulation and then in its install, because every publish test was approved by the built-in operator, whose type the install skips; the second was found only by the scenarios' replay, whose actor is a declared user.
 - **Correction:** When a value becomes lazy, list every bulk read and test each after the same object has been read alone first, by a path a real caller takes (here, an actor of a declared type); keep the refusal of an unread value at the write, which turned both misses into errors rather than lost history.
 - **Context:** ObjectFlow's core, `World::in_order` beside `World::get`, ADR-0165 decision 2; 2026-10-07.
+
+### Never match a process by a pattern the command itself contains
+- **Pattern:** `pkill -f` or `pgrep -f` with a pattern such as `vite` or `scripts/dev`, run from a shell whose own command line holds the same text, matched that shell and killed it, exit status 144, three times in one session; once it left a scratch file behind that the rest of the command was to delete.
+- **Correction:** Stop a process by the pid its starter reported, or select by a pattern the command cannot contain, a character class such as `vit[e]`; and list what remains with the same kind of pattern before trusting that nothing does.
+- **Context:** The agent's shell, stopping the Flow Studio's development servers and probes; 2026-10-07.

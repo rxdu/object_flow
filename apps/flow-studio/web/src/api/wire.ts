@@ -123,6 +123,8 @@ export type Declaration = Record<string, unknown> & {
   transitions?: Record<string, TransitionSpec>;
   conditions?: Record<string, { expression: string; remedy?: Remedy }>;
   states?: Record<string, { category?: string; final?: boolean }>;
+  /** only the import writes its objects (flow-format.md §4.15) */
+  mirror?: boolean;
   metrics?: Record<string, unknown>;
   /** the members of each enumeration the type's attributes are of */
   enumerations?: Record<string, string[]>;
