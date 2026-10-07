@@ -2523,10 +2523,36 @@ pub(crate) fn read_type_where(
     if states.is_some_and(<[String]>::is_empty) {
         return Ok(Some(Vec::new()));
     }
+    let Some(narrowed) = narrowing(conn, lib, type_, states, columns)? else {
+        return Ok(None);
+    };
+    Ok(Some(read_objects(
+        conn,
+        lib,
+        type_,
+        Scope::Where(table(type_), narrowed),
+    )?))
+}
+
+/// What [`read_type_where`] narrows a type's rows to, or none where a value
+/// has no column to compare in; a column the table holds no null in is
+/// compared alone, which its index serves (`storage-schema.md` §5).
+fn narrowing(
+    conn: &Connection,
+    lib: &Library,
+    type_: &str,
+    states: Option<&[String]>,
+    columns: &[(&str, &Value)],
+) -> Stored<Option<Narrowed>> {
     let Some(t) = lib.type_(type_) else {
         return Err(StoreError(format!(
             "the directory names a type {type_} the library lacks"
         )));
+    };
+    let required = if columns.is_empty() {
+        BTreeSet::new()
+    } else {
+        not_null(conn, &table(type_))?
     };
     let mut narrowed = Narrowed {
         states: states.map(<[String]>::to_vec),
@@ -2539,25 +2565,40 @@ pub(crate) fn read_type_where(
         else {
             return Ok(None);
         };
+        let col = column(n, a);
         match to_sql(v) {
             Ok(Sql::Null) | Err(_) => return Ok(None),
-            Ok(sql) => narrowed.columns.push((quote(&column(n, a)), sql)),
+            Ok(sql) => {
+                let nullable = !required.contains(&col);
+                narrowed.columns.push((quote(&col), sql, nullable));
+            }
         }
     }
-    Ok(Some(read_objects(
-        conn,
-        lib,
-        type_,
-        Scope::Where(table(type_), narrowed),
-    )?))
+    Ok(Some(narrowed))
+}
+
+/// The columns of a table that hold no null, as the table declares them:
+/// a required attribute's, unless the table was built relaxed.
+fn not_null(conn: &Connection, name: &str) -> Stored<BTreeSet<String>> {
+    let mut info = conn.prepare(&format!("PRAGMA table_info({})", quote(name)))?;
+    let rows = info.query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, i64>(3)?)))?;
+    let mut out = BTreeSet::new();
+    for row in rows {
+        let (col, notnull) = row?;
+        if notnull != 0 {
+            out.insert(col);
+        }
+    }
+    Ok(out)
 }
 
 /// What a read of a type's objects narrows them to: a state among those
 /// given, where any are, and each column holding its value or none, since an
-/// absent value compares as unknown and not as unequal.
+/// absent value compares as unknown and not as unequal; a column marked as
+/// holding no null is compared alone.
 struct Narrowed {
     states: Option<Vec<String>>,
-    columns: Vec<(String, Sql)>,
+    columns: Vec<(String, Sql, bool)>,
 }
 
 impl Narrowed {
@@ -2576,12 +2617,14 @@ impl Narrowed {
                 .collect();
             parts.push(format!("{prefix}state IN ({})", marks.join(", ")));
         }
-        for (c, v) in &self.columns {
+        for (c, v, nullable) in &self.columns {
             bound.push(v.clone());
-            parts.push(format!(
-                "({prefix}{c} = ?{n} OR {prefix}{c} IS NULL)",
-                n = bound.len()
-            ));
+            let n = bound.len();
+            parts.push(if *nullable {
+                format!("({prefix}{c} = ?{n} OR {prefix}{c} IS NULL)")
+            } else {
+                format!("{prefix}{c} = ?{n}")
+            });
         }
         (parts.join(" AND "), bound)
     }
@@ -3439,6 +3482,64 @@ mod tests {
         assert_eq!(world.whole("nobody").unwrap().unwrap().order, order);
         assert_eq!(world.next_order().unwrap(), order + 1);
         assert_eq!(world.of_type("Operator").unwrap().len(), 2);
+    }
+
+    /// A narrowed read compares a column the table holds no null in alone,
+    /// which its index serves; one that may hold none keeps its nulls, which
+    /// compare as unknown, and its index serves both.
+    #[test]
+    fn a_narrowed_read_compares_a_column_holding_no_null_by_its_index() {
+        let text = r#"
+module: desk
+categories: [open, closed]
+types:
+  Desk:
+    states:
+      OPEN: { category: open }
+    transitions:
+      add: { kind: initial, to: OPEN }
+  Ticket:
+    attributes:
+      desk: { reference: Desk }
+      seat: { reference: Desk, optional: true }
+    states:
+      OPEN: { category: open }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [desk], optional_inputs: [seat] }
+"#;
+        let lib = Library::load(&[("desk.yaml".into(), text.into())]).unwrap();
+        let store = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let plan = |columns: &[(&str, &Value)]| -> (String, String) {
+            let n = narrowing(&store.conn, &store.lib, "Ticket", None, columns)
+                .unwrap()
+                .unwrap();
+            let (cond, bound) = n.conditions("t.");
+            let mut st = store
+                .conn
+                .prepare(&format!(
+                    "EXPLAIN QUERY PLAN SELECT t.id FROM t_ticket t WHERE {cond}"
+                ))
+                .unwrap();
+            let plan: Vec<String> = st
+                .query_map(rusqlite::params_from_iter(bound), |r| r.get(3))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            (cond, plan.join("; "))
+        };
+        let desk = Value::Object("desk-1".into());
+        let (cond, p) = plan(&[("desk", &desk)]);
+        assert!(!cond.contains("IS NULL"), "{cond}");
+        assert!(
+            p.contains("USING INDEX t_ticket_desk_id_ix") && !p.contains("SCAN"),
+            "{p}"
+        );
+        let (cond, p) = plan(&[("seat", &desk)]);
+        assert!(cond.contains("IS NULL"), "{cond}");
+        assert!(
+            p.contains("t_ticket_seat_id_ix") && !p.contains("SCAN"),
+            "{p}"
+        );
     }
 
     #[test]
