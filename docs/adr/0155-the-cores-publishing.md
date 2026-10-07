@@ -2,7 +2,7 @@
 
 - **Status:** Accepted, 2026-10-05, by the author ("go with your recommendations on all four"), given four recommendations on how the Rust core takes on publishing: decisions 1 to 4. Decision 5, the first slice's scope, follows from them. Decision 6, and the revision of decision 3 it records, were made the same day while building the approval, under the same direction, and are open to the author's revision.
 - **Date:** 2026-10-05
-- **Refined by:** ADR-0156 — the core's checker: the checks run on the model, the schema validated by the core, examples run by the core, the Python checker the oracle, in four slices; the core computes no element version. ADR-0161 — an import from a module the version does not carry is fatal at publish.
+- **Refined by:** ADR-0156 — the core's checker: the checks run on the model, the schema validated by the core, examples run by the core, the Python checker the oracle, in four slices; the core computes no element version. ADR-0161 — an import from a module the version does not carry is fatal at publish. ADR-0166 — the reference runner publishes too, written from the design, and each backend's publishing is held to the other's.
 - **Refines:** ADR-0153 decision 5 (the core does not check a module), ADR-0135 (the source's digest), ADR-0085, ADR-0097 and ADR-0147 (the `DeclarationChange` and its publish)
 - **Relates to:** `design/publish-and-import.md` §1 to §3; `DESIGN.md` §9; `design/library-api.md` §6; `design/storage-schema.md` §5, §10; PRD F7, F10, F13
 

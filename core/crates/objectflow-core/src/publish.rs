@@ -1,8 +1,8 @@
-//! A publish's dry run: a change's source loaded as the next version,
-//! compared with the installed one, and every object read into the impact
-//! report a person approves (`publish-and-import.md` §1 steps 2 to 4, §2,
-//! ADR-0155). Step 1, the checks and the examples, is a sandbox caller's
-//! (ADR-0155 decision 1).
+//! A publish's dry run: a change's source checked and its examples run
+//! (step 1, by the core's own checker since ADR-0156), loaded as the next
+//! version, compared with the installed one, and every object read into the
+//! impact report a person approves (`publish-and-import.md` §1 steps 1 to 4,
+//! §2, ADR-0155).
 
 use std::collections::BTreeMap;
 

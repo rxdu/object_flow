@@ -165,3 +165,6 @@
 | [0161](0161-scenario-versions-query-fields-empty-labels-and-unresolved-imports.md) | Scenario versions, query fields, empty label names and unresolved imports | Decided by the author |
 | [0162](0162-an-operation-reads-what-its-rules-reach-through-the-database.md) | An operation reads what its rules reach, through the database | Decided by the author |
 | [0163](0163-caused-assertions-legacy-entries-one-name-per-store-and-label-subjects.md) | No caused assertion, legacy entries in a batch, one name per store, and a label's subject | Decided by the author |
+| [0164](0164-a-failed-read-a-kinds-own-fields-and-where-step-3-begins.md) | A failed read is unavailable storage, a kind's invariant reads its own fields, and step 3 begins with the evaluator | Decided by the author |
+| [0165](0165-a-uniqueness-key-is-indexed-and-an-objects-parts-are-read-on-first-use.md) | A uniqueness key is indexed, and an object's other parts are read on first use | Decided by the author |
+| [0166](0166-the-reference-runner-publishes-and-an-example-may-publish.md) | The reference runner publishes, and an example may publish | Decided by the author |
