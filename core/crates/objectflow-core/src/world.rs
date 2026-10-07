@@ -599,6 +599,55 @@ impl<'l> World<'l> {
         Ok(self.held_in_order(|o| self.lib.is_a(&o.type_, type_)))
     }
 
+    /// The objects of a type, its own or a subtype's, whose state an
+    /// assertion last set or that hold a standing admission, in ascending id
+    /// order: read by the store's indexes, never the type whole, what the
+    /// operation holds kept over what the store says (`DESIGN.md` §10,
+    /// `exceptions`).
+    pub fn excepted(&self, type_: &str) -> Result<Vec<&Object>, crate::eval::NotRun> {
+        let family: Vec<&str> = self
+            .lib
+            .types
+            .keys()
+            .filter(|t| self.lib.is_a(t, type_))
+            .map(String::as_str)
+            .collect();
+        let (asserted, admitted) = match self.conn {
+            Some(conn) => crate::store::read_excepted(conn, &family).map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "the exceptions of {type_}, which could not be read: {e}"
+                ))
+            })?,
+            None => Default::default(),
+        };
+        // the store's answer, and every object held whose record the
+        // operation read, its admissions perhaps changed since; an object
+        // held without its record is as the store holds it
+        let mut ids: BTreeSet<String> = asserted.union(&admitted).cloned().collect();
+        ids.extend(
+            self.held
+                .slots
+                .iter()
+                .filter(|o| self.lib.is_a(&o.type_, type_) && o.parts.get().is_some())
+                .map(|o| o.id.clone()),
+        );
+        let mut out = Vec::new();
+        for id in &ids {
+            let Some(o) = self.get(id)? else {
+                continue;
+            };
+            let holds = match o.parts.get() {
+                Some(p) => !p.admissions.is_empty(),
+                None => admitted.contains(id),
+            };
+            if o.state_source.as_deref() == Some("asserted") || holds {
+                out.push(o);
+            }
+        }
+        out.sort_by_key(|o| o.order);
+        Ok(out)
+    }
+
     /// The parts of an object's record beyond its row, read from the store
     /// on first use and held from then on; a world without a store holds
     /// what it was given, and an object it was given without them is an

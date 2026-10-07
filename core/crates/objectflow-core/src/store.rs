@@ -9,7 +9,7 @@
 //! what a constraint would, and a constraint that fires is a fault in the
 //! core, reported, never a verdict.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use rusqlite::types::Value as Sql;
@@ -393,10 +393,18 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
         );
     }
     let mut sets = Vec::new();
-    let mut indexes = vec![format!(
-        "CREATE INDEX {} ON {name} (state);",
-        quote(&format!("{name}_state_ix"))
-    )];
+    let mut indexes = vec![
+        format!(
+            "CREATE INDEX {} ON {name} (state);",
+            quote(&format!("{name}_state_ix"))
+        ),
+        // the objects whose state an assertion last set, which
+        // `exceptions(type)` reads by (§3.2)
+        format!(
+            "CREATE INDEX {} ON {name} (state_source);",
+            quote(&format!("{name}_asserted_ix"))
+        ),
+    ];
     for (n, a) in &t.attributes {
         if a.derived_end() {
             continue;
@@ -2694,6 +2702,38 @@ pub(crate) fn read_ids_with(
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Some(ids))
+}
+
+/// What `exceptions(type)` lists of the concrete types given, as the store
+/// holds it: the ids of the objects whose state an assertion last set, read
+/// by the asserted-state index, and of those holding a standing admission,
+/// by the admissions (`storage-schema.md` §3.2, §5).
+pub(crate) fn read_excepted(
+    conn: &Connection,
+    types: &[&str],
+) -> Stored<(BTreeSet<String>, BTreeSet<String>)> {
+    let mut asserted = BTreeSet::new();
+    for t in types {
+        let mut q = conn.prepare(&format!(
+            "SELECT id FROM {} WHERE state_source = 'asserted'",
+            table(t)
+        ))?;
+        for id in q.query_map([], |r| r.get::<_, String>(0))? {
+            asserted.insert(id?);
+        }
+    }
+    let mut admitted = BTreeSet::new();
+    if !types.is_empty() {
+        let marks = vec!["?"; types.len()].join(", ");
+        let mut q = conn.prepare(&format!(
+            "SELECT DISTINCT a.object_id FROM of_admission a JOIN of_object o ON o.id = a.object_id \
+             WHERE a.discharged_position IS NULL AND o.type IN ({marks})"
+        ))?;
+        for id in q.query_map(rusqlite::params_from_iter(types), |r| r.get::<_, String>(0))? {
+            admitted.insert(id?);
+        }
+    }
+    Ok((asserted, admitted))
 }
 
 /// The parts of one object's record beyond its row (ADR-0165).

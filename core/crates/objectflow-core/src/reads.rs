@@ -109,14 +109,7 @@ pub fn exceptions(world: &World<'_>, type_: &str) -> Result<QueryPage, NotRun> {
             refused: Some("unknown_type".into()),
         });
     }
-    let mut items = Vec::new();
-    let objects = world.of_type(type_)?;
-    world.with_parts(&objects)?;
-    for o in objects {
-        if o.state_source.as_deref() == Some("asserted") || !world.parts(o)?.admissions.is_empty() {
-            items.push(state_item(o));
-        }
-    }
+    let items = world.excepted(type_)?.into_iter().map(state_item).collect();
     Ok(QueryPage {
         items,
         refused: None,
@@ -1271,6 +1264,47 @@ types:
             .admissions
             .insert("bounded".into());
         assert_eq!(ids(&exceptions(&w, "Job").unwrap()), [big.as_str()]);
+        drop(w);
+        // a standing admission the store holds is one, a discharged one not;
+        // the read holds only what it lists, read by the store's indexes and
+        // never the type whole
+        let conn = s.connection();
+        let at: i64 = conn
+            .query_row("SELECT MAX(position) FROM of_event", [], |r| r.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO of_admission (object_id, invariant, position, reason) \
+             VALUES (?1, 'bounded', ?2, 'test')",
+            rusqlite::params![big, at],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO of_admission (object_id, invariant, position, reason, discharged_position) \
+             VALUES (?1, 'bounded', ?2, 'test', ?2)",
+            rusqlite::params![below, at],
+        )
+        .unwrap();
+        let plan: String = conn
+            .query_row(
+                "EXPLAIN QUERY PLAN SELECT id FROM t_job WHERE state_source = 'asserted'",
+                [],
+                |r| r.get(3),
+            )
+            .unwrap();
+        assert!(plan.contains("t_job_asserted_ix"), "{plan}");
+        let w = s.snapshot().unwrap();
+        assert_eq!(ids(&exceptions(&w, "Task").unwrap()), [big.as_str()]);
+        assert_eq!(w.held().count(), 1);
+        // and one the operation discharged is not
+        let mut w = s.snapshot().unwrap();
+        w.get_mut(&big)
+            .unwrap()
+            .unwrap()
+            .parts_mut()
+            .unwrap()
+            .admissions
+            .clear();
+        assert_eq!(ids(&exceptions(&w, "Job").unwrap()), Vec::<String>::new());
         drop(w);
         // an evaluator's guard is not asked, and is named on every object
         let page = avail(&s, "clear");
