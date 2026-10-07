@@ -91,4 +91,13 @@ A request and a read now cost about 40% of what they did, the objects and their 
 | 2,000 | 27.9 → 18.6 ms | 18.5 → 0.5 ms | 19.5 → 20.1 ms | 105.9 → 107.3 ms | 17.1 → 0.5 ms |
 | 4,000 | 59.9 → 37.7 ms | 37.9 → 1.0 ms | 41.6 → 43.6 ms | 224.6 → 223.4 ms | 38.5 → 1.0 ms |
 
-A `get` no longer grows with the objects, what remains of it being the load's reads of the imported events' positions, the external identifiers and the legacy entries. A query scans its type, as it must until step 3 reads it by index. A request still grows, because step 7 of a request checks the invariants of every object (`request.rs`, as the reference runner does), where `DESIGN.md` §5.6 and ADR-0045 check only those the written objects could violate; the two agree wherever every violation in the store is admitted, and the affected set is the next change, since it is what a request's rules reach. Where an operation reads every object, as that step does, it reads them in the load's whole-table reads, since reading each type's parts apart cost the examples' run of many small stores about a fifth more.
+A `get` no longer grows with the objects, what remains of it being the load's reads of the imported events' positions, the external identifiers and the legacy entries. A query scans its type, as it must until step 3 reads it by index. A request then still grew, because step 7 checked the invariants of every object (`request.rs`, as the reference runner does), where `DESIGN.md` §5.6 and ADR-0045 check only those the written objects could violate. Scoping it found that the two were not equivalent: a publish left standing an admission its backfill cured, which the next request on any object discharged (D531), and a kind's new invariant its old observations violate refused every later request (D532). With the publish discharging what it cures, step 7 now checks the objects a request changed or made, and every object of a type whose invariants reach them, a type whose reach is not told read whole and a kind's invariants on the recording alone; every answer is the whole-store check's wherever every violation in the store is admitted, which every route now keeps but one: the observations a kind's new invariant finds violating stand unadmitted, by ADR-0146, and are never checked again, where the whole-store check refused every request over them. Measured with the same probe, after step 2 and after the scoped check:
+
+| objects | request |
+|---|---|
+| 500 | 4.5 → 0.4 ms |
+| 1,000 | 8.9 → 0.6 ms |
+| 2,000 | 18.6 → 0.8 ms |
+| 4,000 | 37.7 → 1.2 ms |
+
+What a request and a `get` still read beyond their reach is the load's reads of the imported events' positions, the external identifiers and the legacy entries, about 1 ms at 4,000 objects. A query and a metric read are step 3's. Where an operation reads every object, it reads them in the load's whole-table reads, since reading each type's parts apart cost the examples' run of many small stores about a fifth more.

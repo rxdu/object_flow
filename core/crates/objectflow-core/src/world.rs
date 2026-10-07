@@ -199,6 +199,8 @@ struct Held {
     /// The highest place in creation order the store holds, read on first
     /// use.
     stored_max: std::cell::OnceCell<Result<i64, String>>,
+    /// The objects the operation changed or made, by id.
+    written: BTreeSet<String>,
 }
 
 /// No earlier version's library: a store with one version, or a world
@@ -496,12 +498,16 @@ impl<'l> World<'l> {
             Some(_) => self.held.by_id.get_mut().get(id).copied().flatten(),
             None => None,
         };
+        if slot.is_some() {
+            self.held.written.insert(id.to_string());
+        }
         Ok(slot.and_then(|n| self.held.slots.get_mut(n)))
     }
 
     /// An object the operation makes or replaces, held from now on as it
     /// is given.
     pub fn insert(&mut self, o: Object) -> Result<(), crate::eval::NotRun> {
+        self.held.written.insert(o.id.clone());
         let held = self.held.by_id.get_mut().get(&o.id).copied().flatten();
         match held.and_then(|n| self.held.slots.get_mut(n)) {
             Some(slot) => *slot = o,
@@ -512,6 +518,13 @@ impl<'l> World<'l> {
             }
         }
         Ok(())
+    }
+
+    /// The ids of the objects the operation changed or made, through
+    /// [`World::get_mut`] or [`World::insert`], whether or not a change
+    /// altered them.
+    pub fn written(&self) -> impl Iterator<Item = &String> + '_ {
+        self.held.written.iter()
     }
 
     /// The objects held so far, in the order first held, without reading

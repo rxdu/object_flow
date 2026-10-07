@@ -604,9 +604,10 @@ fn decide_or_stop(
         }
         Err(stop) => return Err(stop),
     };
-    // 7. the invariants, on every object, in ascending id order, except a
-    // violation an admission lets stand, which is discharged once the
-    // invariant holds again (ADR-0054); an assertion admits what it names
+    // 7. the invariants the writes could violate, in ascending id order of
+    // the object each is on (DESIGN.md §5.6, ADR-0045), except a violation an
+    // admission lets stand, which is discharged once the invariant holds
+    // again (ADR-0054); an assertion admits what it names
     let first = ctx.events.iter().map(|e| e.position).min().unwrap_or(0);
     let mut admitted = Vec::new();
     // every failing invariant on every object, by object id, then in the
@@ -619,7 +620,7 @@ fn decide_or_stop(
         .get(&root)?
         .map(|o| o.type_.clone())
         .unwrap_or_default();
-    let ids: Vec<String> = ctx.work.in_order()?.iter().map(|o| o.id.clone()).collect();
+    let ids = affected_by_writes(&ctx.work)?;
     for id in ids {
         let Some(obj) = ctx.work.get(&id)? else {
             continue;
@@ -3730,6 +3731,174 @@ pub fn failing_invariants(world: &World<'_>, o: &Object) -> Result<Vec<String>, 
     failing_invariants_reading(world, o, None)
 }
 
+/// An attribute's uniqueness as the invariants check it: its own, or, for
+/// a singular stored end whose opposite is singular too, one to one.
+fn effective_unique(lib: &Library, spec: &crate::model::Attribute) -> Unique {
+    if spec.unique == Unique::No
+        && let (Declared::Reference(target), Some(opposite), false) =
+            (&spec.declared, &spec.opposite, spec.many)
+    {
+        let back = lib.type_(target).and_then(|bt| bt.attribute(opposite));
+        if back.is_some_and(|b| matches!(b.declared, Declared::Reference(_)) && !b.many) {
+            return Unique::Yes;
+        }
+    }
+    spec.unique.clone()
+}
+
+/// What a type's invariants read beyond the object they are on, which
+/// decides whose invariants a write could break (`DESIGN.md` §5.6,
+/// ADR-0045, ADR-0055).
+#[derive(Clone, Debug, PartialEq)]
+enum Reach {
+    /// The object alone.
+    Itself,
+    /// The objects of the families named, which a uniqueness or an
+    /// external identifier scans.
+    Families(BTreeSet<String>),
+    /// What no form here tells, taken as any object.
+    Anything,
+}
+
+/// A type's invariants' reach: its declared invariants each reading only
+/// its own object, or else anything, and the families its uniquenesses and
+/// external identifiers scan. Its state invariants read the object alone.
+fn invariant_reach(lib: &Library, t: &Type) -> Reach {
+    let own = |e: &Expr| reads_only_this(lib, t, e, &mut BTreeSet::new());
+    if !t.invariants.iter().all(|(_, e)| own(e)) {
+        return Reach::Anything;
+    }
+    let mut families = BTreeSet::new();
+    for (a, spec) in &t.attributes {
+        match effective_unique(lib, spec) {
+            Unique::No => {}
+            Unique::Where(e) if !own(&e) => return Reach::Anything,
+            _ => {
+                families.insert(lib.unique_scope(t, a).to_string());
+            }
+        }
+        if let Some(source) = &spec.external {
+            for (tn, ot) in &lib.types {
+                if ot
+                    .attributes
+                    .iter()
+                    .any(|(_, bs)| bs.external.as_deref() == Some(source.as_str()))
+                {
+                    families.insert(tn.clone());
+                }
+            }
+        }
+    }
+    if families.is_empty() {
+        Reach::Itself
+    } else {
+        Reach::Families(families)
+    }
+}
+
+/// Whether an expression on an object of a type reads that object alone:
+/// its stored values, state and flow data, constants, and derived
+/// attributes that read it alone. A reference end with an opposite, which
+/// may be read from the other side, a path through another object, an
+/// aggregate, a metric, and any call or name this does not know are taken
+/// as reading more.
+fn reads_only_this(lib: &Library, t: &Type, e: &Expr, seen: &mut BTreeSet<String>) -> bool {
+    let name = |n: &str, seen: &mut BTreeSet<String>| -> bool {
+        if n == "this" || ["state", "id", "open", "created_at", "created_by_kind"].contains(&n) {
+            return true;
+        }
+        if let Some(spec) = t.attribute(n) {
+            return !(matches!(spec.declared, Declared::Reference(_)) && spec.opposite.is_some());
+        }
+        if let Some((_, d)) = t.derived.iter().find(|(d, _)| d == n) {
+            // a derived attribute read twice in one walk is a cycle, taken whole
+            return seen.insert(n.to_string()) && reads_only_this(lib, t, d, seen);
+        }
+        if t.observations.iter().any(|(c, _)| c == n) {
+            return false;
+        }
+        t.state(n).is_some()
+            || n == "closed"
+            || t.states.iter().any(|(_, s)| s.category == n)
+            || ["human", "agent", "service"].contains(&n)
+    };
+    match e {
+        Expr::Num(_) | Expr::Str(_) | Expr::Bool(_) | Expr::Dur(..) | Expr::Money(..) => true,
+        Expr::Name(n) => name(n, seen),
+        Expr::Path(base, m) => match base.as_ref() {
+            Expr::Name(b) if b == "this" => name(m, seen),
+            Expr::Name(b) if b == "state" => m == "category",
+            // a state of a type, or a member of an enumeration, by name
+            Expr::Name(b) if t.attribute(b).is_none() && !t.derived.iter().any(|(d, _)| d == b) => {
+                lib.type_(b).is_some_and(|bt| bt.state(m).is_some())
+                    || lib
+                        .enumerations
+                        .get(b)
+                        .is_some_and(|ms| ms.iter().any(|x| x == m))
+            }
+            _ => false,
+        },
+        Expr::Call(f, args) => {
+            matches!(f.as_ref(), Expr::Name(n) if ["length", "entered_at", "intervals"].contains(&n.as_str()))
+                && args.iter().all(|a| reads_only_this(lib, t, a, seen))
+        }
+        Expr::Agg { .. } | Expr::Metric { .. } => false,
+        Expr::Changed(_, e) => reads_only_this(lib, t, e, seen),
+        Expr::Set(_)
+        | Expr::Not(_)
+        | Expr::Neg(_)
+        | Expr::IsNull(..)
+        | Expr::In(..)
+        | Expr::Bin(..)
+        | Expr::If(..) => e
+            .children()
+            .into_iter()
+            .all(|c| reads_only_this(lib, t, c, seen)),
+    }
+}
+
+/// The objects whose invariants a request's writes could break, in
+/// ascending id order: each object it wrote, and every object of a type
+/// whose invariants reach what it wrote, a type whose reach is not told
+/// read whole (`DESIGN.md` §5.6, ADR-0045). A kind's invariants are checked
+/// on the recording alone (§5.11, ADR-0146), so an observation is never
+/// reached from another object.
+fn affected_by_writes(world: &World<'_>) -> Result<Vec<String>, NotRun> {
+    let lib = world.lib;
+    let mut affected: BTreeMap<String, i64> = BTreeMap::new();
+    let mut written_types: BTreeSet<String> = BTreeSet::new();
+    let written: Vec<String> = world.written().cloned().collect();
+    for id in &written {
+        if let Some(o) = world.get(id)? {
+            written_types.insert(o.type_.clone());
+            affected.insert(o.id.clone(), o.order);
+        }
+    }
+    if written_types.is_empty() {
+        return Ok(Vec::new());
+    }
+    for (tn, t) in &lib.types {
+        if t.observation_on.is_some() {
+            continue;
+        }
+        let reached = match invariant_reach(lib, t) {
+            Reach::Itself => false,
+            Reach::Anything => true,
+            Reach::Families(families) => written_types
+                .iter()
+                .any(|w| families.iter().any(|f| lib.is_a(w, f))),
+        };
+        if reached {
+            for o in world.of_type(tn)? {
+                affected.insert(o.id.clone(), o.order);
+            }
+        }
+    }
+    let mut ids: Vec<(i64, String)> = affected.into_iter().map(|(id, n)| (n, id)).collect();
+    ids.sort();
+    Ok(ids.into_iter().map(|(_, id)| id).collect())
+}
+
 /// The invariants an object fails, and, given a collector, what each
 /// declared invariant read, under its name (ADR-0088).
 fn failing_invariants_reading(
@@ -3756,20 +3925,7 @@ fn failing_invariants_reading(
         out.push(format!("{}_invariant", o.state.to_lowercase()));
     }
     for (a, spec) in &t.attributes {
-        let mut unique = spec.unique.clone();
-        // a singular stored end whose opposite is singular too is one to one
-        if unique == Unique::No
-            && let (Declared::Reference(target), Some(opposite), false) =
-                (&spec.declared, &spec.opposite, spec.many)
-        {
-            let back = world
-                .lib
-                .type_(target)
-                .and_then(|bt| bt.attribute(opposite));
-            if back.is_some_and(|b| matches!(b.declared, Declared::Reference(_)) && !b.many) {
-                unique = Unique::Yes;
-            }
-        }
+        let unique = effective_unique(world.lib, spec);
         let (with, filter): (Vec<String>, Option<&Expr>) = match &unique {
             Unique::No => continue,
             Unique::Yes => (vec![a.clone()], None),
@@ -5538,6 +5694,100 @@ types:
         assert_eq!(events.last().unwrap().occurred_at, Some(now - day));
         assert_eq!(events.last().unwrap().recorded_at, now);
         assert_eq!(at(&mut s, "finish", &job, now), refused);
+    }
+
+    #[test]
+    fn the_invariants_a_write_could_break_are_checked_and_no_others() {
+        let text = r#"
+module: caps
+categories: [open, closed]
+types:
+  Order:
+    attributes:
+      ref: { type: string, unique: true }
+      cap: { type: int }
+      lines: { reference: "Line[]", opposite: order }
+    states:
+      OPEN: { category: open }
+    transitions:
+      place: { kind: initial, to: OPEN, required_inputs: [ref, cap] }
+      resize: { kind: internal, from: [OPEN], required_inputs: [cap] }
+      rename: { kind: internal, from: [OPEN], required_inputs: [ref] }
+  Line:
+    attributes:
+      order: { reference: Order, opposite: lines }
+    states:
+      ACTIVE: { category: open }
+    invariants:
+      order_takes_lines: { description: A line's order takes lines., expression: order.cap > 0 }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [order] }
+"#;
+        let lib = Library::load(&[("caps.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let place = |s: &mut Store, r: &str, cap: i64| {
+            created(&req(
+                s,
+                "place",
+                OPERATOR,
+                ("Order", true),
+                json!({"ref": r, "cap": cap}),
+            ))
+        };
+        let (a, b) = (place(&mut s, "X", 2), place(&mut s, "Y", 1));
+        let line = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"order": &a}),
+        ));
+        let failure = |id: &str, type_: &str, invariant: &str| InvariantFailure {
+            object_id: id.into(),
+            type_: type_.into(),
+            invariant: invariant.into(),
+            remedy: None,
+        };
+        let failures = |v: Verdict| match v {
+            Verdict::InvariantViolated { failures, .. } => failures
+                .into_iter()
+                .map(|f| InvariantFailure { remedy: None, ..f })
+                .collect::<Vec<_>>(),
+            other => panic!("{other:?}"),
+        };
+        // a write to the order breaks the invariant of the line reading it
+        assert_eq!(
+            failures(req(
+                &mut s,
+                "resize",
+                OPERATOR,
+                (&a, false),
+                json!({"cap": 0})
+            )),
+            vec![failure(&line, "Line", "order_takes_lines")]
+        );
+        // a key taken breaks the uniqueness of both orders holding it
+        assert_eq!(
+            failures(req(
+                &mut s,
+                "rename",
+                OPERATOR,
+                (&b, false),
+                json!({"ref": "X"})
+            )),
+            vec![
+                failure(&a, "Order", "ref_unique"),
+                failure(&b, "Order", "ref_unique")
+            ]
+        );
+        // what reads nothing written is not read
+        created(&req(
+            &mut s,
+            "resize",
+            OPERATOR,
+            (&b, false),
+            json!({"cap": 3}),
+        ));
     }
 
     #[test]

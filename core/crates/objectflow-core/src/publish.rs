@@ -539,8 +539,22 @@ fn impact(
             }
         }
         // every invariant, once, after the mappings: a violation no standing
-        // admission covers is a decision, which an admit may resolve
-        for n in failing_invariants(&sim, o)? {
+        // admission covers is a decision, which an admit may resolve, and a
+        // standing admission whose invariant now holds, or which the version
+        // no longer declares, is discharged (D531)
+        let failing = failing_invariants(&sim, o)?;
+        for n in o.admissions.iter().filter(|n| !failing.contains(n)) {
+            found.add(
+                Severity::Notice,
+                format!("discharged:{}.{n}", o.type_),
+                format!(
+                    "these objects hold an admitted violation of {}.{n} that the version cures, which the publish discharges",
+                    o.type_
+                ),
+                Some(&o.id),
+            );
+        }
+        for n in failing {
             if o.admissions.contains(&n) {
                 continue;
             }
@@ -1361,6 +1375,75 @@ types:
     }
 
     #[test]
+    fn a_publish_discharges_the_admissions_its_version_cures() {
+        const MIGRATION: &str = "migration:\n  description: The fleet without holds.\n  removed_members:\n    Grade: { OLD: B }\n";
+        const INVARIANT: &str = "    invariants:\n      graded_when_ready: { description: A ready robot is graded., expression: \"state != Robot.READY or grade is not null\" }\n";
+        // the version curing it: a backfill grading every robot, or the
+        // invariant dropped with no mapping touching the robot
+        let cures = [
+            v2(false, false, false).replace(
+                MIGRATION,
+                "migration:\n  description: Every robot graded.\n  backfill:\n    Robot: { grade: 'Grade.A' }\n",
+            ),
+            v2(false, false, false).replace(MIGRATION, "").replace(INVARIANT, ""),
+        ];
+        for (i, v3) in cures.iter().enumerate() {
+            let (mut s, [ready, _, bare], _, _) = fleet();
+            let (change, v) = submitted(&mut s, &v2(true, true, true));
+            assert!(matches!(
+                approve(&mut s, &change, v).0,
+                Verdict::Satisfied { .. }
+            ));
+            let admissions = |s: &Store| {
+                s.snapshot()
+                    .unwrap()
+                    .get(&bare)
+                    .unwrap()
+                    .unwrap()
+                    .admissions
+                    .clone()
+            };
+            assert!(admissions(&s).contains("graded_when_ready"));
+            let (change, v) = submitted(&mut s, v3);
+            let r = run(&s, &change, v3);
+            assert!(r.accepted, "cure {i}: {:#?}", r.findings);
+            assert_eq!(
+                ids(&r, "discharged:Robot.graded_when_ready"),
+                vec![bare.clone()],
+                "cure {i}"
+            );
+            assert!(matches!(
+                approve(&mut s, &change, v).0,
+                Verdict::Satisfied { .. }
+            ));
+            // discharged at the publish, on the robot's own migration
+            assert!(admissions(&s).is_empty(), "cure {i}");
+            let migration = s.history(&bare).unwrap().pop().unwrap();
+            assert_eq!(migration.source, "migrated", "cure {i}");
+            assert_eq!(
+                migration.payload["discharges"],
+                json!(["graded_when_ready"]),
+                "cure {i}"
+            );
+            let at: Option<i64> = s
+                .connection()
+                .query_row(
+                    "SELECT discharged_position FROM of_admission WHERE object_id = ?1",
+                    [&bare],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(at, Some(migration.position), "cure {i}");
+            // a later request on another robot discharges nothing of it
+            req(&mut s, "retire", (&ready, false), json!({}));
+            assert_eq!(s.history(&bare).unwrap().len(), {
+                let w = s.snapshot().unwrap();
+                usize::try_from(w.get(&bare).unwrap().unwrap().version).unwrap()
+            });
+        }
+    }
+
+    #[test]
     fn an_approval_installs_what_its_dry_run_reported() {
         let (mut s, [ready, held, bare], proposal, other) = fleet();
         let (change, v) = submitted(&mut s, &v2(true, true, true));
@@ -1613,6 +1696,49 @@ types:
       take: { kind: initial, to: OPEN, required_inputs: [label] }
       finish: { kind: external, from: [OPEN], to: DONE }
 "#;
+
+    #[test]
+    fn a_kinds_invariant_is_checked_on_the_recording_alone() {
+        let text = LAB
+            .replace(
+                "          grade: { type: Grade }\n",
+                "          grade: { type: Grade }\n        invariants:\n          labelled: { description: Its sample is labelled., expression: subject.label != \"\" }\n",
+            )
+            .replace(
+                "      finish: { kind: external, from: [OPEN], to: DONE }\n",
+                "      finish: { kind: external, from: [OPEN], to: DONE }\n      relabel: { kind: internal, from: [OPEN], required_inputs: [label] }\n",
+            );
+        let lib = Library::load(&[("lab.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let sample = created(&req(
+            &mut s,
+            "take",
+            ("Sample", true),
+            json!({"label": "S1"}),
+        ));
+        let record = |s: &mut Store| {
+            req(
+                s,
+                "record",
+                ("Check", true),
+                json!({"subject": &sample, "grade": "A"}),
+            )
+        };
+        created(&record(&mut s));
+        // a write the recorded check reads does not re-check it (DESIGN.md
+        // §5.11, ADR-0146); a recording after it is checked
+        created(&req(
+            &mut s,
+            "relabel",
+            (&sample, false),
+            json!({"label": ""}),
+        ));
+        assert!(matches!(
+            record(&mut s),
+            Verdict::InvariantViolated { failures, .. }
+                if failures.len() == 1 && failures[0].invariant == "labelled"
+        ));
+    }
 
     #[test]
     /// Erasure reaches every value personal under any version an object's
@@ -1946,7 +2072,40 @@ types:
         let text = lab("Grade: [A, B, OLD]", "");
         let r = run_on(&s, &change, "lab", &text);
         assert!(r.accepted, "{:#?}", r.findings);
-        assert_eq!(ids(&r, "observation_invariant:Check.graded_a"), vec![check]);
+        assert_eq!(
+            ids(&r, "observation_invariant:Check.graded_a"),
+            vec![check.clone()]
+        );
+        // published, it binds later recordings and no request reads the
+        // observation that violates it (D532)
+        let change = created(&req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"lab": &text}, "source_ref": "git:lab@2"}),
+        ));
+        created(&req(&mut s, "submit", (&change, false), json!({})));
+        let v = s.snapshot().unwrap().get(&change).unwrap().unwrap().version;
+        assert!(matches!(
+            approve(&mut s, &change, v).0,
+            Verdict::Satisfied { .. }
+        ));
+        created(&req(
+            &mut s,
+            "take",
+            ("Sample", true),
+            json!({"label": "S2"}),
+        ));
+        assert!(matches!(
+            req(
+                &mut s,
+                "record",
+                ("Check", true),
+                json!({"subject": &sample, "grade": "OLD"})
+            ),
+            Verdict::InvariantViolated { failures, .. }
+                if failures.len() == 1 && failures[0].invariant == "graded_a" && failures[0].object_id != check
+        ));
     }
 
     #[test]

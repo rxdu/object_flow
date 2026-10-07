@@ -401,3 +401,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Twice in one session a Rust change built and passed its tests, then failed the full gates on a clippy lint (`type_complexity`, `double_ended_iterator_last`), costing a gate run of over ten minutes each time.
 - **Correction:** After any Rust change, run `cargo clippy --all-targets --all-features -- -D warnings` before starting the gates; the gates confirm, they are not where a lint is first seen.
 - **Context:** ObjectFlow's core, whose `scripts/check` denies warnings; 2026-10-07.
+
+### Write a mutation's pattern from the formatted file
+- **Pattern:** Twice in one session a mutation's search text was written from code as first typed, before `cargo fmt` reflowed it; the substitution matched nothing, the build and test ran on unchanged code, and the run's "ok" read for a moment as a result.
+- **Correction:** Read the lines to mutate from the file as it stands after formatting, and treat a pattern that does not match as a failed mutation run, not as a pass; the helper should stop on it rather than go on to build.
+- **Context:** Mutation testing in ObjectFlow's core with scripted substitutions; 2026-10-07.
+

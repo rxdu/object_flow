@@ -1383,6 +1383,13 @@ impl Store {
         Ok(())
     }
 
+    /// The store's connection, for a test reading a table no operation
+    /// returns.
+    #[cfg(test)]
+    pub(crate) fn connection(&self) -> &Connection {
+        &self.conn
+    }
+
     /// Every object, as a request reads them.
     pub fn snapshot(&self) -> Stored<World<'_>> {
         snapshot(&self.conn, &self.lib, &self.earlier, self.now)
@@ -1782,6 +1789,17 @@ impl Store {
                 })
                 .collect()
         };
+        // the standing admissions the version cures, each discharged on its
+        // object's migration (D531)
+        let discharged_of = |id: &str| -> Vec<String> {
+            affected
+                .iter()
+                .filter(|(code, ids)| {
+                    code.starts_with("discharged:") && ids.iter().any(|i| i == id)
+                })
+                .filter_map(|(code, _)| code.rsplit_once('.').map(|(_, n)| n.to_string()))
+                .collect()
+        };
         let mut in_order: Vec<&Object> = objects.values().collect();
         in_order.sort_by_key(|o| o.order);
         for o in in_order {
@@ -1796,6 +1814,7 @@ impl Store {
             };
             let codes = codes_of(&o.id);
             let admits = admitted_of(&o.id);
+            let discharges = discharged_of(&o.id);
             let mut x = o.clone();
             // a member newly tracked opens at the migration where a backfill
             // writes it, and else at the publish event; one no longer tracked
@@ -1808,7 +1827,7 @@ impl Store {
                     .iter()
                     .any(|c| c.starts_with("mapping:backfill:") && c.ends_with(&format!(".{d}")))
             };
-            let migrates = !codes.is_empty() || !admits.is_empty();
+            let migrates = !codes.is_empty() || !admits.is_empty() || !discharges.is_empty();
             let position = if migrates {
                 alloc.position()
             } else {
@@ -1862,6 +1881,12 @@ impl Store {
                         .admitted
                         .push((x.id.clone(), n.clone(), position, reason.clone()));
                 }
+                for n in &discharges {
+                    x.admissions.remove(n);
+                    change_set
+                        .discharged
+                        .push((x.id.clone(), n.clone(), position));
+                }
                 let event = event_of(
                     &mut x,
                     Some(&before),
@@ -1873,7 +1898,11 @@ impl Store {
                     "migrated",
                     old.version,
                     new.version,
-                    serde_json::json!({ "mappings": codes, "admits": admits.iter().map(|(n, _)| n).collect::<Vec<_>>() }),
+                    serde_json::json!({
+                        "mappings": codes,
+                        "admits": admits.iter().map(|(n, _)| n).collect::<Vec<_>>(),
+                        "discharges": discharges,
+                    }),
                 );
                 // a migration is caused by the publish's event (DESIGN.md §5.9)
                 let event = Event {
