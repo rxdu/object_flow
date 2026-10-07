@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Wire } from "../src/api/wire";
 import {
+  besideModule,
   type ExamplesDoc,
   type Outcome,
   runExample,
@@ -38,7 +39,9 @@ describe.each(BACKENDS)("against the %s", (backend) => {
         expect(loaded.loaded, m.file).toBe(true);
         const doc = bundle.examples?.doc as ExamplesDoc;
         for (const name of Object.keys(doc.examples)) {
-          const { outcome, why } = await runExample(wire, doc, name);
+          // a `publish` step's files beside the examples file (ADR-0166)
+          const beside = besideModule(wire, bundle.examples?.name ?? "");
+          const { outcome, why } = await runExample(wire, doc, name, beside);
           tally[outcome] += 1;
           // every example runs through the wire since the import did (ADR-0154)
           if (outcome !== "passed") failures.push(`${m.file} ${name}: ${why}`);

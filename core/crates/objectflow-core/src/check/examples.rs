@@ -406,6 +406,16 @@ impl Checker {
         let mut errs = Found::new();
         for (i, st) in steps.iter().enumerate() {
             let here = ext(at, segs![i]);
+            // under the version a publish installed, which this check does not
+            // read (flow-format.md §11.3)
+            if env.contains_key(PUBLISHED) {
+                continue;
+            }
+            if let Some(pb) = st.get("publish") {
+                errs.extend(self.actor_errors(pb, env, &ext(&here, segs!["publish"])));
+                env.insert(PUBLISHED.into(), String::new());
+                continue;
+            }
             if let Some(r) = st.get("propose") {
                 let (e, found) = self.request_errors(r, env, &ext(&here, segs!["propose"]), false);
                 errs.extend(e);
@@ -576,6 +586,10 @@ impl Checker {
 }
 
 /// An examples file's findings, and the transitions its examples request.
+/// The aliases' mark of a `publish` step, after which nothing is checked
+/// here; no alias has a space.
+const PUBLISHED: &str = " published";
+
 pub fn example_errors(
     doc: &Value,
     library: &Obj,
@@ -770,6 +784,11 @@ pub fn example_errors(
         c.out.extend(stub);
         let errs = c.steps_errors(list(&ex, "steps"), &mut env, &ext(&at, segs!["steps"]));
         c.out.extend(errs);
+        // the request runs under the version published, and is checked when
+        // it runs (flow-format.md §11.3)
+        if env.contains_key(PUBLISHED) {
+            continue;
+        }
         let want = ex.get("expect").cloned().unwrap_or(Value::Null);
         let verdict = str_or(&want, "verdict", "");
         let resolved = if let Some(a) = ex.get("approve") {

@@ -18,7 +18,12 @@ import { Offers } from "./components/Offers";
 import { RuleSet } from "./components/RuleSet";
 import { Stepper } from "./components/Stepper";
 import { explain } from "./session/explain";
-import { type ExamplesDoc, OPERATOR, Player } from "./session/player";
+import {
+  besideModule,
+  type ExamplesDoc,
+  OPERATOR,
+  Player,
+} from "./session/player";
 
 interface Chosen {
   file: string;
@@ -173,6 +178,17 @@ export function App() {
   };
 
   const module = bundle?.files[bundle.files.length - 1];
+  // where an example's `publish` step reads its files: beside the module's
+  // examples file, in the same catalogue (ADR-0166); one reader per module,
+  // so the stepper does not start over on every render
+  const examplesName = bundle?.examples?.name;
+  const beside = useMemo(
+    () =>
+      examplesName
+        ? besideModule(wire, examplesName, chosen?.source)
+        : undefined,
+    [wire, examplesName, chosen?.source],
+  );
   const editable =
     chosen?.source === "workspace" && entry?.editable ? chosen.file : null;
 
@@ -351,6 +367,7 @@ export function App() {
                 wire={wire}
                 doc={doc}
                 example={example}
+                beside={beside}
                 onChange={changed}
               />
             </div>

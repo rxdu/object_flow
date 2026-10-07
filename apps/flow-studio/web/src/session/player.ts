@@ -11,6 +11,7 @@ import {
   NotRun,
   type RequestBody,
   type Verdict,
+  type Source,
   type Wire,
   type WireValue,
   isLegacy,
@@ -40,12 +41,59 @@ export interface StepRequest {
   values?: Record<string, unknown>;
 }
 
+/** A `publish` step: the files of another version, beside the examples
+ * file, its actor and when (flow-format.md §11.3, ADR-0166). */
+export interface PublishStep {
+  source: string[];
+  actor?: string;
+  after?: string;
+}
+
 export type ExampleStep = Partial<
   Record<
     "request" | "propose" | "approve" | "reject" | "withdraw" | "import",
     StepRequest
   >
->;
+> & { publish?: PublishStep };
+
+/** Where a `publish` step finds the files it names: each beside the
+ * examples file, by name, null where there is none; and the examples file's
+ * own name, its change's source reference. */
+export interface Beside {
+  read(name: string): Promise<string | null>;
+  examples: string;
+}
+
+/** The files beside a module's examples file, each read from its module's
+ * bundle in the studio's catalogue. */
+export function besideModule(
+  wire: Wire,
+  examples: string,
+  source?: Source,
+): Beside {
+  return {
+    examples,
+    read: async (name) => {
+      try {
+        const bundle = await wire.module(name, source);
+        return bundle.files.find((f) => f.name === name)?.text ?? null;
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+/** The name a file declares, which a change's source keys it by: its
+ * module's, or `<module>.examples` for an examples file (ADR-0155). */
+export function declaredName(text: string): string | null {
+  const module = /^module:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/m.exec(text)?.[1];
+  if (module) return module;
+  const examples = /^examples_for:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/m.exec(
+    text,
+  )?.[1];
+  return examples ? `${examples}.examples` : null;
+}
 
 export interface Expectation {
   verdict: string;
@@ -163,6 +211,7 @@ export function plan(doc: ExamplesDoc, name: string): PlanStep[] {
 /** What a step asks for, as a person reads it: `ServiceJob.open as job`. */
 export function summary(step: ExampleStep): string {
   if (step.import) return `import ${step.import.type ?? ""}`;
+  if (step.publish) return `publish ${step.publish.source.join(", ")}`;
   const [verb, r] = verbOf(step);
   if (verb === "approve" || verb === "reject" || verb === "withdraw") {
     return `${verb} ${r.proposal ?? ""}`;
@@ -193,9 +242,69 @@ export class Player {
   private readonly types = new Map<string, string>();
   private readonly decls = new Map<string, Declaration>();
 
-  constructor(wire: Wire, now: string) {
+  /** where a `publish` step reads its files, none where nothing gives
+   * them, which leaves the step not run */
+  readonly beside: Beside | undefined;
+
+  constructor(wire: Wire, now: string, beside?: Beside) {
     this.wire = wire;
     this.now = instantSeconds(now);
+    this.beside = beside;
+  }
+
+  /** A publish step: a change drafted with the files it names, each keyed
+   * by the name it declares and its source reference the examples file's,
+   * then submitted and approved as the step's actor; a refusal at any of
+   * the three fails the example, and the steps after it read the version
+   * installed (flow-format.md §11.3, ADR-0166 decision 3). */
+  async published(pb: PublishStep): Promise<void> {
+    if (pb.after)
+      this.now = instantSeconds(
+        (await this.wire.clock({ advance: pb.after })).now,
+      );
+    const source: Record<string, string> = {};
+    for (const f of pb.source) {
+      const text = this.beside ? await this.beside.read(f) : null;
+      if (text === null)
+        throw new NotRun(
+          501,
+          `the publish step's file ${f}, which no directory beside the examples file gives`,
+        );
+      source[declaredName(text) ?? f] = text;
+    }
+    const actor = { id: this.alias(pb.actor ?? OPERATOR) };
+    const drafted = await this.wire.request({
+      type: "DeclarationChange",
+      transition: "draft",
+      actor,
+      // a change's source is a map of its files, which the wire carries and
+      // `WireValue`, a request's value, does not describe
+      inputs: {
+        source: source as unknown as WireValue,
+        source_ref: `example:${this.beside?.examples ?? ""}`,
+      },
+    });
+    if (drafted.kind !== "satisfied")
+      throw new Failed(`the publish's change is not drafted: ${drafted.kind}`);
+    const change = drafted.object_id;
+    const submitted = await this.wire.request({
+      transition: "submit",
+      actor,
+      object_id: change,
+    });
+    if (submitted.kind !== "satisfied")
+      throw new Failed(
+        `the publish is refused at submission as ${submitted.kind}`,
+      );
+    const version = (await this.wire.get(change))?.version ?? 0;
+    const { verdict } = await this.wire.publish(actor.id, change, {
+      expected_version: version,
+    });
+    if (verdict?.kind !== "satisfied")
+      throw new Failed(
+        `the publish is refused at approval as ${verdict?.kind ?? "nothing"}`,
+      );
+    this.decls.clear(); // each type as the version installed has it
   }
 
   alias(a: string): string {
@@ -318,6 +427,10 @@ export class Player {
   async play(step: ExampleStep): Promise<Verdict | null> {
     if (step.import) {
       await this.imported(step.import);
+      return null;
+    }
+    if (step.publish) {
+      await this.published(step.publish);
       return null;
     }
     const [verb, r] = verbOf(step);
@@ -661,9 +774,10 @@ export async function runExample(
   wire: Wire,
   doc: ExamplesDoc,
   name: string,
+  beside?: Beside,
 ): Promise<{ outcome: Outcome; why: string }> {
   const { now } = await wire.reset();
-  const p = new Player(wire, now);
+  const p = new Player(wire, now, beside);
   try {
     for (const ps of plan(doc, name)) {
       const v = await p.perform(ps);

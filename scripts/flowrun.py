@@ -1917,6 +1917,9 @@ class Runner:
                     raise Refused("unsatisfied", "not_erased", GENERATED_REMEDY["not_erased"])
             conditions = t.get("conditions") or {}
             for g, mode in (x.get("guards") or {}).items():
+                if g not in conditions:
+                    # a version the checks refused, which a dry run reads on past them (D542)
+                    raise NotRunnable(f"the guard {g}, which {o.type} does not declare")
                 expr = flowexpr.parse(conditions[g]["expression"])
                 if "inputs" in names_read(expr):
                     needs = True                # decided when the inputs are given
@@ -2754,8 +2757,10 @@ def declarations(modules):
     return declared, homes
 
 
-def run_examples(doc, library, modules):
-    """Each example's outcome: (name, "passed" | "failed" | "not run", message)."""
+def run_examples(doc, library, modules, file=None, read=None, flows=None, source=None):
+    """Each example's outcome: (name, "passed" | "failed" | "not run", message). A `publish` step reads the files it
+    names through `read`, each beside the examples file `file`, and runs its dry run's checks with `flows` over the
+    version `source` holds; one given no reader is not run (ADR-0166 decision 3)."""
     enums = {n: list(v) for m in modules.values() for n, v in (m.get("enumerations") or {}).items()}
     kinds = dict(library)
     kinds.update(observation_kinds(modules))
@@ -2770,8 +2775,11 @@ def run_examples(doc, library, modules):
         s = setups[name]
         return (chain(s["given"]) if "given" in s else []) + [("setup " + name, s)]
 
+    publishing = (file, read, flows)
     for name, ex in (doc.get("examples") or {}).items():
+        runner = Runner(kinds, enums)       # each example from the version checked, whatever one before it published
         store = Store(kinds, enums, declared, homes)
+        store.source = dict(source or {})
         aliases = {OPERATOR: OPERATOR}
         stubs = {}
         try:
@@ -2780,7 +2788,7 @@ def run_examples(doc, library, modules):
                 stubs.update(part.get("evaluators") or {})
                 for i, st in enumerate(part.get("steps") or []):
                     try:
-                        step(runner, store, st, aliases, stubs)
+                        step(runner, store, st, aliases, stubs, publishing=publishing)
                     except Refused as r:
                         raise ExampleError(f"{label}'s step {i + 1} does not apply: it is refused as {r}")
             tested = {"approve": ex["approve"]} if "approve" in ex else {"request": ex["request"]}
@@ -2855,8 +2863,11 @@ def import_object(runner, store, tn, state, given):
     return o.id
 
 
-def step(runner, store, st, aliases, stubs, under_test=False):
+def step(runner, store, st, aliases, stubs, under_test=False, publishing=None):
     """One step of a setup or the request under test; a setup's refusal propagates, the tested one is returned."""
+    if "publish" in st:
+        publish_step(runner, store, st["publish"], aliases, *(publishing or (None, None, None)))
+        return None
     if "import" in st:
         im = st["import"]
         if im.get("after"):
@@ -2876,6 +2887,36 @@ def step(runner, store, st, aliases, stubs, under_test=False):
             store.attempts.append(attempt_row(store, tn, oid, r["transition"], aliases.get(r.get("actor", OPERATOR), r.get("actor")), refusal))
             raise
     return decide_or_request(runner, store, st, aliases, stubs, under_test)
+
+
+def publish_step(runner, store, p, aliases, file, read, flows):
+    """An example's `publish` (flow-format.md §11.3, ADR-0166 decision 3): a change drafted with the files the step
+    names, each read beside the examples file and keyed by the name it declares, its source reference the examples
+    file's, then submitted, which runs the dry run, and approved as the step's actor, the operator by default; a refusal
+    at any of the three fails the example, and the runner then decides every later step under the version installed."""
+    import flowpublish
+    advance(store, p)
+    source = {}
+    for f in p["source"]:
+        text = read(f) if read is not None else None
+        if text is None:
+            raise NotRunnable(f"the publish step's file {f}, which no directory beside the examples file gives")
+        source[flowpublish.declared_name(text) or f] = text
+    actor = aliases.get(p.get("actor", OPERATOR), p.get("actor"))
+    try:
+        drafted = flowpublish.request(store, "draft", None, actor, {"source": source, "source_ref": f"example:{file}"},
+                                      flows)
+        change = drafted[1]
+    except Refused as r:
+        raise ExampleError(f"the publish's change is not drafted: it is refused as {r}")
+    try:
+        flowpublish.request(store, "submit", change, actor, {}, flows)
+    except Refused as r:
+        raise ExampleError(f"the publish is refused at submission as {r}")
+    result, _report = flowpublish.approve(store, change, actor, store.objects[change].version, flows)
+    if isinstance(result, Refused):
+        raise ExampleError(f"the publish is refused at approval as {result}")
+    runner.__init__(store.kinds, store.enums)
 
 
 def file_proposal(runner, store, st, aliases):

@@ -17,7 +17,7 @@ import urllib.request
 from fractions import Fraction
 from typing import Any, Callable
 
-from flowstudio.scripts import flowrun, flows
+from flowstudio.scripts import flowpublish, flowrun, flows
 from flowstudio.values import timestamp_text
 
 OPERATOR = flowrun.OPERATOR
@@ -71,11 +71,16 @@ def seconds_of(ts: str) -> Fraction:
 class Player:
     """One example's run: the clock it knows, the aliases it has bound."""
 
-    def __init__(self, wire: Wire, now: str):
+    def __init__(self, wire: Wire, now: str,
+                 read: Callable[[str], str | None] | None = None,
+                 examples: str = ""):
         self.wire, self.now = wire, seconds_of(now)
         self.aliases: dict[str, str] = {OPERATOR: OPERATOR}
         self.types: dict[str, str] = {}
         self.decls: dict[str, dict] = {}
+        # a file beside the examples file, by name, which a `publish` step
+        # names, and the examples file's own name (ADR-0166 decision 3)
+        self.read, self.examples = read, examples
 
     # ── reading ─────────────────────────────────────────────────────────
     def decl(self, tn: str) -> dict:
@@ -168,9 +173,50 @@ class Player:
         self.aliases[key] = obj["id"]
         self.types[obj["id"]] = obj["type"]
 
+    def published(self, p: dict) -> None:
+        """A publish step: a change drafted with the files it names, each
+        read beside the examples file and keyed by the name it declares, its
+        source reference the examples file's, then submitted and approved as
+        the step's actor; a refusal at any of the three fails the example,
+        and the steps after it read the version installed (`flow-format.md`
+        §11.3, ADR-0166 decision 3)."""
+        if p.get("after"):
+            self.now = seconds_of(self.wire.post(
+                "/sandbox/clock", {"advance": p["after"]})["now"])
+        source = {}
+        for f in p["source"]:
+            text = self.read(f) if self.read is not None else None
+            if text is None:
+                raise NotRun(f"the publish step's file {f}, which no "
+                             "directory beside the examples file gives")
+            source[flowpublish.declared_name(text) or f] = text
+        actor = {"id": self.alias(p.get("actor", OPERATOR))}
+        v = self.wire.post("/v1/request", {
+            "type": "DeclarationChange", "transition": "draft",
+            "actor": actor, "inputs": {
+                "source": source, "source_ref": f"example:{self.examples}"}})
+        if v["kind"] != "satisfied":
+            raise Failed(f"the publish's change is not drafted: {v['kind']}")
+        change = v["object_id"]
+        v = self.wire.post("/v1/request", {
+            "transition": "submit", "actor": actor, "object_id": change})
+        if v["kind"] != "satisfied":
+            raise Failed(f"the publish is refused at submission as "
+                         f"{v['kind']}")
+        version = self.wire.post("/v1/get", {"id": change})["version"]
+        r = self.wire.post("/v1/publish", {
+            "actor": actor, "change": change, "expected_version": version})
+        if r["verdict"]["kind"] != "satisfied":
+            raise Failed(f"the publish is refused at approval as "
+                         f"{r['verdict']['kind']}")
+        self.decls.clear()          # each type as the version installed has it
+
     def play(self, st: dict) -> dict | None:
         if "import" in st:
             self.imported(st["import"])
+            return None
+        if "publish" in st:
+            self.published(st["publish"])
             return None
         verb = next(v for v in VERBS if v in st)
         r = st[verb]
@@ -360,16 +406,33 @@ def chain(setups: dict, name: str) -> list[dict]:
     return (chain(setups, s["given"]) if "given" in s else []) + [s]
 
 
+def catalogue_reader(wire: Wire) -> Callable[[str], str | None]:
+    """A reader of the files beside an examples file, each from its module's
+    bundle in the studio's catalogue, which a `publish` step names."""
+    def read(name: str) -> str | None:
+        try:
+            files = wire.get(f"/studio/module?file={name}")["files"]
+        except Exception:
+            return None
+        return next((f["text"] for f in files if f["name"] == name), None)
+    return read
+
+
 def replay(wire: Wire, module_file: str,
            bundle: dict | None = None,
            after: Callable[[Wire, list], None] | None = None,
+           read: Callable[[str], str | None] | None = None,
            ) -> dict[str, tuple[str, str]]:
     """Every example of a module's examples file: its outcome and why. The
     module's files come from the studio's catalogue on the same wire, or are
     given, for an engine's service that serves no studio routes. `after`, if
-    given, reads the sandbox after each example, with the types it holds."""
+    given, reads the sandbox after each example, with the types it holds.
+    `read` reads a file beside the examples file, which a `publish` step
+    names; with no bundle given, the catalogue's is read."""
     if bundle is None:
         bundle = wire.get(f"/studio/module?file={module_file}")
+        if read is None:
+            read = catalogue_reader(wire)
     loaded = wire.post("/sandbox/load", {"files": bundle["files"]})
     if not loaded["loaded"]:
         raise AssertionError(f"{module_file} does not load: {loaded}")
@@ -378,7 +441,8 @@ def replay(wire: Wire, module_file: str,
     out = {}
     for name, ex in (doc.get("examples") or {}).items():
         now = wire.post("/sandbox/reset", {})["now"]
-        p = Player(wire, now)
+        p = Player(wire, now, read, (bundle.get("examples") or {}).get(
+            "name", module_file.replace(".yaml", ".examples.yaml")))
         try:
             parts = (chain(setups, ex["given"]) if "given" in ex else []) \
                 + [ex]

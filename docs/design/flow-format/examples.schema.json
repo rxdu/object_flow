@@ -73,6 +73,7 @@
       "properties": {
         "request": { "$ref": "#/definitions/request" },
         "import": { "$ref": "#/definitions/import" },
+        "publish": { "$ref": "#/definitions/publish" },
         "propose": { "$ref": "#/definitions/propose" },
         "approve": { "$ref": "#/definitions/decision" },
         "reject": { "$ref": "#/definitions/decision" },
@@ -152,6 +153,22 @@
         "as": { "$ref": "#/definitions/alias" },
         "state": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
         "values": { "type": "object" },
+        "after": { "$ref": "#/definitions/duration" }
+      }
+    },
+    "publish": {
+      "description": "Another version installed over the example's store: a change drafted with the files named, each beside the examples file and keyed by the name it declares, submitted and approved as the actor, the operator by default (ADR-0166).",
+      "type": "object",
+      "required": ["source"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*\\.yaml$" }
+        },
+        "actor": { "$ref": "#/definitions/alias" },
         "after": { "$ref": "#/definitions/duration" }
       }
     },

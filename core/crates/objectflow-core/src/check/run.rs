@@ -10,7 +10,10 @@
 //! the verdict, the object and the events, as `flow-format.md` §11.4 states.
 //! This is a port of that matcher, the wire's calls replaced by the core's
 //! own: an outcome is `passed`, `failed` or `not run`, the last where the
-//! core reaches what it does not yet run.
+//! core reaches what it does not yet run. A `publish` step reads its files
+//! through the reader its caller gives, each beside the examples file; one
+//! given none, as a change's source is, does not run it (ADR-0166 decision
+//! 3).
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -21,7 +24,7 @@ use serde_json::{Value as Json, json};
 use super::doc::{list, obj, py_str, re, str_or};
 use super::logic::Rat;
 use crate::import::{ImportBatch, ImportedObject, import_batch};
-use crate::model::{Library, OPERATOR};
+use crate::model::{DECLARATION_CHANGE, Library, OPERATOR};
 use crate::reads;
 use crate::request::{Request, request};
 use crate::store::{Event, Store};
@@ -95,14 +98,28 @@ impl From<crate::request::NoVerdict> for Stop {
     }
 }
 
-/// One example's run: the store it runs in, and the aliases it has bound.
-struct Player {
+/// Where a `publish` step reads a file it names: the file of that name
+/// beside the examples file, none where it was given with no directory.
+pub type Reader<'r> = &'r dyn Fn(&str) -> Option<String>;
+
+/// A reader that finds no file, for an examples file given with no
+/// directory.
+pub fn no_files(_name: &str) -> Option<String> {
+    None
+}
+
+/// One example's run: the store it runs in, the aliases it has bound, and
+/// where its examples file is, by name and by the reader of the files
+/// beside it.
+struct Player<'r> {
     store: Store,
     aliases: BTreeMap<String, String>,
     types: BTreeMap<String, String>,
+    file: &'r str,
+    read: Reader<'r>,
 }
 
-impl Player {
+impl Player<'_> {
     // ── reading ──────────────────────────────────────────────────────────
     /// A type's declaration as the module gives it.
     fn decl(&self, tn: &str) -> Played<Json> {
@@ -310,9 +327,81 @@ impl Player {
         Ok(())
     }
 
+    /// A `publish` step: a change drafted with the files it names, each
+    /// keyed by the name it declares and its source reference the examples
+    /// file's, submitted and approved as its actor; a refusal at any of the
+    /// three fails the example, and the steps after it run under the
+    /// version it installs (`flow-format.md` §11.3, ADR-0166 decision 3).
+    fn published(&mut self, pb: &Json) -> Played<()> {
+        self.advance(pb.get("after"))?;
+        let mut source = serde_json::Map::new();
+        for f in list(pb, "source").iter().map(py_str) {
+            let Some(text) = (self.read)(&f) else {
+                return Err(Stop::NotRun(format!(
+                    "the publish step's file {f}, which no directory beside the examples file gives"
+                )));
+            };
+            let name = crate::source::name_of(&text).unwrap_or_else(|| f.clone());
+            source.insert(name, Json::String(text));
+        }
+        let actor = self.alias(&str_or(pb, "actor", OPERATOR))?;
+        let mut req = Request {
+            transition: "draft".into(),
+            actor: actor.clone(),
+            object_id: None,
+            type_: Some(DECLARATION_CHANGE.into()),
+            inputs: BTreeMap::from([
+                ("source".to_string(), Json::Object(source)),
+                (
+                    "source_ref".to_string(),
+                    Json::String(format!("example:{}", self.file)),
+                ),
+            ]),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let Verdict::Satisfied {
+            object_id: change, ..
+        } = request(&mut self.store, &req)??
+        else {
+            return failed("the publish's change is not drafted");
+        };
+        req.transition = "submit".into();
+        req.type_ = None;
+        req.object_id = Some(change.clone());
+        req.inputs = BTreeMap::new();
+        let v = request(&mut self.store, &req)??;
+        if !matches!(v, Verdict::Satisfied { .. }) {
+            return failed(format!(
+                "the publish is refused at submission as {}",
+                v.kind()
+            ));
+        }
+        let world = self.store.snapshot()?;
+        let version = world.whole(&change)?.map_or(0, |c| c.version);
+        drop(world);
+        let (v, _report) = self.store.publish(&actor, &change, version)??;
+        if !matches!(v, Verdict::Satisfied { .. }) {
+            return failed(format!(
+                "the publish is refused at approval as {}",
+                v.kind()
+            ));
+        }
+        Ok(())
+    }
+
     fn play(&mut self, st: &Json) -> Played<Option<Verdict>> {
         if let Some(im) = st.get("import") {
             self.imported(im)?;
+            return Ok(None);
+        }
+        if let Some(pb) = st.get("publish") {
+            self.published(pb)?;
             return Ok(None);
         }
         let Some(verb) = VERBS.iter().copied().find(|v| st.get(*v).is_some()) else {
@@ -663,12 +752,16 @@ fn run_one(
     now: i64,
     setups: &serde_json::Map<String, Json>,
     ex: &Json,
+    file: &str,
+    read: Reader<'_>,
 ) -> Played<Option<String>> {
     let store = Store::sandbox(lib.clone(), now)?;
     let mut p = Player {
         store,
         aliases: BTreeMap::from([(OPERATOR.to_string(), OPERATOR.to_string())]),
         types: BTreeMap::new(),
+        file,
+        read,
     };
     let mut parts = match ex.get("given") {
         Some(g) => chain(setups, &py_str(g), &mut Vec::new()),
@@ -717,14 +810,20 @@ fn run_one(
 }
 
 /// Each example of an examples file, in the order written, with its outcome,
-/// run against the library the modules checked load into.
-pub fn run_examples(lib: &Library, doc: &Json) -> Vec<(String, Outcome)> {
+/// run against the library the modules checked load into; `file` is the
+/// examples file's name, and `read` reads a file beside it.
+pub fn run_examples(
+    lib: &Library,
+    doc: &Json,
+    file: &str,
+    read: Reader<'_>,
+) -> Vec<(String, Outcome)> {
     let now = parse_timestamp(CLOCK_START).unwrap_or(0);
     let setups = obj(doc, "setups").clone();
     obj(doc, "examples")
         .iter()
         .map(|(name, ex)| {
-            let outcome = match run_one(lib, now, &setups, ex) {
+            let outcome = match run_one(lib, now, &setups, ex, file, read) {
                 Ok(None) => Outcome::Passed,
                 Ok(Some(problem)) | Err(Stop::Failed(problem)) => Outcome::Failed(problem),
                 Err(Stop::NotRun(what)) => Outcome::NotRun(what),

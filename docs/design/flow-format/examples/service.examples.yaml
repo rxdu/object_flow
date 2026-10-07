@@ -177,3 +177,33 @@ examples:
       occurred_at: now - 30 min
       inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS, corrects: mistake }
     expect: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable }
+
+  a_job_from_before_version_2_needs_its_completion_photo:
+    description: >-
+      Version 2, published while a job was in progress, makes the completion photo a condition of finishing it, so the
+      job started under version 1 cannot finish without one, and the engineer can attach it (ADR-0166).
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+      - publish: { source: [people.yaml, service-v2.yaml], after: 1 h }
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana } }
+    expect: { verdict: unsatisfied, clause: photo_attached, remedy: self_serviceable }
+
+  a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given:
+    description: >-
+      With the photo attached, the job started under version 1 finishes under version 2, holding the site the
+      migration gave every job from before it.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+      - publish: { source: [people.yaml, service-v2.yaml], after: 1 h }
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana, completion_photo: done.jpg } }
+    expect: { verdict: applied, state: DONE, values: { site: HQ } }

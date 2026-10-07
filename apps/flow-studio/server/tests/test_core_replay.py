@@ -22,6 +22,7 @@ import tempfile
 import pytest
 
 from flowstudio.catalogue import Catalogue
+from flowstudio.scripts import flows
 from replay import Wire, replay
 from test_replay import oracle
 
@@ -55,7 +56,10 @@ def test_no_example_fails_in_the_core(core):
     passed = set()
     for module_file in FILES:
         want = oracle(module_file)
-        got = replay(core, module_file, bundle=DESIGN.bundle(module_file))
+        # a `publish` step's files read beside the design's examples, as the
+        # catalogue would give them (ADR-0166 decision 3)
+        got = replay(core, module_file, bundle=DESIGN.bundle(module_file),
+                     read=flows.beside(flows.EXAMPLES))
         assert set(got) == set(want)
         for name, (outcome, why) in got.items():
             tally[outcome] += 1

@@ -553,6 +553,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D539](#d539) | The runner held recordings made before a publish to the kind's new invariant | Resolved |
 | [D540](#d540) | The runner's erasure left a personal enumeration's intervals holding their values | Resolved |
 | [D541](#d541) | The runner's import required an end of a relationship the other end stores | Resolved |
+| [D542](#d542) | The runner's dry run stopped on a guard naming no condition | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3541,3 +3542,8 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **The runner's import required an end of a relationship the other end stores.** Of a single end and a set end, the single one stores the relationship, and the set end is read from it (`flow-format.md` §4.3), so no write gives it a value. The reference runner's import counted such an end, `RobotModel.units`, the set end of `Robot.model`, among the attributes a placed object must provide, and refused every model the metric scenarios' port imports as failing `units_provided`, which the core imports. Found 2026-10-08 replaying the scenarios through the runner (ADR-0166 R4).
 
 **Resolved** in the runner: an end the other end stores, a set end or a single end whose single opposite is the one marked `stored`, is required of no import. `tests/test_importing.py` imports a model without its units through both backends, alike, and fails without the fix.
+
+### D542
+**The runner's dry run stopped on a guard naming no condition.** A dry run goes on past the fatal findings of its checks, reporting everything, and where the rules they refuse cannot be run over the objects it reports the impact as `not_computed` (`publish-and-import.md` §1 step 4); the core does so. The reference runner's offers read each guard's condition by name, and a version whose guard named no condition, which its step 1 had refused, raised a fault out of the dry run instead, so a submission of such a version failed with a server fault rather than being refused as `dry_run_clean`. Found 2026-10-08 by the flow checker's plant of a `publish` step whose version the dry run refuses (ADR-0166 R5).
+
+**Resolved** in the runner: an offer of a guard on no declared condition is not run, which the dry run's step past refused checks reports as `not_computed`, as the core's does. The plant, a `publish` of `service-v2.yaml` with a guard misspelled, is held by both checkers through the core's oracle.

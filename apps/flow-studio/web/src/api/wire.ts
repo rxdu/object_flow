@@ -277,6 +277,13 @@ export interface Wire {
     value: string,
   ): Promise<FlowObject | null>;
   availability(actor: string, id: string): Promise<TransitionOffer[]>;
+  /** the library's `publish`: a change's dry run, or its approval of the
+   * change's version its approver read (library-api.md §6, ADR-0166) */
+  publish(
+    actor: string,
+    change: string,
+    how: { dry_run: true } | { expected_version: number },
+  ): Promise<{ verdict: Verdict | null; report: unknown }>;
   /** A reader's read of a metric: a row per group of the dimensions
    *  `keep` names, every declared one where it names none. */
   metric(actor: string, name: string, keep?: string[]): Promise<MetricPage>;
@@ -357,6 +364,8 @@ export function httpWire(base = ""): Wire {
       call("GET", `/studio/module?file=${q(file)}&source=${source}`),
     availability: (actor, id) =>
       post("/v1/availability", { actor: { id: actor }, id }),
+    publish: (actor, change, how) =>
+      post("/v1/publish", { actor: { id: actor }, change, ...how }),
     metric: (actor, name, keep) =>
       post("/v1/metric", { actor: { id: actor }, name, keep }),
     diagram: (file, type, source = "design") =>

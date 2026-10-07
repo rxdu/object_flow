@@ -62,7 +62,10 @@ import yaml
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import flowexpr  # noqa: E402  the expression language's grammar, shared with the logic checks (ADR-0137)
 import flowlogic  # noqa: E402  contradictions within one type (ADR-0137)
+from types import SimpleNamespace  # noqa: E402  this module's own namespace, where it has no name (this_checker)
+
 import flowrun  # noqa: E402  the reference runner of examples (ADR-0136)
+import flowpublish  # noqa: E402  its publishing, which an example's `publish` step runs (ADR-0166)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FORMAT = ROOT / "docs/design/flow-format"
@@ -3138,6 +3141,16 @@ def example_errors(doc, kinds, modules):
         errs = []
         for i, st in enumerate(steps or []):
             here = path + (i,)
+            if env.get(PUBLISHED):
+                continue        # under the version a publish installed, which this check does not read (§11.3)
+            if "publish" in st:
+                actor = st["publish"].get("actor", "operator")
+                if actor != "operator" and not (actor in env and marks_actor(env[actor], kinds)):
+                    errs.append((here + ("publish", "actor"), "names", f"names the actor '{actor}', which is neither "
+                                                                       "`operator` nor an alias of an object whose type "
+                                                                       "marks an actor identity"))
+                env[PUBLISHED] = True
+                continue
             if "propose" in st:
                 # a request filed for approval instead of executed, on a transition marked proposable (§11.3)
                 r = st["propose"]
@@ -3230,6 +3243,8 @@ def example_errors(doc, kinds, modules):
                 env = dict(envs.get(ex["given"], {}))
         out += stubs_errors(ex.get("evaluators"), path + ("evaluators",))
         out += steps_errors(ex.get("steps"), env, path + ("steps",))
+        if env.get(PUBLISHED):
+            continue            # the request runs under the version published, and is checked when it runs (§11.3)
         want = ex["expect"]
         verdict = want["verdict"]
         if "approve" in ex:
@@ -3360,14 +3375,16 @@ def uncovered(mdoc, kinds, requested):
                   for xn in ((kinds.get(tn) or {}).get("transitions") or {}) if (tn, xn) not in requested)
 
 
-def check(files, previous=None, analysed=None, examples=None):
+def check(files, previous=None, analysed=None, examples=None, read=None):
     """Findings and notices over modules given in import order, as (file, line,
     severity, code, message); previous maps a file to the text of the version
     before it, against which its migration is checked. `analysed`, if given, is
     filled with each type's count of guard conditions step 5 decided in full,
     against all it read, and `examples` with each transition's, `<Type>.<transition>`,
     examples that request it, both of which the publish report carries
-    (ADR-0136, ADR-0137)."""
+    (ADR-0136, ADR-0137). `read` reads a file beside the examples files by its
+    name, for an example's `publish` step, which is not run without it
+    (ADR-0166 decision 3)."""
     found, notes, loaded, library, declared, uses = [], [], [], {}, {}, {}
     modules, example_files = {}, []
     stored = {}                 # module -> its types, enumerations and machines, which one store holds together
@@ -3487,7 +3504,10 @@ def check(files, previous=None, analysed=None, examples=None):
     if not found and example_files and len(loaded) + len(example_files) == len(files):
         # step 6: each example run against the rules by the reference runner (flow-format.md §11.5, ADR-0136)
         for f, idx, doc in example_files:
-            for name, outcome, message in flowrun.run_examples(doc, library, modules):
+            # the version checked, each file keyed by the name it declares, which a `publish` step's change is checked
+            # against (ADR-0155)
+            source = {flowpublish.declared_name(t) or n: t for n, t in files}
+            for name, outcome, message in flowrun.run_examples(doc, library, modules, f, read, this_checker(), source):
                 EXAMPLE_OUTCOMES.append((name, outcome))
                 where = line_of(idx, ("examples", name))
                 if outcome == "failed":
@@ -4259,6 +4279,14 @@ def example_rule_plants():
         hit = [x for x in found if x[3] == code and words in x[4]]
         ok &= bool(hit)
         print(f"  planted {name}: {'caught by ' + code + ', at ' + hit[0][0] + ':' + str(hit[0][1]) + ' ' + hit[0][4][:70] if hit else 'MISSED ' + str(found[:2])}")
+    # a publish its dry run refuses fails its example, the version beside the examples file given a guard on no
+    # condition (§11.3, ADR-0166 decision 3)
+    broken = read("service-v2.yaml").replace("photo_attached: deny", "photo_attachd: deny", 1)
+    found, _notes = check([(f, read(f)) for f in service], None, None, None,
+                          lambda n: broken if n == "service-v2.yaml" else beside(EXAMPLES)(n))
+    hit = [x for x in found if x[3] == "example" and "refused at submission" in x[4]]
+    ok &= bool(hit)
+    print(f"  planted a publish its dry run refuses: {'caught by example, at ' + hit[0][0] + ':' + str(hit[0][1]) if hit else 'MISSED ' + str(found[:2])}")
     return ok
 
 
@@ -4894,21 +4922,48 @@ def digest_self_test():
 
 # ── the checks the self-test makes, exported for the core (ADR-0156 decision 4) ──
 PLANTS = ROOT / "core/crates/objectflow-core/tests/plants"
-RECORDED = []      # each check the run makes: its label, files, previous versions, findings and step 5's counts
+PUBLISHED = " published"   # the aliases' mark of a `publish` step, after which nothing is checked here: no alias
+                           # has a space
+RECORDED = []      # each check the run makes: its label, files, previous versions, findings, step 5's counts and the files
+                   # its examples' `publish` steps read
 
 
 def recording(check):
     """`check`, recording each call with what it found, labelled by its caller and,
     where the caller names it, the plant (ADR-0156 decision 4)."""
-    def recorded(files, previous=None, analysed=None):
+    def recorded(files, previous=None, analysed=None, examples=None, read=None):
         counts = {} if analysed is None else analysed
-        found, notes = check(files, previous, counts)
+        reads = {}
+
+        def reading(name):
+            # each file a `publish` step read, recorded so the core reads the same (ADR-0166 decision 3)
+            text = read(name)
+            if text is not None:
+                reads[name] = text
+            return text
+        found, notes = check(files, previous, counts, examples, reading if read is not None else None)
         caller = sys._getframe(1)
         name = caller.f_locals.get("name")
         label = caller.f_code.co_name + (f": {name}" if isinstance(name, str) else "")
-        RECORDED.append((label, list(files), dict(previous or {}), found, notes, dict(counts)))
+        RECORDED.append((label, list(files), dict(previous or {}), found, notes, dict(counts), reads))
         return found, notes
     return recorded
+
+
+def this_checker():
+    """This module, as the checker a `publish` step's dry run calls back into, however it was loaded: run as a script,
+    imported, or loaded by path under a name `sys.modules` does not hold, as the studio loads it; its `check` the one in
+    force, the recording one while the corpus records."""
+    return sys.modules.get(__name__) or SimpleNamespace(**globals())
+
+
+def beside(directory):
+    """A reader of the files in an examples file's directory, by plain name, which its `publish` steps name (ADR-0166
+    decision 3); a name with a directory in it reads nothing."""
+    def read(name):
+        path = directory / name
+        return path.read_text() if pathlib.Path(name).name == name and path.is_file() else None
+    return read
 
 
 def plants_export(recorded):
@@ -4922,13 +4977,15 @@ def plants_export(recorded):
         key = hashlib.sha256(text.encode()).hexdigest()[:16]
         blobs[key] = text
         return key
-    for label, files, previous, found, notes, counts in recorded:
+    for label, files, previous, found, notes, counts, reads in recorded:
         cases.append({
             "label": label,
             "files": [[n, blob(t)] for n, t in files],
             "previous": {n: blob(t) for n, t in sorted(previous.items())},
             "findings": sorted([list(x) for x in found + notes]),
             "analysed": {tn: list(c) for tn, c in sorted(counts.items())},
+            # the files beside the examples files that their `publish` steps read, which the core reads the same
+            **({"reads": {n: blob(t) for n, t in sorted(reads.items())}} if reads else {}),
         })
     return json.dumps(cases, indent=1, ensure_ascii=False) + "\n", blobs
 
@@ -4979,7 +5036,8 @@ def main():
         previous = {files[-1][0]: pathlib.Path(before).read_text()} if before else None
         counts = {}
         EXAMPLE_OUTCOMES.clear()
-        found, notes = check(files, previous, counts)
+        carrying = [pathlib.Path(a) for a in args if a.endswith(".examples.yaml")]
+        found, notes = check(files, previous, counts, None, beside(carrying[0].resolve().parent) if carrying else None)
         report(found, notes)
         if any(n.endswith(".examples.yaml") for n, _ in files):
             ran = [o for _n, o in EXAMPLE_OUTCOMES]
@@ -5003,7 +5061,8 @@ def main():
         files = [("people.yaml", people)] + before + ([(version, (EXAMPLES / version).read_text())] if version != "people.yaml" else [])
         carried = EXAMPLES / version.replace(".yaml", ".examples.yaml")   # a module's examples, checked with it (§11)
         files += [(carried.name, carried.read_text())] if carried.exists() else []
-        found, notes = check(files, {version: (EXAMPLES / versions_of[version]).read_text()} if version in versions_of else None)
+        found, notes = check(files, {version: (EXAMPLES / versions_of[version]).read_text()} if version in versions_of else None,
+                             None, None, beside(EXAMPLES))
         print(f"{version}: {'clean' if not found else str(len(found)) + ' finding(s)'}, "
               f"{len(notes)} notice{'s' if len(notes) != 1 else ''}")
         for x in found:

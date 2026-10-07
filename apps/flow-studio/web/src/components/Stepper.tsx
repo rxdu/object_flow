@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { NotRun, type Verdict, type Wire, WireFault } from "../api/wire";
 import { explain } from "../session/explain";
 import {
+  type Beside,
   type ExamplesDoc,
   type PlanStep,
   Player,
@@ -29,10 +30,13 @@ export function Stepper({
   wire,
   doc,
   example,
+  beside,
   onChange,
 }: {
   wire: Wire;
   doc: ExamplesDoc;
+  /** where a `publish` step reads its files (ADR-0166) */
+  beside?: Beside;
   example: string;
   onChange: (player: Player) => void;
 }) {
@@ -48,14 +52,14 @@ export function Stepper({
 
   const begin = useCallback(
     (now: string) => {
-      player.current = new Player(wire, now);
+      player.current = new Player(wire, now, beside);
       next.current = 0;
       setNow(now);
       setDone([]);
       setOutcome(null);
       onChange(player.current);
     },
-    [wire, onChange],
+    [wire, beside, onChange],
   );
 
   // a fresh sandbox for the example, once it is shown; the parent keys this

@@ -748,7 +748,7 @@ These words are reserved by the format. `scripts/check-flow-format-doc.py` holds
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
 
-**Example keys:** `examples_for`, `setups`, `examples`, `description`, `given`, `evaluators`, `steps`, `request`, `import`, `type`, `object`, `transition`, `as`, `creates`, `actor`, `after`, `occurred_at`, `inputs`, `state`, `values`, `expect`, `verdict`, `clause`, `remedy`, `cascaded`, `warned`, `approve`, `proposal`, `propose`, `reject`, `withdraw`.
+**Example keys:** `examples_for`, `setups`, `examples`, `description`, `given`, `evaluators`, `steps`, `request`, `import`, `publish`, `source`, `type`, `object`, `transition`, `as`, `creates`, `actor`, `after`, `occurred_at`, `inputs`, `state`, `values`, `expect`, `verdict`, `clause`, `remedy`, `cascaded`, `warned`, `approve`, `proposal`, `propose`, `reject`, `withdraw`.
 
 **Example values:** `operator`, `now`, `satisfied`, `unsatisfied`, `unanswered`, `applied`, `unavailable`, `invalid_input`, `not_requestable`, `over_limit`, `invariant_violated`, `call_refused`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `executed`, `pending`, `rejected`, `withdrawn`, `invalidated`.
 
@@ -781,7 +781,7 @@ Every step of a setup MUST apply. A step the rules refuse makes each example giv
 
 ### 11.3 Steps
 
-A step is a `request`, an `import`, a `propose` or a decision on a proposal, `approve`, `reject` or `withdraw`, each as one key.
+A step is a `request`, an `import`, a `publish`, a `propose` or a decision on a proposal, `approve`, `reject` or `withdraw`, each as one key.
 
 | `request` key | Required | Value |
 |---|---|---|
@@ -796,6 +796,8 @@ A step is a `request`, an `import`, a `propose` or a decision on a proposal, `ap
 | `inputs` | no | the request's inputs, each one the transition takes (§4.8) |
 
 An `import` writes one object of a `mirror` type, which only the import writes (§4.15), so an example can start from what a legacy system held: its `type`, the `as` alias, the `state` it arrives in, its attribute `values` and an optional `after`. It is a batch of that one object with an empty disposition file, its legacy key the alias, so it admits nothing: an object that leaves a required attribute out or violates an invariant refuses the step, and an example that needs one imports it into a type whose declaration lets it stand (ADR-0154, D526).
+
+A `publish` installs another version over the example's store, so an example can claim what a version does to the objects an earlier one left (ADR-0166 decision 3): its `source`, the files of that version, each a file beside the examples file named by its file name, its `actor`, the operator by default, and an optional `after`. The files are read as a change's source is, each keyed by the name it declares, a module's or `<module>.examples` (ADR-0155), so the version is the files given and a module the store holds that they leave out is retired; the step drafts a `DeclarationChange` with them and the source reference `example:<the examples file's name>`, submits it, which runs the dry run, its step 1 checking the files and running their examples, and approves it as `actor`, and applies once the version is installed. A publish refused at submission or at approval fails the example, as any step that does not apply does. A `publish` is a step and never the request under test: an example claims what a version does through the requests after it, on the objects it migrated. Step 3 checks a `publish` step's `actor`; the steps after it and the request under test name the version it installs, which step 3 does not read, and are checked when they run (§11.5). Read where the examples file has no directory, as in a change's source given whole, its files cannot be found, and the step is not run.
 
 A `propose` files a request for approval instead of executing it, as a caller does on a transition marked `proposable` (§4.8, `DESIGN.md` §9): it takes a `request`'s `type` or `object`, `transition`, `inputs`, `actor`, `after` and `occurred_at`, held to the transition's `backdating_limit` when the proposal is filed (ADR-0147), and `proposal`, the alias later steps name the proposal by. Its transition MUST be proposable (step 3, `names`). Filing checks what `DESIGN.md` §9 says it checks, refusing as a request would, and leaves the object's state and the guards to approval (ADR-0146, ADR-0148). A decision names the `proposal` and optionally the `actor` who decides and an `after`. `approve` executes the proposal's request as the approver, every guard evaluated as it stands then; where it applies the proposal is `executed`, and where it is refused the proposal stays `pending`, carrying the verdict. `reject` and `withdraw` end a pending proposal. A decision on a proposal no longer pending is refused as `unavailable`. A decision MUST name a proposal an earlier step filed (step 3, `names`).
 

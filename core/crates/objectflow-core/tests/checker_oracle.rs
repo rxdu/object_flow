@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use objectflow_core::check::{Severity, checked};
+use objectflow_core::check::{Severity, checked_reading};
 use serde_json::Value;
 
 /// The codes of the steps the core runs in a module: 1 to 3 (C1), the load,
@@ -134,10 +134,22 @@ fn the_core_finds_what_the_flow_checker_finds() {
             .iter()
             .map(|(n, k)| (n.clone(), blob(k.as_str().unwrap_or_default())))
             .collect();
+        // the files beside the examples files that their `publish` steps
+        // read, which the core reads the same (ADR-0166 decision 3)
+        let reads: BTreeMap<String, String> = case
+            .get("reads")
+            .and_then(Value::as_object)
+            .map(|m| {
+                m.iter()
+                    .map(|(n, k)| (n.clone(), blob(k.as_str().unwrap_or_default())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let read = |name: &str| reads.get(name).cloned();
         // each finding by its file, line, severity, code and message, so
         // findings sharing a line are told apart and a message the core words
         // differently is a difference
-        let checks = checked(&files, &previous);
+        let checks = checked_reading(&files, &previous, &read);
         // each type's count of the guard conditions step 5 decided in full
         let counts: BTreeMap<String, (usize, usize)> = case["analysed"]
             .as_object()

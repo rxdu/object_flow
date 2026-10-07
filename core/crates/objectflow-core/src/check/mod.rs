@@ -91,8 +91,19 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
     checked(files, previous).findings
 }
 
-/// The findings, with the figures beside them, over the files `check` takes.
+/// The findings, with the figures beside them, over the files `check` takes,
+/// given with no directory, so an example's `publish` step is not run.
 pub fn checked(files: &[(String, String)], previous: &BTreeMap<String, String>) -> Checked {
+    checked_reading(files, previous, &run::no_files)
+}
+
+/// [`checked`], an example's `publish` step reading the files it names
+/// through `read`, each beside the examples file (ADR-0166 decision 3).
+pub fn checked_reading(
+    files: &[(String, String)],
+    previous: &BTreeMap<String, String>,
+    read: run::Reader<'_>,
+) -> Checked {
     let mut out = Checked::default();
     let found = &mut out.findings;
     let schema = match Schema::flow() {
@@ -491,7 +502,7 @@ pub fn checked(files: &[(String, String)], previous: &BTreeMap<String, String>) 
         let lib = crate::model::Library::load(files);
         for (file, node, doc) in &examples_files {
             let ran = match &lib {
-                Ok(lib) => run::run_examples(lib, doc),
+                Ok(lib) => run::run_examples(lib, doc, file, read),
                 Err(e) => doc::obj(doc, "examples")
                     .keys()
                     .map(|n| {

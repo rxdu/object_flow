@@ -124,6 +124,230 @@
   }
  },
  {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "people": "cc897d91cab7f987",
+   "service": "9bd716ed3bc7b728",
+   "service.examples": "0bd9b928997c8194"
+  },
+  "findings": [
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  }
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "people": "cc897d91cab7f987",
+   "service": "9bd716ed3bc7b728",
+   "service.examples": "0bd9b928997c8194"
+  },
+  "findings": [
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  }
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "people": "cc897d91cab7f987",
+   "service": "9bd716ed3bc7b728",
+   "service.examples": "0bd9b928997c8194"
+  },
+  "findings": [
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  }
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "people": "cc897d91cab7f987",
+   "service": "9bd716ed3bc7b728",
+   "service.examples": "0bd9b928997c8194"
+  },
+  "findings": [
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  }
+ },
+ {
   "label": "main",
   "files": [
    [
@@ -136,7 +360,7 @@
    ],
    [
     "service.examples.yaml",
-    "d68d6e59acaa7989"
+    "0bd9b928997c8194"
    ]
   ],
   "previous": {},
@@ -177,6 +401,10 @@
     0,
     0
    ]
+  },
+  "reads": {
+   "people.yaml": "cc897d91cab7f987",
+   "service-v2.yaml": "518220b4397faa50"
   }
  },
  {
@@ -4119,7 +4347,7 @@
    ],
    [
     "service.examples.yaml",
-    "287d4f8e01fef016"
+    "1628d3f6e608daba"
    ]
   ],
   "previous": {},
@@ -4137,6 +4365,20 @@
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: expected the request to apply, and it is refused as unsatisfied no_unresolved_failure dependent"
+   ],
+   [
+    "service.examples.yaml",
+    181,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    196,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "service.yaml",
@@ -4182,7 +4424,7 @@
    ],
    [
     "service.examples.yaml",
-    "d6e929f941895d72"
+    "ec756594eb4e6039"
    ]
   ],
   "previous": {},
@@ -4200,6 +4442,20 @@
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: expected signed_off_by_user to hold ben, and it holds ana"
+   ],
+   [
+    "service.examples.yaml",
+    181,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    196,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "service.yaml",
@@ -4245,7 +4501,7 @@
    ],
    [
     "service.examples.yaml",
-    "7b84c635cbf9546f"
+    "c6d25a7efa3d4afb"
    ]
   ],
   "previous": {},
@@ -4349,6 +4605,20 @@
     "a_correction_takes_the_time_of_what_it_corrects: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
+    "service.examples.yaml",
+    181,
+    "fatal",
+    "example",
+    "a_job_from_before_version_2_needs_its_completion_photo: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    196,
+    "fatal",
+    "example",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
     "service.yaml",
     123,
     "notice",
@@ -4392,7 +4662,7 @@
    ],
    [
     "service.examples.yaml",
-    "d68d6e59acaa7989"
+    "0bd9b928997c8194"
    ]
   ],
   "previous": {},
@@ -4410,6 +4680,20 @@
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: expected the request to apply, and it is refused as unsatisfied pass_rate dependent"
+   ],
+   [
+    "service.examples.yaml",
+    181,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    196,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "service.yaml",
@@ -4455,7 +4739,7 @@
    ],
    [
     "service.examples.yaml",
-    "d68d6e59acaa7989"
+    "0bd9b928997c8194"
    ]
   ],
   "previous": {},
@@ -4538,6 +4822,20 @@
     "a_correction_takes_the_time_of_what_it_corrects: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
    ],
    [
+    "service.examples.yaml",
+    181,
+    "fatal",
+    "example",
+    "a_job_from_before_version_2_needs_its_completion_photo: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
+   ],
+   [
+    "service.examples.yaml",
+    196,
+    "fatal",
+    "example",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
+   ],
+   [
     "service.yaml",
     129,
     "notice",
@@ -4581,7 +4879,7 @@
    ],
    [
     "service.examples.yaml",
-    "d68d6e59acaa7989"
+    "0bd9b928997c8194"
    ]
   ],
   "previous": {},
@@ -4664,6 +4962,20 @@
     "a_correction_takes_the_time_of_what_it_corrects is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
    ],
    [
+    "service.examples.yaml",
+    181,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    196,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
+   ],
+   [
     "service.yaml",
     129,
     "notice",
@@ -4707,7 +5019,7 @@
    ],
    [
     "service.examples.yaml",
-    "bcc0e9141ab74a3a"
+    "b210158ad8ef363a"
    ]
   ],
   "previous": {},
@@ -4742,7 +5054,7 @@
    ],
    [
     "service.examples.yaml",
-    "61e38f813c567ad7"
+    "d1b56380aed11389"
    ]
   ],
   "previous": {},
@@ -4777,7 +5089,7 @@
    ],
    [
     "service.examples.yaml",
-    "0fb3175872d56c77"
+    "871850a90e856bc1"
    ]
   ],
   "previous": {},
@@ -4819,7 +5131,7 @@
    ],
    [
     "service.examples.yaml",
-    "978625825addcba1"
+    "fb084fe101d5c50e"
    ]
   ],
   "previous": {},
@@ -4854,7 +5166,7 @@
    ],
    [
     "service.examples.yaml",
-    "ad960b39545bd2c7"
+    "2cec8842313580d0"
    ]
   ],
   "previous": {},
@@ -4889,7 +5201,7 @@
    ],
    [
     "service.examples.yaml",
-    "9b4526bdcdf4a127"
+    "4d29a97d6080ad96"
    ]
   ],
   "previous": {},
@@ -4924,7 +5236,7 @@
    ],
    [
     "service.examples.yaml",
-    "b4db567214821cf9"
+    "2a3fb8412add5ab0"
    ]
   ],
   "previous": {},
@@ -4973,7 +5285,7 @@
    ],
    [
     "service.examples.yaml",
-    "7513da2c15645a88"
+    "75e80cd1ef8410df"
    ]
   ],
   "previous": {},
@@ -5008,7 +5320,7 @@
    ],
    [
     "service.examples.yaml",
-    "ebd3e3529451b9a7"
+    "cc176c92a324a4b6"
    ]
   ],
   "previous": {},
@@ -5043,7 +5355,7 @@
    ],
    [
     "service.examples.yaml",
-    "a7f658080881d639"
+    "a2ce9e3b7ef4efb8"
    ]
   ],
   "previous": {},
@@ -5078,7 +5390,7 @@
    ],
    [
     "service.examples.yaml",
-    "55fb4a12d82b23c4"
+    "600c99c070b627aa"
    ]
   ],
   "previous": {},
@@ -5624,7 +5936,7 @@
    ],
    [
     "module.examples.yaml",
-    "dbf7ea4c9012dabb"
+    "c49fde5101224077"
    ]
   ],
   "previous": {},
@@ -5642,6 +5954,20 @@
     "fatal",
     "example",
     "a_job_is_not_given_to_an_engineer_who_left: expected unavailable, and it is refused as unsatisfied engineer_active self_serviceable"
+   ],
+   [
+    "module.examples.yaml",
+    181,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.examples.yaml",
+    196,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.yaml",
@@ -5894,7 +6220,7 @@
    ],
    [
     "module.examples.yaml",
-    "49712e0b30c03116"
+    "119a918b21f0f376"
    ]
   ],
   "previous": {},
@@ -5912,6 +6238,20 @@
     "fatal",
     "example",
     "a_late_start_is_dated_when_it_happened: expected the request to record the occurred time now - 2 days, and it records 1767229200"
+   ],
+   [
+    "module.examples.yaml",
+    181,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.examples.yaml",
+    196,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.yaml",
@@ -5957,7 +6297,7 @@
    ],
    [
     "module.examples.yaml",
-    "be5f2c63e8abbb76"
+    "3edbdac990d2253c"
    ]
   ],
   "previous": {},
@@ -5975,6 +6315,20 @@
     "fatal",
     "example",
     "an_inspection_is_dated_when_it_was_done: expected occurred_at to hold now - 3 days, and it holds 1767315600"
+   ],
+   [
+    "module.examples.yaml",
+    181,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.examples.yaml",
+    196,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.yaml",
@@ -6020,7 +6374,7 @@
    ],
    [
     "module.examples.yaml",
-    "b8c9548a1d50686f"
+    "3c4c9669d19ae0fb"
    ]
   ],
   "previous": {},
@@ -6038,6 +6392,20 @@
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: expected signed_off to hold False, and it holds True"
+   ],
+   [
+    "module.examples.yaml",
+    181,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.examples.yaml",
+    196,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.yaml",
@@ -6083,7 +6451,7 @@
    ],
    [
     "module.examples.yaml",
-    "cb03cce0a37a04da"
+    "9c55106201e41fa9"
    ]
   ],
   "previous": {},
@@ -6101,6 +6469,20 @@
     "fatal",
     "example",
     "a_job_opens_for_an_active_engineer: expected handoffs to hold 1, and it holds 0"
+   ],
+   [
+    "module.examples.yaml",
+    181,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.examples.yaml",
+    196,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.yaml",
@@ -6456,7 +6838,7 @@
    ],
    [
     "service.examples.yaml",
-    "f89caa1f10b14baf"
+    "62f944ddf7c5c86f"
    ]
   ],
   "previous": {},
@@ -6491,7 +6873,7 @@
    ],
    [
     "service.examples.yaml",
-    "ae0f2cb4c14b962e"
+    "06383789b2a1d56c"
    ]
   ],
   "previous": {},
@@ -6526,7 +6908,7 @@
    ],
    [
     "service.examples.yaml",
-    "f5c1087b62e341e0"
+    "b6aa1841d9f6485e"
    ]
   ],
   "previous": {},
@@ -6561,7 +6943,7 @@
    ],
    [
     "service.examples.yaml",
-    "3aff9a8ff7b70801"
+    "14624f45d50638bc"
    ]
   ],
   "previous": {},
@@ -6603,7 +6985,7 @@
    ],
    [
     "service.examples.yaml",
-    "634dfc4504f120f0"
+    "c1af1ab701b25f43"
    ]
   ],
   "previous": {},
@@ -6693,7 +7075,7 @@
    ],
    [
     "service.examples.yaml",
-    "b12a5e0471237962"
+    "8d1dfa37abc58966"
    ]
   ],
   "previous": {},
@@ -6752,7 +7134,7 @@
    ],
    [
     "service.examples.yaml",
-    "516d978468ce3a3a"
+    "d56477da46cc355d"
    ]
   ],
   "previous": {},
@@ -6787,7 +7169,7 @@
    ],
    [
     "service.examples.yaml",
-    "12676d68d4ba8457"
+    "52dfb06e853d3e99"
    ]
   ],
   "previous": {},
@@ -6850,7 +7232,7 @@
    ],
    [
     "service.examples.yaml",
-    "f8476109e2c99b2b"
+    "b2a217b0f43da469"
    ]
   ],
   "previous": {},
@@ -6899,7 +7281,7 @@
    ],
    [
     "service.examples.yaml",
-    "337b514d44f1e323"
+    "653db6089997bce2"
    ]
   ],
   "previous": {},
@@ -6934,7 +7316,7 @@
    ],
    [
     "service.examples.yaml",
-    "777e69bfaeb151e1"
+    "ae6dde0adb794a97"
    ]
   ],
   "previous": {},
@@ -6969,7 +7351,7 @@
    ],
    [
     "service.examples.yaml",
-    "0065376fdd4cec8f"
+    "0d5d5dfc362dd1a7"
    ]
   ],
   "previous": {},
@@ -7004,7 +7386,7 @@
    ],
    [
     "service.examples.yaml",
-    "79b068bb2b84c61f"
+    "eb9403efe3e0cb9d"
    ]
   ],
   "previous": {},
@@ -7039,7 +7421,7 @@
    ],
    [
     "service.examples.yaml",
-    "bea11cc222dbad63"
+    "ed7b376dbadf73d4"
    ]
   ],
   "previous": {},
@@ -7074,7 +7456,7 @@
    ],
    [
     "service.examples.yaml",
-    "0ce8aacfb6ece940"
+    "d6ddb24b10efc9d0"
    ]
   ],
   "previous": {},
@@ -7109,7 +7491,7 @@
    ],
    [
     "service.examples.yaml",
-    "23a2318c08aee3da"
+    "20cc34a74cc198d6"
    ]
   ],
   "previous": {},
@@ -7144,7 +7526,7 @@
    ],
    [
     "service.examples.yaml",
-    "565acee5b738e682"
+    "eebd84775f8ad6e5"
    ]
   ],
   "previous": {},
@@ -7179,7 +7561,7 @@
    ],
    [
     "service.examples.yaml",
-    "d7dcc155cf057250"
+    "31d7632af92b9319"
    ]
   ],
   "previous": {},
@@ -7214,7 +7596,7 @@
    ],
    [
     "service.examples.yaml",
-    "35941eb1c2b0f591"
+    "73c9dc9587839c3a"
    ]
   ],
   "previous": {},
@@ -7249,7 +7631,7 @@
    ],
    [
     "service.examples.yaml",
-    "9005090467d30b30"
+    "fe236b3df2f4b0f2"
    ]
   ],
   "previous": {},
@@ -7284,7 +7666,7 @@
    ],
    [
     "service.examples.yaml",
-    "a2e1059a47c0d43b"
+    "8fee2a93f87810d3"
    ]
   ],
   "previous": {},
@@ -7319,7 +7701,7 @@
    ],
    [
     "service.examples.yaml",
-    "f523dc235cea10a7"
+    "b1a3408728e27014"
    ]
   ],
   "previous": {},
@@ -7354,7 +7736,7 @@
    ],
    [
     "service.examples.yaml",
-    "4c3a78b68bcbb762"
+    "61cb7ddec8883fc5"
    ]
   ],
   "previous": {},
@@ -7389,7 +7771,7 @@
    ],
    [
     "service.examples.yaml",
-    "c24b7875dad5aebb"
+    "e77b0ac640e21c1c"
    ]
   ],
   "previous": {},
@@ -7424,7 +7806,7 @@
    ],
    [
     "service.examples.yaml",
-    "71212bf281cb3dd2"
+    "825fb7476109aa3a"
    ]
   ],
   "previous": {},
@@ -7445,6 +7827,178 @@
    ]
   ],
   "analysed": {}
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service",
+    "53f2b40fda247ff8"
+   ]
+  ],
+  "previous": {
+   "people": "cc897d91cab7f987",
+   "service": "9bd716ed3bc7b728",
+   "service.examples": "0bd9b928997c8194"
+  },
+  "findings": [
+   [
+    "service",
+    99,
+    "fatal",
+    "names",
+    "condition 'photo_attached' of ServiceJob is used by no transition"
+   ],
+   [
+    "service",
+    136,
+    "fatal",
+    "names",
+    "ServiceJob.finish guards on 'photo_attachd', which is not a condition of ServiceJob"
+   ],
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service",
+    "53f2b40fda247ff8"
+   ]
+  ],
+  "previous": {
+   "people": "cc897d91cab7f987",
+   "service": "9bd716ed3bc7b728",
+   "service.examples": "0bd9b928997c8194"
+  },
+  "findings": [
+   [
+    "service",
+    99,
+    "fatal",
+    "names",
+    "condition 'photo_attached' of ServiceJob is used by no transition"
+   ],
+   [
+    "service",
+    136,
+    "fatal",
+    "names",
+    "ServiceJob.finish guards on 'photo_attachd', which is not a condition of ServiceJob"
+   ],
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "example_rule_plants: invalid input naming a clause",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "0bd9b928997c8194"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "service.examples.yaml",
+    181,
+    "fatal",
+    "example",
+    "a_job_from_before_version_2_needs_its_completion_photo: the publish is refused at submission as unsatisfied dry_run_clean unreachable_from_here"
+   ],
+   [
+    "service.examples.yaml",
+    196,
+    "fatal",
+    "example",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given: the publish is refused at submission as unsatisfied dry_run_clean unreachable_from_here"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    2,
+    4
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "reads": {
+   "people.yaml": "cc897d91cab7f987",
+   "service-v2.yaml": "53f2b40fda247ff8"
+  }
  },
  {
   "label": "unknown",
@@ -9757,7 +10311,7 @@
    ],
    [
     "service.examples.yaml",
-    "b2bf6b05066d5620"
+    "1ef1a9834a45d2cd"
    ]
   ],
   "previous": {},
@@ -9768,6 +10322,20 @@
     "notice",
     "coverage",
     "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "service.examples.yaml",
+    181,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    196,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "service.yaml",
@@ -9813,14 +10381,14 @@
    ],
    [
     "service.examples.yaml",
-    "38cedb3406af4665"
+    "2f41ba07c1b5b99b"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    187,
+    217,
     "fatal",
     "names",
     "the request leaves out signed_off_by, which is refused as invalid_input, and the example expects unsatisfied"

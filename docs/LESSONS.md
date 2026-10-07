@@ -437,3 +437,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** A design sentence (D528, "the attribute of the new type opens its own as a newly tracked member does") was read against the core's test, which asserts no interval for a retyped `size`, and the core was declared wrong in the conversation as a new defect. `size` was retyped from an enumeration to a string, which check 58 does not track at all, so the core was right; the claim was retracted.
 - **Correction:** Before naming a defect against either backend, check every precondition the rule rests on in the format (what is tracked, what a check admits), and make the difference show on the wire with a probe before writing it down; a test assertion that contradicts a design sentence is evidence to examine, not a verdict.
 - **Context:** ObjectFlow's publishing, the comparison of the core and the reference runner (ADR-0166); 2026-10-08.
+
+### A module loaded by path has no name to look itself up by
+- **Pattern:** `check-flows.py` passed itself to the runner as `sys.modules[__name__]`. Run as a script it is `__main__`, and imported it has its name, but the studio loads it by path with `spec_from_file_location("check_flows", …)` and never registers it, so every check that ran an example in the studio raised `KeyError: 'check_flows'`; the checker's own runs could not show it.
+- **Correction:** A module that hands itself to another must not assume `sys.modules` holds it; fall back to its own namespace (`SimpleNamespace(**globals())`), and test the change through each way the module is loaded, here the studio's tests as well as the script.
+- **Context:** Python, the flow checker loaded by the Flow Studio's server; 2026-10-08.
