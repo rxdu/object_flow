@@ -52,6 +52,40 @@ def not_computed(*answers: Any) -> tuple[set, dict]:
     return names, heads
 
 
+def normalized(v: Any) -> Any:
+    """An answer as the comparison reads it (ADR-0166): a change's `source`,
+    `report` and `evidence`, which it holds as JSON text, read as the JSON
+    objects they are, whose keys have no order;
+    a publish report's findings compared as a set by code, without their
+    messages, which are prose, or their samples, which `affected` holds
+    whole; and the ids each category names, and the examples each
+    transition is requested by, compared as sets."""
+    if isinstance(v, list):
+        return [normalized(x) for x in v]
+    if not isinstance(v, dict):
+        return v
+    out = {}
+    for k, x in v.items():
+        if k in ("source", "report", "evidence") and isinstance(x, str) \
+                and x.startswith("{"):
+            try:
+                x = json.loads(x)
+            except ValueError:
+                pass
+        out[k] = normalized(x)
+    findings = out.get("findings")
+    if isinstance(findings, list) and findings and all(
+            isinstance(f, dict) and "code" in f for f in findings):
+        out["findings"] = sorted(
+            ({k: x for k, x in f.items() if k not in ("message", "sample")}
+             for f in findings), key=lambda f: f["code"])
+        for k in ("affected", "examples"):
+            if isinstance(out.get(k), dict):
+                out[k] = {c: sorted(ids) if isinstance(ids, list) else ids
+                          for c, ids in out[k].items()}
+    return out
+
+
 def pruned(v: Any, names: set, heads: dict) -> Any:
     if isinstance(v, dict):
         out = {}
@@ -109,8 +143,8 @@ class Tee(Wire):
                                f"runner {sr}", body))
         elif sc == 200:
             names, heads = not_computed(ac, ar)
-            for where, what in differences(pruned(ac, names, heads),
-                                           pruned(ar, names, heads)):
+            for where, what in differences(pruned(normalized(ac), names, heads),
+                                           pruned(normalized(ar), names, heads)):
                 self.found.append((self.module, path, where, what, body))
         if sc >= 400:
             fault = ac.get("fault", "") if isinstance(ac, dict) else ""

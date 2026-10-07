@@ -131,20 +131,22 @@ def change_event(store, oid, xn, before, after, actor_id, actor_kind, payload):
     return store.position
 
 
-def request(store, xn, oid, actor, inputs):
+def request(store, xn, oid, actor, inputs, flows=None, read_evidence=None):
     """A request on a change to the declaration (DESIGN.md §9): `draft` and `revise` take the source and its
-    reference, and the evidence it cites; `reopen`, `reject` and `withdraw` move it on; `supersede` is only via a
-    publish. The result is the runner's, ("applied", the change's id, no flags, nothing caused), or a Refused,
-    which the attempt log records as one row of the requested transition."""
+    reference, and the evidence it cites; `submit` and `refresh` run the dry run with the checker given, attach its
+    report and read the evidence with the reader given, refused while it finds anything fatal; `reopen`, `reject` and
+    `withdraw` move it on; `supersede` is only via a publish. The result is the runner's, ("applied", the change's
+    id, no flags, nothing caused), or a Refused, which the attempt log records as one row of the requested
+    transition."""
     try:
-        return requested(store, xn, oid, actor, inputs or {})
+        return requested(store, xn, oid, actor, inputs or {}, flows, read_evidence)
     except Refused as r:
         store.attempts.append(attempt_row(store, DECLARATION_CHANGE, oid if oid in store.objects else None, xn,
                                           actor, r))
         raise
 
 
-def requested(store, xn, oid, actor, inputs):
+def requested(store, xn, oid, actor, inputs, flows=None, read_evidence=None):
     identity, kind = who(store, actor)
     if oid is not None and (oid not in store.objects or store.type_of(oid) != DECLARATION_CHANGE):
         raise Refused("not_found", remedy="unreachable_from_here")
@@ -155,13 +157,25 @@ def requested(store, xn, oid, actor, inputs):
     froms, to = MOVES[xn]
     if oid is not None and store.objects[oid].state not in froms:
         raise Refused("unavailable", remedy="unreachable_from_here")
-    if xn in ("submit", "refresh"):
-        raise NotRunnable("a change's dry run, which the runner's next slice runs (ADR-0166 decisions 4 and 5)")
+    if xn in ("submit", "refresh") and flows is None:
+        raise NotRunnable("a change's dry run, with no checker given to run its step 1")
     payload = {}
     if xn in ("draft", "revise"):
         files, reference, digest, evidence = change_source(inputs)
     elif inputs:
         raise Refused("invalid_input", remedy="self_serviceable", inputs=sorted(inputs))
+    if xn in ("submit", "refresh"):
+        # the dry run, its report attached, refused while it finds anything fatal (DESIGN.md §9)
+        report = dry_run(store, oid, flows, actor)
+        if any(f["severity"] == "fatal" for f in report["findings"]):
+            raise Refused("unsatisfied", "dry_run_clean", "unreachable_from_here")
+        cites = json.loads(store.objects[oid].attrs.get("evidence") or "{}").get("cites")
+        # each reference it cites, read as the store stands, kept as it answered (ADR-0097, ADR-0159)
+        read = None
+        if cites is not None:
+            if read_evidence is None:
+                raise NotRunnable("the evidence a change cites, with no reader given")
+            read = [read_evidence(r) for r in cites]
     if oid is None:
         oid = store.new_id(DECLARATION_CHANGE)
         c = Obj(oid, DECLARATION_CHANGE, to, store.now)
@@ -181,11 +195,491 @@ def requested(store, xn, oid, actor, inputs):
         payload = {"source_ref": reference, "source_digest": digest}
         if evidence is not None:
             payload["evidence"] = evidence
+    if xn in ("submit", "refresh"):
+        c.attrs["report"] = json.dumps(report, separators=(",", ":"), ensure_ascii=False)
+        if read is not None:
+            c.attrs["evidence"] = json.dumps({"cites": cites, "read": read}, separators=(",", ":"), ensure_ascii=False)
     change_event(store, oid, xn, before, to, identity, kind, payload)
     for a in c.attrs:
         c.writes.setdefault(a, store.position)
-    if xn in ("draft", "revise"):
-        for a in ("source", "source_ref", "source_digest", "base_version", "evidence"):
+    if xn in ("draft", "revise", "submit", "refresh"):
+        for a in ("source", "source_ref", "source_digest", "base_version", "evidence", "report"):
             if a in c.attrs:
                 c.writes[a] = store.position
     return ("applied", oid, [], [])
+
+
+# ── the dry run (publish-and-import.md §1 steps 1 to 4, §2) ────────────────────────────────────────────────────────────
+
+# what the report does not compute, as the core's names it (ADR-0155 decision 5)
+NOT_COMPUTED = ["invariants", "sweepable", "unsweepable", "queryable_derives", "worst_case_fanout", "observed_fanout",
+                "replaced_creations", "creations_past_first_state", "observing_clauses", "flags", "person_dimensions"]
+# the store's own types, which no change declares and no mapping reaches
+BUILT_IN = ("Operator", "Proposal", DECLARATION_CHANGE, "label")
+
+
+class Version:
+    """A version a source declares, as the runner reads it: its types, the observation kinds among them, its
+    enumerations, its metrics and their modules, its modules, its migration and its source, each file by name."""
+
+    def __init__(self, flows, files):
+        import flowrun
+        modules, library, observations = {}, {}, set()
+        for _name, text in import_order(flows, files):
+            doc = flows.load(text)
+            if isinstance(doc, dict) and "examples_for" in doc:
+                continue
+            flows.literals(doc)
+            modules[doc["module"]] = doc
+            view, _back = flows.view(doc, library)
+            library.update(dict(flows.types(view)))
+        kinds = dict(library)
+        obs = flowrun.observation_kinds(modules)
+        kinds.update(obs)
+        observations |= set(obs)
+        kinds["Operator"] = {"attributes": {"identity": {"type": "identity", "actor_kind": "human"}},
+                             "states": {"ACTIVE": {"category": "live"},
+                                        "RETIRED": {"category": "closed", "final": True}}}
+        self.kinds, self.observations, self.modules = kinds, observations, modules
+        self.enums = {n: list(v) for m in modules.values() for n, v in (m.get("enumerations") or {}).items()}
+        self.declared, self.homes = flowrun.declarations(modules)
+        self.source = dict(files)
+        # the mappings each module carries, from the version before it (flow-format.md §4.16)
+        self.migration = {"renamed_attributes": {}, "removed_members": {}, "removed_states": {}, "backfill": {},
+                          "admit": []}
+        for m in modules.values():
+            mig = m.get("migration") or {}
+            for k in ("renamed_attributes", "removed_members", "removed_states", "backfill"):
+                for owner, maps in (mig.get(k) or {}).items():
+                    self.migration[k].setdefault(owner, {}).update(maps or {})
+            self.migration["admit"] += list(mig.get("admit") or [])
+
+
+def import_order(flows, files):
+    """A source's files as the checker reads them: each module after those it imports, then the examples files."""
+    docs, examples = {}, []
+    for name, text in sorted(files.items()):
+        try:
+            doc = flows.load(text)
+        except Exception:
+            doc = None
+        if isinstance(doc, dict) and "examples_for" in doc:
+            examples.append((name, text))
+        else:
+            docs[name] = (text, doc)
+    order, seen = [], set()
+
+    def visit(name, path=()):
+        if name in seen or name not in docs or name in path:
+            return
+        doc = docs[name][1]
+        for mod in ((doc or {}).get("imports") or {}) if isinstance(doc, dict) else ():
+            visit(mod, path + (name,))
+        seen.add(name)
+        order.append((name, docs[name][0]))
+    for name in docs:
+        visit(name)
+    return order + examples
+
+
+class Found:
+    """Findings gathered by code, in the order first met, each with the ids it names (publish-and-import.md §2)."""
+
+    def __init__(self):
+        self.findings = []
+
+    def add(self, severity, code, message, oid=None):
+        f = next((f for f in self.findings if f["code"] == code), None)
+        if f is None:
+            f = {"severity": severity, "code": code, "message": message, "ids": []}
+            self.findings.append(f)
+        if oid is not None and oid not in f["ids"]:
+            f["ids"].append(oid)
+
+    def fatal(self):
+        return any(f["severity"] == "fatal" for f in self.findings)
+
+
+def reads_metric(expr):
+    """Whether an expression reads a metric, which a dry run consults no more than an evaluator (§1 step 3)."""
+    if isinstance(expr, tuple):
+        if expr and expr[0] == "metric":
+            return True
+        return any(reads_metric(e) for e in expr[1:])
+    if isinstance(expr, list):
+        return any(reads_metric(e) for e in expr)
+    return False
+
+
+def dry_run(store, change_id, flows, actor):
+    """A change's dry run over the store as it stands, at its `now`, and its report as the wire and a change's
+    `report` carry it: step 1 by the checker given and the examples, then steps 2 and 3 over every object, writing
+    nothing (publish-and-import.md §1, §2)."""
+    c = store.objects[change_id]
+    files = json.loads(c.attrs.get("source") or "{}")
+    found = Found()
+    examples, analysed = {}, {}
+    ordered = import_order(flows, files)
+    errs, notes = flows.check(ordered, dict(store.source), analysed, examples)
+    for f, line, _sev, code, message in errs:
+        # an example's failure by the name the design gives it (ADR-0136, publish-and-import.md §1 step 1)
+        found.add("fatal", "example_failed" if code == "example" else f"check:{code}", f"{f}:{line}: {message}")
+    for f, line, _sev, code, message in notes:
+        if code == "notrun":
+            # an example not run has not passed, and nothing unchecked is installed (§1 step 1)
+            found.add("fatal", "example_not_run", f"{f}:{line}: {message}")
+        elif code == "imports":
+            # a version's source is the whole version, so an import from a module it does not carry is refused
+            # (ADR-0161)
+            found.add("fatal", "check:imports", f"{f}:{line}: {message}; a version carries every module it imports")
+        else:
+            found.add("notice", f"check:{code}", f"{f}:{line}: {message}")
+    refused = found.fatal()
+    proposals_invalidated = 0
+    try:
+        new = Version(flows, files)
+    except Exception as e:                  # a source the checker refused, which the version cannot be read from
+        found.add("fatal", "load", f"the source does not load as a version: {e}")
+        new = None
+    if new is not None:
+        try:
+            proposals_invalidated = impact(store, new, found, actor, change_id)
+        except NotRunnable as e:
+            if not refused:
+                raise
+            # the dry run reports everything, except where the rules the checks refuse cannot run over the objects
+            found.add("notice", "not_computed",
+                      f"the impact past the checks' fatal findings, whose rules cannot be run over the objects: {e}")
+    accepted = not found.fatal() and all(
+        f["severity"] != "decision" or admitted(new, f["code"][len("invariant:"):])
+        for f in found.findings)
+    return {
+        "version": store.version + 1, "accepted": accepted, "now": timestamp_text(store.now),
+        "findings": [{"severity": f["severity"], "code": f["code"], "message": f["message"],
+                      "affected": len(f["ids"]), "sample": f["ids"][:5]} for f in found.findings],
+        "change_id": change_id, "source_ref": c.attrs.get("source_ref"),
+        "source_digest": c.attrs.get("source_digest"), "proposals_invalidated": proposals_invalidated,
+        "affected": {f["code"]: list(f["ids"]) for f in found.findings if f["ids"]},
+        "examples": examples, "analysed": {t: list(n) for t, n in analysed.items()},
+        "not_computed": NOT_COMPUTED,
+    }
+
+
+def admitted(new, qualified):
+    """Whether the change's `admit` covers an invariant, by its name on the type or a type it extends."""
+    if new is None:
+        return False
+    tn, _, n = qualified.rpartition(".")
+    for a in new.migration["admit"]:
+        at, _, an = str(a.get("invariant", "")).rpartition(".")
+        if an == n and is_a(new.kinds, tn, at):
+            return True
+    return False
+
+
+def is_a(kinds, tn, want):
+    seen = set()
+    while tn and tn not in seen:
+        if tn == want:
+            return True
+        seen.add(tn)
+        tn = (kinds.get(tn) or {}).get("extends")
+    return False
+
+
+def declared_as(spec):
+    """What an attribute holds, for comparing two versions of it: its type or its target, and whether it is a set."""
+    spec = spec or {}
+    t = spec.get("reference") or str(spec.get("type", ""))
+    return t.removesuffix("[]"), t.endswith("[]")
+
+
+def impact(store, new, found, actor, change_id):
+    """Steps 2 and 3 (publish-and-import.md §1): every object as the mappings leave it, read under the new version,
+    into the report's categories; returns how many pending proposals the version invalidates."""
+    import copy
+
+    import flowrun
+    old_kinds = store.kinds
+    kinds = dict(new.kinds)
+    # a type the version drops is retired: its objects stay readable, and nothing creates or changes one
+    retired = set()
+    for tn, t in old_kinds.items():
+        if tn not in kinds and tn not in BUILT_IN:
+            kinds[tn] = {**copy.deepcopy(t), "transitions": {}}
+            retired.add(tn)
+    sim = copy.deepcopy(store)
+    sim.kinds, sim.enums = flowrun.with_labels(kinds), new.enums
+    sim.decl = flowrun.Shared(metrics=new.declared, homes=new.homes)
+    sim.version = store.version + 1
+    runner = flowrun.Runner(kinds, new.enums)
+    m = new.migration
+    old_enums = store.enums
+    for oid, o in sim.objects.items():
+        if o.type in BUILT_IN or o.type in retired or o.type not in kinds:
+            continue
+        before = store.objects[oid]
+        nt, ot = kinds[o.type], old_kinds.get(o.type) or {}
+        # renames first, which write nothing of their own and carry the attribute's history
+        for tn, maps in m["renamed_attributes"].items():
+            if is_a(kinds, o.type, tn):
+                for frm, to in maps.items():
+                    if frm in o.attrs:
+                        o.attrs[to] = o.attrs.pop(frm)
+                    if frm in o.spans:
+                        o.spans[to] = o.spans.pop(frm)
+        # an attribute whose type changed starts absent, its values set aside with their history
+        for a, spec in (ot.get("attributes") or {}).items():
+            now = (nt.get("attributes") or {}).get(a)
+            if now is not None and declared_as(now) != declared_as(spec):
+                o.attrs.pop(a, None)
+                o.spans.pop(a, None)
+        # an observation is born final, and no migration reaches one
+        if o.type in new.observations:
+            continue
+        # then removed enumeration members, a set keeping the target once
+        for en, maps in m["removed_members"].items():
+            for frm, to in maps.items():
+                was, target = ("enum", en, frm), ("enum", en, to)
+                changed = False
+                for a, spec in (nt.get("attributes") or {}).items():
+                    if declared_as(spec)[0] != en or a not in o.attrs:
+                        continue
+                    v = o.attrs[a]
+                    if flowrun.is_set(v) and was in v:
+                        out = []
+                        for i in v:
+                            i = target if i == was else i
+                            if i not in out:
+                                out.append(i)
+                        o.attrs[a], changed = tuple(out), True
+                    elif v == was:
+                        o.attrs[a], changed = target, True
+                if changed:
+                    found.add("notice", f"mapping:removed_members:{en}.{frm}", f"objects holding {en}.{frm} take {en}.{to}",
+                              oid)
+        # then removed states
+        if o.state in (ot.get("states") or {}) and o.state not in (nt.get("states") or {}):
+            to = next((maps[o.state] for tn, maps in m["removed_states"].items()
+                       if is_a(kinds, o.type, tn) and o.state in maps), None)
+            if to is not None:
+                found.add("notice", f"mapping:removed_states:{o.type}.{o.state}", f"objects in {o.type}.{o.state} move to {to}",
+                          oid)
+                o.state = to
+            else:
+                found.add("fatal", f"removed_state:{o.type}.{o.state}",
+                          f"objects are in {o.type}.{o.state}, which the version removes and no mapping moves", oid)
+    # then backfills, in the order written, each reading the object as the mappings before it left it, an erased
+    # object's personal values skipped
+    for tn, maps in m["backfill"].items():
+        for attr, text in maps.items():
+            for oid, o in sim.objects.items():
+                if o.type in BUILT_IN or o.type in retired or o.type in new.observations or not is_a(kinds, o.type, tn):
+                    continue
+                spec = (kinds[o.type].get("attributes") or {}).get(attr) or {}
+                if o.erased and spec.get("personal"):
+                    continue
+                v = flowrun.Evaluator(sim, o.type, oid).value(flowrun.parsed(str(text)), {})
+                if o.attrs.get(attr, flowrun.ABSENT) != v:
+                    found.add("notice", f"mapping:backfill:{tn}.{attr}", f"the backfill of {tn}.{attr} writes these objects",
+                              oid)
+                    if v is flowrun.ABSENT:
+                        o.attrs.pop(attr, None)
+                    else:
+                        o.attrs[attr] = v
+    removed = [(en, mem) for en, members in old_enums.items() for mem in members
+               if mem not in (new.enums.get(en) or [])]
+    for oid, o in sim.objects.items():
+        if o.type in BUILT_IN or o.type in retired or o.type not in kinds:
+            continue
+        t = kinds[o.type]
+        for a, spec in (t.get("attributes") or {}).items():
+            v = o.attrs.get(a, flowrun.ABSENT)
+            held = v if flowrun.is_set(v) else (v,)
+            for en, mem in removed:
+                if ("enum", en, mem) in held:
+                    found.add("fatal", f"removed_member:{en}.{mem}",
+                              f"objects hold {en}.{mem}, which the version removes and no mapping replaces", oid)
+            # a required value, new or made required, left absent; a reference's derived end holds no value
+            required = (not spec.get("optional") and "default" not in spec and not declared_as(spec)[1]
+                        and spec.get("type") != "counter" and ("reference" not in spec or stored(kinds, spec)))
+            if required and v is flowrun.ABSENT:
+                found.add("fatal", f"required_absent:{o.type}.{a}",
+                          f"{o.type}.{a} is required and these objects have none, nor a backfill to give it", oid)
+        # a state no transition or assertion of the version reaches, a mirror's excepted, which the import writes
+        if not t.get("mirror") and o.state in (t.get("states") or {}) and not reachable(t, o.state):
+            found.add("fatal", f"unreachable_state:{o.type}.{o.state}",
+                      f"objects are in {o.type}.{o.state}, which no transition or assertion of the version reaches", oid)
+        # parts a mapping into a final state would strand: a mapping drives no cascade, and a `survives` list names
+        # transitions, not migrations
+        moved = store.objects[oid].state != o.state
+        if moved and sim.final(o):
+            for a, spec in (t.get("attributes") or {}).items():
+                if (spec or {}).get("aggregation") != "composite" or (spec or {}).get("survives") is True:
+                    continue
+                parts = flowrun.Evaluator(sim, o.type, oid).member(oid, a)
+                parts = () if parts is flowrun.ABSENT else (parts if isinstance(parts, tuple) else (parts,))
+                if any(p in sim.objects and not sim.final(sim.objects[p]) for p in parts):
+                    found.add("fatal", f"stranded:{o.type}.{a}",
+                              f"a mapping moves these into a final state and would strand their live {a}", oid)
+        # every invariant, once, after the mappings: a violation no standing admission covers is a decision, and a
+        # standing admission whose invariant holds, or which the version no longer declares, is discharged (D531)
+        failing = runner.failing_invariants(sim, o)
+        for n in sorted(o.admissions):
+            if n not in failing:
+                found.add("notice", f"discharged:{o.type}.{n}",
+                          f"these objects hold an admitted violation of {o.type}.{n} that the version cures", oid)
+        for n in failing:
+            if n in o.admissions:
+                continue
+            if o.type in new.observations:
+                # a kind's new invariant applies to later recordings, and nothing can change these (ADR-0146)
+                found.add("notice", f"observation_invariant:{o.type}.{n}",
+                          f"observations already recorded violate {o.type}.{n}, which applies to later recordings", oid)
+                continue
+            q = f"{o.type}.{n}"
+            covered = admitted(new, q)
+            found.add("decision", f"invariant:{q}",
+                      f"these objects would violate {q}, which the change admits" if covered
+                      else f"these objects would violate {q}: fix them first, backfill, or admit it", oid)
+            if covered and sim.final(o):
+                found.add("notice", f"admit_final:{q}",
+                          "an admission on objects in a final state, which no transition can discharge", oid)
+    clauses_and_offers(store, sim, kinds, new.enums, actor, found)
+    invalidated = proposals(store, kinds, found)
+    # every other open change, which the publish supersedes
+    for oid, o in store.objects.items():
+        if o.type == DECLARATION_CHANGE and oid != change_id and o.state in ("DRAFTED", "SUBMITTED"):
+            found.add("notice", "superseded", "open changes the publish supersedes", oid)
+    attribute_notices(old_kinds, kinds, retired, m, found)
+    return invalidated
+
+
+def stored(kinds, spec):
+    """Whether a singular reference is the end that holds the value: one naming no opposite, whose opposite is a set,
+    or marked stored, as the runner's tracked members read it."""
+    back = ((kinds.get(spec.get("reference")) or {}).get("attributes") or {}).get(spec.get("opposite") or "") or {}
+    return "opposite" not in spec or back.get("reference", "").endswith("[]") or bool(spec.get("stored"))
+
+
+def timestamp_text(seconds):
+    """An instant as the wire writes it, in UTC to the second (ADR-0150 decision 2)."""
+    import datetime
+    t = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(seconds=int(seconds))
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def reachable(t, state):
+    """Whether some transition or assertion of the type enters a state."""
+    for x in (t.get("transitions") or {}).values():
+        to = (x or {}).get("to")
+        if state == to or (isinstance(to, list) and state in to):
+            return True
+    return False
+
+
+def offer_classes(runner, store, actor, oid, kinds):
+    """Each transition an object is offered, classed as `availability` classes it, a verdict waiting on an input,
+    an evaluator or a metric being neither available nor not, since a dry run consults none (§1 step 3)."""
+    out = {}
+    t = kinds.get(store.objects[oid].type) or {}
+    conditions = t.get("conditions") or {}
+    for xn, creates, how, _r, _schema, unevaluated, _flags in runner.availability(store, actor, oid):
+        if creates is not None:
+            continue
+        x = (t.get("transitions") or {}).get(xn) or {}
+        metric = any(reads_metric(flowrun_parsed(conditions[g]["expression"]))
+                     for g in (x.get("guards") or {}) if g in conditions)
+        out[xn] = "waits" if unevaluated or metric or how == "available_with_input" else how
+    return out
+
+
+def flowrun_parsed(text):
+    import flowrun
+    return flowrun.parsed(text)
+
+
+def clauses_and_offers(store, sim, kinds, enums, actor, found):
+    """The clauses the version newly enforces that would refuse an object, and the transitions each object gains or
+    loses, judged as the dry run may: a clause or a verdict waiting on an input, an evaluator or a metric is neither
+    (publish-and-import.md §1 step 3)."""
+    import flowrun
+    old_runner, new_runner = flowrun.Runner(store.kinds, store.enums), flowrun.Runner(kinds, enums)
+    for oid, o in sim.objects.items():
+        if o.type in BUILT_IN or oid not in store.objects or o.type not in kinds or not (kinds[o.type].get("transitions")):
+            continue
+        nt, ot = kinds[o.type], store.kinds.get(o.type) or {}
+        for xn, x in (nt.get("transitions") or {}).items():
+            if x.get("kind") == "initial" or not takes_from(nt, x, o.state):
+                continue
+            was = (ot.get("transitions") or {}).get(xn) or {}
+            for g, mode in (x.get("guards") or {}).items():
+                if mode != "deny" or (was.get("guards") or {}).get(g) == "deny":
+                    continue
+                c = (nt.get("conditions") or {}).get(g)
+                if c is None:
+                    continue
+                expr = flowrun.parsed(c["expression"])
+                if "inputs" in flowrun.names_read(expr) or reads_metric(expr):
+                    continue
+                asking = flowrun.Evaluator(sim, o.type, oid, {}, None, flowrun.NEVER_ASKED)
+                ok = flowrun.truth(asking.value(expr, {}))
+                if ok is not True and not getattr(asking, "unanswered", False):
+                    found.add("notice", f"newly_enforced:{o.type}.{xn}.{g}",
+                              f"{o.type}.{xn} newly denies on {g}, which these objects fail", oid)
+        before = offer_classes(old_runner, store, actor, oid, store.kinds)
+        after = offer_classes(new_runner, sim, actor, oid, kinds)
+        for xn in sorted(set(before) | set(after)):
+            b, a = before.get(xn), after.get(xn)
+            if a == "available" and b in (None, "unavailable"):
+                found.add("notice", f"gained:{o.type}.{xn}", f"these objects gain {o.type}.{xn}", oid)
+            if b == "available" and a in (None, "unavailable"):
+                found.add("notice", f"lost:{o.type}.{xn}", f"these objects lose {o.type}.{xn}", oid)
+
+
+def takes_from(t, x, state):
+    """Whether a transition leaves a state: its `from`, `any` being every state that is not final."""
+    froms = x.get("from")
+    froms = [froms] if isinstance(froms, str) else list(froms or [])
+    if froms == ["any"]:
+        st = (t.get("states") or {}).get(state) or {}
+        return not st.get("final") and (x.get("kind") != "external" or x.get("to") != state)
+    return state in froms
+
+
+def proposals(store, kinds, found):
+    """The pending proposals the version invalidates: its transition removed or no longer proposable, an input it no
+    longer takes, or a value its type no longer holds (DESIGN.md §9); returns how many."""
+    n = 0
+    for pid, p in store.proposals.items():
+        if p.get("state") != "pending":
+            continue
+        t = kinds.get(p.get("type")) or {}
+        x = (t.get("transitions") or {}).get(p.get("transition"))
+        breaks = x is None or not x.get("proposable")
+        if not breaks:
+            taken = set(x.get("required_inputs") or []) | set(x.get("optional_inputs") or []) | set(x.get("inputs") or {})
+            breaks = any(k not in taken for k in (p.get("inputs") or {}))
+        if breaks:
+            n += 1
+            found.add("notice", "proposals_invalidated", "pending proposals the version invalidates", pid)
+    return n
+
+
+def attribute_notices(old, new, retired, m, found):
+    """Notices of the declaration alone: an attribute dropped where one of its type is added, which may be a rename,
+    and an attribute whose type changed, a drop and an add of the same name."""
+    for tn, nt in new.items():
+        ot = old.get(tn)
+        if ot is None or tn in BUILT_IN or tn in retired:
+            continue
+        renamed = set((m["renamed_attributes"].get(tn) or {}))
+        nattrs, oattrs = nt.get("attributes") or {}, ot.get("attributes") or {}
+        for a, spec in oattrs.items():
+            now = nattrs.get(a)
+            if now is not None and declared_as(now) != declared_as(spec):
+                found.add("notice", f"type_changed:{tn}.{a}", f"{tn}.{a} changes its type, a drop and an add of the same name")
+            elif now is None and a not in renamed and any(
+                    n not in oattrs and declared_as(x) == declared_as(spec) for n, x in nattrs.items()):
+                found.add("notice", f"possible_rename:{tn}.{a}",
+                          f"{tn}.{a} is dropped where an attribute of its type is added, which may be a rename")

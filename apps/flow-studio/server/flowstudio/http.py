@@ -58,6 +58,7 @@ def routes(box: Sandbox, cat: Catalogue) -> dict[str, Callable[[dict], Any]]:
         "/v1/declaration": box.declaration,
         "/v1/import_batch": box.import_batch,
         "/v1/lookup": box.lookup,
+        "/v1/publish": box.publish,
         "/sandbox/load": box.load,
         "/sandbox/reset": box.reset,
         "/sandbox/clock": box.clock,

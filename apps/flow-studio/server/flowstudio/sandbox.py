@@ -146,6 +146,7 @@ class Sandbox:
         # each declared type as its module writes it, which `declaration`
         # returns, where the runner's own entry is its loader's normal form
         self.written: dict = {}
+        self.source: dict = {}
 
     # ── sandbox control (ADR-0150 decision 3) ─────────────────────────────
     def load(self, body: dict) -> dict:
@@ -172,6 +173,9 @@ class Sandbox:
         }
         declared, homes = flowrun.declarations(modules)
         self.parts = (kinds, enums, declared, homes)
+        # the installed version's source, each file by the name it declares,
+        # which a change to the declaration is checked against (ADR-0166)
+        self.source = {flowpublish.declared_name(t) or n: t for n, t in files}
         self.runner = flowrun.Runner(kinds, enums)
         self.fresh()
         return {
@@ -191,6 +195,7 @@ class Sandbox:
     def fresh(self) -> None:
         kinds, enums, declared, homes = self.parts
         self.store = flowrun.Store(kinds, enums, declared, homes)
+        self.store.source = dict(self.source)
         self.stubs = {}
         # each imported object by its legacy key, qualified by its family's
         # root type (ADR-0154, C23)
@@ -285,12 +290,52 @@ class Sandbox:
         before = s.position
         try:
             result = flowpublish.request(s, xn, oid, actor,
-                                         body.get("inputs"))
+                                         body.get("inputs"), flows,
+                                         self.evidence)
         except flowrun.Refused as r:
             return self.refusal(r, flowrun.DECLARATION_CHANGE, oid, None, xn)
         except flowrun.NotRunnable as e:
             raise not_run(e)
         return self.satisfied(result, flowrun.DECLARATION_CHANGE, before)
+
+    def evidence(self, ref: dict) -> dict:
+        """One reference a change cites, read as the store stands and kept
+        as it answered, with its as-of time: a metric's page, or its
+        refusal, a value (ADR-0159)."""
+        if "metric" not in ref:
+            raise flowrun.NotRunnable(
+                "a cited diagnostics read, which the runner does not serve")
+        body = {"name": ref["metric"], "bind": ref.get("bind"),
+                "keep": ref.get("keep"), "over": ref.get("over"),
+                "filter": ref.get("filter")}
+        page = self.metric({k: v for k, v in body.items() if v is not None})
+        out = {k: page[k] for k in ("rows", "flags", "history_complete",
+                                    "refused") if k in page}
+        out["reference"] = ref
+        out["as_of"] = values.timestamp_text(self.store.now)
+        return out
+
+    def publish(self, body: dict) -> dict:
+        """The library's `publish` (`library-api.md` §6): with `dry_run`, the
+        change's report, which writes nothing; the approval, which installs
+        the version, is the runner's next slice (ADR-0166 decision 4)."""
+        self.loaded()
+        change = body.get("change")
+        if not (body.get("actor") or {}).get("id") or not change:
+            raise Fault(400, "publish names its actor and the change")
+        s = self.store
+        if change not in s.objects or \
+                s.objects[change].type != flowrun.DECLARATION_CHANGE:
+            raise Fault(404, f"no change {change}")
+        if body.get("dry_run") is not True:
+            raise not_run("the approval of a change, which installs a "
+                          "version, the runner's next slice (ADR-0166)")
+        try:
+            report = flowpublish.dry_run(s, change, flows,
+                                         body["actor"]["id"])
+        except flowrun.NotRunnable as e:
+            raise not_run(e)
+        return {"verdict": None, "report": report}
 
     def inputs(self, tn: str | None, xn: str, given: dict | None) -> dict:
         """A request's inputs from the wire, as the runner reads an

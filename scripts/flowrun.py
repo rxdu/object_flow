@@ -551,6 +551,8 @@ class Store:
         # the installed declaration version: an example's store, like a sandbox's load, starts at the version under
         # test, 1, over version 0's built-ins and operator (ADR-0155 decision 4); a publish moves it on (ADR-0166)
         self.version = 1
+        # the installed version's source, each file by the name it declares, which a change is checked against
+        self.source = {}
         # module -> each metric its types and it declare, as (type or None, declaration); type -> its module
         self.decl = Shared(metrics=metrics or {}, homes=homes or {})
         self.now = timestamp(CLOCK_START)

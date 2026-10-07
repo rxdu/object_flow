@@ -3360,12 +3360,14 @@ def uncovered(mdoc, kinds, requested):
                   for xn in ((kinds.get(tn) or {}).get("transitions") or {}) if (tn, xn) not in requested)
 
 
-def check(files, previous=None, analysed=None):
+def check(files, previous=None, analysed=None, examples=None):
     """Findings and notices over modules given in import order, as (file, line,
     severity, code, message); previous maps a file to the text of the version
     before it, against which its migration is checked. `analysed`, if given, is
     filled with each type's count of guard conditions step 5 decided in full,
-    against all it read, which the publish report carries (ADR-0137)."""
+    against all it read, and `examples` with each transition's, `<Type>.<transition>`,
+    examples that request it, both of which the publish report carries
+    (ADR-0136, ADR-0137)."""
     found, notes, loaded, library, declared, uses = [], [], [], {}, {}, {}
     modules, example_files = {}, []
     stored = {}                 # module -> its types, enumerations and machines, which one store holds together
@@ -3453,6 +3455,9 @@ def check(files, previous=None, analysed=None):
         errors = examples_schema_errors(doc)
         if not errors:
             errors, requested = example_errors(doc, library, modules)
+            if examples is not None:
+                for (tn, xn), names in requested.items():
+                    examples.setdefault(f"{tn}.{xn}", []).extend(names)
             if not errors:
                 left = uncovered(modules[doc["examples_for"]], library, requested)
                 if left:
