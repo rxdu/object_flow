@@ -553,6 +553,34 @@ impl<'l> World<'l> {
         Ok(self.held_in_order(|o| self.lib.is_a(&o.type_, type_)))
     }
 
+    /// Every object of a type, its own or a subtype's, in one of the states
+    /// given, in ascending id order: a type held whole is read from what is
+    /// held, and any other through its state index, the objects the
+    /// operation holds kept as it holds them (ADR-0162 step 3).
+    pub fn of_type_in(
+        &self,
+        type_: &str,
+        states: &BTreeSet<String>,
+    ) -> Result<Vec<&Object>, crate::eval::NotRun> {
+        let wanted: Vec<String> = states.iter().cloned().collect();
+        for t in self.lib.types.keys() {
+            let whole = self.held.whole.borrow().contains(t);
+            if self.lib.is_a(t, type_)
+                && !whole
+                && let Some(conn) = self.conn
+            {
+                let fetched =
+                    crate::store::read_type_in(conn, self.lib, t, &wanted).map_err(|e| {
+                        crate::eval::NotRun::Unreadable(format!(
+                            "the store's objects of {t} in {wanted:?}, which could not be read: {e}"
+                        ))
+                    })?;
+                self.hold_fetched(fetched)?;
+            }
+        }
+        Ok(self.held_in_order(|o| self.lib.is_a(&o.type_, type_) && states.contains(&o.state)))
+    }
+
     /// An object to change, fetched first where it is not held.
     pub fn get_mut(&mut self, id: &str) -> Result<Option<&mut Object>, crate::eval::NotRun> {
         let slot = match self.get(id)? {

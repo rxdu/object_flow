@@ -262,8 +262,18 @@ pub fn query(
         })
         .unwrap_or_else(|| vec!["state".to_string()]);
     let asked: Vec<String> = fields.map_or(summary, <[String]>::to_vec);
+    // where the filter requires its states, only the objects in them are
+    // read, through each type's state index, and the filter then decides
+    // among them as it would among all (ADR-0162 step 3)
+    let candidates = match filter
+        .as_ref()
+        .and_then(|f| required_states(world.lib, type_, f))
+    {
+        Some(states) => world.of_type_in(type_, &states)?,
+        None => world.of_type(type_)?,
+    };
     let mut chosen = Vec::new();
-    for o in world.of_type(type_)? {
+    for o in candidates {
         let Some(ot) = world.lib.type_(&o.type_) else {
             return Err(NotRun::Unsupported(format!("the type {}", o.type_)));
         };
@@ -458,6 +468,66 @@ fn input_schema(t: &Type, x: &Transition) -> Vec<(String, String)> {
         out.push(("admits".into(), "invariant[]".into()));
     }
     out
+}
+
+/// The states a query's filter requires of an object for it to hold: those
+/// a conjunct `state == S` names, or `state == T.S`, intersected across the
+/// conjuncts of an `and`; none where it requires none this can tell. A state
+/// written bare is taken only where every type of the family resolves the
+/// name to its state of that name, as the filter's own evaluation would.
+fn required_states(lib: &crate::model::Library, type_: &str, e: &Expr) -> Option<BTreeSet<String>> {
+    use crate::expr::BinOp;
+    let family: Vec<&crate::model::Type> = lib
+        .types
+        .iter()
+        .filter(|(n, _)| lib.is_a(n, type_))
+        .map(|(_, t)| t)
+        .collect();
+    // a name every type of the family reads as its member, not a constant
+    let member = |n: &str| {
+        family.iter().any(|t| {
+            ["state", "id", "open", "created_at", "created_by_kind"].contains(&n)
+                || t.attribute(n).is_some()
+                || t.derived.iter().any(|(d, _)| d == n)
+                || t.observations.iter().any(|(c, _)| c == n)
+        })
+    };
+    let state_named = |side: &Expr, other: &Expr| -> Option<String> {
+        if !matches!(side, Expr::Name(n) if n == "state") {
+            return None;
+        }
+        match other {
+            Expr::Name(s) if !member(s) && family.iter().all(|t| t.state(s).is_some()) => {
+                Some(s.clone())
+            }
+            Expr::Path(base, s) => match base.as_ref() {
+                Expr::Name(x)
+                    if !member(x)
+                        && family.iter().all(|t| t.state(x).is_none())
+                        && lib.type_(x).is_some_and(|t| t.state(s).is_some()) =>
+                {
+                    Some(s.clone())
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    };
+    match e {
+        Expr::Bin(BinOp::And, l, r) => {
+            match (
+                required_states(lib, type_, l),
+                required_states(lib, type_, r),
+            ) {
+                (Some(a), Some(b)) => Some(a.intersection(&b).cloned().collect()),
+                (a, b) => a.or(b),
+            }
+        }
+        Expr::Bin(BinOp::Eq, l, r) => state_named(l, r)
+            .or_else(|| state_named(r, l))
+            .map(|s| BTreeSet::from([s])),
+        _ => None,
+    }
 }
 
 /// What each requestable transition of an object offers its actor now.
@@ -819,6 +889,44 @@ types:
             ids(q(Some("state.category != closed"), &["entered_at(state)"])),
             [jobs[0].as_str(), jobs[2].as_str(), jobs[1].as_str()]
         );
+        // a filter requiring a state reads the objects in it alone, and
+        // answers as the same filter that requires none (ADR-0162 step 3)
+        for (pushed, whole) in [
+            ("state == OPEN", "state == OPEN or false"),
+            (
+                "state == Job.OPEN and hours > 5",
+                "(state == Job.OPEN and hours > 5) or false",
+            ),
+            (
+                "hours < 5 and OPEN == state",
+                "(hours < 5 and OPEN == state) or false",
+            ),
+            (
+                "state == OPEN and state == DONE",
+                "(state == OPEN and state == DONE) or false",
+            ),
+        ] {
+            assert_eq!(
+                ids(q(Some(pushed), &["created_at desc"])),
+                ids(q(Some(whole), &["created_at desc"])),
+                "{pushed}"
+            );
+        }
+        assert_eq!(
+            ids(q(Some("state == OPEN"), &["created_at desc"])),
+            [jobs[2].as_str(), jobs[1].as_str(), jobs[0].as_str()]
+        );
+        assert_eq!(
+            ids(q(Some("state == Job.OPEN and hours > 5"), &[])),
+            [jobs[1].as_str()]
+        );
+        // and reads only the jobs in the state, where the whole filter reads all
+        let fresh = s.snapshot().unwrap();
+        query(&fresh, "Job", Some("state == OPEN"), &[], None).unwrap();
+        assert_eq!(fresh.held().filter(|o| o.type_ == "Job").count(), 3);
+        let fresh = s.snapshot().unwrap();
+        query(&fresh, "Job", Some("state == OPEN or false"), &[], None).unwrap();
+        assert_eq!(fresh.held().filter(|o| o.type_ == "Job").count(), 4);
         // a type that declares no summary gives each object's state, and the
         // fields asked for are given
         let p = query(&w, "Job", Some("hours < 5"), &[], None).unwrap();

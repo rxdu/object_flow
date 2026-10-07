@@ -2397,6 +2397,21 @@ pub(crate) fn read_type(conn: &Connection, lib: &Library, type_: &str) -> Stored
     read_objects(conn, lib, type_, Scope::Type(table(type_)))
 }
 
+/// The objects of a concrete type the store holds in one of the states
+/// given, in creation order, read through the type's state index (ADR-0162
+/// step 3).
+pub(crate) fn read_type_in(
+    conn: &Connection,
+    lib: &Library,
+    type_: &str,
+    states: &[String],
+) -> Stored<Vec<Object>> {
+    if states.is_empty() {
+        return Ok(Vec::new());
+    }
+    read_objects(conn, lib, type_, Scope::TypeIn(table(type_), states))
+}
+
 /// Every object the store holds, in creation order: each type's rows in one
 /// read of its table, and each other part of their records in one read of
 /// its table, as a load of the whole store is cheapest. A type the directory
@@ -2417,14 +2432,26 @@ pub(crate) fn read_all(conn: &Connection, lib: &Library) -> Stored<Vec<Object>> 
 }
 
 /// Which objects a read of the store fetches: one by id, every one a type's
-/// table holds, or every one.
+/// table holds, those of a type's table in the states given, or every one.
 enum Scope<'a> {
     One(&'a str),
     Type(String),
+    TypeIn(String, &'a [String]),
     All,
 }
 
 impl Scope<'_> {
+    /// The condition on a type's row: its id, or its state among those given.
+    fn on_row(&self) -> String {
+        match self {
+            Scope::One(_) => "WHERE t.id = ?1".into(),
+            Scope::TypeIn(_, states) => {
+                format!("WHERE t.state IN ({})", placeholders(states.len()))
+            }
+            Scope::Type(_) | Scope::All => String::new(),
+        }
+    }
+
     /// The condition a read of a part of the records takes on its
     /// `object_id`, joined to what precedes it by the keyword given; none
     /// for every object.
@@ -2432,17 +2459,30 @@ impl Scope<'_> {
         match self {
             Scope::One(_) => format!(" {keyword} object_id = ?1"),
             Scope::Type(table) => format!(" {keyword} object_id IN (SELECT id FROM {table})"),
+            Scope::TypeIn(table, states) => format!(
+                " {keyword} object_id IN (SELECT id FROM {table} WHERE state IN ({}))",
+                placeholders(states.len())
+            ),
             Scope::All => String::new(),
         }
     }
 
-    /// The id a read binds, for one object.
-    fn bound(&self) -> Option<&str> {
+    /// What a read binds: the one id, or the states.
+    fn bound(&self) -> Vec<&str> {
         match self {
-            Scope::One(id) => Some(id),
-            _ => None,
+            Scope::One(id) => vec![id],
+            Scope::TypeIn(_, states) => states.iter().map(String::as_str).collect(),
+            Scope::Type(_) | Scope::All => Vec::new(),
         }
     }
+}
+
+/// `?1, ?2, …` for the number of parameters given.
+fn placeholders(n: usize) -> String {
+    (1..=n)
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The highest place in creation order the store holds, 0 where it holds
@@ -2488,15 +2528,12 @@ fn read_rows(
     };
     let name = table(type_);
     let only = scope.bound();
-    let of_row = if only.is_some() {
-        "WHERE t.id = ?1"
-    } else {
-        ""
-    };
-    // a type's sets are read whole with its rows, an object's alone
+    let of_row = scope.on_row();
+    // a type's sets are read whole with its rows, an object's alone, and
+    // those of a type's objects in some states by the same condition
     let of_set = match scope {
-        Scope::One(_) => " WHERE object_id = ?1",
-        _ => "",
+        Scope::One(_) | Scope::TypeIn(..) => scope.on_object("WHERE"),
+        Scope::Type(_) | Scope::All => String::new(),
     };
     let scalars: Vec<&(String, Attribute)> = t.attributes.iter().filter(|(_, a)| !a.many).collect();
     let superseding = t.states.iter().any(|(_, s)| s.superseding);
@@ -2524,7 +2561,7 @@ fn read_rows(
         "SELECT {} FROM {name} t JOIN of_object o ON o.id = t.id {of_row}",
         cols.join(", ")
     ))?;
-    let read = stmt.query_map(rusqlite::params_from_iter(only), |r| {
+    let read = stmt.query_map(rusqlite::params_from_iter(&only), |r| {
         let mut values = Vec::new();
         for i in 0..scalars.len() {
             values.push(r.get::<_, Sql>(i + first)?);
@@ -2598,7 +2635,7 @@ fn read_rows(
             "SELECT object_id, value FROM {}{of_set} ORDER BY object_id, ordinal",
             quote(&format!("{name}__{n}"))
         ))?;
-        let items = set.query_map(rusqlite::params_from_iter(only), |r| {
+        let items = set.query_map(rusqlite::params_from_iter(&only), |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, Sql>(1)?))
         })?;
         for item in items {
@@ -2627,7 +2664,7 @@ fn read_parts(
         "SELECT object_id, attribute, position FROM of_attribute_write{}",
         scope.on_object("WHERE")
     ))?;
-    let rows = index.query_map(rusqlite::params_from_iter(only), |r| {
+    let rows = index.query_map(rusqlite::params_from_iter(&only), |r| {
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
@@ -2645,7 +2682,7 @@ fn read_parts(
         "SELECT DISTINCT object_id FROM of_event WHERE source = 'erased'{}",
         scope.on_object("AND")
     ))?;
-    let rows = erasures.query_map(rusqlite::params_from_iter(only), |r| r.get::<_, String>(0))?;
+    let rows = erasures.query_map(rusqlite::params_from_iter(&only), |r| r.get::<_, String>(0))?;
     for row in rows {
         if let Some(o) = objects.get_mut(&row?) {
             o.erased = true;
@@ -2656,7 +2693,7 @@ fn read_parts(
         "SELECT object_id, invariant FROM of_admission WHERE discharged_position IS NULL{}",
         scope.on_object("AND")
     ))?;
-    let rows = standing.query_map(rusqlite::params_from_iter(only), |r| {
+    let rows = standing.query_map(rusqlite::params_from_iter(&only), |r| {
         Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
     })?;
     for row in rows {
@@ -2683,7 +2720,7 @@ fn spans(
          {} ORDER BY object_id, dimension, entered_position, entered_at",
         scope.on_object("WHERE")
     ))?;
-    let rows = stmt.query_map(rusqlite::params_from_iter(only), |r| {
+    let rows = stmt.query_map(rusqlite::params_from_iter(&only), |r| {
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
@@ -3114,6 +3151,43 @@ mod tests {
         assert_eq!(world.get("nobody").unwrap().unwrap().order, order);
         assert_eq!(world.next_order().unwrap(), order + 1);
         assert_eq!(world.of_type("Operator").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_read_by_state_keeps_what_the_operation_holds() {
+        let lib = Library::load(&[]).unwrap();
+        let store = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let mut world = store.snapshot().unwrap();
+        world.get_mut(OPERATOR).unwrap().unwrap().state = "CHANGED".into();
+        let states = |s: &[&str]| s.iter().map(|x| x.to_string()).collect();
+        // the store holds the operator ACTIVE, the operation CHANGED
+        assert!(
+            world
+                .of_type_in("Operator", &states(&["ACTIVE"]))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            world
+                .of_type_in("Operator", &states(&["CHANGED"]))
+                .unwrap()
+                .len(),
+            1
+        );
+        let fresh = store.snapshot().unwrap();
+        assert_eq!(
+            fresh
+                .of_type_in("Operator", &states(&["ACTIVE"]))
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            fresh
+                .of_type_in("Operator", &states(&[]))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

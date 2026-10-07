@@ -407,3 +407,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Read the lines to mutate from the file as it stands after formatting, and treat a pattern that does not match as a failed mutation run, not as a pass; the helper should stop on it rather than go on to build.
 - **Context:** Mutation testing in ObjectFlow's core with scripted substitutions; 2026-10-07.
 
+
+### Wait on a run's own output, not a file a previous run wrote
+- **Pattern:** A background gate run removed and rewrote a shared `gates.out` only after a first step, and the wait that polled that file for its last line found the previous run's complete file and showed its results as current; the stale counts were caught only by noticing they had not moved.
+- **Correction:** Wait on the background task's own output file, or have the run write to a fresh file it names, and check a figure that must have changed, such as the test count after adding a test.
+- **Context:** ObjectFlow's gates run in the background from the agent's shell; 2026-10-07.
