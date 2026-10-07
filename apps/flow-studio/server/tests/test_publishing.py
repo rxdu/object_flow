@@ -813,3 +813,143 @@ def test_a_version_redacting_retyping_and_dropping_installs_alike(tee):
                                    "keep": []})
     assert [r["value"] for r in page["rows"]] == [1], page
     alike(tee)
+
+
+# An erasure after a publish reaches every value personal under the version
+# that wrote it (ADR-0146 decision 2, `storage-schema.md` §9 steps 1 and 9),
+# as the core's tests hold it (`publish.rs`).
+
+FORGET = "      forget: { kind: erasure, inputs: { reason: { type: string } } }\n"
+TIERS = ("    metrics:\n      tiers: { description: Spans by tier., source: "
+         "intervals(tier), item: i, dimensions: { tier: i.value }, "
+         "expression: count() }\n")
+
+
+def personal_tier(text: str) -> str:
+    """A shop whose `tier` is personal, counting its intervals by value."""
+    return text.replace("tier: { type: Tier, optional: true }",
+                        "tier: { type: Tier, optional: true, personal: true }"
+                        ).replace(FORGET, FORGET + TIERS, 1)
+
+
+def published(tee, text: str, ref: str = "git:shop@2") -> None:
+    c = change(tee, "draft", source={"shop": text},
+               source_ref=ref)["object_id"]
+    approved(tee, c)
+
+
+def tiers(tee) -> list:
+    page = tee.post("/v1/metric", {"actor": OP, "name": "Customer.tiers",
+                                   "keep": ["tier"]})
+    return [(r["dimensions"]["tier"], r["value"]) for r in page["rows"]]
+
+
+@pytest.mark.parametrize("what", ["unmarked", "dropped", "retyped"])
+def test_an_erasure_reaches_a_name_personal_when_written(tee, what):
+    """A customer who joined while `name` was personal, erased after a
+    version unmarks, drops or retypes it, keeps no name; one who joined
+    after the unmarking keeps a name that was never personal."""
+    text = {
+        "unmarked": SHOP_V1.replace(
+            "name: { type: string, optional: true, personal: true }",
+            "name: { type: string, optional: true }"),
+        "dropped": SHOP_V1.replace(
+            "      name: { type: string, optional: true, personal: true }\n",
+            "").replace("optional_inputs: [name, nick, tier, size]",
+                        "optional_inputs: [nick, tier, size]"),
+        "retyped": SHOP_V1.replace(
+            "name: { type: string, optional: true, personal: true }",
+            "name: { type: int, optional: true }"),
+    }[what]
+    load(tee, "shop", SHOP_V1)
+    ana = made(tee, "Customer", "join", name="Ana", nick="a")
+    tee.found.clear()
+    published(tee, text)
+    took(tee, ana, "forget", reason="asked")
+    assert tee.post("/v1/get", {"id": ana})["attributes"].get("name") is None
+    tee.post("/v1/history", {"id": ana})
+    if what == "unmarked":
+        bo = made(tee, "Customer", "join", name="Bo")
+        took(tee, bo, "forget", reason="asked")
+        assert tee.post("/v1/get", {"id": bo})["attributes"]["name"] == "Bo"
+    alike(tee)
+
+
+def test_an_erasure_clears_a_personal_tiers_intervals(tee):
+    """With no publish, an erased customer's intervals of a personal
+    enumeration hold no value, the one before the erasure included
+    (`storage-schema.md` §9 step 9, D540)."""
+    load(tee, "shop", personal_tier(SHOP_V1))
+    ana = made(tee, "Customer", "join", tier="GOLD")
+    tee.found.clear()
+    took(tee, ana, "forget", reason="asked")
+    assert tiers(tee) == [(None, 2)]
+    alike(tee)
+
+
+def test_an_erasure_clears_intervals_by_the_version_that_wrote_them(tee):
+    """After a version unmarks `tier`, an erasure clears the interval
+    written while it was personal and keeps the one written after."""
+    v1 = personal_tier(SHOP_V1)
+    load(tee, "shop", v1)
+    bo = made(tee, "Customer", "join", tier="GOLD")
+    tee.found.clear()
+    published(tee, v1.replace(
+        "tier: { type: Tier, optional: true, personal: true }",
+        "tier: { type: Tier, optional: true }").replace(
+        "      leave: { kind: external, from: [ACTIVE], to: GONE }\n",
+        "      leave: { kind: external, from: [ACTIVE], to: GONE }\n"
+        "      retier: { kind: internal, from: [ACTIVE], "
+        "required_inputs: [tier] }\n"))
+    tee.post("/sandbox/clock", {"advance": "1 min"})
+    took(tee, bo, "retier", tier="SILVER")
+    took(tee, bo, "forget", reason="asked")
+    assert tiers(tee) == [("SILVER", 1), (None, 1)]
+    tee.post("/v1/get", {"id": bo})
+    alike(tee)
+
+
+def test_an_erasure_follows_a_personal_name_through_its_renames(tee):
+    """`name` renamed `alias` by one version and unmarked by the next is
+    still erased from a customer whose value was written before the
+    rename."""
+    load(tee, "shop", SHOP_V1)
+    ana = made(tee, "Customer", "join", name="Ana")
+    tee.found.clear()
+    renamed = SHOP_V1.replace(
+        "name: { type: string, optional: true, personal: true }",
+        "alias: { type: string, optional: true, personal: true }").replace(
+        "optional_inputs: [name, nick, tier, size]",
+        "optional_inputs: [alias, nick, tier, size]")
+    published(tee, renamed + "migration:\n  description: The name is an "
+              "alias.\n  renamed_attributes:\n    Customer: { name: alias }\n")
+    published(tee, renamed.replace(
+        "alias: { type: string, optional: true, personal: true }",
+        "alias: { type: string, optional: true }"), "git:shop@3")
+    assert tee.post("/v1/get", {"id": ana})["attributes"]["alias"] == "Ana"
+    took(tee, ana, "forget", reason="asked")
+    assert tee.post("/v1/get", {"id": ana})["attributes"].get("alias") is None
+    tee.post("/v1/history", {"id": ana})
+    alike(tee)
+
+
+@pytest.mark.parametrize("erased_first", [False, True])
+def test_a_tier_newly_personal_is_cleared_erased_before_or_after(tee,
+                                                                 erased_first):
+    """A version marking `tier` personal: an erasure after it clears the
+    interval written before it, personal now; and an erasure before it is
+    completed by the publish's redaction, which clears the interval as the
+    erasure would have (`publish-and-import.md` §1 step 5, D527)."""
+    load(tee, "shop", SHOP_V1.replace(FORGET, FORGET + TIERS, 1))
+    ana = made(tee, "Customer", "join", tier="GOLD")
+    tee.found.clear()
+    if erased_first:
+        took(tee, ana, "forget", reason="asked")
+    published(tee, personal_tier(SHOP_V1))
+    if not erased_first:
+        took(tee, ana, "forget", reason="asked")
+    assert tiers(tee) == [(None, 1 if erased_first else 2)]
+    assert tee.post("/v1/get", {"id": ana})["attributes"].get("tier") is None
+    tee.post("/v1/history", {"id": ana})
+    alike(tee)
+

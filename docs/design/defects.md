@@ -551,6 +551,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D537](#d537) | The core's dry run read the metric a guard reads | Resolved |
 | [D538](#d538) | A dry run counted a refused offer as waiting, by its guards' order | Resolved |
 | [D539](#d539) | The runner held recordings made before a publish to the kind's new invariant | Resolved |
+| [D540](#d540) | The runner's erasure left a personal enumeration's intervals holding their values | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3529,3 +3530,8 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **The runner held recordings made before a publish to the kind's new invariant.** A kind's invariants hold of a recording as it is written, a recording never changes, and a version adding an invariant the recorded observations violate binds only the recordings after it (ADR-0146, D532). After every request, the reference runner checked every invariant of every object in the store, observations included, so once a version added a kind's invariant that an earlier check violated, every later request was refused on that check, a valid recording among them. Found 2026-10-08 by the publishing comparison, the core recording what the runner refused.
 
 **Resolved** in the runner: an observation is checked only by a request that writes it, a recording or an erasure, as the core checks it. The publishing comparison publishes the lab's kind invariant, then records a refused check and an accepted one through both backends.
+
+### D540
+**The runner's erasure left a personal enumeration's intervals holding their values.** `storage-schema.md` §9 step 9 sets `value` to `NULL` in every interval row of an erased object's personal enumeration attributes, so the interval index agrees with the redacted events it is rebuilt from, each row judged by the version it was written under. The reference runner's erasure cleared the attribute's current value and left every interval it had held, so a metric over `intervals(tier)` still counted an erased customer's `GOLD`; the publish's redaction of a value a version newly marks personal on an erased object, written for ADR-0166's R3, did the same. Found 2026-10-08 probing the core and the runner through the studio's comparison, while building the runner's erasure across versions.
+
+**Resolved** in the runner: after a request has written its own intervals, each erased object's intervals of an attribute personal now, or under the version that wrote the interval, its name taken back through later renames, hold no value; the publish's redaction clears the redacted attribute's intervals too. The publishing comparison reads the intervals by value through both backends after an erasure with no publish, after a version unmarking the attribute, and before and after a version newly marking it.

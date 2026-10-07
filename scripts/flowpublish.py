@@ -425,6 +425,8 @@ def impact(store, new, found, actor, change_id):
                         o.attrs[to] = o.attrs.pop(frm)
                     if frm in o.spans:
                         o.spans[to] = o.spans.pop(frm)
+                    if frm in o.writes:
+                        o.writes[to] = o.writes.pop(frm)     # the write index follows, which an erasure reads
         # an attribute whose type changed starts absent, its values set aside with their history
         for a, spec in (ot.get("attributes") or {}).items():
             now = (nt.get("attributes") or {}).get(a)
@@ -727,8 +729,8 @@ def install(store, installed, report, change_id, identity, kind):
     each caused by the publish; an attribute whose type changed left with no value and no interval, the simulation
     having dropped both, so the attribute of the new type, where tracked, opens its own as a newly tracked member does
     (D528), the runner keeping none of the intervals the core sets aside, which no read reaches; and on
-    each object already erased, an attribute the version newly marks personal redacted by a `redact` event, which
-    admits every invariant the absence leaves violated (D527). Returns the positions of its events, the publish's
+    each object already erased, an attribute the version newly marks personal redacted, its intervals included, by a
+    `redact` event, which admits every invariant the absence leaves violated (D527). Returns the positions of its events, the publish's
     first."""
     import flowrun
     sim, new, retired = installed
@@ -813,6 +815,8 @@ def install(store, installed, report, change_id, identity, kind):
                     x.attrs[a] = ()     # a personal set is emptied, a set being never absent (ADR-0148)
                 else:
                     del x.attrs[a]
+                for row in x.spans.get(a, ()):
+                    row["value"] = ABSENT   # its intervals too, as the erasure it completes clears them (§9 step 9)
                 redacted.append(a)
         if not redacted:
             continue
@@ -833,8 +837,11 @@ def install(store, installed, report, change_id, identity, kind):
         store.proposals[pid]["state"] = "invalidated"
     store.kinds, store.enums = kinds, sim.enums
     store.decl, store.version, store.source = sim.decl, new_version, dict(new.source)
-    # each version a store held before, by number, which an erasure reads personal marks under (ADR-0146)
+    # each version a store held before, by number, and the renames each version made, which an erasure reads what
+    # was personal through (ADR-0146 decision 2)
     store.history = {**getattr(store, "history", {}), old_version: old_kinds}
+    store.renames = {**getattr(store, "renames", {}), new_version: [
+        (tn, frm, to) for tn, maps in new.migration["renamed_attributes"].items() for frm, to in (maps or {}).items()]}
     return positions
 
 

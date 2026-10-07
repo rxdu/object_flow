@@ -1803,6 +1803,7 @@ class Runner:
                 inputs[k] = value
         try:
             root = self.take(ctx, tn, xn, oid, inputs, depth=0)
+            self.clear_intervals(ctx)
             # 7. every invariant the writes could violate, in ascending id order of the object it fails on, except
             # a violation an admission lets stand, which is discharged once the invariant holds again (ADR-0054)
             requested = oid if oid is not None else root
@@ -2420,18 +2421,15 @@ class Runner:
         reaches through each one's generated `forget` without a declared step (DESIGN.md §8)."""
         work = ctx.work
         t = self.kinds.get(o.type) or {}
-        # an erasure reaches what any version the store held marked personal (ADR-0146 decision 2), which the runner
-        # reads only from the installed one: where an earlier version marked more, it is not run (ADR-0166 decision 5)
-        for v, kinds in sorted((getattr(work, "history", None) or {}).items()):
-            before = {a for a, sp in (((kinds or {}).get(o.type) or {}).get("attributes") or {}).items()
-                      if (sp or {}).get("personal")}
-            now = {a for a, sp in (t.get("attributes") or {}).items() if (sp or {}).get("personal")}
-            if before - now:
-                raise NotRunnable(f"an erasure reaching {o.type}.{sorted(before - now)[0]}, personal under version "
-                                  f"{v} and not under the installed one")
         erased = {a for a, sp in (t.get("attributes") or {}).items() if (sp or {}).get("personal") and a in o.attrs}
+        # and a current value a later version no longer marks personal, judged by the event that last wrote it, its
+        # name taken back through later renames (storage-schema.md §9 step 1, ADR-0146 decision 2)
+        written_under = {e["position"]: e["declaration_version"] for e in work.events if e["object"] == o.id}
+        erased |= {a for a in o.attrs if a not in erased and o.writes.get(a) in written_under
+                   and self.personal_under(work, o.type, a, written_under[o.writes[a]])}
         for a in erased:
-            if is_set_attribute((t.get("attributes") or {})[a]):
+            spec = (t.get("attributes") or {}).get(a)       # none for a dropped attribute's kept value
+            if is_set_attribute(spec) if spec is not None else isinstance(o.attrs[a], tuple):
                 o.attrs[a] = ()             # a personal set is emptied, a set being never absent (ADR-0148)
             else:
                 del o.attrs[a]
@@ -2445,6 +2443,39 @@ class Runner:
                 proposal["state"] = "invalidated"
                 if key in work.objects:
                     proposal_event(work, key, "invalidate", "PENDING", "INVALIDATED", ctx.who["id"])
+
+    def personal_under(self, store, tn, a, version):
+        """Whether attribute `a` of type `tn`, named as the installed version names it, was personal under a version:
+        its name taken back through each later version's renames, and read in that version's declaration (ADR-0146
+        decision 2). The installed version is the runner's own."""
+        if version >= store.version:
+            kinds = self.kinds
+        else:
+            kinds = (getattr(store, "history", None) or {}).get(version) or {}
+            for u in range(store.version, version, -1):
+                for base, frm, to in (getattr(store, "renames", None) or {}).get(u, ()):
+                    if a == to and store.is_a(tn, base):
+                        a = frm
+        spec = ((kinds.get(tn) or {}).get("attributes") or {}).get(a)
+        return bool((spec or {}).get("personal"))
+
+    def clear_intervals(self, ctx):
+        """Each erased object's intervals of an attribute personal now, or under the version that wrote the interval,
+        holding no value, as the redacted events they are rebuilt from would give; run after the request has written
+        its own (storage-schema.md §9 step 9, D540)."""
+        work = ctx.work
+        for oid in ctx.erased:
+            o = work.objects.get(oid)
+            if o is None or not o.erased:
+                continue
+            for d, rows in o.spans.items():
+                if d == "state":
+                    continue
+                now = self.personal_under(work, o.type, d, work.version)
+                for row in rows:
+                    if row.get("value", ABSENT) is not ABSENT and (now or self.personal_under(
+                            work, o.type, d, row.get("declaration_version", work.version))):
+                        row["value"] = ABSENT
 
     # ── the erasure's walk down (storage-schema.md §9 step 12, ADR-0160 decision 2) ─────────────────────────────────
     def walk_down_from(self, ctx, o):
