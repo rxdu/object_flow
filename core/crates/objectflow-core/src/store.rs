@@ -2100,7 +2100,7 @@ impl Store {
     /// An object's legacy entries, by ordinal, which `history` returns
     /// before its events (`library-api.md` §6, ADR-0015).
     pub fn legacy_entries(&self, id: &str) -> Stored<Vec<crate::world::LegacyEntry>> {
-        Ok(self.snapshot()?.legacy.remove(id).unwrap_or_default())
+        read_legacy(&self.conn, id)
     }
 
     pub fn history(&self, id: &str) -> Stored<Vec<Event>> {
@@ -2286,48 +2286,6 @@ fn snapshot<'l>(
     // (ADR-0162 steps 1 and 2)
     let mut world = World::new(lib, now).reading_from(conn);
     world.earlier = earlier;
-    let mut ids = conn.prepare("SELECT source, value, object_id FROM of_external_id")?;
-    let rows = ids.query_map([], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, String>(2)?,
-        ))
-    })?;
-    for row in rows {
-        let (source, value, id) = row?;
-        world.external.insert((source, value), id);
-    }
-    // each object's legacy entries, by ordinal
-    let mut entries = conn.prepare(
-        "SELECT object_id, ordinal, kind, occurred_at, payload, kept FROM of_legacy_entry ORDER BY object_id, ordinal",
-    )?;
-    let rows = entries.query_map([], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, i64>(1)?,
-            r.get::<_, String>(2)?,
-            r.get::<_, String>(3)?,
-            r.get::<_, String>(4)?,
-            r.get::<_, String>(5)?,
-        ))
-    })?;
-    for row in rows {
-        let (id, ordinal, kind, at, payload, kept) = row?;
-        let damaged = |column: &str| {
-            StoreError(format!(
-                "{id}'s legacy entry {ordinal}'s {column}, which does not decode"
-            ))
-        };
-        let entry = crate::world::LegacyEntry {
-            ordinal,
-            kind,
-            occurred_at: parse_timestamp(&at).ok_or_else(|| damaged("occurred_at"))?,
-            payload: serde_json::from_str(&payload).map_err(|_| damaged("payload"))?,
-            kept: serde_json::from_str(&kept).map_err(|_| damaged("kept"))?,
-        };
-        world.legacy.entry(id).or_default().push(entry);
-    }
     // each subscription's acknowledged cursor, a position on SQLite
     let mut positions =
         conn.prepare("SELECT subscription_id, acknowledged FROM of_subscription_position")?;
@@ -2339,19 +2297,80 @@ fn snapshot<'l>(
         };
         world.acknowledged.insert(id, at);
     }
-    // the imported events, and those that recorded an admission; the log
-    // itself is read where an operation reads it (ADR-0162 step 1)
-    let mut imported = conn.prepare("SELECT position FROM of_event WHERE imported = 1")?;
-    let rows = imported.query_map([], |r| r.get::<_, i64>(0))?;
-    for row in rows {
-        world.imported.insert(row?);
-    }
+    // the events that recorded an admission; the log, the imported events,
+    // the external identifiers and the legacy entries are read where an
+    // operation reads them (ADR-0162 step 1)
     let mut admitting = conn.prepare("SELECT DISTINCT position FROM of_admission")?;
     let rows = admitting.query_map([], |r| r.get::<_, i64>(0))?;
     for row in rows {
         world.admitting.insert(row?);
     }
     Ok(world)
+}
+
+/// Every external identifier the store holds, by source and value, and
+/// the object that holds it.
+pub(crate) fn read_external_all(conn: &Connection) -> Stored<BTreeMap<(String, String), String>> {
+    let mut ids = conn.prepare("SELECT source, value, object_id FROM of_external_id")?;
+    let rows = ids.query_map([], |r| {
+        Ok((
+            (r.get::<_, String>(0)?, r.get::<_, String>(1)?),
+            r.get::<_, String>(2)?,
+        ))
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// The object an external identifier names, by its source and value.
+pub(crate) fn read_external(
+    conn: &Connection,
+    source: &str,
+    value: &str,
+) -> Stored<Option<String>> {
+    let mut stmt = conn
+        .prepare_cached("SELECT object_id FROM of_external_id WHERE source = ?1 AND value = ?2")?;
+    let mut rows = stmt.query_map(params![source, value], |r| r.get::<_, String>(0))?;
+    Ok(rows.next().transpose()?)
+}
+
+/// An object's legacy entries, by ordinal, a damaged one refused.
+pub(crate) fn read_legacy(conn: &Connection, id: &str) -> Stored<Vec<crate::world::LegacyEntry>> {
+    let mut entries = conn.prepare_cached(
+        "SELECT ordinal, kind, occurred_at, payload, kept FROM of_legacy_entry WHERE object_id = ?1 ORDER BY ordinal",
+    )?;
+    let rows = entries.query_map(params![id], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, String>(4)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (ordinal, kind, at, payload, kept) = row?;
+        let damaged = |column: &str| {
+            StoreError(format!(
+                "{id}'s legacy entry {ordinal}'s {column}, which does not decode"
+            ))
+        };
+        out.push(crate::world::LegacyEntry {
+            ordinal,
+            kind,
+            occurred_at: parse_timestamp(&at).ok_or_else(|| damaged("occurred_at"))?,
+            payload: serde_json::from_str(&payload).map_err(|_| damaged("payload"))?,
+            kept: serde_json::from_str(&kept).map_err(|_| damaged("kept"))?,
+        });
+    }
+    Ok(out)
+}
+
+/// The position of each event the import recorded.
+pub(crate) fn read_imported(conn: &Connection) -> Stored<std::collections::BTreeSet<i64>> {
+    let mut imported = conn.prepare("SELECT position FROM of_event WHERE imported = 1")?;
+    let rows = imported.query_map([], |r| r.get::<_, i64>(0))?;
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// An object the store holds, with every part of its record; none where
@@ -3108,6 +3127,14 @@ mod tests {
         assert!(by_id.0.contains(OPERATOR), "{}", by_id.0);
         assert!(world.of_type("Operator").is_err());
         assert!(world.in_order().is_err());
+        // nor an identifier as one the store does not hold
+        store
+            .conn
+            .execute_batch("DROP TABLE of_external_id;")
+            .unwrap();
+        let world = store.snapshot().unwrap();
+        assert!(world.external_id("legacy", "Robot:R1").is_err());
+        assert!(world.external_all().is_err());
     }
 
     #[test]

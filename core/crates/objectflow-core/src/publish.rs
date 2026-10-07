@@ -397,7 +397,6 @@ fn impact(
         mapped.insert(x.id.clone(), x);
     }
     let mut sim = World::new(&new, world.now);
-    sim.external = world.external.clone();
     for o in mapped.into_values() {
         sim.insert(o)?;
     }

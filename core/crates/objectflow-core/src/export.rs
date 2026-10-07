@@ -297,7 +297,7 @@ fn interval_rows(world: &World<'_>, type_: &str, after: i64) -> Result<Vec<(i64,
     for o in world.of_type(type_)? {
         let imported = log
             .iter()
-            .find(|e| e.object_id == o.id && world.imported.contains(&e.position))
+            .find(|e| e.object_id == o.id && e.imported)
             .map_or(0, |e| e.position);
         let Some(t) = world.lib.type_(&o.type_) else {
             continue;

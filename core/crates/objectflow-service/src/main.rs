@@ -1008,7 +1008,7 @@ async fn lookup(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
     let world = s.snapshot()?;
-    match world.external.get(&(source.to_string(), value.to_string())) {
+    match world.external_id(source, value)?.as_ref() {
         Some(id) => object_json(s, &id.clone()),
         None => Ok(Json(J::Null)),
     }

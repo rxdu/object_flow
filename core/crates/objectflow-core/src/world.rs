@@ -117,6 +117,9 @@ impl LegacyEntry {
 /// A row of the attempt rollup: the counted fields, and the count.
 pub type RolledUp = (BTreeMap<String, crate::value::Value>, i64);
 
+/// External identifiers, by source and value, and the object each names.
+pub type ExternalIds = BTreeMap<(String, String), String>;
+
 /// The number of chunks [`Slots`] has, the k-th holding 2^k slots.
 const CHUNKS: usize = 48;
 
@@ -215,13 +218,13 @@ pub struct World<'l> {
     /// what was personal under (ADR-0146 decision 2); empty where the store
     /// has published one version.
     pub earlier: &'l BTreeMap<i64, Library>,
-    /// Each object's legacy entries, by ordinal.
-    pub legacy: BTreeMap<String, Vec<LegacyEntry>>,
     held: Held,
     pub now: i64,
-    /// Each external identifier, by source and value, and the object that
-    /// holds it, a legacy key among them (`storage-schema.md`, `of_external_id`).
-    pub external: BTreeMap<(String, String), String>,
+    /// Every external identifier, by source and value, and the object that
+    /// holds it, a legacy key among them (`storage-schema.md`,
+    /// `of_external_id`), read whole on first use by an operation that reads
+    /// them all, as an import does.
+    stored_external: std::cell::OnceCell<Result<ExternalIds, String>>,
     /// The events the operation appended, in position order, after the log
     /// the store holds, which [`World::log`] reads with them.
     pub appended: Vec<Event>,
@@ -236,8 +239,9 @@ pub struct World<'l> {
     /// override (`declaration-syntax.md` §6.9, `of_admission`).
     pub admitting: BTreeSet<i64>,
     /// The position of each event the import recorded, whose spans may begin
-    /// before it, at the legacy time of the change (ADR-0106).
-    pub imported: BTreeSet<i64>,
+    /// before it, at the legacy time of the change (ADR-0106), read on first
+    /// use.
+    stored_imported: std::cell::OnceCell<Result<BTreeSet<i64>, String>>,
     /// The attempt log, in the order written, which a metric over
     /// `attempts` or `attempt_counts` reads (`storage-schema.md` §6), read
     /// on first use (ADR-0162 step 1).
@@ -256,15 +260,14 @@ impl<'l> World<'l> {
         World {
             lib,
             earlier: &NO_EARLIER,
-            legacy: BTreeMap::new(),
             held: Held::default(),
             now,
-            external: BTreeMap::new(),
+            stored_external: std::cell::OnceCell::new(),
             appended: Vec::new(),
             stored: std::cell::OnceCell::new(),
             conn: None,
             admitting: BTreeSet::new(),
-            imported: BTreeSet::new(),
+            stored_imported: std::cell::OnceCell::new(),
             stored_attempts: std::cell::OnceCell::new(),
             acknowledged: BTreeMap::new(),
             stored_rollup: std::cell::OnceCell::new(),
@@ -353,6 +356,65 @@ impl<'l> World<'l> {
         stored.as_deref().map_err(|e| {
             crate::eval::NotRun(format!(
                 "the store's attempt rollup, which could not be read: {e}"
+            ))
+        })
+    }
+
+    /// Every external identifier the store holds, by source and value, read
+    /// whole on first use, as a batch import reads them.
+    pub fn external_all(&self) -> Result<&BTreeMap<(String, String), String>, crate::eval::NotRun> {
+        let stored = self.stored_external.get_or_init(|| match self.conn {
+            Some(conn) => crate::store::read_external_all(conn).map_err(|e| e.to_string()),
+            None => Ok(BTreeMap::new()),
+        });
+        stored.as_ref().map_err(|e| {
+            crate::eval::NotRun(format!(
+                "the store's external identifiers, which could not be read: {e}"
+            ))
+        })
+    }
+
+    /// The object an external identifier names, read by its key (ADR-0162
+    /// step 1), or from every identifier where an operation has read them.
+    pub fn external_id(
+        &self,
+        source: &str,
+        value: &str,
+    ) -> Result<Option<String>, crate::eval::NotRun> {
+        if let Some(Ok(all)) = self.stored_external.get() {
+            return Ok(all.get(&(source.to_string(), value.to_string())).cloned());
+        }
+        match self.conn {
+            Some(conn) => crate::store::read_external(conn, source, value).map_err(|e| {
+                crate::eval::NotRun(format!(
+                    "the store's external identifier {source} {value}, which could not be read: {e}"
+                ))
+            }),
+            None => Ok(None),
+        }
+    }
+
+    /// An object's legacy entries, by ordinal, read by its id.
+    pub fn legacy_of(&self, id: &str) -> Result<Vec<LegacyEntry>, crate::eval::NotRun> {
+        match self.conn {
+            Some(conn) => crate::store::read_legacy(conn, id).map_err(|e| {
+                crate::eval::NotRun(format!(
+                    "{id}'s legacy entries, which could not be read: {e}"
+                ))
+            }),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// The position of each event the import recorded, read on first use.
+    pub fn imported(&self) -> Result<&BTreeSet<i64>, crate::eval::NotRun> {
+        let stored = self.stored_imported.get_or_init(|| match self.conn {
+            Some(conn) => crate::store::read_imported(conn).map_err(|e| e.to_string()),
+            None => Ok(BTreeSet::new()),
+        });
+        stored.as_ref().map_err(|e| {
+            crate::eval::NotRun(format!(
+                "the store's imported events, which could not be read: {e}"
             ))
         })
     }

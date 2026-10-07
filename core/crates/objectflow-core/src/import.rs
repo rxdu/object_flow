@@ -256,9 +256,9 @@ fn held_key(
     key: &(String, String),
     ids: &BTreeMap<(String, String), String>,
     excluded: &BTreeSet<(String, String)>,
-    world: &World<'_>,
+    external: &BTreeMap<(String, String), String>,
 ) -> bool {
-    world.external.contains_key(key) || (ids.contains_key(key) && !excluded.contains(key))
+    external.contains_key(key) || (ids.contains_key(key) && !excluded.contains(key))
 }
 
 /// A legacy entry of an object, its ordinal given when it is attached.
@@ -312,6 +312,9 @@ fn decide(
     dry_run: bool,
 ) -> Result<(ImportReport, Option<Change>), NotRun> {
     let lib = world.lib;
+    // every external identifier, which an import reads whole, as it reads
+    // the keys of every object it places and every reference it resolves
+    let external = world.external_all()?;
     let mut report = ImportReport::default();
     if let Some(what) = batch.objects.iter().find_map(|o| o.beyond.first()) {
         return Err(NotRun(format!("an import of {what}")));
@@ -394,7 +397,7 @@ fn decide(
                 refusal(o, "its legacy key appears twice in the batch"),
             );
         }
-        let held = match world.external.get(&key) {
+        let held = match external.get(&key) {
             Some(id) => match world.get(id)? {
                 Some(h) if h.type_ == o.type_ => Some(h.clone()),
                 Some(h) => {
@@ -567,7 +570,7 @@ fn decide(
     } in &references
     {
         for key in named {
-            if !ids.contains_key(key) && !world.external.contains_key(key) {
+            if !ids.contains_key(key) && !external.contains_key(key) {
                 let o = &batch.objects[*index];
                 return refused(
                     report,
@@ -594,7 +597,7 @@ fn decide(
             continue;
         }
         for key in &r.named {
-            let Some(id) = ids.get(key).or_else(|| world.external.get(key)) else {
+            let Some(id) = ids.get(key).or_else(|| external.get(key)) else {
                 continue;
             };
             let subject = match placed_types.get(id.as_str()) {
@@ -637,7 +640,7 @@ fn decide(
                 let o = &batch.objects[*i];
                 legacy(lib, &o.type_, &o.legacy_key)
             })
-            .filter(|k| !world.external.contains_key(k))
+            .filter(|k| !external.contains_key(k))
             .collect();
         let mut dropped: BTreeMap<usize, BTreeSet<String>> = BTreeMap::new();
         for Reference {
@@ -670,7 +673,7 @@ fn decide(
             for e in &o.legacy_entries {
                 for (field, target) in &e.about {
                     if about_target(lib, target)
-                        .is_none_or(|k| !held_key(&k, &ids, &excluded_keys, world))
+                        .is_none_or(|k| !held_key(&k, &ids, &excluded_keys, external))
                     {
                         found(
                             &mut these,
@@ -730,7 +733,7 @@ fn decide(
                 let resolved: Vec<Value> = r
                     .named
                     .iter()
-                    .filter_map(|key| ids.get(key).or_else(|| world.external.get(key)))
+                    .filter_map(|key| ids.get(key).or_else(|| external.get(key)))
                     .map(|id| Value::Object(id.clone()))
                     .collect();
                 let many = lib
@@ -906,7 +909,7 @@ fn decide(
     let excluded_keys: BTreeSet<(String, String)> = excluded
         .iter()
         .map(|i| legacy(lib, &batch.objects[*i].type_, &batch.objects[*i].legacy_key))
-        .filter(|k| !world.external.contains_key(k))
+        .filter(|k| !external.contains_key(k))
         .collect();
     let mut entries: BTreeMap<String, Vec<crate::world::LegacyEntry>> = BTreeMap::new();
     for p in placed.iter().filter(|p| !excluded.contains(&p.index)) {
@@ -917,8 +920,8 @@ fn decide(
             for (field, target) in &e.about {
                 let value = own.remove(field);
                 let held = about_target(lib, target)
-                    .filter(|k| held_key(k, &ids, &excluded_keys, world))
-                    .and_then(|k| ids.get(&k).or_else(|| world.external.get(&k)).cloned());
+                    .filter(|k| held_key(k, &ids, &excluded_keys, external))
+                    .and_then(|k| ids.get(&k).or_else(|| external.get(&k)).cloned());
                 if let (Some(id), Some(v)) = (held, value) {
                     let payload = serde_json::Map::from_iter([(field.clone(), v)]);
                     entries
@@ -938,7 +941,8 @@ fn decide(
     // each object's new entries, after those it holds, the held ones left
     let mut attached: BTreeMap<String, Vec<crate::world::LegacyEntry>> = BTreeMap::new();
     for (id, new) in entries {
-        let held = world.legacy.get(&id).map_or(&[][..], Vec::as_slice);
+        let held_entries = world.legacy_of(&id)?;
+        let held = held_entries.as_slice();
         let mut next = held.iter().map(|h| h.ordinal).max().unwrap_or(0);
         let erased = world.get(&id)?.is_some_and(|w| w.erased);
         for mut n in new {
@@ -970,7 +974,7 @@ fn decide(
         };
         let resolve = |key: &str, target: &str| {
             let k = legacy(lib, target, key);
-            ids.get(&k).or_else(|| world.external.get(&k)).cloned()
+            ids.get(&k).or_else(|| external.get(&k)).cloned()
         };
         // a refresh's intermediate values, which are a change of their own
         let intermediate = match &p.held {
@@ -1562,7 +1566,8 @@ types:
 
     fn id_of(s: &Store, key: &str) -> String {
         let w = s.snapshot().unwrap();
-        w.external
+        w.external_all()
+            .unwrap()
             .get(&("legacy".to_string(), format!("Employee:{key}")))
             .cloned()
             .unwrap()
@@ -1590,7 +1595,9 @@ types:
             ("EMPLOYED", Value::Text("Dana".into()))
         );
         assert_eq!(
-            w.external.get(&("hr".to_string(), "1".to_string())),
+            w.external_all()
+                .unwrap()
+                .get(&("hr".to_string(), "1".to_string())),
             Some(&id)
         );
         // undated, its creation the import, by a kind nobody named
@@ -1653,7 +1660,7 @@ types:
         assert_eq!(r.refused_types, vec!["Laptop".to_string()]);
         assert_eq!(r.refusal.unwrap().legacy_key, "L-1");
         assert!(
-            s.snapshot().unwrap().external.is_empty(),
+            s.snapshot().unwrap().external_all().unwrap().is_empty(),
             "nothing is written"
         );
         // a reference naming nothing in the batch or the store
@@ -1738,11 +1745,13 @@ types:
         assert_eq!((r.written, r.refusal.clone()), (2, None), "{r:?}");
         let w = s.snapshot().unwrap();
         assert!(
-            !w.external
+            !w.external_all()
+                .unwrap()
                 .contains_key(&("legacy".to_string(), "Employee:E-2".to_string()))
         );
         let team_id = w
-            .external
+            .external_all()
+            .unwrap()
             .get(&("legacy".to_string(), "Team:T-1".to_string()))
             .unwrap();
         assert_eq!(w.get(team_id).unwrap().unwrap().attr("lead"), Value::Absent);
@@ -2002,7 +2011,7 @@ types:
             id_of(&s, "E-3"),
             id_of(&s, "E-4"),
         );
-        let t1 = w.external[&("legacy".to_string(), "Team:T-1".to_string())].clone();
+        let t1 = w.external_all().unwrap()[&("legacy".to_string(), "Team:T-1".to_string())].clone();
         let o1 = w.get(&e1).unwrap().unwrap();
         let first = &o1.spans["state"][0];
         assert!(first.legacy && first.entered_position == 0 && first.left_position == Some(0));
@@ -2032,7 +2041,7 @@ types:
         assert_eq!(w.get(&e3).unwrap().unwrap().recorded_from, port - 15 * day);
         assert_eq!(w.get(&e4).unwrap().unwrap().recorded_from, port);
         let t2 = w
-            .get(&w.external[&("legacy".to_string(), "Team:T-2".to_string())])
+            .get(&w.external_all().unwrap()[&("legacy".to_string(), "Team:T-2".to_string())])
             .unwrap()
             .unwrap();
         assert!(!t2.created_dated);
@@ -2239,7 +2248,7 @@ types:
             assert!(reason.contains(words), "{words}: {reason}");
             assert_eq!(r.written, 0);
             assert!(
-                s.snapshot().unwrap().external.is_empty(),
+                s.snapshot().unwrap().external_all().unwrap().is_empty(),
                 "{words}: something was written"
             );
         }
@@ -2267,7 +2276,8 @@ types:
             .collect();
         assert_eq!(run(&mut s, staff, &[], false).written, 4);
         let id = |s: &Store, key: &str| {
-            s.snapshot().unwrap().external[&("legacy".to_string(), key.to_string())].clone()
+            s.snapshot().unwrap().external_all().unwrap()[&("legacy".to_string(), key.to_string())]
+                .clone()
         };
         let (t1, e1, e2, e3) = (
             id(&s, "Team:T-1"),
@@ -2437,7 +2447,8 @@ types:
         let r = run(&mut s, batch, &[], false);
         assert_eq!((r.written, r.refusal), (3, None));
         let w = s.snapshot().unwrap();
-        let id = |key: &str| w.external[&("legacy".to_string(), key.to_string())].clone();
+        let id =
+            |key: &str| w.external_all().unwrap()[&("legacy".to_string(), key.to_string())].clone();
         let (e1, n1, l1) = (id("Employee:E-1"), id("Note:N-1"), id("label:L-1"));
         let n = w.get(&n1).unwrap().unwrap();
         assert_eq!(n.attr("subject"), Value::Object(e1.clone()));
@@ -2516,8 +2527,8 @@ types:
         assert_eq!((r.written, r.refusal.clone()), (2, None));
         let entries = |s: &Store, key: &str| {
             let w = s.snapshot().unwrap();
-            let id = w.external[&("legacy".to_string(), key.to_string())].clone();
-            w.legacy.get(&id).cloned().unwrap_or_default()
+            let id = w.external_all().unwrap()[&("legacy".to_string(), key.to_string())].clone();
+            w.legacy_of(&id).unwrap()
         };
         let e = entries(&s, "Employee:E-1");
         assert_eq!(e.len(), 2);

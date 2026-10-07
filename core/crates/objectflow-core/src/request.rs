@@ -1489,7 +1489,7 @@ fn take(
     let imported = if x.corrects.is_empty() {
         BTreeSet::new()
     } else {
-        ctx.work.imported.clone()
+        ctx.work.imported()?.clone()
     };
     let Some(o) = ctx.work.get_mut(&id)? else {
         return stop_not_run(format!("the object {id}, which its own effect removed"));
@@ -1629,7 +1629,7 @@ fn take(
             {
                 let mut p = json!({ "erased": ctx.erased.get(&id).cloned().unwrap_or_default() });
                 // and how many legacy entries it redacted (§9 step 6, ADR-0078)
-                let entries = ctx.work.legacy.get(&id).map_or(0, Vec::len);
+                let entries = ctx.work.legacy_of(&id)?.len();
                 if entries > 0 {
                     p["legacy_entries"] = json!(entries);
                 }
@@ -7881,7 +7881,8 @@ types:
         let found = |s: &Store, source: &str, value: &str| {
             s.snapshot()
                 .unwrap()
-                .external
+                .external_all()
+                .unwrap()
                 .get(&(source.to_string(), value.to_string()))
                 .cloned()
         };

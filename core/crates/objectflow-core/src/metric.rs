@@ -3057,7 +3057,9 @@ types:
             .unwrap();
         assert!(report.refusal.is_none(), "{report:?}");
         let w = s.snapshot().unwrap();
-        let id = |key: &str| w.external[&("legacy".to_string(), format!("Unit:{key}"))].clone();
+        let id = |key: &str| {
+            w.external_all().unwrap()[&("legacy".to_string(), format!("Unit:{key}"))].clone()
+        };
         let (u1, u2) = (id("U-1"), id("U-2"));
         // a creation the import could not date, read by the metric
         let months = page_of(&s, "Unit.by_month", &[], None, None, None);

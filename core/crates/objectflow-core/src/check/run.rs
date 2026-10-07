@@ -295,11 +295,7 @@ impl Player {
         }
         let root = self.root(&tn)?;
         let world = self.store.snapshot()?;
-        let Some(id) = world
-            .external
-            .get(&("legacy".to_string(), format!("{root}:{key}")))
-            .cloned()
-        else {
+        let Some(id) = world.external_id("legacy", &format!("{root}:{key}"))? else {
             return failed(format!("the import of {key} wrote nothing lookup finds"));
         };
         let t = world.get(&id)?.map(|o| o.type_.clone()).unwrap_or(tn);

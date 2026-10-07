@@ -1183,6 +1183,7 @@ pub(crate) fn interval_rows(
         };
         let now = world.now;
         let closed = closed_periods(o, t, now);
+        let imported = world.imported()?;
         let rows = spans
             .iter()
             .map(|sp| {
@@ -1222,7 +1223,7 @@ pub(crate) fn interval_rows(
                 // the event that opened it, a port's, the values the index
                 // holds at its entry, legacy intervals included (§6.9,
                 // ADR-0146, ADR-0147)
-                let by_time = sp.legacy || world.imported.contains(&sp.entered_position);
+                let by_time = sp.legacy || imported.contains(&sp.entered_position);
                 row.insert(
                     "held".to_string(),
                     if by_time {
