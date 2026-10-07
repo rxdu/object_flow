@@ -620,7 +620,7 @@ fn decide_or_stop(
         .get(&root)?
         .map(|o| o.type_.clone())
         .unwrap_or_default();
-    let ids = affected_by_writes(&ctx.work)?;
+    let ids = affected_by_writes(&ctx.work, &ctx.before)?;
     for id in ids {
         let Some(obj) = ctx.work.get(&id)? else {
             continue;
@@ -3746,6 +3746,33 @@ fn effective_unique(lib: &Library, spec: &crate::model::Attribute) -> Unique {
     spec.unique.clone()
 }
 
+/// The attributes a uniqueness compares, and the filter it holds among,
+/// for an attribute whose uniqueness is not `No`.
+fn unique_key<'u>(
+    a: &str,
+    spec: &crate::model::Attribute,
+    unique: &'u Unique,
+) -> Option<(Vec<String>, Option<&'u Expr>)> {
+    Some(match unique {
+        Unique::No => return None,
+        Unique::Yes => (vec![a.to_string()], None),
+        Unique::With(others) => (
+            std::iter::once(a.to_string())
+                .chain(others.iter().cloned())
+                .collect(),
+            None,
+        ),
+        Unique::Where(e) => (vec![a.to_string()], Some(e)),
+        // unique within the scope its identifier numbers by
+        Unique::InScope => (
+            std::iter::once(a.to_string())
+                .chain(spec.identifier.as_ref().and_then(|i| i.scope.clone()))
+                .collect(),
+            None,
+        ),
+    })
+}
+
 /// What a type's invariants read beyond the object they are on, which
 /// decides whose invariants a write could break (`DESIGN.md` §5.6,
 /// ADR-0045, ADR-0055).
@@ -3753,46 +3780,63 @@ fn effective_unique(lib: &Library, spec: &crate::model::Attribute) -> Unique {
 enum Reach {
     /// The object alone.
     Itself,
-    /// The objects of the families named, which a uniqueness or an
-    /// external identifier scans.
-    Families(BTreeSet<String>),
+    /// The objects sharing a key with the one written, which a uniqueness
+    /// or an external identifier compares.
+    Keys(Vec<Keyed>),
     /// What no form here tells, taken as any object.
     Anything,
 }
 
+/// A key a type's invariants compare across objects: the attributes of a
+/// family a uniqueness compares, or one a family holds an external
+/// identifier of a source in, which a written object's own attributes of
+/// that source are compared with.
+#[derive(Clone, Debug, PartialEq)]
+struct Keyed {
+    family: String,
+    attrs: Vec<String>,
+    source: Option<String>,
+}
+
 /// A type's invariants' reach: its declared invariants each reading only
-/// its own object, or else anything, and the families its uniquenesses and
-/// external identifiers scan. Its state invariants read the object alone.
+/// its own object, or else anything, and the keys its uniquenesses and
+/// external identifiers compare. Its state invariants read the object alone.
 fn invariant_reach(lib: &Library, t: &Type) -> Reach {
     let own = |e: &Expr| reads_only_this(lib, t, e, &mut BTreeSet::new());
     if !t.invariants.iter().all(|(_, e)| own(e)) {
         return Reach::Anything;
     }
-    let mut families = BTreeSet::new();
+    let mut keys = Vec::new();
     for (a, spec) in &t.attributes {
-        match effective_unique(lib, spec) {
-            Unique::No => {}
-            Unique::Where(e) if !own(&e) => return Reach::Anything,
-            _ => {
-                families.insert(lib.unique_scope(t, a).to_string());
+        let unique = effective_unique(lib, spec);
+        if let Some((attrs, filter)) = unique_key(a, spec, &unique) {
+            if filter.is_some_and(|e| !own(e)) {
+                return Reach::Anything;
             }
+            keys.push(Keyed {
+                family: lib.unique_scope(t, a).to_string(),
+                attrs,
+                source: None,
+            });
         }
         if let Some(source) = &spec.external {
             for (tn, ot) in &lib.types {
-                if ot
-                    .attributes
-                    .iter()
-                    .any(|(_, bs)| bs.external.as_deref() == Some(source.as_str()))
-                {
-                    families.insert(tn.clone());
+                for (b, bs) in &ot.attributes {
+                    if bs.external.as_deref() == Some(source.as_str()) {
+                        keys.push(Keyed {
+                            family: tn.clone(),
+                            attrs: vec![b.clone()],
+                            source: Some(source.clone()),
+                        });
+                    }
                 }
             }
         }
     }
-    if families.is_empty() {
+    if keys.is_empty() {
         Reach::Itself
     } else {
-        Reach::Families(families)
+        Reach::Keys(keys)
     }
 }
 
@@ -3858,39 +3902,72 @@ fn reads_only_this(lib: &Library, t: &Type, e: &Expr, seen: &mut BTreeSet<String
 }
 
 /// The objects whose invariants a request's writes could break, in
-/// ascending id order: each object it wrote, and every object of a type
-/// whose invariants reach what it wrote, a type whose reach is not told
-/// read whole (`DESIGN.md` §5.6, ADR-0045). A kind's invariants are checked
-/// on the recording alone (§5.11, ADR-0146), so an observation is never
-/// reached from another object.
-fn affected_by_writes(world: &World<'_>) -> Result<Vec<String>, NotRun> {
-    let lib = world.lib;
+/// ascending id order: each object it wrote; for a type whose invariants
+/// compare a key, every object sharing one with what it wrote, before the
+/// write or after it, read by the key; and every object of a type whose
+/// reach is not told (`DESIGN.md` §5.6, ADR-0045, ADR-0162 step 3). A kind's
+/// invariants are checked on the recording alone (§5.11, ADR-0146), so an
+/// observation is never reached from another object.
+fn affected_by_writes(work: &World<'_>, before: &World<'_>) -> Result<Vec<String>, NotRun> {
+    let lib = work.lib;
     let mut affected: BTreeMap<String, i64> = BTreeMap::new();
-    let mut written_types: BTreeSet<String> = BTreeSet::new();
-    let written: Vec<String> = world.written().cloned().collect();
+    // each object written, as it is now and as the store held it
+    let mut versions: Vec<&Object> = Vec::new();
+    let written: Vec<String> = work.written().cloned().collect();
     for id in &written {
-        if let Some(o) = world.get(id)? {
-            written_types.insert(o.type_.clone());
+        if let Some(o) = work.get(id)? {
             affected.insert(o.id.clone(), o.order);
+            versions.push(o);
+        }
+        if let Some(o) = before.get(id)? {
+            versions.push(o);
         }
     }
-    if written_types.is_empty() {
+    if versions.is_empty() {
         return Ok(Vec::new());
     }
     for (tn, t) in &lib.types {
         if t.observation_on.is_some() {
             continue;
         }
-        let reached = match invariant_reach(lib, t) {
-            Reach::Itself => false,
-            Reach::Anything => true,
-            Reach::Families(families) => written_types
-                .iter()
-                .any(|w| families.iter().any(|f| lib.is_a(w, f))),
-        };
-        if reached {
-            for o in world.of_type(tn)? {
-                affected.insert(o.id.clone(), o.order);
+        match invariant_reach(lib, t) {
+            Reach::Itself => {}
+            Reach::Anything => {
+                for o in work.of_type(tn)? {
+                    affected.insert(o.id.clone(), o.order);
+                }
+            }
+            Reach::Keys(keys) => {
+                for k in &keys {
+                    for w in &versions {
+                        let values: Vec<Vec<Value>> = match &k.source {
+                            None if lib.is_a(&w.type_, &k.family) => {
+                                vec![k.attrs.iter().map(|a| w.attr(a)).collect()]
+                            }
+                            None => Vec::new(),
+                            Some(source) => lib
+                                .type_(&w.type_)
+                                .map(|wt| {
+                                    wt.attributes
+                                        .iter()
+                                        .filter(|(_, s)| {
+                                            s.external.as_deref() == Some(source.as_str())
+                                        })
+                                        .map(|(a, _)| vec![w.attr(a)])
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                        };
+                        for key in values {
+                            if key.iter().any(Value::is_absent) {
+                                continue;
+                            }
+                            for o in work.with_key(&k.family, &k.attrs, &key)? {
+                                affected.insert(o.id.clone(), o.order);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -3926,23 +4003,8 @@ fn failing_invariants_reading(
     }
     for (a, spec) in &t.attributes {
         let unique = effective_unique(world.lib, spec);
-        let (with, filter): (Vec<String>, Option<&Expr>) = match &unique {
-            Unique::No => continue,
-            Unique::Yes => (vec![a.clone()], None),
-            Unique::With(others) => (
-                std::iter::once(a.clone())
-                    .chain(others.iter().cloned())
-                    .collect(),
-                None,
-            ),
-            Unique::Where(e) => (vec![a.clone()], Some(e)),
-            // unique within the scope its identifier numbers by
-            Unique::InScope => (
-                std::iter::once(a.clone())
-                    .chain(spec.identifier.as_ref().and_then(|i| i.scope.clone()))
-                    .collect(),
-                None,
-            ),
+        let Some((with, filter)) = unique_key(a, spec, &unique) else {
+            continue;
         };
         let key = |obj: &Object| -> Result<Option<Vec<Value>>, NotRun> {
             let values: Vec<Value> = with.iter().map(|w| obj.attr(w)).collect();
@@ -3968,7 +4030,9 @@ fn failing_invariants_reading(
         // key, none where it holds (ADR-0088, ADR-0158)
         let scope = world.lib.unique_scope(t, a);
         let mut matched = Vec::new();
-        for other in world.of_type(scope)? {
+        // the objects whose columns hold the key, read by it, each then
+        // judged as the scan judged it (ADR-0162 step 3)
+        for other in world.with_key(scope, &with, &mine)? {
             if other.id != o.id
                 && key(other)?.is_some_and(|k| k.iter().zip(&mine).all(|(x, y)| x.equals(y)))
             {
@@ -4006,12 +4070,16 @@ fn failing_invariants_reading(
             if of_source.is_empty() {
                 continue;
             }
-            for other in world.of_type(tn)? {
-                if other.type_ == *tn
-                    && other.id != o.id
-                    && of_source.iter().any(|b| other.attr(b).equals(&mine))
+            for b in &of_source {
+                for other in
+                    world.with_key(tn, std::slice::from_ref(*b), std::slice::from_ref(&mine))?
                 {
-                    holders.push(other);
+                    if other.type_ == *tn
+                        && other.id != o.id
+                        && !holders.iter().any(|h| h.id == other.id)
+                    {
+                        holders.push(other);
+                    }
                 }
             }
         }
@@ -5788,6 +5856,32 @@ types:
             (&b, false),
             json!({"cap": 3}),
         ));
+        // a key one order leaves cures the conflict admitted on the other,
+        // which is reached by the key the written order held before
+        let c = place(&mut s, "Z", 1);
+        let conn = s.connection();
+        let at: i64 = conn
+            .query_row("SELECT MAX(position) FROM of_event", [], |r| r.get(0))
+            .unwrap();
+        conn.execute("UPDATE t_order SET ref = 'X' WHERE id = ?1", [&c])
+            .unwrap();
+        for id in [&a, &c] {
+            conn.execute(
+                "INSERT INTO of_admission (object_id, invariant, position, reason) VALUES (?1, 'ref_unique', ?2, '')",
+                rusqlite::params![id, at],
+            )
+            .unwrap();
+        }
+        created(&req(
+            &mut s,
+            "rename",
+            OPERATOR,
+            (&c, false),
+            json!({"ref": "W"}),
+        ));
+        let w = s.snapshot().unwrap();
+        assert!(w.get(&a).unwrap().unwrap().admissions.is_empty());
+        assert!(w.get(&c).unwrap().unwrap().admissions.is_empty());
     }
 
     #[test]

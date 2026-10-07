@@ -2519,6 +2519,50 @@ fn placeholders(n: usize) -> String {
         .join(", ")
 }
 
+/// The ids of the objects of a concrete type whose columns hold the values
+/// given, compared as each column encodes its declared type, so equal as
+/// the expression language's equality would find them; none where a value
+/// has no column to compare in, a set's or an absent one (ADR-0162 step 3).
+pub(crate) fn read_ids_with(
+    conn: &Connection,
+    lib: &Library,
+    type_: &str,
+    key: &[(&str, &Value)],
+) -> Stored<Option<Vec<String>>> {
+    let Some(t) = lib.type_(type_) else {
+        return Err(StoreError(format!(
+            "the directory names a type {type_} the library lacks"
+        )));
+    };
+    let mut conditions = Vec::new();
+    let mut values = Vec::new();
+    for (n, v) in key {
+        let Some(a) = t.attribute(n).filter(|a| !a.many) else {
+            return Ok(None);
+        };
+        let sql = match to_sql(v) {
+            Ok(Sql::Null) | Err(_) => return Ok(None),
+            Ok(sql) => sql,
+        };
+        values.push(sql);
+        conditions.push(format!("{} = ?{}", quote(&column(n, a)), values.len()));
+    }
+    if conditions.is_empty() {
+        return Ok(None);
+    }
+    let mut stmt = conn.prepare(&format!(
+        "SELECT id FROM {} WHERE {}",
+        table(type_),
+        conditions.join(" AND ")
+    ))?;
+    let ids = stmt
+        .query_map(rusqlite::params_from_iter(values.iter()), |r| {
+            r.get::<_, String>(0)
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Some(ids))
+}
+
 /// The highest place in creation order the store holds, 0 where it holds
 /// no object.
 pub(crate) fn read_max_order(conn: &Connection) -> Stored<i64> {

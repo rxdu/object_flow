@@ -581,6 +581,44 @@ impl<'l> World<'l> {
         Ok(self.held_in_order(|o| self.lib.is_a(&o.type_, type_) && states.contains(&o.state)))
     }
 
+    /// Every object of a type, its own or a subtype's, whose attributes
+    /// named hold values equal to those given, in ascending id order: a type
+    /// held whole is read from what is held, any other by its columns, read
+    /// whole only where a value has none to compare in, the objects the
+    /// operation holds kept as it holds them (ADR-0162 step 3).
+    pub fn with_key(
+        &self,
+        type_: &str,
+        attrs: &[String],
+        key: &[Value],
+    ) -> Result<Vec<&Object>, crate::eval::NotRun> {
+        let pairs: Vec<(&str, &Value)> = attrs.iter().map(String::as_str).zip(key).collect();
+        for t in self.lib.types.keys() {
+            let whole = self.held.whole.borrow().contains(t);
+            if self.lib.is_a(t, type_)
+                && !whole
+                && let Some(conn) = self.conn
+            {
+                let ids = crate::store::read_ids_with(conn, self.lib, t, &pairs).map_err(|e| {
+                    crate::eval::NotRun::Unreadable(format!(
+                        "the store's objects of {t} by {attrs:?}, which could not be read: {e}"
+                    ))
+                })?;
+                match ids {
+                    Some(ids) => {
+                        for id in ids {
+                            self.get(&id)?;
+                        }
+                    }
+                    None => self.hold_type(t)?,
+                }
+            }
+        }
+        Ok(self.held_in_order(|o| {
+            self.lib.is_a(&o.type_, type_) && pairs.iter().all(|(a, v)| o.attr(a).equals(v))
+        }))
+    }
+
     /// An object to change, fetched first where it is not held.
     pub fn get_mut(&mut self, id: &str) -> Result<Option<&mut Object>, crate::eval::NotRun> {
         let slot = match self.get(id)? {
