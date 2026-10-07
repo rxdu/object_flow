@@ -51,6 +51,7 @@ export function FreePlay({
   const [decl, setDecl] = useState<Declaration | null>(null);
   const [initial, setInitial] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [proposing, setProposing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -104,6 +105,8 @@ export function FreePlay({
     ([, x]) => x.kind === "initial",
   );
   const x = decl?.transitions?.[initial];
+  // a creation marked proposable may be filed for approval instead
+  const propose = proposing && x?.proposable === true;
 
   return (
     <div className="space-y-4 text-sm">
@@ -197,12 +200,23 @@ export function FreePlay({
             </select>
           )}
         </div>
+        {x?.proposable && (
+          <label className="mt-1 flex items-center gap-1 text-xs">
+            <input
+              type="checkbox"
+              checked={proposing}
+              onChange={(e) => setProposing(e.target.checked)}
+            />
+            file as a proposal
+          </label>
+        )}
         {decl && x && (
           <InputForm
             key={`${type}/${initial}`}
             schema={creationSchema(decl, x)}
             enumerations={decl.enumerations ?? {}}
             known={known}
+            action={propose ? "Propose" : "Request"}
             onSubmit={(inputs) =>
               void guarded(() =>
                 player.request(
@@ -211,8 +225,9 @@ export function FreePlay({
                     actor: { id: actor },
                     type,
                     inputs,
+                    ...(propose ? { propose: true } : {}),
                   },
-                  `${type}.${initial}`,
+                  `${propose ? "propose " : ""}${type}.${initial}`,
                 ),
               )
             }

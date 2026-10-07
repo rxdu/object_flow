@@ -26,12 +26,15 @@ export function InputForm({
   known,
   onSubmit,
   onCancel,
+  action = "Request",
 }: {
   schema: Record<string, string>;
   enumerations: Record<string, string[]>;
   known: Known[];
   onSubmit: (inputs: Record<string, WireValue>) => void;
   onCancel: () => void;
+  /** what submitting does, as its button says it */
+  action?: string;
 }) {
   const [values, setValues] = useState<Record<string, string | string[]>>({});
   const set = (k: string, v: string | string[]) =>
@@ -140,7 +143,7 @@ export function InputForm({
       })}
       <div className="flex gap-2">
         <button className="btn" type="submit">
-          Request
+          {action}
         </button>
         <button className="btn-quiet" type="button" onClick={onCancel}>
           Cancel

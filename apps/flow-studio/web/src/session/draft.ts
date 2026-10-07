@@ -33,6 +33,11 @@ export function durationText(seconds: number): string {
   return `${seconds} s`;
 }
 
+/** The built-in type a proposal is, and the decisions a step takes on one
+ * by name (flow-format.md §11.3, DESIGN.md §9). */
+const PROPOSAL = "Proposal";
+const DECISIONS = new Set(["approve", "reject", "withdraw"]);
+
 /** The verdict names an expectation may hold (flow-format.md §11.4). */
 const EXPECTABLE = new Set([
   "unsatisfied",
@@ -108,12 +113,22 @@ export async function draftExample(
   let pending = 0;
   const steps: Record<string, unknown>[] = [];
 
+  /** A free request as a step, under its key: a request, a proposal's
+   * filing, which names the proposal later steps decide, or a decision on
+   * one (flow-format.md §11.3). */
   async function written(
     e: Extract<TrailEntry, { kind: "free" }>,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<[string, Record<string, unknown>]> {
     const b: RequestBody = e.body;
     const r: Record<string, unknown> = {};
     const type = b.type ?? (b.object_id ? await p.typeOf(b.object_id) : "");
+    if (b.object_id && type === PROPOSAL && DECISIONS.has(b.transition)) {
+      r["proposal"] = nameOf(b.object_id);
+      if (b.actor.id !== OPERATOR) r["actor"] = nameOf(b.actor.id);
+      if (pending) r["after"] = durationText(pending);
+      pending = 0;
+      return [b.transition, r];
+    }
     if (b.type) r["type"] = b.type;
     else if (b.object_id) r["object"] = nameOf(b.object_id);
     r["transition"] = b.transition;
@@ -135,7 +150,9 @@ export async function draftExample(
       }
       r["inputs"] = inputs;
     }
-    if (e.verdict.kind === "satisfied") {
+    if (e.verdict.kind === "satisfied" && b.propose) {
+      r["proposal"] = await fresh(e.verdict.object_id);
+    } else if (e.verdict.kind === "satisfied") {
       if (b.type) r["as"] = await fresh(e.verdict.object_id);
       if (e.created.length > 0) {
         // the objects its effect created, named in the order created, as
@@ -149,7 +166,7 @@ export async function draftExample(
         r["creates"] = same;
       }
     }
-    return r;
+    return [b.propose ? "propose" : "request", r];
   }
 
   for (let i = 0; i < last; i += 1) {
@@ -185,17 +202,28 @@ export async function draftExample(
       }
       steps.push(step);
     } else {
-      steps.push({ request: await written(e) });
+      const [key, step] = await written(e);
+      steps.push({ [key]: step });
     }
   }
 
   const tested = trail[last] as Extract<TrailEntry, { kind: "free" }>;
-  const request = await written(tested);
+  const [verb, request] = await written(tested);
+  if (verb !== "request" && verb !== "approve") {
+    problems.push(
+      `The last request ${verb === "propose" ? "files" : verb === "reject" ? "rejects" : "withdraws"} a proposal, which an example cannot test: it tests a request or an approval.`,
+    );
+  }
   const expect = await expectation(p, tested.body, tested.verdict, problems);
+  if (verb === "approve" && tested.body.object_id) {
+    // the state it leaves the proposal in, in lower case (§11.4)
+    const proposal = await p.wire.get(tested.body.object_id);
+    expect["proposal"] = proposal?.state.toLowerCase();
+  }
   const out: Record<string, unknown> = { description: description.trim() };
   if (answers.size > 0) out["evaluators"] = Object.fromEntries(answers);
   if (steps.length > 0) out["steps"] = steps;
-  out["request"] = request;
+  out[verb === "approve" ? "approve" : "request"] = request;
   out["expect"] = expect;
   return { example: problems.length ? null : out, problems, notes };
 }

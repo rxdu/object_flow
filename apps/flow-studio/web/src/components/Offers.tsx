@@ -19,7 +19,9 @@ const BADGE: Record<TransitionOffer["availability"], string> = {
 /** The live offer for one object, as its actor sees it (renderers.md §4,
  * ADR-0152): every requestable transition, available, available once its
  * inputs are given, or refused with the clause and remedy that refuse it.
- * What it offers can be taken, as any caller would request it. */
+ * What it offers can be taken, as any caller would request it, and a
+ * transition marked proposable can be proposed instead, whatever it offers
+ * now, since filing checks neither the state nor the guards (DESIGN.md §9). */
 export function Offers({
   wire,
   player,
@@ -37,7 +39,9 @@ export function Offers({
 }) {
   const [offers, setOffers] = useState<TransitionOffer[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<{ key: string; propose: boolean } | null>(
+    null,
+  );
   const [decl, setDecl] = useState<Declaration | null>(null);
   const [known, setKnown] = useState<Known[]>([]);
 
@@ -63,7 +67,11 @@ export function Offers({
     };
   }, [wire, player, objectId, actor, tick]);
 
-  async function take(o: TransitionOffer, inputs: Record<string, WireValue>) {
+  async function take(
+    o: TransitionOffer,
+    inputs: Record<string, WireValue>,
+    propose = false,
+  ) {
     setOpen(null);
     const recording = o.creates !== null;
     const v = await player.request(
@@ -79,14 +87,26 @@ export function Offers({
             actor: { id: actor },
             object_id: objectId,
             inputs,
+            ...(propose ? { propose: true } : {}),
           },
-      `${recording ? `${o.creates}.record on` : `${o.transition} on`} ${objectId}`,
+      `${propose ? "propose " : ""}${recording ? `${o.creates}.record on` : `${o.transition} on`} ${objectId}`,
     );
     onDone(v);
   }
 
   if (error) return <p className="text-sm text-red-700">{error}</p>;
   const key = (o: TransitionOffer) => `${o.transition}/${o.creates ?? ""}`;
+  const proposable = (o: TransitionOffer) =>
+    o.creates === null &&
+    decl?.transitions?.[o.transition]?.proposable === true;
+  const start = (o: TransitionOffer, propose: boolean) =>
+    Object.keys(o.inputs).length === 0
+      ? void take(o, {}, propose)
+      : setOpen(
+          open?.key === key(o) && open.propose === propose
+            ? null
+            : { key: key(o), propose },
+        );
   return (
     <ul className="space-y-1">
       {offers.map((o) => (
@@ -98,18 +118,18 @@ export function Offers({
             <span className="font-mono">
               {o.creates ? `record ${o.creates}` : o.transition}
             </span>
-            {o.availability !== "unavailable" && (
-              <button
-                className="btn-quiet ml-auto"
-                onClick={() =>
-                  Object.keys(o.inputs).length === 0
-                    ? void take(o, {})
-                    : setOpen(open === key(o) ? null : key(o))
-                }
-              >
-                Take
-              </button>
-            )}
+            <span className="ml-auto flex gap-1">
+              {o.availability !== "unavailable" && (
+                <button className="btn-quiet" onClick={() => start(o, false)}>
+                  Take
+                </button>
+              )}
+              {proposable(o) && (
+                <button className="btn-quiet" onClick={() => start(o, true)}>
+                  Propose
+                </button>
+              )}
+            </span>
           </div>
           {o.verdict && (
             <div className="mt-1 text-xs text-amber-900">
@@ -133,12 +153,13 @@ export function Offers({
               would warn: {o.flags.map((f) => f.clause).join(", ")}
             </div>
           )}
-          {open === key(o) && (
+          {open?.key === key(o) && (
             <InputForm
               schema={o.inputs}
               enumerations={decl?.enumerations ?? {}}
               known={known}
-              onSubmit={(inputs) => void take(o, inputs)}
+              action={open.propose ? "Propose" : "Request"}
+              onSubmit={(inputs) => void take(o, inputs, open.propose)}
               onCancel={() => setOpen(null)}
             />
           )}

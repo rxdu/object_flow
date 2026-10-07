@@ -156,6 +156,8 @@ export interface AttributeSpec {
 
 export interface TransitionSpec {
   kind?: string;
+  /** a request for it may be filed as a proposal (DESIGN.md §9) */
+  proposable?: boolean;
   from?: string[] | string;
   to?: string;
   guards?: Record<string, string>;

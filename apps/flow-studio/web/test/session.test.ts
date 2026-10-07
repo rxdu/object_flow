@@ -5,7 +5,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Wire } from "../src/api/wire";
 import { draftExample, durationText } from "../src/session/draft";
-import { OPERATOR, Player } from "../src/session/player";
+import {
+  type ExamplesDoc,
+  OPERATOR,
+  Player,
+  plan,
+} from "../src/session/player";
 import { BACKENDS, startServer } from "./server";
 
 describe("durations as the model writes them", () => {
@@ -24,6 +29,7 @@ describe.each(BACKENDS)("against the %s", (backend) => {
   beforeAll(async () => {
     ({ wire, stop } = await startServer(backend));
     await wire.copy("service.yaml");
+    await wire.copy("delivery.yaml");
   }, 300_000);
 
   afterAll(() => stop?.());
@@ -126,5 +132,108 @@ describe.each(BACKENDS)("against the %s", (backend) => {
       expect(draft.example).toBeNull();
       expect(draft.problems[0]).toMatch(/no request is under test/);
     }, 30_000);
+  });
+
+  describe("a session with a proposal", () => {
+    // delivery.yaml's hand-over, as its example sets it up, then filed by
+    // an agent in free play (DESIGN.md §9)
+    async function handover(): Promise<{ p: Player; proposal: string }> {
+      const bundle = await wire.module("delivery.yaml", "workspace");
+      const loaded = await wire.load(bundle.files);
+      expect(loaded.loaded).toBe(true);
+      const p = new Player(wire, (await wire.reset()).now);
+      const doc = bundle.examples?.doc as ExamplesDoc;
+      for (const ps of plan(
+        doc,
+        "an_agents_proposal_is_executed_when_approved",
+      ))
+        if (ps.label.startsWith("setup")) await p.perform(ps);
+      const scout = await p.request(
+        {
+          transition: "issue",
+          actor: { id: OPERATOR },
+          type: "Agent",
+          inputs: { key_id: "scout", name: "Scout" },
+        },
+        "Agent.issue",
+      );
+      if (scout.kind !== "satisfied") throw new Error("Scout is not issued");
+      const filed = await p.request(
+        {
+          transition: "complete",
+          actor: { id: scout.object_id },
+          object_id: p.alias("delivery"),
+          propose: true,
+        },
+        "propose complete",
+      );
+      if (filed.kind !== "satisfied") throw new Error("nothing is filed");
+      return { p, proposal: filed.object_id };
+    }
+
+    it("files and approves it, written as the format writes them, and holds", async () => {
+      const { p, proposal } = await handover();
+      // a pending proposal offers its decisions (D535)
+      const offers = await wire.availability(OPERATOR, proposal);
+      expect(
+        offers
+          .filter((o) => o.creates === null)
+          .map((o) => [o.transition, o.availability]),
+      ).toEqual([
+        ["approve", "available"],
+        ["reject", "available"],
+        ["withdraw", "available"],
+      ]);
+      const approved = await p.request(
+        { transition: "approve", actor: { id: OPERATOR }, object_id: proposal },
+        "approve",
+      );
+      expect(approved.kind).toBe("satisfied");
+      const draft = await draftExample(
+        p,
+        "Scout's hand-over, approved, delivers.",
+      );
+      expect(draft.problems).toEqual([]);
+      const ex = draft.example as Record<string, unknown>;
+      expect((ex["steps"] as unknown[]).slice(-2)).toEqual([
+        {
+          request: {
+            type: "Agent",
+            transition: "issue",
+            inputs: { key_id: "scout", name: "Scout" },
+            as: "agent1",
+          },
+        },
+        {
+          propose: {
+            object: "delivery",
+            transition: "complete",
+            actor: "agent1",
+            proposal: "proposal1",
+          },
+        },
+      ]);
+      expect(ex["approve"]).toEqual({ proposal: "proposal1" });
+      expect(ex["request"]).toBeUndefined();
+      expect(ex["expect"]).toEqual({
+        verdict: "applied",
+        state: "DELIVERED",
+        proposal: "executed",
+      });
+      const saved = await wire.addExample(
+        "delivery.yaml",
+        "scouts_handover_approved_freely",
+        ex,
+      );
+      expect(saved.findings ?? []).toEqual([]);
+      expect(saved.saved).toBe(true);
+    }, 120_000);
+
+    it("says why a session ending in a filing cannot be one", async () => {
+      const { p } = await handover();
+      const draft = await draftExample(p, "Filed.");
+      expect(draft.example).toBeNull();
+      expect(draft.problems.join(" ")).toMatch(/files a proposal/);
+    }, 120_000);
   });
 });
