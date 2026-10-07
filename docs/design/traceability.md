@@ -56,7 +56,7 @@ The same day PRD revision 18 added F11, a description validated automatically, a
 
 The same day PRD revision 19 added F12, a description checked for logical errors, and extended UC-15 again, with ADR-0137 refusing the contradictions within one type that an analysis sound for refusal proves.
 
-Current: 86 covered, 0 partial, 0 gaps, 0 unverifiable, 0 revision proposed. Goals are not rows here; G4 is met through C2's.
+Current: 88 covered, 0 partial, 0 gaps, 0 unverifiable, 0 revision proposed. Goals are not rows here; G4 is met through C2's.
 
 ## Requirements
 
@@ -74,6 +74,7 @@ Current: 86 covered, 0 partial, 0 gaps, 0 unverifiable, 0 revision proposed. Goa
 | F10 | DESIGN §9, §10; ADR-0116, ADR-0131, ADR-0135; flow-format.md §7; publish-and-import.md §1, §2; storage-schema.md §6; library-api.md §6 | covered | |
 | F11 | DESIGN §5.9; ADR-0131, ADR-0136; flow-format.md §7, §11; publish-and-import.md §1, §2 | covered | |
 | F12 | DESIGN §5.9; ADR-0131, ADR-0137; flow-format.md §7; publish-and-import.md §1 | covered | |
+| F13 | DESIGN §2; ADR-0149, ADR-0150, ADR-0153; library-api.md §3; flow-studio.md §2, §6 | covered | |
 | D1 | DESIGN §7; ADR-0013, ADR-0033; storage-schema.md §2 | covered | |
 | D2 | DESIGN §6, §7; ADR-0083, ADR-0088; storage-schema.md §6 | covered | |
 | D3 | DESIGN §5.11; ADR-0082; declaration-syntax.md §6.8; storage-schema.md §3; renderers.md §3; ADR-0099; flow-format.md §4.4 | covered |  |
@@ -153,3 +154,4 @@ Current: 86 covered, 0 partial, 0 gaps, 0 unverifiable, 0 revision proposed. Goa
 | UC-22 | DESIGN §2, §5.8, §6, §13; ADR-0110, ADR-0114; declaration-syntax.md §3.1, §6.10; library-api.md §3; storage-schema.md §6; ADR-0125; metric-scenarios.md §41 | covered | |
 | UC-23 | DESIGN §5.5, §6, §13; ADR-0111; declaration-syntax.md §5.1, §6.11; library-api.md §4; storage-schema.md §6; renderers.md §2; adversarial-harness.md §1; metric-scenarios.md §42 | covered | |
 | UC-24 | DESIGN §5.12, §10; ADR-0114; declaration-syntax.md §6.9, §6.11; library-api.md §6; renderers.md §2; metric-scenarios.md §43 | covered | |
+| UC-25 | DESIGN §2; ADR-0149, ADR-0150, ADR-0151, ADR-0152, ADR-0153; library-api.md §3; flow-studio.md §3, §5, §6 | covered | |

@@ -126,6 +126,8 @@ A creation names a `type` and no `object_id`; every other transition names an `o
 
 A store is built from a backend, an `IdSource`, a `Clock`, a `ConnectionSource` and an `EvaluatorSource`, all injected, and the deployment's attempt retention and idempotency retention, the durations `maintain` will not prune inside (ADR-0101, ADR-0103); so a test controls everything nondeterministic about a request (ADR-0077, ADR-0091). The core is **synchronous**: an operation runs to completion on its caller's thread, and the engine's HTTP service, the one asynchronous layer, wraps it (ADR-0132).
 
+**A sandbox** (PRD F13, ADR-0150) is a store built the same way over a fresh backend, whose `Clock` and `EvaluatorSource` its caller holds. Four controls drive it, and none is an operation of this interface: `load` builds the store from the modules given, `reset` empties it, `clock` sets or advances its time, and `evaluators` sets the answers its external evaluators' functions give, which the store's `EvaluatorSource` returns when a guard asks. A service that hosts a sandbox serves them as `POST /sandbox/<control>`, beside `POST /v1/<operation>` for every operation here, which a sandbox answers as any store does; a deployment's service routes none of them. Every session in the Flow Studio is these operations and controls alone, so it replays the same on the Python reference and on the core (`flow-studio.md` §5, §6).
+
 ## 4. The verdict
 
 One of eleven, and the caller must handle all eleven. A `match` over them is exhaustive by construction, which is the reason for a union of frozen shapes rather than one class with an optional field per outcome.
