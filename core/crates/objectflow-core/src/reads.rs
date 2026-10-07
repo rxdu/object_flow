@@ -927,6 +927,22 @@ types:
         let fresh = s.snapshot().unwrap();
         query(&fresh, "Job", Some("state == OPEN or false"), &[], None).unwrap();
         assert_eq!(fresh.held().filter(|o| o.type_ == "Job").count(), 4);
+        // a rule's scan by state reads as a query does, and counts as the
+        // same scan that requires no state
+        let counted = |filter: &str| {
+            let fresh = s.snapshot().unwrap();
+            let t = fresh.lib.type_("Job");
+            let n = crate::eval::Evaluator::new(&fresh, t, None)
+                .eval(&crate::expr::parse(&format!("count(j in Job where {filter})")).unwrap())
+                .unwrap();
+            (n, fresh.held().filter(|o| o.type_ == "Job").count())
+        };
+        // an open job with no hours leaves the count unknown, as the scan of
+        // every job leaves it, the jobs in other states failing outright
+        let (pushed, read) = counted("j.state == OPEN and j.hours > 5");
+        let (whole, all) = counted("(j.state == OPEN and j.hours > 5) or false");
+        assert_eq!((pushed, read, all), (whole, 3, 4));
+        assert_eq!(counted("j.state == Job.DONE"), (Value::Int(1), 1));
         // a type that declares no summary gives each object's state, and the
         // fields asked for are given
         let p = query(&w, "Job", Some("hours < 5"), &[], None).unwrap();

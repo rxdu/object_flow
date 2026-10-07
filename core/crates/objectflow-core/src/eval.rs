@@ -732,6 +732,92 @@ impl<'a> Evaluator<'a> {
         combine(op, &a, &b)
     }
 
+    /// The states a scan's filter requires of the object it binds to the
+    /// variable given: those a conjunct `x.state == S` or `x.state == T.S`
+    /// names, intersected through an `and`; none where it requires none
+    /// this can tell. A name counts only where it reads as a state, as
+    /// [`Evaluator::name`] would read it here.
+    fn required_states(
+        &self,
+        var: &str,
+        e: &Expr,
+        env: &BTreeMap<String, Value>,
+    ) -> Option<std::collections::BTreeSet<String>> {
+        use crate::expr::BinOp;
+        let lib = self.world.lib;
+        // a bare name this evaluator reads as one of its type's states
+        let state = |n: &str| -> bool {
+            let Some(t) = self.type_ else { return false };
+            !env.contains_key(n)
+                && !["now", "this", "inputs", "actor", "referrers", "this_event"].contains(&n)
+                && !(n == "state"
+                    || t.attribute(n).is_some()
+                    || t.derived.iter().any(|(d, _)| d == n)
+                    || t.observations.iter().any(|(c, _)| c == n)
+                    || ["id", "open", "created_at", "created_by_kind"].contains(&n))
+                && t.state(n).is_some()
+        };
+        // a bare name this evaluator reads as a type
+        let type_ref = |n: &str| -> bool {
+            !env.contains_key(n)
+                && ![
+                    "now",
+                    "this",
+                    "inputs",
+                    "actor",
+                    "referrers",
+                    "this_event",
+                    "closed",
+                ]
+                .contains(&n)
+                && !["human", "agent", "service"].contains(&n)
+                && self.type_.is_none_or(|t| {
+                    !(n == "state"
+                        || t.attribute(n).is_some()
+                        || t.derived.iter().any(|(d, _)| d == n)
+                        || t.observations.iter().any(|(c, _)| c == n)
+                        || ["id", "open", "created_at", "created_by_kind"].contains(&n)
+                        || t.state(n).is_some()
+                        || t.states.iter().any(|(_, s)| s.category == n))
+                })
+        };
+        let named = |side: &Expr, other: &Expr| -> Option<String> {
+            let Expr::Path(base, m) = side else {
+                return None;
+            };
+            if m != "state" || !matches!(base.as_ref(), Expr::Name(v) if v == var) {
+                return None;
+            }
+            match other {
+                Expr::Name(s) if state(s) => Some(s.clone()),
+                Expr::Path(base, s) => match base.as_ref() {
+                    Expr::Name(x)
+                        if type_ref(x) && lib.type_(x).is_some_and(|t| t.state(s).is_some()) =>
+                    {
+                        Some(s.clone())
+                    }
+                    _ => None,
+                },
+                _ => None,
+            }
+        };
+        match e {
+            Expr::Bin(BinOp::And, l, r) => {
+                match (
+                    self.required_states(var, l, env),
+                    self.required_states(var, r, env),
+                ) {
+                    (Some(a), Some(b)) => Some(a.intersection(&b).cloned().collect()),
+                    (a, b) => a.or(b),
+                }
+            }
+            Expr::Bin(BinOp::Eq, l, r) => named(l, r)
+                .or_else(|| named(r, l))
+                .map(|s| std::collections::BTreeSet::from([s])),
+            _ => None,
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn aggregate(
         &self,
@@ -759,9 +845,16 @@ impl<'a> Evaluator<'a> {
                 items
             }
             Term::TypeRef(t) if self.type_named(&t).is_some() => {
-                let all = self
-                    .world
-                    .of_type(&t)?
+                // where the filter requires states of what it binds, only
+                // the objects in them are read, through the type's state
+                // index; any other fails a conjunct of the filter outright,
+                // so it would be neither selected nor undecided (ADR-0162
+                // step 3)
+                let scanned_objects = match filter.and_then(|f| self.required_states(var, f, env)) {
+                    Some(states) => self.world.of_type_in(&t, &states)?,
+                    None => self.world.of_type(&t)?,
+                };
+                let all = scanned_objects
                     .into_iter()
                     .map(|o| Value::Object(o.id.clone()))
                     .collect();
