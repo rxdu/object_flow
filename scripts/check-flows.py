@@ -4067,6 +4067,9 @@ def syntax_plants():
          p(MINI, STATES, OBSERVED + "          subject: { type: string }\n" + STATES)),
         ("a unit on an observation's string field", "check 54",
          p(MINI, STATES, OBSERVED + "          text: { type: string, unit: words }\n" + STATES)),
+        ("a kind's invariant scanning its own kind", "check 54",
+         p(MINI, STATES, OBSERVED + "          text: { type: string }\n        invariants:\n"
+           "          few: { description: Few notes., expression: count(JobNote) < 3 }\n" + STATES)),
         ("a metric's dimension three hops away", "check 56",
          p(METRIC, "          month: month(t.occurred_at)\n", "          month: month(t.occurred_at)\n          far: t.object.a.b.c\n")),
         ("over last on a metric with no window", "check 56",

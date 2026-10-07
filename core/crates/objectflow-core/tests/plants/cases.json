@@ -10428,6 +10428,26 @@
   "analysed": {}
  },
  {
+  "label": "syntax_plants: a kind's invariant scanning its own kind",
+  "files": [
+   [
+    "plant.yaml",
+    "0e66fac8a39b8231"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    19,
+    "fatal",
+    "check 54",
+    "JobNote: invariant reads beyond its own fields: few: count(JobNote) < 3"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
   "label": "syntax_plants: a metric's dimension three hops away",
   "files": [
    [

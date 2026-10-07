@@ -10,6 +10,9 @@ came to advertise six checks it did not have.
 """
 import re, sys, pathlib
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import flowexpr  # noqa: E402  the expression language's grammar, which check 54 reads a kind's invariant by (ADR-0164)
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPEC = ROOT / "docs/design/declaration-syntax.md"
 
@@ -579,6 +582,28 @@ def stores(d, spec, by_name):
     return bool(fe and fe[1].split() and "[]" in fe[1].split()[0])
 
 
+def beyond_own_fields(expr):
+    """Whether a kind's invariant, parsed, reads more than its own fields: an
+    aggregate, a type it scans, a metric, or a call but `length` (check 54,
+    ADR-0164). One that does not parse is left to the checks that say so."""
+    try:
+        tree = flowexpr.parse(expr.strip())
+    except flowexpr.ParseError:
+        return False
+
+    def reaches(node):
+        if isinstance(node, list):
+            return any(reaches(n) for n in node)
+        if not isinstance(node, tuple) or not node:
+            return False
+        if node[0] in ("agg", "metric"):
+            return True
+        if node[0] == "call" and node[1] != ("name", "length"):
+            return True
+        return any(reaches(n) for n in node[1:])
+    return reaches(tree)
+
+
 def data_checks(decls, by_name, text, base=0):
     """Checks 54 to 62: the constructs of ADR-0082 to ADR-0087, ADR-0092, ADR-0110 and ADR-0111."""
     out = []
@@ -605,7 +630,8 @@ def data_checks(decls, by_name, text, base=0):
                 add(54, f"{d.name}.{fn} declares a unit and is not int or decimal", fln)
         for inv, iln in d.clauses.get("invariant", []):
             expr = inv.split(":", 1)[1] if ":" in inv else inv
-            if re.search(r"\b(subject|actor|inputs|now|this|referrers)\b|\b[a-z_]\w*\.\w", expr):
+            if re.search(r"\b(subject|actor|inputs|now|this|referrers)\b|\b[a-z_]\w*\.\w", expr) \
+                    or beyond_own_fields(expr):
                 add(54, f"{d.name}: invariant reads beyond its own fields: {inv.strip()[:48]}", iln)
         subj = by_name.get(d.subject) if d.subject else None
         if d.subject is None:

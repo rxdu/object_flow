@@ -276,6 +276,21 @@ static BACKDATABLE: LazyLock<Regex> =
     LazyLock::new(|| re(r"\bbackdatable\s+within\s+\d+\s*(?:s|min|h|days|weeks)\b"));
 static FROM: LazyLock<Regex> =
     LazyLock::new(|| re(r"^(\w+)\s+in\s+(\w+)(?:\.(\w+)(?:\((\w+)\))?)?"));
+/// Whether a kind's invariant, parsed, reads more than its own fields: an
+/// aggregate, a type it scans, a metric, or a call but `length` (check 54,
+/// ADR-0164). One that does not parse is left to the checks that say so.
+fn beyond_own_fields(expr: &str) -> bool {
+    fn reaches(e: &crate::expr::Expr) -> bool {
+        use crate::expr::Expr;
+        match e {
+            Expr::Agg { .. } | Expr::Metric { .. } => true,
+            Expr::Call(f, _) if !matches!(f.as_ref(), Expr::Name(n) if n == "length") => true,
+            _ => e.children().into_iter().any(reaches),
+        }
+    }
+    crate::expr::parse(expr.trim()).is_ok_and(|e| reaches(&e))
+}
+
 static OUTSIDE: LazyLock<Regex> =
     LazyLock::new(|| re(r"\b(subject|actor|inputs|now|this|referrers)\b|\b[a-z_]\w*\.\w"));
 static METRIC_REF: LazyLock<Regex> = LazyLock::new(|| re(r"\bmetric\(\s*(\w+)\s*((?:,[^()]*)?)\)"));
@@ -438,7 +453,7 @@ pub fn checks(docs: &[Value], all: &[Decl], world: &BTreeMap<&str, &Decl>, out: 
             }
         }
         for (n, expr) in &k.invariants {
-            if OUTSIDE.is_match(expr) {
+            if OUTSIDE.is_match(expr) || beyond_own_fields(expr) {
                 let clause = format!("{n}: {expr}");
                 let cut: String = clause.chars().take(48).collect();
                 add(
