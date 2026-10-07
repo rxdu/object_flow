@@ -300,17 +300,6 @@ class Found:
         return any(f["severity"] == "fatal" for f in self.findings)
 
 
-def reads_metric(expr):
-    """Whether an expression reads a metric, which a dry run consults no more than an evaluator (§1 step 3)."""
-    if isinstance(expr, tuple):
-        if expr and expr[0] == "metric":
-            return True
-        return any(reads_metric(e) for e in expr[1:])
-    if isinstance(expr, list):
-        return any(reads_metric(e) for e in expr)
-    return False
-
-
 def dry_run(store, change_id, flows, actor):
     """A change's dry run over the store as it stands, at its `now`, and its report as the wire and a change's
     `report` carry it: step 1 by the checker given and the examples, then steps 2 and 3 over every object, writing
@@ -586,24 +575,20 @@ def reachable(t, state):
 
 
 def offer_classes(runner, store, actor, oid, kinds):
-    """Each transition an object is offered, classed as `availability` classes it, a verdict waiting on an input,
-    an evaluator or a metric being neither available nor not, since a dry run consults none (§1 step 3)."""
+    """Each transition an object is offered, classed as `availability` classes it, no evaluator asked and no metric
+    consulted (§1 step 3): a refusal is one whatever it left unevaluated, and an offer otherwise waits on its inputs or
+    on a `deny` clause it could not evaluate, which alone could refuse it, and is neither available nor not (D538)."""
+    import flowrun
+    runner.unasked = flowrun.DRY_RUN
     out = {}
     t = kinds.get(store.objects[oid].type) or {}
-    conditions = t.get("conditions") or {}
     for xn, creates, how, _r, _schema, unevaluated, _flags in runner.availability(store, actor, oid):
         if creates is not None:
             continue
-        x = (t.get("transitions") or {}).get(xn) or {}
-        metric = any(reads_metric(flowrun_parsed(conditions[g]["expression"]))
-                     for g in (x.get("guards") or {}) if g in conditions)
-        out[xn] = "waits" if unevaluated or metric or how == "available_with_input" else how
+        guards = ((t.get("transitions") or {}).get(xn) or {}).get("guards") or {}
+        waits = how == "available_with_input" or any(guards.get(g) == "deny" for g in unevaluated)
+        out[xn] = "waits" if how != "unavailable" and waits else how
     return out
-
-
-def flowrun_parsed(text):
-    import flowrun
-    return flowrun.parsed(text)
 
 
 def clauses_and_offers(store, sim, kinds, enums, actor, found):
@@ -627,9 +612,9 @@ def clauses_and_offers(store, sim, kinds, enums, actor, found):
                 if c is None:
                     continue
                 expr = flowrun.parsed(c["expression"])
-                if "inputs" in flowrun.names_read(expr) or reads_metric(expr):
+                if "inputs" in flowrun.names_read(expr):
                     continue
-                asking = flowrun.Evaluator(sim, o.type, oid, {}, None, flowrun.NEVER_ASKED)
+                asking = flowrun.Evaluator(sim, o.type, oid, {}, None, flowrun.DRY_RUN)
                 ok = flowrun.truth(asking.value(expr, {}))
                 if ok is not True and not getattr(asking, "unanswered", False):
                     found.add("notice", f"newly_enforced:{o.type}.{xn}.{g}",

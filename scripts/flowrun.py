@@ -1053,6 +1053,9 @@ class Evaluator:
         aggregated over every dimension left unbound. `fresh` holds by construction, since the value is computed as the
         request is decided."""
         _, ref, binds, over, _fresh = e
+        if getattr(self.stubs, "metrics", True) is False:
+            self.unanswered = True              # a dry run consults no metric, as it asks no evaluator (D537)
+            return ABSENT
         committed = self.committed or self.s
         owner, spec, module = committed.find_metric(ref, self.tn)
         bound = {}
@@ -1561,6 +1564,15 @@ class _NeverAsked(dict):
 
 NEVER_ASKED = _NeverAsked()
 
+
+class _DryRun(_NeverAsked):
+    """The answers a dry run gives: no evaluator asked, and no metric consulted, each read left unanswered
+    (publish-and-import.md §1 step 3, D537)."""
+    metrics = False
+
+
+DRY_RUN = _DryRun()
+
 GENERATED_REMEDY = {"actor_known": "dependent", "occurred_within": "self_serviceable", "whole_open": "self_serviceable",
                     "not_erased": "unreachable_from_here", "subject_open": "unreachable_from_here",
                     "corrects_current": "self_serviceable", "subject_owned": "unreachable_from_here",
@@ -1696,6 +1708,8 @@ def qualified(clause, tn):
 
 class Runner:
     """Requests against a store, as DESIGN.md §6 executes them, within the slices built so far."""
+
+    unasked = NEVER_ASKED                       # what an offer's evaluators are answered: nothing (ADR-0048)
 
     def __init__(self, kinds, enums):
         self.kinds, self.enums = with_labels(kinds), enums
@@ -1890,7 +1904,7 @@ class Runner:
                 if "inputs" in names_read(expr):
                     needs = True                # decided when the inputs are given
                     continue
-                asking = Evaluator(store, o.type, o.id, {}, who, NEVER_ASKED, committed=store)
+                asking = Evaluator(store, o.type, o.id, {}, who, self.unasked, committed=store)
                 ok = truth(asking.value(expr, {}))
                 if asking.unanswered:
                     unevaluated.append(g)

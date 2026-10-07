@@ -548,6 +548,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D534](#d534) | The reference runner took a flow function for an evaluator wherever every evaluator is left unanswered | Resolved |
 | [D535](#d535) | A pending proposal offered none of its decisions | Resolved |
 | [D536](#d536) | A metric's page had no place for a state or member the installed version no longer declares | Resolved |
+| [D537](#d537) | The core's dry run read the metric a guard reads | Resolved |
+| [D538](#d538) | A dry run counted a refused offer as waiting, by its guards' order | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3511,3 +3513,14 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **A metric's page had no place for a state or member the installed version no longer declares.** `library-api.md` orders a page's states and enumeration members in declaration order (ADR-0127), and after a publish that removes a state, the intervals and transitions from before it still hold the state, which the installed declaration does not list. The core gave such a value no position, which its comparison puts before every declared one, an accident of how an absent position compares; the reference runner refused the read with a fault. Found 2026-10-08 building the runner's approval (ADR-0166), reading `Robot.time_in_state` after a version removing `HOLD`.
 
 **Resolved** in place, in both backends: a state or member the installed version no longer declares follows those it declares, by name, as an absent value follows every present one; `library-api.md` says so. The publishing comparison reads the page after such a publish through both backends and holds its order, `READY`, `RETIRED`, `HOLD`.
+
+### D537
+**The core's dry run read the metric a guard reads.** `publish-and-import.md` §1 step 3 says the dry run "consults no evaluator and no metric", a transition whose verdict depends on one being neither gained nor lost and a clause newly enforced judged the same way. The core's dry run left an evaluator unasked and computed the metric, so a version guarding `retire` on `metric(priced) < USD 3.00` was reported as newly enforcing that clause on three robots and taking `retire` from two, by the metric's value at the dry run's `now`; a metric in a currency whose minor unit the core does not know refused the whole dry run as not run. Found 2026-10-08 by the publishing comparison, the reference runner (ADR-0166), written from the design, consulting none.
+
+**Resolved** in the core: an evaluator can be made to read no metric, each read left unanswered as an evaluator's call is (`Evaluator::consulting_no_metric`), and the dry run's offers, before and after, and its judging of newly enforced clauses read none. A core test holds the report of a version guarding on a metric.
+
+### D538
+**A dry run counted a refused offer as waiting, by its guards' order.** §1 step 3 classes each offer "as `availability` lists it", a verdict waiting on an input, an evaluator or a metric being neither gained nor lost. Both backends classed an offer as waiting whenever it left any guard unevaluated: an offer refused on a `deny` clause that needed nothing it could not read was not a loss when a guard it could not evaluate was declared before the refusing one, and was when declared after, since `availability` stops at the first refusal; and an unevaluated `audit` or `warn` clause, which refuses nothing, kept an available offer from being gained or lost. The runner, besides, made any transition with a guard reading a metric wait, refused or not. Found 2026-10-08 with D537, the runner reporting no loss of `retire` on a robot refused on `graded`.
+
+**Resolved** in both backends: an offer `availability` lists as unavailable is unavailable whatever it left unevaluated, and one it lists as available waits only on a `deny` clause it could not evaluate; §1 step 3 says so. The core's test swaps the guards' order and audits the metric clause.
+

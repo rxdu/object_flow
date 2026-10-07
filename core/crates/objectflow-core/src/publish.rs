@@ -679,8 +679,8 @@ fn opposite_parts(
 
 /// The clauses the version newly enforces that would refuse an object, and
 /// the transitions each object gains or loses, a transition whose verdict
-/// waits on an input or an evaluator being neither (`publish-and-import.md`
-/// §1 step 3).
+/// waits on an input, an evaluator or a metric being neither, and none
+/// consulted (`publish-and-import.md` §1 step 3, D537, D538).
 fn clauses_and_offers(
     old: &World<'_>,
     new: &World<'_>,
@@ -721,7 +721,7 @@ fn clauses_and_offers(
                 if read.contains("inputs") {
                     continue; // decided when the inputs are given
                 }
-                let asking = Evaluator::new(new, Some(nt), Some(&o.id));
+                let asking = Evaluator::new(new, Some(nt), Some(&o.id)).consulting_no_metric();
                 let ok = truth(&asking.eval(&c.expression)?)?;
                 if ok != Some(true) && !asking.unanswered.get() {
                     found.add(
@@ -736,20 +736,29 @@ fn clauses_and_offers(
                 }
             }
         }
-        let class = |offers: &[reads::Offer], xn: &str| -> Option<Availability> {
+        // as availability classes it: a refusal is one whatever it left
+        // unevaluated, and an offer otherwise waits only on a `deny` clause
+        // it could not evaluate, which alone could refuse it (D538)
+        let class = |offers: &[reads::Offer], t: Option<&crate::model::Type>, xn: &str| {
             offers
                 .iter()
                 .find(|f| f.transition == xn && f.creates.is_none())
                 .map(|f| {
-                    if !f.unevaluated.is_empty() {
+                    let deny = |g: &String| {
+                        t.and_then(|t| t.transition(xn)).is_some_and(|x| {
+                            x.guards.iter().any(|(n, m)| n == g && *m == Enforce::Deny)
+                        })
+                    };
+                    if f.availability != Availability::Unavailable && f.unevaluated.iter().any(deny)
+                    {
                         Availability::AvailableWithInput
                     } else {
                         f.availability
                     }
                 })
         };
-        let before_offers = reads::availability(old, actor, &before.id)?.unwrap_or_default();
-        let after_offers = reads::availability(new, actor, &o.id)?.unwrap_or_default();
+        let before_offers = reads::offers(old, actor, &before.id, false)?.unwrap_or_default();
+        let after_offers = reads::offers(new, actor, &o.id, false)?.unwrap_or_default();
         let names: std::collections::BTreeSet<String> = before_offers
             .iter()
             .chain(&after_offers)
@@ -757,7 +766,10 @@ fn clauses_and_offers(
             .map(|f| f.transition.clone())
             .collect();
         for xn in names {
-            let (b, a) = (class(&before_offers, &xn), class(&after_offers, &xn));
+            let (b, a) = (
+                class(&before_offers, ot, &xn),
+                class(&after_offers, Some(nt), &xn),
+            );
             let gained = a == Some(Availability::Available)
                 && matches!(b, None | Some(Availability::Unavailable));
             let lost = b == Some(Availability::Available)
@@ -1123,6 +1135,57 @@ types:
             .find(|f| f.severity == Severity::Decision)
             .unwrap();
         assert!(decision.message.contains("admits"));
+    }
+
+    /// A guard reading a metric is not consulted by a dry run, as an
+    /// evaluator is not asked (D537), and an offer it leaves unevaluated is
+    /// classed as availability classes it, whatever the guards' order: a
+    /// refusal on another clause is a loss, an offer passing every other
+    /// clause waits on it, and an audited clause, which refuses nothing,
+    /// leaves nothing waiting (D538).
+    #[test]
+    fn a_dry_run_consults_no_metric_and_classes_an_offer_as_availability_does() {
+        let (mut s, [_, held, bare], _, _) = fleet();
+        // four robots priced at USD 4.00, over the ceiling, were it read
+        let metered = |guards: &str| {
+            let text = v2(true, true, true)
+                .replace(
+                    "migration:\n",
+                    "    metrics:\n      priced: { description: Robots priced., source: objects, item: o, expression: count() * USD 1.00 }\nmigration:\n",
+                )
+                .replace(
+                    "remedy: self_serviceable }\n",
+                    "remedy: self_serviceable }\n      settled: { description: Few robots priced., expression: \"metric(priced) < USD 3.00\", remedy: dependent }\n",
+                )
+                .replace("guards: { graded: deny }", guards);
+            assert!(text.contains(guards) && text.contains("metric(priced)"));
+            text
+        };
+        for guards in [
+            "guards: { graded: deny, settled: deny }",
+            "guards: { settled: deny, graded: deny }",
+        ] {
+            let text = metered(guards);
+            let change = draft(&mut s, &text);
+            let r = run(&s, &change, &text);
+            assert!(
+                ids(&r, "newly_enforced:Robot.retire.settled").is_empty(),
+                "{guards}"
+            );
+            assert_eq!(
+                ids(&r, "newly_enforced:Robot.retire.graded"),
+                vec![bare.clone()]
+            );
+            // refused on `graded` whatever `settled` would say; the held
+            // robot, graded once mapped, waits on it
+            assert_eq!(ids(&r, "lost:Robot.retire"), vec![bare.clone()], "{guards}");
+            assert!(ids(&r, "gained:Robot.retire").is_empty(), "{guards}");
+        }
+        let text = metered("guards: { graded: deny, settled: audit }");
+        let change = draft(&mut s, &text);
+        let r = run(&s, &change, &text);
+        assert_eq!(ids(&r, "gained:Robot.retire"), vec![held]);
+        assert_eq!(ids(&r, "lost:Robot.retire"), vec![bare]);
     }
 
     #[test]

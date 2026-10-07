@@ -561,6 +561,17 @@ pub fn availability(
     actor: &str,
     id: &str,
 ) -> Result<Option<Vec<Offer>>, NotRun> {
+    offers(world, actor, id, true)
+}
+
+/// What [`availability`] offers, a guard reading a metric left unevaluated
+/// where `metrics` is false, as a dry run reads one (D537).
+pub(crate) fn offers(
+    world: &World<'_>,
+    actor: &str,
+    id: &str,
+    metrics: bool,
+) -> Result<Option<Vec<Offer>>, NotRun> {
     let Some(o) = world.get(id)? else {
         return Ok(None);
     };
@@ -656,9 +667,12 @@ pub fn availability(
                 needs = true; // decided when the inputs are given
                 continue;
             }
-            let asking = Evaluator::new(world, Some(t), Some(id))
+            let mut asking = Evaluator::new(world, Some(t), Some(id))
                 .with_inputs(&no_inputs)
                 .with_actor(who);
+            if !metrics {
+                asking = asking.consulting_no_metric();
+            }
             let ok = truth(&asking.eval(&c.expression)?)?;
             // an evaluator is never asked by an offer (ADR-0048)
             if asking.unanswered.get() {

@@ -114,8 +114,13 @@ pub struct Evaluator<'a> {
     /// every call left unanswered (ADR-0048).
     answers: Option<&'a BTreeMap<String, String>>,
     /// Whether an evaluator it asked did not answer, which makes a refusing
-    /// guard's remedy temporal (ADR-0138).
+    /// guard's remedy temporal (ADR-0138), or a metric it consults none of
+    /// was read.
     pub unanswered: std::cell::Cell<bool>,
+    /// Whether a metric is computed where it is read: a dry run consults
+    /// none, a metric's read left unanswered as an evaluator's call is
+    /// (`publish-and-import.md` §1 step 3, D537).
+    metrics: bool,
     /// The store as the request found it, which a metric guard reads
     /// (ADR-0084 §6); none where it is the world itself.
     committed: Option<&'a World<'a>>,
@@ -231,6 +236,7 @@ impl<'a> Evaluator<'a> {
             event: None,
             answers: None,
             unanswered: std::cell::Cell::new(false),
+            metrics: true,
             committed: None,
             reading: None,
             quiet: std::cell::Cell::new(0),
@@ -297,6 +303,13 @@ impl<'a> Evaluator<'a> {
     /// the request's working copy changes (ADR-0084 §6).
     pub fn with_committed(mut self, committed: &'a World<'a>) -> Evaluator<'a> {
         self.committed = Some(committed);
+        self
+    }
+
+    /// One that reads no metric, each read left unanswered, as a dry run
+    /// reads none (D537).
+    pub fn consulting_no_metric(mut self) -> Evaluator<'a> {
+        self.metrics = false;
         self
     }
 
@@ -648,6 +661,7 @@ impl<'a> Evaluator<'a> {
                     // asked with the same answers, as the runner asks it
                     let mut derived = Evaluator::new(self.world, Some(t), Some(&o.id));
                     derived.answers = self.answers;
+                    derived.metrics = self.metrics;
                     derived.reading = self.reading;
                     crate::metric::typed_derived(self.world, t, e, derived.eval(e)?)
                 } else {
@@ -1286,6 +1300,10 @@ impl<'a> Evaluator<'a> {
         over: Option<&Expr>,
         env: &BTreeMap<String, Value>,
     ) -> Result<Value, NotRun> {
+        if !self.metrics {
+            self.unanswered.set(true);
+            return Ok(Value::Absent);
+        }
         let committed = self.committed.unwrap_or(self.world);
         let found = crate::metric::find(
             committed.lib,
