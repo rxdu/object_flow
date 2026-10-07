@@ -315,6 +315,13 @@ def dry_run(store, change_id, flows, actor):
     """A change's dry run over the store as it stands, at its `now`, and its report as the wire and a change's
     `report` carry it: step 1 by the checker given and the examples, then steps 2 and 3 over every object, writing
     nothing (publish-and-import.md §1, §2)."""
+    return simulate(store, change_id, flows, actor)[0]
+
+
+def simulate(store, change_id, flows, actor):
+    """The dry run, and what an approval would install from it: the store as the mappings leave it, under the new
+    version, and the version, none where the source does not load; the same code path, so what a dry run reports is
+    what a publish does (publish-and-import.md §1)."""
     c = store.objects[change_id]
     files = json.loads(c.attrs.get("source") or "{}")
     found = Found()
@@ -335,7 +342,7 @@ def dry_run(store, change_id, flows, actor):
         else:
             found.add("notice", f"check:{code}", f"{f}:{line}: {message}")
     refused = found.fatal()
-    proposals_invalidated = 0
+    proposals_invalidated, installed = 0, None
     try:
         new = Version(flows, files)
     except Exception as e:                  # a source the checker refused, which the version cannot be read from
@@ -343,7 +350,7 @@ def dry_run(store, change_id, flows, actor):
         new = None
     if new is not None:
         try:
-            proposals_invalidated = impact(store, new, found, actor, change_id)
+            proposals_invalidated, installed = impact(store, new, found, actor, change_id)
         except NotRunnable as e:
             if not refused:
                 raise
@@ -362,7 +369,7 @@ def dry_run(store, change_id, flows, actor):
         "affected": {f["code"]: list(f["ids"]) for f in found.findings if f["ids"]},
         "examples": examples, "analysed": {t: list(n) for t, n in analysed.items()},
         "not_computed": NOT_COMPUTED,
-    }
+    }, installed
 
 
 def admitted(new, qualified):
@@ -552,7 +559,7 @@ def impact(store, new, found, actor, change_id):
         if o.type == DECLARATION_CHANGE and oid != change_id and o.state in ("DRAFTED", "SUBMITTED"):
             found.add("notice", "superseded", "open changes the publish supersedes", oid)
     attribute_notices(old_kinds, kinds, retired, m, found)
-    return invalidated
+    return invalidated, (sim, new, retired)
 
 
 def stored(kinds, spec):
@@ -683,3 +690,149 @@ def attribute_notices(old, new, retired, m, found):
                     n not in oattrs and declared_as(x) == declared_as(spec) for n, x in nattrs.items()):
                 found.add("notice", f"possible_rename:{tn}.{a}",
                           f"{tn}.{a} is dropped where an attribute of its type is added, which may be a rename")
+
+
+# ── the approval (publish-and-import.md §1 step 5) ───────────────────────────────────────────────────────────────────
+
+def approve(store, change_id, actor, expected_version, flows):
+    """The approval of a submitted change, which installs its version, or the refusal of it, with the report it
+    recomputed at the attached report's `now`: refused `stale` where the approver read another version of the change,
+    `current` where it was drafted against a version no longer installed, `fatal` where the recomputed report finds
+    anything fatal, `impact_unchanged` where it names an object or proposal in a category the attached one did not,
+    and `decision_unresolved` while a decision stands unadmitted (DESIGN.md §9, ADR-0101, ADR-0146, ADR-0147). Returns
+    (the verdict, the report or none), the verdict ("applied", the change's id, the positions of its events) or a
+    Refused."""
+    import copy
+
+    from flowrun import timestamp
+    identity, kind = who(store, actor)
+    c = store.objects[change_id]
+    if c.state != "SUBMITTED":
+        raise Refused("unavailable", remedy="unreachable_from_here")
+    if expected_version != c.version:
+        r = Refused("stale", remedy="self_serviceable")
+        r.expected, r.actual = expected_version, c.version
+        raise r
+    if c.attrs.get("base_version") != store.version:
+        return Refused("unsatisfied", "current", "unreachable_from_here"), None
+    attached = json.loads(c.attrs.get("report") or "{}")
+    at = copy.deepcopy(store)
+    if attached.get("now"):
+        at.now = timestamp(attached["now"])
+    report, installed = simulate(at, change_id, flows, actor)
+    if any(f["severity"] == "fatal" for f in report["findings"]) or installed is None:
+        return Refused("unsatisfied", "fatal", "unreachable_from_here"), report
+    shown = attached.get("affected") or {}
+    for category, ids in report["affected"].items():
+        # the changes it supersedes are reported and not compared (ADR-0147)
+        if category != "superseded" and any(i not in (shown.get(category) or []) for i in ids):
+            return Refused("unsatisfied", "impact_unchanged", "unreachable_from_here"), report
+    if not report["accepted"]:
+        return Refused("unsatisfied", "decision_unresolved", "unreachable_from_here"), report
+    return ("applied", change_id, install(store, installed, report, change_id, identity, kind)), report
+
+
+def install(store, installed, report, change_id, identity, kind):
+    """The version installed, as §1 step 5 says, in the store's own order of events: the publish event on the change;
+    one migration per object a mapping, an admit or a discharge reaches, in creation order, caused by the publish, the
+    version before it its `declaration_version`, renames writing none; the intervals of a member newly tracked opened,
+    at the migration where a backfill writes it and else at the publish event, and of one no longer tracked closed at
+    the publish event; then each other open change superseded and each pending proposal the version breaks invalidated,
+    each caused by the publish. Returns the positions of its events, the publish's first."""
+    import flowrun
+    sim, new, retired = installed
+    old_version, new_version, old_kinds = store.version, store.version + 1, store.kinds
+    # what §1 step 5 installs that the runner does not yet, not run rather than passed over (ADR-0166 decision 5)
+    for oid, o in store.objects.items():
+        t, nt = old_kinds.get(o.type) or {}, sim.kinds.get(o.type) or {}
+        for a, spec in (nt.get("attributes") or {}).items():
+            was = (t.get("attributes") or {}).get(a)
+            if o.erased and (spec or {}).get("personal") and not (was or {}).get("personal") and a in o.attrs:
+                raise NotRunnable(f"the redaction of {o.type}.{a}, which the version newly marks personal, on {oid}, "
+                                  f"which is erased")
+            if was is not None and declared_as(was) != declared_as(spec) and o.spans.get(a):
+                raise NotRunnable(f"setting aside the intervals of {o.type}.{a}, whose type the version changes")
+    affected = report["affected"]
+    positions = []
+
+    def event(oid, tn, xn, before, after, version, payload, cause=None):
+        store.position += 1
+        store.events.append({"position": store.position, "object": oid, "type": tn, "transition": xn,
+                             "from_state": ("state", tn, before) if before else ABSENT,
+                             "to_state": ("state", tn, after), "completes": False, "returns": False,
+                             "occurred_at": store.now, "recorded_at": store.now, "actor_id": identity,
+                             "actor_kind": kind, "asserted": False, "overrides": False, "imported": False,
+                             "migrated": xn == "migrate", "redacted": False, "reason": ABSENT,
+                             "declaration_version": version, "held": {}, "payload": payload, "cause": cause})
+        positions.append(store.position)
+        return store.position
+
+    c = store.objects[change_id]
+    c.attrs.update({"approved_by": identity, "approved_by_kind": kind})
+    c.writes.update({"approved_by": store.position + 1, "approved_by_kind": store.position + 1})
+    publish = event(change_id, DECLARATION_CHANGE, "publish", c.state, "PUBLISHED", new_version,
+                    {"version": new_version})
+    c.state, c.version = "PUBLISHED", c.version + 1
+    kinds = sim.kinds
+
+    def of(prefix, oid):
+        return [code for code, ids in affected.items() if code.startswith(prefix) and oid in ids]
+
+    for oid, x in sim.objects.items():
+        if oid not in store.objects or x.type in BUILT_IN or x.type in retired or x.type not in kinds:
+            continue
+        was = store.objects[oid]
+        codes = of("mapping:", oid)
+        admits = [code.rpartition(".")[2] for code in of("invariant:", oid)
+                  if admitted(new, code[len("invariant:"):])]
+        discharges = [code.rpartition(".")[2] for code in of("discharged:", oid)]
+        migrates = bool(codes or admits or discharges)
+        position = store.position + 1 if migrates else publish
+        tracked_now = flowrun.tracked_members(kinds, sim.enums, x.type)
+        # a member no longer tracked closes at the publish event
+        for d, spans in x.spans.items():
+            if d not in tracked_now and spans and spans[-1]["left_at"] is ABSENT:
+                spans[-1]["left_at"] = store.now
+        value = lambda d: ("state", x.type, x.state) if d == "state" else x.attrs.get(d, ABSENT)
+        for d in tracked_now:
+            spans = x.spans.setdefault(d, [])
+            open_span = spans[-1] if spans and spans[-1]["left_at"] is ABSENT else None
+            if open_span is None and not spans:
+                # a member newly tracked opens where a backfill writes it, and else at the publish event
+                backfilled = any(c_.startswith("mapping:backfill:") and c_.endswith(f".{d}") for c_ in codes)
+                at = position if migrates and backfilled else publish
+                spans.append(flowrun.span_row(at, opened(x, d, value(d), store.now, kind, new_version)))
+            elif open_span is not None and migrates and open_span.get("state" if d == "state" else "value") != value(d):
+                # a value the migration changes, its interval closed and the next opened by it
+                open_span["left_at"] = store.now
+                spans.append(flowrun.span_row(position, opened(x, d, value(d), store.now, kind, new_version)))
+        if migrates:
+            for n in admits:
+                x.admissions.add(n)
+            for n in discharges:
+                x.admissions.discard(n)
+            event(oid, x.type, "migrate", was.state, x.state, old_version,
+                  {"mappings": codes, "admits": admits, "discharges": discharges}, publish)
+            x.version += 1
+        store.objects[oid] = x
+    # the other open changes, superseded, and the pending proposals the version breaks, invalidated
+    for oid in affected.get("superseded") or []:
+        o = store.objects[oid]
+        event(oid, DECLARATION_CHANGE, "supersede", o.state, "SUPERSEDED", new_version, {}, publish)
+        o.state, o.version = "SUPERSEDED", o.version + 1
+    for pid in affected.get("proposals_invalidated") or []:
+        p = store.objects[pid]
+        event(pid, p.type, "invalidate", p.state, "INVALIDATED", new_version, {}, publish)
+        p.state, p.version = "INVALIDATED", p.version + 1
+        store.proposals[pid]["state"] = "invalidated"
+    store.kinds, store.enums = kinds, sim.enums
+    store.decl, store.version, store.source = sim.decl, new_version, dict(new.source)
+    # each version a store held before, by number, which an erasure reads personal marks under (ADR-0146)
+    store.history = {**getattr(store, "history", {}), old_version: old_kinds}
+    return positions
+
+
+def opened(o, d, v, now, kind, version):
+    """The fields of an interval a publish opens, marked as a migration's (ADR-0146)."""
+    return {"object": o.id, ("state" if d == "state" else "value"): v, "entered_at": now, "left_at": ABSENT,
+            "entered_by_kind": kind, "declaration_version": version, "legacy": False, "migrated": True, "held": {}}

@@ -427,3 +427,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** `pkill -f` or `pgrep -f` with a pattern such as `vite` or `scripts/dev`, run from a shell whose own command line holds the same text, matched that shell and killed it, exit status 144, three times in one session; once it left a scratch file behind that the rest of the command was to delete.
 - **Correction:** Stop a process by the pid its starter reported, or select by a pattern the command cannot contain, a character class such as `vit[e]`; and list what remains with the same kind of pattern before trusting that nothing does.
 - **Context:** The agent's shell, stopping the Flow Studio's development servers and probes; 2026-10-07.
+
+### A probe that starts a service must not end in a pipe it holds
+- **Pattern:** A scratch script that started the core's service through the studio's `Core()` was piped into `tail`; when the script failed partway, the service it started outlived it holding the pipe's write end, so `tail` never saw the end of its input and the command hung, twice, while a mutation the command was to restore stayed in the source file.
+- **Correction:** Write such a probe's output to a file, close what it starts in a `finally`, and restore a mutated file before anything that can hang, not after it; when a command hangs, look for a child still holding its output before blaming the code.
+- **Context:** The agent's shell, probing the Flow Studio's backends; 2026-10-08.

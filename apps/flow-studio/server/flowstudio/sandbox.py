@@ -194,6 +194,7 @@ class Sandbox:
 
     def fresh(self) -> None:
         kinds, enums, declared, homes = self.parts
+        self.runner = flowrun.Runner(kinds, enums)
         self.store = flowrun.Store(kinds, enums, declared, homes)
         self.store.source = dict(self.source)
         self.stubs = {}
@@ -327,15 +328,35 @@ class Sandbox:
         if change not in s.objects or \
                 s.objects[change].type != flowrun.DECLARATION_CHANGE:
             raise Fault(404, f"no change {change}")
-        if body.get("dry_run") is not True:
-            raise not_run("the approval of a change, which installs a "
-                          "version, the runner's next slice (ADR-0166)")
+        actor = body["actor"]["id"]
+        if body.get("dry_run") is True:
+            try:
+                report = flowpublish.dry_run(s, change, flows, actor)
+            except flowrun.NotRunnable as e:
+                raise not_run(e)
+            return {"verdict": None, "report": report}
+        # the version of the change the approver read, required (ADR-0101)
+        expected = body.get("expected_version")
+        if not isinstance(expected, int) or isinstance(expected, bool):
+            raise Fault(400, "a publish names the expected_version of the "
+                             "change it approves")
+        before = s.position
         try:
-            report = flowpublish.dry_run(s, change, flows,
-                                         body["actor"]["id"])
+            result, report = flowpublish.approve(s, change, actor, expected,
+                                                 flows)
+        except flowrun.Refused as r:
+            result, report = r, None
         except flowrun.NotRunnable as e:
             raise not_run(e)
-        return {"verdict": None, "report": report}
+        tn = flowrun.DECLARATION_CHANGE
+        if isinstance(result, flowrun.Refused):
+            verdict = self.refusal(result, tn, change, None, "publish")
+        else:
+            # the store now holds the new version, which every later request
+            # is decided under, until a reset reloads the modules loaded
+            self.runner = flowrun.Runner(s.kinds, s.enums)
+            verdict = self.satisfied(("applied", change, [], []), tn, before)
+        return {"verdict": verdict, "report": report}
 
     def inputs(self, tn: str | None, xn: str, given: dict | None) -> dict:
         """A request's inputs from the wire, as the runner reads an
@@ -744,6 +765,12 @@ class Sandbox:
                 "kind": inner.verdict if inner else None,
                 "clause": r.clause, "remedy": r.remedy})
             out["not_computed"] = ["the call's verdict beyond its clause"]
+        elif v == "stale":
+            # what was stale, the version the caller named (`library-api.md`
+            # §4, StaleCause)
+            out.update(cause="expected_version",
+                       expected=getattr(r, "expected", None),
+                       actual=getattr(r, "actual", None))
         elif v == "unavailable":
             out["state"] = (self.store.objects[oid].state
                             if oid in self.store.objects else None)

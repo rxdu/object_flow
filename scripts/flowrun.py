@@ -732,7 +732,9 @@ class Evaluator:
         if m == "recorded_from":
             return o.created_at             # an object the example created has its whole record
         if m == "declaration_version":
-            return 1
+            # the version in force when the object was last written: its last event's (storage-schema.md §2)
+            written = [e for e in self.s.events if e["object"] == o.id]
+            return written[-1]["declaration_version"] if written else self.s.version
         if m == "open":
             st = (t.get("states") or {}).get(o.state, {})
             return st.get("category") != "closed" and not st.get("final")
@@ -2401,6 +2403,15 @@ class Runner:
         reaches through each one's generated `forget` without a declared step (DESIGN.md §8)."""
         work = ctx.work
         t = self.kinds.get(o.type) or {}
+        # an erasure reaches what any version the store held marked personal (ADR-0146 decision 2), which the runner
+        # reads only from the installed one: where an earlier version marked more, it is not run (ADR-0166 decision 5)
+        for v, kinds in sorted((getattr(work, "history", None) or {}).items()):
+            before = {a for a, sp in (((kinds or {}).get(o.type) or {}).get("attributes") or {}).items()
+                      if (sp or {}).get("personal")}
+            now = {a for a, sp in (t.get("attributes") or {}).items() if (sp or {}).get("personal")}
+            if before - now:
+                raise NotRunnable(f"an erasure reaching {o.type}.{sorted(before - now)[0]}, personal under version "
+                                  f"{v} and not under the installed one")
         erased = {a for a, sp in (t.get("attributes") or {}).items() if (sp or {}).get("personal") and a in o.attrs}
         for a in erased:
             if is_set_attribute((t.get("attributes") or {})[a]):
