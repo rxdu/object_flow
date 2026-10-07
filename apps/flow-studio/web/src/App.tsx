@@ -108,6 +108,9 @@ export function App() {
     let live = true;
     void (async () => {
       const b = await wire.module(chosen.file, chosen.source);
+      // a module chosen since sends its own load; this one's, sent after,
+      // would replace the sandbox the page then shows
+      if (!live) return;
       const result = await wire.load(b.files);
       if (!live) return;
       setBundle(b);
