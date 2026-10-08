@@ -234,6 +234,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
     let mut out = reserved_name_errors(doc);
     out.extend(relationship_errors(doc, &library));
     out.extend(combined_errors(doc));
+    out.extend(cascade_cycle_errors(doc, &library));
     let cats = categories(doc);
     let imported = imported(doc);
     for (tn, t) in types(doc) {
@@ -898,6 +899,150 @@ fn relationship_errors(doc: &Value, library: &Obj) -> Found {
     out
 }
 
+/// A transition of a module's type, by its type and name.
+type Node = (String, String);
+
+/// What a transition causes: each transition, with where its step or clause is.
+type Causes<'a> = &'a dyn Fn(&str, &str) -> Vec<(Node, Path)>;
+
+/// A transition causes others: by a `call` or a `create` among its effect's
+/// steps, a loop's included, and by a cascade clause on it of a part its type
+/// gives, its own or one it inherits. Transitions MUST NOT cause each other in
+/// a cycle, nor one cause itself, on its own object or another of its type
+/// (the model's check 12, ADR-0019). A transition no type of the module
+/// declares is left to the checks that name it, and an imported module cannot
+/// cause one of this module's, so no cycle passes through it. A cycle is
+/// reported at the step or the clause that closes it, once for each set of
+/// transitions a cycle passes through (`check-flows.py`'s
+/// `cascade_cycle_errors`).
+fn cascade_cycle_errors(doc: &Value, library: &Obj) -> Found {
+    let module: Obj = types(doc)
+        .into_iter()
+        .map(|(tn, t)| (tn, t.clone()))
+        .collect();
+    let mut kinds = library.clone();
+    for (k, v) in &module {
+        kinds.insert(k.clone(), v.clone());
+    }
+    let declares = |k: &str, xn: &str| {
+        module
+            .get(k)
+            .is_some_and(|t| obj(t, "transitions").contains_key(xn))
+    };
+    let causes = |tn: &str, xn: &str| -> Vec<(Node, Path)> {
+        let t = &module[tn];
+        let x = &obj(t, "transitions")[xn];
+        let mut out = Vec::new();
+        for step in walk(x.get("effect")) {
+            let where_ = ext(
+                segs!["types", tn, "transitions", xn, "effect"],
+                step.path.clone(),
+            );
+            let body = &step.st[step.kind];
+            let ct = body.get("transition").map(py_str).unwrap_or_default();
+            let k = match step.kind {
+                "call" => call_target(&kinds, t, tn, x, body, &binders(&kinds, tn, x, &step.path)),
+                "create" => body.get("type").map(py_str),
+                _ => None,
+            };
+            if let Some(k) = k.filter(|k| declares(k, &ct)) {
+                out.push(((k, ct), where_));
+            }
+        }
+        let mut parts: Vec<(Value, Vec<Value>, Path)> = obj(t, "attributes")
+            .iter()
+            .filter(|(_, spec)| text(spec, "aggregation") == Some("composite"))
+            .map(|(an, spec)| {
+                (
+                    spec.clone(),
+                    list(spec, "cascade").to_vec(),
+                    segs!["types", tn, "attributes", an],
+                )
+            })
+            .collect();
+        let mut inherited: Obj = Default::default();
+        for b in bases(tn, &kinds).iter().rev() {
+            for (an, spec) in obj(&kinds[b.as_str()], "attributes") {
+                if text(spec, "aggregation") == Some("composite") {
+                    inherited.insert(an.clone(), spec.clone());
+                }
+            }
+        }
+        for (an, ip) in obj(t, "inherited_parts") {
+            if let Some(spec) = inherited.get(an) {
+                parts.push((
+                    spec.clone(),
+                    list(ip, "cascade").to_vec(),
+                    segs!["types", tn, "inherited_parts", an],
+                ));
+            }
+        }
+        for (spec, clauses, here) in parts {
+            let part = target_of(&spec);
+            for (i, c) in clauses.iter().enumerate() {
+                let ct = c.get("transition").map(py_str).unwrap_or_default();
+                if list(c, "on").iter().any(|w| py_str(w) == xn) && declares(&part, &ct) {
+                    out.push(((part.clone(), ct), ext(&here, segs!["cascade", i])));
+                }
+            }
+        }
+        out
+    };
+    struct Search<'a> {
+        causes: Causes<'a>,
+        open: BTreeSet<Node>,
+        closed: BTreeSet<Node>,
+        reported: BTreeSet<BTreeSet<Node>>,
+        out: Found,
+    }
+    impl Search<'_> {
+        fn visit(&mut self, node: &Node, trail: &mut Vec<Node>) {
+            self.open.insert(node.clone());
+            trail.push(node.clone());
+            for (next, where_) in (self.causes)(&node.0, &node.1) {
+                if self.open.contains(&next) {
+                    let at = trail.iter().position(|n| *n == next).unwrap_or(0);
+                    let mut ring = trail[at..].to_vec();
+                    ring.push(next);
+                    if self.reported.insert(ring.iter().cloned().collect()) {
+                        let names: Vec<String> =
+                            ring.iter().map(|(u, e)| format!("{u}.{e}")).collect();
+                        self.out.push(finding(
+                            where_,
+                            "names",
+                            format!(
+                                "a transition causes itself, by a call, a create or a cascade: {}; no transition may cause itself, on its own object or another (the model's check 12)",
+                                names.join(" → ")
+                            ),
+                        ));
+                    }
+                } else if !self.closed.contains(&next) {
+                    self.visit(&next, trail);
+                }
+            }
+            trail.pop();
+            self.open.remove(node);
+            self.closed.insert(node.clone());
+        }
+    }
+    let mut search = Search {
+        causes: &causes,
+        open: BTreeSet::new(),
+        closed: BTreeSet::new(),
+        reported: BTreeSet::new(),
+        out: Found::new(),
+    };
+    for (tn, t) in &module {
+        for xn in obj(t, "transitions").keys() {
+            let node = (tn.clone(), xn.clone());
+            if !search.open.contains(&node) && !search.closed.contains(&node) {
+                search.visit(&node, &mut Vec::new());
+            }
+        }
+    }
+    search.out
+}
+
 /// A composite end's cascade clauses name transitions of the whole and of
 /// the part, with the part's inputs, and every final transition of the whole
 /// is covered by a clause or survived, never both (check 37).
@@ -1163,19 +1308,17 @@ pub fn binders(library: &Obj, tn: &str, x: &Value, step_path: &[Seg]) -> Env {
 static CALL_ATTRIBUTE: LazyLock<Regex> = LazyLock::new(|| re(r"^(?:this\.)?([a-z][a-z0-9_]*)$"));
 static CALL_INPUT: LazyLock<Regex> = LazyLock::new(|| re(r"^inputs\.([a-z][a-z0-9_]*)$"));
 
-/// A call names a transition of its target's type that acts on an existing
-/// object, and passes its inputs.
-#[allow(clippy::too_many_arguments)]
-fn call_errors(
+/// The type of a call's target, read from an attribute, an input, or a path
+/// from either or from a loop's item, the loops' items typed by what they
+/// range over; none where it cannot be known, or is a set or no type known.
+fn call_target(
     library: &Obj,
-    where_: &Path,
     t: &Value,
     tn: &str,
-    xn: &str,
     x: &Value,
     c: &Value,
     env: &Env,
-) -> Found {
+) -> Option<String> {
     let target = squash(&c.get("target").map(py_str).unwrap_or_default());
     let mut spec: Option<Value> = None;
     if let Some(m) = CALL_ATTRIBUTE.captures(&target)
@@ -1200,7 +1343,24 @@ fn call_errors(
             .ok()
             .and_then(|tree| OptionalReads::new(library, tn, Some(x)).walk(&tree, env));
     }
-    let Some(k) = k.filter(|k| !k.ends_with("[]") && library.contains_key(k)) else {
+    k.filter(|k| !k.ends_with("[]") && library.contains_key(k))
+}
+
+/// A call names a transition of its target's type that acts on an existing
+/// object, and passes its inputs; a target whose type cannot be known is
+/// left to the publish checks.
+#[allow(clippy::too_many_arguments)]
+fn call_errors(
+    library: &Obj,
+    where_: &Path,
+    t: &Value,
+    tn: &str,
+    xn: &str,
+    x: &Value,
+    c: &Value,
+    env: &Env,
+) -> Found {
+    let Some(k) = call_target(library, t, tn, x, c, env) else {
         return Found::new();
     };
     let other = &library[&k];

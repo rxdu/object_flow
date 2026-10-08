@@ -10421,6 +10421,194 @@
   "analysed": {}
  },
  {
+  "label": "cascade_cycle_plants: a call back to the whole whose cascade reached the part",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "shop.yaml",
+    "7d54a246e864849d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "shop.yaml",
+    26,
+    "fatal",
+    "names",
+    "a transition causes itself, by a call, a create or a cascade: Order.finish → Line.drop → Order.finish; no transition may cause itself, on its own object or another (the model's check 12)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "cascade_cycle_plants: the same cycle closed twice, reported once",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "shop.yaml",
+    "21073cbd30e6ebcf"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "shop.yaml",
+    26,
+    "fatal",
+    "names",
+    "a transition causes itself, by a call, a create or a cascade: Order.finish → Line.drop → Order.finish; no transition may cause itself, on its own object or another (the model's check 12)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "cascade_cycle_plants: a call in a loop to the transition taking it",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "shop.yaml",
+    "1c625ece5a2eead7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "shop.yaml",
+    26,
+    "fatal",
+    "names",
+    "a transition causes itself, by a call, a create or a cascade: Line.drop → Line.drop; no transition may cause itself, on its own object or another (the model's check 12)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "cascade_cycle_plants: two cycles through one transition, each reported",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "shop.yaml",
+    "94f469c0884cc918"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "shop.yaml",
+    26,
+    "fatal",
+    "names",
+    "a transition causes itself, by a call, a create or a cascade: Line.drop → Line.drop; no transition may cause itself, on its own object or another (the model's check 12)"
+   ],
+   [
+    "shop.yaml",
+    26,
+    "fatal",
+    "names",
+    "a transition causes itself, by a call, a create or a cascade: Order.finish → Line.drop → Order.finish; no transition may cause itself, on its own object or another (the model's check 12)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "cascade_cycle_plants: a creation of the type creating",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "mini.yaml",
+    "c8c6483553efb1d0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "mini.yaml",
+    18,
+    "fatal",
+    "names",
+    "a transition causes itself, by a call, a create or a cascade: Job.open → Job.open; no transition may cause itself, on its own object or another (the model's check 12)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "cascade_cycle_plants: through a part an abstract base declares",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "fleet.yaml",
+    "3e04437607798d73"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "fleet.yaml",
+    34,
+    "fatal",
+    "names",
+    "a transition causes itself, by a call, a create or a cascade: Robot.retire → Piece.drop → Robot.retire; no transition may cause itself, on its own object or another (the model's check 12)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "cascade_cycle_plants: a cascade whose part causes nothing back",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "shop.yaml",
+    "97afa70ebc56409b"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Line": [
+    0,
+    0
+   ],
+   "Order": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  }
+ },
+ {
   "label": "syntax_plants",
   "files": [
    [

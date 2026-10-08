@@ -589,6 +589,70 @@ def relationship_errors(doc, library):
     return out
 
 
+def cascade_cycle_errors(doc, library):
+    """A transition causes others: by a `call` or a `create` among its effect's steps, a loop's included, and by a
+    cascade clause on it of a part its type gives, its own or one it inherits. Transitions MUST NOT cause each other
+    in a cycle, nor one cause itself, on its own object or another of its type (the model's check 12, ADR-0019). A
+    transition no type of the module declares is left to the checks that name it, and an imported module cannot
+    cause one of this module's, so no cycle passes through it. A cycle is reported at the step or the clause that
+    closes it, once for each set of transitions a cycle passes through."""
+    module = dict(types(doc))
+    kinds = dict(library or {})
+    kinds.update(module)
+
+    def declares(k, xn):
+        return k in module and xn in (module[k].get("transitions") or {})
+
+    def causes(tn, xn):
+        t = module[tn]
+        x = t["transitions"][xn]
+        out = []
+        for st, kind, path, _depth in walk(x.get("effect")):
+            where = ("types", tn, "transitions", xn, "effect") + path
+            if kind == "call":
+                k = call_target(kinds, t, tn, x, st["call"], binders(kinds, tn, x, path))
+                if declares(k, st["call"]["transition"]):
+                    out.append(((k, st["call"]["transition"]), where))
+            elif kind == "create" and declares(st["create"]["type"], st["create"]["transition"]):
+                out.append(((st["create"]["type"], st["create"]["transition"]), where))
+        parts = [(an, spec, spec.get("cascade") or [], ("types", tn, "attributes", an))
+                 for an, spec in (t.get("attributes") or {}).items() if spec.get("aggregation") == "composite"]
+        inherited = {an: spec for b in reversed(bases(tn, kinds)) for an, spec in (kinds[b].get("attributes") or {}).items()
+                     if spec.get("aggregation") == "composite"}
+        parts += [(an, inherited[an], (ip or {}).get("cascade") or [], ("types", tn, "inherited_parts", an))
+                  for an, ip in (t.get("inherited_parts") or {}).items() if an in inherited]
+        for _an, spec, clauses, here in parts:
+            part = str(spec.get("reference", "")).rstrip("[]")
+            for i, c in enumerate(clauses):
+                if xn in c["on"] and declares(part, c["transition"]):
+                    out.append(((part, c["transition"]), here + ("cascade", i)))
+        return out
+
+    out, state, reported = [], {}, set()
+
+    def visit(node, trail):
+        state[node] = "open"
+        trail.append(node)
+        for nxt, where in causes(*node):
+            if state.get(nxt) == "open":
+                ring = trail[trail.index(nxt):] + [nxt]
+                if frozenset(ring) not in reported:
+                    reported.add(frozenset(ring))
+                    out.append((where, "names", "a transition causes itself, by a call, a create or a cascade: "
+                                + " → ".join(f"{u}.{e}" for u, e in ring)
+                                + "; no transition may cause itself, on its own object or another (the model's check 12)"))
+            elif nxt not in state:
+                visit(nxt, trail)
+        trail.pop()
+        state[node] = "closed"
+
+    for tn, t in types(doc):
+        for xn in (t.get("transitions") or {}):
+            if (tn, xn) not in state:
+                visit((tn, xn), [])
+    return out
+
+
 def part_coverage(tn, t, an, target, part, clauses, survives, here, finals):
     """A composite end's cascade clauses name transitions of the whole and of the part, with the part's
     inputs, and every final transition of the whole is covered by a clause or survived, never both (check 37)."""
@@ -1011,7 +1075,8 @@ def reserved_name_errors(doc):
 def name_errors(doc, library=None, ordered=True):
     library = dict(library or {})
     library.update(dict(types(doc)))
-    out = (order_errors(doc) if ordered else []) + reserved_name_errors(doc) + relationship_errors(doc, library) + combined_errors(doc)
+    out = (order_errors(doc) if ordered else []) + reserved_name_errors(doc) + relationship_errors(doc, library) + combined_errors(doc) \
+        + cascade_cycle_errors(doc, library)
     for tn, t in types(doc):
         states = t.get("states") or {}
         attrs = t.get("attributes") or {}
@@ -1169,10 +1234,9 @@ def binders(library, tn, x, path):
     return env
 
 
-def call_errors(library, where, t, tn, xn, x, c, env=None):
-    """A call names a transition of its target's type that acts on an existing object, and passes its inputs. The
-    target's type is read from an attribute, an input, or a path from either or from a loop's item, the loops'
-    items typed by what they range over; a target whose type cannot be known is left to the publish checks."""
+def call_target(library, t, tn, x, c, env=None):
+    """The type of a call's target, read from an attribute, an input, or a path from either or from a loop's item,
+    the loops' items typed by what they range over; None where it cannot be known, or is a set or no type known."""
     target = " ".join(c["target"].split())
     spec = None
     m = re.fullmatch(r"(?:this\.)?([a-z][a-z0-9_]*)", target)
@@ -1187,7 +1251,14 @@ def call_errors(library, where, t, tn, xn, x, c, env=None):
             kind = OptionalReads(library, tn, x).walk(flowexpr.parse(target), dict(env or {}))
         except flowexpr.ParseError:
             kind = None                         # step 2 refuses what does not parse
-    if not kind or kind.endswith("[]") or kind not in library:
+    return None if not kind or kind.endswith("[]") or kind not in library else kind
+
+
+def call_errors(library, where, t, tn, xn, x, c, env=None):
+    """A call names a transition of its target's type that acts on an existing object, and passes its inputs; a
+    target whose type cannot be known is left to the publish checks."""
+    kind = call_target(library, t, tn, x, c, env)
+    if kind is None:
         return []
     other = library[kind]
     called = (other.get("transitions") or {}).get(c["transition"])
@@ -3917,6 +3988,43 @@ SYNTAX_PARTS = (
     '      start: { kind: initial, to: ACTIVE, required_inputs: [order], only_via: [Order.add_line] }\n'
     '      drop:  { kind: external, from: [ACTIVE], to: GONE }\n'
 )
+# a part an abstract base declares, which each robot gives its cascade (check 12's self-test)
+CYCLE_FLEET = (
+    'module: fleet\n'
+    'categories: [live, closed]\n'
+    'types:\n'
+    '  Asset:\n'
+    '    description: An asset.\n'
+    '    abstract: true\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      pieces: { reference: "Piece[]", opposite: asset, aggregation: composite }\n'
+    '  Robot:\n'
+    '    description: A robot.\n'
+    '    extends: Asset\n'
+    '    tracking: record\n'
+    '    inherited_parts:\n'
+    '      pieces: { cascade: [ { on: [retire], transition: drop, limit: 10 } ] }\n'
+    '    states:\n'
+    '      UP:   { category: live }\n'
+    '      GONE: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      make:   { kind: initial, to: UP }\n'
+    '      fit:    { kind: internal, from: [UP], effect: [ { create: { type: Piece, transition: fit, inputs: { asset: this, spare: this } } } ] }\n'
+    '      retire: { kind: external, from: [UP], to: GONE }\n'
+    '  Piece:\n'
+    '    description: A piece of an asset.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      asset: { reference: Asset, opposite: pieces }\n'
+    '      spare: { reference: Robot }\n'
+    '    states:\n'
+    '      IN:  { category: live }\n'
+    '      OUT: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      fit:  { kind: initial, to: IN, required_inputs: [asset, spare], only_via: [Robot.fit] }\n'
+    '      drop: { kind: external, from: [IN], to: OUT }\n'
+)
 SYNTAX_PAIR = (
     'module: pair\n'
     'categories: [live, closed]\n'
@@ -4869,6 +4977,56 @@ def cluster3_plants(people):
     return ok
 
 
+def cascade_cycle_plants(people):
+    """Transitions causing each other in a cycle are refused, each cycle once for the transitions it passes through,
+    at the step or the clause closing it (the model's check 12, ADR-0019): by a call back to the whole whose cascade
+    reached the part, by a call in a loop to the transition taking it, by a creation of the type creating, and through
+    a part an abstract base declares; and a cascade whose part causes nothing back is not."""
+    def p(text, old, new):
+        assert text.count(old) == 1, old
+        return text.replace(old, new, 1)
+
+    def ring(*names):
+        return ("a transition causes itself, by a call, a create or a cascade: " + " → ".join(names)
+                + "; no transition may cause itself, on its own object or another (the model's check 12)")
+
+    cascaded = p(SYNTAX_PARTS, "aggregation: composite, survives: true }",
+                 "aggregation: composite, cascade: [ { on: [finish], transition: drop, limit: 50 } ] }")
+    drop = "      drop:  { kind: external, from: [ACTIVE], to: GONE }\n"
+
+    def dropping(*steps):
+        return p(cascaded, drop, drop[:-3] + ", effect: [ " + ", ".join(steps) + " ] }\n")
+    back = "{ call: { target: order, transition: finish } }"
+    loop = "{ foreach: { item: l, array: order.lines, limit: 50, steps: [ { call: { target: l, transition: drop } } ] } }"
+    made = p(SYNTAX_MINI, "optional_inputs: [note] }",
+             "optional_inputs: [note], effect: [ { create: { type: Job, transition: open, inputs: { title: title } } } ] }")
+    retired = p(CYCLE_FLEET, "      drop: { kind: external, from: [IN], to: OUT }\n",
+                "      drop: { kind: external, from: [IN], to: OUT, effect: [ { call: { target: spare, transition: retire } } ] }\n")
+    cases = [
+        ("a call back to the whole whose cascade reached the part", "shop.yaml", dropping(back),
+         [("      drop:", ring("Order.finish", "Line.drop", "Order.finish"))]),
+        ("the same cycle closed twice, reported once", "shop.yaml", dropping(back, back),
+         [("      drop:", ring("Order.finish", "Line.drop", "Order.finish"))]),
+        ("a call in a loop to the transition taking it", "shop.yaml", dropping(loop),
+         [("      drop:", ring("Line.drop", "Line.drop"))]),
+        ("two cycles through one transition, each reported", "shop.yaml", dropping(back, loop),
+         [("      drop:", ring("Order.finish", "Line.drop", "Order.finish")), ("      drop:", ring("Line.drop", "Line.drop"))]),
+        ("a creation of the type creating", "mini.yaml", made, [("      open:", ring("Job.open", "Job.open"))]),
+        ("through a part an abstract base declares", "fleet.yaml", retired,
+         [("      drop:", ring("Robot.retire", "Piece.drop", "Robot.retire"))]),
+        ("a cascade whose part causes nothing back", "shop.yaml", cascaded, []),
+    ]
+    ok = True
+    for name, f, text, want in cases:
+        found, _ = check([("people.yaml", people), (f, text)])
+        lines = text.splitlines()
+        expected = [(f, next(i for i, l in enumerate(lines, 1) if l.startswith(at)), "fatal", "names", m) for at, m in want]
+        hit = sorted(found) == sorted(expected)
+        ok &= hit
+        print(f"  check 12, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
 def refusal_order_plant(people):
     """A request leaving out an input its transition requires, from a state the transition does not leave, is refused
     as unavailable, which DESIGN.md §6 orders before invalid_input; one expected to be refused later still is (D517)."""
@@ -5129,6 +5287,7 @@ def main():
     ok &= metric_more_plants(people)
     ok &= cluster3_plants(people)
     ok &= refusal_order_plant(people)
+    ok &= cascade_cycle_plants(people)
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:
