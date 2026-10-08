@@ -589,6 +589,68 @@ def relationship_errors(doc, library):
     return out
 
 
+def clock_read(e, spans=frozenset()):
+    """What an expression reads of the clock itself, or None: `now`; `time_in`, which counts a current span up to now;
+    or a span's `duration`, which does the same, in an aggregate over this object's intervals (declaration-syntax.md
+    §6.9, §8.3). `entered_at` reads when a value was entered, not the clock."""
+    if not isinstance(e, tuple) or not e or not isinstance(e[0], str):
+        return None
+    if e[0] == "name":
+        return "now" if e[1] == "now" else None
+    if e[0] == "call" and e[1] == ("name", "time_in"):
+        return "time_in"
+    if e[0] == "path" and e[2] == "duration" and e[1][0] == "name" and e[1][1] in spans:
+        return "a span's duration"
+    if e[0] == "agg" and e[3] is not None:
+        _, _fn, _distinct, var, coll, where, body = e
+        head = coll[1] if coll[0] == "call" else coll
+        inner = spans | {var} if head == ("path", ("name", "this"), "intervals") else spans - {var}
+        return clock_read(coll, spans) or clock_read(where, inner) or clock_read(body, inner)
+    if e[0] == "metric":                    # its binds are (dimension, expression) pairs, not nodes
+        return next((r for r in (clock_read(q, spans) for q in [e[1]] + [x for _d, x in e[2]] + [e[3], e[4]]) if r), None)
+    for part in e[1:]:
+        for q in (part if isinstance(part, list) else [part]):
+            found = clock_read(q, spans)
+            if found:
+                return found
+    return None
+
+
+def clock_errors(doc, library):
+    """An invariant MUST NOT read the clock, since the clock moves without a write and no check after one can enforce
+    it: `now`, `time_in` or a span's duration, or a derived attribute that does, of its own type or of another
+    reached through a path, however many derivations deep (the model's check 32, declaration-syntax.md §8.3). An
+    observation kind's invariants are check 54's, which refuses `now` among what a kind may not read."""
+    kinds = dict(library or {})
+    kinds.update(dict(types(doc)))
+
+    def why(tn, text, seen):
+        try:
+            tree = flowexpr.parse(text)
+        except flowexpr.ParseError:
+            return None                         # step 2 refuses what does not parse
+        direct = clock_read(tree)
+        if direct:
+            return {"now": "reads now, the clock", "time_in": "reads time_in, which counts to now",
+                    "a span's duration": "reads a span's duration, which a current span counts to now"}[direct]
+        walker = OptionalReads(kinds, tn)
+        walker.walk(tree, {})
+        for u, d in sorted(walker.derived):
+            if (u, d) not in seen and why(u, (kinds[u]["derived_attributes"][d] or {}).get("expression", ""), seen | {(u, d)}):
+                return f"reads {u}.{d}, a derived attribute that reads the clock"
+        return None
+
+    out = []
+    for tn, t in types(doc):
+        for i, spec in (t.get("invariants") or {}).items():
+            reason = why(tn, str((spec or {}).get("expression", "")), frozenset())
+            if reason:
+                out.append((("types", tn, "invariants", i, "expression"), "names",
+                            f"{tn}'s invariant '{i}' {reason}; the clock moves without a write, so no check after one "
+                            "can enforce it, and a rule about time is a guard (the model's check 32)"))
+    return out
+
+
 def cascade_cycle_errors(doc, library):
     """A transition causes others: by a `call` or a `create` among its effect's steps, a loop's included, and by a
     cascade clause on it of a part its type gives, its own or one it inherits. Transitions MUST NOT cause each other
@@ -1076,7 +1138,7 @@ def name_errors(doc, library=None, ordered=True):
     library = dict(library or {})
     library.update(dict(types(doc)))
     out = (order_errors(doc) if ordered else []) + reserved_name_errors(doc) + relationship_errors(doc, library) + combined_errors(doc) \
-        + cascade_cycle_errors(doc, library)
+        + cascade_cycle_errors(doc, library) + clock_errors(doc, library)
     for tn, t in types(doc):
         states = t.get("states") or {}
         attrs = t.get("attributes") or {}
@@ -2379,6 +2441,7 @@ class OptionalReads:
         required = [set((states.get(st) or {}).get("required_attributes") or []) for st in froms]
         self.present = set.intersection(*required) if required else set()
         self.reads, self.tested = {}, set()
+        self.derived = set()        # each derived attribute read, as (type, name), through any path whose type is known
 
     def untested(self, tree):
         """Each optional read the expression never tests, with why it may be absent."""
@@ -2405,6 +2468,8 @@ class OptionalReads:
             if spec.get("optional") and "default" not in spec and not (own and m in self.present):
                 self.reads.setdefault(key, f"{tn}.{m} is optional")
             return ref or None
+        if m in (t.get("derived_attributes") or {}):
+            self.derived.add((tn, m))
         if m in (t.get("derived_attributes") or {}) and (tn, m) not in self.derived_seen:
             inner = OptionalReads(self.lib, tn, derived_seen=self.derived_seen + ((tn, m),))
             why = inner.untested(flowexpr.parse(t["derived_attributes"][m]["expression"]))
@@ -4977,6 +5042,62 @@ def cluster3_plants(people):
     return ok
 
 
+def clock_plants(people):
+    """An invariant reading the clock is refused, saying how it reads it (the model's check 32, declaration-syntax.md
+    §8.3): `now`, `time_in`, a span's duration through a derivation, a derived attribute of its type, one through
+    another derivation, and one of another type reached through a path; an invariant reading `entered_at` and a
+    derivation that reads no clock is not."""
+    def p(text, old, new):
+        assert text.count(old) == 1, old
+        return text.replace(old, new, 1)
+
+    def mini(derived, invariants):
+        return p(SYNTAX_MINI, "    conditions:\n", "".join(
+            ["    derived_attributes:\n"] * bool(derived)
+            + [f"      {n}: {{ description: Derived., expression: \"{e}\" }}\n" for n, e in derived]
+            + ["    invariants:\n"]
+            + [f"      {n}: {{ description: An invariant., expression: \"{e}\" }}\n" for n, e in invariants]) + "    conditions:\n")
+
+    def refused(tn, i, reason):
+        return (f"{tn}'s invariant '{i}' {reason}; the clock moves without a write, so no check after one can enforce "
+                "it, and a rule about time is a guard (the model's check 32)")
+    stale = ("stale", "created_at + 30 days < now")
+    late = p(p(SYNTAX_PARTS,
+               "      DONE: { category: closed, final: true }\n    transitions:\n",
+               "      DONE: { category: closed, final: true }\n"
+               "    derived_attributes:\n      late: { description: Open past a day., expression: \"created_at + 1 day < now\" }\n"
+               "    transitions:\n"),
+             "      GONE:   { category: closed, final: true }\n",
+             "      GONE:   { category: closed, final: true }\n"
+             "    invariants:\n      on_time: { description: Its order is not late., expression: not order.late }\n")
+    cases = [
+        ("now", "mini.yaml", mini([], [("recent", "created_at <= now")]),
+         [refused("Job", "recent", "reads now, the clock")]),
+        ("time_in", "mini.yaml", mini([], [("brief", "time_in(OPEN) < 30 days")]),
+         [refused("Job", "brief", "reads time_in, which counts to now")]),
+        ("a span's duration through a derivation", "mini.yaml",
+         mini([("waited", "sum(i in this.intervals where i.state == OPEN: i.duration)")], [("short", "waited < 30 days")]),
+         [refused("Job", "short", "reads Job.waited, a derived attribute that reads the clock")]),
+        ("a derived attribute of its type", "mini.yaml", mini([stale], [("fresh", "not stale")]),
+         [refused("Job", "fresh", "reads Job.stale, a derived attribute that reads the clock")]),
+        ("one through another derivation", "mini.yaml",
+         mini([stale, ("urgent", "stale and note is null")], [("calm", "not urgent")]),
+         [refused("Job", "calm", "reads Job.urgent, a derived attribute that reads the clock")]),
+        ("one of another type through a path", "shop.yaml", late,
+         [refused("Line", "on_time", "reads Order.late, a derived attribute that reads the clock")]),
+        ("entered_at and a derivation reading no clock", "mini.yaml",
+         mini([("named", "title is not null")], [("entered", "entered_at(OPEN) >= created_at"), ("has_name", "named")]), []),
+    ]
+    ok = True
+    for name, f, text, want in cases:
+        found, _ = check([("people.yaml", people), (f, text)])
+        got = [x[4] for x in found if x[3] == "names" and "check 32" in x[4]]
+        hit = got == want and len(found) == len(want)
+        ok &= hit
+        print(f"  check 32, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
 def cascade_cycle_plants(people):
     """Transitions causing each other in a cycle are refused, each cycle once for the transitions it passes through,
     at the step or the clause closing it (the model's check 12, ADR-0019): by a call back to the whole whose cascade
@@ -5288,6 +5409,7 @@ def main():
     ok &= cluster3_plants(people)
     ok &= refusal_order_plant(people)
     ok &= cascade_cycle_plants(people)
+    ok &= clock_plants(people)
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:

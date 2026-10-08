@@ -10609,6 +10609,183 @@
   }
  },
  {
+  "label": "clock_plants: now",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "mini.yaml",
+    "1c4e748b8f5f3504"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "mini.yaml",
+    16,
+    "fatal",
+    "names",
+    "Job's invariant 'recent' reads now, the clock; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "clock_plants: time_in",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "mini.yaml",
+    "5c1ce7e125341f1d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "mini.yaml",
+    16,
+    "fatal",
+    "names",
+    "Job's invariant 'brief' reads time_in, which counts to now; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "clock_plants: a span's duration through a derivation",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "mini.yaml",
+    "1129b84d3334d532"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "mini.yaml",
+    18,
+    "fatal",
+    "names",
+    "Job's invariant 'short' reads Job.waited, a derived attribute that reads the clock; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "clock_plants: a derived attribute of its type",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "mini.yaml",
+    "c12199068d32bc73"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "mini.yaml",
+    18,
+    "fatal",
+    "names",
+    "Job's invariant 'fresh' reads Job.stale, a derived attribute that reads the clock; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "clock_plants: one through another derivation",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "mini.yaml",
+    "bcc2a37cedb3d886"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "mini.yaml",
+    19,
+    "fatal",
+    "names",
+    "Job's invariant 'calm' reads Job.urgent, a derived attribute that reads the clock; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "clock_plants: one of another type through a path",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "shop.yaml",
+    "e0f314dda0c3bd47"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "shop.yaml",
+    27,
+    "fatal",
+    "names",
+    "Line's invariant 'on_time' reads Order.late, a derived attribute that reads the clock; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "clock_plants: entered_at and a derivation reading no clock",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "mini.yaml",
+    "d61c27576b71665b"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Job": [
+    1,
+    1
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  }
+ },
+ {
   "label": "syntax_plants",
   "files": [
    [

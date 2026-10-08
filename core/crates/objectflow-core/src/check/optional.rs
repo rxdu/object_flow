@@ -40,6 +40,9 @@ pub struct OptionalReads<'l> {
     /// Each optional read, by the text it is matched on, with why.
     pub reads: BTreeMap<String, String>,
     pub tested: BTreeSet<String>,
+    /// Each derived attribute read, as (type, name), through any path whose
+    /// type is known.
+    pub derived: BTreeSet<(String, String)>,
 }
 
 impl<'l> OptionalReads<'l> {
@@ -84,6 +87,7 @@ impl<'l> OptionalReads<'l> {
             present,
             reads: BTreeMap::new(),
             tested: BTreeSet::new(),
+            derived: BTreeSet::new(),
         }
     }
 
@@ -141,6 +145,9 @@ impl<'l> OptionalReads<'l> {
             return (!reference.is_empty()).then_some(reference);
         }
         let seen = (tn.to_string(), m.to_string());
+        if obj(&t, "derived_attributes").contains_key(m) {
+            self.derived.insert(seen.clone());
+        }
         if let Some(d) = obj(&t, "derived_attributes").get(m)
             && !self.derived_seen.contains(&seen)
         {

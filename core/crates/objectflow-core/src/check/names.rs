@@ -235,6 +235,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
     out.extend(relationship_errors(doc, &library));
     out.extend(combined_errors(doc));
     out.extend(cascade_cycle_errors(doc, &library));
+    out.extend(clock_errors(doc, &library));
     let cats = categories(doc);
     let imported = imported(doc);
     for (tn, t) in types(doc) {
@@ -894,6 +895,112 @@ fn relationship_errors(doc: &Value, library: &Obj) -> Found {
                 &segs!["types", &tn, "inherited_parts", an],
                 &finals,
             ));
+        }
+    }
+    out
+}
+
+/// What an expression reads of the clock itself: `now`; `time_in`, which
+/// counts a current span up to now; or a span's `duration`, which does the
+/// same, in an aggregate over this object's intervals (`declaration-syntax.md`
+/// §6.9, §8.3). `entered_at` reads when a value was entered, not the clock
+/// (`check-flows.py`'s `clock_read`).
+fn clock_read(e: &Expr, spans: &BTreeSet<String>) -> Option<&'static str> {
+    match e {
+        Expr::Name(n) => (n == "now").then_some("now"),
+        Expr::Call(f, _) if matches!(&**f, Expr::Name(n) if n == "time_in") => Some("time_in"),
+        Expr::Path(b, m)
+            if m == "duration" && matches!(&**b, Expr::Name(n) if spans.contains(n)) =>
+        {
+            Some("a span's duration")
+        }
+        Expr::Agg {
+            var: Some(var),
+            collection: Some(coll),
+            filter,
+            body,
+            ..
+        } => {
+            let head = match &**coll {
+                Expr::Call(f, _) => &**f,
+                other => other,
+            };
+            let over_spans = matches!(head, Expr::Path(b, m)
+                if m == "intervals" && matches!(&**b, Expr::Name(n) if n == "this"));
+            let mut inner = spans.clone();
+            if over_spans {
+                inner.insert(var.clone());
+            } else {
+                inner.remove(var);
+            }
+            clock_read(coll, spans)
+                .or_else(|| filter.as_deref().and_then(|w| clock_read(w, &inner)))
+                .or_else(|| body.as_deref().and_then(|b| clock_read(b, &inner)))
+        }
+        _ => children(e).into_iter().find_map(|c| clock_read(c, spans)),
+    }
+}
+
+/// An invariant MUST NOT read the clock, since the clock moves without a
+/// write and no check after one can enforce it: `now`, `time_in` or a span's
+/// duration, or a derived attribute that does, of its own type or of another
+/// reached through a path, however many derivations deep (the model's check
+/// 32, `declaration-syntax.md` §8.3). An observation kind's invariants are
+/// check 54's (`check-flows.py`'s `clock_errors`).
+fn clock_errors(doc: &Value, library: &Obj) -> Found {
+    let mut kinds = library.clone();
+    for (tn, t) in types(doc) {
+        kinds.insert(tn, t.clone());
+    }
+    fn why(
+        kinds: &Obj,
+        tn: &str,
+        source: &str,
+        seen: &BTreeSet<(String, String)>,
+    ) -> Option<String> {
+        // step 2 refuses what does not parse
+        let tree = parse(source).ok()?;
+        if let Some(direct) = clock_read(&tree, &BTreeSet::new()) {
+            return Some(
+                match direct {
+                    "now" => "reads now, the clock",
+                    "time_in" => "reads time_in, which counts to now",
+                    _ => "reads a span's duration, which a current span counts to now",
+                }
+                .to_string(),
+            );
+        }
+        let mut walker = OptionalReads::new(kinds, tn, None);
+        walker.walk(&tree, &Env::new());
+        walker.derived.iter().find_map(|(u, d)| {
+            let pair = (u.clone(), d.clone());
+            if seen.contains(&pair) {
+                return None;
+            }
+            let mut deeper = seen.clone();
+            deeper.insert(pair);
+            let expr = obj(&kinds[u.as_str()], "derived_attributes")
+                .get(d)
+                .and_then(|s| text(s, "expression"))
+                .unwrap_or_default()
+                .to_string();
+            why(kinds, u, &expr, &deeper)
+                .map(|_| format!("reads {u}.{d}, a derived attribute that reads the clock"))
+        })
+    }
+    let mut out = Found::new();
+    for (tn, t) in types(doc) {
+        for (i, spec) in obj(t, "invariants") {
+            let expr = text(spec, "expression").unwrap_or_default().to_string();
+            if let Some(reason) = why(&kinds, &tn, &expr, &BTreeSet::new()) {
+                out.push(finding(
+                    segs!["types", &tn, "invariants", i, "expression"],
+                    "names",
+                    format!(
+                        "{tn}'s invariant '{i}' {reason}; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
+                    ),
+                ));
+            }
         }
     }
     out
