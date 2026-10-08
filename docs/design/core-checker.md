@@ -28,7 +28,7 @@ Each check is one of four kinds. A *model* check refuses a declaration whatever 
 | 3 | derived attributes in a cycle | model | step 3 | C1 |
 | 4 | *withdrawn* (ADR-0171) | withdrawn | — | — |
 | 5 | an invariant of none of the three forms | model | step 3, an invariant reading `inputs` or `this_event` (2026-10-08), every other read of no form having a check of its own; the report's form, both checkers' classification, carried into both reports (2026-10-08) | C1 |
-| 6 | a type-scan invariant failing the swap test | model | neither | — |
+| 6 | a type-scan invariant failing the swap test | model | step 3 (2026-10-08) | C1 |
 | 7 | a scan reading what is not indexed; `indexed` on a stored end | model | step 3; the text checker, the marking | C1; C2 |
 | 8 | a creation that never writes a required attribute or fills a required part | model | the text checker | C2 |
 | 9 | a required attribute marked personal | model | step 3 | C1 |

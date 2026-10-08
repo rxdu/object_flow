@@ -589,6 +589,188 @@ def relationship_errors(doc, library):
     return out
 
 
+def swap_members(t):
+    """The members of a type the swap test exchanges: its attributes, derived attributes and observations, and what
+    every object has, `state` and `referrers` among them."""
+    return (set(t.get("attributes") or {}) | set(t.get("derived_attributes") or {}) | set(t.get("observations") or {})
+            | OBJECT_MEMBERS | {"state", "referrers"})
+
+
+def inline_derived(e, t, seen=frozenset()):
+    """An expression with each derived attribute of its own object it reads, by its name or through `this`, replaced
+    by that attribute's expression, however deep."""
+    if not isinstance(e, tuple) or not e or not isinstance(e[0], str):
+        return e
+    derived = t.get("derived_attributes") or {}
+    name = e[1] if e[0] == "name" else e[2] if e[0] == "path" and e[1] == ("name", "this") else None
+    if isinstance(name, str) and name in derived and name not in seen:
+        return inline_derived(flowexpr.parse(str((derived[name] or {}).get("expression", ""))), t, seen | {name})
+    if e[0] == "agg":
+        _, fn, distinct, var, coll, where, body = e
+        inner = seen | ({var} if var else set())      # a bound name is not a member
+        return ("agg", fn, distinct, var, inline_derived(coll, t, seen), inline_derived(where, t, inner),
+                inline_derived(body, t, inner))
+    if e[0] == "metric":
+        return ("metric", inline_derived(e[1], t, seen), [(d, inline_derived(x, t, seen)) for d, x in e[2]],
+                inline_derived(e[3], t, seen), inline_derived(e[4], t, seen))
+    return (e[0],) + tuple([inline_derived(q, t, seen) for q in p] if isinstance(p, list) else inline_derived(p, t, seen)
+                           for p in e[1:])
+
+
+def swapped(e, var, members, bound=frozenset()):
+    """An expression with the object it is evaluated on and the scan's bound object exchanged: `this` and the
+    bound name, and each member read on one, read on the other (declaration-syntax.md §3.4)."""
+    if not isinstance(e, tuple) or not e or not isinstance(e[0], str):
+        return e
+    if e[0] == "name":
+        n = e[1]
+        if n == "this":
+            return ("name", var)
+        if n == var and var in bound:
+            return ("name", "this")
+        if n in members and n not in bound:
+            return ("path", ("name", var), n)
+        return e
+    if e[0] == "agg":
+        _, fn, distinct, var2, coll, where, body = e
+        inner = bound | ({var2} if var2 else set())
+        return ("agg", fn, distinct, var2, swapped(coll, var, members, bound), swapped(where, var, members, inner),
+                swapped(body, var, members, inner))
+    if e[0] == "metric":
+        return ("metric", swapped(e[1], var, members, bound), [(d, swapped(x, var, members, bound)) for d, x in e[2]],
+                swapped(e[3], var, members, bound), swapped(e[4], var, members, bound))
+    return (e[0],) + tuple([swapped(q, var, members, bound) for q in p] if isinstance(p, list) else swapped(p, var, members, bound)
+                           for p in e[1:])
+
+
+def normalised(e):
+    """An expression under the swap test's four normalisations and no other (declaration-syntax.md §3.4, ADR-0063):
+    the conjuncts of an `and` as a set, `==` and `!=` whatever their operands' order, `<`, `>`, `<=` and `>=` whatever
+    their direction, and a member of `this` whatever its spelling."""
+    if not isinstance(e, tuple) or not e or not isinstance(e[0], str):
+        return e
+    if e[0] == "path" and e[1] == ("name", "this"):
+        return ("name", e[2])
+    if e[0] == "bin" and e[1] == "and":
+        conjuncts, todo = [], [e]
+        while todo:
+            x = todo.pop()
+            if isinstance(x, tuple) and x[:2] == ("bin", "and"):
+                todo += [x[2], x[3]]
+            else:
+                conjuncts.append(normalised(x))
+        return ("and", frozenset(conjuncts))
+    if e[0] == "bin" and e[1] in ("==", "!="):
+        return (e[1], frozenset([normalised(e[2]), normalised(e[3])]))
+    if e[0] == "bin" and e[1] in (">", ">="):
+        return ("bin", {">": "<", ">=": "<="}[e[1]], normalised(e[3]), normalised(e[2]))
+    if e[0] == "metric":
+        return ("metric", normalised(e[1]), tuple((d, normalised(x)) for d, x in e[2]), normalised(e[3]), normalised(e[4]))
+    return (e[0],) + tuple(tuple(normalised(q) for q in p) if isinstance(p, list) else normalised(p) for p in e[1:])
+
+
+def sides(e, var, members, bound=frozenset()):
+    """The members an expression reads on the scan's bound object and on its own, as two sets."""
+    on_var, on_this = set(), set()
+
+    def walk(x, bound):
+        if not isinstance(x, tuple) or not x or not isinstance(x[0], str):
+            return
+        if x[0] == "path" and x[1] == ("name", var) and var in bound:
+            on_var.add(x[2])
+            return
+        if x[0] == "path" and x[1] == ("name", "this"):
+            on_this.add(x[2])
+            return
+        if x[0] == "name":
+            if x[1] in members and x[1] not in bound:
+                on_this.add(x[1])
+            return
+        if x[0] == "agg":
+            _, _fn, _d, var2, coll, where, body = x
+            walk(coll, bound)
+            for q in (where, body):
+                walk(q, bound | ({var2} if var2 else set()))
+            return
+        if x[0] == "metric":
+            for q in [x[1]] + [y for _d, y in x[2]] + [x[3], x[4]]:
+                walk(q, bound)
+            return
+        for p in x[1:]:
+            for q in (p if isinstance(p, list) else [p]):
+                walk(q, bound)
+    walk(e, bound)
+    return on_var, on_this
+
+
+def scans(e, lib, bound=frozenset()):
+    """Each type scan in an expression, as (its bound name, the type, its `where`), outermost first."""
+    out = []
+    if not isinstance(e, tuple) or not e or not isinstance(e[0], str):
+        return out
+    if e[0] == "agg":
+        _, _fn, _d, var, coll, where, body = e
+        if var and coll and coll[0] == "name" and coll[1] in lib and coll[1] not in bound:
+            out.append((var, coll[1], where))
+        out += scans(coll, lib, bound)
+        for q in (where, body):
+            out += scans(q, lib, bound | ({var} if var else set()))
+        return out
+    if e[0] == "metric":
+        for q in [e[1]] + [y for _d, y in e[2]] + [e[3], e[4]]:
+            out += scans(q, lib, bound)
+        return out
+    for p in e[1:]:
+        for q in (p if isinstance(p, list) else [p]):
+            out += scans(q, lib, bound)
+    return out
+
+
+def symmetry_errors(doc, library):
+    """A type-scan invariant MUST be symmetric, its verdict the same whichever of the objects it relates is written,
+    decided by the swap test of declaration-syntax.md §3.4 over the whole invariant, its own derived attributes read as
+    their expressions: exchange `this` and each scan's bound object, and each member read on one with the same read on
+    the other, and require the same predicate back under the four normalisations and no other (ADR-0063). A member of
+    the object read outside the scan has no counterpart, so it is a member read on one side only, which the finding
+    names. And a scan MUST NOT exclude the object itself, by its id or by `this`, which it never ranges over (ADR-0061)
+    (the model's check 6)."""
+    kinds = dict(library or {})
+    kinds.update(dict(types(doc)))
+    out = []
+    for tn, t in types(doc):
+        members = swap_members(t)
+        for i, spec in (t.get("invariants") or {}).items():
+            where_ = ("types", tn, "invariants", i, "expression")
+            try:
+                tree = inline_derived(flowexpr.parse(str((spec or {}).get("expression", ""))), t)
+            except flowexpr.ParseError:
+                continue                            # step 2 refuses what does not parse
+            for var, scanned, condition in scans(tree, kinds):
+                conjuncts, todo = [], [condition] if condition is not None else []
+                while todo:
+                    x = todo.pop()
+                    if isinstance(x, tuple) and x[:2] == ("bin", "and"):
+                        todo += [x[2], x[3]]
+                    else:
+                        conjuncts.append(normalised(x))
+                selves = [frozenset([("path", ("name", var), "id"), ("name", "id")]), frozenset([("name", var), ("name", "this")])]
+                if any(c[0] == "!=" and c[1] in selves for c in conjuncts if isinstance(c, tuple) and len(c) == 2):
+                    out.append((where_, "names", f"{tn}'s invariant '{i}' excludes the object itself from its scan of "
+                                                 f"{scanned}, which never ranges over it (the model's check 6)"))
+                    continue
+                if normalised(swapped(tree, var, members)) == normalised(tree):
+                    continue
+                on_var, on_this = sides(tree, var, members)
+                one_sided = sorted(on_var ^ on_this)
+                why = (f"it reads {', '.join(one_sided)} of one of the two objects only, so its verdict depends on which "
+                       "is written" if one_sided else
+                       "with the two objects exchanged its predicate is not the one written, under the four "
+                       "normalisations of the swap test")
+                out.append((where_, "names", f"{tn}'s invariant '{i}' scans {scanned} and is not symmetric: {why} "
+                                             "(the model's check 6)"))
+    return out
+
+
 def invariant_form(kinds, tn, text, seen=frozenset()):
     """An invariant's form, which a publish report states (declaration-syntax.md §3.4, ADR-0055, ADR-0171):
     `type_scan` where it ranges over a type by name, else `traversal` where it reads through a reference or over
@@ -1337,7 +1519,7 @@ def name_errors(doc, library=None, ordered=True):
     library.update(dict(types(doc)))
     out = (order_errors(doc) if ordered else []) + reserved_name_errors(doc) + relationship_errors(doc, library) + combined_errors(doc) \
         + cascade_cycle_errors(doc, library) + clock_errors(doc, library) + personal_errors(doc, library) \
-        + reparent_errors(doc, library)
+        + reparent_errors(doc, library) + symmetry_errors(doc, library)
     for tn, t in types(doc):
         states = t.get("states") or {}
         attrs = t.get("attributes") or {}
@@ -4486,6 +4668,40 @@ INVARIANT_FORMS = (
     '      close:  { kind: external, from: [OPEN], to: DONE }\n'
     '      forget: { kind: erasure, inputs: { reason: { type: ErasureReason } } }\n'
 )
+# bookings of a room, whose one invariant check 6's self-test replaces
+SYMMETRY_DESK = (
+    'module: desk\n'
+    'categories: [live, closed]\n'
+    'types:\n'
+    '  Room:\n'
+    '    description: A room.\n'
+    '    tracking: record\n'
+    '    states:\n'
+    '      FREE: { category: live }\n'
+    '      GONE: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      make: { kind: initial, to: FREE }\n'
+    '      drop: { kind: external, from: [FREE], to: GONE }\n'
+    '  Booking:\n'
+    '    description: A booking of a room.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      room:   { reference: Room }\n'
+    '      starts: { type: timestamp, indexed: true }\n'
+    '      ends:   { type: timestamp, indexed: true }\n'
+    '      cap:    { type: int, optional: true }\n'
+    '    states:\n'
+    '      HELD: { category: live }\n'
+    '      DONE: { category: closed, final: true }\n'
+    '    derived_attributes:\n'
+    '      same_room:   { description: Other bookings of its room., expression: count(b in Booking where b.room == room) }\n'
+    '      others_held: { description: Other held bookings of its room., expression: count(b in Booking where b.room == room and b.open) }\n'
+    '    invariants:\n'
+    '      probe: { description: A probe., expression: none(b in Booking where b.room == room and b.starts < ends and b.ends > starts and b.open and open) }\n'
+    '    transitions:\n'
+    '      book:   { kind: initial, to: HELD, required_inputs: [room, starts, ends], optional_inputs: [cap] }\n'
+    '      finish: { kind: external, from: [HELD], to: DONE }\n'
+)
 SYNTAX_PAIR = (
     'module: pair\n'
     'categories: [live, closed]\n'
@@ -5438,6 +5654,51 @@ def cluster3_plants(people):
     return ok
 
 
+def symmetry_plants(people):
+    """A type-scan invariant is symmetric by the swap test of declaration-syntax.md §3.4, or refused naming the member
+    read on one of the two objects only (the model's check 6, ADR-0061, ADR-0063): an overlap with its status filter on
+    both objects, an unfiltered count and a derivation over a symmetric scan pass; a status filter on one object, a
+    condition on the object outside the scan, a count bounded by its own member, an overlap with a direction wrong, a
+    derivation over an asymmetric scan, and a scan excluding the object itself, by its id or by `this`, are refused."""
+    probe = ("none(b in Booking where b.room == room and b.starts < ends and b.ends > starts and b.open and open)")
+
+    def desk(expr):
+        assert SYMMETRY_DESK.count(probe) == 1
+        return SYMMETRY_DESK.replace(probe, expr)
+
+    def asymmetric(members):
+        why = (f"it reads {members} of one of the two objects only, so its verdict depends on which is written" if members
+               else "with the two objects exchanged its predicate is not the one written, under the four normalisations "
+                    "of the swap test")
+        return f"Booking's invariant 'probe' scans Booking and is not symmetric: {why} (the model's check 6)"
+    excluded = "Booking's invariant 'probe' excludes the object itself from its scan of Booking, which never ranges over it (the model's check 6)"
+    cases = [
+        ("an overlap filtered on both objects", probe, []),
+        ("an unfiltered count", "count(b in Booking) < 1000", []),
+        ("a derivation over a symmetric scan", "same_room < 3", []),
+        ("a status filter on one object", "none(b in Booking where b.room == room and b.open)", [asymmetric("open")]),
+        ("a condition on the object outside the scan", "open implies none(b in Booking where b.room == room)",
+         [asymmetric("open")]),
+        ("a count bounded by its own member", "cap is null or count(b in Booking where b.room == room) < cap",
+         [asymmetric("cap")]),
+        ("an overlap with a direction wrong", "none(b in Booking where b.room == room and b.starts < ends and b.ends < starts)",
+         [asymmetric("")]),
+        ("a derivation over an asymmetric scan", "others_held < 3", [asymmetric("open")]),
+        ("a scan excluding the object by its id", "none(b in Booking where b.room == room and b.id != id)", [excluded]),
+        ("a scan excluding the object as this", "none(b in Booking where b.room == room and b != this)", [excluded]),
+    ]
+    ok = True
+    for name, expr, want in cases:
+        text = desk(expr)
+        found, _ = check([("people.yaml", people), ("desk.yaml", text)])
+        line = next(i for i, l in enumerate(text.splitlines(), 1) if l.startswith("      probe:"))
+        expected = [("desk.yaml", line, "fatal", "names", m) for m in want]
+        hit = sorted(found) == sorted(expected)
+        ok &= hit
+        print(f"  check 6, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
 def invariant_form_plants(people):
     """Each invariant a type declares is reported by its form (declaration-syntax.md §3.4, ADR-0055, ADR-0171): local
     over its own members and a derivation over them; traversal through a reference, over `referrers`, and through a
@@ -6049,6 +6310,7 @@ def main():
     ok &= reparent_plants(people)
     ok &= invariant_read_plants(people)
     ok &= invariant_form_plants(people)
+    ok &= symmetry_plants(people)
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:

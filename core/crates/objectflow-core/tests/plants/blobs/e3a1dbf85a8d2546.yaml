@@ -1,0 +1,31 @@
+module: desk
+categories: [live, closed]
+types:
+  Room:
+    description: A room.
+    tracking: record
+    states:
+      FREE: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      make: { kind: initial, to: FREE }
+      drop: { kind: external, from: [FREE], to: GONE }
+  Booking:
+    description: A booking of a room.
+    tracking: record
+    attributes:
+      room:   { reference: Room }
+      starts: { type: timestamp, indexed: true }
+      ends:   { type: timestamp, indexed: true }
+      cap:    { type: int, optional: true }
+    states:
+      HELD: { category: live }
+      DONE: { category: closed, final: true }
+    derived_attributes:
+      same_room:   { description: Other bookings of its room., expression: count(b in Booking where b.room == room) }
+      others_held: { description: Other held bookings of its room., expression: count(b in Booking where b.room == room and b.open) }
+    invariants:
+      probe: { description: A probe., expression: same_room < 3 }
+    transitions:
+      book:   { kind: initial, to: HELD, required_inputs: [room, starts, ends], optional_inputs: [cap] }
+      finish: { kind: external, from: [HELD], to: DONE }

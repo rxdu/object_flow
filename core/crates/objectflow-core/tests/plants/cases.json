@@ -12109,6 +12109,315 @@
   }
  },
  {
+  "label": "symmetry_plants: an overlap filtered on both objects",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "desk.yaml",
+    "28652e1c89566d17"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Booking": [
+    0,
+    0
+   ],
+   "Room": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Booking.probe": "type_scan"
+  }
+ },
+ {
+  "label": "symmetry_plants: an unfiltered count",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "desk.yaml",
+    "b15ea0f3f9ce4e5c"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Booking": [
+    0,
+    0
+   ],
+   "Room": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Booking.probe": "type_scan"
+  }
+ },
+ {
+  "label": "symmetry_plants: a derivation over a symmetric scan",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "desk.yaml",
+    "e3a1dbf85a8d2546"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Booking": [
+    0,
+    0
+   ],
+   "Room": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Booking.probe": "type_scan"
+  }
+ },
+ {
+  "label": "symmetry_plants: a status filter on one object",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "desk.yaml",
+    "df0aa6bd5eff5a41"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desk.yaml",
+    28,
+    "fatal",
+    "names",
+    "Booking's invariant 'probe' scans Booking and is not symmetric: it reads open of one of the two objects only, so its verdict depends on which is written (the model's check 6)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Booking.probe": "type_scan"
+  }
+ },
+ {
+  "label": "symmetry_plants: a condition on the object outside the scan",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "desk.yaml",
+    "c6fcda3af4826cc0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desk.yaml",
+    28,
+    "fatal",
+    "names",
+    "Booking's invariant 'probe' scans Booking and is not symmetric: it reads open of one of the two objects only, so its verdict depends on which is written (the model's check 6)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Booking.probe": "type_scan"
+  }
+ },
+ {
+  "label": "symmetry_plants: a count bounded by its own member",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "desk.yaml",
+    "9eba1073dbac177f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desk.yaml",
+    28,
+    "fatal",
+    "names",
+    "Booking's invariant 'probe' scans Booking and is not symmetric: it reads cap of one of the two objects only, so its verdict depends on which is written (the model's check 6)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Booking.probe": "type_scan"
+  }
+ },
+ {
+  "label": "symmetry_plants: an overlap with a direction wrong",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "desk.yaml",
+    "e8a6cb2a65d4da7d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desk.yaml",
+    28,
+    "fatal",
+    "names",
+    "Booking's invariant 'probe' scans Booking and is not symmetric: with the two objects exchanged its predicate is not the one written, under the four normalisations of the swap test (the model's check 6)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Booking.probe": "type_scan"
+  }
+ },
+ {
+  "label": "symmetry_plants: a derivation over an asymmetric scan",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "desk.yaml",
+    "b6010926c3dfddc7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desk.yaml",
+    28,
+    "fatal",
+    "names",
+    "Booking's invariant 'probe' scans Booking and is not symmetric: it reads open of one of the two objects only, so its verdict depends on which is written (the model's check 6)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Booking.probe": "type_scan"
+  }
+ },
+ {
+  "label": "symmetry_plants: a scan excluding the object by its id",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "desk.yaml",
+    "d66042520c7fc9d1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desk.yaml",
+    28,
+    "fatal",
+    "names",
+    "Booking's invariant 'probe' excludes the object itself from its scan of Booking, which never ranges over it (the model's check 6)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Booking.probe": "type_scan"
+  }
+ },
+ {
+  "label": "symmetry_plants: a scan excluding the object as this",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "desk.yaml",
+    "3d5b26472fad57ba"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desk.yaml",
+    28,
+    "fatal",
+    "names",
+    "Booking's invariant 'probe' excludes the object itself from its scan of Booking, which never ranges over it (the model's check 6)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Booking.probe": "type_scan"
+  }
+ },
+ {
   "label": "syntax_plants",
   "files": [
    [

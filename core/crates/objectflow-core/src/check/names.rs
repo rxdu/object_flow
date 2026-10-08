@@ -238,6 +238,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
     out.extend(clock_errors(doc, &library));
     out.extend(personal_errors(doc, &library));
     out.extend(reparent_errors(doc, &library));
+    out.extend(symmetry_errors(doc, &library));
     let cats = categories(doc);
     let imported = imported(doc);
     for (tn, t) in types(doc) {
@@ -897,6 +898,437 @@ fn relationship_errors(doc: &Value, library: &Obj) -> Found {
                 &segs!["types", &tn, "inherited_parts", an],
                 &finals,
             ));
+        }
+    }
+    out
+}
+
+/// An expression with each child rebuilt by `f`, the rest as it was.
+fn map_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
+    let mut b = |x: &Expr| Box::new(f(x));
+    match e {
+        Expr::Num(_)
+        | Expr::Str(_)
+        | Expr::Bool(_)
+        | Expr::Dur(..)
+        | Expr::Money(..)
+        | Expr::Name(_) => e.clone(),
+        Expr::Path(base, m) => Expr::Path(b(base), m.clone()),
+        Expr::Call(func, args) => {
+            let func = b(func);
+            Expr::Call(func, args.iter().map(|a| *b(a)).collect())
+        }
+        Expr::Agg {
+            kind,
+            distinct,
+            var,
+            collection,
+            filter,
+            body,
+        } => Expr::Agg {
+            kind: kind.clone(),
+            distinct: *distinct,
+            var: var.clone(),
+            collection: collection.as_deref().map(&mut b),
+            filter: filter.as_deref().map(&mut b),
+            body: body.as_deref().map(&mut b),
+        },
+        Expr::Metric {
+            name,
+            binds,
+            over,
+            fresh,
+        } => {
+            let name = b(name);
+            let binds = binds.iter().map(|(d, x)| (d.clone(), *b(x))).collect();
+            Expr::Metric {
+                name,
+                binds,
+                over: over.as_deref().map(&mut b),
+                fresh: fresh.as_deref().map(&mut b),
+            }
+        }
+        Expr::Changed(names, ev) => Expr::Changed(names.clone(), b(ev)),
+        Expr::Set(items) => Expr::Set(items.iter().map(|x| *b(x)).collect()),
+        Expr::Not(x) => Expr::Not(b(x)),
+        Expr::Neg(x) => Expr::Neg(b(x)),
+        Expr::IsNull(x, neg) => Expr::IsNull(b(x), *neg),
+        Expr::In(l, r) => {
+            let l = b(l);
+            Expr::In(l, b(r))
+        }
+        Expr::Bin(op, l, r) => {
+            let l = b(l);
+            Expr::Bin(*op, l, b(r))
+        }
+        Expr::If(c, t, e2) => {
+            let c = b(c);
+            let t = b(t);
+            Expr::If(c, t, b(e2))
+        }
+    }
+}
+
+/// The members of a type the swap test exchanges: its attributes, derived
+/// attributes and observations, and what every object has, `state` and
+/// `referrers` among them (`check-flows.py`'s `swap_members`).
+fn swap_members(t: &Value) -> BTreeSet<String> {
+    let mut out: BTreeSet<String> = keys(t, "attributes").into_iter().collect();
+    out.extend(keys(t, "derived_attributes"));
+    out.extend(keys(t, "observations"));
+    out.extend(OBJECT_MEMBERS.iter().map(|s| s.to_string()));
+    out.extend(["state".to_string(), "referrers".to_string()]);
+    out
+}
+
+/// An expression with each derived attribute of its own object it reads, by
+/// its name or through `this`, replaced by that attribute's expression,
+/// however deep (`check-flows.py`'s `inline_derived`).
+fn inline_derived(e: &Expr, t: &Value, seen: &BTreeSet<String>) -> Expr {
+    let name = match e {
+        Expr::Name(n) => Some(n),
+        Expr::Path(base, n) if matches!(&**base, Expr::Name(b) if b == "this") => Some(n),
+        _ => None,
+    };
+    if let Some(n) = name
+        && !seen.contains(n)
+        && let Some(spec) = obj(t, "derived_attributes").get(n)
+        && let Ok(tree) = parse(&spec.get("expression").map(py_str).unwrap_or_default())
+    {
+        let mut deeper = seen.clone();
+        deeper.insert(n.clone());
+        return inline_derived(&tree, t, &deeper);
+    }
+    if let Expr::Agg {
+        kind,
+        distinct,
+        var,
+        collection,
+        filter,
+        body,
+    } = e
+    {
+        // a bound name is not a member
+        let mut inner = seen.clone();
+        inner.extend(var.iter().cloned());
+        return Expr::Agg {
+            kind: kind.clone(),
+            distinct: *distinct,
+            var: var.clone(),
+            collection: collection
+                .as_deref()
+                .map(|c| Box::new(inline_derived(c, t, seen))),
+            filter: filter
+                .as_deref()
+                .map(|x| Box::new(inline_derived(x, t, &inner))),
+            body: body
+                .as_deref()
+                .map(|x| Box::new(inline_derived(x, t, &inner))),
+        };
+    }
+    map_children(e, &mut |c| inline_derived(c, t, seen))
+}
+
+/// An expression with the object it is evaluated on and the scan's bound
+/// object exchanged: `this` and the bound name, and each member read on one,
+/// read on the other (`declaration-syntax.md` §3.4; `check-flows.py`'s
+/// `swapped`).
+fn swapped(e: &Expr, var: &str, members: &BTreeSet<String>, bound: &BTreeSet<String>) -> Expr {
+    match e {
+        Expr::Name(n) if n == "this" => Expr::Name(var.to_string()),
+        Expr::Name(n) if n == var && bound.contains(var) => Expr::Name("this".into()),
+        Expr::Name(n) if members.contains(n) && !bound.contains(n) => {
+            Expr::Path(Box::new(Expr::Name(var.to_string())), n.clone())
+        }
+        Expr::Agg {
+            kind,
+            distinct,
+            var: v2,
+            collection,
+            filter,
+            body,
+        } => {
+            let mut inner = bound.clone();
+            inner.extend(v2.iter().cloned());
+            Expr::Agg {
+                kind: kind.clone(),
+                distinct: *distinct,
+                var: v2.clone(),
+                collection: collection
+                    .as_deref()
+                    .map(|c| Box::new(swapped(c, var, members, bound))),
+                filter: filter
+                    .as_deref()
+                    .map(|x| Box::new(swapped(x, var, members, &inner))),
+                body: body
+                    .as_deref()
+                    .map(|x| Box::new(swapped(x, var, members, &inner))),
+            }
+        }
+        _ => map_children(e, &mut |c| swapped(c, var, members, bound)),
+    }
+}
+
+/// An expression under the swap test's four normalisations and no other,
+/// comparable for equality and ordered so a conjunction is a set.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Canon {
+    Leaf(String),
+    Node(String, Vec<Canon>),
+    Set(String, BTreeSet<Canon>),
+}
+
+/// The conjuncts of an `and`, however nested, in no order.
+fn conjuncts(e: &Expr) -> Vec<&Expr> {
+    match e {
+        Expr::Bin(BinOp::And, l, r) => {
+            let mut out = conjuncts(l);
+            out.extend(conjuncts(r));
+            out
+        }
+        _ => vec![e],
+    }
+}
+
+/// An expression under the swap test's four normalisations (§3.4,
+/// ADR-0063): an `and`'s conjuncts as a set, `==` and `!=` whatever their
+/// operands' order, the comparisons whatever their direction, and a member
+/// of `this` whatever its spelling (`check-flows.py`'s `normalised`).
+fn normalised(e: &Expr) -> Canon {
+    let opt = |x: &Option<Box<Expr>>| {
+        x.as_deref()
+            .map(normalised)
+            .unwrap_or(Canon::Leaf("none".into()))
+    };
+    match e {
+        Expr::Path(base, m) if matches!(&**base, Expr::Name(b) if b == "this") => {
+            Canon::Leaf(format!("name:{m}"))
+        }
+        Expr::Name(n) => Canon::Leaf(format!("name:{n}")),
+        Expr::Bin(BinOp::And, ..) => Canon::Set(
+            "and".into(),
+            conjuncts(e).into_iter().map(normalised).collect(),
+        ),
+        Expr::Bin(op @ (BinOp::Eq | BinOp::Ne), l, r) => Canon::Set(
+            op.text().into(),
+            [normalised(l), normalised(r)].into_iter().collect(),
+        ),
+        Expr::Bin(BinOp::Gt, l, r) => Canon::Node("<".into(), vec![normalised(r), normalised(l)]),
+        Expr::Bin(BinOp::Ge, l, r) => Canon::Node("<=".into(), vec![normalised(r), normalised(l)]),
+        Expr::Bin(op, l, r) => Canon::Node(op.text().into(), vec![normalised(l), normalised(r)]),
+        Expr::Path(base, m) => Canon::Node(format!("path:{m}"), vec![normalised(base)]),
+        Expr::Call(f, args) => Canon::Node(
+            "call".into(),
+            std::iter::once(normalised(f))
+                .chain(args.iter().map(normalised))
+                .collect(),
+        ),
+        Expr::Agg {
+            kind,
+            distinct,
+            var,
+            collection,
+            filter,
+            body,
+        } => Canon::Node(
+            format!("agg:{kind}:{distinct}:{var:?}"),
+            vec![opt(collection), opt(filter), opt(body)],
+        ),
+        Expr::Metric {
+            name,
+            binds,
+            over,
+            fresh,
+        } => Canon::Node(
+            format!(
+                "metric:{:?}",
+                binds.iter().map(|(d, _)| d.as_str()).collect::<Vec<_>>()
+            ),
+            std::iter::once(normalised(name))
+                .chain(binds.iter().map(|(_, x)| normalised(x)))
+                .chain([opt(over), opt(fresh)])
+                .collect(),
+        ),
+        Expr::Changed(names, ev) => Canon::Node(format!("changed:{names:?}"), vec![normalised(ev)]),
+        Expr::Set(items) => Canon::Node("set".into(), items.iter().map(normalised).collect()),
+        Expr::Not(x) => Canon::Node("not".into(), vec![normalised(x)]),
+        Expr::Neg(x) => Canon::Node("neg".into(), vec![normalised(x)]),
+        Expr::IsNull(x, neg) => Canon::Node(format!("isnull:{neg}"), vec![normalised(x)]),
+        Expr::In(l, r) => Canon::Node("in".into(), vec![normalised(l), normalised(r)]),
+        Expr::If(c, t, f) => Canon::Node(
+            "if".into(),
+            vec![normalised(c), normalised(t), normalised(f)],
+        ),
+        Expr::Num(_) | Expr::Str(_) | Expr::Bool(_) | Expr::Dur(..) | Expr::Money(..) => {
+            Canon::Leaf(format!("{e:?}"))
+        }
+    }
+}
+
+/// The members an expression reads on the scan's bound object and on its
+/// own, as two sets (`check-flows.py`'s `sides`).
+fn sides(
+    e: &Expr,
+    var: &str,
+    members: &BTreeSet<String>,
+    bound: &BTreeSet<String>,
+    on: &mut (BTreeSet<String>, BTreeSet<String>),
+) {
+    match e {
+        Expr::Path(base, m)
+            if matches!(&**base, Expr::Name(b) if b == var) && bound.contains(var) =>
+        {
+            on.0.insert(m.clone());
+        }
+        Expr::Path(base, m) if matches!(&**base, Expr::Name(b) if b == "this") => {
+            on.1.insert(m.clone());
+        }
+        Expr::Name(n) => {
+            if members.contains(n) && !bound.contains(n) {
+                on.1.insert(n.clone());
+            }
+        }
+        Expr::Agg {
+            var: v2,
+            collection,
+            filter,
+            body,
+            ..
+        } => {
+            if let Some(c) = collection {
+                sides(c, var, members, bound, on);
+            }
+            let mut inner = bound.clone();
+            inner.extend(v2.iter().cloned());
+            for x in [filter, body].into_iter().flatten() {
+                sides(x, var, members, &inner, on);
+            }
+        }
+        _ => {
+            for c in children(e) {
+                sides(c, var, members, bound, on);
+            }
+        }
+    }
+}
+
+/// Each type scan in an expression, as its bound name, the type and its
+/// `where`, outermost first (`check-flows.py`'s `scans`).
+fn scans(
+    e: &Expr,
+    lib: &Obj,
+    bound: &BTreeSet<String>,
+    out: &mut Vec<(String, String, Option<Expr>)>,
+) {
+    if let Expr::Agg {
+        var,
+        collection,
+        filter,
+        body,
+        ..
+    } = e
+    {
+        if let (Some(v), Some(c)) = (var, collection)
+            && let Expr::Name(tn) = &**c
+            && lib.contains_key(tn)
+            && !bound.contains(tn)
+        {
+            out.push((v.clone(), tn.clone(), filter.as_deref().cloned()));
+        }
+        if let Some(c) = collection {
+            scans(c, lib, bound, out);
+        }
+        let mut inner = bound.clone();
+        inner.extend(var.iter().cloned());
+        for x in [filter, body].into_iter().flatten() {
+            scans(x, lib, &inner, out);
+        }
+        return;
+    }
+    for c in children(e) {
+        scans(c, lib, bound, out);
+    }
+}
+
+/// A type-scan invariant MUST be symmetric, its verdict the same whichever
+/// of the objects it relates is written, decided by the swap test of
+/// `declaration-syntax.md` §3.4 over the whole invariant, its own derived
+/// attributes read as their expressions; a member of the object read on one
+/// side only is named. A scan MUST NOT exclude the object itself, by its id
+/// or by `this`, which it never ranges over (the model's check 6, ADR-0061,
+/// ADR-0063; `check-flows.py`'s `symmetry_errors`).
+fn symmetry_errors(doc: &Value, library: &Obj) -> Found {
+    let mut kinds = library.clone();
+    for (tn, t) in types(doc) {
+        kinds.insert(tn, t.clone());
+    }
+    let none = BTreeSet::new();
+    let mut out = Found::new();
+    for (tn, t) in types(doc) {
+        let members = swap_members(t);
+        for (i, spec) in obj(t, "invariants") {
+            let where_ = segs!["types", &tn, "invariants", i, "expression"];
+            // step 2 refuses what does not parse
+            let Ok(tree) = parse(&spec.get("expression").map(py_str).unwrap_or_default()) else {
+                continue;
+            };
+            let tree = inline_derived(&tree, t, &none);
+            let mut found = Vec::new();
+            scans(&tree, &kinds, &none, &mut found);
+            for (var, scanned, condition) in found {
+                let conjunct_forms: Vec<Canon> = condition
+                    .as_ref()
+                    .map(|c| conjuncts(c).into_iter().map(normalised).collect())
+                    .unwrap_or_default();
+                let selves: [BTreeSet<Canon>; 2] = [
+                    [
+                        normalised(&Expr::Path(Box::new(Expr::Name(var.clone())), "id".into())),
+                        normalised(&Expr::Name("id".into())),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    [
+                        normalised(&Expr::Name(var.clone())),
+                        normalised(&Expr::Name("this".into())),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ];
+                let excludes = conjunct_forms.iter().any(
+                    |c| matches!(c, Canon::Set(op, set) if op == "!=" && selves.contains(set)),
+                );
+                if excludes {
+                    out.push(finding(
+                        where_.clone(),
+                        "names",
+                        format!(
+                            "{tn}'s invariant '{i}' excludes the object itself from its scan of {scanned}, which never ranges over it (the model's check 6)"
+                        ),
+                    ));
+                    continue;
+                }
+                if normalised(&swapped(&tree, &var, &members, &none)) == normalised(&tree) {
+                    continue;
+                }
+                let mut on = (BTreeSet::new(), BTreeSet::new());
+                sides(&tree, &var, &members, &none, &mut on);
+                let one_sided: Vec<String> = on.0.symmetric_difference(&on.1).cloned().collect();
+                let why = if one_sided.is_empty() {
+                    "with the two objects exchanged its predicate is not the one written, under the four normalisations of the swap test".to_string()
+                } else {
+                    format!(
+                        "it reads {} of one of the two objects only, so its verdict depends on which is written",
+                        one_sided.join(", ")
+                    )
+                };
+                out.push(finding(
+                    where_.clone(),
+                    "names",
+                    format!(
+                        "{tn}'s invariant '{i}' scans {scanned} and is not symmetric: {why} (the model's check 6)"
+                    ),
+                ));
+            }
         }
     }
     out
