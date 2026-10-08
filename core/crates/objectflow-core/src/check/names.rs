@@ -2410,12 +2410,19 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
     let without_request: BTreeSet<String> = members.difference(&request_only).cloned().collect();
     let mut exprs: Vec<(Path, String, String, BTreeSet<String>)> = Vec::new();
     for sec in ["conditions", "invariants"] {
+        // an invariant is checked after a write, where no request's inputs
+        // or event are (the model's check 5)
+        let readable = if sec == "invariants" {
+            &without_request
+        } else {
+            &members
+        };
         for (n, c) in obj(t, sec) {
             exprs.push((
                 segs!["types", tn, sec, n, "expression"],
                 n.clone(),
                 c.get("expression").map(py_str).unwrap_or_default(),
-                members.clone(),
+                readable.clone(),
             ));
         }
     }

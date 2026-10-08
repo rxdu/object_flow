@@ -1761,7 +1761,8 @@ def read_errors(tn, t, categories=()):
     derived = list(t.get("derived_attributes") or {})
     stored = set(t.get("attributes") or {}) | set(t.get("observations") or {})
     members = stored | set(derived) | NOT_AN_ATTRIBUTE | OBJECT_MEMBERS | set(categories) | (MIRROR_MEMBERS if t.get("mirror") else set())
-    exprs = [(("types", tn, sec, n, "expression"), n, c["expression"], members)
+    # an invariant is checked after a write, where no request's inputs or event are (the model's check 5)
+    exprs = [(("types", tn, sec, n, "expression"), n, c["expression"], members - (REQUEST_ONLY if sec == "invariants" else set()))
              for sec in ("conditions", "invariants") for n, c in (t.get(sec) or {}).items()]
     exprs += [(("types", tn, "attributes", a, "unique", "where"), f"{tn}.{a}'s uniqueness condition", spec["unique"]["where"], members - REQUEST_ONLY)
               for a, spec in (t.get("attributes") or {}).items() if isinstance(spec.get("unique"), dict) and "where" in spec["unique"]]
@@ -5342,6 +5343,39 @@ def cluster3_plants(people):
     return ok
 
 
+def invariant_read_plants(people):
+    """An invariant reading a request's inputs or event is refused, since it is checked after a write, where neither is
+    (the model's check 5: an invariant of none of the forms of declaration-syntax.md §3.4); one over `referrers`, a
+    traversal every referring object's stored end finds, is not, and nor is a condition reading an input."""
+    def p(text, old, new):
+        assert text.count(old) == 1, old
+        return text.replace(old, new, 1)
+
+    def invariant(expr):
+        return p(PERSONAL_CRM, "    transitions:\n      join:",
+                 f"    invariants:\n      probe: {{ description: A probe., expression: \"{expr}\" }}\n    transitions:\n      join:")
+    conditioned = p(p(PERSONAL_CRM, "    transitions:\n      join:",
+                      "    conditions:\n      worded: { description: The text has words., expression: \"inputs.text != \\\"\\\"\", remedy: self_serviceable }\n"
+                      "    transitions:\n      join:"),
+                    "inputs: { text: { type: string } }, effect: [ { assign: { location: label",
+                    "inputs: { text: { type: string } }, guards: { worded: deny }, effect: [ { assign: { location: label")
+    cases = [
+        ("an invariant reading inputs", invariant("inputs.text is null"), ["probe reads 'inputs', which only a transition has"]),
+        ("an invariant reading this_event", invariant("this_event is not null"), ["probe reads 'this_event', which only a transition has"]),
+        ("an invariant over referrers", invariant("count(r in referrers) < 5"), []),
+        ("a condition reading an input", conditioned, []),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, _ = check([("people.yaml", people), ("crm.yaml", text)])
+        line = next((i for i, l in enumerate(text.splitlines(), 1) if l.startswith("      probe:")), None)
+        expected = [("crm.yaml", line, "fatal", "names", m) for m in want]
+        hit = sorted(found) == sorted(expected)
+        ok &= hit
+        print(f"  check 5, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
 def reparent_plants(people):
     """A re-parent writing a part's end back to a whole of an abstract type is refused, a `do` or an `act`, by an
     `assign` or by an attribute input, required or optional (the model's check 36, ADR-0058); a creation writing it,
@@ -5894,6 +5928,7 @@ def main():
     ok &= abstract_part_plants(people)
     ok &= personal_plants(people)
     ok &= reparent_plants(people)
+    ok &= invariant_read_plants(people)
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:

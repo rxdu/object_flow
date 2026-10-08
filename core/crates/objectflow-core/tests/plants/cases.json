@@ -11467,6 +11467,128 @@
   "analysed": {}
  },
  {
+  "label": "invariant_read_plants: an invariant reading inputs",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "86d7b60bb1b7f111"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    18,
+    "fatal",
+    "names",
+    "probe reads 'inputs', which only a transition has"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "invariant_read_plants: an invariant reading this_event",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "64b037fdd82eb339"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    18,
+    "fatal",
+    "names",
+    "probe reads 'this_event', which only a transition has"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "invariant_read_plants: an invariant over referrers",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "7b66ce146ffe02d7"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Customer": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ],
+   "Visit": [
+    0,
+    0
+   ]
+  }
+ },
+ {
+  "label": "invariant_read_plants: a condition reading an input",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "44cfefcaec79023f"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Customer": [
+    1,
+    1
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ],
+   "Visit": [
+    0,
+    0
+   ]
+  }
+ },
+ {
   "label": "syntax_plants",
   "files": [
    [
