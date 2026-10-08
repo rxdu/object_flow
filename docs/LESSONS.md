@@ -462,3 +462,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Two questions recorded for the author in one session, what the scenarios' port declared and whether check 44 should hold a mirror, listed options and asked "to decide" with no recommendation, against the standing rule that no question goes out without one. Each time the author answered "go with your recommendation", which did not exist, and the recommendation had to be formed after the fact and the ADR's status written to say so.
 - **Correction:** A question recorded for the author, in TODO, an ADR or a reply, carries the recommendation and its reason in the same entry; where the choice is genuinely open, say which way you lean and what would change it. Before ending a turn that hands decisions back, reread each one for its recommendation.
 - **Context:** Author decisions recorded in `TODO.md` and summarized in replies, ObjectFlow; 2026-10-08.
+
+### A set comparison cannot see a count
+- **Pattern:** The checker oracle held the core to the flow checker by collecting each side's findings into a set, so a finding made twice agreed with one made once; a mutation making the core report a cycle at every closing passed it, while the flow checker's own self-test, which compares lists, caught the same mutation on its side (D545).
+- **Correction:** Where two implementations are held equal over outputs that can repeat, compare multisets (counts per key) or sorted lists, never sets; and mutation-test a duplicate as one of the mutations, since only a duplicate shows the difference.
+- **Context:** Oracle and comparison tests between the core and the Python reference, ObjectFlow; 2026-10-08.

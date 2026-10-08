@@ -556,6 +556,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D542](#d542) | The runner's dry run stopped on a guard naming no condition | Resolved |
 | [D543](#d543) | The runner's sandbox declared each type as the loaded version wrote it after a publish | Resolved |
 | [D544](#d544) | Check 44 refused a mirror's minted identifier, counting no creation as writing nothing | Resolved |
+| [D545](#d545) | The core's checker oracle compared findings as sets, so a finding made twice agreed with one made once | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3559,3 +3560,8 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **Check 44 refused a mirror's minted identifier, counting no creation as writing nothing.** Check 44 refuses a scope naming "a reference or attribute that any one of the type's creations does not write", and a format placeholder reaching through one that "any creation does not write" (`declaration-syntax.md` §10). Both checkers compute what every creation writes as the intersection over the type's creations, which over none is empty, so a type with no creation, a mirror, failed every scope and every placeholder, though no creation of it fails to write anything; an abstract type, which has none either, was exempted by name. Found 2026-10-08 building ADR-0168, whose port declares every type of the journey a mirror.
 
 **Resolved** by ADR-0169, in the flow checker and the core's checker: the two clauses are decided only for a type with a creation, and a mirror may declare a minted identifier. A case of the flow checker's self-test, a mirror whose identifier is scoped and formatted by what it holds, is accepted by both through the core's oracle, and the plant of a type with creations that does not write its scope is still caught; each half of the change reverted fails them.
+
+### D545
+**The core's checker oracle compared findings as sets, so a finding made twice agreed with one made once.** The oracle (`core/crates/objectflow-core/tests/checker_oracle.rs`) holds the core's checker to the flow checker by each finding's file, line, severity, code and message (ADR-0156 decision 4), and collected both sides into sets, so the core making a finding twice on a line where the flow checker made it once was no difference. Found 2026-10-08 mutation-testing check 12: a core reporting every closing of one cycle, where both checkers report it once, passed the oracle.
+
+**Resolved** in the oracle: it counts each finding on both sides and reports a finding missed or extra by how many. Every one of the 303 recorded checks agrees counted, so no duplicate had been hiding, and the mutation it let pass now fails.

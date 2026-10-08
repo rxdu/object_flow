@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use objectflow_core::check::{Severity, checked_reading};
@@ -148,7 +148,8 @@ fn the_core_finds_what_the_flow_checker_finds() {
         let read = |name: &str| reads.get(name).cloned();
         // each finding by its file, line, severity, code and message, so
         // findings sharing a line are told apart and a message the core words
-        // differently is a difference
+        // differently is a difference, and counted, so a finding the core
+        // makes twice where the flow checker makes it once is one too
         let checks = checked_reading(&files, &previous, &read);
         // each type's count of the guard conditions step 5 decided in full
         let counts: BTreeMap<String, (usize, usize)> = case["analysed"]
@@ -169,7 +170,8 @@ fn the_core_finds_what_the_flow_checker_finds() {
             ));
         }
         let found = checks.findings;
-        let want: BTreeSet<(String, u64, String, String)> = case["findings"]
+        let mut want: BTreeMap<(String, u64, String, String), usize> = BTreeMap::new();
+        for k in case["findings"]
             .as_array()
             .expect("findings")
             .iter()
@@ -194,8 +196,11 @@ fn the_core_finds_what_the_flow_checker_finds() {
                     ),
                 )
             })
-            .collect();
-        let got: BTreeSet<(String, u64, String, String)> = found
+        {
+            *want.entry(k).or_default() += 1;
+        }
+        let mut got: BTreeMap<(String, u64, String, String), usize> = BTreeMap::new();
+        for k in found
             .into_iter()
             .filter(|f| covered(&f.file, &f.code))
             .map(|f| {
@@ -207,13 +212,21 @@ fn the_core_finds_what_the_flow_checker_finds() {
                 let message = worded(&f.code, &f.message);
                 (f.file, f.line as u64, format!("{sev} {}", f.code), message)
             })
-            .collect();
-        compared += want.len();
-        for k in want.difference(&got) {
-            wrong.push(format!("{label}: missed {k:?}"));
+        {
+            *got.entry(k).or_default() += 1;
         }
-        for k in got.difference(&want) {
-            wrong.push(format!("{label}: extra {k:?}"));
+        compared += want.values().sum::<usize>();
+        for (k, n) in &want {
+            let m = got.get(k).copied().unwrap_or_default();
+            if m < *n {
+                wrong.push(format!("{label}: missed {k:?}, {} of {n}", n - m));
+            }
+        }
+        for (k, m) in &got {
+            let n = want.get(k).copied().unwrap_or_default();
+            if *m > n {
+                wrong.push(format!("{label}: extra {k:?}, {} beyond {n}", m - n));
+            }
         }
     }
     assert!(
