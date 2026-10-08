@@ -32,9 +32,9 @@ Each check is one of four kinds. A *model* check refuses a declaration whatever 
 | 7 | a scan reading what is not indexed; `indexed` on a stored end | model | step 3; the text checker, the marking | C1; C2 |
 | 8 | a creation that never writes a required attribute or fills a required part | model | the text checker | C2 |
 | 9 | a required attribute marked personal | model | step 3 | C1 |
-| 10 | a personal value reaching a non-personal one | model | neither | — |
+| 10 | a personal value reaching a non-personal one | model | step 3 (2026-10-08) | C1 |
 | 11 | a create of a part that is not only via its whole | model | the text checker | C2 |
-| 12 | a cascade cycle | model | neither | — |
+| 12 | a cascade cycle | model | step 3 (2026-10-08) | C1 |
 | 13 | an `only via` whose parent does not exist or never reaches it | model | step 3, a missing transition; the text checker, the rest | C1; C2 |
 | 14 | `only via` with `proposable` | model | step 3 | C1 |
 | 15 | a state with no way out, one nothing reaches, a type with no final state | model | the text checker | C2 |
@@ -52,13 +52,13 @@ Each check is one of four kinds. A *model* check refuses a declaration whatever 
 | 27 | a `may admit` naming no reachable invariant | model | step 3 | C1 |
 | 28 | `corrects` disagreeing with what is written | model | step 3 | C1 |
 | 29 | an assertion or erasure with no reason, or a reason not an enumeration | model | step 3; the text checker | C1 |
-| 30 | a cascade to an abstract type's transition some subtype lacks | model | neither | — |
+| 30 | a cascade to an abstract type's transition some subtype lacks | model | step 3, as any cascade to an abstract part type, which a cascaded part's concrete type subsumes (ADR-0170) | C1 |
 | 31 | a quantity type with no counter, a counter elsewhere | model | the text checker | C2 |
-| 32 | an invariant reading `now` | model | neither | — |
+| 32 | an invariant reading `now` | model | step 3 (2026-10-08) | C1 |
 | 33 | duplicate names in one scope | model | step 3; the loader | C1 |
 | 34 | a type with no creation | model | the text checker | C2 |
 | 35 | a machine naming what it does not require | model | step 3; the text checker | C1; C2 for what step 3 misses |
-| 36 | a part and an owner of disagreeing types; a re-parent to an abstract owner | model | neither | — |
+| 36 | a part and an owner of disagreeing types; a re-parent to an abstract owner | model | step 3, the types as ends that do not name each other, the re-parent since 2026-10-08 | C1 |
 | 37 | a cascade trigger naming no transition; a final transition neither cascaded nor survived | model | step 3 | C1 |
 | 38 | an assertion with `may admit` and no `admits` input | notation | the text checker, never from YAML, whose conversion writes the input | retires |
 | 39 | an erasure not reaching a part's personal data | model | step 3 | C1 |

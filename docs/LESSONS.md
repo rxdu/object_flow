@@ -472,3 +472,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** A self-test run was piped through `grep "check 10"` to show only the new cases' lines, and its output was read as all cases passing; the script had failed to load on a syntax error, the traceback had no matching line, and the empty result looked like success. The success was reported to the author before the exit status was looked at.
 - **Correction:** A filtered view of a run is evidence only with the run's exit status beside it, and a count of the expected result lines: save the output, print the status, count the lines expected and show everything else. The same holds for a mutation runner, where a build failure must be told apart from a kill.
 - **Context:** Every gate and self-test run through a pipe, ObjectFlow; 2026-10-08.
+
+### A check enforced, its inventory row left behind
+- **Pattern:** Five checks were enforced in one day (12, 32, 30, 10, 36), each recorded in `declaration-syntax.md` §10, `flow-format.md` §7 and `TODO.md`, while `core-checker.md` §2, the table saying which part of the reference enforces each check, kept saying "neither" for all five until building the sixth found it.
+- **Correction:** Before recording a check's enforcement, search the design for every place that states its status, by its number (`grep -n "^| <n> |" docs/design/*.md`) as well as by its words, and change each; the inventory is the one a reader consults first.
+- **Context:** `declaration-syntax.md` §10's checks and the documents that track them, ObjectFlow; 2026-10-08.
