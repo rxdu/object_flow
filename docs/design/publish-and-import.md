@@ -124,7 +124,10 @@ class PublishReport:
     observing_clauses: Sequence[str] = ()      # guarantee nothing; listed so none is mistaken (ADR-0085)
     flags: Sequence[str] = ()                  # guarantee nothing either, and are permanent (ADR-0111)
     person_dimensions: Sequence[str] = ()      # metric dimensions whose value names an actor,
-                                               # for an upper layer's door (ADR-0114)
+                                               # for an upper layer's door (ADR-0114): every declared
+                                               # type's in the version under publish, each
+                                               # `<Type>.<metric>.<dimension>` as `declaration` marks
+                                               # it, ascending, none where the version does not load
     change_id: str | None = None               # the DeclarationChange this report is attached to
     examples: Mapping[str, Sequence[str]] = field(default_factory=dict)
                                                # per transition, the examples that request it,

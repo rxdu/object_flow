@@ -62,6 +62,11 @@ pub struct PublishReport {
     /// Per type, the guard conditions the contradiction analysis decided in
     /// full, of all it read (ADR-0137).
     pub analysed: BTreeMap<String, (usize, usize)>,
+    /// Every declared type's metric dimensions that name an actor in the
+    /// version under publish, as `declaration` marks them, for an upper
+    /// layer's door (`publish-and-import.md` §2, ADR-0114); none where the
+    /// version does not load.
+    pub person_dimensions: Vec<String>,
 }
 
 impl PublishReport {
@@ -142,10 +147,11 @@ pub fn report_json(r: &PublishReport) -> serde_json::Value {
         "affected": r.affected(),
         "examples": r.examples,
         "analysed": r.analysed,
+        "person_dimensions": r.person_dimensions,
         "not_computed": [
             "invariants", "sweepable", "unsweepable", "queryable_derives", "worst_case_fanout",
             "observed_fanout", "replaced_creations", "creations_past_first_state", "observing_clauses",
-            "flags", "person_dimensions",
+            "flags",
         ],
     })
 }
@@ -178,14 +184,31 @@ pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRu
         proposals_invalidated: 0,
         examples: BTreeMap::new(),
         analysed: BTreeMap::new(),
+        person_dimensions: Vec::new(),
     };
     // step 1, the checks and the examples (ADR-0156), each module against
     // the installed version of it
     let previous: BTreeMap<String, String> = old.source.iter().cloned().collect();
     let checks = crate::check::checked(draft.source, &previous);
+    // every declared type's marks in the version under publish, read from
+    // it whether or not its impact can be (§2, ADR-0114)
+    let person_dimensions = match Library::load(draft.source) {
+        Ok(lib) => {
+            let mut out = Vec::new();
+            for (tn, t) in &lib.types {
+                if !builtin(tn) && t.observation_on.is_none() {
+                    out.extend(crate::metric::person_dimensions(&lib, tn)?);
+                }
+            }
+            out.sort();
+            out
+        }
+        Err(_) => Vec::new(),
+    };
     let report = PublishReport {
         examples: checks.examples,
         analysed: checks.analysed,
+        person_dimensions,
         ..report
     };
     for f in checks.findings {

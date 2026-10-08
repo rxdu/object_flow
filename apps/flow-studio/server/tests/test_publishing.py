@@ -1068,3 +1068,28 @@ def test_an_actors_id_is_marked_and_another_object_is_not(tee):
     ]
     alike(tee)
 
+
+
+def test_a_reports_marks_are_the_versions_declarations(tee):
+    """A dry run names every declared type's dimensions that name an actor
+    in the version under publish, and they are the marks `declaration`
+    gives each type once that version is installed (`publish-and-import.md`
+    §2, `library-api.md` §6, ADR-0114)."""
+    loaded(tee, "service.yaml")
+    tee.found.clear()
+    v2 = (EXAMPLES / "service-v2.yaml").read_text()
+    people = (EXAMPLES / "people.yaml").read_text()
+    c = change(tee, "draft", source={"people": people, "service": v2},
+               source_ref="git:service@2")["object_id"]
+    report = tee.post("/v1/publish", {"actor": OP, "change": c,
+                                      "dry_run": True})["report"]
+    assert "person_dimensions" not in report["not_computed"]
+    assert "ServiceJob.cycle_time_by_assignee.engineer.assignee" in \
+        report["person_dimensions"]
+    approved(tee, c)
+    declared = sorted(d for tn in ("User", "Agent", "Service",
+                                   "InspectionCheck", "ServiceJob")
+                      for d in tee.post("/v1/declaration", {"type": tn})[
+                          "person_dimensions"])
+    assert report["person_dimensions"] == declared
+    alike(tee)

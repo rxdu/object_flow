@@ -214,7 +214,7 @@ def requested(store, xn, oid, actor, inputs, flows=None, read_evidence=None):
 
 # what the report does not compute, as the core's names it (ADR-0155 decision 5)
 NOT_COMPUTED = ["invariants", "sweepable", "unsweepable", "queryable_derives", "worst_case_fanout", "observed_fanout",
-                "replaced_creations", "creations_past_first_state", "observing_clauses", "flags", "person_dimensions"]
+                "replaced_creations", "creations_past_first_state", "observing_clauses", "flags"]
 # the store's own types, which no change declares and no mapping reaches
 BUILT_IN = ("Operator", "Proposal", DECLARATION_CHANGE, "label")
 
@@ -358,8 +358,18 @@ def simulate(store, change_id, flows, actor):
         "source_digest": c.attrs.get("source_digest"), "proposals_invalidated": proposals_invalidated,
         "affected": {f["code"]: list(f["ids"]) for f in found.findings if f["ids"]},
         "examples": examples, "analysed": {t: list(n) for t, n in analysed.items()},
+        "person_dimensions": report_person_dimensions(new) if new is not None else [],
         "not_computed": NOT_COMPUTED,
     }, installed
+
+
+def report_person_dimensions(new):
+    """Every declared type's metric dimensions that name an actor in the version under publish, as `declaration` marks
+    them, for an upper layer's door (publish-and-import.md §2, ADR-0114), read from the version whether or not its
+    impact can be."""
+    import flowrun
+    store = flowrun.Store(new.kinds, new.enums, new.declared, new.homes)
+    return sorted(d for tn in new.homes for d in flowrun.person_dimensions(store, tn))
 
 
 def admitted(new, qualified):
