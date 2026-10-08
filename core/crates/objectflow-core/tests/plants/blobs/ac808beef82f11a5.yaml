@@ -1,0 +1,19 @@
+module: sites
+categories: [live]
+sequences:
+  site_code:
+    description: Numbers sites, by region.
+types:
+  Site:
+    description: A site, as the legacy system holds it.
+    mirror: true
+    tracking: record
+    attributes:
+      region: { type: string, indexed: true }
+      code:
+        type: string
+        identifier: { sequence: site_code, scope: region, format: "{region}-{n:3}" }
+        unique: in_scope
+      legacy_key: { type: string, external: legacy, indexed: true }
+    states:
+      OPEN: { category: live }

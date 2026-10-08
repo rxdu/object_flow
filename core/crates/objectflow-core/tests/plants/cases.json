@@ -4214,6 +4214,23 @@
   "analysed": {}
  },
  {
+  "label": "mirror_identifier_self_test",
+  "files": [
+   [
+    "sites.yaml",
+    "ac808beef82f11a5"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Site": [
+    0,
+    0
+   ]
+  }
+ },
+ {
   "label": "logic_plants: an expression the grammar refuses",
   "files": [
    [

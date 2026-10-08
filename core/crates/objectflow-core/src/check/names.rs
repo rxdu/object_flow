@@ -2205,6 +2205,9 @@ fn identifier_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
     let attrs = obj(t, "attributes");
     let imported = imported(doc);
     let written = creation_writes(t);
+    // what "any one of the type's creations does not write" asks of a type
+    // with none, a mirror, nothing (ADR-0169)
+    let creates = obj(t, "transitions").values().any(|x| kind(x) == "initial");
     let mut out = Found::new();
     for (a, spec) in attrs {
         let here = if inherited(t, "attributes", a) {
@@ -2305,7 +2308,7 @@ fn identifier_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
                     "names",
                     format!("{tn}.{a} is scoped by '{sc}', which is not indexed"),
                 )),
-                Some(_) if !written.contains(&sc) => out.push(finding(
+                Some(_) if creates && !written.contains(&sc) => out.push(finding(
                     ext(&where_, segs!["scope"]),
                     "names",
                     format!(
@@ -2384,7 +2387,7 @@ fn identifier_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
                 ));
                 continue;
             }
-            if !written.contains(hops[0]) {
+            if creates && !written.contains(hops[0]) {
                 out.push(finding(
                     fw.clone(),
                     "names",

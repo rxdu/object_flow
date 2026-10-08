@@ -332,7 +332,7 @@ number:
   unique: true
 ```
 
-An identifier is minted during the creation, after the creation's writes and before its effect's other steps, so a creation need not write it, and a state may require it (the model's check 8 counts the mint as a write). Its value is text, so its attribute's `type` MUST be `string` (step 3, `names`). A `scope` MUST be a single reference, or an attribute marked `indexed`, that every creation of the type writes: a required input of every initial transition, or an attribute each assigns a value that is provably present (step 3, `names`; the model's check 44).
+An identifier is minted during the creation, after the creation's writes and before its effect's other steps, so a creation need not write it, and a state may require it (the model's check 8 counts the mint as a write). Its value is text, so its attribute's `type` MUST be `string` (step 3, `names`). A `scope` MUST be a single reference, or an attribute marked `indexed`, that every creation of the type writes: a required input of every initial transition, or an attribute each assigns a value that is provably present (step 3, `names`; the model's check 44). A mirror may declare a minted identifier: while the type is a mirror the import gives its value and nothing mints it, and what every creation writes asks nothing of a type with no creation, so its scope and its format's placeholders are held to the rest of check 44 alone; the identifier is minted once the cutover gives the type its creations (§4.15, ADR-0169).
 
 A `format` holds literal text and these placeholders, and MUST contain `{n}` or `{n:<width>}` (step 3, `names`):
 

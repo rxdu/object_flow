@@ -1706,6 +1706,8 @@ def identifier_errors(doc, tn, t, library):
     attrs = t.get("attributes") or {}
     imported = {n for names in (doc.get("imports") or {}).values() for n in names}
     written = creation_writes(t)
+    # what "any one of the type's creations does not write" asks of a type with none, a mirror, nothing (ADR-0169)
+    creates = any(x.get("kind") == "initial" for x in (t.get("transitions") or {}).values())
     out = []
     for a, spec in attrs.items():
         here = ("types", tn) if inherited(t, "attributes", a) else ("types", tn, "attributes", a)
@@ -1741,7 +1743,7 @@ def identifier_errors(doc, tn, t, library):
                 out.append((where + ("scope",), "names", f"{tn}.{a} is scoped by '{sc}', a set; a scope is one value"))
             elif "reference" not in ss and not ss.get("indexed"):
                 out.append((where + ("scope",), "names", f"{tn}.{a} is scoped by '{sc}', which is not indexed"))
-            elif sc not in written:
+            elif creates and sc not in written:
                 out.append((where + ("scope",), "names", f"{tn}.{a} is scoped by '{sc}', which not every creation of {tn} writes"))
         fmt = ident["format"]
         depth, numbered = 0, False
@@ -1774,7 +1776,7 @@ def identifier_errors(doc, tn, t, library):
             if len(hops) == 2 and ("reference" not in first or first["reference"].endswith("[]")):
                 out.append((where + ("format",), "names", f"{tn}.{a}'s format reads through '{hops[0]}', which is not a single reference"))
                 continue
-            if hops[0] not in written:
+            if creates and hops[0] not in written:
                 out.append((where + ("format",), "names", f"{tn}.{a}'s format reads '{hops[0]}', which not every creation of {tn} writes before the mint"))
                 continue
             target = first
@@ -4957,6 +4959,24 @@ def this_checker():
     return sys.modules.get(__name__) or SimpleNamespace(**globals())
 
 
+def mirror_identifier_self_test():
+    """A mirror may declare a minted identifier, which the import fills and nothing mints while it is one: check 44's
+    clauses on what every creation writes ask nothing of a type with no creation (ADR-0169), and a type with one is
+    still held to them, by the plant of an identifier scoped by what not every creation writes."""
+    module = ("module: sites\ncategories: [live]\nsequences:\n  site_code:\n    description: Numbers sites, by region.\n"
+              "types:\n  Site:\n    description: A site, as the legacy system holds it.\n    mirror: true\n"
+              "    tracking: record\n    attributes:\n      region: { type: string, indexed: true }\n"
+              "      code:\n        type: string\n"
+              "        identifier: { sequence: site_code, scope: region, format: \"{region}-{n:3}\" }\n"
+              "        unique: in_scope\n"
+              "      legacy_key: { type: string, external: legacy, indexed: true }\n"
+              "    states:\n      OPEN: { category: live }\n")
+    found, _notes = check([("sites.yaml", module)])
+    print(f"  a mirror's minted identifier, scoped and formatted by what it holds: "
+          f"{'accepted' if not found else 'REFUSED ' + str(found[:2])}")
+    return not found
+
+
 def beside(directory):
     """A reader of the files in an examples file's directory, by plain name, which its `publish` steps name (ADR-0166
     decision 3); a name with a directory in it reads nothing."""
@@ -5077,6 +5097,7 @@ def main():
                    (EXAMPLES / "delivery.yaml").read_text(), (EXAMPLES / "approvals.yaml").read_text(),
                    (EXAMPLES / "customers.yaml").read_text(), (EXAMPLES / "servicedesk.yaml").read_text(),
                    (EXAMPLES / "service-v2.yaml").read_text())
+    ok &= mirror_identifier_self_test()
     ok &= digest_self_test()
     ok &= flowexpr.main() == 0          # every expression in the design parses, and the grammar's own test
     ok &= flowlogic.self_test()
