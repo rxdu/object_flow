@@ -1,0 +1,50 @@
+module: crm
+categories: [live, closed]
+enumerations:
+  ErasureReason: [ASKED]
+types:
+  Customer:
+    description: A customer.
+    tracking: record
+    attributes:
+      name:  { type: string, optional: true, personal: true }
+      label: { type: string, optional: true }
+    states:
+      ACTIVE: { category: live }
+      GONE:   { category: closed, final: true }
+    derived_attributes:
+      called: { description: What the customer is called., expression: name }
+    invariants:
+      labelled:      { description: A label is not blank., expression: 'label is null or label != ""' }
+      called:        { description: A name is not blank., expression: 'called is null or called != ""' }
+      few_referrers: { description: Few hold it., expression: count(r in referrers) < 100 }
+    transitions:
+      join:   { kind: initial, to: ACTIVE, optional_inputs: [name] }
+      leave:  { kind: external, from: [ACTIVE], to: GONE }
+      forget: { kind: erasure, inputs: { reason: { type: ErasureReason } } }
+  Visit:
+    description: A visit to a customer.
+    tracking: record
+    attributes:
+      customer: { reference: Customer }
+    observations:
+      notes:
+        description: Notes taken at a visit.
+        kind: VisitNote
+        attributes:
+          text: { type: string, optional: true, personal: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    derived_attributes:
+      customer_label: { description: Its customer's label., expression: customer.label }
+      similar:        { description: Visits to its customer., expression: count(v in Visit where v.customer == customer) }
+    invariants:
+      known_customer:    { description: Its customer is not blocked., expression: 'customer.label != "blocked"' }
+      labelled_customer: { description: Its customer is not x., expression: 'customer_label != "x"' }
+      one_open:          { description: One open visit per customer., expression: none(v in Visit where v.customer == customer and v.open and open) }
+      few_similar:       { description: Few visits per customer., expression: similar < 5 }
+    transitions:
+      book:   { kind: initial, to: OPEN, required_inputs: [customer] }
+      close:  { kind: external, from: [OPEN], to: DONE }
+      forget: { kind: erasure, inputs: { reason: { type: ErasureReason } } }

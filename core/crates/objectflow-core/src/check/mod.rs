@@ -82,6 +82,9 @@ pub struct Checked {
     /// For each transition, `<Type>.<transition>`, the examples that
     /// request it, applied or refused (ADR-0136).
     pub examples: BTreeMap<String, Vec<String>>,
+    /// Each invariant a type declares, `<Type>.<name>`, by its form:
+    /// `local`, `traversal` or `type_scan` (§3.4, ADR-0055).
+    pub forms: BTreeMap<String, String>,
 }
 
 /// The findings over the modules and examples files given, in import
@@ -366,6 +369,17 @@ pub fn checked_reading(
         }
         for (tn, t) in view_types {
             library.insert(tn, t);
+        }
+        // each invariant a type declares, at the type declaring it, by its
+        // form (§3.4, ADR-0055)
+        for (tn, t) in view::types(&v.doc) {
+            for (i, spec) in doc::obj(t, "invariants") {
+                if !view::inherited(t, "invariants", i) {
+                    let expr = spec.get("expression").map(doc::py_str).unwrap_or_default();
+                    let form = names::invariant_form(&library, &tn, &expr, &BTreeSet::new());
+                    out.forms.insert(format!("{tn}.{i}"), form.to_string());
+                }
+            }
         }
         for (p, code, message) in notices::notices(&v.doc)
             .into_iter()

@@ -67,6 +67,9 @@ pub struct PublishReport {
     /// layer's door (`publish-and-import.md` §2, ADR-0114); none where the
     /// version does not load.
     pub person_dimensions: Vec<String>,
+    /// Each invariant a type of the version declares, `<Type>.<name>`, by
+    /// its form, `local`, `traversal` or `type_scan` (§3.4, ADR-0055).
+    pub invariant_forms: BTreeMap<String, String>,
 }
 
 impl PublishReport {
@@ -148,6 +151,7 @@ pub fn report_json(r: &PublishReport) -> serde_json::Value {
         "examples": r.examples,
         "analysed": r.analysed,
         "person_dimensions": r.person_dimensions,
+        "invariant_forms": r.invariant_forms,
         "not_computed": [
             "invariants", "sweepable", "unsweepable", "queryable_derives", "worst_case_fanout",
             "observed_fanout", "replaced_creations", "creations_past_first_state", "observing_clauses",
@@ -185,6 +189,7 @@ pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRu
         examples: BTreeMap::new(),
         analysed: BTreeMap::new(),
         person_dimensions: Vec::new(),
+        invariant_forms: BTreeMap::new(),
     };
     // step 1, the checks and the examples (ADR-0156), each module against
     // the installed version of it
@@ -208,6 +213,7 @@ pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRu
     let report = PublishReport {
         examples: checks.examples,
         analysed: checks.analysed,
+        invariant_forms: checks.forms,
         person_dimensions,
         ..report
     };

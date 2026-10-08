@@ -589,6 +589,31 @@ def relationship_errors(doc, library):
     return out
 
 
+def invariant_form(kinds, tn, text, seen=frozenset()):
+    """An invariant's form, which a publish report states (declaration-syntax.md §3.4, ADR-0055, ADR-0171):
+    `type_scan` where it ranges over a type by name, else `traversal` where it reads through a reference or over
+    `referrers`, reading other objects, else `local`; a derived attribute it reads counts as its own expression's form,
+    however deep. No invariant reads an observation, which step 3 refuses."""
+    try:
+        tree = flowexpr.parse(str(text))
+    except flowexpr.ParseError:
+        return "local"                          # step 2 refuses what does not parse
+    walker = OptionalReads(kinds, tn)
+    walker.through_tests = True
+    walker.walk(tree, {})
+    if walker.scanned:
+        return "type_scan"
+    form = "traversal" if walker.traversed or any(m == "referrers" for _u, m in walker.members) else "local"
+    for u, d in sorted(walker.derived - seen):
+        spec = (kinds[u].get("derived_attributes") or {})[d] or {}
+        inner = invariant_form(kinds, u, spec.get("expression", ""), seen | {(u, d)})
+        if inner == "type_scan":
+            return inner
+        if inner == "traversal":
+            form = inner
+    return form
+
+
 def reparent_errors(doc, library):
     """A re-parent, a `do` or an `act` writing a part's end back to its whole on an existing object, MUST NOT write an
     end whose type is abstract, since which source whole's invariants are re-checked would then not be known from the
@@ -2619,6 +2644,9 @@ class OptionalReads:
         self.derived = set()        # each derived attribute read, as (type, name), through any path whose type is known
         self.members = set()        # each member read, as (type, name), through any path whose type is known
         self.through_tests = False  # whether `is null` walks what it tests, which reads it as any expression does
+        self.traversed = set()      # each reference read through, to a member or as a collection, as (type, name)
+        self.last = None            # the reference the walk last read, as (type, name), if its last read was one
+        self.scanned = set()        # each type ranged over by name, a type scan
 
     def untested(self, tree):
         """Each optional read the expression never tests, with why it may be absent."""
@@ -2645,6 +2673,7 @@ class OptionalReads:
             ref = str(spec.get("reference", ""))
             if spec.get("optional") and "default" not in spec and not (own and m in self.present):
                 self.reads.setdefault(key, f"{tn}.{m} is optional")
+            self.last = (tn, m) if ref else None
             return ref or None
         if m in (t.get("derived_attributes") or {}):
             self.derived.add((tn, m))
@@ -2690,7 +2719,10 @@ class OptionalReads:
                 if m in (x.get("optional_inputs") or []) and "default" not in spec:
                     self.reads.setdefault(f"inputs.{m}", f"the input {m} is optional")
                 return str(spec.get("reference", "")) or None
+            self.last = None
             base = self.walk(e[1], env)
+            if self.last is not None and e[1][0] in ("name", "path"):
+                self.traversed.add(self.last)
             if base is None or base.endswith("[]") or base == "<inputs>" or e[2] in self.BUILT_IN:
                 observed = ((self.lib.get(base or "") or {}).get("observations") or {}).get(e[2])
                 return f"{observed['kind']}[]" if observed else None
@@ -2706,9 +2738,13 @@ class OptionalReads:
                     if part is not None:
                         self.walk(part, env)
                 return None
+            self.last = None
             ct = self.walk(coll, env)
+            if self.last is not None and coll[0] in ("name", "path"):
+                self.traversed.add(self.last)
             if ct is None and coll[0] == "name" and coll[1] in self.lib and coll[1] not in env:
                 ct = coll[1] + "[]"                 # a type scan: every object of the type
+                self.scanned.add(coll[1])
             inner = dict(env, **{var: ct[:-2] if ct and ct.endswith("[]") else None})
             for part in (where, body):
                 if part is not None:
@@ -3696,7 +3732,7 @@ def uncovered(mdoc, kinds, requested):
                   for xn in ((kinds.get(tn) or {}).get("transitions") or {}) if (tn, xn) not in requested)
 
 
-def check(files, previous=None, analysed=None, examples=None, read=None):
+def check(files, previous=None, analysed=None, examples=None, read=None, forms=None):
     """Findings and notices over modules given in import order, as (file, line,
     severity, code, message); previous maps a file to the text of the version
     before it, against which its migration is checked. `analysed`, if given, is
@@ -3788,6 +3824,12 @@ def check(files, previous=None, analysed=None, examples=None, read=None):
                 seen.add((p, m))
                 found.append((f, line_of(idx, p), "fatal", c, m))
         library.update(dict(types(v)))
+        if forms is not None:
+            # each invariant a type declares, at the type declaring it, by its form (§3.4, ADR-0055)
+            for tn, t in types(v):
+                for i, spec in (t.get("invariants") or {}).items():
+                    if not inherited(t, "invariants", i):
+                        forms[f"{tn}.{i}"] = invariant_form(library, tn, (spec or {}).get("expression", ""))
         notes += [(f, line_of(idx, back(p)), "notice", c, m) for p, c, m in notices(v) + unknowns(v, library) + befores(v) if back(p) is not None]
     for f, idx, doc in example_files:
         errors = examples_schema_errors(doc)
@@ -4390,6 +4432,59 @@ REPARENT_KIT = (
     '    transitions:\n'
     '      fit:  { kind: initial, to: IN, required_inputs: [asset], only_via: [Robot.fit] }\n'
     '      drop: { kind: external, from: [IN], to: OUT }\n'
+)
+# an invariant of each form, of a customer and its visits (the report's forms, ADR-0055)
+INVARIANT_FORMS = (
+    'module: crm\n'
+    'categories: [live, closed]\n'
+    'enumerations:\n'
+    '  ErasureReason: [ASKED]\n'
+    'types:\n'
+    '  Customer:\n'
+    '    description: A customer.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      name:  { type: string, optional: true, personal: true }\n'
+    '      label: { type: string, optional: true }\n'
+    '    states:\n'
+    '      ACTIVE: { category: live }\n'
+    '      GONE:   { category: closed, final: true }\n'
+    '    derived_attributes:\n'
+    '      called: { description: What the customer is called., expression: name }\n'
+    '    invariants:\n'
+    '      labelled:      { description: A label is not blank., expression: \'label is null or label != ""\' }\n'
+    '      called:        { description: A name is not blank., expression: \'called is null or called != ""\' }\n'
+    '      few_referrers: { description: Few hold it., expression: count(r in referrers) < 100 }\n'
+    '    transitions:\n'
+    '      join:   { kind: initial, to: ACTIVE, optional_inputs: [name] }\n'
+    '      leave:  { kind: external, from: [ACTIVE], to: GONE }\n'
+    '      forget: { kind: erasure, inputs: { reason: { type: ErasureReason } } }\n'
+    '  Visit:\n'
+    '    description: A visit to a customer.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      customer: { reference: Customer }\n'
+    '    observations:\n'
+    '      notes:\n'
+    '        description: Notes taken at a visit.\n'
+    '        kind: VisitNote\n'
+    '        attributes:\n'
+    '          text: { type: string, optional: true, personal: true }\n'
+    '    states:\n'
+    '      OPEN: { category: live }\n'
+    '      DONE: { category: closed, final: true }\n'
+    '    derived_attributes:\n'
+    "      customer_label: { description: Its customer's label., expression: customer.label }\n"
+    '      similar:        { description: Visits to its customer., expression: count(v in Visit where v.customer == customer) }\n'
+    '    invariants:\n'
+    '      known_customer:    { description: Its customer is not blocked., expression: \'customer.label != "blocked"\' }\n'
+    '      labelled_customer: { description: Its customer is not x., expression: \'customer_label != "x"\' }\n'
+    '      one_open:          { description: One open visit per customer., expression: none(v in Visit where v.customer == customer and v.open and open) }\n'
+    '      few_similar:       { description: Few visits per customer., expression: similar < 5 }\n'
+    '    transitions:\n'
+    '      book:   { kind: initial, to: OPEN, required_inputs: [customer] }\n'
+    '      close:  { kind: external, from: [OPEN], to: DONE }\n'
+    '      forget: { kind: erasure, inputs: { reason: { type: ErasureReason } } }\n'
 )
 SYNTAX_PAIR = (
     'module: pair\n'
@@ -5343,6 +5438,28 @@ def cluster3_plants(people):
     return ok
 
 
+def invariant_form_plants(people):
+    """Each invariant a type declares is reported by its form (declaration-syntax.md §3.4, ADR-0055, ADR-0171): local
+    over its own members and a derivation over them; traversal through a reference, over `referrers`, and through a
+    derivation that traverses; a type scan by name, and through a derivation that scans; and an invariant a subtype
+    inherits only where its base declares it."""
+    want = {"Customer.called": "local", "Customer.few_referrers": "traversal", "Customer.labelled": "local",
+            "Visit.few_similar": "type_scan", "Visit.known_customer": "traversal", "Visit.labelled_customer": "traversal",
+            "Visit.one_open": "type_scan"}
+    forms = {}
+    found, _ = check([("people.yaml", people), ("crm.yaml", INVARIANT_FORMS)], None, None, None, None, forms)
+    ok = not found and forms == want
+    print(f"  each invariant by its form: {'as expected' if ok else 'NOT: ' + str((found, forms))}")
+    pieces = "      pieces: { reference: \"Piece[]\", opposite: asset, aggregation: composite }\n"
+    based = {}
+    found, _ = check([("people.yaml", people), ("kit.yaml", REPARENT_KIT.replace(pieces, pieces +
+                      "    invariants:\n      few_pieces: { description: Few pieces., expression: \"count(x in pieces) < 9\" }\n"))],
+                     None, None, None, None, based)
+    inherited_once = not found and based == {"Asset.few_pieces": "traversal"}
+    print(f"  an inherited invariant by its form, at its base alone: {'as expected' if inherited_once else 'NOT: ' + str((found, based))}")
+    return ok and inherited_once
+
+
 def invariant_read_plants(people):
     """An invariant reading a request's inputs or event is refused, since it is checked after a write, where neither is
     (the model's check 5: an invariant of none of the forms of declaration-syntax.md §3.4); one over `referrers`, a
@@ -5727,8 +5844,9 @@ RECORDED = []      # each check the run makes: its label, files, previous versio
 def recording(check):
     """`check`, recording each call with what it found, labelled by its caller and,
     where the caller names it, the plant (ADR-0156 decision 4)."""
-    def recorded(files, previous=None, analysed=None, examples=None, read=None):
+    def recorded(files, previous=None, analysed=None, examples=None, read=None, forms=None):
         counts = {} if analysed is None else analysed
+        shapes = {} if forms is None else forms
         reads = {}
 
         def reading(name):
@@ -5737,11 +5855,11 @@ def recording(check):
             if text is not None:
                 reads[name] = text
             return text
-        found, notes = check(files, previous, counts, examples, reading if read is not None else None)
+        found, notes = check(files, previous, counts, examples, reading if read is not None else None, shapes)
         caller = sys._getframe(1)
         name = caller.f_locals.get("name")
         label = caller.f_code.co_name + (f": {name}" if isinstance(name, str) else "")
-        RECORDED.append((label, list(files), dict(previous or {}), found, notes, dict(counts), reads))
+        RECORDED.append((label, list(files), dict(previous or {}), found, notes, dict(counts), reads, dict(shapes)))
         return found, notes
     return recorded
 
@@ -5791,13 +5909,14 @@ def plants_export(recorded):
         key = hashlib.sha256(text.encode()).hexdigest()[:16]
         blobs[key] = text
         return key
-    for label, files, previous, found, notes, counts, reads in recorded:
+    for label, files, previous, found, notes, counts, reads, shapes in recorded:
         cases.append({
             "label": label,
             "files": [[n, blob(t)] for n, t in files],
             "previous": {n: blob(t) for n, t in sorted(previous.items())},
             "findings": sorted([list(x) for x in found + notes]),
             "analysed": {tn: list(c) for tn, c in sorted(counts.items())},
+            "forms": dict(sorted(shapes.items())),
             # the files beside the examples files that their `publish` steps read, which the core reads the same
             **({"reads": {n: blob(t) for n, t in sorted(reads.items())}} if reads else {}),
         })
@@ -5929,6 +6048,7 @@ def main():
     ok &= personal_plants(people)
     ok &= reparent_plants(people)
     ok &= invariant_read_plants(people)
+    ok &= invariant_form_plants(people)
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:

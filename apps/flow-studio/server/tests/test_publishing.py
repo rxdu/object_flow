@@ -1093,3 +1093,21 @@ def test_a_reports_marks_are_the_versions_declarations(tee):
                           "person_dimensions"])
     assert report["person_dimensions"] == declared
     alike(tee)
+
+
+def test_a_report_states_each_invariants_form(tee):
+    """A dry run names the form of each invariant a type of the version
+    under publish declares, as the checks classify it, alike through both
+    backends (`publish-and-import.md` §2, `declaration-syntax.md` §3.4,
+    ADR-0055)."""
+    loaded(tee, "service.yaml")
+    tee.found.clear()
+    v2 = (EXAMPLES / "service-v2.yaml").read_text()
+    people = (EXAMPLES / "people.yaml").read_text()
+    c = change(tee, "draft", source={"people": people, "service": v2},
+               source_ref="git:service@2")["object_id"]
+    report = tee.post("/v1/publish", {"actor": OP, "change": c,
+                                      "dry_run": True})["report"]
+    assert report["invariant_forms"] == {
+        "ServiceJob.photo_when_done": "local"}
+    alike(tee)

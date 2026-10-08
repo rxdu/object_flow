@@ -902,6 +902,54 @@ fn relationship_errors(doc: &Value, library: &Obj) -> Found {
     out
 }
 
+/// An invariant's form, which a publish report states
+/// (`declaration-syntax.md` §3.4, ADR-0055, ADR-0171): `type_scan` where it
+/// ranges over a type by name, else `traversal` where it reads through a
+/// reference or over `referrers`, reading other objects, else `local`; a
+/// derived attribute it reads counts as its own expression's form, however
+/// deep. No invariant reads an observation, which step 3 refuses
+/// (`check-flows.py`'s `invariant_form`).
+pub fn invariant_form(
+    kinds: &Obj,
+    tn: &str,
+    text: &str,
+    seen: &BTreeSet<(String, String)>,
+) -> &'static str {
+    // step 2 refuses what does not parse
+    let Ok(tree) = parse(text) else {
+        return "local";
+    };
+    let mut walker = OptionalReads::new(kinds, tn, None);
+    walker.through_tests = true;
+    walker.walk(&tree, &Env::new());
+    if !walker.scanned.is_empty() {
+        return "type_scan";
+    }
+    let mut form =
+        if !walker.traversed.is_empty() || walker.members.iter().any(|(_, m)| m == "referrers") {
+            "traversal"
+        } else {
+            "local"
+        };
+    for pair in walker.derived.iter().filter(|p| !seen.contains(*p)) {
+        let (u, d) = pair;
+        let expr = kinds
+            .get(u)
+            .and_then(|t| obj(t, "derived_attributes").get(d))
+            .and_then(|s| s.get("expression"))
+            .map(py_str)
+            .unwrap_or_default();
+        let mut deeper = seen.clone();
+        deeper.insert(pair.clone());
+        match invariant_form(kinds, u, &expr, &deeper) {
+            "type_scan" => return "type_scan",
+            "traversal" => form = "traversal",
+            _ => {}
+        }
+    }
+    form
+}
+
 /// A re-parent, a `do` or an `act` writing a part's end back to its whole on
 /// an existing object, MUST NOT write an end whose type is abstract, since
 /// which source whole's invariants are re-checked would then not be known

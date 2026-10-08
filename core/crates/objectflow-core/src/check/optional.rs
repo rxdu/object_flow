@@ -49,6 +49,13 @@ pub struct OptionalReads<'l> {
     /// Whether `is null` walks what it tests, which reads it as any
     /// expression does.
     pub through_tests: bool,
+    /// Each reference read through, to a member or as a collection, as
+    /// (type, name).
+    pub traversed: BTreeSet<(String, String)>,
+    /// The reference the walk last read, if its last read was one.
+    last: Option<(String, String)>,
+    /// Each type ranged over by name, a type scan.
+    pub scanned: BTreeSet<String>,
 }
 
 impl<'l> OptionalReads<'l> {
@@ -96,6 +103,9 @@ impl<'l> OptionalReads<'l> {
             derived: BTreeSet::new(),
             members: BTreeSet::new(),
             through_tests: false,
+            traversed: BTreeSet::new(),
+            last: None,
+            scanned: BTreeSet::new(),
         }
     }
 
@@ -151,6 +161,7 @@ impl<'l> OptionalReads<'l> {
             {
                 self.note(key, format!("{tn}.{m} is optional"));
             }
+            self.last = (!reference.is_empty()).then(|| (tn.to_string(), m.to_string()));
             return (!reference.is_empty()).then_some(reference);
         }
         let seen = (tn.to_string(), m.to_string());
@@ -241,7 +252,13 @@ impl<'l> OptionalReads<'l> {
                     let r = spec.get("reference").map(py_str).unwrap_or_default();
                     return (!r.is_empty()).then_some(r);
                 }
+                self.last = None;
                 let b = self.walk(base, env);
+                if matches!(&**base, Expr::Name(_) | Expr::Path(..))
+                    && let Some(l) = self.last.take()
+                {
+                    self.traversed.insert(l);
+                }
                 match b {
                     None => self.observed("", m),
                     Some(b)
@@ -276,7 +293,15 @@ impl<'l> OptionalReads<'l> {
                     }
                     return None;
                 };
+                self.last = None;
                 let mut ct = collection.as_ref().and_then(|c| self.walk(c, env));
+                if collection
+                    .as_deref()
+                    .is_some_and(|c| matches!(c, Expr::Name(_) | Expr::Path(..)))
+                    && let Some(l) = self.last.take()
+                {
+                    self.traversed.insert(l);
+                }
                 if ct.is_none()
                     && let Some(c) = collection
                     && let Expr::Name(n) = &**c
@@ -284,6 +309,7 @@ impl<'l> OptionalReads<'l> {
                     && !env.contains_key(n)
                 {
                     ct = Some(format!("{n}[]")); // a type scan: every object of the type
+                    self.scanned.insert(n.clone());
                 }
                 let mut inner = env.clone();
                 inner.insert(

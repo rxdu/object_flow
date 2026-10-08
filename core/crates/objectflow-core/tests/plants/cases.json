@@ -22,7 +22,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "main",
@@ -67,7 +68,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "main",
@@ -121,6 +123,66 @@
     0,
     0
    ]
+  },
+  "forms": {}
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "people": "cc897d91cab7f987",
+   "service": "9bd716ed3bc7b728",
+   "service.examples": "0bd9b928997c8194"
+  },
+  "findings": [
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
   }
  },
  {
@@ -177,6 +239,9 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
   }
  },
  {
@@ -233,6 +298,9 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
   }
  },
  {
@@ -289,62 +357,9 @@
     0,
     0
    ]
-  }
- },
- {
-  "label": "simulate",
-  "files": [
-   [
-    "people",
-    "cc897d91cab7f987"
-   ],
-   [
-    "service",
-    "518220b4397faa50"
-   ]
-  ],
-  "previous": {
-   "people": "cc897d91cab7f987",
-   "service": "9bd716ed3bc7b728",
-   "service.examples": "0bd9b928997c8194"
   },
-  "findings": [
-   [
-    "service",
-    137,
-    "notice",
-    "warn",
-    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
-   ],
-   [
-    "service",
-    184,
-    "notice",
-    "migration",
-    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
-   ]
-  ],
-  "analysed": {
-   "Agent": [
-    0,
-    0
-   ],
-   "InspectionCheck": [
-    0,
-    0
-   ],
-   "Service": [
-    0,
-    0
-   ],
-   "ServiceJob": [
-    3,
-    5
-   ],
-   "User": [
-    0,
-    0
-   ]
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
   }
  },
  {
@@ -402,6 +417,7 @@
     0
    ]
   },
+  "forms": {},
   "reads": {
    "people.yaml": "cc897d91cab7f987",
    "service-v2.yaml": "518220b4397faa50"
@@ -470,6 +486,9 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
   }
  },
  {
@@ -542,7 +561,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "main",
@@ -583,7 +603,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "main",
@@ -636,7 +657,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "main",
@@ -730,7 +752,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "main",
@@ -823,6 +846,9 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "PartStock.reserved_bounded": "local"
   }
  },
  {
@@ -909,6 +935,11 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "Claim.has_title": "local",
+   "ClaimLine.confirmed_by_a_person": "local",
+   "ClaimLine.spent_amount_has_its_currency": "local"
   }
  },
  {
@@ -933,7 +964,8 @@
     "Additional properties are not allowed ('guard' was unexpected)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a guard on no declared condition",
@@ -964,7 +996,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a guard listed twice",
@@ -988,7 +1021,8 @@
     "the key 'photo_attached' appears twice in one mapping"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an enforcement that is not one of the three",
@@ -1012,7 +1046,8 @@
     "'enforce' is not one of ['deny', 'audit', 'warn']"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an initial transition that names a source state",
@@ -1036,7 +1071,8 @@
     "an initial transition declares `to` and no `from`"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a guard that reads an input its transition does not take",
@@ -1074,7 +1110,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a call to a transition its target does not have",
@@ -1109,7 +1146,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a create without an input its transition requires",
@@ -1144,7 +1182,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a final transition of a whole that its parts neither cascade on nor survive",
@@ -1179,7 +1218,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a relationship end whose opposite does not name it back",
@@ -1221,7 +1261,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an only_via that names a missing transition",
@@ -1256,7 +1297,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a condition that reads an attribute the type does not declare",
@@ -1287,7 +1329,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a machine condition that reads an attribute the machine does not require",
@@ -1311,7 +1354,8 @@
     "submitted reads 'decided_at', which ApprovalFlow does not require"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an observation invariant that reads what is not a field of its kind",
@@ -1342,7 +1386,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a derived attribute that reads one declared after it",
@@ -1380,7 +1425,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a transition that writes a derived attribute",
@@ -1411,7 +1457,8 @@
     "ServiceJob.finish writes 'handoffs', a derived attribute, whose value is its expression"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an indexed derived attribute that reads an attribute that is not indexed",
@@ -1442,7 +1489,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an indexed derived attribute that reads the clock",
@@ -1473,7 +1521,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an identifier minted from a sequence nobody declares",
@@ -1508,7 +1557,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an identifier scoped by what not every creation writes",
@@ -1543,7 +1593,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an identifier whose format has no number",
@@ -1578,7 +1629,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an identifier whose format reads an optional attribute outside brackets",
@@ -1613,7 +1665,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a uniqueness in scope on an attribute with no scope",
@@ -1648,7 +1701,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a uniqueness that is none of its four forms",
@@ -1683,7 +1737,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a metric that reads a member its rows do not have",
@@ -1714,7 +1769,8 @@
     "metric inspection_pass_rate reads r.outcom, and a row of inspections has no member 'outcom'"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a metric that reads a name other than its item",
@@ -1745,7 +1801,8 @@
     "metric inspection_pass_rate reads 'engineer'; a metric reads its rows through 'r'"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a flag that reads neither the value nor a dimension",
@@ -1776,7 +1833,8 @@
     "metric inspection_pass_rate's flag low reads 'threshold', which is neither value nor a dimension the metric declares"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a metric over a source its type does not have",
@@ -1807,7 +1865,8 @@
     "metric inspection_pass_rate reads 'comments', which is not objects, intervals, intervals(<member>), transitions, attempts, attempt_counts, labels or an observation kind of ServiceJob"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a metric whose item is declared after its filter",
@@ -1838,7 +1897,8 @@
     "in the metric inspection_pass_rate, 'item' comes after 'time_dimension'; declare description, source, item, filter, dimensions, time_dimension, expression, flag_when in that order"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an assertion whose reason is free text",
@@ -1862,7 +1922,8 @@
     "Customer.correct_state's reason is not an enumeration; an assertion's reasons are counted, so they are declared values"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an assertion that may admit an invariant nobody declares",
@@ -1886,7 +1947,8 @@
     "Customer.correct_state may admit 'active_rule', which is not an invariant of Customer"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an erasure that does not reach parts holding personal data",
@@ -1910,7 +1972,8 @@
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a correction that writes what it does not list",
@@ -1934,7 +1997,8 @@
     "Customer.correct_email writes 'name', which it does not list in corrects; a correction writes exactly what it corrects"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a personal attribute that is required",
@@ -1958,7 +2022,8 @@
     "Customer.name is personal and required; erasure writes absence, so a personal attribute is optional"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an erasure that names a target state",
@@ -1982,7 +2047,8 @@
     "an erasure declares neither `from` nor `to`: it runs at any state"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an indexed marking on a stored reference, which the conversion must carry to step 4",
@@ -2017,7 +2083,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a source list that mixes any with a state",
@@ -2041,7 +2108,8 @@
     "`from` is a state, a list of states, or any, alone"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an aggregate's body written in a plain value",
@@ -2065,7 +2133,8 @@
     "mapping values are not allowed here; a value containing a colon and a space, such as an aggregate's body, is quoted or written after >-"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a type that extends one that is not abstract",
@@ -2103,7 +2172,10 @@
     "Laptop binds AssetLifecycle, which requires the attribute 'service', and Laptop does not declare it"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a subtype that redeclares what it inherits",
@@ -2127,7 +2199,10 @@
     "Laptop declares 'name', which it inherits from Asset; a member has one declaration"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: two abstract types that extend each other",
@@ -2158,7 +2233,10 @@
     "Hardware extends Asset, and following its bases comes back to Hardware"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: an inherited identifier whose scope a subtype's creation does not write",
@@ -2189,7 +2267,10 @@
     "Server.key is scoped by 'service', which not every creation of Server writes"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a mirror that declares no external identifier",
@@ -2213,7 +2294,10 @@
     "Employee is a mirror and declares no external identifier, by which the import matches its objects"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: an external identifier on a reference",
@@ -2237,7 +2321,10 @@
     "Laptop.assigned_to is a reference; an external identifier is a value the other system gives"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a mirror with a transition of its own",
@@ -2261,7 +2348,10 @@
     "Employee is a mirror and declares 1 transition(s) other than erase"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a state the new version removes, mapped nowhere",
@@ -2301,7 +2391,10 @@
     "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
+  }
  },
  {
   "label": "self_test: a new required attribute that no backfill fills",
@@ -2362,6 +2455,9 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
   }
  },
  {
@@ -2402,7 +2498,10 @@
     "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
+  }
  },
  {
   "label": "self_test: a migration that admits no invariant",
@@ -2435,7 +2534,10 @@
     "the migration admits ServiceJob.photo_required, which is not an invariant of ServiceJob"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
+  }
  },
  {
   "label": "self_test: a required field added to an observation kind",
@@ -2475,7 +2577,10 @@
     "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
+  }
  },
  {
   "label": "self_test: a metric that reads a label's personal note",
@@ -2499,7 +2604,10 @@
     "metric labels_by_state reads l.note, a label's note, which is personal and not readable"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a guard that reads labels",
@@ -2523,7 +2631,10 @@
     "resolved_three_days reads labels, which are read only as a metric's source, source: labels (check 55)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a counter that may be absent",
@@ -2561,7 +2672,10 @@
     "empty can be unknown when withdraw is requested, through on_hand (PartStock.on_hand is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a default that reads an attribute",
@@ -2585,7 +2699,10 @@
     "PartStock.reorder_level's default reads 'on_hand'; a default is written before anything else, so it is a literal, a qualified value or now"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a counter on a type tracked by record",
@@ -2609,7 +2726,10 @@
     "PartStock is tracking record with a counter"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a counter on an observation",
@@ -2633,7 +2753,10 @@
     "ratings.score is a counter, which an observation, born final, cannot have; a counter belongs to a type tracked by quantity"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a call to a function the evaluator does not declare",
@@ -2657,7 +2780,8 @@
     "condition contact_in_xero calls xero.contact_known, which xero does not declare"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an evaluator's verdict inside a larger expression",
@@ -2681,7 +2805,8 @@
     "condition contact_in_xero calls an evaluator inside a larger expression; a verdict is the whole condition or its negation (check 24)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an evaluator called by a derived attribute",
@@ -2705,7 +2830,8 @@
     "in_xero calls xero.contact_exists; only a guard asks an evaluator"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a superseding state entered with no successor",
@@ -2729,7 +2855,8 @@
     "Customer.merged_into enters the superseding state MERGED and names no successor with supersede"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an object that supersedes itself",
@@ -2753,7 +2880,8 @@
     "Customer.merged_into supersedes the object with itself"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a misspelt transition compared in a metric's filter",
@@ -2777,7 +2905,8 @@
     "metric overrides compares t.transition with \"corect_state\", which is not a transition of Customer"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an enumeration's member written to a string",
@@ -2801,7 +2930,8 @@
     "Customer.close writes OverrideReason.MIS_KEYED, enumeration OverrideReason, to note_kind, which holds string: a write's value must fit its target (the model's check 17)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a type no module declares",
@@ -2825,7 +2955,8 @@
     "note_kind is of the type frobnicate, which is neither built in, nor an enumeration this module declares, nor a name it imports"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: the kind of actor written to a string",
@@ -2849,7 +2980,8 @@
     "Customer.close writes actor.kind, actor_kind, to note_kind, which holds string: a write's value must fit its target (the model's check 17)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an invariant reading an observation collection",
@@ -2880,7 +3012,10 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "ServiceJob.few_failures": "local"
+  }
  },
  {
   "label": "self_test: an override into a final state its parts neither cascade on nor survive",
@@ -2904,7 +3039,8 @@
     "Customer.correct_state enters the final state CLOSED, and Customer.contacts neither cascades on it nor survives it"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a condition named as a generated guard",
@@ -2928,7 +3064,8 @@
     "'not_erased' is the name of a guard the engine generates, so a refusal naming it would not say which it was; choose another name"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a successor a request may leave out",
@@ -2952,7 +3089,8 @@
     "Customer.merged_into supersedes with inputs.successor, which is optional, so a request leaving it out would name no successor"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a supersede inside a foreach",
@@ -2976,7 +3114,8 @@
     "Customer.merged_into supersedes inside a foreach, which may name no successor or several"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: two supersede steps",
@@ -3000,7 +3139,8 @@
     "Customer.merged_into names more than one successor, and an object has one"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a successor that is neither an input nor a created object",
@@ -3031,7 +3171,8 @@
     "merged_into reads 'survivor', which Customer does not declare"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a supersede in a transition that does not end superseded",
@@ -3055,7 +3196,8 @@
     "Customer.lapse supersedes, and does not enter a superseding state"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: personal data in supersession with no erasure",
@@ -3079,7 +3221,8 @@
     "Customer holds personal data and declares no erasure, and takes part in supersession, through which a superseded chain is erased (check 60)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a proposable transition that only other transitions may take",
@@ -3114,7 +3257,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an event input given something other than this_event",
@@ -3149,7 +3293,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a metric name two types declare",
@@ -3180,7 +3325,10 @@
     "metric problems_per_incident combines Problem.problems_opened, which is not a metric of Problem"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a combined metric that combines itself",
@@ -3204,7 +3352,10 @@
     "metric problems_per_incident combines problems_per_incident, which is itself or declared after it; a combined metric combines those above it"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a combined metric grouped by a dimension none of its inputs has",
@@ -3228,7 +3379,10 @@
     "metric problems_per_incident groups by 'week', which none of the metrics it combines has as a dimension"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a combined metric that aggregates",
@@ -3252,7 +3406,10 @@
     "metric problems_per_incident aggregates, and a combined metric has no rows: its value combines the values of the metrics it names"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a summary naming no member",
@@ -3276,7 +3433,10 @@
     "Request's summary names 'request_kind', which is neither state nor a member of Request"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a binder that lacks an attribute its machine requires",
@@ -3300,7 +3460,8 @@
     "PurchaseRequest binds ApprovalFlow, which requires the attribute 'submitted_at', and PurchaseRequest does not declare it"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a binder whose attribute differs in type from what its machine requires",
@@ -3324,7 +3485,8 @@
     "PurchaseRequest declares 'submitted_at' as attr submitted_at date?, and its machine ApprovalFlow requires attr submitted_at timestamp?"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a binder that redeclares a transition of its machine",
@@ -3348,7 +3510,8 @@
     "ExpenseClaim declares the transition 'reject', which its machine ApprovalFlow also declares"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a condition that reads who is asking",
@@ -3379,7 +3542,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: attributes declared after the states that use them",
@@ -3410,7 +3574,8 @@
     "in InventoryItem, 'attributes' comes after 'metrics'; declare description, tracking, attributes, states, conditions, transitions, metrics in that order"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a misspelt enumeration value",
@@ -3441,7 +3606,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a transition into a state that does not set what the state requires",
@@ -3479,7 +3645,8 @@
     "reservation_ends_in_future can be unknown when cancel_delivery is requested, through inputs.reserved_until (the input reserved_until is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an attribute named after an expression built-in",
@@ -3510,7 +3677,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an invariant named like a generated one",
@@ -3541,7 +3709,10 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "InventoryItem.reserved_invariant": "local"
+  }
  },
  {
   "label": "self_test: a unit on an attribute that is not an observation's",
@@ -3572,7 +3743,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an import of a name its module does not declare",
@@ -3603,7 +3775,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an import from a module not among the files checked",
@@ -3655,7 +3828,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "self_test: an invariant named like a generated uniqueness invariant",
@@ -3686,7 +3860,10 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "InventoryItem.serial_unique": "local"
+  }
  },
  {
   "label": "self_test: a name a module in the closure also declares",
@@ -3717,7 +3894,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a call of an assertion",
@@ -3741,7 +3919,8 @@
     "Customer.merge_in calls Customer.correct_state, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a cascade to an assertion",
@@ -3765,7 +3944,8 @@
     "Customer.contacts cascades to Contact.discard, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a name a module checked with it, outside its closure, also declares",
@@ -3789,7 +3969,10 @@
     "Service is also declared by people, which is checked with this module; a store holds one type, enumeration or machine of a name (ADR-0163)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "self_test: a set of references with no opposite",
@@ -3824,7 +4007,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a step made conditional on an optional input",
@@ -3862,7 +4046,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an optional input on an attribute neither optional nor defaulted",
@@ -3893,7 +4078,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an attribute named like a member every object has",
@@ -3924,7 +4110,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an attribute named like the version every object records",
@@ -3955,7 +4142,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a personal input on a type with no erasure",
@@ -3986,7 +4174,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: an external transition from a state to itself",
@@ -4017,7 +4206,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a `?` inside an inline mapping",
@@ -4041,7 +4231,8 @@
     "expected ',' or '}', but got '?'"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4065,7 +4256,8 @@
     "{'value': 'inputs.signed_off_by'} is not of type 'string'"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4085,7 +4277,8 @@
     "Ticket.close enters the final state CLOSED, and Ticket.notes neither cascades on it nor survives it"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4106,7 +4299,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4126,7 +4320,8 @@
     "Carrier.notes is declared on the abstract Carrier, which has no transitions to cascade on or survive; each concrete subtype gives its cascade and survives in inherited_parts (§4.14)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4153,7 +4348,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4173,7 +4369,8 @@
     "'two.' is not a key but the rest of a value cut at a comma: inside { … }, a value containing a comma is quoted, as in { description: \"One, two.\" } (§2 rule 4)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4198,7 +4395,8 @@
     1,
     1
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4218,7 +4416,8 @@
     "derived attributes read each other in a cycle: A.x → B.y → A.x"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "mirror_identifier_self_test",
@@ -4235,7 +4434,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "logic_plants: an expression the grammar refuses",
@@ -4259,7 +4459,8 @@
     "a comparison does not chain, found 'is', at 26 of 'inputs.photo is not null is null': not an expression of declaration-syntax.md §8"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "logic_plants: guards of one transition that cannot hold together",
@@ -4304,7 +4505,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "logic_plants: a warning that fails whenever the transition is taken",
@@ -4356,7 +4558,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "runner_plants: a repeated check that fails again, expected to let the job finish",
@@ -4433,7 +4636,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "runner_plants: a signer the request does not write",
@@ -4510,7 +4714,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "runner_plants: a setup whose second engineer reuses a unique login",
@@ -4671,7 +4876,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "runner_plants: the pass-rate guard on finish, which a failure inspected again keeps below its threshold",
@@ -4748,7 +4954,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "runner_plants: a guard reading a metric that has no rows yet, and so is unknown",
@@ -4888,7 +5095,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "runner_plants: an example the runner cannot yet run",
@@ -5028,7 +5236,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "examples_self_test: a remedy the condition does not declare",
@@ -5063,7 +5272,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "examples_self_test: an alias no earlier step gave",
@@ -5098,7 +5308,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "examples_self_test: an input the transition does not take",
@@ -5140,7 +5351,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "examples_self_test: an enumeration value written unqualified",
@@ -5175,7 +5387,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "examples_self_test: an occurred time not written as a timestamp",
@@ -5210,7 +5423,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "examples_self_test: a state the transition does not leave its object in",
@@ -5245,7 +5459,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "examples_self_test: a setup that is not declared",
@@ -5294,7 +5509,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "examples_self_test: an actor whose type marks no actor identity",
@@ -5329,7 +5545,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "examples_self_test: a clause that is not a guard of the transition",
@@ -5364,7 +5581,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "examples_self_test: a request naming both a type and an object",
@@ -5399,7 +5617,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "examples_self_test: a setup step that leaves out a required input",
@@ -5434,7 +5653,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "inventory_plants: a warning the example leaves out",
@@ -5493,7 +5713,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a warning the request does not raise",
@@ -5552,7 +5773,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a guard that denies, named as warning",
@@ -5587,7 +5809,8 @@
     "not_below_list_price warns: a failure is reported with the result and refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "inventory_plants: an invariant's remedy the rule does not give",
@@ -5639,7 +5862,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a left-out input of an optional attribute, expected to apply",
@@ -5674,7 +5898,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "inventory_plants: a sign-off expected to hold after the checklist it signed changed",
@@ -5753,7 +5978,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a step naming more objects than its request creates",
@@ -5867,7 +6093,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a setup's step requesting a transition only via another",
@@ -5906,7 +6133,8 @@
     "a setup's step must apply, and ChecklistItem.discard is only via Delivery.cancel, so a direct request is not requestable"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "inventory_plants: a step naming objects a transition that creates none creates",
@@ -5945,7 +6173,8 @@
     "names objects Delivery.assign_courier creates, and its effect creates none"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "inventory_plants: a refusal expected as another verdict",
@@ -6022,7 +6251,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a cascade expected to reach fewer objects than it does",
@@ -6101,7 +6331,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a rejected proposal expected withdrawn",
@@ -6180,7 +6411,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: an amount expected other than the one recorded",
@@ -6229,7 +6461,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a start expected dated a day earlier than it is",
@@ -6306,7 +6539,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a recorded time expected a day earlier than it is",
@@ -6383,7 +6617,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a derived flag expected false of a job signed off",
@@ -6460,7 +6695,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a derived count expected of a job never handed off",
@@ -6537,7 +6773,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: an override expected to leave its object in another of its targets",
@@ -6597,7 +6834,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a wrong expectation in the approvals examples",
@@ -6646,7 +6884,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a wrong expectation in the issues examples",
@@ -6747,7 +6986,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "inventory_plants: a wrong expectation in the servicedesk examples",
@@ -6847,6 +7087,9 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "PartStock.reserved_bounded": "local"
   }
  },
  {
@@ -6882,7 +7125,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: an examples file's keys out of order",
@@ -6917,7 +7161,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a stub of a function no evaluator declares",
@@ -6952,7 +7197,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a set of references given as one alias",
@@ -6994,7 +7240,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: an actor kind written as a name",
@@ -7036,7 +7283,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a bool written as a word",
@@ -7060,7 +7308,10 @@
     "'major' is a bool"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "example_rule_plants: an int written as a word",
@@ -7084,7 +7335,10 @@
     "'tier' is an int"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "example_rule_plants: a creation of a type no module declares",
@@ -7119,7 +7373,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a creation of an abstract type",
@@ -7143,7 +7398,10 @@
     "creates a Asset, which is abstract and has no objects"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "example_rule_plants: a creation requested on an object",
@@ -7178,7 +7436,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a transition of an object requested as a creation",
@@ -7213,7 +7472,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a target state an assertion cannot put its object in",
@@ -7241,7 +7501,8 @@
     "'NOWHERE' is not a state Customer.correct_state may put an object in"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: an alias given twice",
@@ -7290,7 +7551,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a setup given itself",
@@ -7325,7 +7587,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a setup given one declared after it",
@@ -7360,7 +7623,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: objects named as the request under test creates them",
@@ -7395,7 +7659,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a proposal's state expected of a request",
@@ -7430,7 +7695,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: an applied request naming a clause",
@@ -7465,7 +7731,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: an applied request with no state",
@@ -7500,7 +7767,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a value of an attribute the type does not declare",
@@ -7535,7 +7803,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a cascade to a transition no module declares",
@@ -7570,7 +7839,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a warning by a condition of no type",
@@ -7605,7 +7875,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a refused request expected to leave a state",
@@ -7640,7 +7911,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a refused request naming no clause",
@@ -7675,7 +7947,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a request not only via others, expected to be not requestable",
@@ -7710,7 +7983,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a violated invariant not named",
@@ -7745,7 +8019,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a violated invariant the type does not declare",
@@ -7780,7 +8055,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: a refused call naming no clause of a type",
@@ -7815,7 +8091,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "example_rule_plants: invalid input naming a clause",
@@ -7850,7 +8127,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "simulate",
@@ -7899,7 +8177,10 @@
     "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
+  }
  },
  {
   "label": "simulate",
@@ -7948,7 +8229,10 @@
     "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
+  }
  },
  {
   "label": "example_rule_plants: invalid input naming a clause",
@@ -8019,6 +8303,7 @@
     0
    ]
   },
+  "forms": {},
   "reads": {
    "people.yaml": "cc897d91cab7f987",
    "service-v2.yaml": "53f2b40fda247ff8"
@@ -8112,7 +8397,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "unknown",
@@ -8209,7 +8495,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "unknown",
@@ -8257,7 +8544,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "unknown",
@@ -8298,7 +8586,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "reference_plants: a state of a type nothing declares or imports",
@@ -8329,7 +8618,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "reference_plants: a guard reading the engineer its transition assigns",
@@ -8388,7 +8678,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "reference_plants: a call on a loop's item without the input its transition requires",
@@ -8433,7 +8724,8 @@
     "Sprint.complete_to_sprint calls WorkItem.plan without the input 'sprint', which it requires"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "reference_plants: a call on a path from a loop's item to a transition its type lacks",
@@ -8478,7 +8770,8 @@
     "Sprint.complete_to_sprint calls Epic.plan, which is not a transition of Epic"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "reference_plants: a call on a path from a loop's item to a transition its type lacks",
@@ -8523,7 +8816,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "split_plants",
@@ -8568,7 +8862,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "split_plants: a split metric that declares a time dimension",
@@ -8599,7 +8894,8 @@
     "metric working_by_month splits its spans, so its time is its pieces', and it declares no time_dimension; a window clips the pieces"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "split_plants: a piece's period read without a split",
@@ -8630,7 +8926,8 @@
     "metric working_by_month reads i.period, and a row of intervals has no member 'period'"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "split_plants: a split of objects",
@@ -8668,7 +8965,8 @@
     "metric handoffs_per_job splits its spans, so its time is its pieces', and it declares no time_dimension; a window clips the pieces"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "decimal_plant",
@@ -8709,7 +9007,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "decimal_plant",
@@ -8740,7 +9039,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "cutover_plant",
@@ -8771,7 +9071,10 @@
     "Employee.team is a mirror's reference to Service, which this store owns: a type is cut over only after every type that references it (ADR-0075), so a mirror references only mirrors"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "cutover_plant",
@@ -8852,6 +9155,9 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "PartStock.reserved_bounded": "local"
   }
  },
  {
@@ -8905,7 +9211,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "proposal_plants: a proposal of a transition that is not proposable",
@@ -8951,7 +9258,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "proposal_plants: an approval of a proposal no step filed",
@@ -8990,7 +9298,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "proposal_plants: a proposal left pending by an approval that applies",
@@ -9029,7 +9338,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "proposal_plants: an approval before the sign-off, expected to apply",
@@ -9108,7 +9418,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "date_plant",
@@ -9157,7 +9468,12 @@
     "within_policy warns: a failure is reported with the result and refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "Claim.has_title": "local",
+   "ClaimLine.confirmed_by_a_person": "local",
+   "ClaimLine.spent_amount_has_its_currency": "local"
+  }
  },
  {
   "label": "scan_plant",
@@ -9181,7 +9497,10 @@
     "condition outside_freeze scans every ChangeWindow and reads w.kind, which is not indexed: a type scan reads only indexed or unique attributes, references, the state and indexed derived attributes (the model's check 7)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "scan_plant",
@@ -9262,6 +9581,9 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "PartStock.reserved_bounded": "local"
   }
  },
  {
@@ -9293,7 +9615,8 @@
     "Customer.forget calls Contact.forget without the input 'ticket', which it requires"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "group_erasure_plant",
@@ -9317,7 +9640,8 @@
     "Customer.merged_into supersedes with a Contact, whose erasure takes reason where Customer's takes reason; a group's erasures receive one request's inputs, so they require the same, by name, type and optionality"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "binder_plant",
@@ -9355,7 +9679,8 @@
     "forget reads 'c', which Customer does not declare"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "abstract_summary_plant",
@@ -9379,7 +9704,8 @@
     "a type declares its own states and transitions, binds a state_machine, is abstract, or is a mirror with states, and only one of them; an abstract type has no lifecycle, conditions, observations or metrics"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "abstract_summary_plant",
@@ -9460,6 +9786,9 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "PartStock.reserved_bounded": "local"
   }
  },
  {
@@ -9500,7 +9829,10 @@
     "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
+  }
  },
  {
   "label": "migration_plants",
@@ -9524,7 +9856,8 @@
     "the migration moves Customer.LAPSED to MERGED, a superseding state, which would leave its objects superseded by nothing (ADR-0146)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "metric_plants",
@@ -9555,7 +9888,8 @@
     "metric slowest takes the percentile 1.5, and a percentile's p is in (0, 1] (ADR-0146)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "metric_plants",
@@ -9600,7 +9934,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "range_plant",
@@ -9631,7 +9966,8 @@
     "Delivery.open loops over a range of set, and a range is an int"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "range_plant",
@@ -9662,7 +9998,8 @@
     "Delivery.open loops over a range of decimal, and a range is an int"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "range_plant",
@@ -9715,7 +10052,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "erasure_plants",
@@ -9753,7 +10091,8 @@
     "Customer declares the erasures purge, forget; a type declares at most one, which a group's erasure takes (ADR-0147)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "erasure_plants",
@@ -9784,7 +10123,8 @@
     "Customer.correct_state asserts a superseding state, which would name no successor; a merge is a declared transition (the model's check 26, ADR-0147)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "erasure_plants",
@@ -9806,7 +10146,8 @@
     "T held personal data in the version before and now declares no erasure; a type keeps its erasure once it has needed one, so the values written then can be erased (the model's check 60, ADR-0147)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "binder_more_plants",
@@ -9844,7 +10185,8 @@
     "forget reads 'c', which Customer does not declare"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "binder_more_plants",
@@ -9875,7 +10217,8 @@
     "Delivery.open binds 'label' in a loop inside one that binds it already (ADR-0147)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "run",
@@ -9929,7 +10272,10 @@
     "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
+  }
  },
  {
   "label": "run",
@@ -9990,6 +10336,9 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
   }
  },
  {
@@ -10037,7 +10386,10 @@
     "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
+  }
  },
  {
   "label": "run",
@@ -10077,7 +10429,10 @@
     "the migration admits InspectionResult.value_in_range, an observation kind's invariant, which no migration reaches; its recorded observations are reported as a notice (ADR-0147)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
+  }
  },
  {
   "label": "run",
@@ -10131,6 +10486,9 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "ServiceJob.photo_when_done": "local"
   }
  },
  {
@@ -10162,7 +10520,8 @@
     "metric inspection_pass_rate's flag low reads 'actor_kind', which is neither value nor a dimension the metric declares"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "metric_more_plants",
@@ -10193,7 +10552,8 @@
     "metric slowest takes the percentile 0.5 * 1, and a percentile's p is a literal (ADR-0147)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "metric_more_plants",
@@ -10217,7 +10577,10 @@
     "metric problems_per_incident groups by day, year, which no one of the metrics it combines has all of; one input has every dimension the combination names (the model's check 56, ADR-0147)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "cluster3_plants",
@@ -10258,7 +10621,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "cluster3_plants",
@@ -10282,7 +10646,8 @@
     "'redact' cannot name a transition: the engine's own events carry that name (ADR-0148)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "cluster3_plants",
@@ -10320,7 +10685,10 @@
     "Server is not a mirror and extends Asset, which is; a family is ported together, every type of it a mirror or none (ADR-0148)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  }
  },
  {
   "label": "refusal_order_plant",
@@ -10390,7 +10758,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "refusal_order_plant",
@@ -10425,7 +10794,8 @@
     "photo_attached is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "cascade_cycle_plants: a call back to the whole whose cascade reached the part",
@@ -10449,7 +10819,8 @@
     "a transition causes itself, by a call, a create or a cascade: Order.finish → Line.drop → Order.finish; no transition may cause itself, on its own object or another (the model's check 12)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "cascade_cycle_plants: the same cycle closed twice, reported once",
@@ -10473,7 +10844,8 @@
     "a transition causes itself, by a call, a create or a cascade: Order.finish → Line.drop → Order.finish; no transition may cause itself, on its own object or another (the model's check 12)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "cascade_cycle_plants: a call in a loop to the transition taking it",
@@ -10497,7 +10869,8 @@
     "a transition causes itself, by a call, a create or a cascade: Line.drop → Line.drop; no transition may cause itself, on its own object or another (the model's check 12)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "cascade_cycle_plants: two cycles through one transition, each reported",
@@ -10528,7 +10901,8 @@
     "a transition causes itself, by a call, a create or a cascade: Order.finish → Line.drop → Order.finish; no transition may cause itself, on its own object or another (the model's check 12)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "cascade_cycle_plants: a creation of the type creating",
@@ -10552,7 +10926,8 @@
     "a transition causes itself, by a call, a create or a cascade: Job.open → Job.open; no transition may cause itself, on its own object or another (the model's check 12)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "cascade_cycle_plants: through a part an abstract base declares",
@@ -10576,7 +10951,8 @@
     "a transition causes itself, by a call, a create or a cascade: Robot.retire → Piece.drop → Robot.retire; no transition may cause itself, on its own object or another (the model's check 12)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "cascade_cycle_plants: a cascade whose part causes nothing back",
@@ -10613,7 +10989,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "clock_plants: now",
@@ -10637,7 +11014,10 @@
     "Job's invariant 'recent' reads now, the clock; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "Job.recent": "local"
+  }
  },
  {
   "label": "clock_plants: time_in",
@@ -10661,7 +11041,10 @@
     "Job's invariant 'brief' reads time_in, which counts to now; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "Job.brief": "local"
+  }
  },
  {
   "label": "clock_plants: a span's duration through a derivation",
@@ -10685,7 +11068,10 @@
     "Job's invariant 'short' reads Job.waited, a derived attribute that reads the clock; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "Job.short": "local"
+  }
  },
  {
   "label": "clock_plants: a derived attribute of its type",
@@ -10709,7 +11095,10 @@
     "Job's invariant 'fresh' reads Job.stale, a derived attribute that reads the clock; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "Job.fresh": "local"
+  }
  },
  {
   "label": "clock_plants: one through another derivation",
@@ -10733,7 +11122,10 @@
     "Job's invariant 'calm' reads Job.urgent, a derived attribute that reads the clock; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "Job.calm": "local"
+  }
  },
  {
   "label": "clock_plants: one of another type through a path",
@@ -10757,7 +11149,10 @@
     "Line's invariant 'on_time' reads Order.late, a derived attribute that reads the clock; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "Line.on_time": "traversal"
+  }
  },
  {
   "label": "clock_plants: entered_at and a derivation reading no clock",
@@ -10790,6 +11185,10 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "Job.entered": "local",
+   "Job.has_name": "local"
   }
  },
  {
@@ -10814,7 +11213,8 @@
     "Rack.slots cascades to Slot.drop, which is not a transition of Slot that acts on a part"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "abstract_part_plants: the same part surviving its whole",
@@ -10851,7 +11251,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "personal_plants: an own personal attribute",
@@ -10875,7 +11276,8 @@
     "Customer.leave writes the personal Customer.name to 'label', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: an own personal attribute as a function's argument",
@@ -10899,7 +11301,8 @@
     "Customer.leave writes the personal Customer.name to 'size', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: a derivation of its own as a function's argument",
@@ -10923,7 +11326,8 @@
     "Customer.leave writes the personal value in the derived Customer.called to 'size', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: a marked input",
@@ -10947,7 +11351,8 @@
     "Customer.tag writes the personal input 'text' to 'label', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: an input written to a personal attribute as well",
@@ -10971,7 +11376,8 @@
     "Customer.tag writes the personal input 'text' to 'label', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: one through a path",
@@ -10995,7 +11401,8 @@
     "Visit.close writes the personal Customer.name to 'summary', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: one through a derivation",
@@ -11019,7 +11426,8 @@
     "Visit.close writes the personal value in the derived Customer.called to 'summary', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: a test of its presence",
@@ -11043,7 +11451,8 @@
     "Visit.close writes the personal Customer.name to 'summary', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: an observation's personal field",
@@ -11067,7 +11476,8 @@
     "Visit.close writes the personal VisitNote.text to 'flagged', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: a call's argument",
@@ -11091,7 +11501,8 @@
     "Visit.close passes the personal Customer.name to Customer.tag's input 'text', which writes it to Customer.label, which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: one passed on by a second call",
@@ -11115,7 +11526,8 @@
     "Visit.close passes the personal Customer.name to Customer.relay's input 'text', which passes it to Customer.tag, which writes it to Customer.label, which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: a creation's into an attribute input",
@@ -11139,7 +11551,8 @@
     "Customer.leave passes the personal Customer.name to Visit.book's input 'note', which writes it to Visit.note, which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: a cascade's",
@@ -11163,7 +11576,8 @@
     "Order.finish cascades the personal Order.buyer to Line.drop's input 'why', which writes it to Line.memo, which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: a backfill's",
@@ -11189,7 +11603,8 @@
     "the backfill of Customer.alias reads the personal Customer.name, and alias is not personal; a backfill is a write; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "personal_plants: personal values reaching only personal attributes",
@@ -11226,7 +11641,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "personal_plants: an input the transition reached holds personal itself, reported where it is written",
@@ -11250,7 +11666,8 @@
     "Customer.tag writes the personal input 'text' to 'label', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "reparent_plants: an act assigning it",
@@ -11274,7 +11691,8 @@
     "Piece.move re-parents a part, writing 'asset', whose type Asset is abstract, so which whole's invariants it re-checks is not known from the text (the model's check 36, ADR-0058)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "reparent_plants: a do taking it as a required input",
@@ -11298,7 +11716,8 @@
     "Piece.move re-parents a part, writing 'asset', whose type Asset is abstract, so which whole's invariants it re-checks is not known from the text (the model's check 36, ADR-0058)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "reparent_plants: an act taking it as an optional input, which the required end refuses as well",
@@ -11329,7 +11748,8 @@
     "Piece.move re-parents a part, writing 'asset', whose type Asset is abstract, so which whole's invariants it re-checks is not known from the text (the model's check 36, ADR-0058)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "reparent_plants: a creation writing it",
@@ -11366,7 +11786,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "reparent_plants: a write of a reference to the abstract type that is no part's end back",
@@ -11403,7 +11824,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "reparent_plants: a re-parent to a concrete whole",
@@ -11440,7 +11862,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "reparent_plants: a part whose end back names another type",
@@ -11464,7 +11887,8 @@
     "Asset.pieces's opposite Piece.asset does not name Asset.pieces back"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "invariant_read_plants: an invariant reading inputs",
@@ -11488,7 +11912,10 @@
     "probe reads 'inputs', which only a transition has"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "Customer.probe": "local"
+  }
  },
  {
   "label": "invariant_read_plants: an invariant reading this_event",
@@ -11512,7 +11939,10 @@
     "probe reads 'this_event', which only a transition has"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {
+   "Customer.probe": "local"
+  }
  },
  {
   "label": "invariant_read_plants: an invariant over referrers",
@@ -11549,6 +11979,9 @@
     0,
     0
    ]
+  },
+  "forms": {
+   "Customer.probe": "traversal"
   }
  },
  {
@@ -11586,6 +12019,93 @@
     0,
     0
    ]
+  },
+  "forms": {}
+ },
+ {
+  "label": "invariant_form_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "740b40387ed02161"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Customer": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ],
+   "Visit": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Customer.called": "local",
+   "Customer.few_referrers": "traversal",
+   "Customer.labelled": "local",
+   "Visit.few_similar": "type_scan",
+   "Visit.known_customer": "traversal",
+   "Visit.labelled_customer": "traversal",
+   "Visit.one_open": "type_scan"
+  }
+ },
+ {
+  "label": "invariant_form_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "kit.yaml",
+    "526f197b65078dd0"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Piece": [
+    0,
+    0
+   ],
+   "Robot": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Asset.few_pieces": "traversal"
   }
  },
  {
@@ -11603,7 +12123,8 @@
     1,
     1
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "syntax_plants",
@@ -11624,7 +12145,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "syntax_plants",
@@ -11645,7 +12167,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "syntax_plants",
@@ -11662,7 +12185,8 @@
     1,
     1
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "syntax_plants",
@@ -11683,7 +12207,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "syntax_plants",
@@ -11704,7 +12229,8 @@
     0,
     0
    ]
-  }
+  },
+  "forms": {}
  },
  {
   "label": "syntax_plants: a creation that never writes a required attribute",
@@ -11724,7 +12250,8 @@
     "Job.open never writes required attribute 'owner'"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a state with no way out",
@@ -11744,7 +12271,8 @@
     "Job.STUCK is non-terminal with no outgoing transition"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a state nothing reaches",
@@ -11764,7 +12292,8 @@
     "Job.LOST is reachable by nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a type with no final state",
@@ -11784,7 +12313,8 @@
     "Job has no terminal state"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a transition leaving a final state",
@@ -11804,7 +12334,8 @@
     "Job.reopen is a do leaving terminal state DONE"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a type with no creation",
@@ -11831,7 +12362,8 @@
     "Job.OPEN is reachable by nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: an internal transition at a final state",
@@ -11851,7 +12383,8 @@
     "Job.annotate is an act at terminal state DONE"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a clear of a required attribute",
@@ -11871,7 +12404,8 @@
     "Job.finish clears required attribute 'title'"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a default on an optional input",
@@ -11891,7 +12425,8 @@
     "Job.finish gives a default to optional input 'why'"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a counter on a type tracked by record",
@@ -11911,7 +12446,8 @@
     "Job is tracking record with a counter"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a type tracked by quantity with no counter",
@@ -11931,7 +12467,8 @@
     "Job is tracking quantity with no counter"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: an audited guard on an assertion",
@@ -11958,7 +12495,8 @@
     "titled is audited: its failures are recorded and it refuses nothing"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a backdatable assertion",
@@ -11978,7 +12516,8 @@
     "Job.force is backdatable and is an assert"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: entered_at of a member that is not tracked",
@@ -11998,7 +12537,8 @@
     "Job.finish: entered_at(note) names neither a state nor a tracked member"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: an actor kind on a string",
@@ -12018,7 +12558,8 @@
     "Job.title is marked actor and is not an identity"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: two actor identities on one type",
@@ -12038,7 +12579,8 @@
     "Job marks 2 actor identities; a type holds one kind of actor, named once"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: the actor read in a condition",
@@ -12058,7 +12600,8 @@
     "reads the actor outside an outcome value: require titled: actor.id is not null because dependent"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a part created not only via its whole",
@@ -12078,7 +12621,8 @@
     "Line.start creates a part but is not 'only via' its whole"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: an only via whose parent never reaches it",
@@ -12098,7 +12642,8 @@
     "Line.start names parent Order.finish, which never reaches it"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a part created without its owner",
@@ -12118,7 +12663,8 @@
     "Line.start creates a part without writing owner 'order'"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: two singular ends, neither stored",
@@ -12138,7 +12684,8 @@
     "Desk.seat and Seat.desk are both singular; exactly one must be marked 'stored' (0 are)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: an observation's field named like a member every observation has",
@@ -12158,7 +12705,8 @@
     "JobNote.subject is named as a member every observation already has"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a unit on an observation's string field",
@@ -12178,7 +12726,8 @@
     "JobNote.text declares a unit and is not int or decimal"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a kind's invariant scanning its own kind",
@@ -12198,7 +12747,8 @@
     "JobNote: invariant reads beyond its own fields: few: count(JobNote) < 3"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a metric's dimension three hops away",
@@ -12218,7 +12768,8 @@
     "metric finished: dimension 'far = t.object.a.b.c' is 3 hops"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: over last on a metric with no window",
@@ -12238,7 +12789,8 @@
     "Job.finish: 'over last' on metric finished, which declares no 'window on', nor combines inputs that each do"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a guard binding what is no dimension of a metric",
@@ -12258,7 +12810,8 @@
     "Job.finish binds 'colour', not a dimension of metric finished"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: metric() outside a guard",
@@ -12278,7 +12831,8 @@
     "metric(…) outside a guard: value     metric(finished)"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a metric-only function in a condition",
@@ -12298,7 +12852,8 @@
     "a metric-only function outside a metric: require titled: median(title) > 0 because depend"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: an assignee that does not store its value",
@@ -12318,7 +12873,8 @@
     "Ticket.agent is an assignee and is not a singular stored ref"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: an assignee to a type marking no actor identity",
@@ -12338,7 +12894,8 @@
     "Ticket.agent is an assignee; Agent marks 0 actor identities, not one"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  },
  {
   "label": "syntax_plants: a create binding an argument from what its outcome writes, read by an evaluator guard",
@@ -12358,6 +12915,7 @@
     "Job.prep binds Crew.start's 'n' from a value its outcome writes, which an evaluator or metric guard reads"
    ]
   ],
-  "analysed": {}
+  "analysed": {},
+  "forms": {}
  }
 ]

@@ -169,6 +169,19 @@ fn the_core_finds_what_the_flow_checker_finds() {
                 checks.analysed
             ));
         }
+        // each invariant's form, which a publish report states
+        let forms: BTreeMap<String, String> = case["forms"]
+            .as_object()
+            .expect("forms")
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or_default().to_string()))
+            .collect();
+        if checks.forms != forms {
+            wrong.push(format!(
+                "{label}: the invariants' forms {:?}, and the flow checker's {forms:?}",
+                checks.forms
+            ));
+        }
         let found = checks.findings;
         let mut want: BTreeMap<(String, u64, String, String), usize> = BTreeMap::new();
         for k in case["findings"]
