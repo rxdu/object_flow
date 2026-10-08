@@ -69,7 +69,7 @@ Each check is one of four kinds. A *model* check refuses a declaration whatever 
 | 44 | an identifier's sequence, scope and format | model | step 3 | C1 |
 | 45 | *withdrawn* (ADR-0133) | withdrawn | — | — |
 | 46 | an indexed derivation reading what it may not | model | step 3 | C1 |
-| 47 | an aggregate with no body; a cascade clause with no limit | model | neither, the body, which the expression parser accepts (probed 2026-10-05); the schema, the limit | —; C1 |
+| 47 | an aggregate with no body; a cascade clause with no limit | model | step 2's `syntax`, the body, both expression parsers refusing it (2026-10-08); the schema, the limit | C1 |
 | 48 | an optional input inside a larger expression | model | step 3 | C1 |
 | 49 | a supersede's operand | model | step 3 | C1 |
 | 50 | an import of an undeclared name; a default reading what it may not | model | step 3 | C1 |

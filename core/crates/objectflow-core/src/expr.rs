@@ -225,6 +225,10 @@ const AGGREGATES: [&str; 10] = [
     "median",
     "percentile",
 ];
+
+/// The aggregates whose value is their body, which therefore has one (§8,
+/// §6.9; the model's check 47).
+const BODIED: [&str; 5] = ["sum", "min", "max", "avg", "median"];
 const KEYWORDS: [&str; 12] = [
     "and", "or", "not", "implies", "in", "is", "null", "if", "then", "else", "true", "false",
 ];
@@ -679,6 +683,16 @@ impl Parser {
                 self.take();
                 body = Some(boxed(self.expr()?));
             }
+            // the aggregates whose value is their body have one (§8, §6.9;
+            // the model's check 47)
+            if body.is_none() && (BODIED.contains(&function) || distinct) {
+                let which = if distinct {
+                    "a distinct count"
+                } else {
+                    function
+                };
+                return self.fail(&format!("a body after ':', which {which} requires"));
+            }
             self.expect(")")?;
             return Ok(Expr::Agg {
                 kind: function.to_string(),
@@ -846,6 +860,39 @@ mod tests {
         match e {
             Expr::Bin(BinOp::Sub, l, _) => assert!(matches!(*l, Expr::Bin(BinOp::Sub, _, _))),
             other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_aggregate_whose_value_is_its_body_has_one() {
+        // the reference parser's own words (`flowexpr.py`; the model's
+        // check 47)
+        let refused = |t: &str| parse(t).expect_err(t).to_string();
+        assert_eq!(
+            refused("sum(x in lines where x.qty > 0)"),
+            "a body after ':', which sum requires, found ')', at 31 of 'sum(x in lines where x.qty > 0)'"
+        );
+        assert_eq!(
+            refused("count(distinct x in lines)"),
+            "a body after ':', which a distinct count requires, found ')', at 26 of 'count(distinct x in lines)'"
+        );
+        for bodiless in [
+            "min(x in lines)",
+            "max(x in lines)",
+            "avg(x in lines)",
+            "median(x in lines where x.ok)",
+        ] {
+            assert!(
+                refused(bodiless).starts_with("a body after ':'"),
+                "{bodiless}"
+            );
+        }
+        for kept in [
+            "count(x in lines)",
+            "sum(x in lines: x.qty)",
+            "all(x in lines where x.ok)",
+        ] {
+            assert!(parse(kept).is_ok(), "{kept}");
         }
     }
 

@@ -4303,6 +4303,9 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(servicedesk, "enumerations:\n", "enumerations:\n  Service: [A, B]\n")),
         ("a set of references with no opposite", "names", "delivery.yaml",
          plant(delivery, "      price:        { type: money(SGD) }\n", "      price:        { type: money(SGD) }\n      helpers:      { reference: \"Courier[]\" }\n")),
+        ("a sum with no body, whose value its body is (the model's check 47)", "syntax", "servicedesk.yaml",
+         plant(servicedesk, "              and i.state != CANCELED and i.state != CLOSED: i.duration)\n",
+               "              and i.state != CANCELED and i.state != CLOSED)\n")),
         ("a step made conditional on an optional input", "names", "service.yaml",
          plant(service, "          note:   { type: string, optional: true, personal: true }\n        guards:\n          engineer_active: deny\n",
                "          note:   { type: string, optional: true, personal: true }\n        guards:\n          engineer_active: deny\n"

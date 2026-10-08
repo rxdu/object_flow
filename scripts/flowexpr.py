@@ -36,6 +36,8 @@ FORMAT = ROOT / "docs/design/flow-format"
 
 UNITS = {"s", "min", "h", "day", "days", "week", "weeks"}
 AGGREGATES = {"count", "sum", "min", "max", "all", "any", "none", "avg", "median", "percentile"}
+# the aggregates whose value is their body, which therefore has one (§8, §6.9; the model's check 47)
+BODIED = {"sum", "min", "max", "avg", "median"}
 KEYWORDS = {"and", "or", "not", "implies", "in", "is", "null", "if", "then", "else", "true", "false"}
 COMPARISONS = {"==", "!=", "<", "<=", ">", ">="}
 TOKEN = re.compile(r"""
@@ -258,6 +260,8 @@ class Parser:
             if self.at(":"):
                 self.take()
                 body = self.expr()
+            if body is None and (fn in BODIED or distinct):
+                self.fail(f"a body after ':', which {'a distinct count' if distinct else fn} requires")
             self.take(")")
             return ("agg", fn, distinct, var, collection, where, body)
         if fn == "metric":
@@ -390,7 +394,9 @@ def self_test():
          ("bin", "<=", ("bin", "+", ("call", ("name", "entered_at"), [("name", "MISSING")]), ("dur", 7, "days")), ("name", "now"))),
         ("if debit then amount else -amount", ("if", ("name", "debit"), ("name", "amount"), ("neg", ("name", "amount")))),
     ]
-    refused = ["a < b < c", "(a and b", "x in [A, B]", "a and", "if a then b", "a == == b", "count(x in )", "a b"]
+    refused = ["a < b < c", "(a and b", "x in [A, B]", "a and", "if a then b", "a == == b", "count(x in )", "a b",
+               "sum(x in lines where x.qty > 0)", "min(x in lines)", "max(x in lines)", "avg(x in lines)",
+               "median(x in lines where x.ok)", "count(distinct x in lines)"]
     ok = True
     for text, want in shapes:
         got = parse(text)

@@ -4011,6 +4011,31 @@
   "forms": {}
  },
  {
+  "label": "self_test: a sum with no body, whose value its body is (the model's check 47)",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "servicedesk.yaml",
+    "98a13afd9b780714"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    147,
+    "fatal",
+    "syntax",
+    "a body after ':', which sum requires, found ')', at 223 of 'sum(i in this.intervals where i.state != WAITING_FOR_CUSTOMER and i.state != PENDING\\n    and i.state != WAITING_FOR_APPROVAL and i.state != RESOLVED and i.state != DECLINED\\n    and i.state != CANCELED and i.state != CLOSED)': not an expression of declaration-syntax.md §8"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
   "label": "self_test: a step made conditional on an optional input",
   "files": [
    [
