@@ -32,8 +32,9 @@ a value read after a step it stepped past may stand on that step, so a survey's 
 It builds the core's service with the pinned toolchain and starts it on a free port, stopping it when done.
 
 With `--runner` it replays the same history through the reference runner's sandbox instead, served in this process by
-the Flow Studio's server, so both backends are held to the values the document derives by hand (ADR-0166 decision 2).
-An operation the runner's sandbox does not serve is not run there; its reads are held by `scenarios_passing_runner.txt`.
+the Flow Studio's server. It stops at the port, as not run: the port carries legacy history, which ADR-0154 decision 8
+leaves to the core, so the runner is held to the core by the comparisons and not by the scenarios (ADR-0167). An
+operation the runner's sandbox does not serve is not run there; its reads would be held by `scenarios_passing_runner.txt`.
 """
 import datetime
 import importlib.util
