@@ -452,3 +452,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The comparison of every example passed with the new `publish` examples in it, and a TODO note then claimed the comparison played their publish steps through both backends. It had not: the comparison gives its player a bundle, a player given one had no reader, and each publish step was not run on either side, which the comparison counts as alike. The stale declaration it would have found (D543) waited until the claim was checked.
 - **Correction:** Where a comparison counts the same "not run" on both sides as agreement, a new case's passing proves nothing until its outcome is read: check that it ran, here by breaking the feature and seeing the comparison fail, before saying the comparison holds it.
 - **Context:** The Flow Studio's backend comparison and any oracle test that tolerates unimplemented paths; 2026-10-08.
+
+### Files the running checks import were edited under them
+- **Pattern:** With every check running in the background for one decision (ADR-0167), the next decision's work began at once and edited `scripts/replay-scenarios.py` and the studio's sandbox, both of which the run imports in its last stages; the run then passed on a state no commit would hold, and could not stand as evidence for either.
+- **Correction:** While a run of the checks is going, change nothing it imports: draft in the scratchpad, or commit the first change before starting the second. A run that overlapped an edit is rerun, and a change that went uncommitted meanwhile is split out and checked alone, here on a worktree of its own commit.
+- **Context:** The repository's gate run (core, studio, web, the doc checkers and both replays); 2026-10-08.

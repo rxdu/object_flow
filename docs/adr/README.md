@@ -169,3 +169,4 @@
 | [0165](0165-a-uniqueness-key-is-indexed-and-an-objects-parts-are-read-on-first-use.md) | A uniqueness key is indexed, and an object's other parts are read on first use | Decided by the author |
 | [0166](0166-the-reference-runner-publishes-and-an-example-may-publish.md) | The reference runner publishes, and an example may publish | Decided by the author |
 | [0167](0167-the-runners-scenario-replay-stops-at-the-port.md) | The runner's replay of the scenarios stops at the port | Decided by the author |
+| [0168](0168-the-scenarios-port-declares-every-type-a-valid-mirror.md) | The scenarios' port declares every type a valid mirror | Decided by the author |

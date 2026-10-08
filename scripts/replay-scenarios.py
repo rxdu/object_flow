@@ -5,7 +5,8 @@ check-scenarios.py recomputes every value the scenarios quote from a transcripti
 reference for those values. This holds the core to them (TODO, "the scenarios as the metric read's second oracle"):
 it talks to the core's service over HTTP, as a caller would, and
 
-  1. ports the store as the scenarios say it was ported (§1): the modules loaded with every type a mirror, the port's
+  1. ports the store as the scenarios say it was ported (§1): version 1 loaded, every type a mirror as §1 declares it
+     and the flow checker accepts (ADR-0168), the port's
      objects imported at the port's time by their legacy keys, and the journey published over them as the cutover
      (`publish-and-import.md` §7);
   2. replays the history in the document's order, each request with its actor, its occurred time and the outcome the
@@ -36,6 +37,7 @@ the Flow Studio's server. It stops at the port, as not run: the port carries leg
 leaves to the core, so the runner is held to the core by the comparisons and not by the scenarios (ADR-0167). An
 operation the runner's sandbox does not serve is not run there; its reads would be held by `scenarios_passing_runner.txt`.
 """
+import copy
 import datetime
 import importlib.util
 import json
@@ -116,8 +118,7 @@ class RunnerSandbox(Service):
         from flowstudio.sandbox import Sandbox
         here = pathlib.Path(tempfile.mkdtemp())
         self.served = set(routes(Sandbox(), Catalogue(here)))
-        self.box = Sandbox()
-        self.server = serve("127.0.0.1", 0, here, box=self.box)
+        self.server = serve("127.0.0.1", 0, here, box=Sandbox())
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
 
@@ -128,11 +129,6 @@ class RunnerSandbox(Service):
     def call(self, path, body):
         if path not in self.served:
             raise NotRun(f"the runner's sandbox serves no {path}")
-        if path == "/sandbox/load":
-            # the port's mirrors loaded unchecked, as the core's service loads them, which the checker refuses
-            # (TODO, the scenarios' port); the cutover's version is checked as every publish's is
-            with self.box.lock:
-                return self.box.load(body, check=False)
         return super().call(path, body)
 
 
@@ -154,6 +150,60 @@ def duration(text):
     timedelta; none for text that is not one."""
     m = re.fullmatch(r"(-?\d+) (weeks?|days?|h|min|s)", text)
     return datetime.timedelta(seconds=int(m.group(1)) * UNITS[m.group(2)]) if m else None
+
+
+# a type's keys in the order flow-format.md §10 lists them, which the checker holds a module to
+TYPE_KEYS = ["description", "abstract", "extends", "mirror", "tracking", "attributes", "inherited_parts", "observations",
+             "states", "derived_attributes", "summary", "invariants", "conditions", "transitions", "metrics"]
+
+
+def port_version(doc, machines):
+    """A module as version 1 declared it at the port, every type a mirror as `metric-scenarios.md` §1 says
+    (`publish-and-import.md` §7, ADR-0168): as the scenarios' own `Customer` is declared, each keeps its attributes,
+    its invariants, derived attributes, observations and metrics, and its states, a bound machine's copied, and
+    declares the external identifier `legacy_key`, where it declares none, which the import fills with the legacy
+    key; and it drops every transition but an erasure, the conditions only those read, and a composite end's
+    cascade, which name transitions it no longer has (`declaration-syntax.md` §2), a minted identifier, since the
+    import gives every value and nothing mints, and the machines no type binds."""
+    doc = copy.deepcopy(doc)
+    doc.pop("machines", None)
+    for tn, t in list((doc.get("types") or {}).items()):
+        if t.get("mirror"):
+            continue
+        kept = {xn: x for xn, x in (t.get("transitions") or {}).items() if x.get("kind") == "erasure"}
+        guarded = {g for x in kept.values() for g in (x.get("guards") or {})}
+        out = {}
+        for k, v in t.items():
+            if k == "description":
+                out[k] = v
+                out["mirror"] = True
+            elif k == "attributes":
+                attrs = {a: {kk: vv for kk, vv in spec.items() if kk not in ("cascade", "survives", "identifier")}
+                         if isinstance(spec, dict) else spec for a, spec in v.items()}
+                if not t.get("abstract") and not any(isinstance(sp, dict) and sp.get("external")
+                                                      for sp in attrs.values()):
+                    attrs["legacy_key"] = {"type": "string", "external": "legacy", "indexed": True}
+                out[k] = attrs
+            elif k == "state_machine":
+                out["states"] = copy.deepcopy(machines[v]["states"])
+            elif k == "inherited_parts":
+                parts = {p: {kk: vv for kk, vv in spec.items() if kk not in ("cascade", "survives")}
+                         for p, spec in v.items()}
+                if any(parts.values()):
+                    out[k] = {p: spec for p, spec in parts.items() if spec}
+            elif k == "transitions":
+                if kept:
+                    out[k] = kept
+            elif k == "conditions":
+                if guarded:
+                    out[k] = {g: c for g, c in v.items() if g in guarded}
+            else:
+                out[k] = v
+        out.setdefault("mirror", True)
+        # in the order the format declares a type's keys (flow-format.md §10)
+        doc["types"][tn] = {k: out[k] for k in sorted(out, key=lambda k: TYPE_KEYS.index(k) if k in TYPE_KEYS
+                                                       else len(TYPE_KEYS))}
+    return doc
 
 
 def without_migration(text):
@@ -247,18 +297,23 @@ class Driver:
             text = self.texts[n]
             if mirror:
                 # read as the checker and the core read it: `on` a key and not a truth value, a date the text it is
-                doc = flows.load(text)
-                for tn, t in list((doc.get("types") or {}).items()):
-                    # in the place the format orders it, after the description (flow-format.md §4.1)
-                    head = {k: v for k, v in t.items() if k == "description"}
-                    doc["types"][tn] = {**head, "mirror": True, **{k: v for k, v in t.items() if k not in head}}
-                text = yaml.safe_dump(doc, sort_keys=False, allow_unicode=True)
+                text = yaml.safe_dump(port_version(flows.load(text), self.machines()), sort_keys=False,
+                                      allow_unicode=True)
             out.append({"name": f"{n}.yaml", "text": text})
         return out
 
+    def machines(self):
+        """Every machine the modules declare, by name, whose states a type binding it holds as a mirror."""
+        return {n: m for text in self.texts.values() for n, m in (flows.load(text).get("machines") or {}).items()}
+
     def port(self, block):
         at = cs.when(block["port"])
-        loaded = self.core.call("/sandbox/load", {"files": self.files(mirror=True)})
+        files = self.files(mirror=True)
+        # version 1 is a version the checker accepts, whichever backend loads it (ADR-0168)
+        found, _notes = flows.check([(f["name"], f["text"]) for f in files])
+        if found:
+            raise Differs(f"the port's version 1 is refused by the checker: {found[:3]}")
+        loaded = self.core.call("/sandbox/load", {"files": files})
         if not loaded.get("loaded"):
             raise Differs(f"the modules as mirrors do not load: {loaded.get('findings')}")
         self.clock(at)
@@ -275,6 +330,9 @@ class Driver:
             # quote depends on it, written so that no serial the store mints can equal it
             if imp["type"] == "Robot":
                 o["attributes"].setdefault("serial", f"RBT-{imp['object']}")
+            # the external identifier every mirror of version 1 declares, the legacy key where the record gives no
+            # other, as `Customer` gives its own (ADR-0168)
+            o["attributes"].setdefault("legacy_key", imp["object"])
             if imp.get("created"):
                 o["created_at"] = stamp(imp["created"])
             if imp.get("created_by"):
