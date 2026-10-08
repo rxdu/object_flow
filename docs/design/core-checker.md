@@ -24,7 +24,7 @@ Each check is one of four kinds. A *model* check refuses a declaration whatever 
 | # | What it refuses, in short | Kind | Today | The core |
 |---|---|---|---|---|
 | 1 | a guard or step reading an input its transition does not take | model | step 3 | C1 |
-| 2 | a call or create with an unknown or a missing argument; one of the wrong type | model | step 3; the text checker, a missing one; neither, the type | C1; C2 for the text checker's |
+| 2 | a call or create with an unknown or a missing argument; one of the wrong type | model | step 3, the type where both kinds can be told since 2026-10-08, an evaluator call's too; the text checker, a missing one | C1; C2 for the text checker's |
 | 3 | derived attributes in a cycle | model | step 3 | C1 |
 | 4 | *withdrawn* (ADR-0171) | withdrawn | — | — |
 | 5 | an invariant of none of the three forms | model | step 3, an invariant reading `inputs` or `this_event` (2026-10-08), every other read of no form having a check of its own; the report's form, both checkers' classification, carried into both reports (2026-10-08) | C1 |

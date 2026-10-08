@@ -239,6 +239,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
     out.extend(personal_errors(doc, &library));
     out.extend(reparent_errors(doc, &library));
     out.extend(symmetry_errors(doc, &library));
+    out.extend(argument_type_errors(doc, &library));
     let cats = categories(doc);
     let imported = imported(doc);
     for (tn, t) in types(doc) {
@@ -2676,6 +2677,83 @@ fn fits(target: &[String], value: &[String], library: &Obj) -> bool {
     false
 }
 
+/// Each argument a `call` or a `create` passes whose value does not fit the
+/// input it is given to, where both kinds can be told, as a write's value
+/// must fit its target: an input the transition reached declares, or an
+/// attribute input, which writes the attribute of its name (the model's
+/// check 2, its types; `check-flows.py`'s `argument_type_errors`).
+fn argument_type_errors(doc: &Value, library: &Obj) -> Found {
+    let mut kinds = library.clone();
+    for (tn, t) in types(doc) {
+        kinds.insert(tn, t.clone());
+    }
+    let enums: BTreeSet<String> = keys(doc, "enumerations").into_iter().collect();
+    let mut out = Found::new();
+    for (tn, t) in types(doc) {
+        for (xn, x) in obj(t, "transitions") {
+            for step in walk(x.get("effect")) {
+                if !matches!(step.kind, "call" | "create") {
+                    continue;
+                }
+                let body = &step.st[step.kind];
+                let k = if step.kind == "call" {
+                    call_target(
+                        &kinds,
+                        t,
+                        &tn,
+                        x,
+                        body,
+                        &binders(&kinds, &tn, x, &step.path),
+                    )
+                } else {
+                    body.get("type").map(py_str)
+                };
+                let Some(k) = k else { continue };
+                let ct = body.get("transition").map(py_str).unwrap_or_default();
+                let Some(callee) = kinds.get(&k) else {
+                    continue;
+                };
+                // a transition no type declares is the names checks'
+                let Some(reached) = obj(callee, "transitions").get(&ct).filter(|r| !r.is_null())
+                else {
+                    continue;
+                };
+                for (j, e) in obj(body, "inputs") {
+                    let mut spec = obj(reached, "inputs").get(j).filter(|s| !s.is_null());
+                    let attribute_input = strings(reached, "required_inputs")
+                        .iter()
+                        .chain(&strings(reached, "optional_inputs"))
+                        .any(|n| n == j);
+                    if spec.is_none() && attribute_input {
+                        spec = obj(callee, "attributes").get(j);
+                    }
+                    let target = written_kind(spec, &enums);
+                    let text = py_str(e);
+                    // step 2 refuses what does not parse
+                    let Ok(tree) = parse(&squash(&text)) else {
+                        continue;
+                    };
+                    let value = value_kind(&tree, &tn, t, x, &enums);
+                    if let (Some(target), Some(value)) = (target, value)
+                        && !fits(&target, &value, &kinds)
+                    {
+                        out.push(finding(
+                            ext(segs!["types", &tn, "transitions", xn, "effect"], step.path.clone()),
+                            "names",
+                            format!(
+                                "{tn}.{xn} passes {text}, {}, to {k}.{ct}'s input '{j}', which takes {}: an argument must fit its input (the model's check 2)",
+                                value.join(" "),
+                                target.join(" ")
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Each assign whose value does not fit its target, and each range that is
 /// not an int (the model's check 17, ADR-0146).
 fn write_type_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
@@ -4402,6 +4480,61 @@ fn evaluator_calls(text: &str, names: &BTreeSet<String>) -> Vec<(String, String,
 static WHOLE_VERDICT: LazyLock<Regex> =
     LazyLock::new(|| re(r"^(not\s+)?[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\(.*\)$"));
 
+/// Each argument of a condition's evaluator call whose value does not fit
+/// the argument the function declares, in order, where both kinds can be
+/// told (the model's check 2, its types); the call is the condition or its
+/// negation, check 24 refusing it elsewhere (`check-flows.py`'s
+/// `evaluator_argument_errors`).
+#[allow(clippy::too_many_arguments)]
+fn evaluator_argument_errors(
+    where_: &Path,
+    cn: &str,
+    text: &str,
+    ev: &str,
+    f: &str,
+    fun: &Value,
+    tn: &str,
+    t: &Value,
+    doc: &Value,
+) -> Found {
+    // step 2 refuses what does not parse
+    let Ok(mut tree) = parse(text) else {
+        return Found::new();
+    };
+    if let Expr::Not(inner) = tree {
+        tree = *inner;
+    }
+    let Expr::Call(callee, args) = &tree else {
+        return Found::new();
+    };
+    let named = matches!(&**callee, Expr::Path(base, m)
+        if m == f && matches!(&**base, Expr::Name(b) if b == ev));
+    if !named {
+        return Found::new();
+    }
+    let enums: BTreeSet<String> = keys(doc, "enumerations").into_iter().collect();
+    let no_transition = Value::Object(Default::default());
+    let mut out = Found::new();
+    for ((a, spec), arg) in obj(fun, "arguments").iter().zip(args) {
+        let target = written_kind(Some(spec), &enums);
+        let value = value_kind(arg, tn, t, &no_transition, &enums);
+        if let (Some(target), Some(value)) = (target, value)
+            && !fits(&target, &value, &Obj::new())
+        {
+            out.push(finding(
+                where_.clone(),
+                "names",
+                format!(
+                    "condition {cn} passes {} to {ev}.{f}'s argument '{a}', which takes {}: an argument must fit its input (the model's check 2)",
+                    value.join(" "),
+                    target.join(" ")
+                ),
+            ));
+        }
+    }
+    out
+}
+
 /// A guard, and only a guard, asks an evaluator, with its arguments, as the
 /// whole condition or its negation (checks 19 and 24).
 fn evaluator_errors(doc: &Value, tn: &str, t: &Value) -> Found {
@@ -4424,6 +4557,10 @@ fn evaluator_errors(doc: &Value, tn: &str, t: &Value) -> Found {
                         let want = obj(fun, "arguments").len();
                         if *n != want {
                             out.push(finding(where_.clone(), "names", format!("condition {cn} passes {n} argument(s) to {ev}.{f}, which takes {want}")));
+                        } else {
+                            out.extend(evaluator_argument_errors(
+                                &where_, cn, &text, ev, f, fun, tn, t, doc,
+                            ));
                         }
                     }
                 }

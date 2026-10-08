@@ -1519,7 +1519,7 @@ def name_errors(doc, library=None, ordered=True):
     library.update(dict(types(doc)))
     out = (order_errors(doc) if ordered else []) + reserved_name_errors(doc) + relationship_errors(doc, library) + combined_errors(doc) \
         + cascade_cycle_errors(doc, library) + clock_errors(doc, library) + personal_errors(doc, library) \
-        + reparent_errors(doc, library) + symmetry_errors(doc, library)
+        + reparent_errors(doc, library) + symmetry_errors(doc, library) + argument_type_errors(doc, library)
     for tn, t in types(doc):
         states = t.get("states") or {}
         attrs = t.get("attributes") or {}
@@ -1851,6 +1851,41 @@ def fits(target, value, library):
             seen.add(kind)
             kind = (library.get(kind) or {}).get("extends")
     return False
+
+
+def argument_type_errors(doc, library):
+    """Each argument a `call` or a `create` passes whose value does not fit the input it is given to, where both kinds
+    can be told, as a write's value must fit its target: an input the transition reached declares, or an attribute
+    input, which writes the attribute of its name (the model's check 2, its types; check 17's fit)."""
+    kinds = dict(library or {})
+    kinds.update(dict(types(doc)))
+    enums = set(doc.get("enumerations") or {})
+    out = []
+    for tn, t in types(doc):
+        for xn, x in (t.get("transitions") or {}).items():
+            for st, kind, path, _depth in walk(x.get("effect")):
+                if kind not in ("call", "create"):
+                    continue
+                body = st[kind]
+                k = call_target(kinds, t, tn, x, body, binders(kinds, tn, x, path)) if kind == "call" else body.get("type")
+                callee = (kinds.get(k) or {}) if k else {}
+                reached = (callee.get("transitions") or {}).get(body.get("transition"))
+                if not reached:
+                    continue                    # a transition no type declares is the names checks'
+                for j, e in (body.get("inputs") or {}).items():
+                    spec = (reached.get("inputs") or {}).get(j)
+                    if spec is None and j in set(reached.get("required_inputs") or []) | set(reached.get("optional_inputs") or []):
+                        spec = (callee.get("attributes") or {}).get(j)
+                    target = written_kind(spec, enums)
+                    try:
+                        value = value_kind(flowexpr.parse(" ".join(str(e).split())), tn, t, x, enums)
+                    except flowexpr.ParseError:
+                        continue                # step 2 refuses what does not parse
+                    if target and value and not fits(target, value, kinds):
+                        out.append((("types", tn, "transitions", xn, "effect") + path, "names",
+                                    f"{tn}.{xn} passes {e}, {' '.join(value)}, to {k}.{body['transition']}'s input '{j}', "
+                                    f"which takes {' '.join(target)}: an argument must fit its input (the model's check 2)"))
+    return out
 
 
 def write_type_errors(doc, tn, t, library):
@@ -2685,6 +2720,8 @@ def evaluator_errors(doc, tn, t):
                     out.append((where + ("expression",), "names", f"condition {cn} calls {ev}.{fn}, which {ev} does not declare"))
                 elif n != len(f.get("arguments") or {}):
                     out.append((where + ("expression",), "names", f"condition {cn} passes {n} argument(s) to {ev}.{fn}, which takes {len(f.get('arguments') or {})}"))
+                else:
+                    out += evaluator_argument_errors(where + ("expression",), cn, text, ev, fn, f, tn, t, doc)
         if calls and not re.fullmatch(r"(not\s+)?[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\(.*\)", text):
             out.append((where + ("expression",), "names", f"condition {cn} calls an evaluator inside a larger expression; a verdict is the whole condition or its negation (check 24)"))
     others = [(("types", tn, sec, n, "expression"), n, x["expression"]) for sec in ("invariants", "derived_attributes") for n, x in (t.get(sec) or {}).items()]
@@ -2693,6 +2730,28 @@ def evaluator_errors(doc, tn, t):
     for path, name, text in others:
         for ev, fn, _n in evaluator_calls(text, names):
             out.append((path, "names", f"{name} calls {ev}.{fn}; only a guard asks an evaluator"))
+    return out
+
+
+def evaluator_argument_errors(where, cn, text, ev, fn, f, tn, t, doc):
+    """Each argument of a condition's evaluator call whose value does not fit the argument the function declares, in
+    order, where both kinds can be told (the model's check 2, its types); the call is the condition or its negation,
+    check 24 refusing it elsewhere."""
+    try:
+        tree = flowexpr.parse(text)
+    except flowexpr.ParseError:
+        return []                               # step 2 refuses what does not parse
+    if tree[0] == "not":
+        tree = tree[1]
+    if tree[0] != "call" or tree[1] != ("path", ("name", ev), fn):
+        return []
+    enums = set(doc.get("enumerations") or {})
+    out = []
+    for (a, spec), arg in zip((f.get("arguments") or {}).items(), tree[2]):
+        target, value = written_kind(spec, enums), value_kind(arg, tn, t, {}, enums)
+        if target and value and not fits(target, value, {}):
+            out.append((where, "names", f"condition {cn} passes {' '.join(value)} to {ev}.{fn}'s argument '{a}', which "
+                                        f"takes {' '.join(target)}: an argument must fit its input (the model's check 2)"))
     return out
 
 
@@ -5657,6 +5716,58 @@ def cluster3_plants(people):
     return ok
 
 
+def argument_type_plants(people):
+    """An argument of a call or a create whose value does not fit the input it is given to is refused, an input the
+    transition declares or an attribute input (the model's check 2, its types): a number to a string, the clock to an
+    attribute input holding text, and an object of the wrong type to a reference; and arguments that fit are not."""
+    def p(text, old, new):
+        assert text.count(old) == 1, old
+        return text.replace(old, new, 1)
+
+    def step(text, line_start, steps):
+        line = next(l for l in text.splitlines(keepends=True) if l.startswith(line_start))
+        return p(text, line, line.rstrip("\n")[:-2] + ", effect: [ " + ", ".join(steps) + " ] }\n")
+
+    def refused(what):
+        return f"{what}: an argument must fit its input (the model's check 2)"
+    LEAVE, CLOSE = "      leave:  {", "      close:  {"
+
+    def asking(expr):
+        """The customers asking an evaluator whether a label is known, in a guard on tagging them."""
+        text = p(PERSONAL_CRM, "types:\n", "evaluators:\n  crmcheck:\n    description: A check of customers.\n"
+                 "    functions:\n      known:\n        description: Whether a label is known.\n"
+                 "        arguments:\n          n: { type: string }\ntypes:\n")
+        text = p(text, "    transitions:\n      join:", "    conditions:\n      known: { description: The label is known., "
+                 f"expression: '{expr}', remedy: dependent }}\n    transitions:\n      join:")
+        return p(text, "inputs: { text: { type: string } }, effect: [ { assign: { location: label",
+                 "inputs: { text: { type: string } }, guards: { known: deny }, effect: [ { assign: { location: label")
+    cases = [
+        ("a number to a string", step(PERSONAL_CRM, CLOSE, ["{ call: { target: customer, transition: tag, inputs: { text: 5 } } }"]),
+         [refused("Visit.close passes 5, number, to Customer.tag's input 'text', which takes string")]),
+        ("the clock to an attribute input holding text",
+         step(PERSONAL_CRM, LEAVE, ["{ create: { type: Visit, transition: book, inputs: { customer: this, note: now } } }"]),
+         [refused("Customer.leave passes now, timestamp, to Visit.book's input 'note', which takes string")]),
+        ("an object of the wrong type to a reference",
+         step(PERSONAL_CRM, CLOSE, ["{ create: { type: Visit, transition: book, inputs: { customer: this } } }"]),
+         [refused("Visit.close passes this, reference Visit, to Visit.book's input 'customer', which takes reference Customer")]),
+        ("an evaluator's argument of the wrong type", asking("crmcheck.known(5)"),
+         [refused("condition known passes number to crmcheck.known's argument 'n', which takes string")]),
+        ("a negated evaluator's argument of the wrong type", asking("not crmcheck.known(now)"),
+         [refused("condition known passes timestamp to crmcheck.known's argument 'n', which takes string")]),
+        ("an evaluator's argument that fits", asking("crmcheck.known(label)"), []),
+        ("arguments that fit", step(step(PERSONAL_CRM, CLOSE, ["{ call: { target: customer, transition: tag, inputs: { text: '\"vip\"' } } }"]),
+                                    LEAVE, ["{ create: { type: Visit, transition: book, inputs: { customer: this } } }"]), []),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, _ = check([("people.yaml", people), ("crm.yaml", text)])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want) and all(x[3] == "names" for x in found)
+        ok &= hit
+        print(f"  check 2, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
 def symmetry_plants(people):
     """A type-scan invariant is symmetric by the swap test of declaration-syntax.md §3.4, or refused naming the member
     read on one of the two objects only (the model's check 6, ADR-0061, ADR-0063): an overlap with its status filter on
@@ -6314,6 +6425,7 @@ def main():
     ok &= invariant_read_plants(people)
     ok &= invariant_form_plants(people)
     ok &= symmetry_plants(people)
+    ok &= argument_type_plants(people)
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:

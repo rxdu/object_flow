@@ -9627,6 +9627,13 @@
   "findings": [
    [
     "customers.yaml",
+    111,
+    "fatal",
+    "names",
+    "Customer.merge_in passes this, reference Customer, to Customer.merged_into's input 'successor', which takes reference Contact: an argument must fit its input (the model's check 2)"
+   ],
+   [
+    "customers.yaml",
     121,
     "fatal",
     "names",
@@ -9659,10 +9666,24 @@
   "findings": [
    [
     "customers.yaml",
+    111,
+    "fatal",
+    "names",
+    "Customer.merge_in passes this, reference Customer, to Customer.merged_into's input 'successor', which takes reference Contact: an argument must fit its input (the model's check 2)"
+   ],
+   [
+    "customers.yaml",
     121,
     "fatal",
     "names",
     "Customer.merged_into supersedes with a Contact, whose erasure takes reason where Customer's takes reason; a group's erasures receive one request's inputs, so they require the same, by name, type and optionality"
+   ],
+   [
+    "customers.yaml",
+    165,
+    "fatal",
+    "names",
+    "Customer.forget passes inputs.reason, string, to Contact.forget's input 'reason', which takes enumeration OverrideReason: an argument must fit its input (the model's check 2)"
    ]
   ],
   "analysed": {},
@@ -12441,6 +12462,207 @@
   "forms": {
    "Booking.probe": "type_scan"
   }
+ },
+ {
+  "label": "argument_type_plants: a number to a string",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "051b3b011bcf9f20"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    45,
+    "fatal",
+    "names",
+    "Visit.close passes 5, number, to Customer.tag's input 'text', which takes string: an argument must fit its input (the model's check 2)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "argument_type_plants: the clock to an attribute input holding text",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "3aa82cbe5e23d282"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    22,
+    "fatal",
+    "names",
+    "Customer.leave passes now, timestamp, to Visit.book's input 'note', which takes string: an argument must fit its input (the model's check 2)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "argument_type_plants: an object of the wrong type to a reference",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "d95ec7d2ee15bc99"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    45,
+    "fatal",
+    "names",
+    "Visit.close passes this, reference Visit, to Visit.book's input 'customer', which takes reference Customer: an argument must fit its input (the model's check 2)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "argument_type_plants: an evaluator's argument of the wrong type",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "2f1e6c3447e8b0c9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    26,
+    "fatal",
+    "names",
+    "condition known passes number to crmcheck.known's argument 'n', which takes string: an argument must fit its input (the model's check 2)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "argument_type_plants: a negated evaluator's argument of the wrong type",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "0e3365e30510b10a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    26,
+    "fatal",
+    "names",
+    "condition known passes timestamp to crmcheck.known's argument 'n', which takes string: an argument must fit its input (the model's check 2)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "argument_type_plants: an evaluator's argument that fits",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "74a4c2bc54e405cf"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Customer": [
+    0,
+    1
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ],
+   "Visit": [
+    0,
+    0
+   ]
+  },
+  "forms": {}
+ },
+ {
+  "label": "argument_type_plants: arguments that fit",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "7717451984d0a560"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Customer": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ],
+   "Visit": [
+    0,
+    0
+   ]
+  },
+  "forms": {}
  },
  {
   "label": "syntax_plants",
