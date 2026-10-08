@@ -13,6 +13,7 @@ import tempfile
 import pytest
 
 from compare import Tee
+from replay import Failed
 from flowstudio.catalogue import Catalogue
 from flowstudio.core import Core
 from test_backends_agree import started
@@ -954,5 +955,116 @@ def test_a_tier_newly_personal_is_cleared_erased_before_or_after(tee,
     assert tiers(tee) == [(None, 1 if erased_first else 2)]
     assert tee.post("/v1/get", {"id": ana})["attributes"].get("tier") is None
     tee.post("/v1/history", {"id": ana})
+    alike(tee)
+
+
+
+def test_a_declaration_names_its_version_and_where_it_came_from(tee):
+    """`declaration` returns the version read, its source reference and
+    digest, an earlier version's when named, and refuses a version the store
+    never held (`library-api.md` §6, ADR-0135)."""
+    ids = fleet(tee)
+    tee.found.clear()
+    first = tee.post("/v1/declaration", {"type": "Robot"})
+    assert (first["version"], first["source_ref"]) == (1, "sandbox:load")
+    assert first["source_digest"].startswith("sha256:")
+    c = change(tee, "draft", source={"fleet": fleet_v2(True, True, True)},
+               source_ref="git:fleet@2")["object_id"]
+    approved(tee, c)
+    second = tee.post("/v1/declaration", {"type": "Robot"})
+    assert (second["version"], second["source_ref"]) == (2, "git:fleet@2")
+    assert second["source_digest"] == tee.post(
+        "/v1/get", {"id": c})["attributes"]["source_digest"]
+    assert "site" in second["attributes"]
+    earlier = tee.post("/v1/declaration", {"type": "Robot", "version": 1})
+    assert earlier["version"] == 1 and "site" not in earlier["attributes"]
+    assert earlier["source_digest"] == first["source_digest"]
+    # refused alike: a version never held, version 0, which holds no type of
+    # the fleet, and a version that is not a number
+    for refused in ({"version": 9}, {"version": 0}, {"version": "one"}):
+        with pytest.raises(Failed):
+            tee.post("/v1/declaration", {"type": "Robot", **refused})
+    del ids
+    alike(tee)
+
+
+def test_a_declaration_marks_each_dimension_naming_an_actor(tee):
+    """Every metric dimension of a job whose value names an actor, the
+    engineer, an object of `User`, which marks an actor identity: its own
+    metrics' and the standard assignment metrics' over its assignee, and
+    none of the rest (`library-api.md` §6, D451)."""
+    loaded(tee, "service.yaml")
+    tee.found.clear()
+    job = tee.post("/v1/declaration", {"type": "ServiceJob"})
+    assert job["person_dimensions"] == [
+        "ServiceJob.cycle_time_by_assignee.engineer.assignee",
+        "ServiceJob.inspection_pass_rate.engineer",
+        "ServiceJob.open_work.engineer.assignee",
+        "ServiceJob.time_in_state_by_holder.engineer.assignee",
+        "ServiceJob.time_with_assignee.engineer.assignee",
+        "ServiceJob.time_working.engineer",
+    ]
+    assert tee.post("/v1/declaration", {"type": "User"})[
+        "person_dimensions"] == []
+    alike(tee)
+
+
+DESK = """module: desk
+categories: [live, closed]
+types:
+  Agent:
+    description: A person who works tickets.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human }
+    states:
+      ACTIVE: { category: live }
+      LEFT: { category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ACTIVE, required_inputs: [login] }
+      leave: { kind: external, from: [ACTIVE], to: LEFT }
+  Queue:
+    description: A queue tickets are raised in.
+    tracking: record
+    attributes:
+      name: { type: string }
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [name] }
+      shut: { kind: external, from: [OPEN], to: SHUT }
+  Ticket:
+    description: A ticket raised in a queue, owned by an agent.
+    tracking: record
+    attributes:
+      queue: { reference: Queue }
+      owner: { reference: Agent, optional: true, assignee: true }
+    states:
+      NEW: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      raise: { kind: initial, to: NEW, required_inputs: [queue], optional_inputs: [owner] }
+      resolve: { kind: external, from: [NEW], to: DONE }
+    metrics:
+      by_actor: { description: Requests by who made them., source: transitions, item: t, dimensions: { actor: t.actor_id }, expression: count() }
+      by_queue: { description: Tickets by queue., source: objects, item: o, dimensions: { queue: o.queue }, expression: count() }
+"""
+
+
+def test_an_actors_id_is_marked_and_another_object_is_not(tee):
+    """An actor's id, `t.actor_id`, names an actor, and a reference to an
+    object of a type marking no actor identity, a queue, does not
+    (`library-api.md` §6, D451)."""
+    load(tee, "desk", DESK)
+    tee.found.clear()
+    assert tee.post("/v1/declaration", {"type": "Ticket"})[
+        "person_dimensions"] == [
+        "Ticket.by_actor.actor",
+        "Ticket.cycle_time_by_assignee.owner.assignee",
+        "Ticket.open_work.owner.assignee",
+        "Ticket.time_in_state_by_holder.owner.assignee",
+        "Ticket.time_with_assignee.owner.assignee",
+    ]
     alike(tee)
 

@@ -1366,13 +1366,13 @@ class Evaluator:
         s = self.s
         family = [o for o in sorted(s.objects.values(), key=lambda o: o.id_order) if s.is_a(o.type, owner)]
         if source == "objects":
-            return [o.id for o in family], ("object", owner), "created_by_kind"
+            return [o.id for o in family], self.row_kind(owner, source), "created_by_kind"
         if source == "intervals" or source.startswith("intervals("):
             member = "state" if source == "intervals" else source[len("intervals("):-1].strip()
-            return [r for o in family for r in self.intervals(o, member)], ("interval", owner), "entered_by_kind"
+            return [r for o in family for r in self.intervals(o, member)], self.row_kind(owner, source), "entered_by_kind"
         if source == "transitions":
             ids = {o.id for o in family}
-            return [Row(e) for e in s.events if e["object"] in ids], ("transition", owner), "actor_kind"
+            return [Row(e) for e in s.events if e["object"] in ids], self.row_kind(owner, source), "actor_kind"
         observed = (s.kinds.get(owner) or {}).get("observations") or {}
         if source in observed:
             kind = observed[source]["kind"]
@@ -1380,19 +1380,19 @@ class Evaluator:
             corrected = {x.attrs.get("corrects") for x in s.objects.values() if x.type == kind}
             return ([x.id for x in sorted(s.objects.values(), key=lambda x: x.id_order)
                      if x.type == kind and x.attrs.get("subject") in ids and x.id not in corrected],
-                    ("object", kind), "recorded_by_kind")
+                    self.row_kind(owner, source), "recorded_by_kind")
         if source == "labels":
             # each label on an object of the family that nothing has corrected (declaration-syntax.md §6.9)
             ids = {o.id for o in family}
             corrected = {x.attrs.get("corrects") for x in s.objects.values() if x.type == LABEL}
             return ([x.id for x in sorted(s.objects.values(), key=lambda x: x.id_order)
                      if x.type == LABEL and x.attrs.get("subject") in ids and x.id not in corrected],
-                    ("label", owner), "recorded_by_kind")
+                    self.row_kind(owner, source), "recorded_by_kind")
         if source in ("attempts", "attempt_counts"):
             # the rows of the family's types; a row of no type, an unknown id's, is none of them (DESIGN.md §7)
             mine = [a for a in s.attempts if a["type"] and s.is_a(a["type"], owner)]
             if source == "attempts":
-                return [Row(a) for a in mine], ("attempt", owner), "actor_kind"
+                return [Row(a) for a in mine], self.row_kind(owner, source), "actor_kind"
             # each UTC day, object and combination of the members, counted; nothing is pruned, so the rollup is empty
             counts = {}
             members = ("object", "transition", "verdict", "clause", "remedy", "actor_kind", "enforced", "flagged",
@@ -1401,7 +1401,25 @@ class Evaluator:
                 key = (day_of(a["at"]),) + tuple(a[m] for m in members)
                 counts[key] = counts.get(key, 0) + 1
             return ([Row(dict(zip(("day",) + members, key), count=n)) for key, n in counts.items()],
-                    ("attempt_count", owner), "actor_kind")
+                    self.row_kind(owner, source), "actor_kind")
+        raise NotRunnable(f"a metric over `{source}`")
+
+    def row_kind(self, owner, source):
+        """What a row of a metric's source is, read from the source alone: an object, a span, an event, an
+        observation, a label, an attempt or a day's count of them (declaration-syntax.md §6.9)."""
+        if source == "objects":
+            return ("object", owner)
+        if source == "intervals" or source.startswith("intervals("):
+            return ("interval", owner)
+        if source == "transitions":
+            return ("transition", owner)
+        observed = (self.s.kinds.get(owner) or {}).get("observations") or {}
+        if source in observed:
+            return ("object", observed[source]["kind"])
+        if source == "labels":
+            return ("label", owner)
+        if source in ("attempts", "attempt_counts"):
+            return ("attempt" if source == "attempts" else "attempt_count", owner)
         raise NotRunnable(f"a metric over `{source}`")
 
     def reach(self, e, env):
@@ -2713,6 +2731,43 @@ class Runner:
         """The type whose family a uniqueness spans: the one declaring the attribute, so a base's spans every subtype,
         siblings included (flow-format.md §4.14, D519)."""
         return ((self.kinds.get(tn) or {}).get("_from") or {}).get(("attributes", a), tn)
+
+
+def person_dimensions(store, tn):
+    """Each metric dimension of a type whose value names an actor, which `declaration` marks so an upper layer can
+    keep a person's figures behind its own door (library-api.md §6, ADR-0114, D451), as `<Type>.<metric>.<dimension>`
+    in ascending order: over the type's own metrics and the standard ones, an assignment metric once for each assignee
+    reference. A value names an actor where it is an object of a type marking an `actor` identity, a tracked
+    reference's value in an interval of it included, or an actor's id; a combined metric's dimensions are its inputs',
+    marked there. Its rows are never read: a row's kind is its source's."""
+    t = store.kinds.get(tn) or {}
+    assignees = [a for a, sp in (t.get("attributes") or {}).items() if (sp or {}).get("assignee")]
+    # the type's own metrics, declared under it in its module (flow-format.md §4.9)
+    names = [n for ms in store.decl.metrics.values() for n, (owner, _spec) in ms.items() if owner == tn]
+    names += [n for n, spec in STANDARD.items() if "input_metrics" not in spec]
+    names += [f"{n}.{r}" for n, spec in ASSIGNMENT.items() if "input_metrics" not in spec for r in assignees]
+    ev = Evaluator(store, tn)
+    out = []
+    for n in names:
+        owner, spec, _module = store.find_metric(parsed(f"{tn}.{n}"), tn)
+        if "input_metrics" in spec:
+            continue
+        f = formula(store.kinds, store.enums, owner, spec)
+        row = ev.row_kind(owner, f["source"])
+        for d, x in (f.get("dimensions") or {}).items():
+            e = parsed(x)
+            if e[0] == "path" and e[2] == "actor_id":
+                out.append(f"{tn}.{n}.{d}")         # an actor's id, a transition's or an attempt's
+                continue
+            if e == ("path", ("name", f["item"]), "value") and f["source"].startswith("intervals("):
+                member = f["source"][len("intervals("):-1].strip()
+                spec_m = ((store.kinds.get(owner) or {}).get("attributes") or {}).get(member) or {}
+                kind = ("object", str(spec_m["reference"]).removesuffix("[]")) if "reference" in spec_m else ("other",)
+            else:
+                kind = ev.kind(e, {f["item"]: row})
+            if kind[0] == "object" and store.actor_attr(kind[1]) is not None:
+                out.append(f"{tn}.{n}.{d}")
+    return sorted(out)
 
 
 def observation_kinds(modules):

@@ -840,6 +840,10 @@ def install(store, installed, report, change_id, identity, kind):
     # each version a store held before, by number, and the renames each version made, which an erasure reads what
     # was personal through (ADR-0146 decision 2)
     store.history = {**getattr(store, "history", {}), old_version: old_kinds}
+    # the version as installed, its source and where it came from, which `declaration` reads (ADR-0135)
+    store.versions = {**getattr(store, "versions", {}), new_version: {
+        "source": dict(new.source), "source_ref": c.attrs.get("source_ref"),
+        "source_digest": c.attrs.get("source_digest")}}
     store.renames = {**getattr(store, "renames", {}), new_version: [
         (tn, frm, to) for tn, maps in new.migration["renamed_attributes"].items() for frm, to in (maps or {}).items()]}
     return positions

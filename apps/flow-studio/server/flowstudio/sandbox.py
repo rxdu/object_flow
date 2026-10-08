@@ -69,6 +69,31 @@ def build(files: list[tuple[str, str]]) -> tuple[dict, dict]:
     return library, modules
 
 
+def version_parts(files: list[tuple[str, str]]) -> tuple:
+    """A version's kinds, enumerations, metric declarations, the module of
+    each type, and its modules, from its module files in import order, as a
+    load builds them."""
+    library, modules = build(files)
+    enums = {
+        n: list(v)
+        for m in modules.values()
+        for n, v in (m.get("enumerations") or {}).items()
+    }
+    kinds = dict(library)
+    kinds.update(flowrun.observation_kinds(modules))
+    kinds["Operator"] = {
+        "attributes": {
+            "identity": {"type": "identity", "actor_kind": "human"}
+        },
+        "states": {
+            "ACTIVE": {"category": "live"},
+            "RETIRED": {"category": "closed", "final": True},
+        },
+    }
+    declared, homes = flowrun.declarations(modules)
+    return kinds, enums, declared, homes, modules
+
+
 def checked(body: dict) -> tuple[list[tuple[str, str]], dict | None, int]:
     """A load's module files and the flow checker's verdict on them, which the
     studio's load runs before either backend loads them (ADR-0153 decision
@@ -154,26 +179,9 @@ class Sandbox:
         files, refused, notices = checked(body)
         if refused:
             return refused
-        library, modules = build(files)
+        kinds, enums, declared, homes, modules = version_parts(files)
         # each type as the loaded version writes it, which a reset returns to
         self.written = self.written_at_load = written(modules)
-        enums = {
-            n: list(v)
-            for m in modules.values()
-            for n, v in (m.get("enumerations") or {}).items()
-        }
-        kinds = dict(library)
-        kinds.update(flowrun.observation_kinds(modules))
-        kinds["Operator"] = {
-            "attributes": {
-                "identity": {"type": "identity", "actor_kind": "human"}
-            },
-            "states": {
-                "ACTIVE": {"category": "live"},
-                "RETIRED": {"category": "closed", "final": True},
-            },
-        }
-        declared, homes = flowrun.declarations(modules)
         self.parts = (kinds, enums, declared, homes)
         # the installed version's source, each file by the name it declares,
         # which a change to the declaration is checked against (ADR-0166)
@@ -200,6 +208,12 @@ class Sandbox:
         self.runner = flowrun.Runner(kinds, enums)
         self.store = flowrun.Store(kinds, enums, declared, homes)
         self.store.source = dict(self.source)
+        # each version the store holds, by number: version 1, the load, its
+        # source reference `sandbox:load` and its digest computed, as the
+        # core's load installs it (ADR-0155 decision 4); a publish adds one
+        self.store.versions = {1: {
+            "source": dict(self.source), "source_ref": "sandbox:load",
+            "source_digest": flowpublish.source_digest(self.source)}}
         self.stubs = {}
         # each imported object by its legacy key, qualified by its family's
         # root type (ADR-0154, C23)
@@ -692,9 +706,31 @@ class Sandbox:
                 "not_computed": EVENT_NOT_COMPUTED}
 
     def declaration(self, body: dict) -> dict:
+        """A type as a version declares it, the installed one where none is
+        named, with the version's source reference and digest and the
+        metric dimensions that name an actor (`library-api.md` §6,
+        ADR-0135, D451)."""
         self.loaded()
         tn = body.get("type")
-        t = self.runner.kinds.get(tn)
+        s = self.store
+        asked = body.get("version")
+        if asked is not None and (not isinstance(asked, int)
+                                  or isinstance(asked, bool)):
+            raise Fault(400, "version takes a declaration version, an integer")
+        version = s.version if asked is None else asked
+        if version == s.version:
+            runner, store, written_ = self.runner, s, self.written
+        elif version in s.versions:
+            # an earlier version, built from its source as a load builds one
+            kinds, enums, declared, homes, modules = version_parts(
+                flowpublish.import_order(flows, s.versions[version]["source"]))
+            runner = flowrun.Runner(kinds, enums)
+            store = flowrun.Store(kinds, enums, declared, homes)
+            written_ = written(modules)
+        else:
+            raise Fault(404, f"no version {version} was published")
+        record = s.versions.get(version) or {}
+        t = runner.kinds.get(tn)
         if t is None:
             raise Fault(404, f"no type {tn} is declared")
         # a generated kind is the runner's own, less the keys it keeps for
@@ -702,7 +738,7 @@ class Sandbox:
         out = jsonable({k: v for k, v in (
             flowpublish.change_declaration()
             if tn == flowrun.DECLARATION_CHANGE
-            else self.written.get(tn, t)).items() if not k.startswith("_")})
+            else written_.get(tn, t)).items() if not k.startswith("_")})
         # the members of each enumeration the type's attributes are of, which
         # its rules are read against
         used = {str((spec or {}).get("type", "")).removesuffix("[]")
@@ -710,9 +746,13 @@ class Sandbox:
         used |= {str((spec or {}).get("type", "")).removesuffix("[]")
                  for x in (t.get("transitions") or {}).values()
                  for spec in (x.get("inputs") or {}).values()}
-        out["enumerations"] = {e: list(self.runner.enums[e])
+        out["enumerations"] = {e: list(runner.enums[e])
                                for e in sorted(used)
-                               if e in self.runner.enums}
+                               if e in runner.enums}
+        out["version"] = version
+        out["source_ref"] = record.get("source_ref")
+        out["source_digest"] = record.get("source_digest")
+        out["person_dimensions"] = flowrun.person_dimensions(store, tn)
         return out
 
     # ── translations ──────────────────────────────────────────────────────

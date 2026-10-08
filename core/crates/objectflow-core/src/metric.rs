@@ -577,6 +577,32 @@ struct Rows {
 }
 
 impl<'w> Reader<'w> {
+    /// What a row of a metric's source is, read from the source alone, as
+    /// its rows give it (§6.9): an object, a span, an event, an observation,
+    /// a label, an attempt or a day's count of them.
+    fn row_kind(&self, owner: &str, source: &str) -> Result<Kind, NotRun> {
+        let observed = self
+            .world
+            .lib
+            .type_(owner)
+            .and_then(|t| t.observations.iter().find(|(c, _)| c == source))
+            .map(|(_, kind)| kind.clone());
+        Ok(match source {
+            "objects" => Kind::Object(owner.to_string()),
+            "transitions" => Kind::Transition(owner.to_string()),
+            "labels" => Kind::Label(owner.to_string()),
+            "attempts" => Kind::Attempt(owner.to_string()),
+            "attempt_counts" => Kind::AttemptCount(owner.to_string()),
+            s if s == "intervals" || s.starts_with("intervals(") => {
+                Kind::Interval(owner.to_string())
+            }
+            _ => match observed {
+                Some(kind) => Kind::Object(kind),
+                None => return not_run(format!("a metric over `{source}`")),
+            },
+        })
+    }
+
     /// An evaluator over the rows of a metric of a type: a filter leaves
     /// out a row it cannot decide (§8.2).
     fn row_eval(&self, owner: Option<&'w Type>) -> Evaluator<'w> {
@@ -2297,6 +2323,126 @@ pub fn page(
     })
 }
 
+/// The standard metrics over a type, as `declaration-syntax.md` §6.11's
+/// first table gives them.
+const STANDARD_NAMES: [&str; 11] = [
+    "time_in_state",
+    "time_in_state_p80",
+    "throughput",
+    "work_in_progress",
+    "oldest_open",
+    "transition_counts",
+    "refusals",
+    "flags_raised",
+    "refusal_rate",
+    "override_counts",
+    "rework",
+];
+
+/// The standard assignment metrics, each over a type and one of its
+/// assignee references, as §6.11's second table gives them.
+const ASSIGNMENT_NAMES: [&str; 11] = [
+    "open_work",
+    "time_unassigned",
+    "time_to_first_assignment",
+    "time_with_assignee",
+    "cycle_time_by_assignee",
+    "time_in_state_by_holder",
+    "handoffs",
+    "reassigned_back",
+    "acted_by_non_assignee",
+    "handoffs_by_object",
+    "returns_by_object",
+];
+
+/// Each metric dimension of a type whose value names an actor, which
+/// `declaration` marks so an upper layer can keep a person's figures behind
+/// its own door (`library-api.md` §6, ADR-0114, D451), as
+/// `<Type>.<metric>.<dimension>` in ascending order: over the type's own
+/// metrics and the standard ones, an assignment metric once for each
+/// assignee reference. A value names an actor where it is an object of a
+/// type marking an `actor` identity, a tracked reference's value in an
+/// interval of it included, or an actor's id; a combined metric's
+/// dimensions are its inputs', marked there. Its rows are never read: a
+/// row's kind is its source's.
+pub fn person_dimensions(lib: &Library, tn: &str) -> Result<Vec<String>, NotRun> {
+    let Some(t) = lib.type_(tn) else {
+        return Ok(Vec::new());
+    };
+    let world = World::new(lib, 0);
+    let r = Reader {
+        world: &world,
+        answers: None,
+    };
+    // the type's own metrics, declared under it in its module (flow-format.md §4.9)
+    let mut names: Vec<String> = lib
+        .metrics
+        .values()
+        .flat_map(|ms| ms.iter())
+        .filter(|(_, (owner, _))| owner.as_deref() == Some(tn))
+        .map(|(n, _)| n.clone())
+        .collect();
+    names.extend(STANDARD_NAMES.iter().map(|n| (*n).to_string()));
+    for (a, _) in t.attributes.iter().filter(|(_, a)| a.assignee) {
+        names.extend(ASSIGNMENT_NAMES.iter().map(|n| format!("{n}.{a}")));
+    }
+    let mut out = Vec::new();
+    for n in names {
+        let found = find(lib, &parsed(&format!("{tn}.{n}"))?, Some(tn), None)?;
+        if found.spec.get("input_metrics").is_some() {
+            continue;
+        }
+        let owner = found.owner.clone().unwrap_or_else(|| tn.to_string());
+        let f = formula(lib, &owner, &found.spec)?;
+        let text = |k: &str| {
+            f.get(k)
+                .and_then(Json::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        let (source, item) = (text("source"), text("item"));
+        let env = BTreeMap::from([(item.clone(), r.row_kind(&owner, &source)?)]);
+        let Some(dims) = f.get("dimensions").and_then(Json::as_object) else {
+            continue;
+        };
+        for (d, x) in dims {
+            let e = parsed(x.as_str().unwrap_or_default())?;
+            // an actor's id, a transition's or an attempt's
+            if matches!(&e, Expr::Path(_, m) if m == "actor_id") {
+                out.push(format!("{tn}.{n}.{d}"));
+                continue;
+            }
+            let member = source
+                .strip_prefix("intervals(")
+                .and_then(|m| m.strip_suffix(')'))
+                .map(str::trim);
+            let kind = match (member, &e) {
+                // a tracked reference's value in an interval of it
+                (Some(m), Expr::Path(base, v))
+                    if v == "value" && matches!(&**base, Expr::Name(b) if *b == item) =>
+                {
+                    match lib
+                        .type_(&owner)
+                        .and_then(|t| t.attribute(m))
+                        .map(|a| &a.declared)
+                    {
+                        Some(Declared::Reference(target)) => Kind::Object(target.clone()),
+                        _ => Kind::Other,
+                    }
+                }
+                _ => r.kind(&e, &env, lib.type_(&owner))?,
+            };
+            if let Kind::Object(k) = kind
+                && lib.type_(&k).and_then(Type::actor_identity).is_some()
+            {
+                out.push(format!("{tn}.{n}.{d}"));
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
 /// A declared value's place in a page's order: its position in the installed
 /// version's declaration, and one the version no longer declares after them
 /// all, by name (D536).
@@ -2315,6 +2461,76 @@ fn declared_rank(
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+
+    /// Agents, queues and tickets: a ticket's metrics by the actor who made a
+    /// request and by its queue, and its owner an assignee.
+    const DESK: &str = r#"module: desk
+categories: [live, closed]
+types:
+  Agent:
+    description: A person who works tickets.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human }
+    states:
+      ACTIVE: { category: live }
+      LEFT: { category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ACTIVE, required_inputs: [login] }
+      leave: { kind: external, from: [ACTIVE], to: LEFT }
+  Queue:
+    description: A queue tickets are raised in.
+    tracking: record
+    attributes:
+      name: { type: string }
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [name] }
+      shut: { kind: external, from: [OPEN], to: SHUT }
+  Ticket:
+    description: A ticket raised in a queue, owned by an agent.
+    tracking: record
+    attributes:
+      queue: { reference: Queue }
+      owner: { reference: Agent, optional: true, assignee: true }
+    states:
+      NEW: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      raise: { kind: initial, to: NEW, required_inputs: [queue], optional_inputs: [owner] }
+      resolve: { kind: external, from: [NEW], to: DONE }
+    metrics:
+      by_actor: { description: Requests by who made them., source: transitions, item: t, dimensions: { actor: t.actor_id }, expression: count() }
+      by_queue: { description: Tickets by queue., source: objects, item: o, dimensions: { queue: o.queue }, expression: count() }
+"#;
+
+    /// `declaration`'s marks (`library-api.md` §6, D451): an actor's id and
+    /// every standard assignment metric's assignee, an object of a type that
+    /// marks an actor identity, and not a queue, which marks none.
+    #[test]
+    fn a_dimension_naming_an_actor_is_marked_and_no_other() {
+        let lib = Library::load(&[("desk.yaml".into(), DESK.into())]).unwrap();
+        assert_eq!(
+            person_dimensions(&lib, "Ticket").unwrap(),
+            [
+                "Ticket.by_actor.actor",
+                "Ticket.cycle_time_by_assignee.owner.assignee",
+                "Ticket.open_work.owner.assignee",
+                "Ticket.time_in_state_by_holder.owner.assignee",
+                "Ticket.time_with_assignee.owner.assignee",
+            ]
+        );
+        assert!(person_dimensions(&lib, "Queue").unwrap().is_empty());
+        // each name is one its table answers
+        for n in STANDARD_NAMES {
+            assert!(standard(n).is_some(), "{n}");
+        }
+        for n in ASSIGNMENT_NAMES {
+            assert!(assignment(n).is_some(), "{n}");
+        }
+    }
     use crate::model::LABEL;
     use crate::model::OPERATOR;
     use crate::request::{Request, request};

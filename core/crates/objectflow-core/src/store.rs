@@ -2181,6 +2181,27 @@ impl Store {
     /// recorded (`library-api.md` §6, `declaration` at an earlier version):
     /// none for a version the store never published; a source that no
     /// longer loads is the store's failure, since it loaded when published.
+    /// A version's source reference and digest, as its publish, or a
+    /// sandbox's load, recorded them; none for a version the store never
+    /// held (ADR-0135).
+    pub fn declaration_source(
+        &self,
+        version: i64,
+    ) -> Stored<Option<(Option<String>, Option<String>)>> {
+        self.conn
+            .query_row(
+                "SELECT source_ref, source_digest FROM of_declaration WHERE version = ?1 LIMIT 1",
+                params![version],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map(Some)
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(other),
+            })
+            .map_err(Into::into)
+    }
+
     pub fn library_at(&self, version: i64) -> Stored<Option<Library>> {
         let source: Option<String> = self
             .conn

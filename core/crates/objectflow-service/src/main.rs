@@ -1093,8 +1093,22 @@ async fn declaration(State(shared): State<Shared>, Json(body): Json<J>) -> Answe
             used.insert(e.clone(), json!(members));
         }
     }
+    // the version read, where its source came from and its digest, neither
+    // for version 0 (ADR-0135), and the metric dimensions that name an
+    // actor, for an upper layer's door (library-api.md §6, D451)
+    let version = lib.version;
+    let (source_ref, source_digest) = if version == 0 {
+        (None, None)
+    } else {
+        s.declaration_source(version)?.unwrap_or((None, None))
+    };
+    let person = objectflow_core::metric::person_dimensions(lib, name)?;
     if let Some(o) = out.as_object_mut() {
         o.insert("enumerations".to_string(), J::Object(used));
+        o.insert("version".to_string(), json!(version));
+        o.insert("source_ref".to_string(), json!(source_ref));
+        o.insert("source_digest".to_string(), json!(source_digest));
+        o.insert("person_dimensions".to_string(), json!(person));
     }
     Ok(Json(out))
 }
