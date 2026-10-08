@@ -19,6 +19,8 @@ An agent as the *default* drafter is stronger than F1 or F6 says. So these state
 
 ## 1. What the design has today
 
+*(Annotated 2026-10-08: this section describes the design as it stood on 2026-09-25, the starting point of the decisions this study led to, and several of its bullets no longer hold. Since ADR-0116 a flow is written in the flow format, where a state or a transition may carry a description and no version is numbered by hand; since ADR-0131 decisions 7 to 9 and ADR-0137, step 5 of the flow checker decides contradictions within one type, a transition no request can take and a state no object can be in (`flow-format.md` §7.1), so the bullet on structural checks below no longer holds either. Read it as what the study started from, not as the present.)*
+
 Each item was checked against the document cited. *(As of 2026-09-25. Since then ADR-0116 made the flow description format the written form, with the text language only the internal form, and ADR-0131 computes version numbers and puts flows in a repository, so the first, the version and the draft items below describe the design as it was then.)*
 
 - **One text language.** A flow is written in `.of` files, one module per file, with `use` naming what it imports; a publish takes a module and the closure of its imports (`declaration-syntax.md` §1). The language is specified in `declaration-syntax.md`, 1,640 lines that carry the rules together with the history of twenty-five iterations.
@@ -32,7 +34,7 @@ Each item was checked against the document cited. *(As of 2026-09-25. Since then
 - **No descriptions.** `#` begins a comment (§1), and check 22 counts a change of comments as no change of content. Nothing in the language carries a description of what a state or a transition means into the rule set or the agent tools. The rule set renders each guard from its expression, "mechanical and lossy on purpose" (`renderers.md` §2).
 - **Findings already carry a location.** A publish `Finding` has a severity, a code, a message, `where` as file and line, and the check number (`publish-and-import.md` §2). It carries no suggested fix.
 - **Checking a draft needs a change in the store.** `publish(dry_run)` takes the id of a `DeclarationChange` (`library-api.md` §6), so there is no way to check a text without first creating one.
-- **The checks are structural, not semantic.** The sixty-four checks cover names that resolve, markings in the right places, cycles among derivations, cascades, supersession and base types (checks 3, 12, 26, 43), the state graph (check 15: a non-terminal state with no exit, a state nothing reaches) and the swap test (check 6). None asks whether a condition can be true. A search of the record for satisfiability, contradiction or a solver finds nothing.
+- **The checks are structural, not semantic.** The sixty-four checks cover names that resolve, markings in the right places, cycles among derivations, cascades, supersession and base types (checks 3, 12, 26, 43), the state graph (check 15: a non-terminal state with no exit, a state nothing reaches) and the swap test (check 6). None asks whether a condition can be true. A search of the record for satisfiability, contradiction or a solver finds nothing. *(Until 2026-09-28; step 5 now does, above.)*
 - **What DESIGN §13 leaves open.** The engine "cannot guarantee that **the guards say what was meant**". Its mitigations are the printable rule set and the adversarial harness.
 
 ## 2. Where a flow is written
