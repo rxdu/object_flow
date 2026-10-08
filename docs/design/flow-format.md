@@ -462,6 +462,8 @@ types:
       file: { kind: external, from: ACTIVE, to: FILED }
 ```
 
+**A part of an abstract type.** A composite end may name an abstract type, so a whole holds parts of several kinds, but such an end carries no `cascade`: a cascade names a transition of the part's type, and an abstract type has none, whatever the types that extend it declare (step 3, `names`; ADR-0170). It may `survive` its whole's final transitions, as any end may. This refuses whatever the model's check 30 refuses, a cascade to a family some member of which cannot take it.
+
 ### 4.15 Mirror types and external identifiers
 
 **An external identifier** is an attribute whose value another system gives, marked `external: <source>`, such as a customer's contact in Xero: its values are unique for each source and it MAY be optional, as an object not yet matched to that system has none (`declaration-syntax.md` §3.1). It is a value, never a reference (step 3, `names`). A type that holds one is still this store's, and its transitions, such as `link_xero` in the customers example, are requested by the sync with that system.

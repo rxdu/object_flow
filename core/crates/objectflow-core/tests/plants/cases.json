@@ -10786,6 +10786,67 @@
   }
  },
  {
+  "label": "abstract_part_plants: a cascade to an abstract part type",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "rack.yaml",
+    "cea5ffb578eeef6d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "rack.yaml",
+    8,
+    "fatal",
+    "names",
+    "Rack.slots cascades to Slot.drop, which is not a transition of Slot that acts on a part"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "abstract_part_plants: the same part surviving its whole",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "rack.yaml",
+    "e6d5cf68b9caa9d9"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Card": [
+    0,
+    0
+   ],
+   "Rack": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  }
+ },
+ {
   "label": "syntax_plants",
   "files": [
    [

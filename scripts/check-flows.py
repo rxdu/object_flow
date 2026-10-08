@@ -4090,6 +4090,40 @@ CYCLE_FLEET = (
     '      fit:  { kind: initial, to: IN, required_inputs: [asset, spare], only_via: [Robot.fit] }\n'
     '      drop: { kind: external, from: [IN], to: OUT }\n'
 )
+# a whole cascading to parts of an abstract type, every member of whose family has the transition (ADR-0170)
+ABSTRACT_PART = (
+    'module: rack\n'
+    'categories: [live, closed]\n'
+    'types:\n'
+    '  Rack:\n'
+    '    description: A rack.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      slots: { reference: "Slot[]", opposite: rack, aggregation: composite, cascade: [ { on: [retire], transition: drop, limit: 10 } ] }\n'
+    '    states:\n'
+    '      UP:   { category: live }\n'
+    '      GONE: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      make:   { kind: initial, to: UP }\n'
+    '      fit:    { kind: internal, from: [UP], effect: [ { create: { type: Card, transition: fit, inputs: { rack: this } } } ] }\n'
+    '      retire: { kind: external, from: [UP], to: GONE }\n'
+    '  Slot:\n'
+    '    description: Something in a rack.\n'
+    '    abstract: true\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      rack: { reference: Rack, opposite: slots }\n'
+    '  Card:\n'
+    '    description: A card in a rack.\n'
+    '    extends: Slot\n'
+    '    tracking: record\n'
+    '    states:\n'
+    '      IN:  { category: live }\n'
+    '      OUT: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      fit:  { kind: initial, to: IN, required_inputs: [rack], only_via: [Rack.fit] }\n'
+    '      drop: { kind: external, from: [IN], to: OUT }\n'
+)
 SYNTAX_PAIR = (
     'module: pair\n'
     'categories: [live, closed]\n'
@@ -5042,6 +5076,27 @@ def cluster3_plants(people):
     return ok
 
 
+def abstract_part_plants(people):
+    """A cascaded part is of a concrete type: a whole cascading to parts of an abstract type is refused though every
+    member of the family declares the transition, which subsumes the model's check 30, and the same end surviving
+    the whole instead is not (flow-format.md §4.14, ADR-0170)."""
+    survived = ABSTRACT_PART.replace(", cascade: [ { on: [retire], transition: drop, limit: 10 } ] }", ", survives: true }")
+    assert survived != ABSTRACT_PART
+    line = next(i for i, l in enumerate(ABSTRACT_PART.splitlines(), 1) if l.startswith("      slots:"))
+    cases = [
+        ("a cascade to an abstract part type", ABSTRACT_PART,
+         [("rack.yaml", line, "fatal", "names", "Rack.slots cascades to Slot.drop, which is not a transition of Slot that acts on a part")]),
+        ("the same part surviving its whole", survived, []),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, _ = check([("people.yaml", people), ("rack.yaml", text)])
+        hit = sorted(found) == sorted(want)
+        ok &= hit
+        print(f"  ADR-0170, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
 def clock_plants(people):
     """An invariant reading the clock is refused, saying how it reads it (the model's check 32, declaration-syntax.md
     §8.3): `now`, `time_in`, a span's duration through a derivation, a derived attribute of its type, one through
@@ -5410,6 +5465,7 @@ def main():
     ok &= refusal_order_plant(people)
     ok &= cascade_cycle_plants(people)
     ok &= clock_plants(people)
+    ok &= abstract_part_plants(people)
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:

@@ -171,3 +171,4 @@
 | [0167](0167-the-runners-scenario-replay-stops-at-the-port.md) | The runner's replay of the scenarios stops at the port | Decided by the author |
 | [0168](0168-the-scenarios-port-declares-every-type-a-valid-mirror.md) | The scenarios' port declares every type a valid mirror | Decided by the author |
 | [0169](0169-a-mirror-may-declare-a-minted-identifier.md) | A mirror may declare a minted identifier | Decided by the author |
+| [0170](0170-a-cascaded-part-is-of-a-concrete-type.md) | A cascaded part is of a concrete type | Decided by the author |
