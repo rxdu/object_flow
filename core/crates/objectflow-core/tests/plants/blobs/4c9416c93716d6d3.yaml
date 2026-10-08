@@ -1,0 +1,47 @@
+module: crm
+categories: [live, closed]
+enumerations:
+  ErasureReason: [ASKED]
+types:
+  Customer:
+    description: A customer.
+    tracking: record
+    attributes:
+      name:  { type: string, optional: true, personal: true }
+      label: { type: string, optional: true }
+      size:  { type: int, optional: true }
+    states:
+      ACTIVE: { category: live }
+      GONE:   { category: closed, final: true }
+    derived_attributes:
+      called: { description: What the customer is called., expression: name }
+    transitions:
+      join:   { kind: initial, to: ACTIVE, optional_inputs: [name] }
+      tag:    { kind: internal, from: [ACTIVE], inputs: { text: { type: string } }, effect: [ { assign: { location: label, expr: inputs.text } } ] }
+      relay:  { kind: internal, from: [ACTIVE], inputs: { text: { type: string } }, effect: [ { call: { target: this, transition: tag, inputs: { text: inputs.text } } } ] }
+      rename: { kind: internal, from: [ACTIVE], inputs: { text: { type: string } }, effect: [ { assign: { location: name, expr: inputs.text } } ] }
+      leave:  { kind: external, from: [ACTIVE], to: GONE, effect: [ { assign: { location: size, expr: length(called) } } ] }
+      forget: { kind: erasure, inputs: { reason: { type: ErasureReason } } }
+  Visit:
+    description: A visit to a customer.
+    tracking: record
+    attributes:
+      customer: { reference: Customer }
+      summary:  { type: string, optional: true }
+      contact:  { type: string, optional: true, personal: true }
+      note:     { type: string, optional: true }
+      flagged:  { type: int, optional: true }
+    observations:
+      notes:
+        description: Notes taken at a visit.
+        kind: VisitNote
+        attributes:
+          text: { type: string, optional: true, personal: true }
+          urgent: { type: bool }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      book:   { kind: initial, to: OPEN, required_inputs: [customer], optional_inputs: [note] }
+      close:  { kind: external, from: [OPEN], to: DONE }
+      forget: { kind: erasure, inputs: { reason: { type: ErasureReason } } }

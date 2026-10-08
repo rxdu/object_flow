@@ -3849,6 +3849,13 @@
    ],
    [
     "service.yaml",
+    109,
+    "fatal",
+    "names",
+    "ServiceJob.reassign writes the personal input 'note' to 'photo', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ],
+   [
+    "service.yaml",
     125,
     "notice",
     "audit",
@@ -10845,6 +10852,405 @@
     0
    ]
   }
+ },
+ {
+  "label": "personal_plants: an own personal attribute",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "d25264e0dea81aba"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    22,
+    "fatal",
+    "names",
+    "Customer.leave writes the personal Customer.name to 'label', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: an own personal attribute as a function's argument",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "c23ffb8be423e406"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    23,
+    "fatal",
+    "names",
+    "Customer.leave writes the personal Customer.name to 'size', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: a derivation of its own as a function's argument",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "4c9416c93716d6d3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    23,
+    "fatal",
+    "names",
+    "Customer.leave writes the personal value in the derived Customer.called to 'size', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: a marked input",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "9f41dd2b93a970a7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    19,
+    "fatal",
+    "names",
+    "Customer.tag writes the personal input 'text' to 'label', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: an input written to a personal attribute as well",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "e808c42659201fc1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    19,
+    "fatal",
+    "names",
+    "Customer.tag writes the personal input 'text' to 'label', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: one through a path",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "1186530c69bea0b9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    45,
+    "fatal",
+    "names",
+    "Visit.close writes the personal Customer.name to 'summary', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: one through a derivation",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "79012c46c45d26b1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    45,
+    "fatal",
+    "names",
+    "Visit.close writes the personal value in the derived Customer.called to 'summary', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: a test of its presence",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "a5b8a25a2c19ede4"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    45,
+    "fatal",
+    "names",
+    "Visit.close writes the personal Customer.name to 'summary', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: an observation's personal field",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "64081d28275b1efd"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    45,
+    "fatal",
+    "names",
+    "Visit.close writes the personal VisitNote.text to 'flagged', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: a call's argument",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "3664dda964f5762b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    45,
+    "fatal",
+    "names",
+    "Visit.close passes the personal Customer.name to Customer.tag's input 'text', which writes it to Customer.label, which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: one passed on by a second call",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "2111b8c4e0f8c9c2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    45,
+    "fatal",
+    "names",
+    "Visit.close passes the personal Customer.name to Customer.relay's input 'text', which passes it to Customer.tag, which writes it to Customer.label, which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: a creation's into an attribute input",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "9e6076c6057335d1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    22,
+    "fatal",
+    "names",
+    "Customer.leave passes the personal Customer.name to Visit.book's input 'note', which writes it to Visit.note, which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: a cascade's",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "shop.yaml",
+    "7c152be08d6ef734"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "shop.yaml",
+    11,
+    "fatal",
+    "names",
+    "Order.finish cascades the personal Order.buyer to Line.drop's input 'why', which writes it to Line.memo, which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: a backfill's",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "462211429a7e1e8a"
+   ]
+  ],
+  "previous": {
+   "crm.yaml": "08d011a843ff0bff"
+  },
+  "findings": [
+   [
+    "crm.yaml",
+    51,
+    "fatal",
+    "names",
+    "the backfill of Customer.alias reads the personal Customer.name, and alias is not personal; a backfill is a write; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "personal_plants: personal values reaching only personal attributes",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "762f1d19afa5da17"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Customer": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ],
+   "Visit": [
+    0,
+    0
+   ]
+  }
+ },
+ {
+  "label": "personal_plants: an input the transition reached holds personal itself, reported where it is written",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "f540185eeee411d8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    19,
+    "fatal",
+    "names",
+    "Customer.tag writes the personal input 'text' to 'label', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {}
  },
  {
   "label": "syntax_plants",

@@ -43,6 +43,12 @@ pub struct OptionalReads<'l> {
     /// Each derived attribute read, as (type, name), through any path whose
     /// type is known.
     pub derived: BTreeSet<(String, String)>,
+    /// Each member read, as (type, name), through any path whose type is
+    /// known.
+    pub members: BTreeSet<(String, String)>,
+    /// Whether `is null` walks what it tests, which reads it as any
+    /// expression does.
+    pub through_tests: bool,
 }
 
 impl<'l> OptionalReads<'l> {
@@ -88,6 +94,8 @@ impl<'l> OptionalReads<'l> {
             reads: BTreeMap::new(),
             tested: BTreeSet::new(),
             derived: BTreeSet::new(),
+            members: BTreeSet::new(),
+            through_tests: false,
         }
     }
 
@@ -133,6 +141,7 @@ impl<'l> OptionalReads<'l> {
 
     /// The type of a member read, noting it if it may be absent.
     fn attribute(&mut self, tn: &str, m: &str, key: &str, own: bool) -> Option<String> {
+        self.members.insert((tn.to_string(), m.to_string()));
         let t = self.lib.get(tn).cloned().unwrap_or(Value::Null);
         if let Some(spec) = obj(&t, "attributes").get(m).filter(|s| !s.is_null()) {
             let reference = spec.get("reference").map(py_str).unwrap_or_default();
@@ -185,6 +194,9 @@ impl<'l> OptionalReads<'l> {
                 if let Some(k) = OptionalReads::key(inner) {
                     self.tested.insert(k);
                 }
+                if self.through_tests {
+                    self.walk(inner, env);
+                }
                 None
             }
             Expr::Name(n) => {
@@ -196,6 +208,10 @@ impl<'l> OptionalReads<'l> {
                     "inputs" => Some("<inputs>".into()),
                     _ => {
                         let tn = self.tn.clone();
+                        // a collection by its bare name, as through `this`
+                        if let Some(k) = self.observed(&tn, n) {
+                            return Some(k);
+                        }
                         self.attribute(&tn, n, n, true)
                     }
                 }

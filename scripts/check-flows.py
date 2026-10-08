@@ -589,6 +589,149 @@ def relationship_errors(doc, library):
     return out
 
 
+def personal_inputs(kinds, tn, x):
+    """The inputs of a transition that are personal values (the model's check 10, ADR-0078): marked `personal`, an
+    attribute input of a personal attribute, or read by a write of its effect into a personal attribute, as the
+    reference runner's `input_personal` has it."""
+    attrs = (kinds.get(tn) or {}).get("attributes") or {}
+    out = {n for n, spec in (x.get("inputs") or {}).items() if (spec or {}).get("personal")}
+    out |= {n for n in list(x.get("required_inputs") or []) + list(x.get("optional_inputs") or [])
+            if (attrs.get(n) or {}).get("personal")}
+    for st, kind, _path, _depth in walk(x.get("effect")):
+        if kind in ("assign", "add") and (attrs.get(st[kind]["location"]) or {}).get("personal"):
+            out |= set(INPUT_READ.findall(str(st[kind]["expr"]))) & taken(x)
+    return out
+
+
+def personal_errors(doc, library):
+    """A personal value MUST NOT reach a non-personal attribute (the model's check 10, ADR-0078): by a write of the
+    effect, by an argument to a `call` or a `create`, or a cascade clause's, that the transition it reaches writes to
+    one, however many calls on, or by a migration's backfill. An expression carries a personal value where it reads,
+    anywhere in it, a personal input, a personal attribute or observation field, of its own object or another reached
+    through a path whose type is known, or a derived attribute that does; what reaches only a personal attribute, or an
+    input the transition reached holds personal itself, is not a leak here, the latter checked where it is written."""
+    kinds = dict(library or {})
+    kinds.update(dict(types(doc)))
+    fields = {o["kind"]: o for t in kinds.values() for o in (t.get("observations") or {}).values() if "kind" in o}
+
+    def personal(u, m):
+        spec = ((kinds.get(u) or fields.get(u) or {}).get("attributes") or {}).get(m)
+        return bool((spec or {}).get("personal"))
+
+    def why(tn, x, text, env, inputs, seen=frozenset()):
+        """What personal value an expression carries, or None."""
+        text = str(text)
+        for n in sorted(set(INPUT_READ.findall(text)) & inputs):
+            return f"the personal input '{n}'"
+        own = kinds.get(tn) or {}
+        for n in sorted(reads(text)):
+            if personal(tn, n):
+                return f"the personal {tn}.{n}"
+        try:
+            tree = flowexpr.parse(text)
+        except flowexpr.ParseError:
+            return None                         # step 2 refuses what does not parse
+        walker = OptionalReads(kinds, tn, x)
+        walker.through_tests = True
+        walker.walk(tree, dict(env))
+        for u, m in sorted(walker.members):
+            if personal(u, m):
+                return f"the personal {u}.{m}"
+        derived = walker.derived | {(tn, n) for n in reads(text) if n in (own.get("derived_attributes") or {})}
+        for u, d in sorted(derived):
+            spec = (kinds[u].get("derived_attributes") or {})[d] or {}
+            if (u, d) not in seen and why(u, None, spec.get("expression", ""), {}, set(), seen | {(u, d)}):
+                return f"the personal value in the derived {u}.{d}"
+        return None
+
+    def parts(tn):
+        """Each composite end of a type, its own or inherited, with its cascade clauses and where they are given."""
+        t = kinds.get(tn) or {}
+        out = [(spec, spec.get("cascade") or [], ("types", tn, "attributes", an))
+               for an, spec in (t.get("attributes") or {}).items() if spec.get("aggregation") == "composite"]
+        inherited = {an: spec for b in reversed(bases(tn, kinds)) for an, spec in (kinds[b].get("attributes") or {}).items()
+                     if spec.get("aggregation") == "composite"}
+        return out + [(inherited[an], (ip or {}).get("cascade") or [], ("types", tn, "inherited_parts", an))
+                      for an, ip in (t.get("inherited_parts") or {}).items() if an in inherited]
+
+    def passes(tn, x):
+        """Each argument a transition passes, as (expression, its loops' items, target type, transition, input, where)."""
+        t = kinds.get(tn) or {}
+        out = []
+        for st, kind, path, _depth in walk(x.get("effect")):
+            if kind in ("call", "create"):
+                body = st[kind]
+                env = binders(kinds, tn, x, path)
+                k = call_target(kinds, t, tn, x, body, env) if kind == "call" else body.get("type")
+                for j, e in (body.get("inputs") or {}).items():
+                    out.append((e, env, k, body.get("transition"), j, ("effect",) + path))
+        return out
+
+    def cascades(tn, xn):
+        """Each argument a cascade clause on a transition passes, as passes gives it, where the clause is."""
+        return [(e, {}, str(spec.get("reference", "")).rstrip("[]"), c.get("transition"), j, here + ("cascade", i))
+                for spec, clauses, here in parts(tn) for i, c in enumerate(clauses) if xn in (c.get("on") or [])
+                for j, e in (c.get("inputs") or {}).items()]
+
+    def leak(k, ct, j, seen=frozenset()):
+        """Where input j of k.ct reaches a non-personal attribute, or None."""
+        t = kinds.get(k) or {}
+        x = (t.get("transitions") or {}).get(ct)
+        if x is None or (k, ct, j) in seen or j in personal_inputs(kinds, k, x):
+            return None
+        attrs = t.get("attributes") or {}
+        if j in list(x.get("required_inputs") or []) + list(x.get("optional_inputs") or []) and j in attrs:
+            return f"writes it to {k}.{j}, which is not personal"
+        for st, kind, _path, _depth in walk(x.get("effect")):
+            if kind in ("assign", "add") and j in INPUT_READ.findall(str(st[kind]["expr"])) \
+                    and st[kind]["location"] in attrs and not personal(k, st[kind]["location"]):
+                return f"writes it to {k}.{st[kind]['location']}, which is not personal"
+        for e, _env, k2, ct2, j2, _where in passes(k, x) + cascades(k, ct):
+            if k2 and j in INPUT_READ.findall(str(e)):
+                inner = leak(k2, ct2, j2, seen | {(k, ct, j)})
+                if inner:
+                    return f"passes it to {k2}.{ct2}, which {inner}"
+        return None
+
+    out = []
+    for tn, t in types(doc):
+        attrs = t.get("attributes") or {}
+        for xn, x in (t.get("transitions") or {}).items():
+            base = ("types", tn, "transitions", xn)
+            inputs = personal_inputs(kinds, tn, x)
+            for st, kind, path, _depth in walk(x.get("effect")):
+                loc = st[kind].get("location") if kind in ("assign", "add") else None
+                if loc in attrs and not personal(tn, loc):
+                    carried = why(tn, x, st[kind]["expr"], binders(kinds, tn, x, path), inputs)
+                    if carried:
+                        out.append((base + ("effect",) + path, "names",
+                                    f"{tn}.{xn} writes {carried} to '{loc}', which is not personal; a personal value "
+                                    "reaches only a personal attribute (the model's check 10)"))
+            for e, env, k, ct, j, where in passes(tn, x):
+                carried = why(tn, x, e, env, inputs) if k else None
+                reached = leak(k, ct, j) if carried else None
+                if reached:
+                    out.append((base + where, "names",
+                                f"{tn}.{xn} passes {carried} to {k}.{ct}'s input '{j}', which {reached}; a personal "
+                                "value reaches only a personal attribute (the model's check 10)"))
+            for e, _env, k, ct, j, where in cascades(tn, xn):
+                carried = why(tn, x, e, {}, inputs)
+                reached = leak(k, ct, j) if carried else None
+                if reached:
+                    out.append((where, "names",
+                                f"{tn}.{xn} cascades {carried} to {k}.{ct}'s input '{j}', which {reached}; a "
+                                "personal value reaches only a personal attribute (the model's check 10)"))
+    for tn, given in ((doc.get("migration") or {}).get("backfill") or {}).items():
+        for a, e in (given or {}).items():
+            if not personal(tn, a):
+                carried = why(tn, None, e, {}, set())
+                if carried:
+                    out.append((("migration", "backfill", tn, a), "names",
+                                f"the backfill of {tn}.{a} reads {carried}, and {a} is not personal; a backfill is a "
+                                "write; a personal value reaches only a personal attribute (the model's check 10)"))
+    return out
+
+
 def clock_read(e, spans=frozenset()):
     """What an expression reads of the clock itself, or None: `now`; `time_in`, which counts a current span up to now;
     or a span's `duration`, which does the same, in an aggregate over this object's intervals (declaration-syntax.md
@@ -1138,7 +1281,7 @@ def name_errors(doc, library=None, ordered=True):
     library = dict(library or {})
     library.update(dict(types(doc)))
     out = (order_errors(doc) if ordered else []) + reserved_name_errors(doc) + relationship_errors(doc, library) + combined_errors(doc) \
-        + cascade_cycle_errors(doc, library) + clock_errors(doc, library)
+        + cascade_cycle_errors(doc, library) + clock_errors(doc, library) + personal_errors(doc, library)
     for tn, t in types(doc):
         states = t.get("states") or {}
         attrs = t.get("attributes") or {}
@@ -2442,6 +2585,8 @@ class OptionalReads:
         self.present = set.intersection(*required) if required else set()
         self.reads, self.tested = {}, set()
         self.derived = set()        # each derived attribute read, as (type, name), through any path whose type is known
+        self.members = set()        # each member read, as (type, name), through any path whose type is known
+        self.through_tests = False  # whether `is null` walks what it tests, which reads it as any expression does
 
     def untested(self, tree):
         """Each optional read the expression never tests, with why it may be absent."""
@@ -2460,6 +2605,7 @@ class OptionalReads:
 
     def attribute(self, tn, m, key, own):
         """The type of a member read, noting it if it may be absent."""
+        self.members.add((tn, m))
         t = self.lib.get(tn) or {}
         spec = (t.get("attributes") or {}).get(m)
         if spec is not None:
@@ -2484,6 +2630,8 @@ class OptionalReads:
             key = self.key(e[1])
             if key is not None:
                 self.tested.add(key)
+            if self.through_tests:
+                self.walk(e[1], env)
             return None
         if k == "name":
             n = e[1]
@@ -2493,6 +2641,9 @@ class OptionalReads:
                 return self.tn
             if n == "inputs":
                 return "<inputs>"
+            observed = (self.t.get("observations") or {}).get(n)
+            if observed:
+                return f"{observed['kind']}[]"      # a collection by its bare name, as through `this`
             return self.attribute(self.tn, n, n, own=True)
         if k == "path":
             if e[1] == ("name", "inputs"):
@@ -4124,6 +4275,55 @@ ABSTRACT_PART = (
     '      fit:  { kind: initial, to: IN, required_inputs: [rack], only_via: [Rack.fit] }\n'
     '      drop: { kind: external, from: [IN], to: OUT }\n'
 )
+# customers whose name is personal, and their visits, clean under check 10 (its self-test plants into it)
+PERSONAL_CRM = (
+    'module: crm\n'
+    'categories: [live, closed]\n'
+    'enumerations:\n'
+    '  ErasureReason: [ASKED]\n'
+    'types:\n'
+    '  Customer:\n'
+    '    description: A customer.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      name:  { type: string, optional: true, personal: true }\n'
+    '      label: { type: string, optional: true }\n'
+    '    states:\n'
+    '      ACTIVE: { category: live }\n'
+    '      GONE:   { category: closed, final: true }\n'
+    '    derived_attributes:\n'
+    '      called: { description: What the customer is called., expression: name }\n'
+    '    transitions:\n'
+    '      join:   { kind: initial, to: ACTIVE, optional_inputs: [name] }\n'
+    '      tag:    { kind: internal, from: [ACTIVE], inputs: { text: { type: string } }, effect: [ { assign: { location: label, expr: inputs.text } } ] }\n'
+    '      relay:  { kind: internal, from: [ACTIVE], inputs: { text: { type: string } }, effect: [ { call: { target: this, transition: tag, inputs: { text: inputs.text } } } ] }\n'
+    '      rename: { kind: internal, from: [ACTIVE], inputs: { text: { type: string } }, effect: [ { assign: { location: name, expr: inputs.text } } ] }\n'
+    '      leave:  { kind: external, from: [ACTIVE], to: GONE }\n'
+    '      forget: { kind: erasure, inputs: { reason: { type: ErasureReason } } }\n'
+    '  Visit:\n'
+    '    description: A visit to a customer.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      customer: { reference: Customer }\n'
+    '      summary:  { type: string, optional: true }\n'
+    '      contact:  { type: string, optional: true, personal: true }\n'
+    '      note:     { type: string, optional: true }\n'
+    '      flagged:  { type: int, optional: true }\n'
+    '    observations:\n'
+    '      notes:\n'
+    '        description: Notes taken at a visit.\n'
+    '        kind: VisitNote\n'
+    '        attributes:\n'
+    '          text: { type: string, optional: true, personal: true }\n'
+    '          urgent: { type: bool }\n'
+    '    states:\n'
+    '      OPEN: { category: live }\n'
+    '      DONE: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      book:   { kind: initial, to: OPEN, required_inputs: [customer], optional_inputs: [note] }\n'
+    '      close:  { kind: external, from: [OPEN], to: DONE }\n'
+    '      forget: { kind: erasure, inputs: { reason: { type: ErasureReason } } }\n'
+)
 SYNTAX_PAIR = (
     'module: pair\n'
     'categories: [live, closed]\n'
@@ -5076,6 +5276,107 @@ def cluster3_plants(people):
     return ok
 
 
+def personal_plants(people):
+    """A personal value reaching a non-personal attribute is refused, at the step, clause or backfill that sends it,
+    saying what it carries and where it lands (the model's check 10, ADR-0078): an own personal attribute, one and a
+    derivation of its own as a function's argument, which the typed walker passes over, a marked
+    input, an input written to a personal attribute as well, one through a path, one through a derivation, a test of
+    its presence, an observation's personal field, a call's argument, one passed on by a second call, a creation's into
+    an attribute input, a cascade's, and a backfill's; personal values reaching only personal attributes are not; and
+    one passed to an input the transition reached holds personal itself is reported once, where that one writes it."""
+    def p(text, old, new):
+        assert text.count(old) == 1, old
+        return text.replace(old, new, 1)
+
+    def step(text, tn_line, steps):
+        """The transition on the line beginning `tn_line` given an effect of the steps."""
+        line = next(l for l in text.splitlines(keepends=True) if l.startswith(tn_line))
+        return p(text, line, line.rstrip("\n")[:-2] + ", effect: [ " + ", ".join(steps) + " ] }\n")
+
+    def leaks(what):
+        return f"{what}; a personal value reaches only a personal attribute (the model's check 10)"
+    LEAVE, CLOSE = "      leave:  {", "      close:  {"
+    TAG = "      tag:    { kind: internal, from: [ACTIVE], inputs: { text: { type: string } },"
+    ordered = p(p(p(p(p(SYNTAX_PARTS, "categories: [live, closed]\n", "categories: [live, closed]\nenumerations:\n  Reason: [ASKED]\n"),
+                    "      finish:   { kind: external, from: [OPEN], to: DONE }\n",
+                    "      finish:   { kind: external, from: [OPEN], to: DONE }\n"
+                    "      forget:   { kind: erasure, inputs: { reason: { type: Reason } } }\n"),
+                  "      lines: { reference:", "      buyer: { type: string, optional: true, personal: true }\n      lines: { reference:"),
+                  "survives: true }", "cascade: [ { on: [finish], transition: drop, inputs: { why: buyer }, limit: 50 } ] }"),
+                "      order: { reference: Order, opposite: lines }\n",
+                "      order: { reference: Order, opposite: lines }\n      memo:  { type: string, optional: true }\n")
+    ordered = p(ordered, "      drop:  { kind: external, from: [ACTIVE], to: GONE }\n",
+                "      drop:  { kind: external, from: [ACTIVE], to: GONE, inputs: { why: { type: string } }, "
+                "effect: [ { assign: { location: memo, expr: inputs.why } } ] }\n")
+    sized = p(PERSONAL_CRM, "      label: { type: string, optional: true }\n",
+              "      label: { type: string, optional: true }\n      size:  { type: int, optional: true }\n")
+    aliased = p(PERSONAL_CRM, "      label: { type: string, optional: true }\n",
+                "      label: { type: string, optional: true }\n      alias: { type: string, optional: true }\n") \
+        + "migration:\n  description: Customers gain an alias.\n  backfill:\n    Customer: { alias: name }\n"
+    cases = [
+        ("an own personal attribute", "crm.yaml", step(PERSONAL_CRM, LEAVE, ["{ assign: { location: label, expr: name } }"]),
+         [leaks("Customer.leave writes the personal Customer.name to 'label', which is not personal")]),
+        ("an own personal attribute as a function's argument", "crm.yaml",
+         step(sized, LEAVE, ["{ assign: { location: size, expr: length(name) } }"]),
+         [leaks("Customer.leave writes the personal Customer.name to 'size', which is not personal")]),
+        ("a derivation of its own as a function's argument", "crm.yaml",
+         step(sized, LEAVE, ["{ assign: { location: size, expr: length(called) } }"]),
+         [leaks("Customer.leave writes the personal value in the derived Customer.called to 'size', which is not personal")]),
+        ("a marked input", "crm.yaml", p(PERSONAL_CRM, TAG, TAG.replace("{ type: string }", "{ type: string, personal: true }")),
+         [leaks("Customer.tag writes the personal input 'text' to 'label', which is not personal")]),
+        ("an input written to a personal attribute as well", "crm.yaml",
+         p(PERSONAL_CRM, "effect: [ { assign: { location: label, expr: inputs.text } } ]",
+           "effect: [ { assign: { location: name, expr: inputs.text } }, { assign: { location: label, expr: inputs.text } } ]"),
+         [leaks("Customer.tag writes the personal input 'text' to 'label', which is not personal")]),
+        ("one through a path", "crm.yaml", step(PERSONAL_CRM, CLOSE, ["{ assign: { location: summary, expr: customer.name } }"]),
+         [leaks("Visit.close writes the personal Customer.name to 'summary', which is not personal")]),
+        ("one through a derivation", "crm.yaml", step(PERSONAL_CRM, CLOSE, ["{ assign: { location: summary, expr: customer.called } }"]),
+         [leaks("Visit.close writes the personal value in the derived Customer.called to 'summary', which is not personal")]),
+        ("a test of its presence", "crm.yaml",
+         step(PERSONAL_CRM, CLOSE, ["{ assign: { location: summary, expr: 'if customer.name is null then \"none\" else \"some\"' } }"]),
+         [leaks("Visit.close writes the personal Customer.name to 'summary', which is not personal")]),
+        ("an observation's personal field", "crm.yaml",
+         step(PERSONAL_CRM, CLOSE, ["{ assign: { location: flagged, expr: 'count(n in notes where n.text == \"urgent\")' } }"]),
+         [leaks("Visit.close writes the personal VisitNote.text to 'flagged', which is not personal")]),
+        ("a call's argument", "crm.yaml",
+         step(PERSONAL_CRM, CLOSE, ["{ call: { target: customer, transition: tag, inputs: { text: customer.name } } }"]),
+         [leaks("Visit.close passes the personal Customer.name to Customer.tag's input 'text', which writes it to "
+                "Customer.label, which is not personal")]),
+        ("one passed on by a second call", "crm.yaml",
+         step(PERSONAL_CRM, CLOSE, ["{ call: { target: customer, transition: relay, inputs: { text: customer.name } } }"]),
+         [leaks("Visit.close passes the personal Customer.name to Customer.relay's input 'text', which passes it to "
+                "Customer.tag, which writes it to Customer.label, which is not personal")]),
+        ("a creation's into an attribute input", "crm.yaml",
+         step(PERSONAL_CRM, LEAVE, ["{ create: { type: Visit, transition: book, inputs: { customer: this, note: name } } }"]),
+         [leaks("Customer.leave passes the personal Customer.name to Visit.book's input 'note', which writes it to "
+                "Visit.note, which is not personal")]),
+        ("a cascade's", "shop.yaml", ordered,
+         [leaks("Order.finish cascades the personal Order.buyer to Line.drop's input 'why', which writes it to "
+                "Line.memo, which is not personal")]),
+        ("a backfill's", "crm.yaml", aliased,
+         [leaks("the backfill of Customer.alias reads the personal Customer.name, and alias is not personal; a backfill "
+                "is a write")]),
+        ("personal values reaching only personal attributes", "crm.yaml",
+         step(PERSONAL_CRM, CLOSE, ["{ assign: { location: contact, expr: customer.name } }",
+                                    "{ call: { target: customer, transition: rename, inputs: { text: customer.called } } }",
+                                    "{ assign: { location: flagged, expr: 'count(n in notes where n.urgent)' } }",
+                                    "{ create: { type: Customer, transition: join, inputs: { name: customer.name } } }"]), []),
+        ("an input the transition reached holds personal itself, reported where it is written", "crm.yaml",
+         step(p(PERSONAL_CRM, TAG, TAG.replace("{ type: string }", "{ type: string, personal: true }")), CLOSE,
+              ["{ call: { target: customer, transition: tag, inputs: { text: customer.name } } }"]),
+         [leaks("Customer.tag writes the personal input 'text' to 'label', which is not personal")]),
+    ]
+    ok = True
+    for name, f, text, want in cases:
+        previous = {f: PERSONAL_CRM} if name == "a backfill's" else None
+        found, _ = check([("people.yaml", people), (f, text)], previous)
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want) and all(x[3] == "names" for x in found)
+        ok &= hit
+        print(f"  check 10, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
 def abstract_part_plants(people):
     """A cascaded part is of a concrete type: a whole cascading to parts of an abstract type is refused though every
     member of the family declares the transition, which subsumes the model's check 30, and the same end surviving
@@ -5466,6 +5767,7 @@ def main():
     ok &= cascade_cycle_plants(people)
     ok &= clock_plants(people)
     ok &= abstract_part_plants(people)
+    ok &= personal_plants(people)
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:

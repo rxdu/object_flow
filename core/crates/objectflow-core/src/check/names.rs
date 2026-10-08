@@ -236,6 +236,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
     out.extend(combined_errors(doc));
     out.extend(cascade_cycle_errors(doc, &library));
     out.extend(clock_errors(doc, &library));
+    out.extend(personal_errors(doc, &library));
     let cats = categories(doc);
     let imported = imported(doc);
     for (tn, t) in types(doc) {
@@ -895,6 +896,357 @@ fn relationship_errors(doc: &Value, library: &Obj) -> Found {
                 &segs!["types", &tn, "inherited_parts", an],
                 &finals,
             ));
+        }
+    }
+    out
+}
+
+/// The inputs of a transition that are personal values (the model's check
+/// 10, ADR-0078): marked `personal`, an attribute input of a personal
+/// attribute, or read by a write of its effect into a personal attribute, as
+/// the reference runner's `input_personal` has it (`check-flows.py`'s
+/// `personal_inputs`).
+fn personal_inputs(kinds: &Obj, tn: &str, x: &Value) -> BTreeSet<String> {
+    let t = kinds.get(tn).cloned().unwrap_or(Value::Null);
+    let attrs = obj(&t, "attributes");
+    let personal = |n: &str| attrs.get(n).is_some_and(|s| flag(s, "personal"));
+    let mut out: BTreeSet<String> = obj(x, "inputs")
+        .iter()
+        .filter(|(_, s)| flag(s, "personal"))
+        .map(|(n, _)| n.clone())
+        .collect();
+    for n in strings(x, "required_inputs")
+        .into_iter()
+        .chain(strings(x, "optional_inputs"))
+    {
+        if personal(&n) {
+            out.insert(n);
+        }
+    }
+    let took = taken(x);
+    for step in walk(x.get("effect")) {
+        if matches!(step.kind, "assign" | "add") {
+            let body = &step.st[step.kind];
+            if personal(&body.get("location").map(py_str).unwrap_or_default()) {
+                let read = input_reads(&body.get("expr").map(py_str).unwrap_or_default());
+                out.extend(read.intersection(&took).cloned());
+            }
+        }
+    }
+    out
+}
+
+/// An argument a transition or a cascade clause passes: its expression, its
+/// loops' items, the type and transition it reaches, the input, and where it
+/// is given.
+type Passed = (String, Env, Option<String>, String, String, Path);
+
+/// The module's types, those checked before it, and the observation kinds
+/// they declare, as check 10 reads them.
+struct Personal<'a> {
+    kinds: &'a Obj,
+    fields: BTreeMap<String, Value>,
+}
+
+impl Personal<'_> {
+    fn personal(&self, u: &str, m: &str) -> bool {
+        let t = self.kinds.get(u).or_else(|| self.fields.get(u));
+        t.and_then(|t| obj(t, "attributes").get(m))
+            .is_some_and(|s| flag(s, "personal"))
+    }
+
+    /// What personal value an expression carries, or none.
+    fn why(
+        &self,
+        tn: &str,
+        x: Option<&Value>,
+        text: &str,
+        env: &Env,
+        inputs: &BTreeSet<String>,
+        seen: &BTreeSet<(String, String)>,
+    ) -> Option<String> {
+        if let Some(n) = input_reads(text).intersection(inputs).next() {
+            return Some(format!("the personal input '{n}'"));
+        }
+        let read = reads(text);
+        if let Some(n) = read.iter().find(|n| self.personal(tn, n)) {
+            return Some(format!("the personal {tn}.{n}"));
+        }
+        // step 2 refuses what does not parse
+        let tree = parse(text).ok()?;
+        let mut walker = OptionalReads::new(self.kinds, tn, x);
+        walker.through_tests = true;
+        walker.walk(&tree, env);
+        if let Some((u, m)) = walker.members.iter().find(|(u, m)| self.personal(u, m)) {
+            return Some(format!("the personal {u}.{m}"));
+        }
+        let own = self.kinds.get(tn).cloned().unwrap_or(Value::Null);
+        let mut derived = walker.derived.clone();
+        for n in &read {
+            if obj(&own, "derived_attributes").contains_key(n) {
+                derived.insert((tn.to_string(), n.clone()));
+            }
+        }
+        derived.into_iter().find_map(|(u, d)| {
+            let pair = (u.clone(), d.clone());
+            if seen.contains(&pair) {
+                return None;
+            }
+            let mut deeper = seen.clone();
+            deeper.insert(pair);
+            let expr = obj(&self.kinds[u.as_str()], "derived_attributes")
+                .get(&d)
+                .and_then(|s| s.get("expression"))
+                .map(py_str)
+                .unwrap_or_default();
+            self.why(&u, None, &expr, &Env::new(), &BTreeSet::new(), &deeper)
+                .map(|_| format!("the personal value in the derived {u}.{d}"))
+        })
+    }
+
+    /// Each composite end of a type, its own or inherited, with its cascade
+    /// clauses and where they are given.
+    fn parts(&self, tn: &str) -> Vec<(Value, Vec<Value>, Path)> {
+        let t = self.kinds.get(tn).cloned().unwrap_or(Value::Null);
+        let mut out: Vec<(Value, Vec<Value>, Path)> = obj(&t, "attributes")
+            .iter()
+            .filter(|(_, spec)| text(spec, "aggregation") == Some("composite"))
+            .map(|(an, spec)| {
+                (
+                    spec.clone(),
+                    list(spec, "cascade").to_vec(),
+                    segs!["types", tn, "attributes", an],
+                )
+            })
+            .collect();
+        let mut inherited: Obj = Default::default();
+        for b in bases(tn, self.kinds).iter().rev() {
+            for (an, spec) in obj(&self.kinds[b.as_str()], "attributes") {
+                if text(spec, "aggregation") == Some("composite") {
+                    inherited.insert(an.clone(), spec.clone());
+                }
+            }
+        }
+        for (an, ip) in obj(&t, "inherited_parts") {
+            if let Some(spec) = inherited.get(an) {
+                out.push((
+                    spec.clone(),
+                    list(ip, "cascade").to_vec(),
+                    segs!["types", tn, "inherited_parts", an],
+                ));
+            }
+        }
+        out
+    }
+
+    /// Each argument a transition passes by a `call` or a `create`.
+    fn passes(&self, tn: &str, x: &Value) -> Vec<Passed> {
+        let t = self.kinds.get(tn).cloned().unwrap_or(Value::Null);
+        let mut out = Vec::new();
+        for step in walk(x.get("effect")) {
+            if !matches!(step.kind, "call" | "create") {
+                continue;
+            }
+            let body = &step.st[step.kind];
+            let env = binders(self.kinds, tn, x, &step.path);
+            let k = if step.kind == "call" {
+                call_target(self.kinds, &t, tn, x, body, &env)
+            } else {
+                body.get("type").map(py_str)
+            };
+            let ct = body.get("transition").map(py_str).unwrap_or_default();
+            for (j, e) in obj(body, "inputs") {
+                out.push((
+                    py_str(e),
+                    env.clone(),
+                    k.clone(),
+                    ct.clone(),
+                    j.clone(),
+                    ext(segs!["effect"], step.path.clone()),
+                ));
+            }
+        }
+        out
+    }
+
+    /// Each argument a cascade clause on a transition passes, where the clause
+    /// is.
+    fn cascades(&self, tn: &str, xn: &str) -> Vec<Passed> {
+        let mut out = Vec::new();
+        for (spec, clauses, here) in self.parts(tn) {
+            for (i, c) in clauses.iter().enumerate() {
+                if !list(c, "on").iter().any(|w| py_str(w) == xn) {
+                    continue;
+                }
+                let ct = c.get("transition").map(py_str).unwrap_or_default();
+                for (j, e) in obj(c, "inputs") {
+                    out.push((
+                        py_str(e),
+                        Env::new(),
+                        Some(target_of(&spec)),
+                        ct.clone(),
+                        j.clone(),
+                        ext(&here, segs!["cascade", i]),
+                    ));
+                }
+            }
+        }
+        out
+    }
+
+    /// Where input `j` of `k.ct` reaches a non-personal attribute, or none.
+    fn leak(
+        &self,
+        k: &str,
+        ct: &str,
+        j: &str,
+        seen: &BTreeSet<(String, String, String)>,
+    ) -> Option<String> {
+        let t = self.kinds.get(k)?;
+        let x = obj(t, "transitions").get(ct).filter(|x| !x.is_null())?;
+        let key = (k.to_string(), ct.to_string(), j.to_string());
+        if seen.contains(&key) || personal_inputs(self.kinds, k, x).contains(j) {
+            return None;
+        }
+        let attrs = obj(t, "attributes");
+        let attribute_input = strings(x, "required_inputs")
+            .iter()
+            .chain(&strings(x, "optional_inputs"))
+            .any(|n| n == j);
+        if attribute_input && attrs.contains_key(j) {
+            return Some(format!("writes it to {k}.{j}, which is not personal"));
+        }
+        for step in walk(x.get("effect")) {
+            if !matches!(step.kind, "assign" | "add") {
+                continue;
+            }
+            let body = &step.st[step.kind];
+            let loc = body.get("location").map(py_str).unwrap_or_default();
+            if input_reads(&body.get("expr").map(py_str).unwrap_or_default()).contains(j)
+                && attrs.contains_key(&loc)
+                && !self.personal(k, &loc)
+            {
+                return Some(format!("writes it to {k}.{loc}, which is not personal"));
+            }
+        }
+        let mut deeper = seen.clone();
+        deeper.insert(key);
+        self.passes(k, x)
+            .into_iter()
+            .chain(self.cascades(k, ct))
+            .find_map(|(e, _env, k2, ct2, j2, _where)| {
+                let k2 = k2?;
+                if !input_reads(&e).contains(j) {
+                    return None;
+                }
+                self.leak(&k2, &ct2, &j2, &deeper)
+                    .map(|inner| format!("passes it to {k2}.{ct2}, which {inner}"))
+            })
+    }
+}
+
+/// A personal value MUST NOT reach a non-personal attribute (the model's
+/// check 10, ADR-0078): by a write of the effect, by an argument to a `call`
+/// or a `create`, or a cascade clause's, that the transition it reaches
+/// writes to one, however many calls on, or by a migration's backfill
+/// (`check-flows.py`'s `personal_errors`).
+fn personal_errors(doc: &Value, library: &Obj) -> Found {
+    let mut kinds = library.clone();
+    for (tn, t) in types(doc) {
+        kinds.insert(tn, t.clone());
+    }
+    let mut fields: BTreeMap<String, Value> = BTreeMap::new();
+    for t in kinds.values() {
+        for o in obj(t, "observations").values() {
+            if let Some(k) = o.get("kind") {
+                fields.insert(py_str(k), o.clone());
+            }
+        }
+    }
+    let check = Personal {
+        kinds: &kinds,
+        fields,
+    };
+    let none = BTreeSet::new();
+    let leaks = |what: String| {
+        format!("{what}; a personal value reaches only a personal attribute (the model's check 10)")
+    };
+    let mut out = Found::new();
+    for (tn, t) in types(doc) {
+        let attrs = obj(t, "attributes");
+        for (xn, x) in obj(t, "transitions") {
+            let base = segs!["types", &tn, "transitions", xn];
+            let inputs = personal_inputs(&kinds, &tn, x);
+            for step in walk(x.get("effect")) {
+                if !matches!(step.kind, "assign" | "add") {
+                    continue;
+                }
+                let body = &step.st[step.kind];
+                let loc = body.get("location").map(py_str).unwrap_or_default();
+                if !attrs.contains_key(&loc) || check.personal(&tn, &loc) {
+                    continue;
+                }
+                let env = binders(&kinds, &tn, x, &step.path);
+                let expr = body.get("expr").map(py_str).unwrap_or_default();
+                if let Some(carried) = check.why(&tn, Some(x), &expr, &env, &inputs, &none) {
+                    out.push(finding(
+                        ext(&base, ext(segs!["effect"], step.path.clone())),
+                        "names",
+                        leaks(format!(
+                            "{tn}.{xn} writes {carried} to '{loc}', which is not personal"
+                        )),
+                    ));
+                }
+            }
+            for (e, env, k, ct, j, where_) in check.passes(&tn, x) {
+                let Some(k) = k else { continue };
+                let Some(carried) = check.why(&tn, Some(x), &e, &env, &inputs, &none) else {
+                    continue;
+                };
+                if let Some(reached) = check.leak(&k, &ct, &j, &BTreeSet::new()) {
+                    out.push(finding(
+                        ext(&base, where_),
+                        "names",
+                        leaks(format!(
+                            "{tn}.{xn} passes {carried} to {k}.{ct}'s input '{j}', which {reached}"
+                        )),
+                    ));
+                }
+            }
+            for (e, _env, k, ct, j, where_) in check.cascades(&tn, xn) {
+                let Some(k) = k else { continue };
+                let Some(carried) = check.why(&tn, Some(x), &e, &Env::new(), &inputs, &none) else {
+                    continue;
+                };
+                if let Some(reached) = check.leak(&k, &ct, &j, &BTreeSet::new()) {
+                    out.push(finding(
+                        where_,
+                        "names",
+                        leaks(format!(
+                            "{tn}.{xn} cascades {carried} to {k}.{ct}'s input '{j}', which {reached}"
+                        )),
+                    ));
+                }
+            }
+        }
+    }
+    let migration = doc.get("migration").cloned().unwrap_or(Value::Null);
+    for (tn, given) in obj(&migration, "backfill") {
+        for (a, e) in as_obj(given) {
+            if check.personal(tn, a) {
+                continue;
+            }
+            if let Some(carried) =
+                check.why(tn, None, &py_str(e), &Env::new(), &BTreeSet::new(), &none)
+            {
+                out.push(finding(
+                    segs!["migration", "backfill", tn, a],
+                    "names",
+                    leaks(format!(
+                        "the backfill of {tn}.{a} reads {carried}, and {a} is not personal; a backfill is a write"
+                    )),
+                ));
+            }
         }
     }
     out

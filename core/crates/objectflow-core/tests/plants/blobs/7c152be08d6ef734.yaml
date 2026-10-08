@@ -1,0 +1,31 @@
+module: shop
+categories: [live, closed]
+enumerations:
+  Reason: [ASKED]
+types:
+  Order:
+    description: An order.
+    tracking: record
+    attributes:
+      buyer: { type: string, optional: true, personal: true }
+      lines: { reference: "Line[]", opposite: order, aggregation: composite, cascade: [ { on: [finish], transition: drop, inputs: { why: buyer }, limit: 50 } ] }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      open:     { kind: initial, to: OPEN }
+      add_line: { kind: internal, from: [OPEN], effect: [ { create: { type: Line, transition: start, inputs: { order: this } } } ] }
+      finish:   { kind: external, from: [OPEN], to: DONE }
+      forget:   { kind: erasure, inputs: { reason: { type: Reason } } }
+  Line:
+    description: A line of an order.
+    tracking: record
+    attributes:
+      order: { reference: Order, opposite: lines }
+      memo:  { type: string, optional: true }
+    states:
+      ACTIVE: { category: live }
+      GONE:   { category: closed, final: true }
+    transitions:
+      start: { kind: initial, to: ACTIVE, required_inputs: [order], only_via: [Order.add_line] }
+      drop:  { kind: external, from: [ACTIVE], to: GONE, inputs: { why: { type: string } }, effect: [ { assign: { location: memo, expr: inputs.why } } ] }

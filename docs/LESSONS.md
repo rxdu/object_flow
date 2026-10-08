@@ -467,3 +467,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The checker oracle held the core to the flow checker by collecting each side's findings into a set, so a finding made twice agreed with one made once; a mutation making the core report a cycle at every closing passed it, while the flow checker's own self-test, which compares lists, caught the same mutation on its side (D545).
 - **Correction:** Where two implementations are held equal over outputs that can repeat, compare multisets (counts per key) or sorted lists, never sets; and mutation-test a duplicate as one of the mutations, since only a duplicate shows the difference.
 - **Context:** Oracle and comparison tests between the core and the Python reference, ObjectFlow; 2026-10-08.
+
+### A filtered run hid a crash
+- **Pattern:** A self-test run was piped through `grep "check 10"` to show only the new cases' lines, and its output was read as all cases passing; the script had failed to load on a syntax error, the traceback had no matching line, and the empty result looked like success. The success was reported to the author before the exit status was looked at.
+- **Correction:** A filtered view of a run is evidence only with the run's exit status beside it, and a count of the expected result lines: save the output, print the status, count the lines expected and show everything else. The same holds for a mutation runner, where a build failure must be told apart from a kill.
+- **Context:** Every gate and self-test run through a pipe, ObjectFlow; 2026-10-08.
