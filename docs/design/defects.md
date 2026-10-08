@@ -557,6 +557,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D543](#d543) | The runner's sandbox declared each type as the loaded version wrote it after a publish | Resolved |
 | [D544](#d544) | Check 44 refused a mirror's minted identifier, counting no creation as writing nothing | Resolved |
 | [D545](#d545) | The core's checker oracle compared findings as sets, so a finding made twice agreed with one made once | Resolved |
+| [D546](#d546) | The core read a derived amount or decimal summed over nothing as the integer 0, where the runner read its zero | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3565,3 +3566,8 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **The core's checker oracle compared findings as sets, so a finding made twice agreed with one made once.** The oracle (`core/crates/objectflow-core/tests/checker_oracle.rs`) holds the core's checker to the flow checker by each finding's file, line, severity, code and message (ADR-0156 decision 4), and collected both sides into sets, so the core making a finding twice on a line where the flow checker made it once was no difference. Found 2026-10-08 mutation-testing check 12: a core reporting every closing of one cycle, where both checkers report it once, passed the oracle.
 
 **Resolved** in the oracle: it counts each finding on both sides and reports a finding missed or extra by how many. Every one of the 303 recorded checks agrees counted, so no duplicate had been hiding, and the mutation it let pass now fails.
+
+### D546
+**The core read a derived amount or decimal summed over nothing as the integer 0, where the runner read its zero.** A sum over no elements is 0 of its element type (`declaration-syntax.md` §8.3). The reference runner's service encodes a derived attribute by its expression's kind, so a claim with no lines totals `USD 0.00` and a batch with no lots weighs `0.00`; the core typed the empty sum only where the expression yields a duration (`metric.rs`, `typed_derived`), on the reading that an amount's zero needs a scale nothing there gave, and answered `0` for both. The currency's minor unit was there all along (`value.rs`, `minor_unit`), and a decimal's kind carries its scale. Found 2026-10-06 fixing the duration's zero, recorded in `TODO.md` as reached by no example; confirmed 2026-10-08 by the two tests below, each failing with the core's answer.
+
+**Resolved** in the core: an empty sum whose expression yields money is the currency's zero at its minor unit, and one that yields a decimal is zero at its scale. The publishing comparison reads both, a claim with no lines and a batch with no lots, alike through both backends; each fails with its half of the fix taken out.

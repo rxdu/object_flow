@@ -528,9 +528,10 @@ struct Selected<'w> {
 
 /// A derived attribute's value as its expression's type has it: a sum over
 /// no elements is the integer 0 (`eval.rs`), which is a duration's zero
-/// where the expression yields a duration (§8.3), as the reference runner's
-/// service encodes it by the expression's kind. An amount's zero needs its
-/// currency's scale, which no value here gives, so it stays the integer.
+/// where the expression yields a duration, an amount's in its currency's
+/// minor unit where it yields money, and a decimal's at its scale where it
+/// yields a decimal (§8.3), as the reference runner's service encodes it by
+/// the expression's kind.
 pub fn typed_derived(world: &World<'_>, t: &Type, e: &Expr, v: Value) -> Value {
     if v != Value::Int(0) {
         return v;
@@ -542,6 +543,10 @@ pub fn typed_derived(world: &World<'_>, t: &Type, e: &Expr, v: Value) -> Value {
     let this = BTreeMap::from([("this".to_string(), Kind::Object(t.name.clone()))]);
     match reader.kind(e, &this, Some(t)) {
         Ok(Kind::Duration) => Value::Duration(0),
+        Ok(Kind::Money(currency)) => minor_unit(&currency)
+            .and_then(|scale| Decimal::new(0, scale))
+            .map_or(v, |amount| Value::Money { currency, amount }),
+        Ok(Kind::Decimal(scale)) => Decimal::new(0, scale).map_or(v, Value::Decimal),
         _ => v,
     }
 }

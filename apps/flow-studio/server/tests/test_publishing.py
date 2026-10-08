@@ -1111,3 +1111,66 @@ def test_a_report_states_each_invariants_form(tee):
     assert report["invariant_forms"] == {
         "ServiceJob.photo_when_done": "local"}
     alike(tee)
+
+
+def test_a_derived_amount_summed_over_nothing_is_its_currencys_zero(tee):
+    """A claim with no lines has a total summed over nothing, which is the
+    zero of the amount its lines would sum, at the currency's minor unit,
+    alike through both backends (`declaration-syntax.md` §8.3); the core
+    gave the integer 0 until 2026-10-08, where the runner gave the zero."""
+    loaded(tee, "reimbursement.yaml")
+    tee.found.clear()
+    alice = tee.post("/v1/request", {
+        "type": "Employee", "transition": "onboard", "actor": OP,
+        "inputs": {"user_id": "alice"}})["object_id"]
+    claim = tee.post("/v1/request", {
+        "type": "Claim", "transition": "draft", "actor": OP,
+        "inputs": {"claimant": alice, "title": "Taxis in May"}})["object_id"]
+    got = tee.post("/v1/get", {"id": claim})
+    assert got["attributes"]["total"] == "USD 0.00"
+    alike(tee)
+
+
+TALLY = """module: tally
+categories: [live, closed]
+types:
+  Batch:
+    description: A batch of weighed lots.
+    tracking: record
+    attributes:
+      lots: { reference: "Lot[]", opposite: batch, aggregation: composite, survives: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    derived_attributes:
+      weight: { description: The lots' weight together., expression: "sum(l in lots: l.kg)" }
+    transitions:
+      open:   { kind: initial, to: OPEN }
+      add:    { kind: internal, from: [OPEN], inputs: { kg: { type: "decimal(8,2)" } }, effect: [ { create: { type: Lot, transition: weigh, inputs: { batch: this, kg: inputs.kg } } } ] }
+      finish: { kind: external, from: [OPEN], to: DONE }
+  Lot:
+    description: A lot of a batch, weighed.
+    tracking: record
+    attributes:
+      batch: { reference: Batch, opposite: lots }
+      kg:    { type: "decimal(8,2)" }
+    states:
+      IN:  { category: live }
+      OUT: { category: closed, final: true }
+    transitions:
+      weigh: { kind: initial, to: IN, required_inputs: [batch, kg], only_via: [Batch.add] }
+      drop:  { kind: external, from: [IN], to: OUT }
+"""
+
+
+def test_a_derived_decimal_summed_over_nothing_is_zero_at_its_scale(tee):
+    """A batch with no lots weighs a sum over nothing, which is the decimal
+    zero at the scale its lots' weights have, alike through both backends
+    (`declaration-syntax.md` §8.3); the core gave the integer 0 until
+    2026-10-08, where the runner gave the zero."""
+    load(tee, "tally", TALLY)
+    tee.found.clear()
+    batch = made(tee, "Batch", "open")
+    got = tee.post("/v1/get", {"id": batch})
+    assert got["attributes"]["weight"] == "0.00"
+    alike(tee)
