@@ -172,3 +172,4 @@
 | [0168](0168-the-scenarios-port-declares-every-type-a-valid-mirror.md) | The scenarios' port declares every type a valid mirror | Decided by the author |
 | [0169](0169-a-mirror-may-declare-a-minted-identifier.md) | A mirror may declare a minted identifier | Decided by the author |
 | [0170](0170-a-cascaded-part-is-of-a-concrete-type.md) | A cascaded part is of a concrete type | Decided by the author |
+| [0171](0171-a-traversal-invariant-reads-through-any-relationship-end.md) | A traversal invariant reads through any relationship end | Decided by the author |

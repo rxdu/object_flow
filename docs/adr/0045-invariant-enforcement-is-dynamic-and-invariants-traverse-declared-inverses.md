@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D10, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0055 — a third invariant form for single-object properties, and outcome steps that add to and remove from a set; ADR-0058 — every terminal transition of a whole must dispose of its parts, and re-parenting is checked against both wholes; ADR-0059 — both ends of a relationship are declared, and cardinality decides which one stores the value; ADR-0060 — twelve decisions from the iteration-11 syntax review.
+- **Refined by:** ADR-0171 — decision 3 withdrawn: a traversal invariant reads through any relationship end, which a write finds by its stored end, and check 4 is withdrawn. ADR-0055 — a third invariant form for single-object properties, and outcome steps that add to and remove from a set; ADR-0058 — every terminal transition of a whole must dispose of its parts, and re-parenting is checked against both wholes; ADR-0059 — both ends of a relationship are declared, and cardinality decides which one stores the value; ADR-0060 — twelve decisions from the iteration-11 syntax review.
 - **Amended by:** ADR-0052 — the affected-set rule amended where the case studies found it underspecified.
 - **Refines:** ADR-0009
 

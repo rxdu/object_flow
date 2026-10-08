@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D48 and D49, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0062 — a normative statement must cite the check that enforces it.
+- **Refined by:** ADR-0171 — the traversal form reads through any relationship end, declared inverse or not; ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0062 — a normative statement must cite the check that enforces it.
 - **Refines:** ADR-0045, ADR-0052, ADR-0046
 
 ## Context
@@ -20,7 +20,7 @@ Writing the declaration syntax surfaced two things the model cannot express. Bot
 | Form | Rule that makes the affected set computable |
 |---|---|
 | **Local** | Reads only the object's own attributes and its own state. The affected set is the object written. No further rule. |
-| **Traversal** | Reads related objects, and may traverse only relationships with declared inverses (ADR-0045). |
+| **Traversal** | Reads related objects, and may traverse only relationships with declared inverses (ADR-0045). *(Withdrawn by ADR-0171: through any relationship end, which a write finds by its stored end.)* |
 | **Type scan** | Reads other objects of a type, and must be symmetric (ADR-0052). |
 
 Publishing classifies each invariant and reports which form it decided, so an author is never left guessing why one was rejected. Anything that fits none is still rejected.

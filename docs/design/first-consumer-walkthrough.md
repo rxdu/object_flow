@@ -77,7 +77,7 @@ Everything in this table is a comparison, a null test, a membership test, a `cou
 ### 2.4 Invariants
 
 - `serial` is unique within the type.
-- At most one open engagement line per unit: `count(l in engagement_lines where l.engagement.state != CLOSED) <= 1`. It traverses two relationships, so ADR-0045 governs it and both hops need declared inverses; it is not the type-scan form of ADR-0052.
+- At most one open engagement line per unit: `count(l in engagement_lines where l.engagement.state != CLOSED) <= 1`. It traverses two relationships, so ADR-0045 governs it and both hops need declared inverses *(withdrawn by ADR-0171: a traversal reads through any relationship end)*; it is not the type-scan form of ADR-0052.
 - A unit in `RESERVED` has exactly one `binding`; a unit in any other state has at most one (a soft peg).
 
 ### 2.5 What the model as written cannot express

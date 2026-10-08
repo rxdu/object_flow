@@ -26,7 +26,7 @@ Each check is one of four kinds. A *model* check refuses a declaration whatever 
 | 1 | a guard or step reading an input its transition does not take | model | step 3 | C1 |
 | 2 | a call or create with an unknown or a missing argument; one of the wrong type | model | step 3; the text checker, a missing one; neither, the type | C1; C2 for the text checker's |
 | 3 | derived attributes in a cycle | model | step 3 | C1 |
-| 4 | a traversal invariant through an undeclared far end | model | neither | — |
+| 4 | *withdrawn* (ADR-0171) | withdrawn | — | — |
 | 5 | an invariant of none of the three forms | model | step 3, an invariant reading `inputs` or `this_event` (2026-10-08), every other read of no form having a check of its own; the report's form, neither | C1; — |
 | 6 | a type-scan invariant failing the swap test | model | neither | — |
 | 7 | a scan reading what is not indexed; `indexed` on a stored end | model | step 3; the text checker, the marking | C1; C2 |

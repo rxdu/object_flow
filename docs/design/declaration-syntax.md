@@ -479,7 +479,7 @@ The consequence worth stating is that **a status filter has to be applied to bot
 
 Overlap of two ranges and equality on a shared key pass the test under those four normalisations, and only under them. Overlap is the case that shows why: its two conjuncts are `b.start < end` and `b.end > start`, and swapping gives `start < b.end` and `end > b.start`. Neither swapped conjunct matches the original it came from. Each matches **the other one**, and only once direction is discounted — `start < b.end` is `b.end > start`. So the test needs both the set-comparison of conjuncts and the direction rule, and it needs them together. That is why the table above is part of the rule and not a note on it. These were the shapes iterations 1 to 13 listed. They were listed as the *only* shapes, which excluded "at most one open X per Y" — the commonest type-scan there is, and the one DESIGN.md §5.6 names as canonical.
 
-A traversal invariant needs the far end of what it traverses to be declared, or the write that breaks it has no way to find it and re-check (check 4).
+A traversal invariant may read through any relationship end, its far end declared or not: one end of every relationship stores the value and is always available to a filter (§3.1), so the write that breaks it finds the invariant through that end (ADR-0171). *(Until 2026-10-08 the far end had to be declared, check 4; ADR-0171 withdrew it.)*
 
 ## 4. Machines and transitions
 
@@ -1473,7 +1473,7 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | 1 | A guard or outcome names an undeclared input |
 | 2 | A `call`, `create` or evaluator call with an unknown argument, a missing required one, or one of the wrong type |
 | 3 | Derived attributes form a cycle |
-| 4 | A traversal invariant (§3.4) reading through a relationship end whose far end is not declared, so a write to the far object cannot find the invariant to re-check |
+| 4 | **Withdrawn** (ADR-0171). It refused a traversal invariant reading through an end whose far end is not declared; a write finds such an invariant through the relationship's stored end |
 | 5 | An invariant fitting none of the three forms of §3.4; the report says which form it decided. In the flow format, an invariant reading a request's `inputs` or `this_event`, which no write after it has: what else fits no form has a check of its own, an evaluator a guard's alone, the actor check 64, the clock check 32, a metric check 56, a label check 55, and `referrers` is a traversal its referrers' stored ends find |
 | 6 | A type-scan invariant that fails the swap test of §3.4; the report names the member that appears on one side only. Also a type-scan carrying an `id` exclusion, which the self-exclusion rule makes redundant |
 | 7 | A traversal or type-scan invariant, or a type-scan guard, reading an attribute that is not `indexed`; an `indexed` marking on a stored relationship end, which already is one. A local invariant reads its own row and needs none, and `.state` and stored relationship ends never need one (§8.1). Its clauses on `visible when` were withdrawn with visibility (ADR-0114) |
