@@ -237,6 +237,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
     out.extend(cascade_cycle_errors(doc, &library));
     out.extend(clock_errors(doc, &library));
     out.extend(personal_errors(doc, &library));
+    out.extend(reparent_errors(doc, &library));
     let cats = categories(doc);
     let imported = imported(doc);
     for (tn, t) in types(doc) {
@@ -896,6 +897,70 @@ fn relationship_errors(doc: &Value, library: &Obj) -> Found {
                 &segs!["types", &tn, "inherited_parts", an],
                 &finals,
             ));
+        }
+    }
+    out
+}
+
+/// A re-parent, a `do` or an `act` writing a part's end back to its whole on
+/// an existing object, MUST NOT write an end whose type is abstract, since
+/// which source whole's invariants are re-checked would then not be known
+/// from the text (the model's check 36, ADR-0058). It writes the end by an
+/// `assign` step or by naming it among its inputs; a creation writing it is
+/// not a re-parent. A part whose end back names another type than the whole
+/// is refused as ends that do not name each other (`relationship_errors`)
+/// (`check-flows.py`'s `reparent_errors`).
+fn reparent_errors(doc: &Value, library: &Obj) -> Found {
+    let mut kinds = library.clone();
+    for (tn, t) in types(doc) {
+        kinds.insert(tn, t.clone());
+    }
+    let mut out = Found::new();
+    for (tn, t) in types(doc) {
+        // each end back to a whole of an abstract type, by the type
+        let mut owners: BTreeMap<String, String> = BTreeMap::new();
+        for (a, spec) in obj(t, "attributes") {
+            let w = ref_of(spec);
+            let Some(whole) = kinds.get(&w) else { continue };
+            let opposite = spec.get("opposite").map(py_str).unwrap_or_default();
+            let composite = obj(whole, "attributes")
+                .get(&opposite)
+                .is_some_and(|end| text(end, "aggregation") == Some("composite"));
+            if composite && flag(whole, "abstract") {
+                owners.insert(a.clone(), w);
+            }
+        }
+        for (xn, x) in obj(t, "transitions") {
+            if !matches!(kind(x), "external" | "internal") {
+                continue;
+            }
+            let base = segs!["types", &tn, "transitions", xn];
+            let mut written: Vec<(Path, String)> = Vec::new();
+            for key in ["required_inputs", "optional_inputs"] {
+                for a in strings(x, key) {
+                    written.push((ext(&base, segs![key]), a));
+                }
+            }
+            for step in walk(x.get("effect")) {
+                if step.kind == "assign" {
+                    let loc = step.st["assign"]
+                        .get("location")
+                        .map(py_str)
+                        .unwrap_or_default();
+                    written.push((ext(&base, ext(segs!["effect"], step.path.clone())), loc));
+                }
+            }
+            for (where_, a) in written {
+                if let Some(w) = owners.get(&a) {
+                    out.push(finding(
+                        where_,
+                        "names",
+                        format!(
+                            "{tn}.{xn} re-parents a part, writing '{a}', whose type {w} is abstract, so which whole's invariants it re-checks is not known from the text (the model's check 36, ADR-0058)"
+                        ),
+                    ));
+                }
+            }
         }
     }
     out

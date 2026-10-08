@@ -1,0 +1,35 @@
+module: kit
+categories: [live, closed]
+types:
+  Asset:
+    description: An asset, the base of every kind of asset.
+    abstract: true
+    tracking: record
+    attributes:
+      pieces: { reference: "Piece[]", opposite: asset, aggregation: composite }
+      spares: { reference: "Piece[]", opposite: spare }
+  Robot:
+    description: A robot.
+    extends: Asset
+    inherited_parts:
+      pieces: { survives: true }
+    states:
+      UP:   { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      make:   { kind: initial, to: UP }
+      fit:    { kind: internal, from: [UP], effect: [ { create: { type: Piece, transition: fit, inputs: { asset: this } } } ] }
+      retire: { kind: external, from: [UP], to: GONE }
+  Piece:
+    description: A piece of an asset.
+    tracking: record
+    attributes:
+      asset: { reference: Asset, opposite: pieces }
+      spare: { reference: Asset, optional: true, opposite: spares }
+    states:
+      IN:  { category: live }
+      OUT: { category: closed, final: true }
+    transitions:
+      fit:  { kind: initial, to: IN, required_inputs: [asset], only_via: [Robot.fit] }
+      drop: { kind: external, from: [IN], to: OUT }
+      lend: { kind: internal, from: [IN], optional_inputs: [spare] }

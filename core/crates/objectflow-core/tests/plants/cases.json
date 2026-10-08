@@ -11253,6 +11253,220 @@
   "analysed": {}
  },
  {
+  "label": "reparent_plants: an act assigning it",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "kit.yaml",
+    "49c55888421b2d39"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "kit.yaml",
+    33,
+    "fatal",
+    "names",
+    "Piece.move re-parents a part, writing 'asset', whose type Asset is abstract, so which whole's invariants it re-checks is not known from the text (the model's check 36, ADR-0058)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "reparent_plants: a do taking it as a required input",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "kit.yaml",
+    "215c34c473f3bb9f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "kit.yaml",
+    33,
+    "fatal",
+    "names",
+    "Piece.move re-parents a part, writing 'asset', whose type Asset is abstract, so which whole's invariants it re-checks is not known from the text (the model's check 36, ADR-0058)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "reparent_plants: an act taking it as an optional input, which the required end refuses as well",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "kit.yaml",
+    "dfecb49bc3dc4112"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "kit.yaml",
+    33,
+    "fatal",
+    "names",
+    "Piece.move lists 'asset' as an optional input, but the attribute is neither optional nor defaulted, so the input is required"
+   ],
+   [
+    "kit.yaml",
+    33,
+    "fatal",
+    "names",
+    "Piece.move re-parents a part, writing 'asset', whose type Asset is abstract, so which whole's invariants it re-checks is not known from the text (the model's check 36, ADR-0058)"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
+  "label": "reparent_plants: a creation writing it",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "kit.yaml",
+    "af4a69367bc250fe"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Piece": [
+    0,
+    0
+   ],
+   "Robot": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  }
+ },
+ {
+  "label": "reparent_plants: a write of a reference to the abstract type that is no part's end back",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "kit.yaml",
+    "da4817fedfdc2580"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Piece": [
+    0,
+    0
+   ],
+   "Robot": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  }
+ },
+ {
+  "label": "reparent_plants: a re-parent to a concrete whole",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "rack.yaml",
+    "fc8bb2e74a3d3f80"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Card": [
+    0,
+    0
+   ],
+   "Rack": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  }
+ },
+ {
+  "label": "reparent_plants: a part whose end back names another type",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "kit.yaml",
+    "fc42aefa946f4a9a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "kit.yaml",
+    9,
+    "fatal",
+    "names",
+    "Asset.pieces's opposite Piece.asset does not name Asset.pieces back"
+   ]
+  ],
+  "analysed": {}
+ },
+ {
   "label": "syntax_plants",
   "files": [
    [

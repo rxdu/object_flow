@@ -1,0 +1,32 @@
+module: rack
+categories: [live, closed]
+types:
+  Rack:
+    description: A rack.
+    tracking: record
+    attributes:
+      slots: { reference: "Slot[]", opposite: rack, aggregation: composite, survives: true }
+    states:
+      UP:   { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      make:   { kind: initial, to: UP }
+      fit:    { kind: internal, from: [UP], effect: [ { create: { type: Card, transition: fit, inputs: { rack: this } } } ] }
+      retire: { kind: external, from: [UP], to: GONE }
+  Slot:
+    description: Something in a rack.
+    abstract: true
+    tracking: record
+    attributes:
+      rack: { reference: Rack, opposite: slots }
+  Card:
+    description: A card in a rack.
+    extends: Slot
+    tracking: record
+    states:
+      IN:  { category: live }
+      OUT: { category: closed, final: true }
+    transitions:
+      fit:  { kind: initial, to: IN, required_inputs: [rack], only_via: [Rack.fit] }
+      drop: { kind: external, from: [IN], to: OUT }
+      move: { kind: internal, from: [IN], inputs: { to: { reference: Rack } }, effect: [ { assign: { location: rack, expr: inputs.to } } ] }

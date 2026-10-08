@@ -589,6 +589,36 @@ def relationship_errors(doc, library):
     return out
 
 
+def reparent_errors(doc, library):
+    """A re-parent, a `do` or an `act` writing a part's end back to its whole on an existing object, MUST NOT write an
+    end whose type is abstract, since which source whole's invariants are re-checked would then not be known from the
+    text (the model's check 36, ADR-0058). It writes the end by an `assign` step or by naming it among its inputs, which
+    writes it; a creation writing it is not a re-parent. A part whose end back names another type than the whole is
+    the model's check 36 too, refused as ends that do not name each other (relationship_errors)."""
+    kinds = dict(library or {})
+    kinds.update(dict(types(doc)))
+    out = []
+    for tn, t in types(doc):
+        owners = {}                             # each end back to a whole of an abstract type, by the type
+        for a, spec in (t.get("attributes") or {}).items():
+            w = str(spec.get("reference", ""))
+            whole = ((kinds.get(w) or {}).get("attributes") or {}).get(spec.get("opposite")) or {}
+            if whole.get("aggregation") == "composite" and (kinds.get(w) or {}).get("abstract"):
+                owners[a] = w
+        for xn, x in (t.get("transitions") or {}).items():
+            if x.get("kind") not in ("external", "internal"):
+                continue
+            base = ("types", tn, "transitions", xn)
+            written = [(base + (key,), a) for key in ("required_inputs", "optional_inputs") for a in x.get(key) or []]
+            written += [(base + ("effect",) + path, st[kind]["location"])
+                        for st, kind, path, _depth in walk(x.get("effect")) if kind == "assign"]
+            out += [(where, "names", f"{tn}.{xn} re-parents a part, writing '{a}', whose type {owners[a]} is abstract, so "
+                                     "which whole's invariants it re-checks is not known from the text (the model's "
+                                     "check 36, ADR-0058)")
+                    for where, a in written if a in owners]
+    return out
+
+
 def personal_inputs(kinds, tn, x):
     """The inputs of a transition that are personal values (the model's check 10, ADR-0078): marked `personal`, an
     attribute input of a personal attribute, or read by a write of its effect into a personal attribute, as the
@@ -1281,7 +1311,8 @@ def name_errors(doc, library=None, ordered=True):
     library = dict(library or {})
     library.update(dict(types(doc)))
     out = (order_errors(doc) if ordered else []) + reserved_name_errors(doc) + relationship_errors(doc, library) + combined_errors(doc) \
-        + cascade_cycle_errors(doc, library) + clock_errors(doc, library) + personal_errors(doc, library)
+        + cascade_cycle_errors(doc, library) + clock_errors(doc, library) + personal_errors(doc, library) \
+        + reparent_errors(doc, library)
     for tn, t in types(doc):
         states = t.get("states") or {}
         attrs = t.get("attributes") or {}
@@ -4324,6 +4355,41 @@ PERSONAL_CRM = (
     '      close:  { kind: external, from: [OPEN], to: DONE }\n'
     '      forget: { kind: erasure, inputs: { reason: { type: ErasureReason } } }\n'
 )
+# pieces whose whole is a family's abstract base, each created by a robot (check 36's self-test)
+REPARENT_KIT = (
+    'module: kit\n'
+    'categories: [live, closed]\n'
+    'types:\n'
+    '  Asset:\n'
+    '    description: An asset, the base of every kind of asset.\n'
+    '    abstract: true\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      pieces: { reference: "Piece[]", opposite: asset, aggregation: composite }\n'
+    '  Robot:\n'
+    '    description: A robot.\n'
+    '    extends: Asset\n'
+    '    inherited_parts:\n'
+    '      pieces: { survives: true }\n'
+    '    states:\n'
+    '      UP:   { category: live }\n'
+    '      GONE: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      make:   { kind: initial, to: UP }\n'
+    '      fit:    { kind: internal, from: [UP], effect: [ { create: { type: Piece, transition: fit, inputs: { asset: this } } } ] }\n'
+    '      retire: { kind: external, from: [UP], to: GONE }\n'
+    '  Piece:\n'
+    '    description: A piece of an asset.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      asset: { reference: Asset, opposite: pieces }\n'
+    '    states:\n'
+    '      IN:  { category: live }\n'
+    '      OUT: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      fit:  { kind: initial, to: IN, required_inputs: [asset], only_via: [Robot.fit] }\n'
+    '      drop: { kind: external, from: [IN], to: OUT }\n'
+)
 SYNTAX_PAIR = (
     'module: pair\n'
     'categories: [live, closed]\n'
@@ -5276,6 +5342,65 @@ def cluster3_plants(people):
     return ok
 
 
+def reparent_plants(people):
+    """A re-parent writing a part's end back to a whole of an abstract type is refused, a `do` or an `act`, by an
+    `assign` or by an attribute input, required or optional (the model's check 36, ADR-0058); a creation writing it,
+    and a re-parent to a concrete whole, are not; and a part whose end back names another type than its whole is
+    refused as ends that do not name each other, check 36's other clause."""
+    def p(text, old, new):
+        assert text.count(old) == 1, old
+        return text.replace(old, new, 1)
+    DROP = "      drop: { kind: external, from: [IN], to: OUT }\n"
+
+    def moving(line):
+        return p(REPARENT_KIT, DROP, DROP + line)
+
+    def refused(xn):
+        return (f"Piece.{xn} re-parents a part, writing 'asset', whose type Asset is abstract, so which whole's "
+                "invariants it re-checks is not known from the text (the model's check 36, ADR-0058)")
+    racked = p(p(ABSTRACT_PART, ", cascade: [ { on: [retire], transition: drop, limit: 10 } ] }", ", survives: true }"),
+               "      drop: { kind: external, from: [IN], to: OUT }\n",
+               "      drop: { kind: external, from: [IN], to: OUT }\n"
+               "      move: { kind: internal, from: [IN], inputs: { to: { reference: Rack } }, "
+               "effect: [ { assign: { location: rack, expr: inputs.to } } ] }\n")
+    cases = [
+        ("an act assigning it", "kit.yaml",
+         moving("      move: { kind: internal, from: [IN], inputs: { to: { reference: Asset } }, "
+                "effect: [ { assign: { location: asset, expr: inputs.to } } ] }\n"),
+         [("      move:", refused("move"))]),
+        ("a do taking it as a required input", "kit.yaml",
+         moving("      move: { kind: external, from: [IN], to: OUT, required_inputs: [asset] }\n"),
+         [("      move:", refused("move"))]),
+        ("an act taking it as an optional input, which the required end refuses as well", "kit.yaml",
+         moving("      move: { kind: internal, from: [IN], optional_inputs: [asset] }\n"),
+         [("      move:", refused("move")),
+          ("      move:", "Piece.move lists 'asset' as an optional input, but the attribute is neither optional nor "
+                          "defaulted, so the input is required")]),
+        ("a creation writing it", "kit.yaml", REPARENT_KIT, []),
+        ("a write of a reference to the abstract type that is no part's end back", "kit.yaml",
+         p(p(moving("      lend: { kind: internal, from: [IN], optional_inputs: [spare] }\n"),
+             "      pieces: { reference: \"Piece[]\", opposite: asset, aggregation: composite }\n",
+             "      pieces: { reference: \"Piece[]\", opposite: asset, aggregation: composite }\n"
+             "      spares: { reference: \"Piece[]\", opposite: spare }\n"),
+           "      asset: { reference: Asset, opposite: pieces }\n",
+           "      asset: { reference: Asset, opposite: pieces }\n      spare: { reference: Asset, optional: true, opposite: spares }\n"),
+         []),
+        ("a re-parent to a concrete whole", "rack.yaml", racked, []),
+        ("a part whose end back names another type", "kit.yaml",
+         p(REPARENT_KIT, "      asset: { reference: Asset, opposite: pieces }", "      asset: { reference: Robot, opposite: pieces }"),
+         [("      pieces:", "Asset.pieces's opposite Piece.asset does not name Asset.pieces back")]),
+    ]
+    ok = True
+    for name, f, text, want in cases:
+        found, _ = check([("people.yaml", people), (f, text)])
+        lines = text.splitlines()
+        expected = [(f, next(i for i, l in enumerate(lines, 1) if l.startswith(at)), "fatal", "names", m) for at, m in want]
+        hit = sorted(found) == sorted(expected)
+        ok &= hit
+        print(f"  check 36, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
 def personal_plants(people):
     """A personal value reaching a non-personal attribute is refused, at the step, clause or backfill that sends it,
     saying what it carries and where it lands (the model's check 10, ADR-0078): an own personal attribute, one and a
@@ -5768,6 +5893,7 @@ def main():
     ok &= clock_plants(people)
     ok &= abstract_part_plants(people)
     ok &= personal_plants(people)
+    ok &= reparent_plants(people)
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:
