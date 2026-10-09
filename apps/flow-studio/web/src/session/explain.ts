@@ -63,8 +63,13 @@ export function explain(v: Verdict): string {
           : "";
       return `Its step ${v.step} was refused${by}${next(v.remedy)}`;
     }
+    // its remedy is always unreachable_from_here (DESIGN.md §5.5), which is
+    // true of this request in this state and misleads as a sentence: the
+    // object can usually be moved to a state the transition is taken from
     case "unavailable":
-      return `Not available ${v.state ? `in ${v.state}` : "now"}${next(v.remedy)}`;
+      return v.state
+        ? `Not available in ${v.state}; it is taken from another state.`
+        : "Not available now; it is taken from another state.";
     case "unknown_transition":
       return `${v.transition} is not a transition this request can take${next(v.remedy)}`;
     case "invalid_input":

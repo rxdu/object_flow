@@ -80,7 +80,7 @@ describe("the sentence under a verdict", () => {
     const cases: [Verdict, string][] = [
       [
         { kind: "unavailable", state: "DONE", remedy: "unreachable_from_here" },
-        "Not available in DONE: nothing done from here will change that.",
+        "Not available in DONE; it is taken from another state.",
       ],
       [
         {
