@@ -135,3 +135,14 @@ What the profile now shows is building the interval rows, a dozen named fields a
 
 **Labels by their name** (2026-10-07). `storage-schema.md` §6 indexes the label table by name and subject state, `t_label_by_name`, which the core did not build, and a metric over labels read every label. The table now carries the index, and such a metric narrows its read as a scan does: where the metric's filter, or a reader's, requires values of a label's stored attributes, `l.name == "late"` among them, only the labels holding them are read, by the index, while the corrections are read apart by the index on their stored end, since a correction may carry another name than the label it corrects. Timed by the same scratch probe, one label of four names a ticket, the metric took 3.3, 6.6, 14.6 and 34.3 ms at 500, 1,000, 2,000 and 4,000 tickets before and 2.0, 4.0, 8.4 and 19.4 after. It still reads the ticket family whole, to keep the labels on it, as a metric over objects reads its family whatever its filter; `TODO.md` records that. Tests hold the counts under a name filter, a correction carrying another name, one the operation holds and has not stored, that the read holds only the labels named, by the metric's filter and by a reader's, and the index in SQLite's plan; and a new test holds a declared kind's corrections, whose mutation went unnoticed before it. Each of seven mutations fails one.
 
+**A metric over objects, its filter narrow** (2026-10-09). Measured, and not built. A metric whose `source` is `objects` reads every object of its type before its filter judges them (`metric.rs`, `rows`), where a query with the same filter narrows by the state's index. `probe_scale.rs` now times both, a filter `state == Ticket.NEW` that only the probe's own tickets meet, a release build as before, the median of nine runs:
+
+| objects | narrow query | narrow metric over objects |
+|---|---|---|
+| 100 | 0.05 ms | 0.67 ms |
+| 1,000 | 0.03 ms | 2.70 ms |
+| 4,000 | 0.03 ms | 11.62 ms |
+| 8,000 | 0.04 ms | 24.72 ms |
+
+The metric grows by about 3 µs an object of its type whatever its filter keeps, and narrowing it as a query is would make it about as flat. At N3's range, hundreds to thousands of live objects a type, that is tens of milliseconds against C5's second for a metric read, so the narrowing is left until a deployment's types grow far past N3, the measurement standing as what it would save.
+

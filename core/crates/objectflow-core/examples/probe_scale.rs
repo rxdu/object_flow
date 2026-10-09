@@ -37,6 +37,15 @@ types:
       start: { kind: external, from: [NEW, PARKED], to: WORKING, guards: { small: deny } }
       park: { kind: external, from: [WORKING], to: PARKED }
       finish: { kind: external, from: [WORKING], to: DONE }
+    metrics:
+      new_now:
+        description: The tickets new now, by size, which only the probe's are.
+        source: objects
+        item: t
+        filter: t.state == Ticket.NEW
+        dimensions:
+          size: t.size
+        expression: count()
 "#;
 
 fn ask(s: &mut Store, xn: &str, object: Option<&str>, inputs: Json) -> String {
@@ -99,7 +108,9 @@ fn main() {
     let mut s = Store::sandbox(lib, 0).unwrap();
     let mut made = 0usize;
     let mut last = String::new();
-    println!("objects  events  request_ms  get_ms  query_ms  metric_ms  snapshot_ms");
+    println!(
+        "objects  events  request_ms  get_ms  query_ms  metric_ms  snapshot_ms  narrow_query_ms  narrow_metric_ms"
+    );
     for target in [100usize, 250, 500, 1000, 2000, 4000, 8000] {
         while made < target {
             last = life(&mut s, made);
@@ -141,8 +152,30 @@ fn main() {
         let snapshot_ms = time(|| {
             s.snapshot().unwrap();
         });
+        // a filter only the probe's tickets meet: the query narrows by the
+        // state's index, and a metric over objects reads the type whole
+        // before its filter judges them (TODO, "a metric reads its family
+        // whole"), so the gap is what narrowing the metric would save
+        let narrow_query_ms = time(|| {
+            let w = s.snapshot().unwrap();
+            objectflow_core::reads::query(&w, "Ticket", Some("state == Ticket.NEW"), &[], None)
+                .unwrap();
+        });
+        let narrow_metric_ms = time(|| {
+            let w = s.snapshot().unwrap();
+            objectflow_core::metric::page(
+                &w,
+                None,
+                "Ticket.new_now",
+                &BTreeMap::new(),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        });
         println!(
-            "{made:>7}  {events:>6}  {request_ms:>10.1}  {get_ms:>6.1}  {query_ms:>8.1}  {metric_ms:>9.1}  {snapshot_ms:>11.1}"
+            "{made:>7}  {events:>6}  {request_ms:>10.1}  {get_ms:>6.1}  {query_ms:>8.1}  {metric_ms:>9.1}  {snapshot_ms:>11.1}  {narrow_query_ms:>15.2}  {narrow_metric_ms:>16.2}"
         );
         if request_ms > 2000.0 {
             println!("stopped: a request passed two seconds");
