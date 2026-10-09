@@ -100,6 +100,23 @@ describe("the sentence under a verdict", () => {
       ],
       [
         {
+          kind: "invalid_input",
+          inputs: [],
+          remedy: "self_serviceable",
+          not_computed: ["inputs"],
+        },
+        "An input is not valid: supply or correct an input and try again.",
+      ],
+      [
+        {
+          kind: "not_requestable",
+          parents: [],
+          remedy: "unreachable_from_here",
+        },
+        "Only another transition may take it: nothing done from here will change that.",
+      ],
+      [
+        {
           kind: "not_requestable",
           parents: ["Order.add_line", "Order.copy"],
           remedy: "unreachable_from_here",

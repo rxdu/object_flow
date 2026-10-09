@@ -72,14 +72,20 @@ export function explain(v: Verdict): string {
         : "Not available now; it is taken from another state.";
     case "unknown_transition":
       return `${v.transition} is not a transition this request can take${next(v.remedy)}`;
+    // a backend that does not work out which input or parent names none,
+    // and says so in `not_computed` (wire.ts); the sentence then names none
     case "invalid_input":
       return `${
-        v.inputs.length === 1
-          ? `The input ${v.inputs[0]} is`
-          : `The inputs ${listed(v.inputs)} are`
+        v.inputs.length === 0
+          ? "An input is"
+          : v.inputs.length === 1
+            ? `The input ${v.inputs[0]} is`
+            : `The inputs ${listed(v.inputs)} are`
       } not valid${next(v.remedy)}`;
     case "not_requestable":
-      return `Only ${listed(v.parents, "or")} may take it${next(v.remedy)}`;
+      return v.parents.length === 0
+        ? `Only another transition may take it${next(v.remedy)}`
+        : `Only ${listed(v.parents, "or")} may take it${next(v.remedy)}`;
     case "over_limit":
       return `It would pass a declared limit${next(v.remedy)}`;
     case "not_found":
