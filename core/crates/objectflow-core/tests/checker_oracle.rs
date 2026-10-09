@@ -182,6 +182,27 @@ fn the_core_finds_what_the_flow_checker_finds() {
                 checks.forms
             ));
         }
+        // the transitions that could violate each invariant
+        let violators: BTreeMap<String, Vec<String>> = case["could_violate"]
+            .as_object()
+            .expect("could_violate")
+            .iter()
+            .map(|(k, v)| {
+                let names = v.as_array().into_iter().flatten();
+                (
+                    k.clone(),
+                    names
+                        .map(|n| n.as_str().unwrap_or_default().to_string())
+                        .collect(),
+                )
+            })
+            .collect();
+        if checks.violators != violators {
+            wrong.push(format!(
+                "{label}: the invariants' violators {:?}, and the flow checker's {violators:?}",
+                checks.violators
+            ));
+        }
         let found = checks.findings;
         let mut want: BTreeMap<(String, u64, String, String), usize> = BTreeMap::new();
         for k in case["findings"]

@@ -315,9 +315,9 @@ def simulate(store, change_id, flows, actor):
     c = store.objects[change_id]
     files = json.loads(c.attrs.get("source") or "{}")
     found = Found()
-    examples, analysed, forms = {}, {}, {}
+    examples, analysed, forms, violators = {}, {}, {}, {}
     ordered = import_order(flows, files)
-    errs, notes = flows.check(ordered, dict(store.source), analysed, examples, forms=forms)
+    errs, notes = flows.check(ordered, dict(store.source), analysed, examples, forms=forms, violators=violators)
     for f, line, _sev, code, message in errs:
         # an example's failure by the name the design gives it (ADR-0136, publish-and-import.md §1 step 1)
         found.add("fatal", "example_failed" if code == "example" else f"check:{code}", f"{f}:{line}: {message}")
@@ -360,6 +360,7 @@ def simulate(store, change_id, flows, actor):
         "examples": examples, "analysed": {t: list(n) for t, n in analysed.items()},
         "person_dimensions": report_person_dimensions(new) if new is not None else [],
         "invariant_forms": dict(sorted(forms.items())),
+        "could_violate": dict(sorted(violators.items())),
         "not_computed": NOT_COMPUTED,
     }, installed
 

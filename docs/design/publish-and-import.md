@@ -133,6 +133,12 @@ class PublishReport:
                                                # `<Type>.<name>`, at the type declaring it, by its form:
                                                # `local`, `traversal` or `type_scan` (DESIGN.md §5.6,
                                                # declaration-syntax.md §3.4, ADR-0055, ADR-0171)
+    could_violate: Mapping[str, Sequence[str]] = field(default_factory=dict)
+                                               # each such invariant with the transitions,
+                                               # `<Type>.<transition>`, whose writes meet what it
+                                               # reads, of any type checked, a machine's named by its
+                                               # binder, and its type's creations, ascending: never
+                                               # an omission as far as its reads are typed (§5.6)
     change_id: str | None = None               # the DeclarationChange this report is attached to
     examples: Mapping[str, Sequence[str]] = field(default_factory=dict)
                                                # per transition, the examples that request it,
@@ -148,7 +154,7 @@ class PublishReport:
 
 Each impact has its severity (ADR-0146). Fatal: an object in a removed state, or holding a removed enum member, with no mapping; an object left in a state no transition or assertion of the new version reaches, a cutover's included (ADR-0148); a new required value with no `backfill`, an attribute made required counting as new, or one a backfill leaves absent; and an object whose parts a mapping into a final state would strand (ADR-0147). A decision: an invariant an object would violate after the publish, resolved by fixing the object first, a `backfill`, a real value or a placeholder the author chooses, or an `admit`, the preferred placeholder, which keeps the value absent and lists the object in `exceptions` until the invariant holds. Notices: a clause newly enforced that would refuse objects, transitions gained or lost, proposals invalidated, changes superseded, an attribute dropped where one of its type is added, which may be a rename, an attribute whose type changed, which is a drop and an add of the same name, and an `admit` on objects in a final state, which no transition can discharge, though a later publish's backfill may (ADR-0147).
 
-The report also names each invariant's form, which invariants compile on this backend, which transitions are sweepable, which derived attributes are queryable, every guard clause that observes rather than enforces, and each declared metric whose filter the version reroutes, since what it counts changes though its text does not (`DESIGN.md` §5.5 and §10, ADR-0129).
+The report also names each invariant's form and the transitions that could violate it, which invariants compile on this backend, which transitions are sweepable, which derived attributes are queryable, every guard clause that observes rather than enforces, and each declared metric whose filter the version reroutes, since what it counts changes though its text does not (`DESIGN.md` §5.5 and §10, ADR-0129).
 
 Three severities rather than two, because the middle one is the interesting case. A new invariant that eleven live objects violate is not a defect in the declaration and not something to wave through: it is a decision, and a publish's `admit` (§3), or for an import the disposition file (§6), is where it gets made. Anything a person must decide blocks the publish until the decision is recorded, and the decision is recorded in a file rather than in an argument to the command.
 

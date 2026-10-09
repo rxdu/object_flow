@@ -1174,3 +1174,22 @@ def test_a_derived_decimal_summed_over_nothing_is_zero_at_its_scale(tee):
     got = tee.post("/v1/get", {"id": batch})
     assert got["attributes"]["weight"] == "0.00"
     alike(tee)
+
+
+def test_a_report_names_the_transitions_that_could_violate_each_invariant(tee):
+    """A dry run names, for each invariant a type of the version under
+    publish declares, the transitions that could violate it, alike through
+    both backends (`DESIGN.md` §5.6, `publish-and-import.md` §2): a job's
+    photo rule is reached by its creation and by the transitions moving
+    its state, and not by a reassignment, which writes neither."""
+    loaded(tee, "service.yaml")
+    tee.found.clear()
+    v2 = (EXAMPLES / "service-v2.yaml").read_text()
+    people = (EXAMPLES / "people.yaml").read_text()
+    c = change(tee, "draft", source={"people": people, "service": v2},
+               source_ref="git:service@2")["object_id"]
+    report = tee.post("/v1/publish", {"actor": OP, "change": c,
+                                      "dry_run": True})["report"]
+    assert report["could_violate"] == {"ServiceJob.photo_when_done": [
+        "ServiceJob.finish", "ServiceJob.open", "ServiceJob.start"]}
+    alike(tee)

@@ -1,0 +1,34 @@
+module: office
+categories: [live, closed]
+machines:
+  Seating:
+    description: Where a chair stands.
+    requires:
+      attributes:
+        desk: { reference: Desk, optional: true }
+    states:
+      FREE:  { category: live }
+      TAKEN: { category: live }
+      GONE:  { category: closed, final: true }
+    transitions:
+      bring: { kind: initial, to: FREE }
+      sit:   { kind: external, from: [FREE], to: TAKEN, inputs: { at: { reference: Desk } }, effect: [ { assign: { location: desk, expr: inputs.at } } ] }
+      scrap: { kind: external, from: [FREE, TAKEN], to: GONE }
+types:
+  Desk:
+    description: A desk.
+    tracking: record
+    states:
+      UP:   { category: live }
+      DOWN: { category: closed, final: true }
+    invariants:
+      crowded: { description: Few things name a desk., expression: count(r in referrers) < 9 }
+    transitions:
+      make: { kind: initial, to: UP }
+      drop: { kind: external, from: [UP], to: DOWN }
+  Chair:
+    description: A chair.
+    tracking: record
+    state_machine: Seating
+    attributes:
+      desk: { reference: Desk, optional: true }

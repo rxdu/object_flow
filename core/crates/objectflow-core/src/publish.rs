@@ -70,6 +70,9 @@ pub struct PublishReport {
     /// Each invariant a type of the version declares, `<Type>.<name>`, by
     /// its form, `local`, `traversal` or `type_scan` (§3.4, ADR-0055).
     pub invariant_forms: BTreeMap<String, String>,
+    /// Each invariant a type of the version declares with the transitions
+    /// that could violate it (`DESIGN.md` §5.6).
+    pub could_violate: BTreeMap<String, Vec<String>>,
 }
 
 impl PublishReport {
@@ -152,6 +155,7 @@ pub fn report_json(r: &PublishReport) -> serde_json::Value {
         "analysed": r.analysed,
         "person_dimensions": r.person_dimensions,
         "invariant_forms": r.invariant_forms,
+        "could_violate": r.could_violate,
         "not_computed": [
             "invariants", "sweepable", "unsweepable", "queryable_derives", "worst_case_fanout",
             "observed_fanout", "replaced_creations", "creations_past_first_state", "observing_clauses",
@@ -190,6 +194,7 @@ pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRu
         analysed: BTreeMap::new(),
         person_dimensions: Vec::new(),
         invariant_forms: BTreeMap::new(),
+        could_violate: BTreeMap::new(),
     };
     // step 1, the checks and the examples (ADR-0156), each module against
     // the installed version of it
@@ -214,6 +219,7 @@ pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRu
         examples: checks.examples,
         analysed: checks.analysed,
         invariant_forms: checks.forms,
+        could_violate: checks.violators,
         person_dimensions,
         ..report
     };

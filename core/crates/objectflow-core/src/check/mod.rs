@@ -85,6 +85,9 @@ pub struct Checked {
     /// Each invariant a type declares, `<Type>.<name>`, by its form:
     /// `local`, `traversal` or `type_scan` (§3.4, ADR-0055).
     pub forms: BTreeMap<String, String>,
+    /// Each invariant a type declares, `<Type>.<name>`, with the
+    /// transitions that could violate it (`DESIGN.md` §5.6).
+    pub violators: BTreeMap<String, Vec<String>>,
 }
 
 /// The findings over the modules and examples files given, in import
@@ -143,6 +146,8 @@ pub fn checked_reading(
     let mut declared: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     // every type of the modules checked so far, as the view holds it
     let mut library = doc::Obj::new();
+    // every machine declared, a type of the view that no object has
+    let mut machines: BTreeSet<String> = BTreeSet::new();
     let mut uses: BTreeMap<String, Vec<String>> = BTreeMap::new();
     // each module's types, enumerations and machines, which one store holds
     // together (ADR-0163 decision 5)
@@ -370,6 +375,7 @@ pub fn checked_reading(
         for (tn, t) in view_types {
             library.insert(tn, t);
         }
+        machines.extend(doc::keys(&doc, "machines"));
         // each invariant a type declares, at the type declaring it, by its
         // form (§3.4, ADR-0055)
         for (tn, t) in view::types(&v.doc) {
@@ -378,6 +384,10 @@ pub fn checked_reading(
                     let expr = spec.get("expression").map(doc::py_str).unwrap_or_default();
                     let form = names::invariant_form(&library, &tn, &expr, &BTreeSet::new());
                     out.forms.insert(format!("{tn}.{i}"), form.to_string());
+                    out.violators.insert(
+                        format!("{tn}.{i}"),
+                        names::could_violate(&library, &tn, &expr, &machines),
+                    );
                 }
             }
         }

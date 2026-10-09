@@ -771,6 +771,71 @@ def symmetry_errors(doc, library):
     return out
 
 
+def transition_writes(t, tn, x):
+    """What a transition of a type writes, as (type, member): what its effect assigns, adds, removes or clears and the
+    attribute inputs it takes, each stored end's far end, whose set it changes, and its target type's `referrers`;
+    its type's `state` where it moves or sets it; a new object, `*new`, where it creates one; and every personal
+    attribute where it is an erasure, which writes absence."""
+    attrs = t.get("attributes") or {}
+    out = set()
+
+    def wrote(m):
+        out.add((tn, m))
+        spec = attrs.get(m) or {}
+        target = str(spec.get("reference", "")).rstrip("[]")
+        if target:
+            out.add((target, "referrers"))
+            if "opposite" in spec:
+                out.add((target, spec["opposite"]))
+    for st, kind, _path, _depth in walk(x.get("effect")):
+        if kind in ("assign", "add", "remove"):
+            wrote(st[kind]["location"])
+        elif kind == "clear":
+            for a in st["clear"]:
+                wrote(a)
+    for m in list(x.get("required_inputs") or []) + list(x.get("optional_inputs") or []):
+        if m in attrs:
+            wrote(m)
+    if x.get("kind") in ("initial", "external", "assertion"):
+        out.add((tn, "state"))
+    if x.get("kind") == "initial":
+        out.add((tn, "*new"))
+    if x.get("kind") == "erasure":
+        for m, spec in attrs.items():
+            if (spec or {}).get("personal"):
+                wrote(m)
+    return out
+
+
+def invariant_reads(kinds, tn, text, seen=frozenset()):
+    """What an invariant reads, as (type, member), as far as step 3's walker types it: each member through any path
+    whose type is known, the state through `open` and a category, every object of a type it scans, `*new`, and what a
+    derived attribute it reads reads, however deep."""
+    try:
+        tree = flowexpr.parse(str(text))
+    except flowexpr.ParseError:
+        return set()                            # step 2 refuses what does not parse
+    walker = OptionalReads(kinds, tn)
+    walker.through_tests = True
+    walker.walk(tree, {})
+    out = set(walker.members) | {(u, "*new") for u in walker.scanned}
+    out |= {(u, "state") for u, m in walker.members if m == "open"}
+    for u, d in sorted(walker.derived - seen):
+        spec = (kinds[u].get("derived_attributes") or {})[d] or {}
+        out |= invariant_reads(kinds, u, spec.get("expression", ""), seen | {(u, d)})
+    return out
+
+
+def could_violate(kinds, tn, text, machines=frozenset()):
+    """The transitions, `<Type>.<transition>`, that could violate an invariant of a type, for a publish report to name
+    (DESIGN.md §5.6): each whose writes meet what the invariant reads, of any type checked, a machine's named by the
+    type binding it, and the type's own creations, which every invariant is checked on landing. An over-approximation,
+    never an omission, as far as the reads can be typed."""
+    reads = invariant_reads(kinds, tn, text) | {(tn, "*new")}
+    return sorted(f"{u}.{xn}" for u, t in kinds.items() if u not in machines
+                  for xn, x in (t.get("transitions") or {}).items() if transition_writes(t, u, x) & reads)
+
+
 def invariant_form(kinds, tn, text, seen=frozenset()):
     """An invariant's form, which a publish report states (declaration-syntax.md §3.4, ADR-0055, ADR-0171):
     `type_scan` where it ranges over a type by name, else `traversal` where it reads through a reference or over
@@ -3300,6 +3365,8 @@ class OptionalReads:
             base = self.walk(e[1], env)
             if self.last is not None and e[1][0] in ("name", "path"):
                 self.traversed.add(self.last)
+            if base is not None and not base.endswith("[]") and base != "<inputs>" and e[2] in self.BUILT_IN:
+                self.members.add((base, e[2]))      # what every object has, read through a path
             if base is None or base.endswith("[]") or base == "<inputs>" or e[2] in self.BUILT_IN:
                 observed = ((self.lib.get(base or "") or {}).get("observations") or {}).get(e[2])
                 return f"{observed['kind']}[]" if observed else None
@@ -4309,7 +4376,7 @@ def uncovered(mdoc, kinds, requested):
                   for xn in ((kinds.get(tn) or {}).get("transitions") or {}) if (tn, xn) not in requested)
 
 
-def check(files, previous=None, analysed=None, examples=None, read=None, forms=None):
+def check(files, previous=None, analysed=None, examples=None, read=None, forms=None, violators=None):
     """Findings and notices over modules given in import order, as (file, line,
     severity, code, message); previous maps a file to the text of the version
     before it, against which its migration is checked. `analysed`, if given, is
@@ -4320,6 +4387,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     name, for an example's `publish` step, which is not run without it
     (ADR-0166 decision 3)."""
     found, notes, loaded, library, declared, uses = [], [], [], {}, {}, {}
+    machines = set()            # every machine declared, a type of the view that no object has
     modules, example_files = {}, []
     stored = {}                 # module -> its types, enumerations and machines, which one store holds together
     for f, text in files:
@@ -4407,6 +4475,13 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
                 for i, spec in (t.get("invariants") or {}).items():
                     if not inherited(t, "invariants", i):
                         forms[f"{tn}.{i}"] = invariant_form(library, tn, (spec or {}).get("expression", ""))
+        machines |= set(doc.get("machines") or {})
+        if violators is not None:
+            # each invariant a type declares, at the type declaring it, by the transitions that could violate it
+            for tn, t in types(v):
+                for i, spec in (t.get("invariants") or {}).items():
+                    if not inherited(t, "invariants", i):
+                        violators[f"{tn}.{i}"] = could_violate(library, tn, (spec or {}).get("expression", ""), machines)
         notes += [(f, line_of(idx, back(p)), "notice", c, m) for p, c, m in notices(v) + unknowns(v, library) + befores(v) if back(p) is not None]
     for f, idx, doc in example_files:
         errors = examples_schema_errors(doc)
@@ -5129,6 +5204,43 @@ TYPED_LEDGER = (
     '    transitions:\n'
     '      open: { kind: initial, to: OPEN, required_inputs: [usd, sgd, rate, fine, count, since, span, label, vip, tier] }\n'
     '      shut: { kind: external, from: [OPEN], to: SHUT }\n'
+)
+# a desk counting what names it, and a chair a bound machine seats at one (the report's violators)
+MACHINE_OFFICE = (
+    'module: office\n'
+    'categories: [live, closed]\n'
+    'machines:\n'
+    '  Seating:\n'
+    '    description: Where a chair stands.\n'
+    '    requires:\n'
+    '      attributes:\n'
+    '        desk: { reference: Desk, optional: true }\n'
+    '    states:\n'
+    '      FREE:  { category: live }\n'
+    '      TAKEN: { category: live }\n'
+    '      GONE:  { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      bring: { kind: initial, to: FREE }\n'
+    '      sit:   { kind: external, from: [FREE], to: TAKEN, inputs: { at: { reference: Desk } }, effect: [ { assign: { location: desk, expr: inputs.at } } ] }\n'
+    '      scrap: { kind: external, from: [FREE, TAKEN], to: GONE }\n'
+    'types:\n'
+    '  Desk:\n'
+    '    description: A desk.\n'
+    '    tracking: record\n'
+    '    states:\n'
+    '      UP:   { category: live }\n'
+    '      DOWN: { category: closed, final: true }\n'
+    '    invariants:\n'
+    '      crowded: { description: Few things name a desk., expression: count(r in referrers) < 9 }\n'
+    '    transitions:\n'
+    '      make: { kind: initial, to: UP }\n'
+    '      drop: { kind: external, from: [UP], to: DOWN }\n'
+    '  Chair:\n'
+    '    description: A chair.\n'
+    '    tracking: record\n'
+    '    state_machine: Seating\n'
+    '    attributes:\n'
+    '      desk: { reference: Desk, optional: true }\n'
 )
 SYNTAX_PAIR = (
     'module: pair\n'
@@ -6235,6 +6347,41 @@ def symmetry_plants(people):
     return ok
 
 
+def could_violate_plants(people):
+    """Each invariant a type declares is reported with the transitions that could violate it (DESIGN.md §5.6): those
+    writing what it reads, its own members, through a derivation, a personal one an erasure writes, `referrers` that a
+    reference to it writes, a member through a path, every object of a type it scans and the state through `open`, and
+    its own type's creations; none that writes nothing it reads; and a machine's transition by its binder alone."""
+    want = {"Customer.called": ["Customer.forget", "Customer.join"],
+            "Customer.few_referrers": ["Customer.join", "Visit.book"],
+            "Customer.labelled": ["Customer.join"],
+            "Visit.few_similar": ["Visit.book"],
+            "Visit.known_customer": ["Visit.book"],
+            "Visit.labelled_customer": ["Visit.book"],
+            "Visit.one_open": ["Visit.book", "Visit.close"]}
+    violators = {}
+    found, _ = check([("people.yaml", people), ("crm.yaml", INVARIANT_FORMS)], None, None, None, None, None, violators)
+    ok = not found and violators == want
+    print(f"  each invariant with the transitions that could violate it: {'as expected' if ok else 'NOT: ' + str((found, violators))}")
+    # a set end is written by the transition writing its far, stored end, and a scan by its type's creations
+    counted = {}
+    lined = SYNTAX_PARTS.replace("    transitions:\n      open:     { kind: initial, to: OPEN }\n",
+                                 "    invariants:\n      few_lines: { description: Few lines., expression: count(l in lines) < 10 }\n"
+                                 "      lines_anywhere: { description: Few lines anywhere., expression: count(o in Line) < 99 }\n"
+                                 "    transitions:\n      open:     { kind: initial, to: OPEN }\n", 1)
+    found, _ = check([("people.yaml", people), ("shop.yaml", lined)], None, None, None, None, None, counted)
+    ends = not found and counted == {"Order.few_lines": ["Line.start", "Order.open"],
+                                     "Order.lines_anywhere": ["Line.start", "Order.open"]}
+    print(f"  a set end by its far end's writer, a scan by its type's creations: {'as expected' if ends else 'NOT: ' + str((found, counted))}")
+    ok &= ends
+    # a machine's transition is named by the type binding it, never by the machine
+    seated = {}
+    found, _ = check([("people.yaml", people), ("office.yaml", MACHINE_OFFICE)], None, None, None, None, None, seated)
+    bound = not found and seated == {"Desk.crowded": ["Chair.sit", "Desk.make"]}
+    print(f"  a machine's transition named by its binder alone: {'as expected' if bound else 'NOT: ' + str((found, seated))}")
+    return ok and bound
+
+
 def invariant_form_plants(people):
     """Each invariant a type declares is reported by its form (declaration-syntax.md §3.4, ADR-0055, ADR-0171): local
     over its own members and a derivation over them; traversal through a reference, over `referrers`, and through a
@@ -6641,9 +6788,10 @@ RECORDED = []      # each check the run makes: its label, files, previous versio
 def recording(check):
     """`check`, recording each call with what it found, labelled by its caller and,
     where the caller names it, the plant (ADR-0156 decision 4)."""
-    def recorded(files, previous=None, analysed=None, examples=None, read=None, forms=None):
+    def recorded(files, previous=None, analysed=None, examples=None, read=None, forms=None, violators=None):
         counts = {} if analysed is None else analysed
         shapes = {} if forms is None else forms
+        writers = {} if violators is None else violators
         reads = {}
 
         def reading(name):
@@ -6652,11 +6800,12 @@ def recording(check):
             if text is not None:
                 reads[name] = text
             return text
-        found, notes = check(files, previous, counts, examples, reading if read is not None else None, shapes)
+        found, notes = check(files, previous, counts, examples, reading if read is not None else None, shapes, writers)
         caller = sys._getframe(1)
         name = caller.f_locals.get("name")
         label = caller.f_code.co_name + (f": {name}" if isinstance(name, str) else "")
-        RECORDED.append((label, list(files), dict(previous or {}), found, notes, dict(counts), reads, dict(shapes)))
+        RECORDED.append((label, list(files), dict(previous or {}), found, notes, dict(counts), reads, dict(shapes),
+                         dict(writers)))
         return found, notes
     return recorded
 
@@ -6706,7 +6855,7 @@ def plants_export(recorded):
         key = hashlib.sha256(text.encode()).hexdigest()[:16]
         blobs[key] = text
         return key
-    for label, files, previous, found, notes, counts, reads, shapes in recorded:
+    for label, files, previous, found, notes, counts, reads, shapes, writers in recorded:
         cases.append({
             "label": label,
             "files": [[n, blob(t)] for n, t in files],
@@ -6714,6 +6863,7 @@ def plants_export(recorded):
             "findings": sorted([list(x) for x in found + notes]),
             "analysed": {tn: list(c) for tn, c in sorted(counts.items())},
             "forms": dict(sorted(shapes.items())),
+            "could_violate": dict(sorted(writers.items())),
             # the files beside the examples files that their `publish` steps read, which the core reads the same
             **({"reads": {n: blob(t) for n, t in sorted(reads.items())}} if reads else {}),
         })
@@ -6846,6 +6996,7 @@ def main():
     ok &= reparent_plants(people)
     ok &= invariant_read_plants(people)
     ok &= invariant_form_plants(people)
+    ok &= could_violate_plants(people)
     ok &= symmetry_plants(people)
     ok &= argument_type_plants(people)
     ok &= expression_type_plants(people)

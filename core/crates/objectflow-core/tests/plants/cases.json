@@ -23,7 +23,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "main",
@@ -69,7 +70,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "main",
@@ -124,7 +126,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "simulate",
@@ -183,6 +186,13 @@
   },
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -242,6 +252,13 @@
   },
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -301,6 +318,13 @@
   },
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -360,6 +384,13 @@
   },
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -418,6 +449,7 @@
    ]
   },
   "forms": {},
+  "could_violate": {},
   "reads": {
    "people.yaml": "cc897d91cab7f987",
    "service-v2.yaml": "518220b4397faa50"
@@ -489,6 +521,13 @@
   },
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -562,7 +601,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "main",
@@ -604,7 +644,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "main",
@@ -658,7 +699,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "main",
@@ -753,7 +795,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "main",
@@ -849,6 +892,15 @@
   },
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -940,6 +992,21 @@
    "Claim.has_title": "local",
    "ClaimLine.confirmed_by_a_person": "local",
    "ClaimLine.spent_amount_has_its_currency": "local"
+  },
+  "could_violate": {
+   "Claim.has_title": [
+    "Claim.draft",
+    "Claim.erase_personal_data"
+   ],
+   "ClaimLine.confirmed_by_a_person": [
+    "ClaimLine.add",
+    "ClaimLine.amend",
+    "ClaimLine.confirm_nature"
+   ],
+   "ClaimLine.spent_amount_has_its_currency": [
+    "ClaimLine.add",
+    "ClaimLine.amend"
+   ]
   }
  },
  {
@@ -965,7 +1032,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a guard on no declared condition",
@@ -997,7 +1065,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a guard listed twice",
@@ -1022,7 +1091,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an enforcement that is not one of the three",
@@ -1047,7 +1117,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an initial transition that names a source state",
@@ -1072,7 +1143,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a guard that reads an input its transition does not take",
@@ -1111,7 +1183,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a call to a transition its target does not have",
@@ -1147,7 +1220,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a create without an input its transition requires",
@@ -1183,7 +1257,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a final transition of a whole that its parts neither cascade on nor survive",
@@ -1219,7 +1294,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a relationship end whose opposite does not name it back",
@@ -1262,7 +1338,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an only_via that names a missing transition",
@@ -1298,7 +1375,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a condition that reads an attribute the type does not declare",
@@ -1330,7 +1408,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a machine condition that reads an attribute the machine does not require",
@@ -1355,7 +1434,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an observation invariant that reads what is not a field of its kind",
@@ -1387,7 +1467,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a derived attribute that reads one declared after it",
@@ -1426,7 +1507,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a transition that writes a derived attribute",
@@ -1458,7 +1540,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an indexed derived attribute that reads an attribute that is not indexed",
@@ -1490,7 +1573,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an indexed derived attribute that reads the clock",
@@ -1522,7 +1606,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an identifier minted from a sequence nobody declares",
@@ -1558,7 +1643,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an identifier scoped by what not every creation writes",
@@ -1594,7 +1680,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an identifier whose format has no number",
@@ -1630,7 +1717,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an identifier whose format reads an optional attribute outside brackets",
@@ -1666,7 +1754,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a uniqueness in scope on an attribute with no scope",
@@ -1702,7 +1791,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a uniqueness that is none of its four forms",
@@ -1738,7 +1828,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a metric that reads a member its rows do not have",
@@ -1770,7 +1861,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a metric that reads a name other than its item",
@@ -1802,7 +1894,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a flag that reads neither the value nor a dimension",
@@ -1834,7 +1927,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a metric over a source its type does not have",
@@ -1866,7 +1960,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a metric whose item is declared after its filter",
@@ -1898,7 +1993,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an assertion whose reason is free text",
@@ -1923,7 +2019,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an assertion that may admit an invariant nobody declares",
@@ -1948,7 +2045,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an erasure that does not reach parts holding personal data",
@@ -1973,7 +2071,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a correction that writes what it does not list",
@@ -1998,7 +2097,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a personal attribute that is required",
@@ -2023,7 +2123,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an erasure that names a target state",
@@ -2048,7 +2149,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an indexed marking on a stored reference, which the conversion must carry to step 4",
@@ -2084,7 +2186,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a source list that mixes any with a state",
@@ -2109,7 +2212,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an aggregate's body written in a plain value",
@@ -2134,7 +2238,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a type that extends one that is not abstract",
@@ -2175,6 +2280,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -2202,6 +2316,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -2236,6 +2359,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -2270,6 +2402,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -2297,6 +2438,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -2324,6 +2474,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -2351,6 +2510,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -2394,6 +2562,13 @@
   "analysed": {},
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -2458,6 +2633,13 @@
   },
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -2501,6 +2683,13 @@
   "analysed": {},
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -2537,6 +2726,13 @@
   "analysed": {},
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -2580,6 +2776,13 @@
   "analysed": {},
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -2607,6 +2810,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -2634,6 +2846,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -2675,6 +2896,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -2702,6 +2932,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -2729,6 +2968,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -2756,6 +3004,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -2781,7 +3038,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an evaluator's verdict inside a larger expression",
@@ -2806,7 +3064,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an evaluator called by a derived attribute",
@@ -2831,7 +3090,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a superseding state entered with no successor",
@@ -2856,7 +3116,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an object that supersedes itself",
@@ -2881,7 +3142,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a misspelt transition compared in a metric's filter",
@@ -2906,7 +3168,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an enumeration's member written to a string",
@@ -2931,7 +3194,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a type no module declares",
@@ -2956,7 +3220,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: the kind of actor written to a string",
@@ -2981,7 +3246,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an invariant reading an observation collection",
@@ -3015,6 +3281,11 @@
   "analysed": {},
   "forms": {
    "ServiceJob.few_failures": "local"
+  },
+  "could_violate": {
+   "ServiceJob.few_failures": [
+    "ServiceJob.open"
+   ]
   }
  },
  {
@@ -3040,7 +3311,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a condition named as a generated guard",
@@ -3065,7 +3337,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a successor a request may leave out",
@@ -3090,7 +3363,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a supersede inside a foreach",
@@ -3115,7 +3389,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: two supersede steps",
@@ -3140,7 +3415,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a successor that is neither an input nor a created object",
@@ -3172,7 +3448,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a supersede in a transition that does not end superseded",
@@ -3197,7 +3474,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: personal data in supersession with no erasure",
@@ -3222,7 +3500,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a proposable transition that only other transitions may take",
@@ -3258,7 +3537,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an event input given something other than this_event",
@@ -3294,7 +3574,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a metric name two types declare",
@@ -3328,6 +3609,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -3355,6 +3645,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -3382,6 +3681,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -3409,6 +3717,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -3436,6 +3753,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -3461,7 +3787,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a binder whose attribute differs in type from what its machine requires",
@@ -3486,7 +3813,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a binder that redeclares a transition of its machine",
@@ -3511,7 +3839,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a condition that reads who is asking",
@@ -3543,7 +3872,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: attributes declared after the states that use them",
@@ -3575,7 +3905,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a misspelt enumeration value",
@@ -3607,7 +3938,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a transition into a state that does not set what the state requires",
@@ -3646,7 +3978,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an attribute named after an expression built-in",
@@ -3678,7 +4011,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an invariant named like a generated one",
@@ -3712,6 +4046,11 @@
   "analysed": {},
   "forms": {
    "InventoryItem.reserved_invariant": "local"
+  },
+  "could_violate": {
+   "InventoryItem.reserved_invariant": [
+    "InventoryItem.add"
+   ]
   }
  },
  {
@@ -3744,7 +4083,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an import of a name its module does not declare",
@@ -3776,7 +4116,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an import from a module not among the files checked",
@@ -3829,7 +4170,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an invariant named like a generated uniqueness invariant",
@@ -3863,6 +4205,11 @@
   "analysed": {},
   "forms": {
    "InventoryItem.serial_unique": "local"
+  },
+  "could_violate": {
+   "InventoryItem.serial_unique": [
+    "InventoryItem.add"
+   ]
   }
  },
  {
@@ -3895,7 +4242,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a call of an assertion",
@@ -3920,7 +4268,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a cascade to an assertion",
@@ -3945,7 +4294,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a name a module checked with it, outside its closure, also declares",
@@ -3972,6 +4322,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -4008,7 +4367,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a sum with no body, whose value its body is (the model's check 47)",
@@ -4033,7 +4393,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a step made conditional on an optional input",
@@ -4072,7 +4433,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an optional input on an attribute neither optional nor defaulted",
@@ -4104,7 +4466,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an attribute named like a member every object has",
@@ -4136,7 +4499,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an attribute named like the version every object records",
@@ -4168,7 +4532,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a personal input on a type with no erasure",
@@ -4200,7 +4565,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: an external transition from a state to itself",
@@ -4232,7 +4598,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a `?` inside an inline mapping",
@@ -4257,7 +4624,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4282,7 +4650,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4303,7 +4672,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4325,7 +4695,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4346,7 +4717,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4374,7 +4746,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4395,7 +4768,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4421,7 +4795,8 @@
     1
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -4442,7 +4817,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "mirror_identifier_self_test",
@@ -4460,7 +4836,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "logic_plants: an expression the grammar refuses",
@@ -4485,7 +4862,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "logic_plants: guards of one transition that cannot hold together",
@@ -4531,7 +4909,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "logic_plants: a warning that fails whenever the transition is taken",
@@ -4584,7 +4963,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "runner_plants: a repeated check that fails again, expected to let the job finish",
@@ -4662,7 +5042,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "runner_plants: a signer the request does not write",
@@ -4740,7 +5121,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "runner_plants: a setup whose second engineer reuses a unique login",
@@ -4902,7 +5284,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "runner_plants: the pass-rate guard on finish, which a failure inspected again keeps below its threshold",
@@ -4980,7 +5363,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "runner_plants: a guard reading a metric that has no rows yet, and so is unknown",
@@ -5121,7 +5505,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "runner_plants: an example the runner cannot yet run",
@@ -5262,7 +5647,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "examples_self_test: a remedy the condition does not declare",
@@ -5298,7 +5684,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "examples_self_test: an alias no earlier step gave",
@@ -5334,7 +5721,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "examples_self_test: an input the transition does not take",
@@ -5377,7 +5765,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "examples_self_test: an enumeration value written unqualified",
@@ -5413,7 +5802,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "examples_self_test: an occurred time not written as a timestamp",
@@ -5449,7 +5839,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "examples_self_test: a state the transition does not leave its object in",
@@ -5485,7 +5876,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "examples_self_test: a setup that is not declared",
@@ -5535,7 +5927,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "examples_self_test: an actor whose type marks no actor identity",
@@ -5571,7 +5964,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "examples_self_test: a clause that is not a guard of the transition",
@@ -5607,7 +6001,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "examples_self_test: a request naming both a type and an object",
@@ -5643,7 +6038,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "examples_self_test: a setup step that leaves out a required input",
@@ -5679,7 +6075,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a warning the example leaves out",
@@ -5739,7 +6136,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a warning the request does not raise",
@@ -5799,7 +6197,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a guard that denies, named as warning",
@@ -5835,7 +6234,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: an invariant's remedy the rule does not give",
@@ -5888,7 +6288,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a left-out input of an optional attribute, expected to apply",
@@ -5924,7 +6325,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a sign-off expected to hold after the checklist it signed changed",
@@ -6004,7 +6406,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a step naming more objects than its request creates",
@@ -6119,7 +6522,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a setup's step requesting a transition only via another",
@@ -6159,7 +6563,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a step naming objects a transition that creates none creates",
@@ -6199,7 +6604,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a refusal expected as another verdict",
@@ -6277,7 +6683,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a cascade expected to reach fewer objects than it does",
@@ -6357,7 +6764,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a rejected proposal expected withdrawn",
@@ -6437,7 +6845,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: an amount expected other than the one recorded",
@@ -6487,7 +6896,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a start expected dated a day earlier than it is",
@@ -6565,7 +6975,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a recorded time expected a day earlier than it is",
@@ -6643,7 +7054,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a derived flag expected false of a job signed off",
@@ -6721,7 +7133,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a derived count expected of a job never handed off",
@@ -6799,7 +7212,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: an override expected to leave its object in another of its targets",
@@ -6860,7 +7274,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a wrong expectation in the approvals examples",
@@ -6910,7 +7325,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a wrong expectation in the issues examples",
@@ -7012,7 +7428,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "inventory_plants: a wrong expectation in the servicedesk examples",
@@ -7115,6 +7532,15 @@
   },
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -7151,7 +7577,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: an examples file's keys out of order",
@@ -7187,7 +7614,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a stub of a function no evaluator declares",
@@ -7223,7 +7651,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a set of references given as one alias",
@@ -7266,7 +7695,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: an actor kind written as a name",
@@ -7309,7 +7739,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a bool written as a word",
@@ -7336,6 +7767,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -7363,6 +7803,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -7399,7 +7848,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a creation of an abstract type",
@@ -7426,6 +7876,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -7462,7 +7921,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a transition of an object requested as a creation",
@@ -7498,7 +7958,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a target state an assertion cannot put its object in",
@@ -7527,7 +7988,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: an alias given twice",
@@ -7577,7 +8039,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a setup given itself",
@@ -7613,7 +8076,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a setup given one declared after it",
@@ -7649,7 +8113,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: objects named as the request under test creates them",
@@ -7685,7 +8150,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a proposal's state expected of a request",
@@ -7721,7 +8187,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: an applied request naming a clause",
@@ -7757,7 +8224,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: an applied request with no state",
@@ -7793,7 +8261,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a value of an attribute the type does not declare",
@@ -7829,7 +8298,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a cascade to a transition no module declares",
@@ -7865,7 +8335,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a warning by a condition of no type",
@@ -7901,7 +8372,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a refused request expected to leave a state",
@@ -7937,7 +8409,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a refused request naming no clause",
@@ -7973,7 +8446,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a request not only via others, expected to be not requestable",
@@ -8009,7 +8483,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a violated invariant not named",
@@ -8045,7 +8520,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a violated invariant the type does not declare",
@@ -8081,7 +8557,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: a refused call naming no clause of a type",
@@ -8117,7 +8594,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "example_rule_plants: invalid input naming a clause",
@@ -8153,7 +8631,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "simulate",
@@ -8205,6 +8684,13 @@
   "analysed": {},
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -8257,6 +8743,13 @@
   "analysed": {},
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -8329,6 +8822,7 @@
    ]
   },
   "forms": {},
+  "could_violate": {},
   "reads": {
    "people.yaml": "cc897d91cab7f987",
    "service-v2.yaml": "53f2b40fda247ff8"
@@ -8423,7 +8917,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "unknown",
@@ -8521,7 +9016,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "unknown",
@@ -8570,7 +9066,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "unknown",
@@ -8612,7 +9109,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "reference_plants: a state of a type nothing declares or imports",
@@ -8644,7 +9142,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "reference_plants: a guard reading the engineer its transition assigns",
@@ -8704,7 +9203,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "reference_plants: a call on a loop's item without the input its transition requires",
@@ -8750,7 +9250,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "reference_plants: a call on a path from a loop's item to a transition its type lacks",
@@ -8796,7 +9297,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "reference_plants: a call on a path from a loop's item to a transition its type lacks",
@@ -8842,7 +9344,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "split_plants",
@@ -8888,7 +9391,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "split_plants: a split metric that declares a time dimension",
@@ -8920,7 +9424,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "split_plants: a piece's period read without a split",
@@ -8952,7 +9457,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "split_plants: a split of objects",
@@ -8991,7 +9497,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "decimal_plant",
@@ -9033,7 +9540,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "decimal_plant",
@@ -9065,7 +9573,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "cutover_plant",
@@ -9099,6 +9608,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -9183,6 +9701,15 @@
   },
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -9237,7 +9764,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "proposal_plants: a proposal of a transition that is not proposable",
@@ -9284,7 +9812,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "proposal_plants: an approval of a proposal no step filed",
@@ -9324,7 +9853,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "proposal_plants: a proposal left pending by an approval that applies",
@@ -9364,7 +9894,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "proposal_plants: an approval before the sign-off, expected to apply",
@@ -9444,7 +9975,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "date_plant",
@@ -9498,6 +10030,21 @@
    "Claim.has_title": "local",
    "ClaimLine.confirmed_by_a_person": "local",
    "ClaimLine.spent_amount_has_its_currency": "local"
+  },
+  "could_violate": {
+   "Claim.has_title": [
+    "Claim.draft",
+    "Claim.erase_personal_data"
+   ],
+   "ClaimLine.confirmed_by_a_person": [
+    "ClaimLine.add",
+    "ClaimLine.amend",
+    "ClaimLine.confirm_nature"
+   ],
+   "ClaimLine.spent_amount_has_its_currency": [
+    "ClaimLine.add",
+    "ClaimLine.amend"
+   ]
   }
  },
  {
@@ -9525,6 +10072,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -9609,6 +10165,15 @@
   },
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -9648,7 +10213,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "group_erasure_plant",
@@ -9687,7 +10253,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "binder_plant",
@@ -9726,7 +10293,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "abstract_summary_plant",
@@ -9751,7 +10319,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "abstract_summary_plant",
@@ -9835,6 +10404,15 @@
   },
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -9878,6 +10456,13 @@
   "analysed": {},
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -9903,7 +10488,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "metric_plants",
@@ -9935,7 +10521,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "metric_plants",
@@ -9981,7 +10568,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "range_plant",
@@ -10013,7 +10601,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "range_plant",
@@ -10045,7 +10634,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "range_plant",
@@ -10099,7 +10689,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "erasure_plants",
@@ -10138,7 +10729,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "erasure_plants",
@@ -10170,7 +10762,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "erasure_plants",
@@ -10193,7 +10786,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "binder_more_plants",
@@ -10232,7 +10826,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "binder_more_plants",
@@ -10264,7 +10859,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "run",
@@ -10321,6 +10917,13 @@
   "analysed": {},
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -10385,6 +10988,13 @@
   },
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -10435,6 +11045,13 @@
   "analysed": {},
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -10478,6 +11095,13 @@
   "analysed": {},
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -10535,6 +11159,13 @@
   },
   "forms": {
    "ServiceJob.photo_when_done": "local"
+  },
+  "could_violate": {
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ]
   }
  },
  {
@@ -10567,7 +11198,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "metric_more_plants",
@@ -10599,7 +11231,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "metric_more_plants",
@@ -10626,6 +11259,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -10668,7 +11310,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "cluster3_plants",
@@ -10693,7 +11336,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "cluster3_plants",
@@ -10734,6 +11378,15 @@
   "analysed": {},
   "forms": {
    "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
   }
  },
  {
@@ -10805,7 +11458,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "refusal_order_plant",
@@ -10841,7 +11495,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "cascade_cycle_plants: a call back to the whole whose cascade reached the part",
@@ -10866,7 +11521,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "cascade_cycle_plants: the same cycle closed twice, reported once",
@@ -10891,7 +11547,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "cascade_cycle_plants: a call in a loop to the transition taking it",
@@ -10916,7 +11573,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "cascade_cycle_plants: two cycles through one transition, each reported",
@@ -10948,7 +11606,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "cascade_cycle_plants: a creation of the type creating",
@@ -10973,7 +11632,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "cascade_cycle_plants: through a part an abstract base declares",
@@ -10998,7 +11658,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "cascade_cycle_plants: a cascade whose part causes nothing back",
@@ -11036,7 +11697,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "clock_plants: now",
@@ -11063,6 +11725,11 @@
   "analysed": {},
   "forms": {
    "Job.recent": "local"
+  },
+  "could_violate": {
+   "Job.recent": [
+    "Job.open"
+   ]
   }
  },
  {
@@ -11090,6 +11757,11 @@
   "analysed": {},
   "forms": {
    "Job.brief": "local"
+  },
+  "could_violate": {
+   "Job.brief": [
+    "Job.open"
+   ]
   }
  },
  {
@@ -11117,6 +11789,11 @@
   "analysed": {},
   "forms": {
    "Job.short": "local"
+  },
+  "could_violate": {
+   "Job.short": [
+    "Job.open"
+   ]
   }
  },
  {
@@ -11144,6 +11821,11 @@
   "analysed": {},
   "forms": {
    "Job.fresh": "local"
+  },
+  "could_violate": {
+   "Job.fresh": [
+    "Job.open"
+   ]
   }
  },
  {
@@ -11171,6 +11853,11 @@
   "analysed": {},
   "forms": {
    "Job.calm": "local"
+  },
+  "could_violate": {
+   "Job.calm": [
+    "Job.open"
+   ]
   }
  },
  {
@@ -11198,6 +11885,11 @@
   "analysed": {},
   "forms": {
    "Line.on_time": "traversal"
+  },
+  "could_violate": {
+   "Line.on_time": [
+    "Line.start"
+   ]
   }
  },
  {
@@ -11235,6 +11927,14 @@
   "forms": {
    "Job.entered": "local",
    "Job.has_name": "local"
+  },
+  "could_violate": {
+   "Job.entered": [
+    "Job.open"
+   ],
+   "Job.has_name": [
+    "Job.open"
+   ]
   }
  },
  {
@@ -11260,7 +11960,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "abstract_part_plants: the same part surviving its whole",
@@ -11298,7 +11999,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: an own personal attribute",
@@ -11323,7 +12025,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: an own personal attribute as a function's argument",
@@ -11348,7 +12051,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: a derivation of its own as a function's argument",
@@ -11373,7 +12077,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: a marked input",
@@ -11398,7 +12103,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: an input written to a personal attribute as well",
@@ -11423,7 +12129,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: one through a path",
@@ -11448,7 +12155,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: one through a derivation",
@@ -11473,7 +12181,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: a test of its presence",
@@ -11498,7 +12207,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: an observation's personal field",
@@ -11523,7 +12233,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: a call's argument",
@@ -11548,7 +12259,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: one passed on by a second call",
@@ -11573,7 +12285,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: a creation's into an attribute input",
@@ -11598,7 +12311,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: a cascade's",
@@ -11623,7 +12337,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: a backfill's",
@@ -11650,7 +12365,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: personal values reaching only personal attributes",
@@ -11688,7 +12404,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "personal_plants: an input the transition reached holds personal itself, reported where it is written",
@@ -11713,7 +12430,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "reparent_plants: an act assigning it",
@@ -11738,7 +12456,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "reparent_plants: a do taking it as a required input",
@@ -11763,7 +12482,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "reparent_plants: an act taking it as an optional input, which the required end refuses as well",
@@ -11795,7 +12515,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "reparent_plants: a creation writing it",
@@ -11833,7 +12554,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "reparent_plants: a write of a reference to the abstract type that is no part's end back",
@@ -11871,7 +12593,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "reparent_plants: a re-parent to a concrete whole",
@@ -11909,7 +12632,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "reparent_plants: a part whose end back names another type",
@@ -11934,7 +12658,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "invariant_read_plants: an invariant reading inputs",
@@ -11961,6 +12686,11 @@
   "analysed": {},
   "forms": {
    "Customer.probe": "local"
+  },
+  "could_violate": {
+   "Customer.probe": [
+    "Customer.join"
+   ]
   }
  },
  {
@@ -11988,6 +12718,11 @@
   "analysed": {},
   "forms": {
    "Customer.probe": "local"
+  },
+  "could_violate": {
+   "Customer.probe": [
+    "Customer.join"
+   ]
   }
  },
  {
@@ -12028,6 +12763,12 @@
   },
   "forms": {
    "Customer.probe": "traversal"
+  },
+  "could_violate": {
+   "Customer.probe": [
+    "Customer.join",
+    "Visit.book"
+   ]
   }
  },
  {
@@ -12066,7 +12807,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "invariant_form_plants",
@@ -12112,6 +12854,32 @@
    "Visit.known_customer": "traversal",
    "Visit.labelled_customer": "traversal",
    "Visit.one_open": "type_scan"
+  },
+  "could_violate": {
+   "Customer.called": [
+    "Customer.forget",
+    "Customer.join"
+   ],
+   "Customer.few_referrers": [
+    "Customer.join",
+    "Visit.book"
+   ],
+   "Customer.labelled": [
+    "Customer.join"
+   ],
+   "Visit.few_similar": [
+    "Visit.book"
+   ],
+   "Visit.known_customer": [
+    "Visit.book"
+   ],
+   "Visit.labelled_customer": [
+    "Visit.book"
+   ],
+   "Visit.one_open": [
+    "Visit.book",
+    "Visit.close"
+   ]
   }
  },
  {
@@ -12152,6 +12920,180 @@
   },
   "forms": {
    "Asset.few_pieces": "traversal"
+  },
+  "could_violate": {
+   "Asset.few_pieces": [
+    "Piece.fit"
+   ]
+  }
+ },
+ {
+  "label": "could_violate_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "crm.yaml",
+    "740b40387ed02161"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Customer": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ],
+   "Visit": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Customer.called": "local",
+   "Customer.few_referrers": "traversal",
+   "Customer.labelled": "local",
+   "Visit.few_similar": "type_scan",
+   "Visit.known_customer": "traversal",
+   "Visit.labelled_customer": "traversal",
+   "Visit.one_open": "type_scan"
+  },
+  "could_violate": {
+   "Customer.called": [
+    "Customer.forget",
+    "Customer.join"
+   ],
+   "Customer.few_referrers": [
+    "Customer.join",
+    "Visit.book"
+   ],
+   "Customer.labelled": [
+    "Customer.join"
+   ],
+   "Visit.few_similar": [
+    "Visit.book"
+   ],
+   "Visit.known_customer": [
+    "Visit.book"
+   ],
+   "Visit.labelled_customer": [
+    "Visit.book"
+   ],
+   "Visit.one_open": [
+    "Visit.book",
+    "Visit.close"
+   ]
+  }
+ },
+ {
+  "label": "could_violate_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "shop.yaml",
+    "97c79511ce0016cc"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Line": [
+    0,
+    0
+   ],
+   "Order": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Order.few_lines": "traversal",
+   "Order.lines_anywhere": "type_scan"
+  },
+  "could_violate": {
+   "Order.few_lines": [
+    "Line.start",
+    "Order.open"
+   ],
+   "Order.lines_anywhere": [
+    "Line.start",
+    "Order.open"
+   ]
+  }
+ },
+ {
+  "label": "could_violate_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "office.yaml",
+    "616426d69325b8a8"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Chair": [
+    0,
+    0
+   ],
+   "Desk": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Desk.crowded": "traversal"
+  },
+  "could_violate": {
+   "Desk.crowded": [
+    "Chair.sit",
+    "Desk.make"
+   ]
   }
  },
  {
@@ -12192,6 +13134,12 @@
   },
   "forms": {
    "Booking.probe": "type_scan"
+  },
+  "could_violate": {
+   "Booking.probe": [
+    "Booking.book",
+    "Booking.finish"
+   ]
   }
  },
  {
@@ -12232,6 +13180,11 @@
   },
   "forms": {
    "Booking.probe": "type_scan"
+  },
+  "could_violate": {
+   "Booking.probe": [
+    "Booking.book"
+   ]
   }
  },
  {
@@ -12272,6 +13225,11 @@
   },
   "forms": {
    "Booking.probe": "type_scan"
+  },
+  "could_violate": {
+   "Booking.probe": [
+    "Booking.book"
+   ]
   }
  },
  {
@@ -12299,6 +13257,12 @@
   "analysed": {},
   "forms": {
    "Booking.probe": "type_scan"
+  },
+  "could_violate": {
+   "Booking.probe": [
+    "Booking.book",
+    "Booking.finish"
+   ]
   }
  },
  {
@@ -12326,6 +13290,12 @@
   "analysed": {},
   "forms": {
    "Booking.probe": "type_scan"
+  },
+  "could_violate": {
+   "Booking.probe": [
+    "Booking.book",
+    "Booking.finish"
+   ]
   }
  },
  {
@@ -12353,6 +13323,11 @@
   "analysed": {},
   "forms": {
    "Booking.probe": "type_scan"
+  },
+  "could_violate": {
+   "Booking.probe": [
+    "Booking.book"
+   ]
   }
  },
  {
@@ -12380,6 +13355,11 @@
   "analysed": {},
   "forms": {
    "Booking.probe": "type_scan"
+  },
+  "could_violate": {
+   "Booking.probe": [
+    "Booking.book"
+   ]
   }
  },
  {
@@ -12407,6 +13387,12 @@
   "analysed": {},
   "forms": {
    "Booking.probe": "type_scan"
+  },
+  "could_violate": {
+   "Booking.probe": [
+    "Booking.book",
+    "Booking.finish"
+   ]
   }
  },
  {
@@ -12434,6 +13420,11 @@
   "analysed": {},
   "forms": {
    "Booking.probe": "type_scan"
+  },
+  "could_violate": {
+   "Booking.probe": [
+    "Booking.book"
+   ]
   }
  },
  {
@@ -12461,6 +13452,11 @@
   "analysed": {},
   "forms": {
    "Booking.probe": "type_scan"
+  },
+  "could_violate": {
+   "Booking.probe": [
+    "Booking.book"
+   ]
   }
  },
  {
@@ -12486,7 +13482,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "argument_type_plants: the clock to an attribute input holding text",
@@ -12511,7 +13508,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "argument_type_plants: an object of the wrong type to a reference",
@@ -12536,7 +13534,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "argument_type_plants: an evaluator's argument of the wrong type",
@@ -12561,7 +13560,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "argument_type_plants: a negated evaluator's argument of the wrong type",
@@ -12586,7 +13586,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "argument_type_plants: an evaluator's argument that fits",
@@ -12624,7 +13625,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "argument_type_plants: arguments that fit",
@@ -12662,7 +13664,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: money of two currencies",
@@ -12687,7 +13690,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: decimals of two scales",
@@ -12712,7 +13716,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: an int and a decimal",
@@ -12737,7 +13742,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: two timestamps added",
@@ -12762,7 +13768,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: money times money",
@@ -12787,7 +13794,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: a duration times a duration",
@@ -12812,7 +13820,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: an int over money",
@@ -12837,7 +13846,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: money of two currencies divided",
@@ -12862,7 +13872,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: a timestamp compared with a duration",
@@ -12887,7 +13898,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: a string compared with an int",
@@ -12912,7 +13924,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: a string asked of an enumeration",
@@ -12937,7 +13950,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: a connective on a string",
@@ -12962,7 +13976,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: not on an int",
@@ -12987,7 +14002,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: a conditional of two types",
@@ -13012,7 +14028,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: length of an int",
@@ -13037,7 +14054,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: an invariant that is no bool",
@@ -13064,6 +14082,11 @@
   "analysed": {},
   "forms": {
    "Account.check": "local"
+  },
+  "could_violate": {
+   "Account.check": [
+    "Account.open"
+   ]
   }
  },
  {
@@ -13089,7 +14112,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: what types",
@@ -13123,7 +14147,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "expression_type_plants: a duration of timestamps, a quotient of like amounts and a tier",
@@ -13157,7 +14182,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants",
@@ -13175,7 +14201,8 @@
     1
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants",
@@ -13197,7 +14224,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants",
@@ -13219,7 +14247,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants",
@@ -13237,7 +14266,8 @@
     1
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants",
@@ -13259,7 +14289,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants",
@@ -13281,7 +14312,8 @@
     0
    ]
   },
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a creation that never writes a required attribute",
@@ -13302,7 +14334,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a state with no way out",
@@ -13323,7 +14356,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a state nothing reaches",
@@ -13344,7 +14378,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a type with no final state",
@@ -13365,7 +14400,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a transition leaving a final state",
@@ -13386,7 +14422,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a type with no creation",
@@ -13414,7 +14451,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: an internal transition at a final state",
@@ -13435,7 +14473,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a clear of a required attribute",
@@ -13456,7 +14495,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a default on an optional input",
@@ -13477,7 +14517,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a counter on a type tracked by record",
@@ -13498,7 +14539,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a type tracked by quantity with no counter",
@@ -13519,7 +14561,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: an audited guard on an assertion",
@@ -13547,7 +14590,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a backdatable assertion",
@@ -13568,7 +14612,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: entered_at of a member that is not tracked",
@@ -13589,7 +14634,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: an actor kind on a string",
@@ -13610,7 +14656,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: two actor identities on one type",
@@ -13631,7 +14678,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: the actor read in a condition",
@@ -13652,7 +14700,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a part created not only via its whole",
@@ -13673,7 +14722,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: an only via whose parent never reaches it",
@@ -13694,7 +14744,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a part created without its owner",
@@ -13715,7 +14766,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: two singular ends, neither stored",
@@ -13736,7 +14788,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: an observation's field named like a member every observation has",
@@ -13757,7 +14810,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a unit on an observation's string field",
@@ -13778,7 +14832,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a kind's invariant scanning its own kind",
@@ -13799,7 +14854,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a metric's dimension three hops away",
@@ -13820,7 +14876,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: over last on a metric with no window",
@@ -13841,7 +14898,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a guard binding what is no dimension of a metric",
@@ -13862,7 +14920,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: metric() outside a guard",
@@ -13883,7 +14942,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a metric-only function in a condition",
@@ -13904,7 +14964,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: an assignee that does not store its value",
@@ -13925,7 +14986,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: an assignee to a type marking no actor identity",
@@ -13946,7 +15008,8 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "syntax_plants: a create binding an argument from what its outcome writes, read by an evaluator guard",
@@ -13967,6 +15030,7 @@
    ]
   ],
   "analysed": {},
-  "forms": {}
+  "forms": {},
+  "could_violate": {}
  }
 ]

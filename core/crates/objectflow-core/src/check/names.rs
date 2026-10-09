@@ -1336,6 +1336,137 @@ fn symmetry_errors(doc: &Value, library: &Obj) -> Found {
     out
 }
 
+/// What a transition of a type writes, as (type, member): what its effect
+/// assigns, adds, removes or clears and the attribute inputs it takes, each
+/// stored end's far end and its target type's `referrers`; its type's
+/// `state` where it moves or sets it; a new object, `*new`, where it creates
+/// one; and every personal attribute where it is an erasure
+/// (`check-flows.py`'s `transition_writes`).
+fn transition_writes(t: &Value, tn: &str, x: &Value) -> BTreeSet<(String, String)> {
+    let attrs = obj(t, "attributes");
+    let mut out = BTreeSet::new();
+    let wrote = |m: &str, out: &mut BTreeSet<(String, String)>| {
+        out.insert((tn.to_string(), m.to_string()));
+        let spec = attrs.get(m).cloned().unwrap_or(Value::Null);
+        let target = target_of(&spec);
+        if !target.is_empty() {
+            out.insert((target.clone(), "referrers".to_string()));
+            if let Some(o) = spec.get("opposite") {
+                out.insert((target, py_str(o)));
+            }
+        }
+    };
+    for step in walk(x.get("effect")) {
+        let body = &step.st[step.kind];
+        match step.kind {
+            "assign" | "add" | "remove" => {
+                wrote(
+                    &body.get("location").map(py_str).unwrap_or_default(),
+                    &mut out,
+                );
+            }
+            "clear" => {
+                for a in list(step.st, "clear") {
+                    wrote(&py_str(a), &mut out);
+                }
+            }
+            _ => {}
+        }
+    }
+    for m in strings(x, "required_inputs")
+        .into_iter()
+        .chain(strings(x, "optional_inputs"))
+    {
+        if attrs.contains_key(&m) {
+            wrote(&m, &mut out);
+        }
+    }
+    let k = kind(x);
+    if matches!(k, "initial" | "external" | "assertion") {
+        out.insert((tn.to_string(), "state".to_string()));
+    }
+    if k == "initial" {
+        out.insert((tn.to_string(), "*new".to_string()));
+    }
+    if k == "erasure" {
+        for (m, spec) in attrs {
+            if flag(spec, "personal") {
+                wrote(m, &mut out);
+            }
+        }
+    }
+    out
+}
+
+/// What an invariant reads, as (type, member), as far as step 3's walker
+/// types it (`check-flows.py`'s `invariant_reads`).
+fn invariant_reads(
+    kinds: &Obj,
+    tn: &str,
+    text: &str,
+    seen: &BTreeSet<(String, String)>,
+) -> BTreeSet<(String, String)> {
+    // step 2 refuses what does not parse
+    let Ok(tree) = parse(text) else {
+        return BTreeSet::new();
+    };
+    let mut walker = OptionalReads::new(kinds, tn, None);
+    walker.through_tests = true;
+    walker.walk(&tree, &Env::new());
+    let mut out = walker.members.clone();
+    out.extend(
+        walker
+            .scanned
+            .iter()
+            .map(|u| (u.clone(), "*new".to_string())),
+    );
+    out.extend(
+        walker
+            .members
+            .iter()
+            .filter(|(_, m)| m == "open")
+            .map(|(u, _)| (u.clone(), "state".to_string())),
+    );
+    for pair in walker.derived.iter().filter(|p| !seen.contains(*p)) {
+        let (u, d) = pair;
+        let expr = kinds
+            .get(u)
+            .and_then(|t| obj(t, "derived_attributes").get(d))
+            .and_then(|s| s.get("expression"))
+            .map(py_str)
+            .unwrap_or_default();
+        let mut deeper = seen.clone();
+        deeper.insert(pair.clone());
+        out.extend(invariant_reads(kinds, u, &expr, &deeper));
+    }
+    out
+}
+
+/// The transitions, `<Type>.<transition>`, that could violate an invariant
+/// of a type, for a publish report to name (`DESIGN.md` §5.6): each whose
+/// writes meet what the invariant reads, and the type's own creations
+/// (`check-flows.py`'s `could_violate`).
+pub fn could_violate(
+    kinds: &Obj,
+    tn: &str,
+    text: &str,
+    machines: &BTreeSet<String>,
+) -> Vec<String> {
+    let mut reads = invariant_reads(kinds, tn, text, &BTreeSet::new());
+    reads.insert((tn.to_string(), "*new".to_string()));
+    let mut out: Vec<String> = Vec::new();
+    // a machine's transitions are named by the type binding it
+    for (u, t) in kinds.iter().filter(|(u, _)| !machines.contains(*u)) {
+        for (xn, x) in obj(t, "transitions") {
+            if !transition_writes(t, u, x).is_disjoint(&reads) {
+                out.push(format!("{u}.{xn}"));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 /// An invariant's form, which a publish report states
 /// (`declaration-syntax.md` §3.4, ADR-0055, ADR-0171): `type_scan` where it
 /// ranges over a type by name, else `traversal` where it reads through a

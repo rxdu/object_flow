@@ -259,6 +259,14 @@ impl<'l> OptionalReads<'l> {
                 {
                     self.traversed.insert(l);
                 }
+                // what every object has, read through a path
+                if let Some(bb) = &b
+                    && !bb.ends_with("[]")
+                    && bb != "<inputs>"
+                    && BUILT_IN.contains(&m.as_str())
+                {
+                    self.members.insert((bb.clone(), m.clone()));
+                }
                 match b {
                     None => self.observed("", m),
                     Some(b)
