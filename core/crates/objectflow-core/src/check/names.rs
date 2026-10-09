@@ -240,6 +240,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
     out.extend(reparent_errors(doc, &library));
     out.extend(symmetry_errors(doc, &library));
     out.extend(argument_type_errors(doc, &library));
+    out.extend(expression_type_errors(doc, &library));
     let cats = categories(doc);
     let imported = imported(doc);
     for (tn, t) in types(doc) {
@@ -2675,6 +2676,775 @@ fn fits(target: &[String], value: &[String], library: &Obj) -> bool {
         }
     }
     false
+}
+
+/// A type as check 24 infers it (`declaration-syntax.md` §8.1, §8.3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Ty {
+    /// A number literal, which takes the type of what it meets.
+    Number,
+    Int,
+    /// A decimal, with its scale where it is known.
+    Decimal(Option<u32>),
+    Money(String),
+    Duration,
+    Timestamp,
+    Date,
+    Bool,
+    Str,
+    Identity,
+    ActorKind,
+    File,
+    Category,
+    Verdict,
+    Reference(String),
+    Objects(String),
+    Enumeration(String),
+    State(String),
+}
+
+impl Ty {
+    /// The type's name as `check-flows.py`'s tuples spell it.
+    fn tag(&self) -> &'static str {
+        match self {
+            Ty::Number => "number",
+            Ty::Int => "int",
+            Ty::Decimal(_) => "decimal",
+            Ty::Money(_) => "money",
+            Ty::Duration => "duration",
+            Ty::Timestamp => "timestamp",
+            Ty::Date => "date",
+            Ty::Bool => "bool",
+            Ty::Str => "string",
+            Ty::Identity => "identity",
+            Ty::ActorKind => "actor_kind",
+            Ty::File => "file",
+            Ty::Category => "category",
+            Ty::Verdict => "verdict",
+            Ty::Reference(_) => "reference",
+            Ty::Objects(_) => "objects",
+            Ty::Enumeration(_) => "enumeration",
+            Ty::State(_) => "state",
+        }
+    }
+
+    fn scalar(&self) -> bool {
+        matches!(self, Ty::Int | Ty::Decimal(_) | Ty::Number)
+    }
+
+    /// A type as a finding names it (`check-flows.py`'s `type_text`).
+    fn text(&self) -> String {
+        match self {
+            Ty::Decimal(Some(s)) => format!("a decimal of scale {s}"),
+            Ty::Decimal(None) => "a decimal".into(),
+            Ty::Money(c) => format!("money({c})"),
+            Ty::Reference(t) => format!("an object of {t}"),
+            Ty::Objects(t) => format!("a set of {t}"),
+            Ty::Enumeration(e) => format!("a member of {e}"),
+            Ty::State(t) => format!("a state of {t}"),
+            Ty::Int => "an int".into(),
+            Ty::Identity => "an identity".into(),
+            Ty::ActorKind => "an actor kind".into(),
+            other => format!("a {}", other.tag()),
+        }
+    }
+}
+
+static DECIMAL_SCALE: LazyLock<Regex> = LazyLock::new(|| re(r"^decimal\(\s*\d+\s*,\s*(\d+)\s*\)$"));
+
+/// An attribute's or an input's type as an expression reads it, a decimal
+/// with its scale, a set of references as the objects it holds; none where
+/// it cannot be told (`check-flows.py`'s `attribute_type`).
+fn attribute_type(spec: Option<&Value>, enums: &BTreeSet<String>) -> Option<Ty> {
+    let spec = spec.filter(|s| super::doc::truthy(Some(s)))?;
+    let reference = ref_of(spec);
+    if !reference.is_empty() {
+        return Some(match reference.strip_suffix("[]") {
+            Some(t) => Ty::Objects(t.to_string()),
+            None => Ty::Reference(reference),
+        });
+    }
+    let typ = spec.get("type").map(py_str).unwrap_or_default();
+    if let Some(m) = DECIMAL_SCALE.captures(&typ) {
+        return Some(Ty::Decimal(m[1].parse().ok()));
+    }
+    let k = written_kind(Some(spec), enums)?;
+    Some(match (k[0].as_str(), k.get(1)) {
+        ("reference", Some(t)) => Ty::Reference(t.clone()),
+        ("enumeration", Some(e)) => Ty::Enumeration(e.clone()),
+        ("money", Some(c)) => Ty::Money(c.clone()),
+        ("decimal", _) => Ty::Decimal(None),
+        ("int", _) => Ty::Int,
+        ("string", _) => Ty::Str,
+        ("bool", _) => Ty::Bool,
+        ("timestamp", _) => Ty::Timestamp,
+        ("duration", _) => Ty::Duration,
+        ("identity", _) => Ty::Identity,
+        ("file", _) => Ty::File,
+        ("date", _) => Ty::Date,
+        ("actor_kind", _) => Ty::ActorKind,
+        _ => return None,
+    })
+}
+
+/// What every object has, by its type (§8.1).
+fn object_member_type(m: &str) -> Option<Ty> {
+    Some(match m {
+        "open" => Ty::Bool,
+        "id" => Ty::Identity,
+        "created_at" | "recorded_from" => Ty::Timestamp,
+        "created_by_kind" => Ty::ActorKind,
+        "declaration_version" => Ty::Int,
+        _ => return None,
+    })
+}
+
+/// The types of a module's expressions as far as a publish can tell them,
+/// and each rule of `declaration-syntax.md` §8.3 an expression breaks (the
+/// model's check 24; `check-flows.py`'s `Typing`).
+struct Typing<'a> {
+    kinds: &'a Obj,
+    enums: &'a BTreeSet<String>,
+    categories: &'a BTreeSet<String>,
+    evaluators: &'a BTreeSet<String>,
+    broken: Vec<String>,
+}
+
+type TyEnv = BTreeMap<String, Option<Ty>>;
+
+impl Typing<'_> {
+    fn member(&self, tn: &str, m: &str, seen: &BTreeSet<(String, String)>) -> Option<Ty> {
+        let t = self.kinds.get(tn).cloned().unwrap_or(Value::Null);
+        if m == "state" {
+            return Some(Ty::State(tn.to_string()));
+        }
+        if let Some(k) = object_member_type(m) {
+            return Some(k);
+        }
+        if let Some(spec) = obj(&t, "attributes").get(m) {
+            return attribute_type(Some(spec), self.enums);
+        }
+        let pair = (tn.to_string(), m.to_string());
+        if let Some(derived) = obj(&t, "derived_attributes").get(m)
+            && !seen.contains(&pair)
+        {
+            let text = squash(&derived.get("expression").map(py_str).unwrap_or_default());
+            let tree = parse(&text).ok()?;
+            let mut quiet = Typing {
+                kinds: self.kinds,
+                enums: self.enums,
+                categories: self.categories,
+                evaluators: self.evaluators,
+                broken: Vec::new(),
+            };
+            let mut deeper = seen.clone();
+            deeper.insert(pair);
+            return quiet.of(&tree, tn, None, &TyEnv::new(), &deeper);
+        }
+        None
+    }
+
+    fn fail(&mut self, detail: String) {
+        self.broken.push(detail);
+    }
+
+    fn of(
+        &mut self,
+        e: &Expr,
+        tn: &str,
+        x: Option<&Value>,
+        env: &TyEnv,
+        seen: &BTreeSet<(String, String)>,
+    ) -> Option<Ty> {
+        match e {
+            Expr::Num(_) => Some(Ty::Number),
+            Expr::Str(_) => Some(Ty::Str),
+            Expr::Bool(_) => Some(Ty::Bool),
+            Expr::Money(c, _) => Some(Ty::Money(c.clone())),
+            Expr::Dur(..) => Some(Ty::Duration),
+            Expr::Name(n) => {
+                if let Some(t) = env.get(n) {
+                    return t.clone();
+                }
+                if n == "now" {
+                    return Some(Ty::Timestamp);
+                }
+                if n == "this" {
+                    return Some(Ty::Reference(tn.to_string()));
+                }
+                if self.categories.contains(n) {
+                    return Some(Ty::Category);
+                }
+                let states = self
+                    .kinds
+                    .get(tn)
+                    .map(|t| obj(t, "states").contains_key(n))
+                    .unwrap_or(false);
+                if states {
+                    return Some(Ty::State(tn.to_string()));
+                }
+                let got = self.member(tn, n, seen);
+                if got.is_none() && ACTOR_KINDS.contains(&n.as_str()) {
+                    return Some(Ty::ActorKind);
+                }
+                got
+            }
+            Expr::Path(base, m) => {
+                if matches!(&**base, Expr::Name(b) if b == "inputs") {
+                    let x = x.cloned().unwrap_or(Value::Null);
+                    let mut spec = obj(&x, "inputs").get(m).cloned();
+                    let attribute_input = strings(&x, "required_inputs")
+                        .iter()
+                        .chain(&strings(&x, "optional_inputs"))
+                        .any(|n| n == m);
+                    if spec.is_none() && attribute_input {
+                        spec = self
+                            .kinds
+                            .get(tn)
+                            .and_then(|t| obj(t, "attributes").get(m))
+                            .cloned();
+                    }
+                    return attribute_type(spec.as_ref(), self.enums);
+                }
+                if let Expr::Name(b) = &**base
+                    && !env.contains_key(b)
+                {
+                    if self.enums.contains(b) {
+                        return Some(Ty::Enumeration(b.clone()));
+                    }
+                    let upper =
+                        m.chars().any(char::is_uppercase) && !m.chars().any(char::is_lowercase);
+                    if self.kinds.contains_key(b) && upper {
+                        return Some(Ty::State(b.clone()));
+                    }
+                }
+                match self.of(base, tn, x, env, seen) {
+                    Some(Ty::Reference(t)) => self.member(&t, m, seen),
+                    Some(Ty::State(_)) if m == "category" => Some(Ty::Category),
+                    _ => None,
+                }
+            }
+            Expr::Call(f, args) => {
+                for a in args {
+                    if !matches!(a, Expr::Name(_)) {
+                        self.of(a, tn, x, env, seen);
+                    }
+                }
+                if let Expr::Path(b, _) = &**f
+                    && matches!(&**b, Expr::Name(ev) if self.evaluators.contains(ev))
+                {
+                    return Some(Ty::Verdict);
+                }
+                let Expr::Name(name) = &**f else {
+                    return None;
+                };
+                match name.as_str() {
+                    "length" => {
+                        let arg = if args.len() == 1 {
+                            self.of(&args[0], tn, x, env, seen)
+                        } else {
+                            None
+                        };
+                        if let Some(arg) = arg
+                            && arg != Ty::Str
+                        {
+                            self.fail(format!(
+                                "length takes a string, and is given {}",
+                                arg.text()
+                            ));
+                        }
+                        Some(Ty::Int)
+                    }
+                    "entered_at" => Some(Ty::Timestamp),
+                    "time_in" => Some(Ty::Duration),
+                    "date" => Some(Ty::Date),
+                    _ => None,
+                }
+            }
+            Expr::Changed(..) => Some(Ty::Bool),
+            Expr::IsNull(inner, _) => {
+                self.of(inner, tn, x, env, seen);
+                Some(Ty::Bool)
+            }
+            Expr::Not(inner) => {
+                let v = self.of(inner, tn, x, env, seen);
+                if let Some(v) = v
+                    && !matches!(v, Ty::Bool | Ty::Verdict)
+                {
+                    self.fail(format!("not takes a bool, and is given {}", v.text()));
+                }
+                Some(Ty::Bool)
+            }
+            Expr::Neg(inner) => self.of(inner, tn, x, env, seen),
+            Expr::Agg {
+                kind,
+                var,
+                collection,
+                filter,
+                body,
+                ..
+            } => {
+                let mut inner = env.clone();
+                if let (Some(var), Some(coll)) = (var, collection) {
+                    let scan = matches!(&**coll, Expr::Name(n)
+                        if !env.contains_key(n) && self.kinds.contains_key(n));
+                    let ct = if scan {
+                        let Expr::Name(n) = &**coll else {
+                            unreachable!()
+                        };
+                        Some(Ty::Objects(n.clone()))
+                    } else {
+                        self.of(coll, tn, x, env, seen)
+                    };
+                    let element = match ct {
+                        Some(Ty::Objects(t)) => Some(Ty::Reference(t)),
+                        _ => None,
+                    };
+                    inner.insert(var.clone(), element);
+                }
+                if let Some(w) = filter {
+                    let w = self.of(w, tn, x, &inner, seen);
+                    if let Some(w) = w
+                        && w != Ty::Bool
+                    {
+                        self.fail(format!(
+                            "the condition of a {kind} is {}, not a bool",
+                            w.text()
+                        ));
+                    }
+                }
+                let b = match body {
+                    Some(b) => self.of(b, tn, x, &inner, seen),
+                    None => None,
+                };
+                match kind.as_str() {
+                    "count" => Some(Ty::Int),
+                    "all" | "any" | "none" => {
+                        if let Some(b) = b
+                            && b != Ty::Bool
+                        {
+                            self.fail(format!("the body of {kind} is {}, not a bool", b.text()));
+                        }
+                        Some(Ty::Bool)
+                    }
+                    "sum" | "min" | "max" if b.is_some() => {
+                        let b = b.unwrap_or(Ty::Number);
+                        if kind == "sum"
+                            && !(b.scalar() || matches!(b, Ty::Money(_) | Ty::Duration))
+                        {
+                            self.fail(format!("sum adds {}, which does not add", b.text()));
+                        }
+                        Some(b)
+                    }
+                    _ => None,
+                }
+            }
+            Expr::Metric { binds, .. } => {
+                for (_, v) in binds {
+                    self.of(v, tn, x, env, seen);
+                }
+                None
+            }
+            Expr::In(l, r) => {
+                let left = self.of(l, tn, x, env, seen);
+                match &**r {
+                    Expr::Name(n) if self.enums.contains(n) && !env.contains_key(n) => {
+                        if let Some(left) = left
+                            && left != Ty::Enumeration(n.clone())
+                        {
+                            self.fail(format!("it asks whether {} is in {n}", left.text()));
+                        }
+                    }
+                    Expr::Set(items) => {
+                        for item in items {
+                            let it = self.of(item, tn, x, env, seen);
+                            if let (Some(left), Some(it)) = (&left, &it)
+                                && !self.alike(left, it)
+                            {
+                                self.fail(format!(
+                                    "it asks whether {} is among {}",
+                                    left.text(),
+                                    it.text()
+                                ));
+                                break;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                Some(Ty::Bool)
+            }
+            Expr::If(c, a, b) => {
+                let c = self.of(c, tn, x, env, seen);
+                if let Some(c) = c
+                    && c != Ty::Bool
+                {
+                    self.fail(format!("if takes a bool, and is given {}", c.text()));
+                }
+                let a = self.of(a, tn, x, env, seen);
+                let b = self.of(b, tn, x, env, seen);
+                if let (Some(av), Some(bv)) = (&a, &b)
+                    && !self.alike(av, bv)
+                {
+                    self.fail(format!(
+                        "if yields {} or {}, which share no type",
+                        av.text(),
+                        bv.text()
+                    ));
+                    return None;
+                }
+                match a {
+                    Some(a) if a != Ty::Number => Some(a),
+                    _ => b,
+                }
+            }
+            Expr::Bin(op, l, r) => {
+                let l = self.of(l, tn, x, env, seen);
+                let r = self.of(r, tn, x, env, seen);
+                match op {
+                    BinOp::And | BinOp::Or | BinOp::Implies => {
+                        // a verdict inside a larger expression is check 24's
+                        // evaluator rule's, refused there
+                        for v in [&l, &r].into_iter().flatten() {
+                            if !matches!(v, Ty::Bool | Ty::Verdict) {
+                                self.fail(format!(
+                                    "{} takes bools, and is given {}",
+                                    op.text(),
+                                    v.text()
+                                ));
+                                break;
+                            }
+                        }
+                        Some(Ty::Bool)
+                    }
+                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                        if let (Some(lv), Some(rv)) = (&l, &r)
+                            && !self.alike(lv, rv)
+                        {
+                            self.fail(format!("it compares {} with {}", lv.text(), rv.text()));
+                        }
+                        Some(Ty::Bool)
+                    }
+                    _ => match (l, r) {
+                        (Some(l), Some(r)) => self.arithmetic(*op, l, r),
+                        _ => None,
+                    },
+                }
+            }
+            Expr::Set(items) => {
+                for item in items {
+                    self.of(item, tn, x, env, seen);
+                }
+                None
+            }
+        }
+    }
+
+    /// Whether two types are one for a comparison or a conditional's
+    /// branches (`check-flows.py`'s `alike`).
+    fn alike(&self, a: &Ty, b: &Ty) -> bool {
+        let numeric = |t: &Ty| matches!(t, Ty::Number | Ty::Int | Ty::Decimal(_));
+        if a == b || (numeric(a) && numeric(b) && (*a == Ty::Number || *b == Ty::Number)) {
+            return true;
+        }
+        match (a, b) {
+            (Ty::Decimal(_), Ty::Decimal(_)) | (Ty::State(_), Ty::State(_)) => true,
+            (Ty::Identity, Ty::Str) | (Ty::Str, Ty::Identity) => true,
+            (Ty::Reference(x), Ty::Reference(y)) => {
+                let rx = ["reference".to_string(), x.clone()];
+                let ry = ["reference".to_string(), y.clone()];
+                fits(&rx, &ry, self.kinds) || fits(&ry, &rx, self.kinds)
+            }
+            _ => false,
+        }
+    }
+
+    /// The type of `l op r` by §8.3, or none, noting a rule it breaks
+    /// (`check-flows.py`'s `arithmetic`).
+    fn arithmetic(&mut self, op: BinOp, l: Ty, r: Ty) -> Option<Ty> {
+        let verb = if op == BinOp::Add {
+            "adds"
+        } else {
+            "subtracts"
+        };
+        if matches!(op, BinOp::Add | BinOp::Sub) {
+            if l.scalar() && r.scalar() {
+                if l == Ty::Number {
+                    return Some(r);
+                }
+                if r == Ty::Number {
+                    return Some(l);
+                }
+                if l.tag() != r.tag() {
+                    self.fail(format!(
+                        "it {verb} {} and {}, two types",
+                        l.text(),
+                        r.text()
+                    ));
+                    return None;
+                }
+                if let (Ty::Decimal(Some(a)), Ty::Decimal(Some(b))) = (&l, &r)
+                    && a != b
+                {
+                    self.fail(format!("it {verb} decimals of two scales, {a} and {b}"));
+                    return None;
+                }
+                return Some(l);
+            }
+            if let (Ty::Money(a), Ty::Money(b)) = (&l, &r) {
+                if a != b {
+                    self.fail(format!("it {verb} money of two currencies, {a} and {b}"));
+                    return None;
+                }
+                return Some(l);
+            }
+            if l == Ty::Duration && r == Ty::Duration {
+                return Some(l);
+            }
+            if (l == Ty::Timestamp && r == Ty::Duration)
+                || (op == BinOp::Add && l == Ty::Duration && r == Ty::Timestamp)
+            {
+                return Some(Ty::Timestamp);
+            }
+            if op == BinOp::Sub && l == Ty::Timestamp && r == Ty::Timestamp {
+                return Some(Ty::Duration);
+            }
+            if l == Ty::Date || r == Ty::Date {
+                // date arithmetic §8.3 leaves unsaid
+                return None;
+            }
+            self.fail(format!("it {verb} {} and {}", l.text(), r.text()));
+            return None;
+        }
+        // * and /
+        if l.scalar() && r.scalar() {
+            if l == Ty::Number {
+                return Some(r);
+            }
+            if r == Ty::Number {
+                return Some(l);
+            }
+            if l == Ty::Int && r == Ty::Int {
+                return Some(l);
+            }
+            return Some(Ty::Decimal(None));
+        }
+        let quantity = |t: &Ty| matches!(t, Ty::Money(_) | Ty::Duration);
+        if op == BinOp::Div && l.tag() == r.tag() && quantity(&l) {
+            if let (Ty::Money(a), Ty::Money(b)) = (&l, &r)
+                && a != b
+            {
+                self.fail(format!("it divides money of two currencies, {a} and {b}"));
+                return None;
+            }
+            // a quotient of two like quantities
+            return Some(Ty::Decimal(Some(6)));
+        }
+        if quantity(&l) && r.scalar() {
+            return Some(l);
+        }
+        if op == BinOp::Mul && quantity(&r) && l.scalar() {
+            return Some(r);
+        }
+        if op == BinOp::Div && l.scalar() && quantity(&r) {
+            self.fail(format!(
+                "it divides {} by {}, and / takes its scalar on the right",
+                l.text(),
+                r.text()
+            ));
+            return None;
+        }
+        if matches!(l, Ty::Timestamp | Ty::Date) || matches!(r, Ty::Timestamp | Ty::Date) {
+            // what §8.3 leaves unsaid is left
+            return None;
+        }
+        let verb = if op == BinOp::Mul {
+            "multiplies"
+        } else {
+            "divides"
+        };
+        self.fail(format!(
+            "it {verb} {} by {}, and takes a scalar on at least one side",
+            l.text(),
+            r.text()
+        ));
+        None
+    }
+}
+
+/// Each expression of a module that does not type by
+/// `declaration-syntax.md` §8.3, where the types it combines can be told,
+/// and a condition that is no bool or verdict and an invariant or a
+/// uniqueness condition that is no bool (the model's check 24;
+/// `check-flows.py`'s `expression_type_errors`).
+fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
+    let mut kinds = library.clone();
+    for (tn, t) in types(doc) {
+        kinds.insert(tn, t.clone());
+    }
+    let mut enums: BTreeSet<String> = keys(doc, "enumerations").into_iter().collect();
+    for list_ in obj(doc, "imports").values() {
+        if let Value::Array(names) = list_ {
+            for n in names {
+                let n = py_str(n);
+                if !kinds.contains_key(&n) {
+                    enums.insert(n);
+                }
+            }
+        }
+    }
+    let cats = categories(doc);
+    let evaluators = evaluator_names(doc);
+    let mut typing = Typing {
+        kinds: &kinds,
+        enums: &enums,
+        categories: &cats,
+        evaluators: &evaluators,
+        broken: Vec::new(),
+    };
+    let mut out = Found::new();
+    #[allow(clippy::too_many_arguments)]
+    fn check(
+        typing: &mut Typing<'_>,
+        out: &mut Found,
+        where_: Path,
+        name: &str,
+        text: &str,
+        tn: &str,
+        x: Option<&Value>,
+        env: &TyEnv,
+        want: &[&str],
+    ) {
+        // step 2 refuses what does not parse
+        let Ok(tree) = parse(&squash(text)) else {
+            return;
+        };
+        typing.broken.clear();
+        let got = typing.of(&tree, tn, x, env, &BTreeSet::new());
+        if typing.broken.is_empty()
+            && !want.is_empty()
+            && let Some(got) = got
+            && !want.contains(&got.tag())
+        {
+            typing
+                .broken
+                .push(format!("it is {}, not a bool", got.text()));
+        }
+        if let Some(first) = typing.broken.first() {
+            out.push(finding(
+                where_,
+                "names",
+                format!("{name} does not type: {first} (the model's check 24)"),
+            ));
+        }
+    }
+    for (tn, t) in types(doc) {
+        for (cn, c) in obj(t, "conditions") {
+            let text = c.get("expression").map(py_str).unwrap_or_default();
+            check(
+                &mut typing,
+                &mut out,
+                segs!["types", &tn, "conditions", cn, "expression"],
+                &format!("condition {cn}"),
+                &text,
+                &tn,
+                None,
+                &TyEnv::new(),
+                &["bool", "verdict"],
+            );
+        }
+        for (i, spec) in obj(t, "invariants") {
+            if !inherited(t, "invariants", i) {
+                let text = spec.get("expression").map(py_str).unwrap_or_default();
+                check(
+                    &mut typing,
+                    &mut out,
+                    segs!["types", &tn, "invariants", i, "expression"],
+                    &format!("invariant {i}"),
+                    &text,
+                    &tn,
+                    None,
+                    &TyEnv::new(),
+                    &["bool"],
+                );
+            }
+        }
+        for (d, spec) in obj(t, "derived_attributes") {
+            if !inherited(t, "derived_attributes", d) {
+                let text = spec.get("expression").map(py_str).unwrap_or_default();
+                check(
+                    &mut typing,
+                    &mut out,
+                    segs!["types", &tn, "derived_attributes", d, "expression"],
+                    &format!("derived attribute {d}"),
+                    &text,
+                    &tn,
+                    None,
+                    &TyEnv::new(),
+                    &[],
+                );
+            }
+        }
+        for (a, spec) in obj(t, "attributes") {
+            if let Some(w) = spec.get("unique").and_then(|u| u.get("where"))
+                && !inherited(t, "attributes", a)
+            {
+                check(
+                    &mut typing,
+                    &mut out,
+                    segs!["types", &tn, "attributes", a, "unique", "where"],
+                    &format!("{tn}.{a}'s uniqueness condition"),
+                    &py_str(w),
+                    &tn,
+                    None,
+                    &TyEnv::new(),
+                    &["bool"],
+                );
+            }
+        }
+        for (xn, x) in obj(t, "transitions") {
+            for step in walk(x.get("effect")) {
+                let where_ = ext(
+                    segs!["types", &tn, "transitions", xn, "effect"],
+                    step.path.clone(),
+                );
+                let env: TyEnv = binders(&kinds, &tn, x, &step.path)
+                    .into_iter()
+                    .map(|(n, k)| (n, k.map(Ty::Reference)))
+                    .collect();
+                for e in step_expressions(&step) {
+                    check(
+                        &mut typing,
+                        &mut out,
+                        where_.clone(),
+                        &format!("{tn}.{xn}'s effect"),
+                        &e,
+                        &tn,
+                        Some(x),
+                        &env,
+                        &[],
+                    );
+                }
+            }
+        }
+    }
+    let migration = doc.get("migration").cloned().unwrap_or(Value::Null);
+    for (tn, given) in obj(&migration, "backfill") {
+        for (a, e) in as_obj(given) {
+            check(
+                &mut typing,
+                &mut out,
+                segs!["migration", "backfill", tn, a],
+                &format!("the backfill of {tn}.{a}"),
+                &py_str(e),
+                tn,
+                None,
+                &TyEnv::new(),
+                &[],
+            );
+        }
+    }
+    out
 }
 
 /// Each argument a `call` or a `create` passes whose value does not fit the

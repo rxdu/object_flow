@@ -1519,7 +1519,8 @@ def name_errors(doc, library=None, ordered=True):
     library.update(dict(types(doc)))
     out = (order_errors(doc) if ordered else []) + reserved_name_errors(doc) + relationship_errors(doc, library) + combined_errors(doc) \
         + cascade_cycle_errors(doc, library) + clock_errors(doc, library) + personal_errors(doc, library) \
-        + reparent_errors(doc, library) + symmetry_errors(doc, library) + argument_type_errors(doc, library)
+        + reparent_errors(doc, library) + symmetry_errors(doc, library) + argument_type_errors(doc, library) \
+        + expression_type_errors(doc, library)
     for tn, t in types(doc):
         states = t.get("states") or {}
         attrs = t.get("attributes") or {}
@@ -1851,6 +1852,341 @@ def fits(target, value, library):
             seen.add(kind)
             kind = (library.get(kind) or {}).get("extends")
     return False
+
+
+MEMBER_TYPES = {"open": ("bool",), "id": ("identity",), "created_at": ("timestamp",), "created_by_kind": ("actor_kind",),
+                "recorded_from": ("timestamp",), "declaration_version": ("int",)}
+SCALARS = ("int", "decimal", "number")
+
+
+def attribute_type(spec, enums):
+    """An attribute's or an input's type as an expression reads it, a decimal with its scale, a set of references as
+    the objects it holds; None where it cannot be told."""
+    if not spec:
+        return None
+    ref = str(spec.get("reference", ""))
+    if ref:
+        return ("objects", ref[:-2]) if ref.endswith("[]") else ("reference", ref)
+    typ = str(spec.get("type", ""))
+    m = re.fullmatch(r"decimal\(\s*\d+\s*,\s*(\d+)\s*\)", typ)
+    if m:
+        return ("decimal", int(m.group(1)))
+    return written_kind(spec, enums)
+
+
+def type_text(k):
+    """A type as a finding names it."""
+    if k[0] == "decimal":
+        return f"a decimal of scale {k[1]}" if k[1] is not None else "a decimal"
+    if k[0] == "money":
+        return f"money({k[1]})"
+    if k[0] == "reference":
+        return f"an object of {k[1]}"
+    if k[0] == "objects":
+        return f"a set of {k[1]}"
+    if k[0] == "enumeration":
+        return f"a member of {k[1]}"
+    if k[0] == "state":
+        return f"a state of {k[1]}"
+    return {"int": "an int", "identity": "an identity", "actor_kind": "an actor kind"}.get(k[0], f"a {k[0]}")
+
+
+class Typing:
+    """The types of a module's expressions as far as a publish can tell them, and each rule of declaration-syntax.md
+    §8.3 an expression breaks (the model's check 24). A type is inferred from literals, members and inputs, paths
+    through typed references, aggregates over typed collections and the functions §8.3 lists, and is unknown, None,
+    wherever it cannot be told; a rule is decided only where every operand it reads is known, so nothing is refused for
+    what the inference does not reach."""
+
+    def __init__(self, kinds, enums, categories, evaluators):
+        self.kinds, self.enums, self.categories, self.evaluators = kinds, enums, categories, evaluators
+        self.broken = []
+
+    def member(self, tn, m, seen):
+        t = self.kinds.get(tn) or {}
+        if m == "state":
+            return ("state", tn)
+        if m in MEMBER_TYPES:
+            return MEMBER_TYPES[m]
+        spec = (t.get("attributes") or {}).get(m)
+        if spec is not None:
+            return attribute_type(spec, self.enums)
+        derived = (t.get("derived_attributes") or {}).get(m)
+        if derived is not None and (tn, m) not in seen:
+            try:
+                tree = flowexpr.parse(" ".join(str((derived or {}).get("expression", "")).split()))
+            except flowexpr.ParseError:
+                return None
+            quiet = Typing(self.kinds, self.enums, self.categories, self.evaluators)
+            return quiet.of(tree, tn, None, {}, seen | {(tn, m)})
+        return None
+
+    def fail(self, detail):
+        self.broken.append(detail)
+
+    def of(self, e, tn, x, env, seen=frozenset()):
+        """The type of an expression evaluated on an object of type tn, in transition x where one is, with its
+        loops' and aggregates' bound names in env; each rule it breaks noted in self.broken, in evaluation order."""
+        k = e[0]
+        if k == "num":
+            return ("number",)
+        if k == "str":
+            return ("string",)
+        if k == "bool":
+            return ("bool",)
+        if k == "money":
+            return ("money", e[1])
+        if k == "dur":
+            return ("duration",)
+        if k == "name":
+            n = e[1]
+            if n in env:
+                return env[n]
+            if n == "now":
+                return ("timestamp",)
+            if n == "this":
+                return ("reference", tn)
+            if n in self.categories:
+                return ("category",)
+            if n in ((self.kinds.get(tn) or {}).get("states") or {}):
+                return ("state", tn)
+            got = self.member(tn, n, seen)
+            if got is None and n in ACTOR_KINDS:
+                return ("actor_kind",)
+            return got
+        if k == "path":
+            base, m = e[1], e[2]
+            if base == ("name", "inputs"):
+                spec = ((x or {}).get("inputs") or {}).get(m)
+                if spec is None and m in set((x or {}).get("required_inputs") or []) | set((x or {}).get("optional_inputs") or []):
+                    spec = ((self.kinds.get(tn) or {}).get("attributes") or {}).get(m)
+                return attribute_type(spec, self.enums)
+            if base[0] == "name" and base[1] not in env and base[1] in self.enums:
+                return ("enumeration", base[1])
+            if base[0] == "name" and base[1] not in env and base[1] in self.kinds and m.isupper():
+                return ("state", base[1])
+            bt = self.of(base, tn, x, env, seen)
+            if bt is not None and bt[0] == "reference":
+                return self.member(bt[1], m, seen)
+            if bt is not None and bt[0] == "state" and m == "category":
+                return ("category",)
+            return None
+        if k == "call":
+            for a in e[2]:
+                if a[0] != "name":
+                    self.of(a, tn, x, env, seen)
+            f = e[1]
+            if f[0] == "path" and f[1][0] == "name" and f[1][1] in self.evaluators:
+                return ("verdict",)
+            if f == ("name", "length"):
+                arg = self.of(e[2][0], tn, x, env, seen) if len(e[2]) == 1 else None
+                if arg is not None and arg[0] != "string":
+                    self.fail(f"length takes a string, and is given {type_text(arg)}")
+                return ("int",)
+            return {"entered_at": ("timestamp",), "time_in": ("duration",), "date": ("date",)}.get(f[1] if f[0] == "name" else None)
+        if k == "changed":
+            return ("bool",)
+        if k == "isnull":
+            self.of(e[1], tn, x, env, seen)
+            return ("bool",)
+        if k == "not":
+            v = self.of(e[1], tn, x, env, seen)
+            if v is not None and v[0] not in ("bool", "verdict"):
+                self.fail(f"not takes a bool, and is given {type_text(v)}")
+            return ("bool",)
+        if k == "neg":
+            return self.of(e[1], tn, x, env, seen)
+        if k == "agg":
+            _, fn, _distinct, var, coll, where, body = e
+            inner = dict(env)
+            if var is not None:
+                ct = self.of(coll, tn, x, env, seen) if coll[0] != "name" or coll[1] in env or coll[1] not in self.kinds else ("objects", coll[1])
+                inner[var] = ("reference", ct[1]) if ct is not None and ct[0] == "objects" else None
+            if where is not None:
+                w = self.of(where, tn, x, inner, seen)
+                if w is not None and w[0] != "bool":
+                    self.fail(f"the condition of a {fn} is {type_text(w)}, not a bool")
+            b = self.of(body, tn, x, inner, seen) if body is not None else None
+            if fn == "count":
+                return ("int",)
+            if fn in ("all", "any", "none"):
+                if b is not None and b[0] != "bool":
+                    self.fail(f"the body of {fn} is {type_text(b)}, not a bool")
+                return ("bool",)
+            if fn in ("sum", "min", "max") and b is not None:
+                if fn == "sum" and b[0] not in SCALARS + ("money", "duration"):
+                    self.fail(f"sum adds {type_text(b)}, which does not add")
+                return b
+            return None
+        if k == "metric":
+            for _d, v in e[2]:
+                self.of(v, tn, x, env, seen)
+            return None
+        if k == "in":
+            left = self.of(e[1], tn, x, env, seen)
+            right = e[2]
+            if right[0] == "name" and right[1] in self.enums and right[1] not in env:
+                if left is not None and left != ("enumeration", right[1]):
+                    self.fail(f"it asks whether {type_text(left)} is in {right[1]}")
+            elif right[0] == "set":
+                for item in right[1]:
+                    it = self.of(item, tn, x, env, seen)
+                    if left is not None and it is not None and not self.alike(left, it):
+                        self.fail(f"it asks whether {type_text(left)} is among {type_text(it)}")
+                        break
+            return ("bool",)
+        if k == "if":
+            c = self.of(e[1], tn, x, env, seen)
+            if c is not None and c[0] != "bool":
+                self.fail(f"if takes a bool, and is given {type_text(c)}")
+            a, b = self.of(e[2], tn, x, env, seen), self.of(e[3], tn, x, env, seen)
+            if a is not None and b is not None and not self.alike(a, b):
+                self.fail(f"if yields {type_text(a)} or {type_text(b)}, which share no type")
+                return None
+            return a if a is not None and a[0] != "number" else b
+        if k == "bin":
+            op, l, r = e[1], self.of(e[2], tn, x, env, seen), self.of(e[3], tn, x, env, seen)
+            if op in ("and", "or", "implies"):
+                for v in (l, r):
+                    # a verdict inside a larger expression is check 24's evaluator rule's, refused there
+                    if v is not None and v[0] not in ("bool", "verdict"):
+                        self.fail(f"{op} takes bools, and is given {type_text(v)}")
+                        break
+                return ("bool",)
+            if op in ("==", "!=", "<", "<=", ">", ">="):
+                if l is not None and r is not None and not self.alike(l, r):
+                    self.fail(f"it compares {type_text(l)} with {type_text(r)}")
+                return ("bool",)
+            if l is None or r is None:
+                return None
+            return self.arithmetic(op, l, r)
+        if k == "set":
+            for item in e[1]:
+                self.of(item, tn, x, env, seen)
+            return None
+        return None
+
+    def alike(self, a, b):
+        """Whether two types are one for a comparison or a conditional's branches: equal, a number literal and any
+        number, two decimals, or references of one family; and two states, two references and an identity and a
+        string, which the inference cannot always tell apart, given the benefit of the doubt."""
+        if a == b or {a[0], b[0]} <= {"number", "int", "decimal"} and "number" in (a[0], b[0]):
+            return True
+        if a[0] == b[0] == "decimal":
+            return True
+        if a[0] == b[0] == "state" or {a[0], b[0]} == {"identity", "string"}:
+            return True
+        if a[0] == b[0] == "reference":
+            return fits(("reference", a[1]), ("reference", b[1]), self.kinds) or fits(("reference", b[1]), ("reference", a[1]), self.kinds)
+        return False
+
+    def arithmetic(self, op, l, r):
+        """The type of `l op r` by §8.3, or None, noting a rule it breaks."""
+        def numeric(v):
+            return v[0] in SCALARS
+        if op in ("+", "-"):
+            if numeric(l) and numeric(r):
+                if l[0] == "number":
+                    return r
+                if r[0] == "number":
+                    return l
+                if l[0] != r[0]:
+                    self.fail(f"it {'adds' if op == '+' else 'subtracts'} {type_text(l)} and {type_text(r)}, two types")
+                    return None
+                if l[0] == "decimal" and l[1] is not None and r[1] is not None and l[1] != r[1]:
+                    self.fail(f"it {'adds' if op == '+' else 'subtracts'} decimals of two scales, {l[1]} and {r[1]}")
+                    return None
+                return l
+            if l[0] == r[0] == "money":
+                if l[1] != r[1]:
+                    self.fail(f"it {'adds' if op == '+' else 'subtracts'} money of two currencies, {l[1]} and {r[1]}")
+                    return None
+                return l
+            if l[0] == r[0] == "duration":
+                return l
+            if l[0] == "timestamp" and r[0] == "duration" or op == "+" and l[0] == "duration" and r[0] == "timestamp":
+                return ("timestamp",)
+            if op == "-" and l[0] == r[0] == "timestamp":
+                return ("duration",)
+            if "date" in (l[0], r[0]):
+                return None                     # date arithmetic §8.3 leaves unsaid
+            self.fail(f"it {'adds' if op == '+' else 'subtracts'} {type_text(l)} and {type_text(r)}")
+            return None
+        # * and /
+        if numeric(l) and numeric(r):
+            if l[0] == "number":
+                return r
+            if r[0] == "number":
+                return l
+            if l[0] == r[0] == "int":
+                return l
+            return ("decimal", None)
+        if op == "/" and l[0] == r[0] and l[0] in ("money", "duration"):
+            if l[0] == "money" and l[1] != r[1]:
+                self.fail(f"it divides money of two currencies, {l[1]} and {r[1]}")
+                return None
+            return ("decimal", 6)               # a quotient of two like quantities
+        if l[0] in ("money", "duration") and numeric(r):
+            return l
+        if op == "*" and r[0] in ("money", "duration") and numeric(l):
+            return r
+        if op == "/" and numeric(l) and r[0] in ("money", "duration"):
+            self.fail(f"it divides {type_text(l)} by {type_text(r)}, and / takes its scalar on the right")
+            return None
+        if "timestamp" in (l[0], r[0]) or "date" in (l[0], r[0]):
+            return None                         # what §8.3 leaves unsaid is left
+        self.fail(f"it {'multiplies' if op == '*' else 'divides'} {type_text(l)} {'by' if op == '*' else 'by'} {type_text(r)}, "
+                  "and takes a scalar on at least one side")
+        return None
+
+
+def expression_type_errors(doc, library):
+    """Each expression of a module that does not type by declaration-syntax.md §8.3, where the types it combines can
+    be told: a condition, an invariant, a derived attribute, a uniqueness condition, an effect's value, argument, loop
+    or range, and a backfill; a condition a bool or an evaluator's verdict and an invariant a bool, besides (the model's
+    check 24). A metric's expressions read rows, which this does not type."""
+    kinds = dict(library or {})
+    kinds.update(dict(types(doc)))
+    enums = set(doc.get("enumerations") or {}) | {n for names in (doc.get("imports") or {}).values() for n in names if n not in kinds}
+    categories = set(doc.get("categories") or []) | BUILT_IN_CATEGORIES
+    typing = Typing(kinds, enums, categories, evaluator_names(doc))
+    out = []
+
+    def check(where, name, text, tn, x, env=None, want=None):
+        try:
+            tree = flowexpr.parse(" ".join(str(text).split()))
+        except flowexpr.ParseError:
+            return                              # step 2 refuses what does not parse
+        typing.broken = []
+        got = typing.of(tree, tn, x, dict(env or {}))
+        if not typing.broken and want and got is not None and got[0] not in want:
+            typing.broken.append(f"it is {type_text(got)}, not a bool")
+        if typing.broken:
+            out.append((where, "names", f"{name} does not type: {typing.broken[0]} (the model's check 24)"))
+
+    for tn, t in types(doc):
+        base = ("types", tn)
+        for cn, c in (t.get("conditions") or {}).items():
+            check(base + ("conditions", cn, "expression"), f"condition {cn}", c["expression"], tn, None, want=("bool", "verdict"))
+        for i, spec in (t.get("invariants") or {}).items():
+            if not inherited(t, "invariants", i):
+                check(base + ("invariants", i, "expression"), f"invariant {i}", spec["expression"], tn, None, want=("bool",))
+        for d, spec in (t.get("derived_attributes") or {}).items():
+            if not inherited(t, "derived_attributes", d):
+                check(base + ("derived_attributes", d, "expression"), f"derived attribute {d}", spec["expression"], tn, None)
+        for a, spec in (t.get("attributes") or {}).items():
+            if isinstance(spec.get("unique"), dict) and "where" in spec["unique"] and not inherited(t, "attributes", a):
+                check(base + ("attributes", a, "unique", "where"), f"{tn}.{a}'s uniqueness condition", spec["unique"]["where"], tn, None, want=("bool",))
+        for xn, x in (t.get("transitions") or {}).items():
+            for st, kind, path, _depth in walk(x.get("effect")):
+                where = base + ("transitions", xn, "effect") + path
+                env = {n: (("reference", k) if k else None) for n, k in binders(kinds, tn, x, path).items()}
+                for e in step_expressions(st, kind):
+                    check(where, f"{tn}.{xn}'s effect", e, tn, x, env)
+    for tn, given in ((doc.get("migration") or {}).get("backfill") or {}).items():
+        for a, e in (given or {}).items():
+            check(("migration", "backfill", tn, a), f"the backfill of {tn}.{a}", e, tn, None)
+    return out
 
 
 def argument_type_errors(doc, library):
@@ -4764,6 +5100,36 @@ SYMMETRY_DESK = (
     '      book:   { kind: initial, to: HELD, required_inputs: [room, starts, ends], optional_inputs: [cap] }\n'
     '      finish: { kind: external, from: [HELD], to: DONE }\n'
 )
+# an account of every type an expression combines, whose one derivation check 24's self-test replaces
+TYPED_LEDGER = (
+    'module: ledger\n'
+    'categories: [live, closed]\n'
+    'enumerations:\n'
+    '  Tier: [GOLD, SILVER]\n'
+    'types:\n'
+    '  Account:\n'
+    '    description: An account.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      usd:   { type: money(USD) }\n'
+    '      sgd:   { type: money(SGD) }\n'
+    '      rate:  { type: "decimal(8,2)" }\n'
+    '      fine:  { type: "decimal(8,3)" }\n'
+    '      count: { type: int }\n'
+    '      since: { type: timestamp }\n'
+    '      span:  { type: duration }\n'
+    '      label: { type: string }\n'
+    '      vip:   { type: bool }\n'
+    '      tier:  { type: Tier }\n'
+    '    states:\n'
+    '      OPEN: { category: live }\n'
+    '      SHUT: { category: closed, final: true }\n'
+    '    derived_attributes:\n'
+    '      probe: { description: A probe., expression: "usd + usd" }\n'
+    '    transitions:\n'
+    '      open: { kind: initial, to: OPEN, required_inputs: [usd, sgd, rate, fine, count, since, span, label, vip, tier] }\n'
+    '      shut: { kind: external, from: [OPEN], to: SHUT }\n'
+)
 SYNTAX_PAIR = (
     'module: pair\n'
     'categories: [live, closed]\n'
@@ -5716,6 +6082,62 @@ def cluster3_plants(people):
     return ok
 
 
+def expression_type_plants(people):
+    """An expression that does not type by declaration-syntax.md §8.3 is refused, saying which rule it breaks, where
+    the types it combines are known (the model's check 24): money of two currencies, decimals of two scales, an int and
+    a decimal, two timestamps added, money times money, a duration times a duration, an int over money, money of two
+    currencies divided, a timestamp compared with a duration, a string with an int, a string asked of an enumeration,
+    a connective and a `not` on what is no bool, a conditional of two types, `length` of an int, and an invariant and a
+    condition that are no bool; and what types is accepted."""
+    probe = "usd + usd"
+
+    def ledger(expr, invariant=None, condition=None):
+        text = TYPED_LEDGER.replace(f'expression: "{probe}"', f'expression: "{expr}"')
+        if invariant:
+            text = text.replace("    transitions:\n", f"    invariants:\n      check: {{ description: A check., expression: \"{invariant}\" }}\n    transitions:\n")
+        if condition:
+            text = text.replace("    transitions:\n", f"    conditions:\n      ready: {{ description: Ready., expression: \"{condition}\", remedy: dependent }}\n    transitions:\n")
+            text = text.replace("shut: { kind: external, from: [OPEN], to: SHUT }", "shut: { kind: external, from: [OPEN], to: SHUT, guards: { ready: deny } }")
+        return text
+
+    def wrong(name, why):
+        return f"{name} does not type: {why} (the model's check 24)"
+    cases = [
+        ("money of two currencies", ledger("usd + sgd"), [wrong("derived attribute probe", "it adds money of two currencies, USD and SGD")]),
+        ("decimals of two scales", ledger("rate + fine"), [wrong("derived attribute probe", "it adds decimals of two scales, 2 and 3")]),
+        ("an int and a decimal", ledger("count + rate"), [wrong("derived attribute probe", "it adds an int and a decimal of scale 2, two types")]),
+        ("two timestamps added", ledger("since + since"), [wrong("derived attribute probe", "it adds a timestamp and a timestamp")]),
+        ("money times money", ledger("usd * usd"),
+         [wrong("derived attribute probe", "it multiplies money(USD) by money(USD), and takes a scalar on at least one side")]),
+        ("a duration times a duration", ledger("span * span"),
+         [wrong("derived attribute probe", "it multiplies a duration by a duration, and takes a scalar on at least one side")]),
+        ("an int over money", ledger("count / usd"),
+         [wrong("derived attribute probe", "it divides an int by money(USD), and / takes its scalar on the right")]),
+        ("money of two currencies divided", ledger("usd / sgd"), [wrong("derived attribute probe", "it divides money of two currencies, USD and SGD")]),
+        ("a timestamp compared with a duration", ledger("since < span"), [wrong("derived attribute probe", "it compares a timestamp with a duration")]),
+        ("a string compared with an int", ledger("label == count"), [wrong("derived attribute probe", "it compares a string with an int")]),
+        ("a string asked of an enumeration", ledger("label in Tier"), [wrong("derived attribute probe", "it asks whether a string is in Tier")]),
+        ("a connective on a string", ledger("vip and label"), [wrong("derived attribute probe", "and takes bools, and is given a string")]),
+        ("not on an int", ledger("not count"), [wrong("derived attribute probe", "not takes a bool, and is given an int")]),
+        ("a conditional of two types", ledger("if vip then usd else sgd"),
+         [wrong("derived attribute probe", "if yields money(USD) or money(SGD), which share no type")]),
+        ("length of an int", ledger("length(count) > 0"), [wrong("derived attribute probe", "length takes a string, and is given an int")]),
+        ("an invariant that is no bool", ledger(probe, invariant="count + 1"), [wrong("invariant check", "it is an int, not a bool")]),
+        ("a condition that is no bool", ledger(probe, condition="label"), [wrong("condition ready", "it is a string, not a bool")]),
+        ("what types", ledger("if vip then usd / count + usd * 2 else usd - usd"), []),
+        ("a duration of timestamps, a quotient of like amounts and a tier", ledger(
+            "since - since < span and usd / usd > 1 and tier == Tier.GOLD and tier in Tier and label in {\\\"a\\\", \\\"b\\\"} and rate * count > rate"), []),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, _ = check([("people.yaml", people), ("ledger.yaml", text)])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want) and all(x[3] == "names" for x in found)
+        ok &= hit
+        print(f"  check 24, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
 def argument_type_plants(people):
     """An argument of a call or a create whose value does not fit the input it is given to is refused, an input the
     transition declares or an attribute input (the model's check 2, its types): a number to a string, the clock to an
@@ -6426,6 +6848,7 @@ def main():
     ok &= invariant_form_plants(people)
     ok &= symmetry_plants(people)
     ok &= argument_type_plants(people)
+    ok &= expression_type_plants(people)
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:

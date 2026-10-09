@@ -12665,6 +12665,501 @@
   "forms": {}
  },
  {
+  "label": "expression_type_plants: money of two currencies",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "df1f44728c58f4ec"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it adds money of two currencies, USD and SGD (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: decimals of two scales",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "1ff29ce18ff03331"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it adds decimals of two scales, 2 and 3 (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: an int and a decimal",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "499c3c341e0edc47"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it adds an int and a decimal of scale 2, two types (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: two timestamps added",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "a68a542fcfae1260"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it adds a timestamp and a timestamp (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: money times money",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "e1895b97b191a8ea"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it multiplies money(USD) by money(USD), and takes a scalar on at least one side (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: a duration times a duration",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "b422363477f85c22"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it multiplies a duration by a duration, and takes a scalar on at least one side (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: an int over money",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "28ade1dd07737206"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it divides an int by money(USD), and / takes its scalar on the right (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: money of two currencies divided",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "684cb8376f20207e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it divides money of two currencies, USD and SGD (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: a timestamp compared with a duration",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "41f3a1b66f17714c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it compares a timestamp with a duration (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: a string compared with an int",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "d314ad7b73002395"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it compares a string with an int (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: a string asked of an enumeration",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "965fcd98c07ed6e6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it asks whether a string is in Tier (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: a connective on a string",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "c11a8d96febc04a4"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: and takes bools, and is given a string (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: not on an int",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "8e51a85dc23d8b8a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: not takes a bool, and is given an int (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: a conditional of two types",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "1295f7259443c6a0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: if yields money(USD) or money(SGD), which share no type (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: length of an int",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "c65b994352ca7a47"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: length takes a string, and is given an int (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: an invariant that is no bool",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "94cef84becf73772"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    26,
+    "fatal",
+    "names",
+    "invariant check does not type: it is an int, not a bool (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Account.check": "local"
+  }
+ },
+ {
+  "label": "expression_type_plants: a condition that is no bool",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "6df46d8ba22a1358"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    26,
+    "fatal",
+    "names",
+    "condition ready does not type: it is a string, not a bool (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: what types",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "4da5e617b5434c1c"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Account": [
+    0,
+    0
+   ],
+   "Agent": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {}
+ },
+ {
+  "label": "expression_type_plants: a duration of timestamps, a quotient of like amounts and a tier",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "811dd6d22cb1e0f7"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Account": [
+    0,
+    0
+   ],
+   "Agent": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {}
+ },
+ {
   "label": "syntax_plants",
   "files": [
    [

@@ -46,7 +46,7 @@ Each check is one of four kinds. A *model* check refuses a declaration whatever 
 | 21 | a comparison with a bare `null`, an aggregate with no binder; a loop with no limit; `$` and `do … at` | model; notation, the last two | the text checker; the schema, the limit | C2; C1 |
 | 22 | a version that did not advance; a required field added to an observation kind | notation; model, the field | the text checker; step 3 | retires; C1 |
 | 23 | a removed state with no mapping | model | step 3 | C1 |
-| 24 | an expression that does not type | model | neither, but for an evaluator's verdict, step 3 | C1 for that |
+| 24 | an expression that does not type | model | step 3: an evaluator's verdict, and since 2026-10-09 §8.3's operators where the types can be told; a metric's rows not typed | C1 |
 | 25 | an event input given anything but `this_event` | model | step 3 | C1 |
 | 26 | a supersession's rules | model | step 3; the text checker | C1; C2 for what step 3 misses |
 | 27 | a `may admit` naming no reachable invariant | model | step 3 | C1 |

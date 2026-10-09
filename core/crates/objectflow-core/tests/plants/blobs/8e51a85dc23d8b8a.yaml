@@ -1,0 +1,27 @@
+module: ledger
+categories: [live, closed]
+enumerations:
+  Tier: [GOLD, SILVER]
+types:
+  Account:
+    description: An account.
+    tracking: record
+    attributes:
+      usd:   { type: money(USD) }
+      sgd:   { type: money(SGD) }
+      rate:  { type: "decimal(8,2)" }
+      fine:  { type: "decimal(8,3)" }
+      count: { type: int }
+      since: { type: timestamp }
+      span:  { type: duration }
+      label: { type: string }
+      vip:   { type: bool }
+      tier:  { type: Tier }
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    derived_attributes:
+      probe: { description: A probe., expression: "not count" }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [usd, sgd, rate, fine, count, since, span, label, vip, tier] }
+      shut: { kind: external, from: [OPEN], to: SHUT }
