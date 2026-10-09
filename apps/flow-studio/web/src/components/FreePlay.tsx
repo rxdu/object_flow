@@ -7,7 +7,7 @@ import type {
   Wire,
 } from "../api/wire";
 import { explain } from "../session/explain";
-import { writtenValue } from "../session/notation";
+import { instantText, writtenValue } from "../session/notation";
 import { OPERATOR, type Player } from "../session/player";
 import { InputForm, type Known } from "./InputForm";
 import { SaveExample } from "./SaveExample";
@@ -191,6 +191,9 @@ export function FreePlay({
             onChange={(e) => setBy(e.target.value)}
           />
           <button className="btn-quiet">Advance</button>
+          <span className="self-center font-mono text-xs text-slate-500 tabular-nums">
+            now {instantText(player.now)}
+          </span>
         </form>
       </div>
 

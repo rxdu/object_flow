@@ -20,6 +20,7 @@ import { Offers } from "./components/Offers";
 import { RuleSet } from "./components/RuleSet";
 import { Stepper } from "./components/Stepper";
 import { explain } from "./session/explain";
+import { instantText } from "./session/notation";
 import {
   besideModule,
   type ExamplesDoc,
@@ -411,6 +412,7 @@ export function App() {
                 doc={doc}
                 example={example}
                 beside={beside}
+                now={player ? instantText(player.now) : ""}
                 onChange={changed}
               />
             </div>

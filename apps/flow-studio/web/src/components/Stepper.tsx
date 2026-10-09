@@ -10,7 +10,6 @@ import {
   plan,
   summary,
 } from "../session/player";
-import { instantText } from "../session/notation";
 
 interface Done {
   status:
@@ -31,6 +30,7 @@ export function Stepper({
   doc,
   example,
   beside,
+  now,
   onChange,
 }: {
   wire: Wire;
@@ -38,6 +38,9 @@ export function Stepper({
   /** where a `publish` step reads its files (ADR-0166) */
   beside?: Beside;
   example: string;
+  /** the sandbox's clock, the page's one reading of it, which free play's
+   * Advance moves as an example's `after` does */
+  now: string;
   onChange: (player: Player) => void;
 }) {
   const steps: PlanStep[] = plan(doc, example);
@@ -47,14 +50,12 @@ export function Stepper({
   const next = useRef(0);
   const [done, setDone] = useState<Done[]>([]);
   const [outcome, setOutcome] = useState<string | null>(null);
-  const [now, setNow] = useState("");
   const [busy, setBusy] = useState(false);
 
   const begin = useCallback(
-    (now: string) => {
-      player.current = new Player(wire, now, beside);
+    (start: string) => {
+      player.current = new Player(wire, start, beside);
       next.current = 0;
-      setNow(now);
       setDone([]);
       setOutcome(null);
       onChange(player.current);
@@ -117,7 +118,6 @@ export function Stepper({
       else throw e;
     }
     setDone((prev) => [...prev, d]);
-    setNow(instantText(p.now));
     onChange(p);
     return d.status === "applied" || d.status === "answered";
   }

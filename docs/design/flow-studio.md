@@ -58,7 +58,7 @@ A trigger is one of the examples format's own steps (`flow-format.md` §11.3), s
 - **an import** of a legacy object into a mirror type, an example's `import` step (§6);
 - **a publish** of another version over the sandbox's objects, a module of the catalogue or the editor's text, its dry run's report read before it is approved, an example's `publish` step (§6, ADR-0166).
 
-Time never runs on its own: a session is repeatable only if every change of the clock is a step.
+Time never runs on its own: a session is repeatable only if every change of the clock is a step. The page reads the clock from the session, once, and shows it beside free play's *Advance* and in the simulator's panel, which therefore agree; until 2026-10-09 the simulator's panel kept its own reading, which an advance in free play left behind.
 
 ## 5. Sessions and examples
 
