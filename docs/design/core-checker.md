@@ -17,7 +17,7 @@ Step 4 runs only when no file has a fatal finding from steps 1 to 3, and the cor
 
 ## 2. The sixty-four checks
 
-Each check is one of four kinds. A *model* check refuses a declaration whatever notation wrote it, and the core runs it on its own reading of the module (ADR-0156 decision 1). A *notation* check is about the internal text form alone, such as a version written in it or a line's indentation, and retires with that form. A *document* check reads the design's documents, not a module. A *withdrawn* check is kept for its number.
+Each check is one of four kinds. A *model* check refuses a declaration whatever notation wrote it, and the core runs it on its own reading of the module (ADR-0156 decision 1). A *notation* check is about the internal text form alone, such as a version written in it or a line's indentation, and is the reference checker's alone, which keeps that form as its path (ADR-0172); the core never runs it. A *document* check reads the design's documents, not a module. A *withdrawn* check is kept for its number.
 
 *Today* says which part of the reference enforces it: step 3 of `check-flows.py`, the text checker over the converted text, the schema, or neither. Where neither does, the core has nothing to be held to, and the check waits for both; ADR-0116 recorded that thirty-six checks were implemented when the text form was retired as a written form.
 
@@ -44,7 +44,7 @@ Each check is one of four kinds. A *model* check refuses a declaration whatever 
 | 19 | a name that resolves to nothing | model | step 3; the text checker | C1; C2 for what step 3 misses |
 | 20 | a default on an optional input; an unnamed guard; a remedy outside the five classes | model; notation, the unnamed guard | the text checker; the schema | C2; C1 |
 | 21 | a comparison with a bare `null`, an aggregate with no binder; a loop with no limit; `$` and `do … at` | model; notation, the last two | the text checker; the schema, the limit | C2; C1 |
-| 22 | a version that did not advance; a required field added to an observation kind | notation; model, the field | the text checker; step 3 | retires; C1 |
+| 22 | a version that did not advance; a required field added to an observation kind | notation; model, the field | the text checker; step 3 | the reference's alone; C1 |
 | 23 | a removed state with no mapping | model | step 3 | C1 |
 | 24 | an expression that does not type | model | step 3: an evaluator's verdict, and since 2026-10-09 §8.3's operators where the types can be told; a metric's rows not typed | C1 |
 | 25 | an event input given anything but `this_event` | model | step 3 | C1 |
@@ -60,11 +60,11 @@ Each check is one of four kinds. A *model* check refuses a declaration whatever 
 | 35 | a machine naming what it does not require | model | step 3; the text checker | C1; C2 for what step 3 misses |
 | 36 | a part and an owner of disagreeing types; a re-parent to an abstract owner | model | step 3, the types as ends that do not name each other, the re-parent since 2026-10-08 | C1 |
 | 37 | a cascade trigger naming no transition; a final transition neither cascaded nor survived | model | step 3 | C1 |
-| 38 | an assertion with `may admit` and no `admits` input | notation | the text checker, never from YAML, whose conversion writes the input | retires |
+| 38 | an assertion with `may admit` and no `admits` input | notation | the text checker, never from YAML, whose conversion writes the input | the reference's alone |
 | 39 | an erasure not reaching a part's personal data | model | step 3 | C1 |
 | 40 | an internal transition at a final state | model | the text checker | C2 |
 | 41 | a relationship whose ends disagree or store the value twice or not at all | model | step 3; the text checker | C1; C2 for what step 3 misses |
-| 42 | a type with no tracking; a declaration with no version | model; notation, the version | step 3; the text checker | C1; retires |
+| 42 | a type with no tracking; a declaration with no version | model; notation, the version | step 3; the text checker | C1; the reference's alone |
 | 43 | an `extends` to an undeclared, concrete or cyclic base | model | step 3; the text checker | C1 |
 | 44 | an identifier's sequence, scope and format | model | step 3 | C1 |
 | 45 | *withdrawn* (ADR-0133) | withdrawn | — | — |
@@ -73,7 +73,7 @@ Each check is one of four kinds. A *model* check refuses a declaration whatever 
 | 48 | an optional input inside a larger expression | model | step 3 | C1 |
 | 49 | a supersede's operand | model | step 3 | C1 |
 | 50 | an import of an undeclared name; a default reading what it may not | model | step 3 | C1 |
-| 51 | a clause on a body's opening line; a continuation not indented | notation | the text checker | retires |
+| 51 | a clause on a body's opening line; a continuation not indented | notation | the text checker | the reference's alone |
 | 52 | a normative statement citing no check | document | the text checker, over the design | stays a design check |
 | 53 | a mirror that can be written, or composed with what the store owns | model | step 3; the text checker | C1; C2 for what step 3 misses |
 | 54 | an observation kind's names, units and invariants | model | step 3; the text checker | C1; C2 for what step 3 misses |
