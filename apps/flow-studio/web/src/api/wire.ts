@@ -230,8 +230,9 @@ export interface PublishFinding {
 }
 
 /** A change's impact report, as its dry run computes it: the version it
- * would install, whether it may be approved, its findings, and every
- * object each category reaches, by id (publish-and-import.md §2). */
+ * would install, whether it may be approved, its findings, every object
+ * each category reaches, by id, and what the version declares that its
+ * reviewer reads (publish-and-import.md §2). */
 export interface PublishReport {
   version: number;
   accepted: boolean;
@@ -239,6 +240,15 @@ export interface PublishReport {
   findings: PublishFinding[];
   affected: Record<string, string[]>;
   proposals_invalidated: number;
+  /** each invariant's form, `Type.invariant` to its form (ADR-0055) */
+  invariant_forms?: Record<string, string>;
+  /** each invariant's transitions that could break it, as `Type.transition`
+   * (DESIGN.md §5.6) */
+  could_violate?: Record<string, string[]>;
+  /** each metric dimension that names a person,
+   * `Type.metric.dimension[.path]` */
+  person_dimensions?: string[];
+  not_computed?: string[];
 }
 
 export interface ImportedObject {

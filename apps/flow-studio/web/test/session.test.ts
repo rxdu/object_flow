@@ -265,6 +265,20 @@ describe.each(BACKENDS)("against the %s", (backend) => {
       expect(d.report?.affected["mapping:backfill:ServiceJob.site"]).toEqual([
         job,
       ]);
+      // what the version declares, which the panel shows its reviewer
+      expect(d.report?.invariant_forms).toEqual({
+        "ServiceJob.photo_when_done": "local",
+      });
+      expect(d.report?.could_violate).toEqual({
+        "ServiceJob.photo_when_done": [
+          "ServiceJob.finish",
+          "ServiceJob.open",
+          "ServiceJob.start",
+        ],
+      });
+      expect(d.report?.person_dimensions).toContain(
+        "ServiceJob.time_working.engineer",
+      );
       const v = await p.approveVersion(d.change, "service-v2.yaml", {
         source: files,
       });

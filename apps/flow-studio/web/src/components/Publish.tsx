@@ -37,6 +37,56 @@ const SEVERITY: Record<string, string> = {
   notice: "bg-slate-50 text-slate-700",
 };
 
+/** What the version declares that its reviewer reads before approving it
+ * (publish-and-import.md §2): each invariant with its form and the
+ * transitions that could break it, and each metric dimension that names a
+ * person. Names only, as the report gives them; nothing restated. */
+function Declared({ report }: { report: PublishReport }) {
+  const forms = report.invariant_forms ?? {};
+  const violators = report.could_violate ?? {};
+  const invariants = [
+    ...new Set([...Object.keys(forms), ...Object.keys(violators)]),
+  ].sort();
+  const persons = report.person_dimensions ?? [];
+  if (invariants.length === 0 && persons.length === 0) return null;
+  return (
+    <div className="space-y-1 text-xs">
+      {invariants.length > 0 && (
+        <ul className="space-y-1">
+          {invariants.map((inv) => (
+            <li key={inv}>
+              <span className="text-slate-500">invariant</span>{" "}
+              <span className="font-mono">{inv}</span>
+              {forms[inv] && ` · ${forms[inv]}`}
+              {violators[inv] && (
+                <span className="block text-slate-600">
+                  {violators[inv].length > 0
+                    ? `could be broken by ${violators[inv].join(", ")}`
+                    : "no transition could break it"}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {persons.length > 0 && (
+        <p>
+          <span className="text-slate-500">
+            metric dimensions naming a person
+          </span>
+          <span className="flex flex-wrap gap-x-3 font-mono text-slate-600">
+            {persons.map((d) => (
+              <span key={d} className="[overflow-wrap:anywhere]">
+                {d}
+              </span>
+            ))}
+          </span>
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** Publishing a second version into the running sandbox (ADR-0166 decision
  * 4, docs/design/flow-studio.md §4): a module of the catalogue, its imports
  * with it, or the editor's text; its dry run's report read before anything
@@ -213,6 +263,7 @@ export function Publish({
               </li>
             ))}
           </ul>
+          {r && <Declared report={r} />}
           <div className="flex gap-2">
             <button
               className="btn"
