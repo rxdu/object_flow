@@ -245,6 +245,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** For every "as X says", "X declares" or "every Y", search X or the list of Y before writing the sentence, and narrow a generalisation to the cases it was checked against. Before concluding that a document does *not* say something, search with a command that cannot hide a match: `grep -o '<phrase>'` or `grep -c`, never output cut to a width, since one-line paragraphs put most text past any cut.
 - **Context:** Findings sections, ADRs and register entries, which readers take as sourced, and any search in this repository's Markdown.
 - **Recurred** 2026-09-28: ADR-0134's draft decided a reused key's remedy as though none existed, and ADR-0105 §6 had decided it; a reader of the decision records caught it before the commit. A claim that something is undecided is a claim about every decision record, and is searched for across `docs/adr/` first.
+- **Recurred** 2026-10-09: a design paragraph's draft said the publish report had carried three fields "since 2026-10-08", from memory; `git log -S` over `publish-and-import.md` dated them 2026-09-25, 2026-10-08 and 2026-10-09, and the clause was dropped before the commit. When something entered the record is read from `git log -S`, never recalled.
 
 ### A changed rule is searched for by its old wording across the record, not only edited where the decision names it
 
@@ -477,3 +478,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Five checks were enforced in one day (12, 32, 30, 10, 36), each recorded in `declaration-syntax.md` §10, `flow-format.md` §7 and `TODO.md`, while `core-checker.md` §2, the table saying which part of the reference enforces each check, kept saying "neither" for all five until building the sixth found it.
 - **Correction:** Before recording a check's enforcement, search the design for every place that states its status, by its number (`grep -n "^| <n> |" docs/design/*.md`) as well as by its words, and change each; the inventory is the one a reader consults first.
 - **Context:** `declaration-syntax.md` §10's checks and the documents that track them, ObjectFlow; 2026-10-08.
+
+### A walk's expected results are read from a run of that walk
+- **Pattern:** Writing the Flow Studio's manual test guide on 2026-10-09, walk 5 said the dry run of `service-v2.yaml` shows "two notices", read from a dry run made over an empty sandbox; the walk opens a job first, which adds a third, the backfill of `ServiceJob.site` reaching it. Three more steps (the clock's *Advance*, the diagram following the type tab, a migrated object's history) were written as expected without having been watched, and *Advance* turned out to show nothing anywhere on the page. A run of each walk exactly as written caught all four before the commit.
+- **Correction:** Read each expected result in a walk-through from a run of exactly the steps it gives, in its order and from its starting state; drive any step not yet watched before writing what it shows, and give where the backends differ both readings.
+- **Context:** Manual test guides and README walk-throughs, the Flow Studio; 2026-10-09.
