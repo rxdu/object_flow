@@ -233,9 +233,13 @@ export function FreePlay({
             onChange={(e) => setType(e.target.value)}
           >
             <option value="">(a type)</option>
-            {types.map((t) => (
-              <option key={t}>{t}</option>
-            ))}
+            {/* a mirror takes no transition but an erasure (flow-format.md
+                §4.15): its objects arrive under Import, below */}
+            {types
+              .filter((t) => !mirrors.includes(t))
+              .map((t) => (
+                <option key={t}>{t}</option>
+              ))}
           </select>
           {initials.length > 1 && (
             <select
