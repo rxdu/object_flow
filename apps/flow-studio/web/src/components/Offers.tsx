@@ -134,9 +134,6 @@ export function Offers({
           {o.verdict && (
             <div className="mt-1 text-xs text-amber-900">
               {explain(o.verdict)}
-              {"clause" in o.verdict && o.verdict.clause && (
-                <span className="font-mono"> · {o.verdict.clause}</span>
-              )}
               {"remedy" in o.verdict && o.verdict.remedy && (
                 <span className="text-slate-500"> · {o.verdict.remedy}</span>
               )}

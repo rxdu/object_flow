@@ -446,7 +446,6 @@ export function App() {
                   className={`mt-3 rounded px-2 py-1 text-sm ${last.kind === "satisfied" ? "bg-emerald-50" : "bg-amber-50"}`}
                 >
                   {explain(last)}
-                  {"clause" in last && last.clause ? ` · ${last.clause}` : ""}
                   {"remedy" in last && last.remedy ? ` · ${last.remedy}` : ""}
                 </p>
               )}
