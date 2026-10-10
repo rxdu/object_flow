@@ -2850,8 +2850,13 @@ def formula_errors(tn, t, mn, m):
     for key, text in parts:
         if text is None:
             continue
-        for r in sorted(reads(text) - {item, "now"}):
+        # .held(<member>) names a member of the type whose spans or transitions the rows are, not a name of the
+        # metric's own (declaration-syntax.md §6.9, D550)
+        held = set(re.findall(rf"(?<![\w.]){item}\.held\(\s*([a-z][a-z0-9_]*)\s*\)", " ".join(str(text).split())))
+        for r in sorted(reads(text) - {item, "now"} - held):
             out.append((base + key, "names", f"metric {mn} reads '{r}'; a metric reads its rows through '{item}'"))
+        for r in sorted(held - set(t.get("attributes") or {}) - {"state"}):
+            out.append((base + key, "names", f"metric {mn} reads {item}.held({r}), and {tn} has no member '{r}'"))
         for r in sorted(set(re.findall(rf"(?<![\w.]){item}\.([a-z][a-z0-9_]*)", " ".join(str(text).split())))):
             if members is not None and r not in members:
                 out.append((base + key, "names", f"metric {mn} reads {item}.{r}, a label's note, which is personal and not readable"
@@ -5868,6 +5873,29 @@ def split_plants(people):
     return ok
 
 
+def held_plants(people):
+    """A formula metric reading what a tracked member held over each span, `i.held(<member>)` (declaration-syntax.md
+    §6.9), planted in the service example: clean as written, its argument a member of the type and no name of the
+    metric's own (D550), and refused where it names no member of the type."""
+    ok = True
+    service = (EXAMPLES / "service.yaml").read_text()
+    anchor = "      inspection_pass_rate:\n"
+    held = ("      wait_by_engineer:\n        description: Planted.\n        source: intervals\n        item: i\n"
+            "        dimensions:\n          engineer: i.held(engineer)\n        time_dimension: i.entered_at\n"
+            "        expression: median(i.duration)\n")
+    assert service.count(anchor) == 1
+    planted = service.replace(anchor, held + anchor, 1)
+    found, _notes = check([("people.yaml", people), ("service.yaml", planted)])
+    clean = not found
+    ok &= clean
+    print(f"  a metric reading what a member held over each span is checked clean: {'yes' if clean else [x[4][:80] for x in found]}")
+    found, _notes = check([("people.yaml", people), ("service.yaml", planted.replace("i.held(engineer)", "i.held(engneer)", 1))])
+    hit = [x for x in found if x[3] == "names" and "has no member 'engneer'" in x[4]]
+    ok &= bool(hit) and len(found) == 1
+    print(f"  planted a held member the type does not declare: {'caught by names, at ' + str(hit[0][1]) + ' ' + hit[0][4][:70] if hit else 'MISSED ' + str(found[:1])}")
+    return ok
+
+
 def decimal_plant(people):
     """A decimal wider than 18 digits is refused (ADR-0143), and one of 18 is not."""
     inventory = (EXAMPLES / "inventory.yaml").read_text()
@@ -6982,6 +7010,7 @@ def main():
     ok &= unknown_plants(people)
     ok &= reference_plants(people)
     ok &= split_plants(people)
+    ok &= held_plants(people)
     ok &= conversion_self_test()
     ok &= decimal_plant(people)
     ok &= cutover_plant(people)

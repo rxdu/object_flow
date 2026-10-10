@@ -9501,6 +9501,86 @@
   "could_violate": {}
  },
  {
+  "label": "held_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "c1dc39b72f18ba82"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    2,
+    4
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "held_plants",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "service.yaml",
+    "d7fc9a237bdc90ca"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ],
+   [
+    "service.yaml",
+    144,
+    "fatal",
+    "names",
+    "metric wait_by_engineer reads i.held(engneer), and ServiceJob has no member 'engneer'"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "decimal_plant",
   "files": [
    [

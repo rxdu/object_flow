@@ -289,6 +289,36 @@ pub fn dotted_calls(text: &str) -> Vec<(String, String, usize)> {
 }
 
 /// Each member read as `(?<![\w.])<name>\.([a-z][a-z0-9_]*)` in a text.
+/// The members `name.held(<member>)` reads in `text`, each the argument of a
+/// `.held` on the name (`declaration-syntax.md` §6.9).
+pub fn held_of(text: &str, name: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let want: Vec<char> = format!("{name}.held(").chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + want.len() <= chars.len() {
+        let before_ok = i == 0 || !(is_word(chars[i - 1]) || chars[i - 1] == '.');
+        if before_ok && chars[i..i + want.len()] == want[..] {
+            let mut j = i + want.len();
+            while j < chars.len() && chars[j] == ' ' {
+                j += 1;
+            }
+            let n = lower_name_len(&chars, j);
+            let mut k = j + n;
+            while k < chars.len() && chars[k] == ' ' {
+                k += 1;
+            }
+            if n > 0 && k < chars.len() && chars[k] == ')' {
+                out.push(chars[j..j + n].iter().collect());
+                i = k + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
 pub fn members_of(text: &str, name: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
     let want: Vec<char> = name.chars().collect();

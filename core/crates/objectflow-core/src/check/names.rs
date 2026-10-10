@@ -11,8 +11,8 @@ use serde_json::Value;
 
 use super::doc::{
     ACTOR_KINDS, Found, KEYWORDS, Obj, Path, as_obj, bare_upper, dotted_calls, ext, finding, flag,
-    has, keys, kind_text, list, members_of, obj, optional, py_str, re, read_through, reads, segs,
-    squash, str_or, strings, text,
+    has, held_of, keys, kind_text, list, members_of, obj, optional, py_str, re, read_through,
+    reads, segs, squash, str_or, strings, text,
 };
 use super::optional::{Env, OptionalReads};
 use super::raw::{BUILT_IN_TYPES, imported};
@@ -4783,15 +4783,28 @@ fn formula_errors(tn: &str, t: &Value, mn: &str, m: &Value) -> Found {
     }
     for (key, text) in &parts {
         let Some(text) = text else { continue };
+        // .held(<member>) names a member of the type whose spans or
+        // transitions the rows are, not a name of the metric's own (§6.9, D550)
+        let held: BTreeSet<String> = held_of(&squash(text), &item).into_iter().collect();
         let mut r = reads(text);
         r.remove(&item);
         r.remove("now");
-        for r in r {
+        for r in r.difference(&held) {
             out.push(finding(
                 ext(&base, key.clone()),
                 "names",
                 format!("metric {mn} reads '{r}'; a metric reads its rows through '{item}'"),
             ));
+        }
+        let declared: BTreeSet<String> = keys(t, "attributes").into_iter().collect();
+        for h in &held {
+            if h != "state" && !declared.contains(h) {
+                out.push(finding(
+                    ext(&base, key.clone()),
+                    "names",
+                    format!("metric {mn} reads {item}.held({h}), and {tn} has no member '{h}'"),
+                ));
+            }
         }
         let read: BTreeSet<String> = members_of(&squash(text), &item).into_iter().collect();
         for r in read {
