@@ -508,7 +508,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
             }
             let mut supplied = always.clone();
             supplied.extend(minted.iter().cloned());
-            out.extend(required_errors(&tn, xn, x, &required, &supplied));
+            out.extend(required_errors(&tn, xn, x, &required, &supplied, &library));
         }
         for c in conds.difference(&used) {
             out.push(finding(
@@ -2579,6 +2579,59 @@ fn present(expr: &str, known: &BTreeSet<String>, inputs: &BTreeSet<String>) -> b
         .is_some_and(|m| inputs.contains(&m[1]))
 }
 
+/// Whether an assigned path provably has a value: from an attribute known to
+/// have one, or a required input, through references none of which is
+/// optional, to an attribute that is not optional (`flow-format.md` §4.5), as
+/// `cost_centre.fiscal_year` does; an attribute the path's types do not
+/// declare themselves is not counted (`check-flows.py`'s `present_path`).
+fn present_path(
+    expr: &str,
+    tn: &str,
+    x: &Value,
+    library: &Obj,
+    known: &BTreeSet<String>,
+    inputs: &BTreeSet<String>,
+) -> bool {
+    let parts: Vec<&str> = expr.split('.').collect();
+    let start = usize::from(parts[0] == "inputs");
+    if parts.len() < start + 2 || !parts[start..].iter().all(|p| NAME.is_match(p)) {
+        return false;
+    }
+    let Some(t) = library.get(tn) else {
+        return false;
+    };
+    let name = parts[start];
+    let truthy = |s: &&Value| super::doc::truthy(Some(*s));
+    let mut spec: Option<&Value> = if start == 1 {
+        if !inputs.contains(name) {
+            return false;
+        }
+        obj(x, "inputs")
+            .get(name)
+            .filter(truthy)
+            .or_else(|| obj(t, "attributes").get(name))
+    } else {
+        if !known.contains(name) || NOT_AN_ATTRIBUTE.contains(&name) {
+            return false;
+        }
+        obj(t, "attributes").get(name)
+    };
+    for seg in &parts[start + 1..] {
+        let kind = spec.map(|s| str_or(s, "reference", "")).unwrap_or_default();
+        if kind.is_empty() || kind.ends_with("[]") {
+            return false;
+        }
+        let Some(other) = library.get(&kind) else {
+            return false;
+        };
+        spec = obj(other, "attributes").get(*seg);
+        if !spec.is_some_and(|s| !optional(s)) {
+            return false;
+        }
+    }
+    true
+}
+
 /// Every transition into a state sets each attribute the state requires.
 fn required_errors(
     tn: &str,
@@ -2586,6 +2639,7 @@ fn required_errors(
     x: &Value,
     required: &BTreeMap<String, BTreeSet<String>>,
     always: &BTreeSet<String>,
+    library: &Obj,
 ) -> Found {
     let base = segs!["types", tn, "transitions", xn];
     let mut out = Found::new();
@@ -2640,6 +2694,12 @@ fn required_errors(
         if assigned
             .get(a)
             .is_some_and(|e| present(e, &known, &required_input_names(x)))
+        {
+            continue;
+        }
+        if assigned
+            .get(a)
+            .is_some_and(|e| present_path(e, tn, x, library, &known, &required_input_names(x)))
         {
             continue;
         }

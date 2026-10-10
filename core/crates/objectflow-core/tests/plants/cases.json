@@ -9581,6 +9581,96 @@
   "could_violate": {}
  },
  {
+  "label": "present_path_plants: through a required reference",
+  "files": [
+   [
+    "plant.yaml",
+    "94c6cc0f5e04a3d2"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "CostCentre": [
+    0,
+    0
+   ],
+   "Requisition": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "present_path_plants: through a required input",
+  "files": [
+   [
+    "plant.yaml",
+    "29948e331bf258f7"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "CostCentre": [
+    0,
+    0
+   ],
+   "Requisition": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "present_path_plants: a value read through an optional reference",
+  "files": [
+   [
+    "plant.yaml",
+    "8b5bb955b448ecdd"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "required",
+    "Requisition.approve enters APPROVED without setting 'budget_year', which APPROVED requires: make it a required input, assign it a value that is provably present, or require it in state DRAFT"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "present_path_plants: a value read to an optional attribute",
+  "files": [
+   [
+    "plant.yaml",
+    "ed8d7ef1e63f2760"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "required",
+    "Requisition.approve enters APPROVED without setting 'budget_year', which APPROVED requires: make it a required input, assign it a value that is provably present, or require it in state DRAFT"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "decimal_plant",
   "files": [
    [

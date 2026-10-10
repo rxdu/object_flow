@@ -1,0 +1,29 @@
+module: budget
+categories: [live, closed]
+types:
+  CostCentre:
+    description: A cost centre.
+    tracking: record
+    attributes:
+      fiscal_year: { type: int }
+      note:        { type: string, optional: true }
+    states:
+      OPEN:   { category: live }
+      CLOSED: { category: closed, final: true }
+    transitions:
+      open:  { kind: initial, to: OPEN, required_inputs: [fiscal_year] }
+      close: { kind: external, from: [OPEN], to: CLOSED }
+  Requisition:
+    description: A requisition.
+    tracking: record
+    attributes:
+      cost_centre:   { reference: CostCentre }
+      backup_centre: { reference: CostCentre, optional: true }
+      budget_year:   { type: int, optional: true }
+      budget_note:   { type: string, optional: true }
+    states:
+      DRAFT:    { category: live }
+      APPROVED: { category: closed, final: true, required_attributes: [budget_year] }
+    transitions:
+      raise:   { kind: initial, to: DRAFT, required_inputs: [cost_centre] }
+      approve: { kind: external, from: [DRAFT], to: APPROVED, effect: [ { assign: { location: budget_year, expr: cost_centre.fiscal_year } } ] }

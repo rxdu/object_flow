@@ -1676,7 +1676,7 @@ def name_errors(doc, library=None, ordered=True):
             written = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | {loc for _e, loc in assigns(x)}
             for a in sorted(written & set(cleared(x))):
                 out.append((base + ("effect",), "names", f"{tn}.{xn} both writes and clears '{a}'"))
-            out += required_errors(tn, xn, x, required, always | minted)
+            out += required_errors(tn, xn, x, required, always | minted, library)
         for c in sorted(conds - used):
             out.append((("types", tn, "conditions", c), "names", f"condition '{c}' of {tn} is used by no transition"))
         out += value_errors(doc, tn, t)
@@ -1798,7 +1798,35 @@ def present(expr, known, inputs):
     return bool(m) and m.group(1) in inputs
 
 
-def required_errors(tn, xn, x, required, always):
+def present_path(expr, tn, x, library, known, inputs):
+    """Whether an assigned path provably has a value: from an attribute known to have one, or a required input,
+    through references none of which is optional, to an attribute that is not optional (flow-format.md §4.5), as
+    `cost_centre.fiscal_year` does. An attribute the path's types do not declare themselves, an inherited one or a
+    machine's, is not counted, so nothing is passed that the walk cannot see."""
+    parts = expr.split(".")
+    start = 1 if parts[0] == "inputs" else 0
+    if len(parts) < start + 2 or not all(NAME.fullmatch(p) for p in parts[start:]):
+        return False
+    name, rest = parts[start], parts[start + 1:]
+    if start:
+        if name not in inputs:
+            return False
+        spec = (x.get("inputs") or {}).get(name) or (library[tn].get("attributes") or {}).get(name)
+    else:
+        if name not in known or name in NOT_AN_ATTRIBUTE:
+            return False
+        spec = (library[tn].get("attributes") or {}).get(name)
+    for seg in rest:
+        kind = (spec or {}).get("reference")
+        if not kind or kind.endswith("[]") or kind not in library:
+            return False
+        spec = (library[kind].get("attributes") or {}).get(seg)
+        if spec is None or spec.get("optional"):
+            return False
+    return True
+
+
+def required_errors(tn, xn, x, required, always, library=None):
     """Every transition into a state sets each attribute the state requires."""
     base = ("types", tn, "transitions", xn)
     out = []
@@ -1818,6 +1846,8 @@ def required_errors(tn, xn, x, required, always):
         if a in supplied or (a in kept and a not in cleared(x)):
             continue
         if a in assigned and present(assigned[a], supplied | kept, required_input_names(x)):
+            continue
+        if a in assigned and library and present_path(assigned[a], tn, x, library, supplied | kept, required_input_names(x)):
             continue
         how = f"or require it in state {', '.join(src)}" if src else "since an initial transition starts from no state"
         out.append((base + ("to",), "required",
@@ -5876,6 +5906,66 @@ def split_plants(people):
     return ok
 
 
+# a requisition approved into a budget year read through its cost centre: what a path of required references
+# reaches is provably present (question 8 of the procurement review, procurement-cold-draft.md §5)
+BUDGET_PATH = (
+    'module: budget\n'
+    'categories: [live, closed]\n'
+    'types:\n'
+    '  CostCentre:\n'
+    '    description: A cost centre.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      fiscal_year: { type: int }\n'
+    '      note:        { type: string, optional: true }\n'
+    '    states:\n'
+    '      OPEN:   { category: live }\n'
+    '      CLOSED: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      open:  { kind: initial, to: OPEN, required_inputs: [fiscal_year] }\n'
+    '      close: { kind: external, from: [OPEN], to: CLOSED }\n'
+    '  Requisition:\n'
+    '    description: A requisition.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      cost_centre:   { reference: CostCentre }\n'
+    '      backup_centre: { reference: CostCentre, optional: true }\n'
+    '      budget_year:   { type: int, optional: true }\n'
+    '      budget_note:   { type: string, optional: true }\n'
+    '    states:\n'
+    '      DRAFT:    { category: live }\n'
+    '      APPROVED: { category: closed, final: true, required_attributes: [budget_year] }\n'
+    '    transitions:\n'
+    '      raise:   { kind: initial, to: DRAFT, required_inputs: [cost_centre] }\n'
+    '      approve: { kind: external, from: [DRAFT], to: APPROVED, effect: [ { assign: { location: budget_year, expr: cost_centre.fiscal_year } } ] }\n'
+)
+
+
+def present_path_plants():
+    """A value read through references none of which is optional, ending in an attribute that is not optional, is
+    provably present (flow-format.md §4.5): from an attribute, and from a required input, it sets what a state requires;
+    through an optional reference, or to an optional attribute, it does not."""
+    ok = True
+    via_input = BUDGET_PATH.replace(
+        "to: APPROVED, effect: [ { assign: { location: budget_year, expr: cost_centre.fiscal_year } } ] }",
+        "to: APPROVED, inputs: { centre: { reference: CostCentre } }, effect: [ { assign: { location: budget_year, expr: inputs.centre.fiscal_year } } ] }")
+    for name, text in (("through a required reference", BUDGET_PATH), ("through a required input", via_input)):
+        found, _notes = check([("plant.yaml", text)])
+        ok &= not found
+        print(f"  a value read {name} to a required attribute is provably present: {'yes' if not found else [x[4][:80] for x in found]}")
+    cases = [
+        ("a value read through an optional reference", BUDGET_PATH.replace("expr: cost_centre.fiscal_year", "expr: backup_centre.fiscal_year")),
+        ("a value read to an optional attribute", BUDGET_PATH.replace("budget_year:   { type: int, optional: true }", "budget_year:   { type: string, optional: true }")
+         .replace("expr: cost_centre.fiscal_year", "expr: cost_centre.note")),
+    ]
+    for name, text in cases:
+        found, _notes = check([("plant.yaml", text)])
+        hit = [x for x in found if x[3] == "required"]
+        ok &= bool(hit) and len(found) == 1
+        print(f"  planted {name}, counted present: {'caught by required, at ' + str(hit[0][1]) if hit and len(found) == 1 else 'MISSED ' + str(found[:2])}")
+    return ok
+
+
 def held_plants(people):
     """A formula metric reading what a tracked member held over each span, `i.held(<member>)` (declaration-syntax.md
     §6.9), planted in the service example: clean as written, its argument a member of the type and no name of the
@@ -7014,6 +7104,7 @@ def main():
     ok &= reference_plants(people)
     ok &= split_plants(people)
     ok &= held_plants(people)
+    ok &= present_path_plants()
     ok &= conversion_self_test()
     ok &= decimal_plant(people)
     ok &= cutover_plant(people)

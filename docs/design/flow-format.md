@@ -128,7 +128,7 @@ An observation is a datapoint recorded about an object and never changed afterwa
 | `superseding` | no | `true` on a final state an object ends in by being superseded by another (§4.19) |
 | `required_attributes` | no | attributes that have a value whenever an object is in the state; this is the state's invariant (UML `State::stateInvariant`) |
 
-Every transition into a state MUST set each attribute the state requires: by requiring it as an input, by assigning it a value that is provably present, or by leaving it in place from source states that all require it. A value is provably present when it is `now`, a literal, a qualified enumeration value, an input that is not optional or has a default (`inputs.<name>`), or an attribute that every source state requires or that is not optional; any other expression is not counted, even when it would have a value. A transition MUST NOT clear an attribute its target requires. (step 3, `required`)
+Every transition into a state MUST set each attribute the state requires: by requiring it as an input, by assigning it a value that is provably present, or by leaving it in place from source states that all require it. A value is provably present when it is `now`, a literal, a qualified enumeration value, an input that is not optional or has a default (`inputs.<name>`), or an attribute that every source state requires or that is not optional, or a path from such an attribute or a required input through references none of which is optional to an attribute that is not optional, as `cost_centre.fiscal_year` is (ADR-0173 decision 8); any other expression is not counted, even when it would have a value. A transition MUST NOT clear an attribute its target requires. (step 3, `required`)
 
 ### 4.6 Invariants
 
