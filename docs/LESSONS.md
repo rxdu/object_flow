@@ -497,3 +497,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Start the gates with the tool's background mode, whose end is announced and whose output is kept; where a run was already started bare, watch it by its pid in a background task that prints the result file and clippy's log when the pid ends. Run clippy over a new test file before the gates, not only its tests.
 - **Context:** The full gates, `scratchpad/watch.sh`, ObjectFlow; 2026-10-10.
 - **Recurrence, 2026-10-10:** a fourth bare `&` minutes after this entry was written, so the habit was not enough: the gate script now runs clippy itself and writes its status into the result file with every other gate's, so a run started any way keeps it.
+
+### A new finding code is unheld until the oracle lists it
+- **Pattern:** ADR-0176's `veto` notice was ported to the core's checker and its plants exported, and the oracle passed; a mutation that dropped every `veto` from the core still passed, because `checker_oracle.rs` compares only the codes in its `COVERED` list, and a new code is in none.
+- **Correction:** A new code a check reports joins `COVERED` (or `COVERED_IN_EXAMPLES`) in the same change that ports it, and the port is mutated away once to see the oracle fail.
+- **Context:** The Rust core's checker held to `scripts/check-flows.py` by exported plants, ObjectFlow; 2026-10-10.

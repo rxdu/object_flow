@@ -396,6 +396,7 @@ pub fn checked_reading(
             .into_iter()
             .chain(notices::unknowns(&v.doc, &library))
             .chain(notices::befores(&v.doc))
+            .chain(notices::vetoes(&v.doc, &library))
         {
             if let Some(p) = v.back(&p) {
                 notice(found, node.line_at(&p), code, message);

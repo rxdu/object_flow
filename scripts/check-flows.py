@@ -3356,6 +3356,42 @@ def notices(doc):
     return out
 
 
+def vetoes(doc, library):
+    """An invariant that can only refuse other objects' changes: one a type declares whose every state is final, so
+    no transition of its own can break it once it is created, reading through a reference or its referrers, so it is
+    checked again whenever what it reads changes, and refuses that change (flow-format.md §4.6, ADR-0176 decision 5).
+    A fact the record is to hold as it stood is copied onto it when it is made (write-a-flow.md §5)."""
+    out = []
+    kinds = dict(library or {})
+    kinds.update(dict(types(doc)))
+    for tn, t in types(doc):
+        states = t.get("states") or {}
+        if not states or not all((s or {}).get("final") for s in states.values()):
+            continue
+        for i, spec in (t.get("invariants") or {}).items():
+            if inherited(t, "invariants", i):
+                continue
+            text = (spec or {}).get("expression", "")
+            if invariant_form(kinds, tn, text) != "traversal":
+                continue
+            try:
+                tree = flowexpr.parse(str(text))
+            except flowexpr.ParseError:
+                continue
+            walker = OptionalReads(kinds, tn)
+            walker.through_tests = True
+            walker.walk(tree, {})
+            through = sorted(n for u, n in walker.traversed if u == tn)
+            what = (", ".join(through) if through
+                    else "its referrers" if any(m == "referrers" for _u, m in walker.members)
+                    else "the derived attributes it reads")
+            out.append((("types", tn, "invariants", i), "veto",
+                        f"{tn}.{i} reads through {what}, and every state of {tn} is final, so no transition of its "
+                        f"own can break it: it can only refuse a change to what it reads there. To hold a fact as it "
+                        f"stood when the {tn} was made, copy it onto the {tn} then (write-a-flow.md §5, ADR-0176)"))
+    return out
+
+
 class OptionalReads:
     """What an expression reads that may be absent, and what it tests with `is null` or `is not null`, over the
     types of the modules checked (declaration-syntax.md §8.2, ADR-0103 §6). An optional read is an optional attribute
@@ -4641,7 +4677,8 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
                 for i, spec in (t.get("invariants") or {}).items():
                     if not inherited(t, "invariants", i):
                         violators[f"{tn}.{i}"] = could_violate(library, tn, (spec or {}).get("expression", ""), machines)
-        notes += [(f, line_of(idx, back(p)), "notice", c, m) for p, c, m in notices(v) + unknowns(v, library) + befores(v) if back(p) is not None]
+        notes += [(f, line_of(idx, back(p)), "notice", c, m)
+                  for p, c, m in notices(v) + unknowns(v, library) + befores(v) + vetoes(v, library) if back(p) is not None]
     for f, idx, doc in example_files:
         errors = examples_schema_errors(doc)
         if not errors:
@@ -6364,6 +6401,82 @@ def refresh_plants():
     return ok
 
 
+VETO_FLOW = """module: approvals
+categories: [live, closed]
+
+types:
+  Employee:
+    description: A person, and their manager.
+    tracking: record
+    attributes:
+      login:   { type: identity, actor_kind: human, unique: true }
+      manager: { reference: Employee, optional: true }
+    states:
+      ACTIVE: { description: Working., category: live }
+      LEFT:   { description: Gone., category: closed, final: true }
+    transitions:
+      add:   { kind: initial, to: ACTIVE, required_inputs: [login], optional_inputs: [manager] }
+      move:  { kind: internal, from: ACTIVE, required_inputs: [manager] }
+      leave: { kind: external, from: ACTIVE, to: LEFT }
+
+  Requisition:
+    description: A request to buy.
+    tracking: record
+    attributes:
+      requester: { reference: Employee }
+    states:
+      OPEN:   { description: Raised., category: live }
+      CLOSED: { description: Decided., category: closed, final: true }
+    transitions:
+      raise: { kind: initial, to: OPEN, required_inputs: [requester] }
+      close: { kind: external, from: OPEN, to: CLOSED }
+
+  Approval:
+    description: An approval of a requisition, recorded once.
+    tracking: record
+    attributes:
+      requisition: { reference: Requisition }
+      approver:    { reference: Employee }
+    states:
+      GIVEN: { description: Given., category: closed, final: true }
+    invariants:
+      by_the_requesters_manager:
+        description: The requester's manager approved it.
+        expression: approver == requisition.requester.manager
+    transitions:
+      give: { kind: initial, to: GIVEN, required_inputs: [requisition, approver] }
+"""
+
+
+def veto_plants():
+    """An invariant of a type whose every state is final, reading through a reference, can only refuse a change to
+    what it reads, and is noticed, naming the reference; the same rule over a copy the record took when it was made is
+    not, nor one of a type with a state that is not final (ADR-0176 decision 5)."""
+    def vetoes_of(text):
+        found, notes = check([("approvals.yaml", text)])
+        return found, [n for n in notes if n[3] == "veto"]
+    found, hit = vetoes_of(VETO_FLOW)
+    ok = not found and len(hit) == 1 and "reads through requisition," in hit[0][4]
+    print(f"  an approval's rule through its requisition, noticed: {'yes' if ok else 'NO ' + str((found, hit))}")
+    copied = VETO_FLOW.replace("      approver:    { reference: Employee }\n",
+                               "      approver:    { reference: Employee }\n      manager_then: { reference: Employee }\n").replace(
+        "expression: approver == requisition.requester.manager", "expression: approver == manager_then").replace(
+        "required_inputs: [requisition, approver] }", "required_inputs: [requisition, approver, manager_then] }")
+    living = VETO_FLOW.replace("      GIVEN: { description: Given., category: closed, final: true }",
+                               "      GIVEN: { description: Given., category: live }\n"
+                               "      WITHDRAWN: { description: Withdrawn., category: closed, final: true }").replace(
+        "      give: { kind: initial, to: GIVEN, required_inputs: [requisition, approver] }",
+        "      give: { kind: initial, to: GIVEN, required_inputs: [requisition, approver] }\n"
+        "      withdraw: { kind: external, from: GIVEN, to: WITHDRAWN }")
+    for name, text in (("over a copy taken when it was made", copied), ("of a type with a state not final", living)):
+        assert text != VETO_FLOW, name
+        found, hit = vetoes_of(text)
+        clean = not found and not hit
+        ok &= clean
+        print(f"  the rule {name}, not noticed: {'yes' if clean else 'NO ' + str((found, hit))}")
+    return ok
+
+
 def identity_plants():
     """An approval recorded from who acts sets what a state requires, and a metric by the identity it records reads
     in an example by that identity, where it is also an alias, clean and passing; one expecting another approver
@@ -7559,6 +7672,7 @@ def main():
     ok &= identity_plants()
     ok &= taken_by_plants()
     ok &= refresh_plants()
+    ok &= veto_plants()
     ok &= conversion_self_test()
     ok &= decimal_plant(people)
     ok &= cutover_plant(people)

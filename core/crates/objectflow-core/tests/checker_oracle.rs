@@ -31,6 +31,8 @@ const COVERED: &[&str] = &[
     "self_serviceable",
     "unknown",
     "before",
+    // an invariant that can only refuse others' changes (ADR-0176)
+    "veto",
     // step 4 (C2), by group as each is ported
     "check 2",
     "check 7",

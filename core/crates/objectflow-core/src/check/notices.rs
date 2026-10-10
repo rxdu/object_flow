@@ -16,6 +16,62 @@ use super::steps::kind;
 use super::view::types;
 use crate::expr::{Expr, parse};
 
+/// An invariant that can only refuse other objects' changes, as
+/// `check-flows.py`'s `vetoes`: one a type declares whose every state is
+/// final, so no transition of its own can break it once it is created,
+/// reading through a reference or its referrers, so it is checked again
+/// whenever what it reads changes, and refuses that change (`flow-format.md`
+/// §4.6, ADR-0176 decision 5).
+pub fn vetoes(doc: &Value, library: &Obj) -> Found {
+    let mut kinds = library.clone();
+    for (tn, t) in types(doc) {
+        kinds.insert(tn, t.clone());
+    }
+    let mut out = Found::new();
+    for (tn, t) in types(doc) {
+        let states = obj(t, "states");
+        if states.is_empty() || !states.values().all(|s| flag(s, "final")) {
+            continue;
+        }
+        for (i, spec) in obj(t, "invariants") {
+            if super::view::inherited(t, "invariants", i) {
+                continue;
+            }
+            let text = spec.get("expression").map(py_str).unwrap_or_default();
+            if super::names::invariant_form(&kinds, &tn, &text, &BTreeSet::new()) != "traversal" {
+                continue;
+            }
+            let Ok(tree) = parse(&text) else {
+                continue;
+            };
+            let mut walker = OptionalReads::new(&kinds, &tn, None);
+            walker.through_tests = true;
+            walker.walk(&tree, &Env::new());
+            let through: Vec<&str> = walker
+                .traversed
+                .iter()
+                .filter(|(u, _)| *u == tn)
+                .map(|(_, n)| n.as_str())
+                .collect();
+            let what = if !through.is_empty() {
+                through.join(", ")
+            } else if walker.members.iter().any(|(_, m)| m == "referrers") {
+                "its referrers".to_string()
+            } else {
+                "the derived attributes it reads".to_string()
+            };
+            out.push((
+                segs!["types", &tn, "invariants", i],
+                "veto".into(),
+                format!(
+                    "{tn}.{i} reads through {what}, and every state of {tn} is final, so no transition of its own can break it: it can only refuse a change to what it reads there. To hold a fact as it stood when the {tn} was made, copy it onto the {tn} then (write-a-flow.md §5, ADR-0176)"
+                ),
+            ));
+        }
+    }
+    out
+}
+
 /// A guard marked `audit` or `warn`, and a `self_serviceable` guard on a
 /// transition that takes no input.
 pub fn notices(doc: &Value) -> Found {

@@ -1,6 +1,6 @@
 # Procurement on ObjectFlow: the second cold review
 
-Status: **repaired**, 2026-10-10: seventeen defects (D561 to D577), each resolved the same day, and seven questions for the author (§5), decided as recommended the same day ("go with your recommendations on the seven questions", ADR-0176). The first review (`procurement-cold-draft.md`) found fourteen defects and asked ten questions; once those were repaired and built, the author asked for the review to be run again ("go ahead with the cold re-review"), to see whether the integration case is ready.
+Status: **repaired**, 2026-10-10: seventeen defects (D561 to D577), each resolved the same day, and seven questions for the author (§5), decided as recommended the same day ("go with your recommendations on the seven questions", ADR-0176), and built: `taken_by`, offers decided for who asks, an unresolvable legacy reference as a class, an example's import refreshing a mirror, and the `veto` notice. The first review (`procurement-cold-draft.md`) found fourteen defects and asked ten questions; once those were repaired and built, the author asked for the review to be run again ("go ahead with the cold re-review"), to see whether the integration case is ready.
 
 ## 1. How it was run
 

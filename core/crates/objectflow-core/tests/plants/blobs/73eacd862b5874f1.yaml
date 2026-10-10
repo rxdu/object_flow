@@ -1,0 +1,46 @@
+module: approvals
+categories: [live, closed]
+
+types:
+  Employee:
+    description: A person, and their manager.
+    tracking: record
+    attributes:
+      login:   { type: identity, actor_kind: human, unique: true }
+      manager: { reference: Employee, optional: true }
+    states:
+      ACTIVE: { description: Working., category: live }
+      LEFT:   { description: Gone., category: closed, final: true }
+    transitions:
+      add:   { kind: initial, to: ACTIVE, required_inputs: [login], optional_inputs: [manager] }
+      move:  { kind: internal, from: ACTIVE, required_inputs: [manager] }
+      leave: { kind: external, from: ACTIVE, to: LEFT }
+
+  Requisition:
+    description: A request to buy.
+    tracking: record
+    attributes:
+      requester: { reference: Employee }
+    states:
+      OPEN:   { description: Raised., category: live }
+      CLOSED: { description: Decided., category: closed, final: true }
+    transitions:
+      raise: { kind: initial, to: OPEN, required_inputs: [requester] }
+      close: { kind: external, from: OPEN, to: CLOSED }
+
+  Approval:
+    description: An approval of a requisition, recorded once.
+    tracking: record
+    attributes:
+      requisition: { reference: Requisition }
+      approver:    { reference: Employee }
+    states:
+      GIVEN: { description: Given., category: live }
+      WITHDRAWN: { description: Withdrawn., category: closed, final: true }
+    invariants:
+      by_the_requesters_manager:
+        description: The requester's manager approved it.
+        expression: approver == requisition.requester.manager
+    transitions:
+      give: { kind: initial, to: GIVEN, required_inputs: [requisition, approver] }
+      withdraw: { kind: external, from: GIVEN, to: WITHDRAWN }

@@ -10843,6 +10843,119 @@
   "could_violate": {}
  },
  {
+  "label": "vetoes_of",
+  "files": [
+   [
+    "approvals.yaml",
+    "c94b1d9ae26de297"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "approvals.yaml",
+    40,
+    "notice",
+    "veto",
+    "Approval.by_the_requesters_manager reads through requisition, and every state of Approval is final, so no transition of its own can break it: it can only refuse a change to what it reads there. To hold a fact as it stood when the Approval was made, copy it onto the Approval then (write-a-flow.md §5, ADR-0176)"
+   ]
+  ],
+  "analysed": {
+   "Approval": [
+    0,
+    0
+   ],
+   "Employee": [
+    0,
+    0
+   ],
+   "Requisition": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Approval.by_the_requesters_manager": "traversal"
+  },
+  "could_violate": {
+   "Approval.by_the_requesters_manager": [
+    "Approval.give",
+    "Employee.add",
+    "Employee.move",
+    "Requisition.raise"
+   ]
+  }
+ },
+ {
+  "label": "vetoes_of",
+  "files": [
+   [
+    "approvals.yaml",
+    "259de28b42fff106"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Approval": [
+    0,
+    0
+   ],
+   "Employee": [
+    0,
+    0
+   ],
+   "Requisition": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Approval.by_the_requesters_manager": "local"
+  },
+  "could_violate": {
+   "Approval.by_the_requesters_manager": [
+    "Approval.give"
+   ]
+  }
+ },
+ {
+  "label": "vetoes_of",
+  "files": [
+   [
+    "approvals.yaml",
+    "73eacd862b5874f1"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Approval": [
+    0,
+    0
+   ],
+   "Employee": [
+    0,
+    0
+   ],
+   "Requisition": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Approval.by_the_requesters_manager": "traversal"
+  },
+  "could_violate": {
+   "Approval.by_the_requesters_manager": [
+    "Approval.give",
+    "Employee.add",
+    "Employee.move",
+    "Requisition.raise"
+   ]
+  }
+ },
+ {
   "label": "decimal_plant",
   "files": [
    [
