@@ -4,7 +4,12 @@ ObjectFlow holds your business objects and enforces their flow; your application
 
 ## 1. What runs today
 
-The engine's core runs as an HTTP service that serves a **sandbox**: a store held in memory, a clock that moves only when told, evaluators answered by fixed answers, the loopback address, one request at a time ([`core/README.md`](../../core/README.md)). Everything below works against it, and it is how flows are built and tested. **A deployment's service, with a store that survives a restart, the wall clock and real evaluators, is not yet built** (`DESIGN.md` §2), so nothing here is ready to hold production data.
+The engine's core runs as an HTTP service, one request at a time, over one of two stores ([`core/README.md`](../../core/README.md)):
+
+- **a sandbox**, a store held in memory, a clock that moves only when told and evaluators answered by fixed answers: how flows are built and tested, and what the examples below run against;
+- **a deployment's store**, given `--store <file>`: one SQLite file that survives a restart, the wall clock, and no sandbox controls (ADR-0174). Its first slice is enough to pilot a flow on one machine, and lacks three things a production deployment needs: an external evaluator is answered unknown, so a guard that asks one is refused `temporal`, until the evaluators' HTTP transport is built; a new engine release cannot yet take over a store an older one created; and it serves one request at a time.
+
+Everything below works against both, but for the sandbox's controls, which a deployment does not route.
 
 Use the core's service. The Python reference runner is the oracle the core is held to; it is reachable only through the Flow Studio's server and does not answer every operation.
 
@@ -24,6 +29,8 @@ POST /sandbox/load
 ```
 
 Files go in import order. `/sandbox/reset` empties the store and keeps the modules; `/sandbox/clock` with `{"advance": "2 h"}` moves time; `/sandbox/evaluators` fixes what an external evaluator answers.
+
+A deployment's store starts at version 0, with no flow, and is given one the way every later version is: a `DeclarationChange` drafted with the modules' text, submitted, and published (§7). Its flow is checked as it is published.
 
 ## 3. Actors
 

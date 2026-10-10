@@ -1,15 +1,16 @@
 //! ObjectFlow's HTTP service (ADR-0150): one `POST /v1/<operation>` per library
 //! operation, and a sandbox's controls under `/sandbox/`, which a deployment's
-//! service would not route. The core is synchronous; this is its one
+//! service does not route (ADR-0174). The core is synchronous; this is its one
 //! asynchronous layer (ADR-0132), and every operation runs the core under one
-//! lock, since a sandbox serves one caller.
+//! lock, one request at a time.
 //!
 //! A refusal is a `200` carrying the verdict, its shape named by `kind`; a
 //! fault is a `4xx` or `5xx` carrying `fault`; a construct the core's first
 //! slice does not run is a `501` naming it (ADR-0153).
 //!
-//! Run as `objectflow-service --port <n>`; `--port 0` takes a free port, and
-//! the address listened on is written to standard error.
+//! Run as `objectflow-service --port <n>` for a sandbox, or with `--store
+//! <file>` for a deployment's store (ADR-0174); `--port 0` takes a free port,
+//! and the address listened on is written to standard error.
 
 use std::sync::{Arc, Mutex};
 
@@ -26,7 +27,7 @@ use objectflow_core::import::{
 use objectflow_core::model::{Declared, Library};
 use objectflow_core::reads::{self, Offer};
 use objectflow_core::request::{self, Request};
-use objectflow_core::store::{Event, Store};
+use objectflow_core::store::{BUILTINS, Event, Store};
 use objectflow_core::value::{parse_duration, parse_timestamp, timestamp_text};
 use objectflow_core::verdict::{Flag, Verdict};
 use objectflow_core::wire::encode;
@@ -45,6 +46,17 @@ struct Sandbox {
     /// The retentions the store is built with, which a reset keeps
     /// (ADR-0101, ADR-0103): none unless the load names them.
     retentions: (Option<i64>, Option<i64>),
+    /// Whether the store is a deployment's, opened from its file, whose clock
+    /// is the wall clock and whose controls are not routed (ADR-0174).
+    deployment: bool,
+}
+
+/// UTC now, in seconds since 1970: a deployment's clock (ADR-0174 decision
+/// 4).
+fn wall_clock() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
 type Shared = Arc<Mutex<Sandbox>>;
@@ -196,10 +208,22 @@ fn locked(shared: &Shared) -> Result<std::sync::MutexGuard<'_, Sandbox>, Fault> 
 }
 
 fn store(sandbox: &mut Sandbox) -> Result<&mut Store, Fault> {
-    sandbox
+    let deployment = sandbox.deployment;
+    let s = sandbox
         .store
         .as_mut()
-        .ok_or_else(|| Fault::Conflict("no modules are loaded; load them first".to_string()))
+        .ok_or_else(|| Fault::Conflict("no modules are loaded; load them first".to_string()))?;
+    if deployment {
+        // the wall clock, never moving backwards (ADR-0174 decision 4), and
+        // every evaluator unknown until a transport answers it (decision 7)
+        s.now = s.now.max(wall_clock());
+        for f in s.lib.evaluators.clone() {
+            s.answers
+                .entry(f)
+                .or_insert_with(|| "unanswered".to_string());
+        }
+    }
+    Ok(s)
 }
 
 fn text<'a>(body: &'a J, key: &str) -> Option<&'a str> {
@@ -1348,8 +1372,29 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
     Ok(Json(out))
 }
 
-fn app(shared: Shared) -> Router {
-    Router::new()
+/// `GET /health`: the release, the store's version and its clock (ADR-0174
+/// decision 6).
+async fn health(State(shared): State<Shared>) -> Answer {
+    let mut sandbox = locked(&shared)?;
+    let shape = if sandbox.deployment {
+        "deployment"
+    } else {
+        "sandbox"
+    };
+    let (version, now) = match sandbox.store {
+        Some(_) => {
+            let s = store(&mut sandbox)?;
+            (s.lib.version, J::from(timestamp_text(s.now)))
+        }
+        None => (0, J::Null),
+    };
+    Ok(Json(
+        json!({"release": BUILTINS, "shape": shape, "version": version, "now": now}),
+    ))
+}
+
+fn app(shared: Shared, deployment: bool) -> Router {
+    let routes = Router::new()
         .route("/v1/request", post(request_op))
         .route("/v1/get", post(get))
         .route("/v1/history", post(history))
@@ -1369,10 +1414,19 @@ fn app(shared: Shared) -> Router {
         .route("/v1/import_batch", post(import_op))
         .route("/v1/lookup", post(lookup))
         .route("/v1/publish", post(publish))
-        .route("/sandbox/load", post(load))
-        .route("/sandbox/reset", post(reset))
-        .route("/sandbox/clock", post(clock))
-        .route("/sandbox/evaluators", post(evaluators))
+        .route("/health", axum::routing::get(health));
+    // a deployment's service routes none of the sandbox's controls, so no
+    // caller can load, reset or move its clock (ADR-0174 decision 1)
+    let routes = if deployment {
+        routes
+    } else {
+        routes
+            .route("/sandbox/load", post(load))
+            .route("/sandbox/reset", post(reset))
+            .route("/sandbox/clock", post(clock))
+            .route("/sandbox/evaluators", post(evaluators))
+    };
+    routes
         // an operation that does not exist, or one asked by another method,
         // is a JSON fault as every other is (ADR-0150 decision 1, D555)
         .fallback(|uri: axum::http::Uri| async move {
@@ -1384,39 +1438,109 @@ fn app(shared: Shared) -> Router {
         .with_state(shared)
 }
 
-const USAGE: &str = "usage: objectflow-service [--port <n>]
+const USAGE: &str = "usage: objectflow-service [--port <n> | --bind <host:port>]
+                          [--store <file> [--attempt-retention <duration>]
+                                          [--idempotency-retention <duration>]]
 
-Serves the engine's operations, POST /v1/<operation>, and a sandbox's
-controls, POST /sandbox/<control>, on 127.0.0.1 at port n (8712 unless
-given; 0 takes a free one), writing the address to stderr once it
-answers. The store is a sandbox's, held in memory (core/README.md).";
+Serves the engine's operations, POST /v1/<operation>, and GET /health, on
+127.0.0.1 at port n (8712 unless given; 0 takes a free one) or at the
+address --bind names, writing the address to stderr once it answers.
+
+Without --store the store is a sandbox's, held in memory, with its controls,
+POST /sandbox/<control>. With --store it is a deployment's: the SQLite file
+named, created at version 0 where absent and its flow published through the
+wire, the wall clock, no controls, and every evaluator unknown until a
+transport answers it (ADR-0174). It authenticates nothing: bind it beyond
+loopback only behind the application that does (core/README.md).";
+
+/// The command line: where to listen, and a deployment's store and
+/// retentions where it names one.
+struct Args {
+    bind: String,
+    store: Option<std::path::PathBuf>,
+    retentions: (Option<i64>, Option<i64>),
+}
+
+fn args() -> Result<Args, String> {
+    let mut out = Args {
+        bind: "127.0.0.1:8712".to_string(),
+        store: None,
+        retentions: (None, None),
+    };
+    let mut retained = false;
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        let mut value = || args.next().ok_or_else(|| format!("{a} takes a value"));
+        match a.as_str() {
+            "--port" => {
+                let port: u16 = value()?
+                    .parse()
+                    .map_err(|_| "--port takes a number".to_string())?;
+                out.bind = format!("127.0.0.1:{port}");
+            }
+            "--bind" => out.bind = value()?,
+            "--store" => out.store = Some(value()?.into()),
+            "--attempt-retention" | "--idempotency-retention" => {
+                let d = value()?;
+                let kept = parse_duration(&d)
+                    .ok_or_else(|| format!("{a} takes a duration such as '90 days': {d}"))?;
+                if a == "--attempt-retention" {
+                    out.retentions.0 = Some(kept);
+                } else {
+                    out.retentions.1 = Some(kept);
+                }
+                retained = true;
+            }
+            "--help" | "-h" => return Err(String::new()),
+            // an argument it does not take is an error, never ignored (D558)
+            other => return Err(format!("no argument {other}")),
+        }
+    }
+    if retained && out.store.is_none() {
+        return Err("a retention is a deployment's; a sandbox's load names its own".to_string());
+    }
+    Ok(out)
+}
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> std::io::Result<()> {
-    let mut port: u16 = 8712;
-    let mut args = std::env::args().skip(1);
-    while let Some(a) = args.next() {
-        match a.as_str() {
-            "--port" => {
-                port = args
-                    .next()
-                    .and_then(|p| p.parse().ok())
-                    .ok_or_else(|| std::io::Error::other("--port takes a number"))?;
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            // an argument it does not take is an error, never ignored (D558)
-            other => {
-                eprintln!("objectflow-service: no argument {other}\n{USAGE}");
-                std::process::exit(2);
-            }
+    let a = match args() {
+        Ok(a) => a,
+        Err(why) if why.is_empty() => {
+            println!("{USAGE}");
+            return Ok(());
+        }
+        Err(why) => {
+            eprintln!("objectflow-service: {why}\n{USAGE}");
+            std::process::exit(2);
+        }
+    };
+    let mut sandbox = Sandbox::default();
+    if let Some(path) = &a.store {
+        // a deployment's store, opened before anything is served (ADR-0174)
+        let mut s = Store::open(path, wall_clock())
+            .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
+        (s.attempt_retention, s.idempotency_retention) = a.retentions;
+        sandbox.deployment = true;
+        sandbox.store = Some(s);
+    }
+    let deployment = sandbox.deployment;
+    let listener = tokio::net::TcpListener::bind(&a.bind).await?;
+    eprintln!("listening on http://{}", listener.local_addr()?);
+    if let (Some(path), Some(s)) = (&a.store, &sandbox.store) {
+        eprintln!(
+            "the store {} at version {}, under {BUILTINS}",
+            path.display(),
+            s.lib.version
+        );
+        if !s.lib.evaluators.is_empty() {
+            eprintln!(
+                "unknown until a transport answers them (ADR-0174 decision 7): {}",
+                s.lib.evaluators.join(", ")
+            );
         }
     }
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
-    eprintln!("listening on http://{}", listener.local_addr()?);
-    axum::serve(listener, app(Shared::default())).await
+    axum::serve(listener, app(Arc::new(Mutex::new(sandbox)), deployment)).await
 }
 
 #[cfg(test)]

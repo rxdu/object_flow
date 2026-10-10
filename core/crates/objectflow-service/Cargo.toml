@@ -1,6 +1,6 @@
 [package]
 name = "objectflow-service"
-description = "ObjectFlow's HTTP service: the engine's operations, one POST each, and a sandbox's controls (ADR-0150)"
+description = "ObjectFlow's HTTP service: the engine's operations, one POST each, over a sandbox or a deployment's store (ADR-0150, ADR-0174)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,6 +13,9 @@ serde.workspace = true
 serde_json.workspace = true
 axum.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true
 
 [lints]
 workspace = true

@@ -1351,6 +1351,77 @@ impl Store {
         Ok(store)
     }
 
+    /// A deployment's store, one SQLite file (ADR-0174 decision 2): created
+    /// where the file holds none, at version 0, with the built-ins and the
+    /// operator, its flow to arrive by a published `DeclarationChange`; and
+    /// otherwise reopened at its latest version, its library loaded from the
+    /// source that version recorded, its clock no earlier than the last time
+    /// it recorded. A store another engine release created is refused
+    /// (decision 3), since only an upgrade moves a store between releases.
+    pub fn open(path: &std::path::Path, now: i64) -> Stored<Store> {
+        let conn = Connection::open(path)?;
+        // a write answered for survives a crash of the process or the machine
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;",
+        )?;
+        let created: i64 = conn.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'of_declaration'",
+            [],
+            |r| r.get(0),
+        )?;
+        let builtins = Library::load(&[]).map_err(|e| StoreError(format!("the built-ins: {e}")))?;
+        let mut store = Store {
+            conn,
+            lib: builtins,
+            now,
+            answers: BTreeMap::new(),
+            attempt_retention: None,
+            idempotency_retention: None,
+            earlier: BTreeMap::new(),
+        };
+        if created == 0 {
+            store.conn.execute_batch(SCHEMA)?;
+            for t in store.lib.types.values() {
+                store.conn.execute_batch(&store.type_ddl(t))?;
+            }
+            store.create_operator()?;
+            store.conn.execute(
+                "INSERT INTO of_declaration (version, module, source, builtins, published_at, published_by, report) \
+                 VALUES (0, '', '{}', ?1, ?2, ?1, '{}')",
+                params![BUILTINS, timestamp_text(now)],
+            )?;
+            store.lib.version = 0;
+            return Ok(store);
+        }
+        let release: String = store.conn.query_row(
+            "SELECT builtins FROM of_declaration WHERE version = 0",
+            [],
+            |r| r.get(0),
+        )?;
+        if release != BUILTINS {
+            return Err(StoreError(format!(
+                "{} was created by {release}, and this is {BUILTINS}: a store moves to another release only by an upgrade, which is not yet built",
+                path.display()
+            )));
+        }
+        let latest: i64 =
+            store
+                .conn
+                .query_row("SELECT max(version) FROM of_declaration", [], |r| r.get(0))?;
+        store.lib = store
+            .library_at(latest)?
+            .ok_or_else(|| StoreError(format!("version {latest} recorded no source")))?;
+        // never earlier than the last time the store recorded (decision 4)
+        let last: Option<String> =
+            store
+                .conn
+                .query_row("SELECT max(recorded_at) FROM of_event", [], |r| r.get(0))?;
+        if let Some(at) = last.as_deref().and_then(parse_timestamp) {
+            store.now = store.now.max(at);
+        }
+        Ok(store)
+    }
+
     /// The DDL of a type's table and its set tables (§3, §3.3).
     fn type_ddl(&self, t: &Type) -> String {
         let parts = table_parts(&self.lib, t, false);

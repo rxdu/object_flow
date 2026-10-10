@@ -4,7 +4,7 @@ What an application sends the engine's service and what comes back, operation by
 
 ## 1. Requests, answers and faults
 
-Every operation is `POST /v1/<operation>` with a JSON object for a body and `Content-Type: application/json`; the sandbox's controls are `POST /sandbox/<control>`. An answer is `200` with the operation's result. **A refusal is a `200`**, a verdict whose `kind` names it, never an error: a caller branches on `kind`.
+Every operation is `POST /v1/<operation>` with a JSON object for a body and `Content-Type: application/json`; the sandbox's controls are `POST /sandbox/<control>`, which a deployment's store does not route (ADR-0174); and `GET /health` answers `{"release": "objectflow-core 0.1.0", "shape": "sandbox" | "deployment", "version": <the store's>, "now": <its clock>}`. An answer is `200` with the operation's result. **A refusal is a `200`**, a verdict whose `kind` names it, never an error: a caller branches on `kind`.
 
 A **fault** is a `4xx` or `5xx` whose body is `{"fault": "<what is wrong>"}`, every time:
 
@@ -12,7 +12,7 @@ A **fault** is a `4xx` or `5xx` whose body is `{"fault": "<what is wrong>"}`, ev
 |---|---|
 | `400` | a body that is not a JSON object, a key the operation does not take (`/v1/get takes no key folow`), or an argument it needs left out |
 | `404` | an operation that does not exist (`no operation /v1/nope`) |
-| `405` | anything but `POST` |
+| `405` | an operation asked by anything but `POST`, or `/health` by anything but `GET` |
 | `409` | the sandbox has no module loaded; an idempotency key reused for a different request (`key_reused: …`) |
 | `501` | a construct the core does not yet run (`not run: …`) |
 | `500` | the service's own fault |
@@ -176,4 +176,4 @@ A change is an object: `{"type": "DeclarationChange", "transition": "draft", "in
 | `/sandbox/clock` | `advance` (a duration) or `set` (a timestamp) | `{"now": …}` |
 | `/sandbox/evaluators` | `answers`: each `"<evaluator>.<function>"` to `satisfied`, `unsatisfied` or `unanswered` | the answers held |
 
-A deployment's service routes none of these.
+A deployment's service routes none of these: its clock is the wall's, its evaluators are answered by their systems, unknown until the transport is built, and its flow arrives by `publish`.
