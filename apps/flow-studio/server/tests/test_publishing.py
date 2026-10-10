@@ -1211,7 +1211,10 @@ def test_a_fault_names_a_key_and_an_absent_object_reads_null_alike(tee):
             ("/v1/request", {"actor": OP, "type": "Claim",
                              "transition": "draft", "inputz": {}},
              "takes no key inputz"),
-            ("/v1/nope", {}, "no operation /v1/nope")):
+            ("/v1/nope", {}, "no operation /v1/nope"),
+            # an argument left out is a fault, never an absent object (D570)
+            ("/v1/get", {}, "get names an object's id"),
+            ("/v1/history", {}, "history names an object's id")):
         with pytest.raises(Exception) as e:
             tee.post(path, body)
         assert said in str(e.value), e.value
@@ -1420,4 +1423,37 @@ def test_a_file_is_its_reference_alike(tee):
                                      "inputs": {"receipt": wrong}})
         assert (v["kind"], v.get("reasons")) == (
             "invalid_input", {"receipt": why}), (wrong, v)
+    alike(tee)
+
+
+def test_a_metric_by_a_recorded_identity_names_a_person_alike(tee):
+    """A metric whose dimension reads the identity an approval recorded
+    from `actor.id` names a person, and `declaration` marks it, alike
+    through both backends (D565); the guide recommends recording who acted
+    that way, and the marking had followed only references to actors."""
+    from flowstudio.scripts import flows
+    assert tee.post("/sandbox/load", {"files": [
+        {"name": "approve.yaml", "text": flows.IDENTITY_FLOW}]})["loaded"]
+    tee.found.clear()
+    d = tee.post("/v1/declaration", {"type": "Request"})
+    assert d["person_dimensions"] == ["Request.approvals_by_approver.approver"]
+    alike(tee)
+
+
+def test_a_metric_filter_reads_its_rows_through_the_item_alike(tee):
+    """A metric read's filter reads its rows through the metric's item; one
+    starting from a name the rows do not bind is refused malformed_filter,
+    as is one that does not parse, through both backends alike (D569): the
+    core answered no rows for a member's bare name and 501 for an unknown
+    one, and the runner no rows for both."""
+    loaded(tee, "reimbursement.yaml")
+    tee.found.clear()
+    tee.post("/v1/request", {"type": "Employee", "transition": "onboard",
+                             "actor": OP, "inputs": {"user_id": "alice"}})
+    read = lambda f: tee.post("/v1/metric", {  # noqa: E731
+        "actor": OP, "name": "Employee.time_in_state", "filter": f})
+    for wrong in ("state == Employee.ACTIVE", "nonsense == 3",
+                  "i.state =="):
+        assert read(wrong)["refused"] == "malformed_filter", wrong
+    assert read("i.state == Employee.ACTIVE")["refused"] is None
     alike(tee)

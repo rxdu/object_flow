@@ -1,7 +1,8 @@
 //! The tool schemas an agent is handed, rendered from the declaration
 //! (`renderers.md` §3, ADR-0173 decision 10): one for each transition of a
-//! declared type a request may name, one for each observation kind, and
-//! `read_metric`, sorted by name. A transition is left out for an actor kind
+//! declared type a request may name, one for each observation kind,
+//! `read_metric`, and the reads an agent plans with, `get_object`,
+//! `object_availability` and `query_objects` (D564), sorted by name. A transition is left out for an actor kind
 //! where an invariant of its type, over a value its effect assigns from
 //! `actor.kind`, is certain to fail with that kind (decision 1).
 //!
@@ -47,7 +48,7 @@ const ASSIGNMENT: [&str; 11] = [
     "handoffs_by_object",
     "returns_by_object",
 ];
-const AVAILABILITY: &str = "Call availability(object_id) first: it evaluates the real guards against the real data, and says whether this transition is available now, which rule refuses it if not, and what can be done about it.";
+const AVAILABILITY: &str = "Call object_availability first: it evaluates the real guards against the real data, and says whether this transition is available now, which rule refuses it if not, and what can be done about it.";
 const RETRY: &str = "the same key on a retry answers the first result";
 const BACKDATED: &str =
     "when it happened, if earlier than now; how far back is a rule the store checks";
@@ -91,9 +92,16 @@ fn scalar(typ: &str, enums: &BTreeMap<String, Vec<String>>) -> Map<String, Json>
         let fraction = scale.map_or(String::new(), |s| format!("(\\.[0-9]{{1,{s}}})?"));
         out.insert("pattern".into(), json!(format!("^-?[0-9]+{fraction}$")));
     } else if let Some(currency) = typ.strip_prefix("money(").and_then(|c| c.strip_suffix(')')) {
+        // no more places than the currency's minor unit (D571)
+        let minor = crate::value::minor_unit(currency).unwrap_or(2);
+        let fraction = if minor == 0 {
+            String::new()
+        } else {
+            format!("(\\.[0-9]{{1,{minor}}})?")
+        };
         out.insert(
             "pattern".into(),
-            json!(format!("^{currency} -?[0-9]+(\\.[0-9]+)?$")),
+            json!(format!("^{currency} -?[0-9]+{fraction}$")),
         );
     } else if typ == "timestamp" {
         out.insert("format".into(), json!("date-time"));
@@ -438,6 +446,37 @@ fn metric_tool(names: &BTreeSet<String>) -> Json {
                "required": ["name"], "additionalProperties": false}})
 }
 
+/// The reads an agent plans with before it acts (D564): an object, what it
+/// offers the agent now, and the objects of a type a filter selects.
+fn read_tools(lib: &Library) -> Vec<Json> {
+    let types: Vec<&String> = lib
+        .declared
+        .iter()
+        .filter(|tn| lib.types.get(*tn).is_some_and(|t| !t.abstract_))
+        .collect();
+    vec![
+        json!({"name": "get_object",
+               "description": "Read an object: its type, state, attributes, derived ones included, and version, which a later request names as expected_version.",
+               "input_schema": {"type": "object", "properties": {
+                   "id": {"type": "string", "description": "the object's id"}},
+                   "required": ["id"], "additionalProperties": false}}),
+        json!({"name": "object_availability",
+               "description": "What an object offers you now: each transition available, available with input or unavailable, with the rule that refuses it and what can be done, and its inputs' types.",
+               "input_schema": {"type": "object", "properties": {
+                   "object_id": {"type": "string", "description": "the object's id"}},
+                   "required": ["object_id"], "additionalProperties": false}}),
+        json!({"name": "query_objects",
+               "description": "Find objects of a type: those a filter in the expression language selects, such as state == <Type>.<STATE> or a member compared with a value, in the order named.",
+               "input_schema": {"type": "object", "properties": {
+                   "type": {"type": "string", "enum": types},
+                   "filter": {"type": "string"},
+                   "order": {"type": "string", "description": "a member to order by, then desc to descend"},
+                   "fields": {"type": "array", "items": {"type": "string"},
+                              "description": "the members to answer, every one by default"}},
+                   "required": ["type"], "additionalProperties": false}}),
+    ]
+}
+
 /// Every tool for an actor of the kind, sorted by name.
 pub fn tools(lib: &Library, actor_kind: &str) -> Vec<Json> {
     let mut out = Vec::new();
@@ -478,6 +517,7 @@ pub fn tools(lib: &Library, actor_kind: &str) -> Vec<Json> {
         }
     }
     out.push(metric_tool(&names));
+    out.extend(read_tools(lib));
     out.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
     out
 }

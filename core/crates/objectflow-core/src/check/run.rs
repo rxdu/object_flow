@@ -850,8 +850,12 @@ impl Player<'_> {
             return expected.is_null() && got.is_null();
         }
         if let Some(e) = expected.as_str() {
-            if let Some(id) = self.aliases.get(e) {
-                return got.as_str() == Some(id.as_str());
+            // an object by its alias, or a text that reads as one, such as
+            // an identity (D568)
+            if let Some(id) = self.aliases.get(e)
+                && got.as_str() == Some(id.as_str())
+            {
+                return true;
             }
             if let Some(g) = got.as_str() {
                 if QUALIFIED.is_match(e) && e.split_once('.').map(|(_, m)| m) == Some(g) {

@@ -3,7 +3,8 @@ decision 10): the reference for the core's `tools` operation, which the Flow Stu
 runner's side, so the two are compared answer for answer.
 
 `render(kinds, enums, declared, metrics, actor_kind)` gives every tool, sorted by name: one for each transition of a
-declared type a request may name, one for each observation kind, and `read_metric`. A transition is left out for an
+declared type a request may name, one for each observation kind, `read_metric`, and the reads an agent plans with,
+`get_object`, `object_availability` and `query_objects` (D564). A transition is left out for an
 actor kind where an invariant of its type, over a value its effect assigns from `actor.kind`, is certain to fail with
 that kind (decision 1).
 """
@@ -11,6 +12,7 @@ that kind (decision 1).
 import re
 
 import flowexpr
+from flowrun import MINOR_UNITS
 
 ACTOR_KINDS = ("human", "agent", "service")
 # the standard metrics every type has, and those each assignee reference adds (declaration-syntax.md §6.11)
@@ -19,7 +21,7 @@ STANDARD = ("time_in_state", "time_in_state_p80", "throughput", "work_in_progres
 ASSIGNMENT = ("open_work", "time_unassigned", "time_to_first_assignment", "time_with_assignee",
               "cycle_time_by_assignee", "time_in_state_by_holder", "handoffs", "reassigned_back",
               "acted_by_non_assignee", "handoffs_by_object", "returns_by_object")
-AVAILABILITY = ("Call availability(object_id) first: it evaluates the real guards against the real data, and says "
+AVAILABILITY = ("Call object_availability first: it evaluates the real guards against the real data, and says "
                 "whether this transition is available now, which rule refuses it if not, and what can be done about it.")
 
 
@@ -54,8 +56,11 @@ def schema_of(spec, enums):
         places = f"{{1,{scale.group(1)}}}" if scale and scale.group(1) != "0" else None
         out = {"type": "string", "pattern": "^-?[0-9]+" + (f"(\\.[0-9]{places})?" if places else "") + "$"}
     elif typ.startswith("money"):
+        # no more places than the currency's minor unit (D571)
         currency = typ[len("money("):-1]
-        out = {"type": "string", "pattern": f"^{currency} -?[0-9]+(\\.[0-9]+)?$"}
+        minor = MINOR_UNITS.get(currency, 2)
+        fraction = f"(\\.[0-9]{{1,{minor}}})?" if minor else ""
+        out = {"type": "string", "pattern": f"^{currency} -?[0-9]+{fraction}$"}
     elif typ == "timestamp":
         out = {"type": "string", "format": "date-time"}
     elif typ == "date":
@@ -232,6 +237,36 @@ def metric_tool(names):
                 "required": ["name"], "additionalProperties": False}}
 
 
+def read_tools(declared, kinds):
+    """The reads an agent plans with before it acts (D564): an object, what it offers the agent now, and the objects
+    of a type a filter selects."""
+    types = [tn for tn in declared if not (kinds.get(tn) or {}).get("abstract")]
+    return [
+        {"name": "get_object",
+         "description": "Read an object: its type, state, attributes, derived ones included, and version, which a "
+                        "later request names as expected_version.",
+         "input_schema": {"type": "object", "properties": {
+             "id": {"type": "string", "description": "the object's id"}},
+             "required": ["id"], "additionalProperties": False}},
+        {"name": "object_availability",
+         "description": "What an object offers you now: each transition available, available with input or "
+                        "unavailable, with the rule that refuses it and what can be done, and its inputs' types.",
+         "input_schema": {"type": "object", "properties": {
+             "object_id": {"type": "string", "description": "the object's id"}},
+             "required": ["object_id"], "additionalProperties": False}},
+        {"name": "query_objects",
+         "description": "Find objects of a type: those a filter in the expression language selects, such as "
+                        "state == <Type>.<STATE> or a member compared with a value, in the order named.",
+         "input_schema": {"type": "object", "properties": {
+             "type": {"type": "string", "enum": types},
+             "filter": {"type": "string"},
+             "order": {"type": "string", "description": "a member to order by, then desc to descend"},
+             "fields": {"type": "array", "items": {"type": "string"},
+                        "description": "the members to answer, every one by default"}},
+             "required": ["type"], "additionalProperties": False}},
+    ]
+
+
 def render(kinds, enums, declared, metrics, actor_kind):
     """Every tool for an actor of the kind, sorted by name (renderers.md §3, ADR-0173 decision 10). `declared` is
     the types the modules declare, in order; `metrics` each module's metrics by name, `(owner or None, spec)`."""
@@ -257,4 +292,5 @@ def render(kinds, enums, declared, metrics, actor_kind):
             if (spec or {}).get("assignee"):
                 names |= {f"{tn}.{m}.{r}" for m in ASSIGNMENT}
     tools.append(metric_tool(sorted(names)))
+    tools += read_tools(declared, kinds)
     return sorted(tools, key=lambda tool: tool["name"])

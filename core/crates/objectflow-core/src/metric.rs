@@ -1634,6 +1634,29 @@ fn clipped(piece: Value, low: i64, high: i64) -> Option<Value> {
     Some(Value::Row(shared))
 }
 
+/// Whether every name a read's filter starts from is one it may: the
+/// metric's item, `now`, a type, an enumeration or a kind of actor (D569).
+fn reads_only_its_rows(lib: &Library, item: &str, e: &Expr) -> bool {
+    fn within(lib: &Library, bound: &[&str], e: &Expr) -> bool {
+        match e {
+            Expr::Name(n) => {
+                bound.contains(&n.as_str())
+                    || ["now", "human", "agent", "service"].contains(&n.as_str())
+                    || lib.types.contains_key(n)
+                    || lib.enumerations.contains_key(n)
+            }
+            // an aggregation binds its own item over what it ranges
+            Expr::Agg { var: Some(v), .. } => {
+                let mut inner = bound.to_vec();
+                inner.push(v.as_str());
+                e.children().into_iter().all(|c| within(lib, &inner, c))
+            }
+            _ => e.children().into_iter().all(|c| within(lib, bound, c)),
+        }
+    }
+    within(lib, &[item], e)
+}
+
 /// A metric's value, as a guard reads it: its rows those of the store as
 /// the request found it, narrowed to the dimensions bound and the window,
 /// and rounded once (`declaration-syntax.md` §6.9, ADR-0128).
@@ -2258,7 +2281,23 @@ pub fn page(
     if over.is_some() && !reader.windowed(owner, &found.spec, &found.module)? {
         return refused("no_window");
     }
-    let theirs = filter.map(parsed).transpose()?;
+    // a filter reads the rows through the metric's item: a name it does not
+    // bind is a filter the read cannot apply, refused rather than answered
+    // with no rows (D569)
+    let theirs = match filter.map(parse).transpose() {
+        Ok(t) => t,
+        Err(_) => return refused("malformed_filter"),
+    };
+    if let Some(f) = &theirs {
+        let item = formula(lib, owner.unwrap_or_default(), &found.spec)?
+            .get("item")
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if !reads_only_its_rows(lib, &item, f) {
+            return refused("malformed_filter");
+        }
+    }
     if let Some(f) = &theirs
         && reader.reads_personal(owner.unwrap_or_default(), &found.spec, f)?
     {
@@ -2441,11 +2480,42 @@ pub fn person_dimensions(lib: &Library, tn: &str) -> Result<Vec<String>, NotRun>
                 && lib.type_(&k).and_then(Type::actor_identity).is_some()
             {
                 out.push(format!("{tn}.{n}.{d}"));
+            } else if source == "objects" && identity_path(lib, &owner, &item, &e) {
+                // an actor's identity, as `actor.id` records it (D565)
+                out.push(format!("{tn}.{n}.{d}"));
             }
         }
     }
     out.sort();
     Ok(out)
+}
+
+/// Whether a metric's dimension reads an `identity` attribute of its row's
+/// object, or of one its single references reach: an actor's identity, as
+/// `assign … actor.id` records who acted (D565).
+fn identity_path(lib: &Library, owner: &str, item: &str, e: &Expr) -> bool {
+    fn type_of(lib: &Library, owner: &str, item: &str, x: &Expr) -> Option<String> {
+        match x {
+            Expr::Name(n) if n == item => Some(owner.to_string()),
+            Expr::Path(base, m) => {
+                let t = type_of(lib, owner, item, base)?;
+                let a = lib.type_(&t)?.attribute(m)?;
+                match &a.declared {
+                    Declared::Reference(target) if !a.many => Some(target.clone()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+    let Expr::Path(base, m) = e else { return false };
+    type_of(lib, owner, item, base)
+        .and_then(|t| {
+            lib.type_(&t)
+                .and_then(|t| t.attribute(m))
+                .map(|a| a.declared.clone())
+        })
+        .is_some_and(|d| d == Declared::Scalar("identity".to_string()))
 }
 
 /// A declared value's place in a page's order: its position in the installed

@@ -12,16 +12,19 @@ use std::process::{Child, Command, Stdio};
 
 use serde_json::{Value, json};
 
-/// A started service, stopped when dropped, and the address it answers on.
+/// A service and the address it answers on: one this test started, stopped
+/// when dropped, or another thread's view of one, which stops nothing.
 struct Service {
-    child: Child,
+    child: Option<Child>,
     addr: String,
 }
 
 impl Drop for Service {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }
 
@@ -40,7 +43,10 @@ fn start(args: &[&str]) -> Service {
         .strip_prefix("listening on http://")
         .unwrap_or_else(|| panic!("the service did not start: {line}"))
         .to_string();
-    Service { child, addr }
+    Service {
+        child: Some(child),
+        addr,
+    }
 }
 
 /// One HTTP/1.1 exchange: its status and its JSON body.
@@ -418,6 +424,15 @@ fn a_deployment_asks_its_evaluators_at_their_endpoints() {
     // cleared: the transfer settles, the call posted with its argument
     let v = settle(&s, "T-1");
     assert_eq!(v["kind"], "satisfied", "{v}");
+    // the verdict on the record, by guard, with its as-of time (D562)
+    let events = post(&s, "/v1/events", &json!({"positions": v["events"]}));
+    let settled = &events["events"][0];
+    assert_eq!(
+        settled["consulted"],
+        json!({"cleared": {"bank.cleared(T-1)": "satisfied"}}),
+        "{settled}"
+    );
+    assert!(settled["as_of"]["cleared"].is_string(), "{settled}");
     assert_eq!(
         posted.lock().expect("the calls").last().cloned(),
         Some(json!({"evaluator": "bank", "function": "cleared", "arguments": ["T-1"]}))
@@ -443,6 +458,23 @@ fn a_deployment_asks_its_evaluators_at_their_endpoints() {
             "{reference}: {v}"
         );
     }
+    // while an endpoint is slow, every other request is served (D563)
+    let addr = s.addr.clone();
+    let slow = std::thread::spawn(move || {
+        let s = Service { child: None, addr };
+        settle(&s, "T-4")
+    });
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let began = std::time::Instant::now();
+    let (status, _) = call(&s, "GET", "/health", None);
+    let waited = began.elapsed();
+    assert_eq!(status, 200);
+    assert!(
+        waited < std::time::Duration::from_millis(500),
+        "a read waited {waited:?} behind a slow endpoint"
+    );
+    let v = slow.join().expect("the slow settle");
+    assert_eq!(v["remedy"], "temporal", "{v}");
     // a verdict is the request's alone: asked again by the next
     let before = posted.lock().expect("the calls").len();
     let v = settle(&s, "T-1");

@@ -588,6 +588,9 @@ class Sandbox:
     def get(self, body: dict) -> dict | None:
         self.loaded()
         oid = body.get("id")
+        if not isinstance(oid, str):
+            # the argument it needs, a fault and never an absent object (D570)
+            raise Fault(400, "get names an object's id")
         s = self.store
         if oid not in s.objects:
             return None
@@ -641,6 +644,8 @@ class Sandbox:
     def history(self, body: dict) -> dict | None:
         self.loaded()
         oid = body.get("id")
+        if not isinstance(oid, str):
+            raise Fault(400, "history names an object's id")
         if oid not in self.store.objects:
             return None             # no object has no history (ADR-0173)
         events = [self.event(e) for e in self.store.events

@@ -1,0 +1,45 @@
+module: approve
+categories: [live, closed]
+
+types:
+  User:
+    description: A person who may act.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { description: Working., category: live }
+      LEFT:   { description: Gone., category: closed, final: true }
+    transitions:
+      add:   { kind: initial, to: ACTIVE, required_inputs: [login] }
+      leave: { kind: external, from: ACTIVE, to: LEFT }
+
+  Request:
+    description: A request a person approves.
+    tracking: record
+    attributes:
+      title:       { type: string }
+      approved_by: { type: identity, optional: true }
+      approved_at: { type: timestamp, optional: true }
+    states:
+      OPEN:     { description: Waiting., category: live }
+      APPROVED: { description: Approved., category: closed, final: true, required_attributes: [approved_by] }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title] }
+      approve:
+        kind: external
+        from: OPEN
+        to: APPROVED
+        effect:
+          - assign: { location: approved_by, expr: actor.id }
+          - assign: { location: approved_at, expr: now }
+    metrics:
+      approvals_by_approver:
+        description: Approvals by who approved, by month.
+        source: objects
+        item: r
+        filter: r.approved_by is not null
+        dimensions:
+          approver: r.approved_by
+        time_dimension: r.approved_at
+        expression: count()

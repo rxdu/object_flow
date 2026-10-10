@@ -1787,10 +1787,9 @@ def call_errors(library, where, t, tn, xn, x, c, env=None):
 
 
 def present(expr, known, inputs):
-    """Whether an assigned expression provably has a value: now, a literal, a
-    qualified value, a known attribute or a required input. Anything else is
-    not provable here, so it does not count."""
-    if expr == "now" or re.fullmatch(r'-?\d+(\.\d+)?|"[^"]*"|[A-Z][A-Za-z0-9]*\.[A-Z][A-Z0-9_]*', expr):
+    """Whether an assigned expression provably has a value: now, who acts, a literal, a qualified value, a known
+    attribute or a required input. Anything else is not provable here, so it does not count."""
+    if expr in ("now", "actor.id", "actor.kind") or re.fullmatch(r'-?\d+(\.\d+)?|"[^"]*"|[A-Z][A-Za-z0-9]*\.[A-Z][A-Z0-9_]*', expr):
         return True
     if NAME.fullmatch(expr) and expr not in NOT_AN_ATTRIBUTE:
         return expr in known
@@ -4458,8 +4457,10 @@ def uncovered(mdoc, kinds, requested, exercised):
     (ADR-0131 decision 5, ADR-0173 decision 6). A bound machine's transitions count for each type that binds it."""
     left = [(tn, xn) for tn in (mdoc.get("types") or {}) if not (kinds.get(tn) or {}).get("abstract")
             for xn in ((kinds.get(tn) or {}).get("transitions") or {}) if (tn, xn) not in requested]
+    # a transition only via others is never a request under test, so taken it is covered (D567)
+    only_via = {(tn, xn) for tn, xn in left if ((kinds[tn].get("transitions") or {}).get(xn) or {}).get("only_via")}
     return (sorted(f"{tn}.{xn}" for tn, xn in left if (tn, xn) not in exercised),
-            sorted(f"{tn}.{xn}" for tn, xn in left if (tn, xn) in exercised))
+            sorted(f"{tn}.{xn}" for tn, xn in left if (tn, xn) in exercised and (tn, xn) not in only_via))
 
 
 def coverage_notices(module, untaken, untested):
@@ -6023,6 +6024,95 @@ BUDGET_PATH = (
 )
 
 
+# who approved, recorded as `actor.id` into an identity a metric reads by, whose login is also the user's alias in
+# its examples (D565, D566, D568)
+IDENTITY_FLOW = """module: approve
+categories: [live, closed]
+
+types:
+  User:
+    description: A person who may act.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { description: Working., category: live }
+      LEFT:   { description: Gone., category: closed, final: true }
+    transitions:
+      add:   { kind: initial, to: ACTIVE, required_inputs: [login] }
+      leave: { kind: external, from: ACTIVE, to: LEFT }
+
+  Request:
+    description: A request a person approves.
+    tracking: record
+    attributes:
+      title:       { type: string }
+      approved_by: { type: identity, optional: true }
+      approved_at: { type: timestamp, optional: true }
+    states:
+      OPEN:     { description: Waiting., category: live }
+      APPROVED: { description: Approved., category: closed, final: true, required_attributes: [approved_by] }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title] }
+      approve:
+        kind: external
+        from: OPEN
+        to: APPROVED
+        effect:
+          - assign: { location: approved_by, expr: actor.id }
+          - assign: { location: approved_at, expr: now }
+    metrics:
+      approvals_by_approver:
+        description: Approvals by who approved, by month.
+        source: objects
+        item: r
+        filter: r.approved_by is not null
+        dimensions:
+          approver: r.approved_by
+        time_dimension: r.approved_at
+        expression: count()
+"""
+IDENTITY_EXAMPLES = """examples_for: approve
+
+setups:
+  ana_and_a_request:
+    description: Ana, whose login is her alias, and an open request.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { login: ana } }
+      - request: { type: Request, transition: open, as: request, inputs: { title: Laptop } }
+
+examples:
+  an_approval_is_counted_by_its_approver:
+    description: Ana approving the request counts one approval under her login, which is also her alias.
+    given: ana_and_a_request
+    request: { object: request, transition: approve, actor: ana }
+    expect:
+      verdict: applied
+      state: APPROVED
+      values: { approved_by: ana }
+      metrics:
+        Request.approvals_by_approver: [{ approver: ana, value: 1 }]
+"""
+
+
+def identity_plants():
+    """An approval recorded from who acts sets what a state requires, and a metric by the identity it records reads
+    in an example by that identity, where it is also an alias, clean and passing; one expecting another approver
+    fails (D566, D568)."""
+    ok = True
+    found, _notes = check([("approve.yaml", IDENTITY_FLOW), ("approve.examples.yaml", IDENTITY_EXAMPLES)])
+    ok &= not found
+    print(f"  a state requiring who approved, and a metric by approver read in an example: "
+          f"{'clean' if not found else [x[4][:80] for x in found]}")
+    wrong = IDENTITY_EXAMPLES.replace("[{ approver: ana, value: 1 }]", "[{ approver: anna, value: 1 }]")
+    assert wrong != IDENTITY_EXAMPLES
+    found, _notes = check([("approve.yaml", IDENTITY_FLOW), ("approve.examples.yaml", wrong)])
+    hit = [x for x in found if x[3] == "example"]
+    ok &= bool(hit)
+    print(f"  planted another approver expected of the metric: {'caught by example' if hit else 'MISSED ' + str(found[:2])}")
+    return ok
+
+
 def present_path_plants():
     """A value read through references none of which is optional, ending in an attribute that is not optional, is
     provably present (flow-format.md §4.5): from an attribute, and from a required input, it sets what a state requires;
@@ -6031,7 +6121,16 @@ def present_path_plants():
     via_input = BUDGET_PATH.replace(
         "to: APPROVED, effect: [ { assign: { location: budget_year, expr: cost_centre.fiscal_year } } ] }",
         "to: APPROVED, inputs: { centre: { reference: CostCentre } }, effect: [ { assign: { location: budget_year, expr: inputs.centre.fiscal_year } } ] }")
-    for name, text in (("through a required reference", BUDGET_PATH), ("through a required input", via_input)):
+    # who acts is present on every request, so a state may require what records it (D566)
+    by_actor = BUDGET_PATH.replace(
+        "to: APPROVED, effect: [ { assign: { location: budget_year, expr: cost_centre.fiscal_year } } ] }",
+        "to: APPROVED, effect: [ { assign: { location: budget_year, expr: cost_centre.fiscal_year } }, "
+        "{ assign: { location: approved_by, expr: actor.id } } ] }").replace(
+        "budget_year:   { type: int, optional: true }",
+        "budget_year:   { type: int, optional: true }\n      approved_by:   { type: identity, optional: true }").replace(
+        "required_attributes: [budget_year] }", "required_attributes: [budget_year, approved_by] }")
+    for name, text in (("through a required reference", BUDGET_PATH), ("through a required input", via_input),
+                       ("from who acts", by_actor)):
         found, _notes = check([("plant.yaml", text)])
         ok &= not found
         print(f"  a value read {name} to a required attribute is provably present: {'yes' if not found else [x[4][:80] for x in found]}")
@@ -7187,6 +7286,7 @@ def main():
     ok &= split_plants(people)
     ok &= held_plants(people)
     ok &= present_path_plants()
+    ok &= identity_plants()
     ok &= conversion_self_test()
     ok &= decimal_plant(people)
     ok &= cutover_plant(people)

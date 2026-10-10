@@ -1,0 +1,20 @@
+examples_for: approve
+
+setups:
+  ana_and_a_request:
+    description: Ana, whose login is her alias, and an open request.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { login: ana } }
+      - request: { type: Request, transition: open, as: request, inputs: { title: Laptop } }
+
+examples:
+  an_approval_is_counted_by_its_approver:
+    description: Ana approving the request counts one approval under her login, which is also her alias.
+    given: ana_and_a_request
+    request: { object: request, transition: approve, actor: ana }
+    expect:
+      verdict: applied
+      state: APPROVED
+      values: { approved_by: ana }
+      metrics:
+        Request.approvals_by_approver: [{ approver: ana, value: 1 }]

@@ -1318,7 +1318,14 @@ pub fn uncovered(
                 continue;
             }
             if exercised.contains(&key) {
-                untested.push(format!("{tn}.{xn}"));
+                // a transition only via others is never a request under
+                // test, so taken it is covered (D567)
+                let only_via = obj(t, "transitions")
+                    .get(&xn)
+                    .is_some_and(|x| flag(x, "only_via"));
+                if !only_via {
+                    untested.push(format!("{tn}.{xn}"));
+                }
             } else {
                 untaken.push(format!("{tn}.{xn}"));
             }

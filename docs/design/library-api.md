@@ -437,7 +437,9 @@ class MetricPage:
                                           # measures (ADR-0106)
     refused: str | None = None            # why the read cannot be answered, with no rows:
                                           # "unknown_metric", "unknown_dimension",
-                                          # "filter_on_combined", "no_window" or "personal";
+                                          # "filter_on_combined", "no_window", "personal" or
+                                          # "malformed_filter", a filter reading a name its
+                                          # rows do not bind (D569);
                                           # a refusal is a value (ADR-0148)
 
 

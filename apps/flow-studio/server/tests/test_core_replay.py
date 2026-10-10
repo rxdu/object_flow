@@ -24,7 +24,7 @@ import pytest
 from flowstudio.catalogue import Catalogue
 from flowstudio.scripts import flows
 from replay import Wire, replay
-from test_replay import WRONG_METRICS, oracle, with_metric
+from test_replay import WRONG_METRICS, identity_bundle, oracle, with_metric
 
 ROOT = pathlib.Path(__file__).resolve().parents[4]
 CORE = ROOT / "core"
@@ -55,6 +55,11 @@ def test_a_wrong_metric_expectation_fails_in_the_core(core, old, new):
     got = replay(core, "service.yaml", bundle=with_metric(old, new),
                  read=flows.beside(flows.EXAMPLES))
     assert got["a_reassignment_is_measured_as_a_handoff"][0] == "failed"
+
+
+def test_an_identity_that_is_also_an_alias_reads_as_written_in_the_core(core):
+    got = replay(core, "approve.yaml", bundle=identity_bundle())
+    assert got == {"an_approval_is_counted_by_its_approver": ("passed", "")}
 
 
 def test_no_example_fails_in_the_core(core):

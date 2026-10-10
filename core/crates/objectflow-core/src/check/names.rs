@@ -2566,9 +2566,10 @@ static PRESENT_LITERAL: LazyLock<Regex> =
     LazyLock::new(|| re(r#"^(?:-?\d+(\.\d+)?|"[^"]*"|[A-Z][A-Za-z0-9]*\.[A-Z][A-Z0-9_]*)$"#));
 static NAME: LazyLock<Regex> = LazyLock::new(|| re(r"^[a-z][a-z0-9_]*$"));
 
-/// Whether an assigned expression provably has a value.
+/// Whether an assigned expression provably has a value: who acts is one,
+/// since every request names its actor.
 fn present(expr: &str, known: &BTreeSet<String>, inputs: &BTreeSet<String>) -> bool {
-    if expr == "now" || PRESENT_LITERAL.is_match(expr) {
+    if ["now", "actor.id", "actor.kind"].contains(&expr) || PRESENT_LITERAL.is_match(expr) {
         return true;
     }
     if NAME.is_match(expr) && !NOT_AN_ATTRIBUTE.contains(&expr) {

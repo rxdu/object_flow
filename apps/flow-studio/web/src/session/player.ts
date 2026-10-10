@@ -919,8 +919,9 @@ export class Player {
     if (expected === null || expected === undefined || got === null)
       return (expected ?? null) === got;
     if (typeof expected === "string" && typeof got === "string") {
-      const id = this.aliases.get(expected);
-      if (id !== undefined) return id === got;
+      // an object by its alias, or a text that reads as one, such as an
+      // identity (D568)
+      if (this.aliases.get(expected) === got) return true;
       if (
         /^[A-Z][A-Za-z0-9]*\.[A-Z][A-Z0-9_]*$/.test(expected) &&
         expected.slice(expected.indexOf(".") + 1) === got

@@ -456,8 +456,11 @@ class Player:
         state or an enumeration member by its name, qualified or not."""
         if expected is None or got is None:
             return expected is None and got is None
-        if isinstance(expected, str) and expected in self.aliases:
-            return self.aliases[expected] == got
+        # an object by its alias, or a text that reads as one, such as an
+        # identity (D568)
+        if isinstance(expected, str) and \
+                self.aliases.get(expected, object()) == got:
+            return True
         if isinstance(got, str) and isinstance(expected, str):
             if QUALIFIED.fullmatch(expected) and \
                     expected.split(".", 1)[1] == got:

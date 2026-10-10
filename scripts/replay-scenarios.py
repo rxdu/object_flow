@@ -764,8 +764,8 @@ class Driver:
                 return rows, ["object", "kind"], []
             # a reference binds an object by its id, which the document writes by its alias
             return [(re.sub(r"(?<=: )([^,)]+)", lambda k: self.show(k.group(1)), ref), self.show(v))
-                    for g in ((e.get("payload") or {}).get("consulted") or {}).values()
-                    for ref, v in sorted(g["values"].items())], ["reference", "value"], []
+                    for g in (e.get("consulted") or {}).values()
+                    for ref, v in sorted(g.items())], ["reference", "value"], []
         m = re.fullmatch(r"caused by\(([\w-]+)\.(\w+)\)", spec_)
         if m:
             # every event the named one caused (DESIGN.md §6 step 8)

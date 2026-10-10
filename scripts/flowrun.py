@@ -1182,6 +1182,16 @@ class Evaluator:
             return refused("unknown_dimension")
         if filt is not None and combined:
             return refused("filter_on_combined")
+        # a filter reads the rows through the metric's item: a name it does not bind is a filter the read cannot
+        # apply, refused rather than answered with no rows (D569)
+        if filt is not None:
+            try:
+                tree = parsed(filt)
+            except flowexpr.ParseError:
+                return refused("malformed_filter")
+            item = formula(s.kinds, s.enums, owner, spec).get("item")
+            if not reads_only_its_rows(tree, {item}, s.kinds, s.enums):
+                return refused("malformed_filter")
         if over is not None and not self.windowed(owner, spec, module):
             return refused("no_window")
         if filt is not None and self.reads_personal(owner, spec, filt):
@@ -2875,7 +2885,41 @@ def person_dimensions(store, tn):
                 kind = ev.kind(e, {f["item"]: row})
             if kind[0] == "object" and store.actor_attr(kind[1]) is not None:
                 out.append(f"{tn}.{n}.{d}")
+            elif f["source"] == "objects" and identity_path(store.kinds, owner, f["item"], e):
+                out.append(f"{tn}.{n}.{d}")         # an actor's identity, as `actor.id` records it (D565)
     return sorted(out)
+
+
+def reads_only_its_rows(e, bound, kinds, enums):
+    """Whether every name a read's filter starts from is one it may: the metric's item, an aggregation's own, `now`,
+    a type, an enumeration or a kind of actor (D569)."""
+    if not isinstance(e, tuple) or not e:
+        return True
+    if e[0] == "name":
+        return e[1] in bound or e[1] in ("now",) + ACTOR_KINDS or e[1] in kinds or e[1] in enums
+    if e[0] == "agg" and isinstance(e[3], str):
+        bound = bound | {e[3]}
+    return all(reads_only_its_rows(p, bound, kinds, enums) for p in e[1:] if isinstance(p, tuple)) and \
+        all(reads_only_its_rows(q, bound, kinds, enums) for p in e[1:] if isinstance(p, list) for q in p)
+
+
+def identity_path(kinds, owner, item, e):
+    """Whether a metric's dimension reads an `identity` attribute of its row's object, or of one its single
+    references reach: an actor's identity, as `assign … actor.id` records who acted (D565)."""
+    def type_of(x):
+        if x == ("name", item):
+            return owner
+        if x[0] == "path":
+            base = type_of(x[1])
+            spec = (((kinds.get(base) or {}).get("attributes") or {}).get(x[2]) or {}) if base else {}
+            ref = spec.get("reference", "")
+            return ref if ref and not ref.endswith("[]") else None
+        return None
+    if e[0] != "path":
+        return False
+    base = type_of(e[1])
+    spec = (((kinds.get(base) or {}).get("attributes") or {}).get(e[2]) or {}) if base else {}
+    return spec.get("type") == "identity"
 
 
 def observation_kinds(modules):
@@ -3488,13 +3532,21 @@ def metric_differs(runner, store, name, want, aliases):
         # a state or an enumeration member by its name, qualified or not; an object by its alias
         if isinstance(got, tuple) and got[:1] in (("state",), ("enum",)):
             return expected in (got[2], f"{got[1]}.{got[2]}")
-        if isinstance(expected, str) and expected in aliases:
-            return aliases[expected] == got
+        # an object by its alias, or a text that reads as one, such as an identity (D568)
+        if isinstance(expected, str) and expected in aliases and aliases[expected] == got:
+            return True
         return expected == got or str(expected) == str(got)
 
     def shown(row):
+        # in the notation an example writes, a duration by its largest whole unit (D568)
         dims = {d: (v[2] if isinstance(v, tuple) else named.get(v, v)) for d, v in row["dimensions"].items()}
-        return dict(dims, value=written(row["value"], vspec))
+        v = row["value"]
+        if (vspec or {}).get("type") == "duration" and isinstance(v, (int, Fraction)) and Fraction(v).denominator == 1:
+            n = int(v)
+            unit = next(u for u in ("week", "day", "h", "min", "s") if n % SECONDS[u] == 0 and (n or u == "s"))
+            count = n // SECONDS[unit]
+            return dict(dims, value=f"{count} {unit}{'s' if unit in ('week', 'day') and abs(count) != 1 else ''}")
+        return dict(dims, value=written(v, vspec))
 
     rows = page["rows"]
     if not by_rows:

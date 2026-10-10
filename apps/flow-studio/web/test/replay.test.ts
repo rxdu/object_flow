@@ -23,6 +23,63 @@ describe.each(BACKENDS)("against the %s", (backend) => {
 
   afterAll(() => stop?.());
 
+  it("reads an identity that is also an alias as written (D568)", async () => {
+    // scripts/check-flows.py's IDENTITY_FLOW and IDENTITY_EXAMPLES
+    const flow =
+      "module: approve\ncategories: [live, closed]\n\ntypes:\n  User:\n    description: A person who may act.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true }\n    states:\n      ACTIVE: { description: Working., category: live }\n      LEFT:   { description: Gone., category: closed, final: true }\n    transitions:\n      add:   { kind: initial, to: ACTIVE, required_inputs: [login] }\n      leave: { kind: external, from: ACTIVE, to: LEFT }\n\n  Request:\n    description: A request a person approves.\n    tracking: record\n    attributes:\n      title:       { type: string }\n      approved_by: { type: identity, optional: true }\n      approved_at: { type: timestamp, optional: true }\n    states:\n      OPEN:     { description: Waiting., category: live }\n      APPROVED: { description: Approved., category: closed, final: true, required_attributes: [approved_by] }\n    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [title] }\n      approve:\n        kind: external\n        from: OPEN\n        to: APPROVED\n        effect:\n          - assign: { location: approved_by, expr: actor.id }\n          - assign: { location: approved_at, expr: now }\n    metrics:\n      approvals_by_approver:\n        description: Approvals by who approved, by month.\n        source: objects\n        item: r\n        filter: r.approved_by is not null\n        dimensions:\n          approver: r.approved_by\n        time_dimension: r.approved_at\n        expression: count()\n";
+    expect(
+      (await wire.load([{ name: "approve.yaml", text: flow }])).loaded,
+    ).toBe(true);
+    const doc = {
+      examples_for: "approve",
+      setups: {
+        ana_and_a_request: {
+          description: "Ana, whose login is her alias, and an open request.",
+          steps: [
+            {
+              request: {
+                type: "User",
+                transition: "add",
+                as: "ana",
+                inputs: { login: "ana" },
+              },
+            },
+            {
+              request: {
+                type: "Request",
+                transition: "open",
+                as: "request",
+                inputs: { title: "Laptop" },
+              },
+            },
+          ],
+        },
+      },
+      examples: {
+        an_approval_is_counted_by_its_approver: {
+          description:
+            "Ana approving the request counts one approval under her login.",
+          given: "ana_and_a_request",
+          request: { object: "request", transition: "approve", actor: "ana" },
+          expect: {
+            verdict: "applied",
+            state: "APPROVED",
+            values: { approved_by: "ana" },
+            metrics: {
+              "Request.approvals_by_approver": [{ approver: "ana", value: 1 }],
+            },
+          },
+        },
+      },
+    } as unknown as ExamplesDoc;
+    const { outcome, why } = await runExample(
+      wire,
+      doc,
+      "an_approval_is_counted_by_its_approver",
+    );
+    expect([outcome, why]).toEqual(["passed", ""]);
+  });
+
   describe("a metric an example expects (ADR-0173 decision 6)", () => {
     const tested = "a_reassignment_is_measured_as_a_handoff";
     const wrong: [string, unknown][] = [

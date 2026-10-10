@@ -74,5 +74,18 @@ def test_a_wrong_metric_expectation_fails(wire, old, new):
     assert got["a_reassignment_is_measured_as_a_handoff"][0] == "failed"
 
 
+def identity_bundle() -> dict:
+    """An approval recorded from who acts, read by a metric in an example
+    by the identity it records, which is also the user's alias (D568)."""
+    return {"files": [{"name": "approve.yaml", "text": flows.IDENTITY_FLOW}],
+            "examples": {"name": "approve.examples.yaml",
+                         "text": flows.IDENTITY_EXAMPLES}}
+
+
+def test_an_identity_that_is_also_an_alias_reads_as_written(wire):
+    got = replay(wire, "approve.yaml", bundle=identity_bundle())
+    assert got == {"an_approval_is_counted_by_its_approver": ("passed", "")}
+
+
 def test_every_examples_file_is_replayed():
     assert len(FILES) == 10

@@ -578,7 +578,7 @@
     43,
     "notice",
     "coverage",
-    "no example requests 5 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, ChecklistItem.discard, Courier.register, Delivery.approve, Delivery.assign_courier"
+    "no example requests 4 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, Courier.register, Delivery.approve, Delivery.assign_courier"
    ],
    [
     "delivery.examples.yaml",
@@ -698,7 +698,7 @@
     18,
     "notice",
     "coverage",
-    "no example requests 5 transitions of customers as the request under test, which only a setup, a step or an expected cascade takes: Contact.forget, Customer.activate, Customer.add_contact, Customer.register, Order.place"
+    "no example requests 4 transitions of customers as the request under test, which only a setup, a step or an expected cascade takes: Customer.activate, Customer.add_contact, Customer.register, Order.place"
    ],
    [
     "customers.examples.yaml",
@@ -975,7 +975,7 @@
     74,
     "notice",
     "coverage",
-    "no example requests 9 transitions of reimbursement as the request under test, which only a setup, a step or an expected cascade takes: AssistantAgent.register, BusinessFunction.establish, Claim.correct_xero_bill_id, Claim.draft, Claim.record_in_xero, Claim.return_for_changes, ClaimLine.close, Employee.onboard, ExpenseCategory.define"
+    "no example requests 8 transitions of reimbursement as the request under test, which only a setup, a step or an expected cascade takes: AssistantAgent.register, BusinessFunction.establish, Claim.correct_xero_bill_id, Claim.draft, Claim.record_in_xero, Claim.return_for_changes, Employee.onboard, ExpenseCategory.define"
    ],
    [
     "reimbursement.examples.yaml",
@@ -6495,7 +6495,7 @@
     43,
     "notice",
     "coverage",
-    "no example requests 5 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, ChecklistItem.discard, Courier.register, Delivery.approve, Delivery.assign_courier"
+    "no example requests 4 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, Courier.register, Delivery.approve, Delivery.assign_courier"
    ],
    [
     "module.examples.yaml",
@@ -6583,7 +6583,7 @@
     43,
     "notice",
     "coverage",
-    "no example requests 5 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, ChecklistItem.discard, Courier.register, Delivery.approve, Delivery.assign_courier"
+    "no example requests 4 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, Courier.register, Delivery.approve, Delivery.assign_courier"
    ],
    [
     "module.examples.yaml",
@@ -6874,7 +6874,7 @@
     43,
     "notice",
     "coverage",
-    "no example requests 5 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, ChecklistItem.discard, Courier.register, Delivery.approve, Delivery.assign_courier"
+    "no example requests 4 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, Courier.register, Delivery.approve, Delivery.assign_courier"
    ],
    [
     "module.examples.yaml",
@@ -6962,7 +6962,7 @@
     43,
     "notice",
     "coverage",
-    "no example requests 5 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, ChecklistItem.discard, Courier.register, Delivery.approve, Delivery.assign_courier"
+    "no example requests 4 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, Courier.register, Delivery.approve, Delivery.assign_courier"
    ],
    [
     "module.examples.yaml",
@@ -7692,7 +7692,7 @@
     18,
     "notice",
     "coverage",
-    "no example requests 5 transitions of customers as the request under test, which only a setup, a step or an expected cascade takes: Contact.forget, Customer.activate, Customer.add_contact, Customer.register, Order.place"
+    "no example requests 4 transitions of customers as the request under test, which only a setup, a step or an expected cascade takes: Customer.activate, Customer.add_contact, Customer.register, Order.place"
    ],
    [
     "module.examples.yaml",
@@ -10346,6 +10346,29 @@
   "could_violate": {}
  },
  {
+  "label": "present_path_plants: from who acts",
+  "files": [
+   [
+    "plant.yaml",
+    "fbd47c55daaf479e"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "CostCentre": [
+    0,
+    0
+   ],
+   "Requisition": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "present_path_plants: a value read through an optional reference",
   "files": [
    [
@@ -10386,6 +10409,97 @@
    ]
   ],
   "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "identity_plants",
+  "files": [
+   [
+    "approve.yaml",
+    "64e451231c7d61d1"
+   ],
+   [
+    "approve.examples.yaml",
+    "1484ed567a4f1dc1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "approve.examples.yaml",
+    10,
+    "notice",
+    "coverage",
+    "no example requests 2 transitions of approve as the request under test, which only a setup, a step or an expected cascade takes: Request.open, User.add"
+   ],
+   [
+    "approve.examples.yaml",
+    10,
+    "notice",
+    "coverage",
+    "no example takes 1 transition of approve, by its request, a step, a setup or a cascade it expects: User.leave"
+   ]
+  ],
+  "analysed": {
+   "Request": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "identity_plants",
+  "files": [
+   [
+    "approve.yaml",
+    "64e451231c7d61d1"
+   ],
+   [
+    "approve.examples.yaml",
+    "e7a4832e7487a8c7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "approve.examples.yaml",
+    10,
+    "notice",
+    "coverage",
+    "no example requests 2 transitions of approve as the request under test, which only a setup, a step or an expected cascade takes: Request.open, User.add"
+   ],
+   [
+    "approve.examples.yaml",
+    10,
+    "notice",
+    "coverage",
+    "no example takes 1 transition of approve, by its request, a step, a setup or a cascade it expects: User.leave"
+   ],
+   [
+    "approve.examples.yaml",
+    11,
+    "fatal",
+    "example",
+    "an_approval_is_counted_by_its_approver: expected the metric Request.approvals_by_approver to read a row {'approver': 'anna', 'value': 1}, and it reads [{'approver': 'ana', 'value': 1}]"
+   ]
+  ],
+  "analysed": {
+   "Request": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
   "forms": {},
   "could_violate": {}
  },
@@ -10624,7 +10738,7 @@
     18,
     "notice",
     "coverage",
-    "no example requests 5 transitions of customers as the request under test, which only a setup, a step or an expected cascade takes: Contact.forget, Customer.activate, Customer.add_contact, Customer.register, Order.place"
+    "no example requests 4 transitions of customers as the request under test, which only a setup, a step or an expected cascade takes: Customer.activate, Customer.add_contact, Customer.register, Order.place"
    ],
    [
     "customers.examples.yaml",
@@ -10820,7 +10934,7 @@
     43,
     "notice",
     "coverage",
-    "no example requests 5 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, ChecklistItem.discard, Courier.register, Delivery.approve, Delivery.assign_courier"
+    "no example requests 4 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, Courier.register, Delivery.approve, Delivery.assign_courier"
    ],
    [
     "delivery.examples.yaml",

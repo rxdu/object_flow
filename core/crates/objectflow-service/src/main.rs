@@ -110,37 +110,49 @@ fn asked(endpoint: &str, timeout: std::time::Duration, call: &Call) -> &'static 
 
 /// An attempt's outcome, run again with a verdict where it stopped at a call
 /// its answers lack, which a deployment asks at the evaluator's endpoint
-/// outside the request's transaction (ADR-0175 decision 2); the verdicts are
-/// the request's alone.
+/// outside the request's transaction (ADR-0175 decision 2), and with the
+/// service's lock let go, so every other request is served while an
+/// endpoint answers (D563); the verdicts are the request's alone.
 fn consulting<T>(
-    sandbox: &mut Sandbox,
+    shared: &Shared,
     mut attempt: impl FnMut(&mut Store) -> Result<T, Fault>,
     stopped: impl Fn(&T) -> Option<Call>,
 ) -> Result<T, Fault> {
-    let (endpoints, timeout) = (sandbox.endpoints.clone(), sandbox.evaluator_timeout);
-    let deployment = sandbox.deployment;
-    let s = store(sandbox)?;
-    let given = s.answers.clone();
+    let mut asked_so_far: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
     let mut calls = 0;
-    let out = loop {
-        let out = attempt(s);
-        let call = match &out {
-            Ok(t) if deployment => stopped(t),
-            _ => None,
+    loop {
+        let (out, call, endpoint, timeout) = {
+            let mut sandbox = locked(shared)?;
+            let (endpoints, timeout) = (sandbox.endpoints.clone(), sandbox.evaluator_timeout);
+            let deployment = sandbox.deployment;
+            let s = store(&mut sandbox)?;
+            let given = s.answers.clone();
+            s.answers.extend(asked_so_far.clone());
+            let out = attempt(s);
+            s.answers = given;
+            let call = match &out {
+                Ok(t) if deployment => stopped(t),
+                _ => None,
+            };
+            let endpoint = call
+                .as_ref()
+                .and_then(|c| endpoints.get(&c.evaluator).cloned());
+            (out, call, endpoint, timeout)
         };
         // a call that changes at every attempt stops the request, unrun
         let Some(call) = call.filter(|_| calls < 2 * MAX_CALLS) else {
-            break out;
+            return out;
         };
-        let verdict = match endpoints.get(&call.evaluator) {
-            Some(endpoint) if calls < MAX_CALLS => asked(endpoint, timeout, &call),
+        let verdict = match endpoint {
+            Some(endpoint) if calls < MAX_CALLS => {
+                tokio::task::block_in_place(|| asked(&endpoint, timeout, &call))
+            }
             _ => "unanswered",
         };
         calls += 1;
-        s.answers.insert(call.key(), verdict.to_string());
-    };
-    s.answers = given;
-    out
+        asked_so_far.insert(call.key(), verdict.to_string());
+    }
 }
 
 /// UTC now, in seconds since 1970: a deployment's clock (ADR-0174 decision
@@ -402,6 +414,19 @@ fn verdict(v: &Verdict) -> J {
 }
 
 fn event(e: &Event) -> J {
+    // what its guards consulted, the verdict or value each was given by the
+    // reference with its bindings, and its as-of time, each by guard, as the
+    // library's `Event` carries them (`library-api.md` §5, D562)
+    let mut payload = e.payload.clone();
+    let (mut consulted, mut as_of) = (Map::new(), Map::new());
+    if let Some(J::Object(rules)) = payload.as_object_mut().and_then(|p| p.remove("consulted")) {
+        for (rule, c) in rules {
+            if let Some(at) = c.get("as_of") {
+                as_of.insert(rule.clone(), at.clone());
+            }
+            consulted.insert(rule, c.get("values").cloned().unwrap_or(J::Null));
+        }
+    }
     json!({
         "position": e.position, "object_id": e.object_id, "transition": e.transition,
         "from_state": e.from_state, "to_state": e.to_state, "changes_state": e.changes_state,
@@ -409,7 +434,8 @@ fn event(e: &Event) -> J {
         "declaration_version": e.declaration_version,
         "recorded_at": timestamp_text(e.recorded_at),
         "occurred_at": e.occurred_at.map(timestamp_text), "imported": e.imported,
-        "payload": e.payload, "cause": e.cause, "reads": e.reads, "context": e.context,
+        "payload": payload, "cause": e.cause, "reads": e.reads, "context": e.context,
+        "consulted": consulted, "as_of": as_of,
     })
 }
 
@@ -550,9 +576,8 @@ async fn evaluators(State(shared): State<Shared>, Body(body): Body) -> Answer {
 // ── the library's operations ──────────────────────────────────────────────
 async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let req = request_of(&body)?;
-    let mut sandbox = locked(&shared)?;
     let v = consulting(
-        &mut sandbox,
+        &shared,
         |s| Ok(request::request(s, &req)?),
         |out| match out {
             Err(request::NoVerdict::NotRun(NotRun::Unanswered(c))) => Some((**c).clone()),
@@ -571,9 +596,8 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
             "a check simulates a request, not a proposal".to_string(),
         ));
     }
-    let mut sandbox = locked(&shared)?;
     let c = consulting(
-        &mut sandbox,
+        &shared,
         |s| Ok(request::check(s, &req)?),
         |out| match out {
             Err(NotRun::Unanswered(c)) => Some((**c).clone()),
@@ -1173,9 +1197,11 @@ fn object_json(s: &Store, id: &str) -> Answer {
 }
 
 async fn get(State(shared): State<Shared>, Body(body): Body) -> Answer {
+    // the argument it needs, a fault and never an absent object (D570)
+    let id = text(&body, "id").ok_or_else(|| Fault::Bad("get names an object's id".to_string()))?;
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
-    object_json(s, text(&body, "id").unwrap_or_default())
+    object_json(s, id)
 }
 
 /// A change's dry run, its report the impact a publish would have, or its
@@ -1251,9 +1277,10 @@ async fn lookup(State(shared): State<Shared>, Body(body): Body) -> Answer {
 }
 
 async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
+    let id =
+        text(&body, "id").ok_or_else(|| Fault::Bad("history names an object's id".to_string()))?;
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
-    let id = text(&body, "id").unwrap_or_default();
     // an object that does not exist has no history, null as get's (ADR-0173)
     if reads::get(&s.snapshot()?, id)?.is_none() {
         return Ok(Json(J::Null));

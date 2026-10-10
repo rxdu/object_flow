@@ -84,7 +84,7 @@ def test_a_tool_takes_the_calls_the_wire_takes(tee):
     jsonschema.validate(good, schema)
     for wrong in ({"amount": "SGD 120.00"}, {"amount": 120},
                   {"expense_date": "30/12/2025"}, {"nonsense": 1},
-                  {"receipt": "taxi.pdf"}):
+                  {"receipt": "taxi.pdf"}, {"amount": "USD 120.005"}):
         bad = dict(good, inputs=dict(good["inputs"], **wrong))
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(
@@ -92,6 +92,16 @@ def test_a_tool_takes_the_calls_the_wire_takes(tee):
                 format_checker=jsonschema.draft7_format_checker)
     # a creation has no object to name
     assert "object_id" not in t["claim_draft"]["input_schema"]["properties"]
+
+
+def test_an_agent_can_read_before_it_acts(tee):
+    """Every transition's tool directs the agent to the object's
+    availability, so the tools an agent is handed read too (D564)."""
+    t = tools(tee, "reimbursement.yaml", "agent")
+    assert {"get_object", "object_availability", "query_objects"} <= set(t)
+    assert "object_availability" in t["claim_submit"]["description"]
+    assert "Claim" in t["query_objects"]["input_schema"]["properties"][
+        "type"]["enum"]
 
 
 def test_an_unknown_actor_kind_is_a_fault_alike(tee):
