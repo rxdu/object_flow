@@ -170,6 +170,9 @@ export interface MetricPage extends Reported {
   rows: { dimensions: Record<string, WireValue>; value: WireValue }[];
   cursor: string | null;
   flags: unknown[];
+  /** why the read cannot be answered, where it cannot: `unknown_metric`,
+   * `unknown_dimension` among them (`library-api.md` §5) */
+  refused: string | null;
 }
 
 export interface AttributeSpec {

@@ -23,6 +23,20 @@ examples:
     request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
     expect: { verdict: applied, state: OPEN }
 
+  a_reassignment_is_measured_as_a_handoff:
+    description: Reassigning a working job to Ben is its one handoff, so January's jobs average one; it is the job's third transition, and the hour it spent open counts in its time in state.
+    given: job_in_progress
+    request: { object: job, transition: reassign, actor: ana, after: 2 h, inputs: { reason: ReassignmentReason.WORKLOAD, engineer: ben } }
+    expect:
+      verdict: applied
+      state: WORKING
+      values: { engineer: ben }
+      metrics:
+        ServiceJob.handoffs_per_job: [{ month: 2026-01, value: 1 }]
+        ServiceJob.transition_counts: 3
+        ServiceJob.work_in_progress: [{ state: WORKING, value: 1 }]
+        ServiceJob.time_in_state: [{ state: OPEN, month: 2026-01, value: 1 h }, { state: WORKING, month: 2026-01, value: 2 h }]
+
   a_job_is_not_given_to_an_engineer_who_left:
     description: Once Ben has left, a job cannot be reassigned to him, and the caller can name another engineer.
     given: job_in_progress

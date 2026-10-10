@@ -117,6 +117,8 @@ export interface Expectation {
   cascaded?: string[];
   warned?: string[];
   proposal?: string;
+  /** what metrics read after the request (ADR-0173 decision 6) */
+  metrics?: Record<string, unknown>;
 }
 
 interface Part {
@@ -863,6 +865,77 @@ export class Player {
     return null;
   }
 
+  /** What differs between a metric an example expects and what a reader
+   * reads after the request, or null: its value over every row, keeping no
+   * dimension, or its rows by every dimension it declares, all of them in
+   * any order (flow-format.md §11.4, ADR-0173 decision 6). */
+  async metricDiffers(name: string, want: unknown): Promise<string | null> {
+    const byRows = Array.isArray(want);
+    const page = await this.wire.metric(
+      OPERATOR,
+      name,
+      byRows ? undefined : [],
+    );
+    if (page.refused)
+      return `expected the metric ${name} to read ${JSON.stringify(want)}, and the read is refused as ${page.refused}`;
+    const rows = page.rows;
+    if (!byRows) {
+      const got = rows[0]?.value ?? null;
+      return this.metricValueIs(want, got)
+        ? null
+        : `expected the metric ${name} to read ${JSON.stringify(want)}, and it reads ${JSON.stringify(got)}`;
+    }
+    const left = [...rows];
+    for (const w of want as Record<string, unknown>[]) {
+      const dims = Object.entries(w).filter(([d]) => d !== "value");
+      const i = left.findIndex(
+        (r) =>
+          Object.keys(r.dimensions).length === dims.length &&
+          dims.every(
+            ([d, v]) =>
+              d in r.dimensions &&
+              this.metricValueIs(v, r.dimensions[d] ?? null),
+          ) &&
+          this.metricValueIs(w["value"] ?? null, r.value),
+      );
+      if (i < 0)
+        return `expected the metric ${name} to read a row ${JSON.stringify(w)}, and it reads ${JSON.stringify(rows)}`;
+      left.splice(i, 1);
+    }
+    return left.length > 0
+      ? `expected the metric ${name} to read ${(want as unknown[]).length} rows, and it reads ${rows.length}`
+      : null;
+  }
+
+  /** A metric's value or a dimension's, which no declaration types: typed
+   * by the wire's notation of it, an object by its alias and a state or an
+   * enumeration member by its name, qualified or not. */
+  private metricValueIs(expected: unknown, got: WireValue): boolean {
+    if (expected === null || expected === undefined || got === null)
+      return (expected ?? null) === got;
+    if (typeof expected === "string" && typeof got === "string") {
+      const id = this.aliases.get(expected);
+      if (id !== undefined) return id === got;
+      if (
+        /^[A-Z][A-Za-z0-9]*\.[A-Z][A-Z0-9_]*$/.test(expected) &&
+        expected.slice(expected.indexOf(".") + 1) === got
+      )
+        return true;
+      const duration = /^\d+ (s|min|h|days?|weeks?)$/;
+      if (duration.test(expected) && duration.test(got))
+        return durationSeconds(expected) === durationSeconds(got);
+      const money = /^([A-Z]{3}) -?\d+(\.\d+)?$/.exec(got);
+      if (money)
+        return (
+          (expected.split(/\s+/).length === 1 ||
+            expected.startsWith(`${money[1]} `)) &&
+          sameDecimalOrNot(expected, got)
+        );
+      if (/^-?\d+(\.\d+)?$/.test(got)) return sameDecimalOrNot(expected, got);
+    }
+    return looseEqual(expected, got);
+  }
+
   private same(
     expected: unknown,
     got: WireValue,
@@ -890,6 +963,16 @@ export class Player {
     }
     if (typ === "date") return String(expected) === got;
     return this.wireValue(expected, spec) === got;
+  }
+}
+
+/** Whether two decimals are the same number, false where either is not
+ * one. */
+function sameDecimalOrNot(a: string, b: string): boolean {
+  try {
+    return sameDecimal(a, b);
+  } catch {
+    return false;
   }
 }
 
@@ -931,6 +1014,9 @@ export async function runExample(
       }
       if (ps.kind === "tested" && v) {
         let problem = await p.compare(ps.expect, v, ps.step);
+        for (const [metric, want] of Object.entries(ps.expect.metrics ?? {})) {
+          problem = problem ?? (await p.metricDiffers(metric, want));
+        }
         if (
           problem === null &&
           ps.expect.proposal !== undefined &&

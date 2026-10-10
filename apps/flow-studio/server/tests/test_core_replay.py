@@ -24,7 +24,7 @@ import pytest
 from flowstudio.catalogue import Catalogue
 from flowstudio.scripts import flows
 from replay import Wire, replay
-from test_replay import oracle
+from test_replay import WRONG_METRICS, oracle, with_metric
 
 ROOT = pathlib.Path(__file__).resolve().parents[4]
 CORE = ROOT / "core"
@@ -48,6 +48,13 @@ def core():
     yield Wire(m.group(1))
     service.terminate()
     service.wait()
+
+
+@pytest.mark.parametrize("old,new", WRONG_METRICS)
+def test_a_wrong_metric_expectation_fails_in_the_core(core, old, new):
+    got = replay(core, "service.yaml", bundle=with_metric(old, new),
+                 read=flows.beside(flows.EXAMPLES))
+    assert got["a_reassignment_is_measured_as_a_handoff"][0] == "failed"
 
 
 def test_no_example_fails_in_the_core(core):

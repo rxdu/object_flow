@@ -221,6 +221,18 @@
           "description": "For applied: the occurred time the request recorded, a timestamp such as now - 1 day.",
           "type": "string"
         },
+        "metrics": {
+          "description": "What metrics read after the request, by the name a reader reads each by: its value over every row, keeping no dimension, or its rows by every dimension it declares, each its dimensions' values and its value (ADR-0173 decision 6).",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^([A-Z][A-Za-z0-9]*\\.)?[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$" },
+          "additionalProperties": {
+            "oneOf": [
+              { "type": ["string", "number", "boolean", "null"] },
+              { "type": "array", "items": { "type": "object", "required": ["value"] } }
+            ]
+          }
+        },
         "proposal": {
           "description": "The state an approved proposal is left in: executed where its request applied, pending where it was refused, and as it was where it was not pending, invalidated included.",
           "enum": ["pending", "executed", "rejected", "withdrawn", "invalidated"]

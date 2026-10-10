@@ -763,6 +763,100 @@ impl Player<'_> {
         }))
     }
 
+    /// What differs between a metric an example expects and what a reader
+    /// reads after the request: its value over every row, keeping no
+    /// dimension, or its rows by every dimension it declares, all of them in
+    /// any order (`flow-format.md` §11.4, ADR-0173 decision 6).
+    fn metric_differs(&self, name: &str, want: &Json) -> Played<Option<String>> {
+        let by_rows = want.is_array();
+        let keep: Vec<String> = Vec::new();
+        let world = self.store.snapshot()?;
+        let page = crate::metric::page(
+            &world,
+            Some(&self.store.answers),
+            name,
+            &BTreeMap::new(),
+            if by_rows { None } else { Some(keep.as_slice()) },
+            None,
+            None,
+        )?;
+        let page = crate::metric::page_json(&page);
+        drop(world);
+        if let Some(why) = page.get("refused").filter(|r| !r.is_null()) {
+            return Ok(Some(format!(
+                "expected the metric {name} to read {}, and the read is refused as {}",
+                py_str(want),
+                py_str(why)
+            )));
+        }
+        let rows = list(&page, "rows");
+        if !by_rows {
+            let got = rows.first().map_or(Json::Null, |r| r["value"].clone());
+            return Ok((!self.metric_value_is(want, &got)).then(|| {
+                format!(
+                    "expected the metric {name} to read {}, and it reads {}",
+                    py_str(want),
+                    py_str(&got)
+                )
+            }));
+        }
+        let mut left: Vec<&Json> = rows.iter().collect();
+        for w in want.as_array().into_iter().flatten() {
+            let dims: Vec<(&String, &Json)> = w
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter(|(d, _)| d.as_str() != "value")
+                .collect();
+            let hit = left.iter().position(|r| {
+                let have = obj(r, "dimensions");
+                have.len() == dims.len()
+                    && dims
+                        .iter()
+                        .all(|(d, v)| have.get(*d).is_some_and(|g| self.metric_value_is(v, g)))
+                    && self.metric_value_is(w.get("value").unwrap_or(&Json::Null), &r["value"])
+            });
+            let Some(i) = hit else {
+                return Ok(Some(format!(
+                    "expected the metric {name} to read a row {}, and it reads {}",
+                    py_str(w),
+                    py_str(&Json::Array(rows.to_vec()))
+                )));
+            };
+            left.remove(i);
+        }
+        Ok((!left.is_empty()).then(|| {
+            format!(
+                "expected the metric {name} to read {} rows, and it reads {}",
+                want.as_array().map_or(0, Vec::len),
+                rows.len()
+            )
+        }))
+    }
+
+    /// A metric's value or a dimension's, which no declaration types: typed
+    /// by the wire's notation of it, an object by its alias and a state or
+    /// an enumeration member by its name, qualified or not.
+    fn metric_value_is(&self, expected: &Json, got: &Json) -> bool {
+        if expected.is_null() || got.is_null() {
+            return expected.is_null() && got.is_null();
+        }
+        if let Some(e) = expected.as_str() {
+            if let Some(id) = self.aliases.get(e) {
+                return got.as_str() == Some(id.as_str());
+            }
+            if let Some(g) = got.as_str() {
+                if QUALIFIED.is_match(e) && e.split_once('.').map(|(_, m)| m) == Some(g) {
+                    return true;
+                }
+                if let (Some(a), Some(b)) = (parse_duration(e), parse_duration(g)) {
+                    return a == b;
+                }
+            }
+        }
+        derived_equal(expected, got)
+    }
+
     fn same(&self, expected: &Json, got: &Json, spec: &Json) -> Played<bool> {
         if expected.is_null() || got.is_null() {
             return Ok(expected.is_null() && got.is_null());
@@ -806,6 +900,7 @@ fn amounts_equal(expected: &Json, got: &Json, currency: Option<&str>) -> bool {
     code_ok && a.is_some() && a == amount(&py_str(got))
 }
 
+static QUALIFIED: LazyLock<Regex> = LazyLock::new(|| re(r"^[A-Z][A-Za-z0-9]*\.[A-Z][A-Z0-9_]*$"));
 static MONEY_TEXT: LazyLock<Regex> = LazyLock::new(|| re(r"^([A-Z]{3}) -?[0-9]+(\.[0-9]+)?$"));
 static DECIMAL_TEXT: LazyLock<Regex> = LazyLock::new(|| re(r"^-?[0-9]+(\.[0-9]+)?$"));
 
@@ -907,6 +1002,11 @@ fn run_one(
     };
     let want = ex.get("expect").cloned().unwrap_or(Json::Null);
     let mut problem = p.compare(&want, &v, &tested)?;
+    for (name, expected) in obj(&want, "metrics") {
+        if problem.is_none() {
+            problem = p.metric_differs(name, expected)?;
+        }
+    }
     if problem.is_none()
         && let Some(expected) = want.get("proposal").map(py_str)
     {

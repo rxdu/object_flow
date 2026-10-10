@@ -151,7 +151,7 @@
   "previous": {
    "people": "cc897d91cab7f987",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "0bd9b928997c8194"
+   "service.examples": "b5b6bd173d23b779"
   },
   "findings": [
    [
@@ -217,7 +217,7 @@
   "previous": {
    "people": "cc897d91cab7f987",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "0bd9b928997c8194"
+   "service.examples": "b5b6bd173d23b779"
   },
   "findings": [
    [
@@ -283,7 +283,7 @@
   "previous": {
    "people": "cc897d91cab7f987",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "0bd9b928997c8194"
+   "service.examples": "b5b6bd173d23b779"
   },
   "findings": [
    [
@@ -349,7 +349,7 @@
   "previous": {
    "people": "cc897d91cab7f987",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "0bd9b928997c8194"
+   "service.examples": "b5b6bd173d23b779"
   },
   "findings": [
    [
@@ -413,7 +413,7 @@
    ],
    [
     "service.examples.yaml",
-    "0bd9b928997c8194"
+    "b5b6bd173d23b779"
    ]
   ],
   "previous": {},
@@ -5035,7 +5035,7 @@
    ],
    [
     "service.examples.yaml",
-    "1628d3f6e608daba"
+    "e13fd08787527933"
    ]
   ],
   "previous": {},
@@ -5056,21 +5056,21 @@
    ],
    [
     "service.examples.yaml",
-    50,
+    64,
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: expected the request to apply, and it is refused as unsatisfied no_unresolved_failure dependent"
    ],
    [
     "service.examples.yaml",
-    181,
+    195,
     "notice",
     "notrun",
     "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    196,
+    210,
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
@@ -5121,7 +5121,7 @@
    ],
    [
     "service.examples.yaml",
-    "ec756594eb4e6039"
+    "e849b159c8e2fb05"
    ]
   ],
   "previous": {},
@@ -5142,21 +5142,21 @@
    ],
    [
     "service.examples.yaml",
-    50,
+    64,
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: expected signed_off_by_user to hold ben, and it holds ana"
    ],
    [
     "service.examples.yaml",
-    181,
+    195,
     "notice",
     "notrun",
     "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    196,
+    210,
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
@@ -5207,7 +5207,7 @@
    ],
    [
     "service.examples.yaml",
-    "c6d25a7efa3d4afb"
+    "4f98051a17639fce"
    ]
   ],
   "previous": {},
@@ -5238,95 +5238,102 @@
     26,
     "fatal",
     "example",
+    "a_reassignment_is_measured_as_a_handoff: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+   ],
+   [
+    "service.examples.yaml",
+    40,
+    "fatal",
+    "example",
     "a_job_is_not_given_to_an_engineer_who_left: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
     "service.examples.yaml",
-    38,
+    52,
     "fatal",
     "example",
     "a_failed_check_holds_the_job_open: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
     "service.examples.yaml",
-    50,
+    64,
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
     "service.examples.yaml",
-    68,
+    82,
     "fatal",
     "example",
     "a_corrected_result_replaces_the_mistake: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
     "service.examples.yaml",
-    86,
+    100,
     "fatal",
     "example",
     "a_result_is_corrected_once: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
     "service.examples.yaml",
-    108,
+    122,
     "fatal",
     "example",
     "a_late_start_is_dated_when_it_happened: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
     "service.examples.yaml",
-    116,
+    130,
     "fatal",
     "example",
     "a_start_is_not_dated_further_back_than_two_days: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
     "service.examples.yaml",
-    124,
+    138,
     "fatal",
     "example",
     "a_start_is_not_dated_before_the_job_opened: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
     "service.examples.yaml",
-    132,
+    146,
     "fatal",
     "example",
     "a_finish_says_no_time_of_its_own: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
     "service.examples.yaml",
-    138,
+    152,
     "fatal",
     "example",
     "an_inspection_is_dated_when_it_was_done: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
     "service.examples.yaml",
-    150,
+    164,
     "fatal",
     "example",
     "an_inspection_more_than_a_week_late_is_refused: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
     "service.examples.yaml",
-    162,
+    176,
     "fatal",
     "example",
     "a_correction_takes_the_time_of_what_it_corrects: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
     "service.examples.yaml",
-    181,
+    195,
     "fatal",
     "example",
     "a_job_from_before_version_2_needs_its_completion_photo: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
    ],
    [
     "service.examples.yaml",
-    196,
+    210,
     "fatal",
     "example",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
@@ -5377,7 +5384,7 @@
    ],
    [
     "service.examples.yaml",
-    "0bd9b928997c8194"
+    "b5b6bd173d23b779"
    ]
   ],
   "previous": {},
@@ -5398,21 +5405,21 @@
    ],
    [
     "service.examples.yaml",
-    50,
+    64,
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: expected the request to apply, and it is refused as unsatisfied pass_rate dependent"
    ],
    [
     "service.examples.yaml",
-    181,
+    195,
     "notice",
     "notrun",
     "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    196,
+    210,
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
@@ -5463,7 +5470,7 @@
    ],
    [
     "service.examples.yaml",
-    "0bd9b928997c8194"
+    "b5b6bd173d23b779"
    ]
   ],
   "previous": {},
@@ -5487,81 +5494,88 @@
     26,
     "fatal",
     "example",
+    "a_reassignment_is_measured_as_a_handoff: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
+   ],
+   [
+    "service.examples.yaml",
+    40,
+    "fatal",
+    "example",
     "a_job_is_not_given_to_an_engineer_who_left: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
    ],
    [
     "service.examples.yaml",
-    38,
+    52,
     "fatal",
     "example",
     "a_failed_check_holds_the_job_open: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
    ],
    [
     "service.examples.yaml",
-    50,
+    64,
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
    ],
    [
     "service.examples.yaml",
-    68,
+    82,
     "fatal",
     "example",
     "a_corrected_result_replaces_the_mistake: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
    ],
    [
     "service.examples.yaml",
-    86,
+    100,
     "fatal",
     "example",
     "a_result_is_corrected_once: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
    ],
    [
     "service.examples.yaml",
-    108,
+    122,
     "fatal",
     "example",
     "a_late_start_is_dated_when_it_happened: expected the request to apply, and it is refused as unsatisfied quick dependent"
    ],
    [
     "service.examples.yaml",
-    132,
+    146,
     "fatal",
     "example",
     "a_finish_says_no_time_of_its_own: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
    ],
    [
     "service.examples.yaml",
-    138,
+    152,
     "fatal",
     "example",
     "an_inspection_is_dated_when_it_was_done: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
    ],
    [
     "service.examples.yaml",
-    150,
+    164,
     "fatal",
     "example",
     "an_inspection_more_than_a_week_late_is_refused: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
    ],
    [
     "service.examples.yaml",
-    162,
+    176,
     "fatal",
     "example",
     "a_correction_takes_the_time_of_what_it_corrects: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
    ],
    [
     "service.examples.yaml",
-    181,
+    195,
     "fatal",
     "example",
     "a_job_from_before_version_2_needs_its_completion_photo: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
    ],
    [
     "service.examples.yaml",
-    196,
+    210,
     "fatal",
     "example",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
@@ -5612,7 +5626,7 @@
    ],
    [
     "service.examples.yaml",
-    "0bd9b928997c8194"
+    "b5b6bd173d23b779"
    ]
   ],
   "previous": {},
@@ -5636,81 +5650,88 @@
     26,
     "notice",
     "notrun",
+    "a_reassignment_is_measured_as_a_handoff is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
+   ],
+   [
+    "service.examples.yaml",
+    40,
+    "notice",
+    "notrun",
     "a_job_is_not_given_to_an_engineer_who_left is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    38,
+    52,
     "notice",
     "notrun",
     "a_failed_check_holds_the_job_open is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    50,
+    64,
     "notice",
     "notrun",
     "a_repeated_check_lets_the_job_finish is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    68,
+    82,
     "notice",
     "notrun",
     "a_corrected_result_replaces_the_mistake is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    86,
+    100,
     "notice",
     "notrun",
     "a_result_is_corrected_once is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    108,
+    122,
     "notice",
     "notrun",
     "a_late_start_is_dated_when_it_happened is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    132,
+    146,
     "notice",
     "notrun",
     "a_finish_says_no_time_of_its_own is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    138,
+    152,
     "notice",
     "notrun",
     "an_inspection_is_dated_when_it_was_done is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    150,
+    164,
     "notice",
     "notrun",
     "an_inspection_more_than_a_week_late_is_refused is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    162,
+    176,
     "notice",
     "notrun",
     "a_correction_takes_the_time_of_what_it_corrects is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    181,
+    195,
     "notice",
     "notrun",
     "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    196,
+    210,
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches an amount in PHP, whose minor unit the runner does not know, which the runner does not yet execute"
@@ -5761,14 +5782,14 @@
    ],
    [
     "service.examples.yaml",
-    "b210158ad8ef363a"
+    "944833b95f22d7c5"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    36,
+    50,
     "fatal",
     "names",
     "ServiceJob.engineer_active declares the remedy self_serviceable, not dependent"
@@ -5798,14 +5819,14 @@
    ],
    [
     "service.examples.yaml",
-    "d1b56380aed11389"
+    "00ff7cb29c31d36f"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    30,
+    44,
     "fatal",
     "names",
     "acts on 'bob', which no earlier step gave as an alias"
@@ -5835,21 +5856,21 @@
    ],
    [
     "service.examples.yaml",
-    "871850a90e856bc1"
+    "e9b4fdde0fd6db58"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    35,
+    49,
     "fatal",
     "names",
     "ServiceJob.reassign takes no input 'why'"
    ],
    [
     "service.examples.yaml",
-    36,
+    50,
     "fatal",
     "names",
     "the request leaves out reason, which is refused as invalid_input, and the example expects unsatisfied"
@@ -5879,14 +5900,14 @@
    ],
    [
     "service.examples.yaml",
-    "fb084fe101d5c50e"
+    "2348363eb4ca0c72"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    35,
+    49,
     "fatal",
     "names",
     "'reason' is a ReassignmentReason, written qualified as ReassignmentReason.<MEMBER> with a member it declares"
@@ -5916,14 +5937,14 @@
    ],
    [
     "service.examples.yaml",
-    "2cec8842313580d0"
+    "0f3c8e40d597012b"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    113,
+    127,
     "fatal",
     "names",
     "'occurred_at' is a timestamp, written in UTC as 2026-01-01T09:00Z, or as now, now + <duration> or now - <duration>"
@@ -5953,7 +5974,7 @@
    ],
    [
     "service.examples.yaml",
-    "4d29a97d6080ad96"
+    "7ca1aa7437e39902"
    ]
   ],
   "previous": {},
@@ -5990,7 +6011,7 @@
    ],
    [
     "service.examples.yaml",
-    "2a3fb8412add5ab0"
+    "37a4f9954e3a667d"
    ]
   ],
   "previous": {},
@@ -6041,14 +6062,14 @@
    ],
    [
     "service.examples.yaml",
-    "75e80cd1ef8410df"
+    "c9fbb53fce6fcd1f"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    47,
+    61,
     "fatal",
     "names",
     "names the actor 'battery', which is neither `operator` nor an alias of an object whose type marks an actor identity"
@@ -6078,14 +6099,14 @@
    ],
    [
     "service.examples.yaml",
-    "cc176c92a324a4b6"
+    "d0e3f0670fea1186"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    48,
+    62,
     "fatal",
     "names",
     "photo_missing is not a guard of ServiceJob.finish, a generated guard, or a condition of a type its effect reaches"
@@ -6115,14 +6136,14 @@
    ],
    [
     "service.examples.yaml",
-    "a2ce9e3b7ef4efb8"
+    "15728c5ff2fb6ecf"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    30,
+    44,
     "fatal",
     "schema",
     "a request names the `type` of a creation, with `as` for the alias it gives the object, or the `object` it acts on by its alias, not both"
@@ -6152,7 +6173,7 @@
    ],
    [
     "service.examples.yaml",
-    "600c99c070b627aa"
+    "552f1c06b915cf86"
    ]
   ],
   "previous": {},
@@ -6746,7 +6767,7 @@
    ],
    [
     "module.examples.yaml",
-    "c49fde5101224077"
+    "9087171c1c579bab"
    ]
   ],
   "previous": {},
@@ -6767,21 +6788,21 @@
    ],
    [
     "module.examples.yaml",
-    26,
+    40,
     "fatal",
     "example",
     "a_job_is_not_given_to_an_engineer_who_left: expected unavailable, and it is refused as unsatisfied engineer_active self_serviceable"
    ],
    [
     "module.examples.yaml",
-    181,
+    195,
     "notice",
     "notrun",
     "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.examples.yaml",
-    196,
+    210,
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
@@ -7059,7 +7080,7 @@
    ],
    [
     "module.examples.yaml",
-    "119a918b21f0f376"
+    "45fffa78a571b6fe"
    ]
   ],
   "previous": {},
@@ -7080,21 +7101,21 @@
    ],
    [
     "module.examples.yaml",
-    108,
+    122,
     "fatal",
     "example",
     "a_late_start_is_dated_when_it_happened: expected the request to record the occurred time now - 2 days, and it records 1767229200"
    ],
    [
     "module.examples.yaml",
-    181,
+    195,
     "notice",
     "notrun",
     "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.examples.yaml",
-    196,
+    210,
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
@@ -7145,7 +7166,7 @@
    ],
    [
     "module.examples.yaml",
-    "3edbdac990d2253c"
+    "e5e3a5216b1ba268"
    ]
   ],
   "previous": {},
@@ -7166,21 +7187,21 @@
    ],
    [
     "module.examples.yaml",
-    138,
+    152,
     "fatal",
     "example",
     "an_inspection_is_dated_when_it_was_done: expected occurred_at to hold now - 3 days, and it holds 1767315600"
    ],
    [
     "module.examples.yaml",
-    181,
+    195,
     "notice",
     "notrun",
     "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.examples.yaml",
-    196,
+    210,
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
@@ -7231,7 +7252,7 @@
    ],
    [
     "module.examples.yaml",
-    "3c4c9669d19ae0fb"
+    "b0739b932e642e4a"
    ]
   ],
   "previous": {},
@@ -7252,21 +7273,21 @@
    ],
    [
     "module.examples.yaml",
-    50,
+    64,
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: expected signed_off to hold False, and it holds True"
    ],
    [
     "module.examples.yaml",
-    181,
+    195,
     "notice",
     "notrun",
     "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.examples.yaml",
-    196,
+    210,
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
@@ -7317,7 +7338,7 @@
    ],
    [
     "module.examples.yaml",
-    "9c55106201e41fa9"
+    "f38a70e03fefe8c4"
    ]
   ],
   "previous": {},
@@ -7345,14 +7366,272 @@
    ],
    [
     "module.examples.yaml",
-    181,
+    195,
     "notice",
     "notrun",
     "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.examples.yaml",
-    196,
+    210,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    2,
+    4
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "inventory_plants: a metric expected to read another value",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "module.examples.yaml",
+    "98c918a44e77f262"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "module.examples.yaml",
+    26,
+    "fatal",
+    "example",
+    "a_reassignment_is_measured_as_a_handoff: expected the metric ServiceJob.handoffs_per_job to read a row {'month': '2026-01', 'value': 2}, and it reads [{'month': '2026-01', 'value': '1'}]"
+   ],
+   [
+    "module.examples.yaml",
+    195,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.examples.yaml",
+    210,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    2,
+    4
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "inventory_plants: a metric expected to read a row it does not",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "module.examples.yaml",
+    "263a21c0ed4c98c7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "module.examples.yaml",
+    26,
+    "fatal",
+    "example",
+    "a_reassignment_is_measured_as_a_handoff: expected the metric ServiceJob.work_in_progress to read a row {'state': 'OPEN', 'value': 0}, and it reads [{'state': 'WORKING', 'value': 1}]"
+   ],
+   [
+    "module.examples.yaml",
+    195,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.examples.yaml",
+    210,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    2,
+    4
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "inventory_plants: a metric expected that no module declares",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "module.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "module.examples.yaml",
+    "a0a3f7d4b660930a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "module.examples.yaml",
+    26,
+    "fatal",
+    "example",
+    "a_reassignment_is_measured_as_a_handoff: expected the metric ServiceJob.transition_count to read 3, and the read is refused as unknown_metric"
+   ],
+   [
+    "module.examples.yaml",
+    195,
+    "notice",
+    "notrun",
+    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.examples.yaml",
+    210,
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
@@ -7752,7 +8031,7 @@
    ],
    [
     "service.examples.yaml",
-    "62f944ddf7c5c86f"
+    "dd01980df470d843"
    ]
   ],
   "previous": {},
@@ -7789,7 +8068,7 @@
    ],
    [
     "service.examples.yaml",
-    "06383789b2a1d56c"
+    "753bcd6072ec9bea"
    ]
   ],
   "previous": {},
@@ -7826,7 +8105,7 @@
    ],
    [
     "service.examples.yaml",
-    "b6aa1841d9f6485e"
+    "eaa88d368a98c06f"
    ]
   ],
   "previous": {},
@@ -7863,14 +8142,14 @@
    ],
    [
     "service.examples.yaml",
-    "14624f45d50638bc"
+    "f1ea87fd25859fcf"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    35,
+    49,
     "fatal",
     "names",
     "'helpers' is a set of User, given as a list of aliases"
@@ -7907,14 +8186,14 @@
    ],
    [
     "service.examples.yaml",
-    "c1af1ab701b25f43"
+    "75ead558ebfa0484"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    35,
+    49,
     "fatal",
     "names",
     "'seen_by' is an actor_kind, written bare as human, agent or service"
@@ -8023,7 +8302,7 @@
    ],
    [
     "service.examples.yaml",
-    "8d1dfa37abc58966"
+    "ddfcad6ba1cb07c6"
    ]
   ],
   "previous": {},
@@ -8096,14 +8375,14 @@
    ],
    [
     "service.examples.yaml",
-    "d56477da46cc355d"
+    "aa96bee3638eae7b"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    30,
+    44,
     "fatal",
     "names",
     "User.add is a creation, requested with the type"
@@ -8133,14 +8412,14 @@
    ],
    [
     "service.examples.yaml",
-    "52dfb06e853d3e99"
+    "2df6ac84b809fa6f"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    30,
+    44,
     "fatal",
     "names",
     "User.leave is requested on an object, named by its alias"
@@ -8200,7 +8479,7 @@
    ],
    [
     "service.examples.yaml",
-    "b2a217b0f43da469"
+    "9b1d934db7a1115a"
    ]
   ],
   "previous": {},
@@ -8214,14 +8493,21 @@
    ],
    [
     "service.examples.yaml",
-    30,
+    29,
+    "fatal",
+    "names",
+    "'engineer' is a reference to User, and 'ben' is not an alias an earlier step gave one"
+   ],
+   [
+    "service.examples.yaml",
+    44,
     "fatal",
     "names",
     "acts on 'ben', which no earlier step gave as an alias"
    ],
    [
     "service.examples.yaml",
-    35,
+    49,
     "fatal",
     "names",
     "'engineer' is a reference to User, and 'ben' is not an alias an earlier step gave one"
@@ -8251,7 +8537,7 @@
    ],
    [
     "service.examples.yaml",
-    "653db6089997bce2"
+    "94d41a2f897b5561"
    ]
   ],
   "previous": {},
@@ -8288,7 +8574,7 @@
    ],
    [
     "service.examples.yaml",
-    "ae6dde0adb794a97"
+    "18e40d3ebc49044a"
    ]
   ],
   "previous": {},
@@ -8555,7 +8841,7 @@
    ],
    [
     "service.examples.yaml",
-    "0d5d5dfc362dd1a7"
+    "fa5270c87cafbd8b"
    ]
   ],
   "previous": {},
@@ -8592,7 +8878,7 @@
    ],
    [
     "service.examples.yaml",
-    "eb9403efe3e0cb9d"
+    "237f5efc6ac527ae"
    ]
   ],
   "previous": {},
@@ -8629,7 +8915,7 @@
    ],
    [
     "service.examples.yaml",
-    "ed7b376dbadf73d4"
+    "6e849d3ceaabb88e"
    ]
   ],
   "previous": {},
@@ -8666,7 +8952,7 @@
    ],
    [
     "service.examples.yaml",
-    "d6ddb24b10efc9d0"
+    "f1fb1052f15767b3"
    ]
   ],
   "previous": {},
@@ -8703,14 +8989,14 @@
    ],
    [
     "service.examples.yaml",
-    "20cc34a74cc198d6"
+    "0669a7215f24120b"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    66,
+    80,
     "fatal",
     "names",
     "ServiceJob declares no attribute 'signed_by'"
@@ -8740,7 +9026,7 @@
    ],
    [
     "service.examples.yaml",
-    "eebd84775f8ad6e5"
+    "34c7982e8d8941fc"
    ]
   ],
   "previous": {},
@@ -8777,7 +9063,7 @@
    ],
    [
     "service.examples.yaml",
-    "31d7632af92b9319"
+    "128bb0a44f709fea"
    ]
   ],
   "previous": {},
@@ -8814,14 +9100,14 @@
    ],
    [
     "service.examples.yaml",
-    "73c9dc9587839c3a"
+    "651ff891665afc0d"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    36,
+    50,
     "fatal",
     "names",
     "a request refused as unsatisfied leaves no state to state"
@@ -8851,14 +9137,14 @@
    ],
    [
     "service.examples.yaml",
-    "fe236b3df2f4b0f2"
+    "f9e46e11c71be749"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    36,
+    50,
     "fatal",
     "names",
     "an unsatisfied request's example names the clause that refuses it and its remedy"
@@ -8888,7 +9174,7 @@
    ],
    [
     "service.examples.yaml",
-    "8fee2a93f87810d3"
+    "4278ff5531e68843"
    ]
   ],
   "previous": {},
@@ -8925,14 +9211,14 @@
    ],
    [
     "service.examples.yaml",
-    "b1a3408728e27014"
+    "2c34e2c0608ec5e6"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    36,
+    50,
     "fatal",
     "names",
     "an invariant_violated request's example names the invariant"
@@ -8962,14 +9248,14 @@
    ],
    [
     "service.examples.yaml",
-    "61cb7ddec8883fc5"
+    "5db6ab9a52a91de9"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    36,
+    50,
     "fatal",
     "names",
     "always_right is not an invariant of ServiceJob"
@@ -8999,14 +9285,14 @@
    ],
    [
     "service.examples.yaml",
-    "e77b0ac640e21c1c"
+    "0825c3f92088f4e9"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    36,
+    50,
     "fatal",
     "names",
     "nothing is not a condition, invariant or generated guard of a type, written <Type>.<clause>"
@@ -9036,14 +9322,14 @@
    ],
    [
     "service.examples.yaml",
-    "825fb7476109aa3a"
+    "2ce633481fb719c8"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    36,
+    50,
     "fatal",
     "names",
     "a request refused as invalid_input names no clause or remedy"
@@ -9075,7 +9361,7 @@
   "previous": {
    "people": "cc897d91cab7f987",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "0bd9b928997c8194"
+   "service.examples": "b5b6bd173d23b779"
   },
   "findings": [
    [
@@ -9134,7 +9420,7 @@
   "previous": {
    "people": "cc897d91cab7f987",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "0bd9b928997c8194"
+   "service.examples": "b5b6bd173d23b779"
   },
   "findings": [
    [
@@ -9191,7 +9477,7 @@
    ],
    [
     "service.examples.yaml",
-    "0bd9b928997c8194"
+    "b5b6bd173d23b779"
    ]
   ],
   "previous": {},
@@ -9212,14 +9498,14 @@
    ],
    [
     "service.examples.yaml",
-    181,
+    195,
     "fatal",
     "example",
     "a_job_from_before_version_2_needs_its_completion_photo: the publish is refused at submission as unsatisfied dry_run_clean unreachable_from_here"
    ],
    [
     "service.examples.yaml",
-    196,
+    210,
     "fatal",
     "example",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given: the publish is refused at submission as unsatisfied dry_run_clean unreachable_from_here"
@@ -12019,7 +12305,7 @@
    ],
    [
     "service.examples.yaml",
-    "1ef1a9834a45d2cd"
+    "ceb42737dde36172"
    ]
   ],
   "previous": {},
@@ -12040,14 +12326,14 @@
    ],
    [
     "service.examples.yaml",
-    181,
+    195,
     "notice",
     "notrun",
     "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "service.examples.yaml",
-    196,
+    210,
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
@@ -12098,14 +12384,14 @@
    ],
    [
     "service.examples.yaml",
-    "2f41ba07c1b5b99b"
+    "f5596af835c7b36d"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    217,
+    231,
     "fatal",
     "names",
     "the request leaves out signed_off_by, which is refused as invalid_input, and the example expects unsatisfied"

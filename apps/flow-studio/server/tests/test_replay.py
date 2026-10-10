@@ -44,5 +44,35 @@ def test_examples_replay_through_the_wire(wire, module_file):
         assert outcome == want[name], (name, outcome, why)
 
 
+# a metric's expected value, a row it does not read, and a metric no module
+# declares, each of which fails its example (ADR-0173 decision 6)
+WRONG_METRICS = [
+    ("ServiceJob.handoffs_per_job: [{ month: 2026-01, value: 1 }]",
+     "ServiceJob.handoffs_per_job: [{ month: 2026-01, value: 2 }]"),
+    ("ServiceJob.work_in_progress: [{ state: WORKING, value: 1 }]",
+     "ServiceJob.work_in_progress: [{ state: WORKING, value: 1 }, "
+     "{ state: OPEN, value: 0 }]"),
+    ("ServiceJob.transition_counts: 3", "ServiceJob.transition_counts: 4"),
+    ("ServiceJob.transition_counts: 3", "ServiceJob.transition_count: 3"),
+    ("value: 2 h }]", "value: 3 h }]"),
+]
+
+
+def with_metric(old: str, new: str) -> dict:
+    """The service module's bundle with one metric expectation changed."""
+    bundle = DESIGN.bundle("service.yaml")
+    text = bundle["examples"]["text"]
+    assert text.count(old) == 1, old
+    return dict(bundle, examples=dict(bundle["examples"],
+                                      text=text.replace(old, new)))
+
+
+@pytest.mark.parametrize("old,new", WRONG_METRICS)
+def test_a_wrong_metric_expectation_fails(wire, old, new):
+    got = replay(wire, "service.yaml", bundle=with_metric(old, new),
+                 read=flows.beside(flows.EXAMPLES))
+    assert got["a_reassignment_is_measured_as_a_handoff"][0] == "failed"
+
+
 def test_every_examples_file_is_replayed():
     assert len(FILES) == 10

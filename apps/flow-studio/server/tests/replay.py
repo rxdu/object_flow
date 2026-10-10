@@ -411,6 +411,57 @@ class Player:
         return None if same else f"expected {k} to hold {expected}, and " \
                                  f"it holds {got}"
 
+    def metric_differs(self, name: str, want: Any) -> str | None:
+        """What differs between a metric an example expects and what a
+        reader reads after the request, or None: its value over every row,
+        keeping no dimension, or its rows by every dimension it declares, all
+        of them in any order (`flow-format.md` §11.4, ADR-0173 decision 6)."""
+        by_rows = isinstance(want, list)
+        page = self.wire.post("/v1/metric", {
+            "actor": {"id": OPERATOR}, "name": name,
+            **({} if by_rows else {"keep": []})})
+        if page["refused"]:
+            return f"expected the metric {name} to read {want}, and the " \
+                   f"read is refused as {page['refused']}"
+        rows = page["rows"]
+        if not by_rows:
+            got = rows[0]["value"] if rows else None
+            return None if self.metric_value_is(want, got) else \
+                f"expected the metric {name} to read {want}, and it reads {got}"
+        left = list(rows)
+        for w in want:
+            dims = {d: v for d, v in w.items() if d != "value"}
+            hit = next((r for r in left
+                        if set(r["dimensions"]) == set(dims)
+                        and all(self.metric_value_is(v, r["dimensions"][d])
+                                for d, v in dims.items())
+                        and self.metric_value_is(w.get("value"), r["value"])),
+                       None)
+            if hit is None:
+                return f"expected the metric {name} to read a row {w}, " \
+                       f"and it reads {rows}"
+            left.remove(hit)
+        if left:
+            return f"expected the metric {name} to read {len(want)} rows, " \
+                   f"and it reads {rows}"
+        return None
+
+    def metric_value_is(self, expected: Any, got: Any) -> bool:
+        """A metric's value or a dimension's, which no declaration types:
+        typed by the wire's notation of it, an object by its alias and a
+        state or an enumeration member by its name, qualified or not."""
+        if expected is None or got is None:
+            return expected is None and got is None
+        if isinstance(expected, str) and expected in self.aliases:
+            return self.aliases[expected] == got
+        if isinstance(got, str) and isinstance(expected, str):
+            if QUALIFIED.fullmatch(expected) and \
+                    expected.split(".", 1)[1] == got:
+                return True
+            if DURATION.fullmatch(got) and DURATION.fullmatch(expected):
+                return flowrun.seconds(expected) == flowrun.seconds(got)
+        return derived_equal(expected, got)
+
     def same(self, expected: Any, got: Any, spec: dict) -> bool:
         if expected is None or got is None:
             return expected is None and got is None
@@ -430,6 +481,8 @@ class Player:
 
 
 MONEY = re.compile(r"([A-Z]{3}) (-?[0-9]+(?:\.[0-9]+)?)")
+QUALIFIED = re.compile(r"[A-Z][A-Za-z0-9]*\.[A-Z][A-Z0-9_]*")
+DURATION = re.compile(r"[0-9]+ (?:s|min|h|days?|weeks?)")
 DECIMAL = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
 
 
@@ -531,6 +584,8 @@ def replay(wire: Wire, module_file: str,
                       else {"request": ex["request"]})
             v = p.play(tested)
             problem = p.compare(ex["expect"], v, tested)
+            for name_, want in (ex["expect"].get("metrics") or {}).items():
+                problem = problem or p.metric_differs(name_, want)
             if problem is None and "proposal" in ex["expect"]:
                 prop = wire.post("/v1/get", {
                     "id": p.alias(ex["approve"]["proposal"])})

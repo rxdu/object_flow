@@ -1,0 +1,223 @@
+# yaml-language-server: $schema=../examples.schema.json
+# What the service flow's rules do, as examples the engine runs at every publish (flow-format.md §11, ADR-0136).
+examples_for: service
+
+setups:
+  two_engineers:
+    description: Two active engineers, Ana and Ben, and one entry of the inspection checklist.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { login: ana, name: Ana } }
+      - request: { type: User, transition: add, as: ben, inputs: { login: ben, name: Ben } }
+      - request: { type: InspectionCheck, transition: add, as: battery, inputs: { title: Battery voltage } }
+  job_in_progress:
+    description: A job Ana opened for herself and started an hour later.
+    given: two_engineers
+    steps:
+      - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
+      - request: { object: job, transition: start, actor: ana, after: 1 h }
+
+examples:
+  a_job_opens_for_an_active_engineer:
+    description: Opening a job for an active engineer applies, and the job is open.
+    given: two_engineers
+    request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
+    expect: { verdict: not_requestable }
+
+  a_reassignment_is_measured_as_a_handoff:
+    description: Reassigning a working job to Ben is its one handoff, so January's jobs average one; it is the job's third transition, and the hour it spent open counts in its time in state.
+    given: job_in_progress
+    request: { object: job, transition: reassign, actor: ana, after: 2 h, inputs: { reason: ReassignmentReason.WORKLOAD, engineer: ben } }
+    expect:
+      verdict: applied
+      state: WORKING
+      values: { engineer: ben }
+      metrics:
+        ServiceJob.handoffs_per_job: [{ month: 2026-01, value: 1 }]
+        ServiceJob.transition_counts: 3
+        ServiceJob.work_in_progress: [{ state: WORKING, value: 1 }]
+        ServiceJob.time_in_state: [{ state: OPEN, month: 2026-01, value: 1 h }, { state: WORKING, month: 2026-01, value: 2 h }]
+
+  a_job_is_not_given_to_an_engineer_who_left:
+    description: Once Ben has left, a job cannot be reassigned to him, and the caller can name another engineer.
+    given: job_in_progress
+    steps:
+      - request: { object: ben, transition: leave }
+    request:
+      object: job
+      transition: reassign
+      actor: ana
+      inputs: { engineer: ben, reason: ReassignmentReason.WORKLOAD }
+    expect: { verdict: unsatisfied, clause: engineer_active, remedy: self_serviceable }
+
+  a_failed_check_holds_the_job_open:
+    description: A failed inspection with no later inspection of the same check keeps the job from finishing.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.FAIL }
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana } }
+    expect: { verdict: unsatisfied, clause: no_unresolved_failure, remedy: dependent }
+
+  a_repeated_check_lets_the_job_finish:
+    description: Inspecting the failed check again resolves it, and the job finishes, signed off by Ana.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.FAIL }
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          after: 10 min
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana } }
+    expect: { verdict: applied, state: DONE, values: { signed_off_by_user: ana } }
+
+  a_corrected_result_replaces_the_mistake:
+    description: A failure recorded by mistake is corrected to a pass at the same moment, so no later inspection resolves it, and the job finishes only because a read sees what was not corrected.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          as: mistake
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.FAIL }
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS, corrects: mistake }
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana } }
+    expect: { verdict: applied, state: DONE }
+
+  a_result_is_corrected_once:
+    description: A result already corrected is not corrected again; the newest one is what a caller corrects.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          as: mistake
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.FAIL }
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS, corrects: mistake }
+    request:
+      type: InspectionResult
+      transition: record
+      actor: ana
+      inputs: { subject: job, check: battery, outcome: CheckOutcome.NOT_APPLICABLE, corrects: mistake }
+    expect: { verdict: unsatisfied, clause: corrects_current, remedy: self_serviceable }
+
+  a_late_start_is_dated_when_it_happened:
+    description: Ana started the job an hour after opening it and records the start a day later; it is dated when it happened, since a start may reach back two days.
+    given: two_engineers
+    steps:
+      - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
+    request: { object: job, transition: start, actor: ana, after: 25 h, occurred_at: now - 1 day }
+    expect: { verdict: applied, state: WORKING, occurred_at: now - 1 day }
+
+  a_start_is_not_dated_further_back_than_two_days:
+    description: A start recorded three days after it happened is refused, and the caller can record it with a time within two days, or undated.
+    given: two_engineers
+    steps:
+      - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
+    request: { object: job, transition: start, actor: ana, after: 4 days, occurred_at: now - 3 days }
+    expect: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable }
+
+  a_start_is_not_dated_before_the_job_opened:
+    description: A start dated before the job was opened would begin its time working before its time open ended, so it is refused, though it is within two days.
+    given: two_engineers
+    steps:
+      - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
+    request: { object: job, transition: start, actor: ana, after: 1 h, occurred_at: now - 2 h }
+    expect: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable }
+
+  a_finish_says_no_time_of_its_own:
+    description: Finishing declares no backdating limit, so a finish that says when it happened is refused; it is dated when it is recorded.
+    given: job_in_progress
+    request: { object: job, transition: finish, actor: ana, after: 1 h, occurred_at: now - 10 min, inputs: { signed_off_by: ana } }
+    expect: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable }
+
+  an_inspection_is_dated_when_it_was_done:
+    description: An inspection done two days ago and recorded now is dated when it was done, since a result may be recorded up to a week late.
+    given: job_in_progress
+    request:
+      type: InspectionResult
+      transition: record
+      actor: ana
+      after: 3 days
+      occurred_at: now - 2 days
+      inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+    expect: { verdict: applied, state: RECORDED, values: { occurred_at: now - 2 days } }
+
+  an_inspection_more_than_a_week_late_is_refused:
+    description: A result recorded eight days after the inspection is past the week a result may be late, so it is refused.
+    given: job_in_progress
+    request:
+      type: InspectionResult
+      transition: record
+      actor: ana
+      after: 9 days
+      occurred_at: now - 8 days
+      inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+    expect: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable }
+
+  a_correction_takes_the_time_of_what_it_corrects:
+    description: A correction replaces a fact, so it keeps the corrected result's time and says none of its own; one that does is refused.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          as: mistake
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.FAIL }
+    request:
+      type: InspectionResult
+      transition: record
+      actor: ana
+      after: 1 h
+      occurred_at: now - 30 min
+      inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS, corrects: mistake }
+    expect: { verdict: unsatisfied, clause: occurred_within, remedy: self_serviceable }
+
+  a_job_from_before_version_2_needs_its_completion_photo:
+    description: >-
+      Version 2, published while a job was in progress, makes the completion photo a condition of finishing it, so the
+      job started under version 1 cannot finish without one, and the engineer can attach it (ADR-0166).
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+      - publish: { source: [people.yaml, service-v2.yaml], after: 1 h }
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana } }
+    expect: { verdict: unsatisfied, clause: photo_attached, remedy: self_serviceable }
+
+  a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given:
+    description: >-
+      With the photo attached, the job started under version 1 finishes under version 2, holding the site the
+      migration gave every job from before it.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+      - publish: { source: [people.yaml, service-v2.yaml], after: 1 h }
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana, completion_photo: done.jpg } }
+    expect: { verdict: applied, state: DONE, values: { site: HQ } }

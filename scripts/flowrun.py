@@ -2954,6 +2954,8 @@ def run_examples(doc, library, modules, file=None, read=None, flows=None, source
             tested = {"approve": ex["approve"]} if "approve" in ex else {"request": ex["request"]}
             outcome = step(runner, store, tested, aliases, stubs, under_test=True)
             problem = compare(runner, store, ex["expect"], outcome, aliases)
+            for name_, want in (ex["expect"].get("metrics") or {}).items():
+                problem = problem or metric_differs(runner, store, name_, want, aliases)
             if problem is None and "proposal" in ex["expect"]:
                 got = store.proposals[aliases[ex["approve"]["proposal"]][1]]["state"]
                 if got != ex["expect"]["proposal"]:
@@ -3424,6 +3426,56 @@ def compare(runner, store, want, outcome, aliases):
         warned = [c[len(mine):] if c.startswith(mine) else c for c, mode in outcome[2] if mode == "warn"]
         if list(want["warned"]) != warned:
             return f"expected the request to warn of {want['warned'] or 'nothing'}, and it warns of {warned or 'nothing'}"
+    return None
+
+
+def metric_differs(runner, store, name, want, aliases):
+    """What differs between a metric an example expects and what a reader reads after the request, or None: its value
+    over every row, keeping no dimension, or its rows by every dimension it declares, each its dimensions' values and
+    its `value`, all of them in any order (flow-format.md §11.4, ADR-0173 decision 6)."""
+    ev = Evaluator(store, None, stubs=NEVER_ASKED)
+    by_rows = isinstance(want, list)
+    page = ev.read_page(name, keep=None if by_rows else [])
+    if page["refused"]:
+        return f"expected the metric {name} to read {want}, and the read is refused as {page['refused']}"
+    owner, spec, module = store.find_metric(parsed(name))
+    kind, _dims = ev.page_kinds(owner, spec, module, sorted(store.metric_dimensions(owner, spec)))
+    vspec = spec_of_kind(kind)
+    named = {oid: alias for alias, oid in aliases.items()}
+
+    def value_is(expected, got):
+        if expected is None or got is None or got is ABSENT:
+            return expected is None and (got is None or got is ABSENT)
+        return runner.value_of(store, vspec, expected, aliases) == got
+
+    def dimension_is(expected, got):
+        # a state or an enumeration member by its name, qualified or not; an object by its alias
+        if isinstance(got, tuple) and got[:1] in (("state",), ("enum",)):
+            return expected in (got[2], f"{got[1]}.{got[2]}")
+        if isinstance(expected, str) and expected in aliases:
+            return aliases[expected] == got
+        return expected == got or str(expected) == str(got)
+
+    def shown(row):
+        dims = {d: (v[2] if isinstance(v, tuple) else named.get(v, v)) for d, v in row["dimensions"].items()}
+        return dict(dims, value=written(row["value"], vspec))
+
+    rows = page["rows"]
+    if not by_rows:
+        got = rows[0]["value"] if rows else None
+        return None if value_is(want, got) else \
+            f"expected the metric {name} to read {want}, and it reads {written(got, vspec)}"
+    left = list(rows)
+    for w in want:
+        dims = {d: v for d, v in w.items() if d != "value"}
+        hit = next((r for r in left if set(r["dimensions"]) == set(dims)
+                    and all(dimension_is(v, r["dimensions"][d]) for d, v in dims.items())
+                    and value_is(w.get("value"), r["value"])), None)
+        if hit is None:
+            return f"expected the metric {name} to read a row {w}, and it reads {[shown(r) for r in rows]}"
+        left.remove(hit)
+    if left:
+        return f"expected the metric {name} to read {len(want)} rows, and it reads {[shown(r) for r in rows]}"
     return None
 
 
