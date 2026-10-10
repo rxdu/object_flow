@@ -177,3 +177,4 @@
 | [0173](0173-the-procurement-reviews-questions-decided.md) | The procurement review's questions, decided | Decided by the author |
 | [0174](0174-a-deployments-service-its-first-slice.md) | A deployment's service, its first slice | Built at the author's direction, for review; decision 7 replaced by ADR-0175 |
 | [0175](0175-the-evaluators-http-transport.md) | The evaluators' HTTP transport | Built at the author's direction, for review |
+| [0176](0176-the-second-procurement-reviews-questions-decided.md) | The second procurement review's questions, decided | Decided by the author |
