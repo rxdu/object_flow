@@ -671,6 +671,22 @@ impl<'a> Evaluator<'a> {
         }))
     }
 
+    /// An attribute as a reader reads it: its stored value, or an end the
+    /// other side stores, the members of a set end or the one object of a
+    /// singular one, so a set is never absent (`flow-format.md` §4.3, D552).
+    pub fn attribute(&self, o: &Object, m: &str) -> Result<Value, NotRun> {
+        let declared = self.world.lib.type_(&o.type_).and_then(|t| t.attribute(m));
+        match declared {
+            Some(a) if !o.attrs.contains_key(m) => match (&a.declared, &a.opposite) {
+                (Declared::Reference(target), Some(opposite)) => {
+                    self.opposite_end(o, target, opposite, a.many)
+                }
+                _ => Ok(o.attr(m)),
+            },
+            _ => Ok(o.attr(m)),
+        }
+    }
+
     /// An end the other side stores: the objects of the target type whose
     /// opposite end names this one.
     fn opposite_end(

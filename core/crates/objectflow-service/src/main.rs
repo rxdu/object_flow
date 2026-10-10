@@ -1016,8 +1016,11 @@ fn object_json(s: &Store, id: &str) -> Answer {
         .last()
         .map_or(s.lib.version, |e| e.declaration_version);
     let mut attributes = Map::new();
+    // each as a reader reads it, an end the other side stores by its
+    // members, so a set is never null (`flow-format.md` §4.3, D552)
+    let reader = objectflow_core::eval::Evaluator::new(&world, Some(t), Some(&o.id));
     for (n, _) in &t.attributes {
-        attributes.insert(n.clone(), encode(&o.attr(n)));
+        attributes.insert(n.clone(), encode(&reader.attribute(o, n)?));
     }
     for (n, v) in &view.derived {
         attributes.insert(n.clone(), encode(v));

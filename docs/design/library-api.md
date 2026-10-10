@@ -324,6 +324,9 @@ class Page:
     cursor: str | None
     refused: str | None = None            # a query it cannot answer, a value: unknown_type,
                                           # malformed_filter, unknown_order_key, unknown_field
+                                          # malformed_filter too where a filter compares a
+                                          # reference with a string or computes with one;
+                                          # a reference is compared by its .id (D556)
 
 
 @dataclass(frozen=True)

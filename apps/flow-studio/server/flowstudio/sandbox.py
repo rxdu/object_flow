@@ -568,7 +568,12 @@ class Sandbox:
         try:
             for k, spec in (t.get("attributes") or {}).items():
                 typ = values.type_of_spec(spec, self.runner.enums)
-                attrs[k] = values.encode(o.attrs.get(k, flowrun.ABSENT), typ)
+                v = o.attrs.get(k, flowrun.ABSENT)
+                if v is flowrun.ABSENT and "opposite" in (spec or {}):
+                    # an end the other side stores, by its members: a set
+                    # is never null (`flow-format.md` §4.3, D552)
+                    v = ev.member(o.id, k)
+                attrs[k] = values.encode(v, typ)
             for k, spec in (t.get("derived_attributes") or {}).items():
                 expr = flowexpr.parse(spec["expression"])
                 # typed as the runner types it, a bare name read on `this`

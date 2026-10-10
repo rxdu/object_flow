@@ -7,8 +7,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::eval::{Evaluator, NotRun, truth};
-use crate::expr::Expr;
-use crate::model::{Declared, Enforce, Kind, Remedy, Transition, Type};
+use crate::expr::{BinOp, Expr};
+use crate::model::{Declared, Enforce, Kind, Library, Remedy, Transition, Type};
 use crate::request::{names_read, resolve_actor, takes_from};
 use crate::value::Value;
 use crate::verdict::{Flag, Verdict};
@@ -202,6 +202,55 @@ enum Key {
 /// answered over every object of the type, so a filter no index could
 /// answer is not refused, and a time-dependent derived attribute is
 /// evaluated rather than rewritten to its operand.
+/// Whether a filter reads a reference as something else (D556): compares
+/// it with a string, which never equals an object, so `claim == "claim-3"`
+/// held for nothing, or computes with it, as `claim == claim-3` does, an
+/// object less a number; a reference is compared with another or by its
+/// `.id`.
+fn misread_reference(lib: &Library, t: &Type, e: &Expr) -> bool {
+    // the reference a path names, where it names one
+    fn reference<'a>(lib: &'a Library, t: &'a Type, e: &Expr) -> Option<&'a Type> {
+        match e {
+            Expr::Name(m) => match t.attribute(m).map(|a| &a.declared) {
+                Some(Declared::Reference(target)) => lib.type_(target),
+                _ => None,
+            },
+            Expr::Path(base, m) => {
+                let owner = reference(lib, t, base)?;
+                match owner.attribute(m).map(|a| &a.declared) {
+                    Some(Declared::Reference(target)) => lib.type_(target),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+    let is_ref = |x: &Expr| reference(lib, t, x).is_some();
+    match e {
+        Expr::Bin(op, a, b) => {
+            let compared = matches!(
+                op,
+                BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+            );
+            let computed = matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div);
+            (compared
+                && ((is_ref(a) && matches!(**b, Expr::Str(_)))
+                    || (is_ref(b) && matches!(**a, Expr::Str(_)))))
+                || (computed && (is_ref(a) || is_ref(b)))
+                || misread_reference(lib, t, a)
+                || misread_reference(lib, t, b)
+        }
+        Expr::Not(x) | Expr::Neg(x) | Expr::IsNull(x, _) => misread_reference(lib, t, x),
+        Expr::In(a, b) => misread_reference(lib, t, a) || misread_reference(lib, t, b),
+        Expr::If(c, a, b) => {
+            misread_reference(lib, t, c)
+                || misread_reference(lib, t, a)
+                || misread_reference(lib, t, b)
+        }
+        _ => false,
+    }
+}
+
 pub fn query(
     world: &World<'_>,
     type_: &str,
@@ -220,6 +269,7 @@ pub fn query(
     };
     let filter = match filter.map(crate::expr::parse) {
         None => None,
+        Some(Ok(e)) if misread_reference(world.lib, t, &e) => return refuse("malformed_filter"),
         Some(Ok(e)) => Some(e),
         Some(Err(_)) => return refuse("malformed_filter"),
     };
@@ -830,6 +880,42 @@ types:
       finish: { kind: external, from: [OPEN], to: DONE, guards: { estimated: deny, short: warn } }
       reopen: { kind: external, from: [DONE], to: OPEN }
 "#;
+
+    /// A filter reading a reference as a string, or computing with one, is
+    /// refused malformed, where it held for nothing or faulted (D556); one
+    /// reading the reference's `.id`, a member through it, or comparing it
+    /// with a reference is not.
+    #[test]
+    fn a_filter_misreading_a_reference_is_malformed() {
+        const SHOP: &str = r#"
+module: shop
+categories: [live, closed]
+types:
+  Customer:
+    attributes:
+      name: { type: string }
+    states: { ACTIVE: { category: live } }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [name] }
+  Order:
+    attributes:
+      customer: { reference: Customer }
+    states: { OPEN: { category: live } }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [customer] }
+"#;
+        let lib = Library::load(&[("shop.yaml".into(), SHOP.into())]).unwrap();
+        let s = Store::sandbox(lib, 0).unwrap();
+        let w = s.snapshot().unwrap();
+        let refused = |f: &str| query(&w, "Order", Some(f), &[], None).unwrap().refused;
+        let malformed = Some("malformed_filter".to_string());
+        assert_eq!(refused(r#"customer == "customer-1""#), malformed);
+        assert_eq!(refused(r#""customer-1" != customer"#), malformed);
+        assert_eq!(refused("customer == customer-1"), malformed);
+        assert_eq!(refused(r#"customer.id == "customer-1""#), None);
+        assert_eq!(refused(r#"customer.name == "Ana""#), None);
+        assert_eq!(refused("customer == customer"), None);
+    }
 
     fn setup() -> (Store, String) {
         let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();

@@ -1219,6 +1219,35 @@ def test_a_fault_names_a_key_and_an_absent_object_reads_null_alike(tee):
     alike(tee)
 
 
+def test_a_set_reference_is_read_by_its_members_alike(tee):
+    """get answers a set reference by its members' ids, an end the other
+    side stores as a reader reads it, and an empty list where there are
+    none, never null, through both backends alike (flow-format.md §4.3,
+    D552): a claim's lines read null with a line present."""
+    loaded(tee, "reimbursement.yaml")
+    tee.found.clear()
+    emp = tee.post("/v1/request", {"type": "Employee", "transition": "onboard",
+                                   "actor": OP, "inputs": {"user_id": "alice"}})
+    cat = tee.post("/v1/request", {"type": "ExpenseCategory",
+                                   "transition": "define", "actor": OP,
+                                   "inputs": {"name": "Travel",
+                                              "policy_amount": "USD 500.00"}})
+    claim = tee.post("/v1/request", {"type": "Claim", "transition": "draft",
+                                     "actor": OP,
+                                     "inputs": {"claimant": emp["object_id"],
+                                                "title": "Taxis"}})["object_id"]
+    assert tee.post("/v1/get", {"id": claim})["attributes"]["lines"] == []
+    tee.post("/v1/request", {"object_id": claim, "transition": "add_line",
+                             "actor": OP,
+                             "inputs": {"amount": "USD 20.00",
+                                        "category": cat["object_id"],
+                                        "expense_date": "2025-12-30",
+                                        "receipt": "taxi.pdf"}})
+    lines = tee.post("/v1/get", {"id": claim})["attributes"]["lines"]
+    assert len(lines) == 1 and lines[0].startswith("claimline-"), lines
+    alike(tee)
+
+
 def test_a_derived_amount_summed_over_nothing_is_its_currencys_zero(tee):
     """A claim with no lines has a total summed over nothing, which is the
     zero of the amount its lines would sum, at the currency's minor unit,
