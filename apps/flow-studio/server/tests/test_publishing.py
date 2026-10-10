@@ -1192,6 +1192,33 @@ def test_an_invalid_input_says_why_alike(tee):
     alike(tee)
 
 
+def test_a_fault_names_a_key_and_an_absent_object_reads_null_alike(tee):
+    """A key an operation does not take is a fault, as is an operation that
+    does not exist, and a read of an object that does not exist answers
+    null, through both backends alike (ADR-0173 decision 12, D555): a
+    misspelt key had been read as absent, a filter's widening a query to
+    every object, and history
+    and availability of an absent object answered an empty list and a
+    404."""
+    loaded(tee, "reimbursement.yaml")
+    tee.found.clear()
+    for path, body, said in (
+            ("/v1/get", {"id": "claim-1", "folow": True},
+             "takes no key folow"),
+            ("/v1/request", {"actor": OP, "type": "Claim",
+                             "transition": "draft", "inputz": {}},
+             "takes no key inputz"),
+            ("/v1/nope", {}, "no operation /v1/nope")):
+        with pytest.raises(Exception) as e:
+            tee.post(path, body)
+        assert said in str(e.value), e.value
+    for path, body in (("/v1/get", {"id": "claim-999"}),
+                       ("/v1/history", {"id": "claim-999"}),
+                       ("/v1/availability", {"actor": OP, "id": "claim-999"})):
+        assert tee.post(path, body) is None, path
+    alike(tee)
+
+
 def test_a_derived_amount_summed_over_nothing_is_its_currencys_zero(tee):
     """A claim with no lines has a total summed over nothing, which is the
     zero of the amount its lines would sum, at the currency's minor unit,

@@ -37,6 +37,36 @@ from .sandbox import Fault, Sandbox, checked
 log = logging.getLogger("flowstudio")
 
 MAX_BODY = 4 * 1024 * 1024
+# the keys each operation takes, as the core's service holds them: a key
+# outside them is a fault, so a misspelt one is never read as absent
+# (ADR-0173 decision 12, D555)
+REQUEST_KEYS = ("transition", "actor", "object_id", "type", "inputs",
+                "occurred_at", "propose", "expires_at", "expected_version",
+                "principal", "idempotency_key", "context")
+TAKES = {
+    "/v1/request": REQUEST_KEYS, "/v1/check": REQUEST_KEYS,
+    "/v1/get": ("actor", "id", "follow"),
+    "/v1/query": ("actor", "type", "filter", "order", "cursor", "fields"),
+    "/v1/lookup": ("actor", "source", "value"),
+    "/v1/availability": ("actor", "id"),
+    "/v1/available": ("actor", "type", "transition", "cursor"),
+    "/v1/history": ("actor", "id", "follow"),
+    "/v1/events": ("actor", "positions"),
+    "/v1/exceptions": ("actor", "type", "cursor"),
+    "/v1/declaration": ("actor", "type", "version"),
+    "/v1/pull": ("actor", "subscription", "cursor"),
+    "/v1/acknowledge": ("actor", "subscription", "cursor"),
+    "/v1/metric": ("actor", "name", "bind", "keep", "over", "filter",
+                   "cursor"),
+    "/v1/export": ("actor", "source", "cursor"),
+    "/v1/diagnostics": ("actor", "type", "window"),
+    "/v1/import_batch": ("actor", "batch", "disposition", "dry_run"),
+    "/v1/maintain": ("actor", "task"),
+    "/v1/publish": ("actor", "change", "expected_version", "dry_run"),
+    "/sandbox/load": ("files",), "/sandbox/reset": (),
+    "/sandbox/clock": ("advance", "set"),
+    "/sandbox/evaluators": ("answers",),
+}
 
 
 def routes(box: Sandbox, cat: Catalogue) -> dict[str, Callable[[dict], Any]]:
@@ -134,6 +164,10 @@ def handler(box: Sandbox, cat: Catalogue, origin: str | None,
                 return
             if not isinstance(body, dict):
                 self.send(400, {"fault": "the body is a JSON object"})
+                return
+            unknown = [k for k in body if path in TAKES and k not in TAKES[path]]
+            if unknown and not forwarded:
+                self.send(400, {"fault": f"{path} takes no key {unknown[0]}"})
                 return
             if forwarded:
                 assert core is not None

@@ -56,7 +56,7 @@ export function Objects({
     let live = true;
     if (selected) {
       void wire.history(selected).then((h) => {
-        if (live) setEvents(h.events);
+        if (live) setEvents(h?.events ?? []);
       });
     }
     return () => {

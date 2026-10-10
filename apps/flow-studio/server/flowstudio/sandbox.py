@@ -603,14 +603,16 @@ class Sandbox:
                 "remedy": a["remedy"],
                 "at": values.timestamp_text(a["at"])}
 
-    def history(self, body: dict) -> dict:
+    def history(self, body: dict) -> dict | None:
         self.loaded()
         oid = body.get("id")
+        if oid not in self.store.objects:
+            return None             # no object has no history (ADR-0173)
         events = [self.event(e) for e in self.store.events
                   if e["object"] == oid]
         return {"events": events, "not_computed": EVENT_NOT_COMPUTED}
 
-    def availability(self, body: dict) -> list:
+    def availability(self, body: dict) -> list | None:
         """What each requestable transition of an object offers its actor
         now (`library-api.md` §5, ADR-0152)."""
         self.loaded()
@@ -619,6 +621,8 @@ class Sandbox:
         if not actor or not oid:
             raise Fault(400, "availability names its actor and an object's id")
         s = self.store
+        if oid not in s.objects:
+            return None             # no object offers nothing (ADR-0173)
         try:
             offers = self.runner.availability(s, actor, oid)
         except flowrun.Refused as r:

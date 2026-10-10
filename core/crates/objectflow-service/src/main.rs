@@ -53,6 +53,7 @@ type Shared = Arc<Mutex<Sandbox>>;
 enum Fault {
     Bad(String),
     Missing(String),
+    Method(String),
     Conflict(String),
     NotRun(String),
     Internal(String),
@@ -63,6 +64,7 @@ impl IntoResponse for Fault {
         let (status, message) = match self {
             Fault::Bad(m) => (StatusCode::BAD_REQUEST, m),
             Fault::Missing(m) => (StatusCode::NOT_FOUND, m),
+            Fault::Method(m) => (StatusCode::METHOD_NOT_ALLOWED, m),
             Fault::Conflict(m) => (StatusCode::CONFLICT, m),
             Fault::NotRun(m) => (StatusCode::NOT_IMPLEMENTED, format!("not run: {m}")),
             Fault::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m),
@@ -103,6 +105,86 @@ impl From<objectflow_core::store::StoreError> for Fault {
 }
 
 type Answer = Result<Json<J>, Fault>;
+
+/// The keys each operation takes, its arguments as `library-api.md` names
+/// them, a request's the fields of `Request` (§3); a key outside them is a
+/// fault, so a misspelt one is never read as absent (ADR-0173 decision 12,
+/// D555).
+const TAKES: &[(&str, &[&str])] = &[
+    ("/v1/request", REQUEST_KEYS),
+    ("/v1/check", REQUEST_KEYS),
+    ("/v1/get", &["actor", "id", "follow"]),
+    (
+        "/v1/query",
+        &["actor", "type", "filter", "order", "cursor", "fields"],
+    ),
+    ("/v1/lookup", &["actor", "source", "value"]),
+    ("/v1/availability", &["actor", "id"]),
+    ("/v1/available", &["actor", "type", "transition", "cursor"]),
+    ("/v1/history", &["actor", "id", "follow"]),
+    ("/v1/events", &["actor", "positions"]),
+    ("/v1/exceptions", &["actor", "type", "cursor"]),
+    ("/v1/declaration", &["actor", "type", "version"]),
+    ("/v1/pull", &["actor", "subscription", "cursor"]),
+    ("/v1/acknowledge", &["actor", "subscription", "cursor"]),
+    (
+        "/v1/metric",
+        &["actor", "name", "bind", "keep", "over", "filter", "cursor"],
+    ),
+    ("/v1/export", &["actor", "source", "cursor"]),
+    ("/v1/diagnostics", &["actor", "type", "window"]),
+    (
+        "/v1/import_batch",
+        &["actor", "batch", "disposition", "dry_run"],
+    ),
+    ("/v1/maintain", &["actor", "task"]),
+    (
+        "/v1/publish",
+        &["actor", "change", "expected_version", "dry_run"],
+    ),
+    ("/sandbox/load", &["files"]),
+    ("/sandbox/reset", &[]),
+    ("/sandbox/clock", &["advance", "set"]),
+    ("/sandbox/evaluators", &["answers"]),
+];
+const REQUEST_KEYS: &[&str] = &[
+    "transition",
+    "actor",
+    "object_id",
+    "type",
+    "inputs",
+    "occurred_at",
+    "propose",
+    "expires_at",
+    "expected_version",
+    "principal",
+    "idempotency_key",
+    "context",
+];
+
+/// A request's body: a JSON object of the keys its operation takes, or a
+/// fault saying what is wrong with it, as every fault is a JSON `fault`
+/// (ADR-0150 decision 1, D555).
+struct Body(J);
+
+impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
+    type Rejection = Fault;
+
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Fault> {
+        let path = req.uri().path().to_string();
+        let body = match Json::<J>::from_request(req, state).await {
+            Ok(Json(J::Object(m))) => m,
+            Ok(_) => return Err(Fault::Bad("the body is a JSON object".to_string())),
+            Err(e) => return Err(Fault::Bad(e.body_text())),
+        };
+        if let Some((_, takes)) = TAKES.iter().find(|(p, _)| *p == path)
+            && let Some(k) = body.keys().find(|k| !takes.contains(&k.as_str()))
+        {
+            return Err(Fault::Bad(format!("{path} takes no key {k}")));
+        }
+        Ok(Body(J::Object(body)))
+    }
+}
 
 fn locked(shared: &Shared) -> Result<std::sync::MutexGuard<'_, Sandbox>, Fault> {
     shared
@@ -229,7 +311,7 @@ fn offer(o: &Offer) -> J {
 }
 
 // ── the sandbox's controls ────────────────────────────────────────────────
-async fn load(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn load(State(shared): State<Shared>, Body(body): Body) -> Answer {
     // the deployment's attempt and idempotency retentions, durations
     let retention = |k: &str| -> Result<Option<i64>, Fault> {
         match text(&body, k) {
@@ -300,7 +382,7 @@ async fn reset(State(shared): State<Shared>) -> Answer {
     Ok(Json(json!({ "now": CLOCK_START })))
 }
 
-async fn clock(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn clock(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
     let target = if let Some(by) = text(&body, "advance") {
@@ -322,7 +404,7 @@ async fn clock(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     Ok(Json(json!({ "now": timestamp_text(s.now) })))
 }
 
-async fn evaluators(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn evaluators(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let mut sandbox = locked(&shared)?;
     store(&mut sandbox)?;
     if let Some(answers) = body.get("answers").and_then(J::as_object) {
@@ -339,7 +421,7 @@ async fn evaluators(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
 }
 
 // ── the library's operations ──────────────────────────────────────────────
-async fn request_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let req = request_of(&body)?;
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
@@ -349,7 +431,7 @@ async fn request_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
 
 /// The verdict a request would receive, simulated and never written, with
 /// the guards it did not evaluate (`library-api.md` §6, ADR-0054).
-async fn check(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let req = request_of(&body)?;
     if req.propose {
         return Err(Fault::Bad(
@@ -381,7 +463,7 @@ fn cursor_of(body: &J) -> Result<Option<i64>, Fault> {
 
 /// A page of the events a subscription selects after a cursor, or its
 /// acknowledged one, and the settled cursor (`library-api.md` §6).
-async fn pull(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn pull(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let (Some(_actor), Some(subscription)) = (
         body.get("actor").and_then(|a| text(a, "id")),
         text(&body, "subscription"),
@@ -418,7 +500,7 @@ fn page_json(page: &reads::QueryPage) -> J {
 
 /// The objects an assertion put in their state, the import's excepted, and
 /// those holding an admitted violation (`DESIGN.md` §10).
-async fn exceptions(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn exceptions(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let (Some(_actor), Some(type_)) = (
         body.get("actor").and_then(|a| text(a, "id")),
         text(&body, "type"),
@@ -435,7 +517,7 @@ async fn exceptions(State(shared): State<Shared>, Json(body): Json<J>) -> Answer
 
 /// The objects of a type a transition is offered to, asking no evaluator
 /// (`DESIGN.md` §10, ADR-0048).
-async fn available(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let (Some(actor), Some(type_), Some(transition)) = (
         body.get("actor").and_then(|a| text(a, "id")),
         text(&body, "type"),
@@ -455,7 +537,7 @@ async fn available(State(shared): State<Shared>, Json(body): Json<J>) -> Answer 
 
 /// Where a type's flow and reality disagree, over a window (`DESIGN.md`
 /// §10, ADR-0160); a type it does not declare is refused, a value.
-async fn diagnostics(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn diagnostics(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let (Some(_actor), Some(type_), Some(window)) = (
         body.get("actor").and_then(|a| text(a, "id")),
         text(&body, "type"),
@@ -486,7 +568,7 @@ async fn diagnostics(State(shared): State<Shared>, Json(body): Json<J>) -> Answe
 
 /// A maintenance task run outside the retention the store was built with:
 /// the rows it moved or removed, or its refusal, a value (`DESIGN.md` §10).
-async fn maintain(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn maintain(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let task = body.get("task");
     let (Some(_actor), Some(name), Some(before)) = (
         body.get("actor").and_then(|a| text(a, "id")),
@@ -514,7 +596,7 @@ async fn maintain(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
 
 /// A source's rows after a cursor, as JSON lines, every personal value
 /// omitted; a refusal is a value (`library-api.md` §6, ADR-0094).
-async fn export(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn export(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let (Some(_actor), Some(source)) = (
         body.get("actor").and_then(|a| text(a, "id")),
         text(&body, "source"),
@@ -536,7 +618,7 @@ async fn export(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
 
 /// A subscription's progress moved, back as well as forward; a refusal is
 /// a value (`library-api.md` §6).
-async fn acknowledge(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn acknowledge(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let (Some(_actor), Some(subscription), Some(cursor)) = (
         body.get("actor").and_then(|a| text(a, "id")),
         text(&body, "subscription"),
@@ -845,7 +927,7 @@ fn report(r: &ImportReport) -> J {
     })
 }
 
-async fn import_op(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn import_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let Some(actor) = body.get("actor").and_then(|a| text(a, "id")) else {
         return Err(Fault::Bad("an import names its actor".to_string()));
     };
@@ -948,7 +1030,7 @@ fn object_json(s: &Store, id: &str) -> Answer {
     })))
 }
 
-async fn get(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn get(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
     object_json(s, text(&body, "id").unwrap_or_default())
@@ -956,7 +1038,7 @@ async fn get(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
 
 /// A change's dry run, its report the impact a publish would have, or its
 /// approval, which installs it (`library-api.md` §6, ADR-0155).
-async fn publish(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let (Some(actor), Some(change)) = (
         body.get("actor").and_then(|a| text(a, "id")),
         text(&body, "change"),
@@ -1013,7 +1095,7 @@ async fn publish(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
 
 /// The object whose external identifier for a source has a value, a legacy
 /// key among them (`library-api.md` §6, ADR-0154).
-async fn lookup(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn lookup(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let (Some(source), Some(value)) = (text(&body, "source"), text(&body, "value")) else {
         return Err(Fault::Bad("lookup names a source and a value".to_string()));
     };
@@ -1026,10 +1108,14 @@ async fn lookup(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     }
 }
 
-async fn history(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
     let id = text(&body, "id").unwrap_or_default();
+    // an object that does not exist has no history, null as get's (ADR-0173)
+    if reads::get(&s.snapshot()?, id)?.is_none() {
+        return Ok(Json(J::Null));
+    }
     let events = s.history(id)?;
     // its legacy entries first, which predate the store, then its events
     // (library-api.md §6, ADR-0015)
@@ -1043,7 +1129,7 @@ async fn history(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     })))
 }
 
-async fn events(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let Some(positions) = body
         .get("positions")
         .and_then(J::as_array)
@@ -1062,7 +1148,7 @@ async fn events(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     })))
 }
 
-async fn declaration(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
     let name = text(&body, "type").unwrap_or_default();
@@ -1119,7 +1205,7 @@ async fn declaration(State(shared): State<Shared>, Json(body): Json<J>) -> Answe
     Ok(Json(out))
 }
 
-async fn availability(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let (Some(actor), Some(id)) = (
         body.get("actor").and_then(|a| text(a, "id")),
         text(&body, "id"),
@@ -1133,7 +1219,8 @@ async fn availability(State(shared): State<Shared>, Json(body): Json<J>) -> Answ
     let world = s.snapshot()?;
     match reads::availability(&world, actor, id)? {
         Some(offers) => Ok(Json(J::Array(offers.iter().map(offer).collect()))),
-        None => Err(Fault::Missing(format!("no object {id}"))),
+        // an object that does not exist offers nothing, null as get's (ADR-0173)
+        None => Ok(Json(J::Null)),
     }
 }
 
@@ -1142,7 +1229,7 @@ async fn availability(State(shared): State<Shared>, Json(body): Json<J>) -> Answ
 /// A page of objects of a type or its family, filtered and ordered
 /// (`library-api.md` §6, ADR-0127): every object the filter holds for, on
 /// one page, so no cursor; a refusal is a value.
-async fn query(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let (Some(_actor), Some(type_)) = (
         body.get("actor").and_then(|a| text(a, "id")),
         text(&body, "type"),
@@ -1189,7 +1276,7 @@ async fn query(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
     })))
 }
 
-async fn metric(State(shared): State<Shared>, Json(body): Json<J>) -> Answer {
+async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let (Some(_actor), Some(name)) = (
         body.get("actor").and_then(|a| text(a, "id")),
         text(&body, "name"),
@@ -1270,6 +1357,14 @@ fn app(shared: Shared) -> Router {
         .route("/sandbox/reset", post(reset))
         .route("/sandbox/clock", post(clock))
         .route("/sandbox/evaluators", post(evaluators))
+        // an operation that does not exist, or one asked by another method,
+        // is a JSON fault as every other is (ADR-0150 decision 1, D555)
+        .fallback(|uri: axum::http::Uri| async move {
+            Fault::Missing(format!("no operation {}", uri.path()))
+        })
+        .method_not_allowed_fallback(|| async {
+            Fault::Method("an operation is a POST".to_string())
+        })
         .with_state(shared)
 }
 

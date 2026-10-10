@@ -54,7 +54,7 @@ export function Offers({
     ])
       .then(([o, d, k]) => {
         if (!live) return;
-        setOffers(o);
+        setOffers(o ?? []);
         setDecl(d);
         setKnown(k);
         setError(null);

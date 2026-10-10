@@ -44,11 +44,12 @@ def test_an_offer_follows_the_state_and_the_guards(service):
         == {"actor_known"}
 
 
-def test_an_offer_of_an_unknown_object_is_a_fault(service):
+def test_an_offer_of_an_unknown_object_is_null(service):
+    """An object that does not exist offers nothing, null as get answers
+    for it (ADR-0173 decision 12), where it was a 404."""
     wire, ana = service
-    with pytest.raises(Exception) as e:
-        wire.post("/v1/availability", {"actor": {"id": ana}, "id": "x-1"})
-    assert "404" in str(e.value)
+    assert wire.post("/v1/availability",
+                     {"actor": {"id": ana}, "id": "x-1"}) is None
 
 
 def test_a_metric_is_read_whole_and_by_its_groups(service):

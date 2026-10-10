@@ -52,7 +52,8 @@ describe.each(BACKENDS)("against the %s", (backend) => {
       if (job.kind !== "satisfied") return;
       expect(p.touched).toEqual([ana.object_id, job.object_id]);
 
-      const before = await wire.availability(ana.object_id, job.object_id);
+      const before =
+        (await wire.availability(ana.object_id, job.object_id)) ?? [];
       expect(before.some((o) => o.transition === "open")).toBe(false);
       const start = offered(before, "start");
       expect(start?.availability).not.toBe("unavailable");
@@ -75,7 +76,8 @@ describe.each(BACKENDS)("against the %s", (backend) => {
       );
       expect(took.kind).toBe("satisfied");
       expect((await wire.get(job.object_id))?.state).toBe("WORKING");
-      const after = await wire.availability(ana.object_id, job.object_id);
+      const after =
+        (await wire.availability(ana.object_id, job.object_id)) ?? [];
       expect(offered(after, "start")?.availability).toBe("unavailable");
       expect(p.log.map((e) => e.summary)).toEqual([
         "User.add",

@@ -175,7 +175,7 @@ describe.each(BACKENDS)("against the %s", (backend) => {
     it("files and approves it, written as the format writes them, and holds", async () => {
       const { p, proposal } = await handover();
       // a pending proposal offers its decisions (D535)
-      const offers = await wire.availability(OPERATOR, proposal);
+      const offers = (await wire.availability(OPERATOR, proposal)) ?? [];
       expect(
         offers
           .filter((o) => o.creates === null)

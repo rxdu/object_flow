@@ -789,7 +789,7 @@ export class Player {
         return `expected ${k} to hold ${JSON.stringify(expected)}, and it holds ${JSON.stringify(have)}`;
     }
     if (want.occurred_at !== undefined) {
-      const { events } = await this.wire.history(v.object_id);
+      const events = (await this.wire.history(v.object_id))?.events ?? [];
       const mine = events.find(
         (e) => !isLegacy(e) && e.position === v.events[0],
       );

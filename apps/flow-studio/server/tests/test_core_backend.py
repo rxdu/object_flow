@@ -59,8 +59,9 @@ def test_a_fault_keeps_the_cores_status_and_words(studio):
     wire, _ = studio
     with pytest.raises(Failed, match="404: no type Nothing is declared"):
         wire.post("/v1/declaration", {"type": "Nothing"})
-    with pytest.raises(Failed, match="404: the core's service answered 404 "
-                                     "to /v1/nothing"):
+    # an operation the core does not have is its own JSON fault, its words
+    # kept (ADR-0173 decision 12, D555), where its body was empty
+    with pytest.raises(Failed, match="404: no operation /v1/nothing"):
         wire.post("/v1/nothing", {})
 
 

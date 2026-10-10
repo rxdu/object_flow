@@ -309,9 +309,10 @@ export interface Backend {
 export interface Wire {
   request(body: RequestBody): Promise<Verdict>;
   get(id: string): Promise<FlowObject | null>;
+  /** null where no object has the id (ADR-0173 decision 12) */
   history(
     id: string,
-  ): Promise<{ events: HistoryItem[]; not_computed: string[] }>;
+  ): Promise<{ events: HistoryItem[]; not_computed: string[] } | null>;
   /** the event at each position given, in the order given, and null where
    * the log holds none (ADR-0151) */
   events(
@@ -326,7 +327,8 @@ export interface Wire {
     source: string,
     value: string,
   ): Promise<FlowObject | null>;
-  availability(actor: string, id: string): Promise<TransitionOffer[]>;
+  /** null where no object has the id (ADR-0173 decision 12) */
+  availability(actor: string, id: string): Promise<TransitionOffer[] | null>;
   /** the library's `publish`: a change's dry run, or its approval of the
    * change's version its approver read (library-api.md §6, ADR-0166) */
   publish(
