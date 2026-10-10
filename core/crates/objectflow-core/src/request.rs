@@ -29,7 +29,7 @@ use crate::model::{
 };
 use crate::store::{Allocator, Change, Event};
 use crate::value::{Value, parse_duration};
-use crate::verdict::{Flag, InvariantFailure, Verdict};
+use crate::verdict::{Flag, InputReason, InvariantFailure, Verdict};
 use crate::wire;
 use crate::world::{Object, Span, World};
 
@@ -527,10 +527,12 @@ fn decide_or_stop(
         .cloned()
         .collect();
     if !unknown.is_empty() {
-        return refused(Verdict::InvalidInput { inputs: unknown });
+        return refused(Verdict::invalid_input(
+            unknown.into_iter().map(|k| (k, InputReason::UnknownInput)),
+        ));
     }
     let mut inputs: BTreeMap<String, Value> = BTreeMap::new();
-    let mut wrong = Vec::new();
+    let mut wrong: Vec<(String, InputReason)> = Vec::new();
     for (k, raw) in &req.inputs {
         // an assertion's own: a state, and invariants, by name (§4.13)
         if x.kind == Kind::Assertion && (k == "to" || k == "admits") {
@@ -545,7 +547,7 @@ fn decide_or_stop(
                         .collect();
                     inputs.insert(k.clone(), Value::Set(names));
                 }
-                _ => wrong.push(k.clone()),
+                _ => wrong.push((k.clone(), InputReason::WrongType)),
             }
             continue;
         }
@@ -557,11 +559,11 @@ fn decide_or_stop(
             Ok(v) => {
                 inputs.insert(k.clone(), v);
             }
-            Err(_) => wrong.push(k.clone()),
+            Err(e) => wrong.push((k.clone(), e.1)),
         }
     }
     if !wrong.is_empty() {
-        return refused(Verdict::InvalidInput { inputs: wrong });
+        return refused(Verdict::invalid_input(wrong));
     }
     let mut ctx = Ctx {
         work: world.clone(),
@@ -824,7 +826,9 @@ fn take(
         }
         let unknown: Vec<String> = inputs.keys().filter(|k| !takes(t, x, k)).cloned().collect();
         if !unknown.is_empty() {
-            return refused(Verdict::InvalidInput { inputs: unknown });
+            return refused(Verdict::invalid_input(
+                unknown.into_iter().map(|k| (k, InputReason::UnknownInput)),
+            ));
         }
     }
     // a reference names an object of its type
@@ -846,12 +850,12 @@ fn take(
                 };
             }
             if !fits {
-                wrong.push(k.clone());
+                wrong.push((k.clone(), InputReason::NoSuchObject));
             }
         }
     }
     if !wrong.is_empty() {
-        return refused(Verdict::InvalidInput { inputs: wrong });
+        return refused(Verdict::invalid_input(wrong));
     }
     let left_out: Vec<String> = x
         .required_inputs
@@ -864,7 +868,9 @@ fn take(
         .cloned()
         .collect();
     if !left_out.is_empty() {
-        return refused(Verdict::InvalidInput { inputs: left_out });
+        return refused(Verdict::invalid_input(
+            left_out.into_iter().map(|k| (k, InputReason::Missing)),
+        ));
     }
     let mut missing = Vec::new();
     for (k, spec) in &x.inputs {
@@ -883,7 +889,9 @@ fn take(
         }
     }
     if !missing.is_empty() {
-        return refused(Verdict::InvalidInput { inputs: missing });
+        return refused(Verdict::invalid_input(
+            missing.into_iter().map(|k| (k, InputReason::Missing)),
+        ));
     }
     // an assertion's `to` is a state it lists, other than the one the object
     // is in, and its `admits` only invariants it may admit (§4.13)
@@ -892,9 +900,10 @@ fn take(
         let to = match inputs.get("to") {
             Some(Value::Text(s)) if x.to.contains(s) && current.as_ref() != Some(s) => s.clone(),
             _ => {
-                return refused(Verdict::InvalidInput {
-                    inputs: vec!["to".into()],
-                });
+                return refused(Verdict::invalid_input([(
+                    "to".to_string(),
+                    InputReason::NotAllowed,
+                )]));
             }
         };
         let admits: BTreeSet<String> = match inputs.get("admits") {
@@ -902,9 +911,10 @@ fn take(
             _ => BTreeSet::new(),
         };
         if !admits.iter().all(|a| x.may_admit.contains(a)) {
-            return refused(Verdict::InvalidInput {
-                inputs: vec!["admits".into()],
-            });
+            return refused(Verdict::invalid_input([(
+                "admits".to_string(),
+                InputReason::NotAllowed,
+            )]));
         }
         let _ = to;
         ctx.asserted = oid.clone();
@@ -1041,9 +1051,10 @@ fn take(
             if ctx.work.get(corrected)?.map(|c| c.attr("subject"))
                 != Some(Value::Object(subject.clone()))
             {
-                return refused(Verdict::InvalidInput {
-                    inputs: vec!["corrects".into()],
-                });
+                return refused(Verdict::invalid_input([(
+                    "corrects".to_string(),
+                    InputReason::NotAllowed,
+                )]));
             }
             // the observations that correct another, of the types that can
             let mut current = false;
@@ -1103,9 +1114,10 @@ fn take(
     {
         *name = name.trim().to_lowercase();
         if name.is_empty() {
-            return refused(Verdict::InvalidInput {
-                inputs: vec!["name".into()],
-            });
+            return refused(Verdict::invalid_input([(
+                "name".to_string(),
+                InputReason::Malformed,
+            )]));
         }
     }
     // what the transition's guards read, each guard's under its name
@@ -2286,14 +2298,14 @@ fn file(
     }
     // its inputs as a request checks them: taken, of their type, naming
     // what exists, and none left out
-    let mut wrong: Vec<String> = req
+    let mut wrong: Vec<(String, InputReason)> = req
         .inputs
         .keys()
         .filter(|k| !takes(t, x, k))
-        .cloned()
+        .map(|k| (k.clone(), InputReason::UnknownInput))
         .collect();
     for (k, raw) in &req.inputs {
-        if wrong.contains(k) {
+        if wrong.iter().any(|(w, _)| w == k) {
             continue;
         }
         let Some((declared, many)) = input_type(t, x, k) else {
@@ -2317,11 +2329,11 @@ fn file(
                         };
                     }
                     if !fits {
-                        wrong.push(k.clone());
+                        wrong.push((k.clone(), InputReason::NoSuchObject));
                     }
                 }
             }
-            Err(_) => wrong.push(k.clone()),
+            Err(e) => wrong.push((k.clone(), e.1)),
         }
     }
     let given = |k: &String| req.inputs.get(k).is_some_and(|v| !v.is_null());
@@ -2333,16 +2345,16 @@ fn file(
                 t.attribute(k)
                     .is_none_or(|a| !a.optional && a.default.is_none())
             })
-            .cloned(),
+            .map(|k| (k.clone(), InputReason::Missing)),
     );
     wrong.extend(
         x.inputs
             .iter()
             .filter(|(k, spec)| !given(k) && !spec.optional && spec.default.is_none())
-            .map(|(k, _)| k.clone()),
+            .map(|(k, _)| (k.clone(), InputReason::Missing)),
     );
     if !wrong.is_empty() {
-        return refused(Verdict::InvalidInput { inputs: wrong });
+        return refused(Verdict::invalid_input(wrong));
     }
     if let Some(occurred) = req.occurred_at {
         let within = x
@@ -2524,7 +2536,7 @@ fn reference_formed(r: &Json) -> bool {
 }
 
 fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
-    let mut wrong = Vec::new();
+    let mut wrong: Vec<String> = Vec::new();
     let source: Vec<(String, String)> = match req.inputs.get("source") {
         // each file under the name it declares, a module's or its examples',
         // which the digest is computed over (ADR-0135, ADR-0155); a file that
@@ -2573,15 +2585,20 @@ fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
         .cloned()
         .collect();
     if !unknown.is_empty() {
-        return refused(Verdict::InvalidInput { inputs: unknown });
+        return refused(Verdict::invalid_input(
+            unknown.into_iter().map(|k| (k, InputReason::UnknownInput)),
+        ));
     }
     if !wrong.is_empty() {
-        return refused(Verdict::InvalidInput { inputs: wrong });
+        return refused(Verdict::invalid_input(
+            wrong.into_iter().map(|k| (k, InputReason::Malformed)),
+        ));
     }
     let Some(digest) = crate::source::digest(&source) else {
-        return refused(Verdict::InvalidInput {
-            inputs: vec!["source".into()],
-        });
+        return refused(Verdict::invalid_input([(
+            "source".to_string(),
+            InputReason::Malformed,
+        )]));
     };
     Ok(ChangeSource {
         files: source,
@@ -5285,9 +5302,7 @@ types:
                 (&job, false),
                 json!({"colour": "red"})
             ),
-            Verdict::InvalidInput {
-                inputs: vec!["colour".into()]
-            }
+            Verdict::invalid_input([("colour".to_string(), InputReason::UnknownInput)])
         );
         assert_eq!(
             req(
@@ -5297,9 +5312,7 @@ types:
                 (&job, false),
                 json!({"hours": "many"})
             ),
-            Verdict::InvalidInput {
-                inputs: vec!["hours".into()]
-            }
+            Verdict::invalid_input([("hours".to_string(), InputReason::Malformed)])
         );
         assert_eq!(
             req(
@@ -5309,15 +5322,11 @@ types:
                 (&job, false),
                 json!({"engineer": &job})
             ),
-            Verdict::InvalidInput {
-                inputs: vec!["engineer".into()]
-            }
+            Verdict::invalid_input([("engineer".to_string(), InputReason::NoSuchObject)])
         );
         assert_eq!(
             req(&mut s, "open", OPERATOR, ("Job", true), json!({})),
-            Verdict::InvalidInput {
-                inputs: vec!["title".into()]
-            }
+            Verdict::invalid_input([("title".to_string(), InputReason::Missing)])
         );
         // a required input of an optional attribute, left out, is the
         // generated guard's (flow-format.md §4.8)
@@ -5868,9 +5877,7 @@ types:
                 ("Check", true),
                 json!({"subject": &job, "outcome": "LOW", "corrects": &theirs})
             ),
-            Verdict::InvalidInput {
-                inputs: vec!["corrects".into()]
-            }
+            Verdict::invalid_input([("corrects".to_string(), InputReason::NotAllowed)])
         );
         // a finished subject takes no new fact, and still takes a correction
         let ana = created(&req(
@@ -6338,9 +6345,7 @@ types:
         // no assertion leaves a state for itself, or admits what it may not
         assert_eq!(
             req(&mut s, "correct", OPERATOR, (&job, false), to("OPEN", &[])),
-            Verdict::InvalidInput {
-                inputs: vec!["to".into()]
-            }
+            Verdict::invalid_input([("to".to_string(), InputReason::NotAllowed)])
         );
         assert_eq!(
             req(
@@ -6350,9 +6355,7 @@ types:
                 (&job, false),
                 to("WORKING", &["bounded"])
             ),
-            Verdict::InvalidInput {
-                inputs: vec!["admits".into()]
-            }
+            Verdict::invalid_input([("admits".to_string(), InputReason::NotAllowed)])
         );
         created(&req(
             &mut s,
@@ -6835,9 +6838,7 @@ types:
         );
         assert_eq!(
             propose(&mut s, "finish", json!({"bogus": 1}), None),
-            Verdict::InvalidInput {
-                inputs: vec!["bogus".into()]
-            }
+            Verdict::invalid_input([("bogus".to_string(), InputReason::UnknownInput)])
         );
         // an input left out that a generated guard refuses waits for approval
         assert!(matches!(

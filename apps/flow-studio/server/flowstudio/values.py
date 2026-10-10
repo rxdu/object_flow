@@ -151,11 +151,22 @@ def decode_input(v: Any, spec: dict | None, enums: dict) -> Any:
     typ = type_of_spec(spec, enums)
     if v is None:
         return None
-    if typ[0] == "set" and isinstance(v, list):
+    if typ[0] == "set":
+        if not isinstance(v, list):
+            return flowrun.WrongKind(v)
         inner = dict(spec or {})
         if "type" in inner:
             inner["type"] = inner["type"][:-2]
         return [decode_input(x, inner, enums) for x in v]
-    if typ[0] == "enum" and isinstance(v, str) and "." not in v:
+    # a value of another JSON kind than its type takes, which the runner
+    # refuses wrong_type where the core does (ADR-0173 decision 9)
+    kinds = {"ref": (str,), "enum": (str,), "money": (str,),
+             "decimal": (str, int), "int": (int, str), "bool": (bool,),
+             "timestamp": (str,), "date": (str,), "duration": (str,),
+             "text": (str,)}.get(typ[0])
+    if kinds and (not isinstance(v, kinds)
+                  or isinstance(v, bool) and bool not in kinds):
+        return flowrun.WrongKind(v)
+    if typ[0] == "enum" and "." not in v:
         return f"{typ[1]}.{v}"
     return v

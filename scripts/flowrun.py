@@ -74,13 +74,14 @@ class Refused(Exception):
     refusal (library-api.md §4), which the Flow Studio's server reports (ADR-0150)."""
 
     def __init__(self, verdict, clause=None, remedy=None, detail="", object_id=None, object_type=None, step=None,
-                 inner=None, unknown=False, inputs=None, parents=None):
+                 inner=None, unknown=False, inputs=None, parents=None, reasons=None):
         super().__init__(f"{verdict} {clause or ''} {remedy or ''} {detail}".strip())
         self.verdict, self.clause, self.remedy, self.detail = verdict, clause, remedy, detail
         self.object_id, self.object_type, self.step, self.inner = object_id, object_type, step, inner
         self.unknown = unknown      # its clause was unknown rather than false (§8.2), as the attempt log records
         # the inputs an `invalid_input` names, and the parents a `not_requestable` names, where the runner knows them
         self.inputs, self.parents = inputs, parents
+        self.reasons = reasons                  # why each of `inputs` is at fault (ADR-0173 decision 9)
 
 
 def seconds(duration):
@@ -1827,15 +1828,33 @@ class Runner:
         attrs = t.get("attributes") or {}
         declared = x.get("inputs") or {}
         taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared)
-        for k, v in (raw_inputs or {}).items():
-            if x["kind"] == "assertion" and k in ("to", "admits"):
-                inputs[k] = tuple(v) if k == "admits" else v      # a state, and invariants, by name (§4.13)
+        own = x["kind"] == "assertion" and {"to", "admits"} or set()
+        # the inputs it does not take, every one, then every one not of its type, by name, as the core orders them
+        unknown = [(k, "unknown_input") for k in sorted(raw_inputs or {}) if k not in taken and k not in own]
+        if unknown:
+            raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in unknown], reasons=[w for _, w in unknown])
+        wrong = []
+        for k in sorted(raw_inputs or {}):
+            v = raw_inputs[k]
+            if k in own:
+                if k == "to" and isinstance(v, str) or k == "admits" and isinstance(v, (list, tuple)) and all(isinstance(a, str) for a in v):
+                    inputs[k] = tuple(v) if k == "admits" else v      # a state, and invariants, by name (§4.13)
+                else:
+                    wrong.append((k, "wrong_type"))
                 continue
-            if k not in taken:
-                raise Refused("invalid_input", remedy="self_serviceable", detail=f"no input {k}")
-            value = self.value_of(work, declared.get(k) if k in declared else attrs.get(k), v, aliases)
+            spec = declared.get(k) if k in declared else attrs.get(k)
+            why = input_fault(spec, v, self.enums)
+            if why:
+                wrong.append((k, why))
+                continue
+            if "reference" in (spec or {}) and any(a not in aliases for a in (v if isinstance(v, (list, tuple)) else [v])):
+                inputs[k] = v if not isinstance(v, (list, tuple)) else tuple(v)   # names nothing: refused below
+                continue
+            value = self.value_of(work, spec, v, aliases)
             if value is not ABSENT:
                 inputs[k] = value
+        if wrong:
+            raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in wrong], reasons=[w for _, w in wrong])
         try:
             root = self.take(ctx, tn, xn, oid, inputs, depth=0)
             self.clear_intervals(ctx)
@@ -2042,31 +2061,37 @@ class Runner:
         taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared)
         if depth:
             self.check_state(work, x, oid)
-            for k in inputs:
-                if k not in taken:
-                    raise Refused("invalid_input", remedy="self_serviceable", detail=f"no input {k}")
-        for k, v in inputs.items():
+            unknown = [(k, "unknown_input") for k in sorted(inputs) if k not in taken]
+            if unknown:
+                raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in unknown], reasons=[w for _, w in unknown])
+        wrong = []
+        for k in sorted(inputs):
             spec = declared.get(k) if k in declared else attrs.get(k)
             if "reference" in (spec or {}):
                 want = spec["reference"].rstrip("[]")
-                for ref in (v if isinstance(v, tuple) else (v,)):
-                    if ref not in work.objects or not (want == ANY_TYPE or work.is_a(work.type_of(ref), want)):
-                        raise Refused("invalid_input", remedy="self_serviceable", detail=f"{k} names no {want}")
-        for k in x.get("required_inputs", []):
-            spec = attrs.get(k) or {}
-            if k not in inputs and not spec.get("optional") and "default" not in spec:
-                raise Refused("invalid_input", remedy="self_serviceable", detail=f"{k} left out")
+                if not all(ref in work.objects and (want == ANY_TYPE or work.is_a(work.type_of(ref), want))
+                           for ref in (inputs[k] if isinstance(inputs[k], tuple) else (inputs[k],))):
+                    wrong.append((k, "no_such_object"))
+        if wrong:
+            raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in wrong], reasons=[w for _, w in wrong])
+        left = [(k, "missing") for k in x.get("required_inputs", [])
+                if k not in inputs and not (attrs.get(k) or {}).get("optional") and "default" not in (attrs.get(k) or {})]
+        if left:
+            raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in left], reasons=[w for _, w in left])
+        missing = []
         for k, spec in declared.items():
             if k not in inputs and "default" in (spec or {}):
                 inputs[k] = Evaluator(work, tn, oid, inputs, ctx.who, ctx.stubs).value(flowexpr.parse(spec["default"]), {})
             elif k not in inputs and not (spec or {}).get("optional"):
-                raise Refused("invalid_input", remedy="self_serviceable", detail=f"{k} left out")
+                missing.append((k, "missing"))
+        if missing:
+            raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in missing], reasons=[w for _, w in missing])
         if x["kind"] == "assertion":
             o = work.objects[oid]
             if inputs.get("to") not in (x.get("to") if isinstance(x.get("to"), list) else [x.get("to")]) or inputs.get("to") == o.state:
-                raise Refused("invalid_input", remedy="self_serviceable", detail=f"{inputs.get('to')} is not a state it may put the object in")
+                raise Refused("invalid_input", remedy="self_serviceable", inputs=["to"], reasons=["not_allowed"])
             if not set(inputs.get("admits", ())) <= set(x.get("may_admit") or []):
-                raise Refused("invalid_input", remedy="self_serviceable", detail="an admission it does not list in may_admit")
+                raise Refused("invalid_input", remedy="self_serviceable", inputs=["admits"], reasons=["not_allowed"])
             ctx.asserted, ctx.admits = oid, set(inputs.get("admits", ()))
         # the generated guards, in the order flow-format.md §4.8 states, then the <attribute>_provided ones, then the
         # transition's own. occurred_within: the requested transition's bound, its backdating_limit or its kind's
@@ -2111,7 +2136,7 @@ class Runner:
                 corrected = work.objects[inputs["corrects"]]
                 if corrected.attrs.get("subject") != subject.id:
                     # a correction's subject is the corrected observation's (ADR-0146)
-                    raise Refused("invalid_input", remedy="self_serviceable", detail="corrects an observation of another subject")
+                    raise Refused("invalid_input", remedy="self_serviceable", inputs=["corrects"], reasons=["not_allowed"])
                 if any(other.attrs.get("corrects") == corrected.id for other in work.objects.values()):
                     raise Refused("unsatisfied", "corrects_current", GENERATED_REMEDY["corrects_current"])
             elif work.final((ctx.before.objects.get(subject.id) if ctx.before else None) or subject) \
@@ -2130,7 +2155,7 @@ class Runner:
             inputs = dict(inputs, name=inputs["name"].strip().lower())
             # and a name empty once normalised is no name (ADR-0161)
             if not inputs["name"]:
-                raise Refused("invalid_input", remedy="self_serviceable", detail="name is empty once normalised")
+                raise Refused("invalid_input", remedy="self_serviceable", inputs=["name"], reasons=["malformed"])
         conditions = t.get("conditions") or {}
         failed = []
         for g, mode in (x.get("guards") or {}).items():
@@ -3035,19 +3060,27 @@ def file_proposal(runner, store, st, aliases):
             raise Refused("not_proposable", remedy="self_serviceable")    # send it as a request instead (ADR-0173)
         # filing checks the inputs as a request would, and leaves the object's state and the guards to approval (ADR-0146)
         attrs, declared = (runner.kinds.get(tn) or {}).get("attributes") or {}, x.get("inputs") or {}
-        for k, v in (r.get("inputs") or {}).items():
-            spec = declared.get(k) if k in declared else attrs.get(k)
-            if k not in set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared):
-                raise Refused("invalid_input", remedy="self_serviceable", detail=f"no input {k}")
-            if "reference" in (spec or {}) and not all(a in aliases and store.is_a(store.type_of(aliases[a]), spec["reference"].rstrip("[]"))
-                                                       for a in (v if isinstance(v, list) else [v])):
-                raise Refused("invalid_input", remedy="self_serviceable", detail=f"{k} names no {spec['reference']}")
-        given = set(r.get("inputs") or {})
-        left = [k for k in x.get("required_inputs", []) if k not in given and not (attrs.get(k) or {}).get("optional")
-                and "default" not in (attrs.get(k) or {})]
-        left += [k for k, sp in declared.items() if k not in given and not (sp or {}).get("optional") and "default" not in (sp or {})]
-        if left:
-            raise Refused("invalid_input", remedy="self_serviceable", detail=f"{left[0]} left out")   # as a request would (ADR-0147)
+        taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared)
+        given_inputs = r.get("inputs") or {}
+        wrong = [(k, "unknown_input") for k in sorted(given_inputs) if k not in taken]
+        for k in sorted(given_inputs):
+            if k not in taken:
+                continue
+            v, spec = given_inputs[k], declared.get(k) if k in declared else attrs.get(k)
+            why = input_fault(spec, v, runner.enums)
+            if why is None and "reference" in (spec or {}) and not all(
+                    a in aliases and store.is_a(store.type_of(aliases[a]), spec["reference"].rstrip("[]"))
+                    for a in (v if isinstance(v, (list, tuple)) else [v])):
+                why = "no_such_object"
+            if why:
+                wrong.append((k, why))
+        given = {k for k, v in given_inputs.items() if v is not None}
+        wrong += [(k, "missing") for k in x.get("required_inputs", []) if k not in given
+                  and not (attrs.get(k) or {}).get("optional") and "default" not in (attrs.get(k) or {})]
+        wrong += [(k, "missing") for k, sp in declared.items() if k not in given and not (sp or {}).get("optional")
+                  and "default" not in (sp or {})]
+        if wrong:
+            raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in wrong], reasons=[w for _, w in wrong])   # as a request would (ADR-0147)
         # a proposal keeps the occurred time the request gives, held to the bound when it is filed, since that is when
         # the store was told; the check against the current interval runs at approval (ADR-0147)
         occurred = runner.value_of(store, {"type": "timestamp"}, r["occurred_at"], aliases) if "occurred_at" in r else None
@@ -3169,6 +3202,103 @@ def written(v, spec):
         text = ("-" if n < 0 else "") + (digits[:-places] + "." + digits[-places:] if places else digits)
     typ = (spec or {}).get("type", "")
     return f"{typ[len('money('):-1]} {text}" if typ.startswith("money(") else text
+
+
+class WrongKind:
+    """A wire value of another JSON kind than its input's type takes, which the studio's server marks so the runner
+    refuses it, `wrong_type`, at the step the core does (ADR-0173 decision 9)."""
+
+    def __init__(self, value):
+        self.value = value
+
+
+INPUT_UNITS = 999_999_999_999_999_999   # an amount or a decimal holds 18 digits at its scale, as the store does (ADR-0143)
+NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
+
+
+def held_fault(amount, scale):
+    """Why a number does not fit its scale: more places than the scale, or more than 18 digits; None where it fits."""
+    units = Fraction(amount) * 10 ** scale
+    if units.denominator != 1:
+        return "malformed"
+    return "out_of_range" if abs(units) > INPUT_UNITS else None
+
+
+def input_fault(spec, v, enums):
+    """Why a request's input is not valid as its spec declares (ADR-0173 decision 9), as the core's decoder says it,
+    or None: a member of no enumeration it names, a time, a date or a duration that does not parse, an amount without
+    its currency or in another, more places than its scale, more than 18 digits, a string holding U+0000. A wire value
+    of another JSON kind the studio's server marks as WrongKind; an example's YAML-native value is its own notation."""
+    if v is None:
+        return None
+    if isinstance(v, WrongKind):
+        return "wrong_type"
+    spec = spec or {}
+    if "reference" in spec:
+        items = v if isinstance(v, (list, tuple)) else [v]
+        # whether it names an object of its type is checked later; a set never repeats an element
+        return "malformed" if len({repr(i) for i in items}) < len(items) else None
+    typ = str(spec.get("type", ""))
+    if typ.endswith("[]"):
+        items = v if isinstance(v, (list, tuple)) else [v]
+        for item in items:
+            why = input_fault(dict(spec, type=typ[:-2]), item, enums)
+            if why:
+                return why
+        return "malformed" if len({repr(i) for i in items}) < len(items) else None     # a set never repeats an element
+    if typ in enums:
+        member = str(v)[len(typ) + 1:] if str(v).startswith(typ + ".") else str(v)
+        return None if member in enums[typ] else "wrong_type"
+    if typ in ("int", "counter"):
+        if isinstance(v, bool) or isinstance(v, float):
+            return "wrong_type"
+        if isinstance(v, str):
+            if not re.fullmatch(r"-?[0-9]+", v):
+                return "malformed"
+            v = int(v)
+        return None if abs(v) <= 2 ** 63 - 1 else "out_of_range"
+    if typ == "timestamp":
+        if isinstance(v, datetime.datetime):
+            return None
+        if re.fullmatch(r"now(?: [+-] [0-9]+ \w+)?", str(v)):
+            return None                         # an example's clock (flow-format.md §11.3)
+        try:
+            timestamp(str(v))
+            return None
+        except ValueError:
+            return "malformed"
+    if typ == "date":
+        if isinstance(v, datetime.date):
+            return None
+        try:
+            datetime.date.fromisoformat(str(v))
+            return None
+        except ValueError:
+            return "malformed"
+    if typ == "duration":
+        m = re.fullmatch(r"([0-9]+) (\w+)", str(v))
+        return None if m and m.group(2) in SECONDS else "malformed"
+    if typ.startswith("money("):
+        if not isinstance(v, str):
+            return "wrong_type"
+        code, _, amount = v.strip().rpartition(" ")
+        if not code.strip() or not NUMBER.fullmatch(amount):
+            return "malformed"
+        if code.strip() != typ[len("money("):-1]:
+            return "wrong_currency"
+        return held_fault(amount, MINOR_UNITS.get(code.strip(), 2))
+    if typ.startswith("decimal("):
+        if isinstance(v, bool):
+            return "wrong_type"
+        text = str(v).strip()
+        if not NUMBER.fullmatch(text):
+            return "malformed"
+        return held_fault(text, int(typ.rstrip(")").rsplit(",", 1)[1]))
+    if typ in ("string", "text", "identity", "actor_kind", "file"):
+        if not isinstance(v, str):
+            return "wrong_type"
+        return "malformed" if "\0" in v else None
+    return None
 
 
 def spec_of_kind(kind):

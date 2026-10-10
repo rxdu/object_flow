@@ -21,6 +21,50 @@ pub struct InvariantFailure {
     pub remedy: Option<Remedy>,
 }
 
+/// Why an input is not valid, beside each input `invalid_input` names
+/// (`DESIGN.md` §5.5, ADR-0173 decision 9).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputReason {
+    /// The transition takes no input of that name.
+    UnknownInput,
+    /// An input it requires, left out.
+    Missing,
+    /// A value of another kind than the input's type: another JSON kind,
+    /// or a member of no enumeration it names.
+    WrongType,
+    /// A value of its kind not written in its notation: a time or a date
+    /// that does not parse, an amount without its currency, more places
+    /// than its scale, a string holding U+0000, an empty name.
+    Malformed,
+    /// An amount in another currency than the input's.
+    WrongCurrency,
+    /// A reference naming no object of the type it takes.
+    NoSuchObject,
+    /// A value its type cannot hold: an int past 64 bits, a decimal or an
+    /// amount of more than 18 digits (ADR-0143).
+    OutOfRange,
+    /// A value of its type the transition does not take: an assertion's
+    /// state or admission it does not list, a correction of another
+    /// subject.
+    NotAllowed,
+}
+
+impl InputReason {
+    /// Its name on the wire.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InputReason::UnknownInput => "unknown_input",
+            InputReason::Missing => "missing",
+            InputReason::WrongType => "wrong_type",
+            InputReason::Malformed => "malformed",
+            InputReason::WrongCurrency => "wrong_currency",
+            InputReason::NoSuchObject => "no_such_object",
+            InputReason::OutOfRange => "out_of_range",
+            InputReason::NotAllowed => "not_allowed",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
     Satisfied {
@@ -50,8 +94,11 @@ pub enum Verdict {
     UnknownTransition {
         transition: String,
     },
+    /// Each input at fault, and why, `reasons[i]` being `inputs[i]`'s;
+    /// built by `Verdict::invalid_input`, which keeps them in step.
     InvalidInput {
         inputs: Vec<String>,
+        reasons: Vec<InputReason>,
     },
     /// A proposal of a transition not marked proposable (ADR-0173).
     NotProposable,
@@ -111,6 +158,15 @@ impl Verdict {
             Verdict::CallRefused { clause, .. } => clause.clone(),
             _ => None,
         }
+    }
+
+    /// An `invalid_input`, each input at fault with why (ADR-0173).
+    pub fn invalid_input<I>(pairs: I) -> Verdict
+    where
+        I: IntoIterator<Item = (String, InputReason)>,
+    {
+        let (inputs, reasons) = pairs.into_iter().unzip();
+        Verdict::InvalidInput { inputs, reasons }
     }
 
     /// Its remedy class (`DESIGN.md` §5.5): every refusal has one.

@@ -88,7 +88,7 @@ def change_source(inputs):
     naming what is wrong (DESIGN.md §9, ADR-0135, ADR-0155 decisions 5 and 6, ADR-0159)."""
     unknown = sorted(k for k in inputs if k not in INPUTS)
     if unknown:
-        raise Refused("invalid_input", remedy="self_serviceable", inputs=unknown)
+        raise Refused("invalid_input", remedy="self_serviceable", inputs=unknown, reasons=["unknown_input"] * len(unknown))
     wrong = []
     files = inputs.get("source")
     # each file under the name it declares, which the digest is computed over; a file that does not parse is the
@@ -104,7 +104,7 @@ def change_source(inputs):
     if evidence is not None and not (isinstance(evidence, list) and all(evidence_formed(r) for r in evidence)):
         wrong.append("evidence")
     if wrong:
-        raise Refused("invalid_input", remedy="self_serviceable", inputs=wrong)
+        raise Refused("invalid_input", remedy="self_serviceable", inputs=wrong, reasons=["malformed"] * len(wrong))
     return files, reference, source_digest(files), evidence
 
 
@@ -164,7 +164,7 @@ def requested(store, xn, oid, actor, inputs, flows=None, read_evidence=None):
     if xn in ("draft", "revise"):
         files, reference, digest, evidence = change_source(inputs)
     elif inputs:
-        raise Refused("invalid_input", remedy="self_serviceable", inputs=sorted(inputs))
+        raise Refused("invalid_input", remedy="self_serviceable", inputs=sorted(inputs), reasons=["unknown_input"] * len(inputs))
     if xn in ("submit", "refresh"):
         # the dry run, its report attached, refused while it finds anything fatal (DESIGN.md §9)
         report = dry_run(store, oid, flows, actor)

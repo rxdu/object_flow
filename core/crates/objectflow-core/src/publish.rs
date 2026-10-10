@@ -933,7 +933,7 @@ mod tests {
     use crate::model::{OPERATOR, Remedy};
     use crate::request::{Request, request};
     use crate::store::Store;
-    use crate::verdict::Verdict;
+    use crate::verdict::{InputReason, Verdict};
     use serde_json::{Value as Json, json};
 
     const V1: &str = r#"
@@ -1390,9 +1390,7 @@ types:
                 (crate::model::DECLARATION_CHANGE, true),
                 json!({"source": {"fleet": V1}, "source_ref": ""})
             ),
-            Verdict::InvalidInput {
-                inputs: vec!["source_ref".into()]
-            }
+            Verdict::invalid_input([("source_ref".to_string(), InputReason::Malformed)])
         );
         // a file under a name it does not declare
         assert_eq!(
@@ -1402,9 +1400,7 @@ types:
                 (crate::model::DECLARATION_CHANGE, true),
                 json!({"source": {"lab": V1}, "source_ref": "git:fleet@1"})
             ),
-            Verdict::InvalidInput {
-                inputs: vec!["source".into()]
-            }
+            Verdict::invalid_input([("source".to_string(), InputReason::Malformed)])
         );
         let text = v2(true, true, true);
         let change = draft(&mut s, &text);
@@ -2573,9 +2569,7 @@ types:
         ] {
             assert_eq!(
                 draft(&mut s, wrong.clone()),
-                Verdict::InvalidInput {
-                    inputs: vec!["evidence".into()]
-                },
+                Verdict::invalid_input([("evidence".to_string(), InputReason::Malformed)]),
                 "{wrong}"
             );
         }

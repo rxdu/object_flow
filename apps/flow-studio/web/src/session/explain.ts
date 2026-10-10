@@ -18,7 +18,7 @@
 // request refused and an offer blocked, since the live offer explains a
 // transition no one has requested yet with the same sentence.
 
-import type { Remedy, Verdict } from "../api/wire";
+import type { InputReason, Remedy, Verdict } from "../api/wire";
 
 /** What each remedy class asks of the person reading, in their words: the
  * one part of the sentence that is the studio's voice rather than the
@@ -30,6 +30,36 @@ export const REMEDY: Record<Remedy, string> = {
   dependent: "another object must change first",
   unreachable_from_here: "nothing done from here will change that",
 };
+
+/** What each reason says of an input, after "is" or "are". */
+export const REASON: Record<InputReason, string> = {
+  unknown_input: "not one this transition takes",
+  missing: "left out",
+  wrong_type: "of another type than it takes",
+  malformed: "not written as its type is",
+  wrong_currency: "in another currency",
+  no_such_object: "naming no object of its type",
+  out_of_range: "more than its type holds",
+  not_allowed: "not one this transition allows",
+};
+
+/** Why the inputs are at fault, grouped where they share a reason. */
+function faults(
+  inputs: string[],
+  reasons: Record<string, InputReason>,
+): string {
+  const by = new Map<InputReason, string[]>();
+  for (const i of inputs) {
+    const r = reasons[i];
+    if (r) by.set(r, [...(by.get(r) ?? []), i]);
+  }
+  const parts = [...by].map(([r, names], n) =>
+    n === 0
+      ? `${names.length === 1 ? `The input ${names[0]} is` : `The inputs ${listed(names)} are`} ${REASON[r]}`
+      : `${listed(names)} ${names.length === 1 ? "is" : "are"} ${REASON[r]}`,
+  );
+  return parts.join(", and ");
+}
 
 /** A list as a sentence reads it: "a", "a and b", "a, b and c". */
 function listed(items: string[], last = "and"): string {
@@ -75,6 +105,8 @@ export function explain(v: Verdict): string {
     // a backend that does not work out which input or parent names none,
     // and says so in `not_computed` (wire.ts); the sentence then names none
     case "invalid_input":
+      if (v.reasons && v.inputs.every((i) => v.reasons?.[i]))
+        return `${faults(v.inputs, v.reasons)}${next(v.remedy)}`;
       return `${
         v.inputs.length === 0
           ? "An input is"

@@ -3,6 +3,17 @@
 // (docs/design/library-api.md §4 to §6); a backend that does not compute a
 // field names it in `not_computed` rather than filling it in.
 
+/** Why an input is not valid, from a closed set (ADR-0173 decision 9). */
+export type InputReason =
+  | "unknown_input"
+  | "missing"
+  | "wrong_type"
+  | "malformed"
+  | "wrong_currency"
+  | "no_such_object"
+  | "out_of_range"
+  | "not_allowed";
+
 export type Remedy =
   | "self_serviceable"
   | "delegable"
@@ -55,7 +66,13 @@ export type Verdict = Reported &
       }
     | { kind: "unavailable"; state: string | null; remedy: Remedy }
     | { kind: "unknown_transition"; transition: string; remedy: Remedy }
-    | { kind: "invalid_input"; inputs: string[]; remedy: Remedy }
+    | {
+        kind: "invalid_input";
+        inputs: string[];
+        /** why each input is at fault (ADR-0173 decision 9) */
+        reasons?: Record<string, InputReason>;
+        remedy: Remedy;
+      }
     | { kind: "not_requestable"; parents: string[]; remedy: Remedy }
     | { kind: "not_proposable"; remedy: Remedy }
     | { kind: "over_limit"; remedy: Remedy }

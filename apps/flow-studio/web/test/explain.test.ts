@@ -124,6 +124,33 @@ describe("the sentence under a verdict", () => {
         "Only Order.add_line or Order.copy may take it: nothing done from here will change that.",
       ],
       [
+        {
+          kind: "invalid_input",
+          inputs: ["amount"],
+          reasons: { amount: "wrong_currency" },
+          remedy: "self_serviceable",
+        },
+        "The input amount is in another currency: supply or correct an input and try again.",
+      ],
+      [
+        {
+          kind: "invalid_input",
+          inputs: ["amount", "receipt"],
+          reasons: { amount: "missing", receipt: "missing" },
+          remedy: "self_serviceable",
+        },
+        "The inputs amount and receipt are left out: supply or correct an input and try again.",
+      ],
+      [
+        {
+          kind: "invalid_input",
+          inputs: ["amount", "colour"],
+          reasons: { amount: "malformed", colour: "unknown_input" },
+          remedy: "self_serviceable",
+        },
+        "The input amount is not written as its type is, and colour is not one this transition takes: supply or correct an input and try again.",
+      ],
+      [
         { kind: "not_proposable", remedy: "self_serviceable" },
         "It cannot be filed as a proposal; it may be requested directly.",
       ],

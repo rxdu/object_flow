@@ -827,6 +827,8 @@ class Sandbox:
             out["transition"] = xn
         elif v == "invalid_input" and r.inputs is not None:
             out["inputs"] = list(r.inputs)
+            # why each is at fault (ADR-0173 decision 9)
+            out["reasons"] = dict(zip(r.inputs, r.reasons or []))
         elif v == "invalid_input":
             out.update(inputs=[], not_computed=["inputs"])
         elif v == "not_requestable":

@@ -228,6 +228,9 @@ class UnknownTransition:
 @dataclass(frozen=True)
 class InvalidInput:
     inputs: Sequence[str]                 # every input at fault, by name (ADR-0122)
+    reasons: Mapping[str, str]            # why each is: unknown_input, missing, wrong_type,
+                                          # malformed, wrong_currency, no_such_object,
+                                          # out_of_range or not_allowed (ADR-0173)
     remedy: Remedy = Remedy.SELF_SERVICEABLE        # (ADR-0122)
 
 

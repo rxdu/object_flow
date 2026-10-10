@@ -1143,6 +1143,55 @@ def test_a_proposal_of_what_is_not_proposable_is_refused_alike(tee):
     alike(tee)
 
 
+def test_an_invalid_input_says_why_alike(tee):
+    """A refused input says why, each from a closed set, through both
+    backends alike (ADR-0173 decision 9): another JSON kind, a value not in
+    its notation, an amount in another currency, more places than its
+    scale, more digits than the store holds (D554, a 500 before), a
+    reference naming nothing (D560, a 500 on the runner before), an input
+    not taken, and inputs left out."""
+    loaded(tee, "reimbursement.yaml")
+    tee.found.clear()
+    emp = tee.post("/v1/request", {"type": "Employee", "transition": "onboard",
+                                   "actor": OP, "inputs": {"user_id": "alice"}})
+    cat = tee.post("/v1/request", {"type": "ExpenseCategory",
+                                   "transition": "define", "actor": OP,
+                                   "inputs": {"name": "Travel",
+                                              "policy_amount": "USD 500.00"}})
+    claim = tee.post("/v1/request", {"type": "Claim", "transition": "draft",
+                                     "actor": OP,
+                                     "inputs": {"claimant": emp["object_id"],
+                                                "title": "Taxis"}})
+    line = {"amount": "USD 20.00", "category": cat["object_id"],
+            "expense_date": "2025-12-30", "receipt": "taxi.pdf"}
+
+    def why(**change):
+        given = {k: v for k, v in {**line, **change}.items() if v is not None}
+        v = tee.post("/v1/request", {"object_id": claim["object_id"],
+                                     "transition": "add_line", "actor": OP,
+                                     "inputs": given})
+        assert v["kind"] == "invalid_input", v
+        return v["reasons"]
+
+    assert why(amount=1500) == {"amount": "wrong_type"}
+    assert why(amount="1500.00") == {"amount": "malformed"}
+    assert why(amount="SGD 20.00") == {"amount": "wrong_currency"}
+    assert why(amount="USD 1.234") == {"amount": "malformed"}
+    assert why(amount="USD 99999999999999999999.00") == {
+        "amount": "out_of_range"}
+    assert why(expense_date="2025-02-30") == {"expense_date": "malformed"}
+    assert why(category="alice") == {"category": "no_such_object"}
+    assert why(colour="red") == {"colour": "unknown_input"}
+    assert why(amount=None, receipt=None) == {"amount": "missing",
+                                              "receipt": "missing"}
+    big = tee.post("/v1/request", {"type": "ExpenseCategory",
+                                   "transition": "define", "actor": OP,
+                                   "inputs": {"name": "x", "policy_amount":
+                                              "USD 99999999999999999999.00"}})
+    assert big["reasons"] == {"policy_amount": "out_of_range"}, big
+    alike(tee)
+
+
 def test_a_derived_amount_summed_over_nothing_is_its_currencys_zero(tee):
     """A claim with no lines has a total summed over nothing, which is the
     zero of the amount its lines would sum, at the currency's minor unit,

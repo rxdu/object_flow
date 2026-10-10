@@ -156,7 +156,12 @@ fn verdict(v: &Verdict) -> J {
         }
         Verdict::Unavailable { state } => json!({ "state": state }),
         Verdict::UnknownTransition { transition } => json!({ "transition": transition }),
-        Verdict::InvalidInput { inputs } => json!({ "inputs": inputs }),
+        Verdict::InvalidInput { inputs, reasons } => json!({
+            "inputs": inputs,
+            // why each input is at fault (ADR-0173 decision 9)
+            "reasons": inputs.iter().zip(reasons).map(|(i, r)| (i.clone(), json!(r.as_str())))
+                .collect::<serde_json::Map<String, serde_json::Value>>(),
+        }),
         Verdict::NotRequestable { parents } => json!({ "parents": parents }),
         Verdict::NotProposable => json!({}),
         Verdict::CallRefused {
