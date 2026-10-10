@@ -82,6 +82,7 @@ impl From<crate::eval::NotRun> for Stop {
     fn from(e: crate::eval::NotRun) -> Stop {
         match e {
             crate::eval::NotRun::Unsupported(w) => Stop::NotRun(w),
+            crate::eval::NotRun::Unanswered(c) => Stop::NotRun(c.said),
             crate::eval::NotRun::Unreadable(w) => Stop::Failed(format!("the store failed: {w}")),
         }
     }

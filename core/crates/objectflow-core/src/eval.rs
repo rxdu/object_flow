@@ -25,6 +25,34 @@ pub enum NotRun {
     Unsupported(String),
     /// A read of the store that failed, naming what it read and why.
     Unreadable(String),
+    /// An evaluator's call the request's answers hold no verdict for, which a
+    /// deployment's service asks its endpoint and attempts the request again
+    /// with (ADR-0175 decision 2), and a sandbox does not run.
+    Unanswered(Box<Call>),
+}
+
+/// An evaluator's call: the namespace, the function and its arguments, each
+/// written in the value notation (ADR-0175).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Call {
+    pub evaluator: String,
+    pub function: String,
+    pub arguments: Vec<String>,
+    /// What the sandbox says of it, which `what` answers.
+    pub said: String,
+}
+
+impl Call {
+    /// The call's answer's key, `<evaluator>.<function>(<arguments>)`, as an
+    /// answer for it alone is held (ADR-0175 decision 3).
+    pub fn key(&self) -> String {
+        format!(
+            "{}.{}({})",
+            self.evaluator,
+            self.function,
+            self.arguments.join(", ")
+        )
+    }
 }
 
 impl NotRun {
@@ -32,6 +60,7 @@ impl NotRun {
     pub fn what(&self) -> &str {
         match self {
             NotRun::Unsupported(w) | NotRun::Unreadable(w) => w,
+            NotRun::Unanswered(c) => &c.said,
         }
     }
 }
@@ -1491,7 +1520,12 @@ impl Evaluator<'_> {
             self.unanswered.set(true);
             return Ok(Value::Absent);
         };
-        let answer = answers.get(&key).map(String::as_str);
+        // a call's own answer, then its function's (ADR-0175 decision 3)
+        let call = format!("{key}({})", written.join(", "));
+        let answer = answers
+            .get(&call)
+            .or_else(|| answers.get(&key))
+            .map(String::as_str);
         let verdict = match answer {
             Some("satisfied") => Value::Bool(true),
             Some("unsatisfied") => Value::Bool(false),
@@ -1503,9 +1537,14 @@ impl Evaluator<'_> {
             // for consults nothing, as stopping early would never have asked
             None if self.aside.get() > 0 => return Ok(Value::Absent),
             _ => {
-                return not_run(format!(
-                    "the evaluator function {key}, which the sandbox gives no answer for"
-                ));
+                return Err(NotRun::Unanswered(Box::new(Call {
+                    evaluator: evaluator.to_string(),
+                    function: function.to_string(),
+                    arguments: written,
+                    said: format!(
+                        "the evaluator function {key}, which the sandbox gives no answer for"
+                    ),
+                })));
             }
         };
         // consulted, by the call and its arguments: the verdict, never a

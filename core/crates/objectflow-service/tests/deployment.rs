@@ -137,14 +137,22 @@ fn example(name: &str) -> String {
 /// The people and service modules published as the store's first version,
 /// as every version is: drafted, submitted and approved through the wire.
 fn publish_service(s: &Service) {
+    publish(
+        s,
+        &json!({"people": example("people.yaml"), "service": example("service.yaml")}),
+    );
+}
+
+/// Modules published as the store's next version, as every version is:
+/// drafted, submitted and approved through the wire.
+fn publish(s: &Service, source: &Value) {
     let op = json!({"id": "operator"});
     let drafted = post(
         s,
         "/v1/request",
         &json!({
         "actor": op, "type": "DeclarationChange", "transition": "draft",
-        "inputs": {"source": {"people": example("people.yaml"), "service": example("service.yaml")},
-                   "source_ref": "test:deployment"}}),
+        "inputs": {"source": source, "source_ref": "test:deployment"}}),
     );
     assert_eq!(drafted["kind"], "satisfied", "{drafted}");
     let change = drafted["object_id"]
@@ -280,5 +288,188 @@ fn a_sandbox_still_answers_its_controls_and_its_health() {
 #[test]
 fn a_retention_without_a_store_is_refused() {
     let (code, said) = refused(&["--attempt-retention", "90 days"]);
+    assert_eq!(code, Some(2), "{said}");
+}
+
+/// A bank whose transfers clear by their reference: `T-1` cleared, `T-2` not,
+/// `T-3` a fault, `T-4` an answer slower than the service waits, and `T-5`
+/// an answer with no verdict. Each call it is posted is kept, as it arrives.
+fn bank() -> (String, std::sync::Arc<std::sync::Mutex<Vec<Value>>>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+    let url = format!(
+        "http://{}/evaluate",
+        listener.local_addr().expect("its address")
+    );
+    let posted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let kept = posted.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let kept = kept.clone();
+            // each call answered on its own thread, so a slow answer holds
+            // up no other
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().expect("the stream"));
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                    if let Some(n) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = n.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut body = vec![0; length];
+                let _ = reader.read_exact(&mut body);
+                let call: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                kept.lock().expect("the calls").push(call.clone());
+                let (status, answer) = match call["arguments"][0].as_str() {
+                    Some("T-1") => (200, r#"{"verdict": "satisfied"}"#),
+                    Some("T-2") => (200, r#"{"verdict": "unsatisfied"}"#),
+                    Some("T-4") => {
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        (200, r#"{"verdict": "satisfied"}"#)
+                    }
+                    Some("T-5") => (200, r#"{"cleared": true}"#),
+                    // a fault, whatever its body says
+                    _ => (500, r#"{"verdict": "satisfied"}"#),
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+                    answer.len()
+                );
+            });
+        }
+    });
+    (url, posted)
+}
+
+const PAYMENTS: &str = "module: payments
+categories: [live, closed]
+
+evaluators:
+  bank:
+    description: The bank, which says whether a transfer has cleared.
+    functions:
+      cleared:
+        description: Whether the transfer with this reference has cleared.
+        arguments:
+          reference: { type: string }
+
+types:
+  Transfer:
+    description: A transfer sent to the bank, settled once the bank clears it.
+    tracking: record
+    attributes:
+      reference: { type: string }
+    states:
+      SENT:    { description: Sent to the bank., category: live }
+      SETTLED: { description: Cleared by the bank., category: closed, final: true }
+    conditions:
+      cleared:
+        description: The bank has cleared the transfer.
+        expression: bank.cleared(reference)
+        remedy: dependent
+    transitions:
+      send: { kind: initial, to: SENT, required_inputs: [reference] }
+      settle:
+        kind: external
+        from: SENT
+        to: SETTLED
+        guards:
+          cleared: deny
+";
+
+/// A transfer sent, and settling it requested, the bank asked by the service.
+fn settle(s: &Service, reference: &str) -> Value {
+    let op = json!({"id": "operator"});
+    let sent = post(
+        s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Transfer", "transition": "send", "inputs": {"reference": reference}}),
+    );
+    assert_eq!(sent["kind"], "satisfied", "{sent}");
+    post(
+        s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": sent["object_id"], "transition": "settle"}),
+    )
+}
+
+#[test]
+fn a_deployment_asks_its_evaluators_at_their_endpoints() {
+    let (url, posted) = bank();
+    let file = fresh_store("evaluators");
+    let path = file.to_str().expect("a path");
+    let named = format!("bank={url}");
+    let s = start(&[
+        "--store",
+        path,
+        "--port",
+        "0",
+        "--evaluator",
+        &named,
+        "--evaluator-timeout",
+        "1 s",
+    ]);
+    publish(&s, &json!({"payments": PAYMENTS}));
+    // cleared: the transfer settles, the call posted with its argument
+    let v = settle(&s, "T-1");
+    assert_eq!(v["kind"], "satisfied", "{v}");
+    assert_eq!(
+        posted.lock().expect("the calls").last().cloned(),
+        Some(json!({"evaluator": "bank", "function": "cleared", "arguments": ["T-1"]}))
+    );
+    // not cleared: refused by the guard, with the remedy it declares
+    let v = settle(&s, "T-2");
+    assert_eq!(
+        (
+            v["kind"].as_str(),
+            v["clause"].as_str(),
+            v["remedy"].as_str()
+        ),
+        (Some("unsatisfied"), Some("cleared"), Some("dependent")),
+        "{v}"
+    );
+    // a fault, an answer too slow and an answer with no verdict are the
+    // evaluator's unknown: refused, and the caller told to wait
+    for reference in ["T-3", "T-4", "T-5"] {
+        let v = settle(&s, reference);
+        assert_eq!(
+            (v["kind"].as_str(), v["remedy"].as_str()),
+            (Some("unsatisfied"), Some("temporal")),
+            "{reference}: {v}"
+        );
+    }
+    // a verdict is the request's alone: asked again by the next
+    let before = posted.lock().expect("the calls").len();
+    let v = settle(&s, "T-1");
+    assert_eq!(v["kind"], "satisfied", "{v}");
+    assert_eq!(posted.lock().expect("the calls").len(), before + 1);
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+#[test]
+fn an_evaluator_no_endpoint_answers_is_unknown() {
+    let file = fresh_store("unanswered");
+    let path = file.to_str().expect("a path");
+    let s = start(&["--store", path, "--port", "0"]);
+    publish(&s, &json!({"payments": PAYMENTS}));
+    let v = settle(&s, "T-1");
+    assert_eq!(
+        (v["kind"].as_str(), v["remedy"].as_str()),
+        (Some("unsatisfied"), Some("temporal")),
+        "{v}"
+    );
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+#[test]
+fn an_endpoint_is_a_deployments() {
+    let (code, said) = refused(&["--evaluator", "bank=http://127.0.0.1:1/x"]);
+    assert_eq!(code, Some(2), "{said}");
+    let (code, said) = refused(&["--store", "/nonexistent/x.sqlite", "--evaluator", "bank"]);
     assert_eq!(code, Some(2), "{said}");
 }

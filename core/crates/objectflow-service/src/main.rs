@@ -19,7 +19,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use objectflow_core::eval::NotRun;
+use objectflow_core::eval::{Call, NotRun};
 use objectflow_core::import::{
     self, Disposition, EnteredAt, ImportBatch, ImportReport, ImportedObject, LegacyInterval, Raise,
     ViolationClass, ViolationKind,
@@ -49,6 +49,98 @@ struct Sandbox {
     /// Whether the store is a deployment's, opened from its file, whose clock
     /// is the wall clock and whose controls are not routed (ADR-0174).
     deployment: bool,
+    /// A deployment's evaluator endpoints, by namespace, and how long an
+    /// answer is waited for (ADR-0175 decision 5).
+    endpoints: std::collections::BTreeMap<String, String>,
+    evaluator_timeout: std::time::Duration,
+}
+
+/// The most calls one request asks its endpoints, after which a call is
+/// unknown (ADR-0175 decision 2).
+const MAX_CALLS: usize = 16;
+
+/// An evaluator's verdict on a call, asked at its endpoint (ADR-0175
+/// decision 4): `satisfied` or `unsatisfied` as it answers, and
+/// `unanswered`, its unknown, for any other answer, a fault, a timeout or no
+/// connection, each said on stderr.
+fn asked(endpoint: &str, timeout: std::time::Duration, call: &Call) -> &'static str {
+    let body = json!({"evaluator": call.evaluator, "function": call.function, "arguments": call.arguments})
+        .to_string();
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .http_status_as_error(false)
+        .tls_config(
+            ureq::tls::TlsConfig::builder()
+                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+                .build(),
+        )
+        .build()
+        .into();
+    let unknown = |why: String| {
+        eprintln!("objectflow-service: {} is unknown: {why}", call.key());
+        "unanswered"
+    };
+    let mut answer = match agent
+        .post(endpoint)
+        .header("content-type", "application/json")
+        .send(&body)
+    {
+        Ok(a) => a,
+        Err(e) => return unknown(format!("{endpoint} was not reached: {e}")),
+    };
+    let status = answer.status().as_u16();
+    let text = match answer.body_mut().read_to_string() {
+        Ok(t) => t,
+        Err(e) => return unknown(format!("{endpoint}'s answer was not read: {e}")),
+    };
+    if status != 200 {
+        return unknown(format!("{endpoint} answered {status}"));
+    }
+    match serde_json::from_str::<J>(&text)
+        .ok()
+        .as_ref()
+        .and_then(|a| a.get("verdict"))
+        .and_then(J::as_str)
+    {
+        Some("satisfied") => "satisfied",
+        Some("unsatisfied") => "unsatisfied",
+        _ => unknown(format!("{endpoint} answered no verdict: {text}")),
+    }
+}
+
+/// An attempt's outcome, run again with a verdict where it stopped at a call
+/// its answers lack, which a deployment asks at the evaluator's endpoint
+/// outside the request's transaction (ADR-0175 decision 2); the verdicts are
+/// the request's alone.
+fn consulting<T>(
+    sandbox: &mut Sandbox,
+    mut attempt: impl FnMut(&mut Store) -> Result<T, Fault>,
+    stopped: impl Fn(&T) -> Option<Call>,
+) -> Result<T, Fault> {
+    let (endpoints, timeout) = (sandbox.endpoints.clone(), sandbox.evaluator_timeout);
+    let deployment = sandbox.deployment;
+    let s = store(sandbox)?;
+    let given = s.answers.clone();
+    let mut calls = 0;
+    let out = loop {
+        let out = attempt(s);
+        let call = match &out {
+            Ok(t) if deployment => stopped(t),
+            _ => None,
+        };
+        // a call that changes at every attempt stops the request, unrun
+        let Some(call) = call.filter(|_| calls < 2 * MAX_CALLS) else {
+            break out;
+        };
+        let verdict = match endpoints.get(&call.evaluator) {
+            Some(endpoint) if calls < MAX_CALLS => asked(endpoint, timeout, &call),
+            _ => "unanswered",
+        };
+        calls += 1;
+        s.answers.insert(call.key(), verdict.to_string());
+    };
+    s.answers = given;
+    out
 }
 
 /// UTC now, in seconds since 1970: a deployment's clock (ADR-0174 decision
@@ -92,6 +184,7 @@ impl From<NotRun> for Fault {
     fn from(e: NotRun) -> Fault {
         match e {
             NotRun::Unsupported(w) => Fault::NotRun(w),
+            NotRun::Unanswered(c) => Fault::NotRun(c.said),
             NotRun::Unreadable(w) => Fault::Internal(format!("storage unavailable: {w}")),
         }
     }
@@ -210,18 +303,22 @@ fn locked(shared: &Shared) -> Result<std::sync::MutexGuard<'_, Sandbox>, Fault> 
 
 fn store(sandbox: &mut Sandbox) -> Result<&mut Store, Fault> {
     let deployment = sandbox.deployment;
+    let endpoints = &sandbox.endpoints;
     let s = sandbox
         .store
         .as_mut()
         .ok_or_else(|| Fault::Conflict("no modules are loaded; load them first".to_string()))?;
     if deployment {
         // the wall clock, never moving backwards (ADR-0174 decision 4), and
-        // every evaluator unknown until a transport answers it (decision 7)
+        // an evaluator no endpoint answers unknown (ADR-0175 decision 5)
         s.now = s.now.max(wall_clock());
         for f in s.lib.evaluators.clone() {
-            s.answers
-                .entry(f)
-                .or_insert_with(|| "unanswered".to_string());
+            let namespace = f.split_once('.').map_or(f.as_str(), |(n, _)| n);
+            if !endpoints.contains_key(namespace) {
+                s.answers
+                    .entry(f)
+                    .or_insert_with(|| "unanswered".to_string());
+            }
         }
     }
     Ok(s)
@@ -454,8 +551,14 @@ async fn evaluators(State(shared): State<Shared>, Body(body): Body) -> Answer {
 async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let req = request_of(&body)?;
     let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let v = request::request(s, &req)??;
+    let v = consulting(
+        &mut sandbox,
+        |s| Ok(request::request(s, &req)?),
+        |out| match out {
+            Err(request::NoVerdict::NotRun(NotRun::Unanswered(c))) => Some((**c).clone()),
+            _ => None,
+        },
+    )??;
     Ok(Json(verdict(&v)))
 }
 
@@ -469,8 +572,14 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
         ));
     }
     let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let c = request::check(s, &req)??;
+    let c = consulting(
+        &mut sandbox,
+        |s| Ok(request::check(s, &req)?),
+        |out| match out {
+            Err(NotRun::Unanswered(c)) => Some((**c).clone()),
+            _ => None,
+        },
+    )??;
     Ok(Json(
         json!({ "verdict": verdict(&c.verdict), "unevaluated": c.unevaluated }),
     ))
@@ -1458,7 +1567,9 @@ fn app(shared: Shared, deployment: bool) -> Router {
 
 const USAGE: &str = "usage: objectflow-service [--port <n> | --bind <host:port>]
                           [--store <file> [--attempt-retention <duration>]
-                                          [--idempotency-retention <duration>]]
+                                          [--idempotency-retention <duration>]
+                                          [--evaluator <name>=<url> ...]
+                                          [--evaluator-timeout <duration>]]
 
 Serves the engine's operations, POST /v1/<operation>, and GET /health, on
 127.0.0.1 at port n (8712 unless given; 0 takes a free one) or at the
@@ -1467,9 +1578,11 @@ address --bind names, writing the address to stderr once it answers.
 Without --store the store is a sandbox's, held in memory, with its controls,
 POST /sandbox/<control>. With --store it is a deployment's: the SQLite file
 named, created at version 0 where absent and its flow published through the
-wire, the wall clock, no controls, and every evaluator unknown until a
-transport answers it (ADR-0174). It authenticates nothing: bind it beyond
-loopback only behind the application that does (core/README.md).";
+wire, the wall clock, and no controls (ADR-0174). Each --evaluator names
+the endpoint a namespace's calls are posted to, answered within the timeout,
+5 s unless given, and an evaluator no endpoint answers is unknown
+(ADR-0175). It authenticates nothing: bind it beyond loopback only behind
+the application that does (core/README.md).";
 
 /// The command line: where to listen, and a deployment's store and
 /// retentions where it names one.
@@ -1477,6 +1590,8 @@ struct Args {
     bind: String,
     store: Option<std::path::PathBuf>,
     retentions: (Option<i64>, Option<i64>),
+    endpoints: std::collections::BTreeMap<String, String>,
+    evaluator_timeout: Option<std::time::Duration>,
 }
 
 fn args() -> Result<Args, String> {
@@ -1484,6 +1599,8 @@ fn args() -> Result<Args, String> {
         bind: "127.0.0.1:8712".to_string(),
         store: None,
         retentions: (None, None),
+        endpoints: std::collections::BTreeMap::new(),
+        evaluator_timeout: None,
     };
     let mut retained = false;
     let mut args = std::env::args().skip(1);
@@ -1509,6 +1626,23 @@ fn args() -> Result<Args, String> {
                 }
                 retained = true;
             }
+            "--evaluator" => {
+                let named = value()?;
+                let (name, url) = named
+                    .split_once('=')
+                    .filter(|(n, u)| {
+                        !n.is_empty() && (u.starts_with("http://") || u.starts_with("https://"))
+                    })
+                    .ok_or_else(|| format!("--evaluator takes <name>=<http(s) url>: {named}"))?;
+                out.endpoints.insert(name.to_string(), url.to_string());
+            }
+            "--evaluator-timeout" => {
+                let d = value()?;
+                let secs = parse_duration(&d).filter(|s| *s > 0).ok_or_else(|| {
+                    format!("--evaluator-timeout takes a duration such as '5 s': {d}")
+                })?;
+                out.evaluator_timeout = Some(std::time::Duration::from_secs(secs.unsigned_abs()));
+            }
             "--help" | "-h" => return Err(String::new()),
             // an argument it does not take is an error, never ignored (D558)
             other => return Err(format!("no argument {other}")),
@@ -1516,6 +1650,9 @@ fn args() -> Result<Args, String> {
     }
     if retained && out.store.is_none() {
         return Err("a retention is a deployment's; a sandbox's load names its own".to_string());
+    }
+    if (!out.endpoints.is_empty() || out.evaluator_timeout.is_some()) && out.store.is_none() {
+        return Err("an evaluator's endpoint is a deployment's; a sandbox's evaluators answer as it sets them".to_string());
     }
     Ok(out)
 }
@@ -1541,6 +1678,10 @@ async fn main() -> std::io::Result<()> {
         (s.attempt_retention, s.idempotency_retention) = a.retentions;
         sandbox.deployment = true;
         sandbox.store = Some(s);
+        sandbox.endpoints = a.endpoints.clone();
+        sandbox.evaluator_timeout = a
+            .evaluator_timeout
+            .unwrap_or(std::time::Duration::from_secs(5));
     }
     let deployment = sandbox.deployment;
     let listener = tokio::net::TcpListener::bind(&a.bind).await?;
@@ -1551,11 +1692,27 @@ async fn main() -> std::io::Result<()> {
             path.display(),
             s.lib.version
         );
-        if !s.lib.evaluators.is_empty() {
+        let unanswered: Vec<&String> = s
+            .lib
+            .evaluators
+            .iter()
+            .filter(|f| {
+                !a.endpoints
+                    .contains_key(f.split_once('.').map_or(f.as_str(), |(n, _)| n))
+            })
+            .collect();
+        if !unanswered.is_empty() {
             eprintln!(
-                "unknown until a transport answers them (ADR-0174 decision 7): {}",
-                s.lib.evaluators.join(", ")
+                "unknown, no endpoint answering them (ADR-0175 decision 5): {}",
+                unanswered
+                    .iter()
+                    .map(|f| f.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             );
+        }
+        for (name, url) in &a.endpoints {
+            eprintln!("the evaluator {name} asked at {url}");
         }
     }
     axum::serve(listener, app(Arc::new(Mutex::new(sandbox)), deployment)).await

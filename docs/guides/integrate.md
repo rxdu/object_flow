@@ -7,7 +7,7 @@ ObjectFlow holds your business objects and enforces their flow; your application
 The engine's core runs as an HTTP service, one request at a time, over one of two stores ([`core/README.md`](../../core/README.md)):
 
 - **a sandbox**, a store held in memory, a clock that moves only when told and evaluators answered by fixed answers: how flows are built and tested, and what the examples below run against;
-- **a deployment's store**, given `--store <file>`: one SQLite file that survives a restart, the wall clock, and no sandbox controls (ADR-0174). Its first slice is enough to pilot a flow on one machine, and lacks three things a production deployment needs: an external evaluator is answered unknown, so a guard that asks one is refused `temporal`, until the evaluators' HTTP transport is built; a new engine release cannot yet take over a store an older one created; and it serves one request at a time.
+- **a deployment's store**, given `--store <file>`: one SQLite file that survives a restart, the wall clock, and no sandbox controls (ADR-0174). Its first slice is enough to pilot a flow on one machine, and lacks two things a production deployment needs: a new engine release cannot yet take over a store an older one created, and it serves one request at a time.
 
 Everything below works against both, but for the sandbox's controls, which a deployment does not route.
 
@@ -106,7 +106,7 @@ A new version is published as a `DeclarationChange`: draft it with the new modul
 | What happens next | answers what each object offers, and why not | renders it; starts every transition: nothing runs by itself |
 | Time | records when, and evaluates time in rules | schedules: timers, reminders and escalations request transitions or read `available` |
 | Notifications | gives events through subscriptions | sends the email, the chat message, the push |
-| External systems | consults an evaluator a rule names; in a sandbox, a fixed answer | answers it, in a deployment (ADR-0173 decision 2); writes to the other system itself |
+| External systems | consults an evaluator a rule names, posting the call to the endpoint a deployment configures; in a sandbox, a fixed answer | answers it there, `{"verdict": "satisfied"}` or `"unsatisfied"` (ADR-0175); writes to the other system itself |
 | Search | filters by members, with indexes the flow declares | full-text search, over an export or the event feed |
 | Files | records a reference to a file | stores, serves and deletes the bytes |
 | Reporting | computes declared metrics, exports rows | dashboards and analysis beyond them |

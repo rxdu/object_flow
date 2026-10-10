@@ -177,4 +177,4 @@ A change is an object: `{"type": "DeclarationChange", "transition": "draft", "in
 | `/sandbox/clock` | `advance` (a duration) or `set` (a timestamp) | `{"now": …}` |
 | `/sandbox/evaluators` | `answers`: each `"<evaluator>.<function>"` to `satisfied`, `unsatisfied` or `unanswered` | the answers held |
 
-A deployment's service routes none of these: its clock is the wall's, its evaluators are answered by their systems, unknown until the transport is built, and its flow arrives by `publish`.
+A deployment's service routes none of these: its clock is the wall's, its evaluators are answered at the endpoints it names, each call posted as `{"evaluator", "function", "arguments"}` and answered `{"verdict": "satisfied"}` or `{"verdict": "unsatisfied"}` (ADR-0175), and its flow arrives by `publish`.

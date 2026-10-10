@@ -175,4 +175,5 @@
 | [0171](0171-a-traversal-invariant-reads-through-any-relationship-end.md) | A traversal invariant reads through any relationship end | Decided by the author |
 | [0172](0172-the-internal-form-stays-as-the-reference-checkers-path.md) | The internal form stays as the reference checker's path | Decided by the author |
 | [0173](0173-the-procurement-reviews-questions-decided.md) | The procurement review's questions, decided | Decided by the author |
-| [0174](0174-a-deployments-service-its-first-slice.md) | A deployment's service, its first slice | Built at the author's direction, for review |
+| [0174](0174-a-deployments-service-its-first-slice.md) | A deployment's service, its first slice | Built at the author's direction, for review; decision 7 replaced by ADR-0175 |
+| [0175](0175-the-evaluators-http-transport.md) | The evaluators' HTTP transport | Built at the author's direction, for review |
