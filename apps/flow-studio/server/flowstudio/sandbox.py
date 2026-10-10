@@ -543,8 +543,10 @@ class Sandbox:
                            or self.legacy.get(("legacy", f"{target}:{x}"))
                            for x in keys]
                     if None in ids:
-                        return refused(o, f"{k} names a legacy key the "
-                                          "batch and the store lack")
+                        # a class of its own, which an empty disposition
+                        # file leaves undecided (ADR-0176 decision 3)
+                        return refused(o, f"its class {tn}.{k} (names "
+                                          "nothing) is undecided")
                     given[k] = tuple(ids) if isinstance(v, list) else ids[0]
                 else:
                     given[k] = values.decode_input(v, spec, self.runner.enums) \

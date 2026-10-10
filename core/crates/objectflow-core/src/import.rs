@@ -209,6 +209,10 @@ const NOT_DECLARED: &str = "is not declared";
 const NOT_OF_ITS_TYPE: &str = "is not of its type";
 const IS_SHARED: &str = "is shared";
 const NAMES_EXCLUDED: &str = "names an excluded object";
+/// A `REFERENCE` class's shape: a legacy key neither the batch nor the store
+/// has, which the person decides as a reference into an excluded object is
+/// (ADR-0176 decision 3).
+const NAMES_NOTHING: &str = "names nothing";
 /// A `FIELD` class's shape: a field an entry says is about an object the
 /// batch, as it stands, and the store do not hold (ADR-0163 decision 4).
 const ABOUT_NOT_HELD: &str = "is about an object neither the batch nor the store holds";
@@ -568,28 +572,15 @@ fn decide(
             }
         }
     }
-    // a key naming nothing in the batch or the store refuses the batch,
-    // whatever an earlier file excluded (C29)
-    for Reference {
-        index,
-        attribute: k,
-        named,
-        ..
-    } in &references
-    {
-        for key in named {
-            if !ids.contains_key(key) && !external.contains_key(key) {
-                let o = &batch.objects[*index];
-                return refused(
-                    report,
-                    refusal(
-                        o,
-                        format!("{k} names {}, which the batch and the store lack", key.1),
-                    ),
-                );
-            }
-        }
-    }
+    // a key naming nothing in the batch or the store, an earlier file's
+    // exclusion included since the store keeps no record of one, is a class
+    // of its own, so one dry run lists every such reference (ADR-0176
+    // decision 3, C29)
+    let names_nothing = |named: &[(String, String)]| {
+        named
+            .iter()
+            .any(|key| !ids.contains_key(key) && !external.contains_key(key))
+    };
     // an observation or a label is on a mirror's object, in the batch or the
     // store: the import writes nothing an owned type's own requests would
     let placed_types: BTreeMap<&str, &str> = placed
@@ -661,7 +652,18 @@ fn decide(
             if excluded.contains(index) {
                 continue;
             }
-            if named.iter().any(|key| excluded_keys.contains(key)) {
+            if names_nothing(named) {
+                let o = &batch.objects[*index];
+                found(
+                    &mut these,
+                    o,
+                    *index,
+                    ViolationKind::Reference,
+                    k.clone(),
+                    NAMES_NOTHING,
+                );
+                dropped.entry(*index).or_default().insert(k.clone());
+            } else if named.iter().any(|key| excluded_keys.contains(key)) {
                 let o = &batch.objects[*index];
                 found(
                     &mut these,
@@ -1679,20 +1681,95 @@ types:
             s.snapshot().unwrap().external_all().unwrap().is_empty(),
             "nothing is written"
         );
-        // a reference naming nothing in the batch or the store
-        let team = ImportedObject {
+    }
+
+    #[test]
+    fn a_reference_naming_nothing_is_a_class_to_decide() {
+        let mut s = store();
+        // two teams naming leads neither the batch nor the store has, and a
+        // third whose lead is in the batch
+        let team = |key: &str, lead: &str| ImportedObject {
             type_: "Team".into(),
-            legacy_key: "T-1".into(),
+            legacy_key: key.into(),
             state: "ACTIVE".into(),
             attributes: [
-                ("code".to_string(), json!("ops")),
-                ("lead".to_string(), json!("E-404")),
+                ("code".to_string(), json!(key.to_lowercase())),
+                ("lead".to_string(), json!(lead)),
             ]
             .into(),
             ..ImportedObject::default()
         };
-        let r = run(&mut s, vec![team], &[], false);
-        assert!(r.refusal.unwrap().reason.contains("E-404"));
+        let batch = vec![
+            employee("E-1", "EMPLOYED", json!({"employee_id": "1"})),
+            team("T-1", "E-404"),
+            team("T-2", "E-405"),
+            team("T-3", "E-1"),
+        ];
+        // one dry run lists every such reference, as one class
+        let dry = run(&mut s, batch.clone(), &[], true);
+        assert_eq!(dry.refusal, None, "{dry:?}");
+        let class = dry
+            .findings
+            .iter()
+            .find(|c| c.kind == ViolationKind::Reference)
+            .unwrap()
+            .clone();
+        assert_eq!(
+            (
+                class.type_.as_str(),
+                class.rule.as_str(),
+                class.shape.as_str()
+            ),
+            ("Team", "lead", NAMES_NOTHING)
+        );
+        assert_eq!(
+            (class.count, class.sample.clone()),
+            (2, vec!["T-1".to_string(), "T-2".to_string()])
+        );
+        // undecided, it refuses the import, naming its first object
+        let r = run(&mut s, batch.clone(), &[], false);
+        let refusal = r.refusal.unwrap();
+        assert_eq!(refusal.legacy_key, "T-1");
+        assert!(
+            refusal.reason.contains("(names nothing) is undecided"),
+            "{}",
+            refusal.reason
+        );
+        // dropped, the two teams come in without a lead
+        let r = run(
+            &mut s,
+            batch.clone(),
+            &[decided(&class, Disposition::Drop, "leads unknown")],
+            false,
+        );
+        assert_eq!((r.written, r.refusal.clone()), (4, None), "{r:?}");
+        let w = s.snapshot().unwrap();
+        for (key, lead) in [("T-1", false), ("T-2", false), ("T-3", true)] {
+            let id = w
+                .external_all()
+                .unwrap()
+                .get(&("legacy".to_string(), format!("Team:{key}")))
+                .unwrap()
+                .clone();
+            assert_eq!(
+                !w.whole(&id).unwrap().unwrap().attr("lead").is_absent(),
+                lead,
+                "{key}"
+            );
+        }
+        // excluded, in a store that does not hold them, they are not written
+        let mut s = store();
+        let r = run(
+            &mut s,
+            batch,
+            &[decided(
+                &class,
+                Disposition::Exclude,
+                "teams that never ran",
+            )],
+            false,
+        );
+        assert_eq!((r.written, r.refusal.clone()), (2, None), "{r:?}");
     }
 
     #[test]
