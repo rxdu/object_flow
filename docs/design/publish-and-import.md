@@ -315,6 +315,14 @@ The author chose staged over big-bang (ADR-0075), and the shape of a stage follo
 
 **A stage is two publishes and the imports between them, not one publish.** The type arrives as a `mirror` in one, is kept current by repeated import while it is one, and is cut over by a second, a version advance that removes the marking and declares its transitions. No object changes id, because the mirror held real objects from the start.
 
+**A worked go-live** (ADR-0173 decision 4), as `apps/flow-studio/server/tests/test_golive.py` runs it on a deployment's store (ADR-0174), for the purchasing module of `docs/guides/write-a-flow.md` §6, whose orders, their lines and the currencies they are priced in come from a legacy system:
+
+1. **The go-live version.** `scripts/mirror-version.py purchasing.yaml Order` writes the module with `Order` a mirror, and with it `Currency`, which an order references, and `OrderLine`, its part, each said on stderr, since a mirror may neither reference nor compose with a type the store owns (`flow-format.md` §4.15): each keeps its attributes, states, invariants and derived attributes, drops every transition but an erasure, has its minted `number` given by the import, and gains the external identifier `legacy_key`. It is published as the store's version 1, as every version is, a `DeclarationChange` drafted, submitted and approved.
+2. **The dry run.** The batch of two currencies, two orders, their three lines and `"sequences": [{"sequence": "order_number", "last": 4300}]`, sent with `dry_run`, writes nothing and finds one class, `OrderLine.amount_sgd_provided: is absent`, sample `4300-2`: a line the legacy system kept no amount for.
+3. **The decision.** The class is decided `clean_upstream`, and an import sent with that file is refused at `4300-2`, writing nothing, until the extract is corrected; the corrected batch finds no class, and its import writes all seven objects and raises the order number.
+4. **The cutover.** The module itself is published as version 2. Its dry run reports what the objects gain, `Order.place` for the open order among them, and its approval makes the three types the store's own; no object changes id.
+5. **After it.** The imported `PO-04300` takes a line at today's rate, its total going from SGD 648.00 to SGD 918.00; the first order opened here is `PO-04301`, the number after the legacy system's last; and a batch naming an `Order` is refused, `refused_types: ["Order"]`, since only a mirror is imported.
+
 What this does **not** solve is a legacy *read* of a migrated type. Only writes are forbidden. Where the retiring system must still show data that has moved, that is a read-only projection out of the read surface, and whether each such screen earns its cost is a per-stage judgement about that codebase rather than something this design decides.
 
 ## 8. Decided since the first draft, and still open

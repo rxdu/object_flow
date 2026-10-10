@@ -95,7 +95,7 @@ An agent acts through the same requests as a person, as an actor of an agent typ
 
 ## 7. Changing a flow, and bringing in existing data
 
-A new version is published as a `DeclarationChange`: draft it with the new modules' text, `submit` it to run its dry run, read the report (what it migrates, what it would newly refuse, the objects each reaches), and approve it with `publish` at the version you read. Existing data comes in through `import_batch` into types the version declares `mirror`, then a publish that makes them the flow's own. Both are `docs/design/publish-and-import.md`.
+A new version is published as a `DeclarationChange`: draft it with the new modules' text, `submit` it to run its dry run, read the report (what it migrates, what it would newly refuse, the objects each reaches), and approve it with `publish` at the version you read. Existing data comes in through `import_batch` into types the version declares `mirror`, which `scripts/mirror-version.py` writes from the flow's module, then a publish of the module that makes them the flow's own; `docs/design/publish-and-import.md` §7 works a go-live through, on a deployment's store. Both are `docs/design/publish-and-import.md`.
 
 ## 8. What the engine does, and what your application does
 

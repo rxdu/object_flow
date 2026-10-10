@@ -109,7 +109,7 @@ The [Flow Studio](../../apps/flow-studio/README.md) is the same loop with a diag
 - **An effect sees the new state**: the state is written first, then the effect runs (`DESIGN.md` §6 step 5), so a derived value read in an effect already counts the object in its new state.
 - **An external system's check**: an `evaluators:` entry, read by a guard; an example or a setup gives its answer with `evaluators:`, as `xero.bill_matches: satisfied`, and a sandbox with `/sandbox/evaluators`.
 - **The agent proposes, a person decides**: mark the transition `proposable`; the agent files it with `propose: true`, and approving the proposal takes it as the approver.
-- **Existing records at go-live**: a first version declaring the families brought in as `mirror`, an import, then a publish of the flow proper (`publish-and-import.md` §4 to §7).
+- **Existing records at go-live**: a first version declaring the families brought in as `mirror`, which `scripts/mirror-version.py <module.yaml> <Type>...` writes from the module, an import, then a publish of the module itself; `publish-and-import.md` §7 works one through, for §6's orders.
 
 ## 6. Several currencies
 
@@ -124,6 +124,10 @@ Nothing stops a flow adding two decimals in different currencies, since a decima
 ```yaml
 module: purchasing
 categories: [live, closed]
+
+sequences:
+  order_number:
+    description: Numbers the orders, as PO-04301.
 
 types:
   Currency:
@@ -144,6 +148,7 @@ types:
     description: An order placed in one currency, its lines' amounts kept in that currency and in Singapore dollars.
     tracking: record
     attributes:
+      number:   { type: string, identifier: { sequence: order_number, format: "PO-{n:5}" }, unique: true }
       currency: { reference: Currency }
       lines:    { reference: "OrderLine[]", aggregation: composite, opposite: order, survives: true }
     states:
@@ -216,7 +221,7 @@ examples:
     description: A line of four at USD 100.00 is valued SGD 540.00 at the rate when it is entered.
     given: an_order_in_dollars
     request: { object: order, transition: add_line, inputs: { quantity: 4, unit_price: 100.00 } }
-    expect: { verdict: applied, state: OPEN, values: { total_sgd: SGD 540.00 }, cascaded: [OrderLine.add] }
+    expect: { verdict: applied, state: OPEN, values: { number: PO-00001, total_sgd: SGD 540.00 }, cascaded: [OrderLine.add] }
 
   a_rate_changed_later_leaves_the_order_as_valued:
     description: A rate set after a line was entered leaves the order's value as its line was valued, SGD 540.00, and the order is placed at it.
