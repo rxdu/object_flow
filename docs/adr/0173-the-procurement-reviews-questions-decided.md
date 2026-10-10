@@ -1,0 +1,39 @@
+# ADR-0173: The procurement review's questions, decided
+
+- **Status:** Decided by the author, 2026-10-10 ("now address the issues"), on the recommendations stated with each question.
+- **Date:** 2026-10-10
+- **Refines:** ADR-0114 (who acted, recorded and never evaluated), ADR-0145 (a recorded kind constrained by an invariant), ADR-0150 decisions 1 and 2 (the wire's faults and notation)
+- **Relates to:** `design/procurement-cold-draft.md` §5 and its defects D547 to D560; `DESIGN.md` §2, §5.5, §5.8; `design/library-api.md` §3, §4; `design/flow-format.md` §4.5, §11; `TODO.md`
+
+## Context
+
+Two agents new to ObjectFlow built a procurement flow and an application against the core's service on 2026-10-10 (`procurement-cold-draft.md`), and the review asked ten questions, each with a recommendation; the author answered "now address the issues". Three of the review's defects also need a decision before they can be repaired: the wire form of a file (D559), what a read of an object that does not exist answers (D555), and how a request names its actor (D560). Each decision below is the recommendation, with the alternative it rejected.
+
+## Decision
+
+1. **A refusal by who acted names `delegable`.** An invariant failure whose expression reads a value the request's own effect wrote from `actor` (`actor.id`, `actor.kind`) infers the remedy `delegable`, ahead of the three classes `library-api.md` §4 lists, since another actor taking the same transition can pass it; the engine still judges only the record (ADR-0114). An offer of a transition whose effect writes from `actor` into a value an invariant reads carries `actor_dependent: true`, so a worklist or an agent knows the offer may be refused for who takes it, since `availability` runs no effects and so no invariants.
+2. **A deployment answers an evaluator over HTTP.** The deployment's service calls each evaluator namespace at an endpoint its configuration names, outside the transaction as `DESIGN.md` §6 orders, with the function and its arguments; the answer is a verdict and never a value (ADR-0008), and a timeout, a fault or an unreachable endpoint is the evaluator's `unknown`, refused `temporal`. The sandbox's fixed answers stay the sandbox's.
+3. **Proposing a transition that is not proposable is refused `not_proposable`**, a verdict of its own, remedy `self_serviceable`: the request may be sent as a request, if its caller may.
+4. **Go-live into owned types keeps the principle**, an import writing only mirrors and a cutover publish, with a script that derives the mirror version from a module and a worked go-live in `publish-and-import.md`. Import into an owned type, for onboarding in phases, is not reopened until a consumer needs a second batch.
+5. **Multi-currency keeps ADR-0068**, one currency per amount, and `authoring-flows.md` states the pattern: a currency reference with a rate, transaction amounts as decimals, the home-currency amount computed and kept at entry, and the limit that nothing stops adding decimals of two currencies.
+6. **The examples format grows four ways.** An `import` step takes `sequences`, as `import_batch` does; `creates` may alias objects of several types, as a mapping from type to aliases, at any depth of the effect; an example may expect a metric's value; and the coverage notice says it counts the request under test, and names separately the transitions no setup, step or cascade takes either.
+7. **Adopters get three documents**: a quick start for an author, an integration guide for an application, and a wire reference written from the service, which OpenAPI replaces with the deployment's service; the README says what runs.
+8. **A path of required references is provably present.** A value read from an attribute known to have one, or a required input, through references none of which is optional, to an attribute that is not optional sets what a state requires (`flow-format.md` §4.5).
+9. **`invalid_input` says why**, beside each input it names, from a closed set: `unknown_input`, `malformed`, `wrong_type`, `wrong_currency`, `no_such_object`, `out_of_range`.
+10. **Agent tools are generated.** An operation renders `renderers.md` §3's tool schemas from the declaration, for an actor kind, leaving out the transitions an invariant over the recorded kind refuses it (decision 1); the README speaks of it in the present tense only once it exists.
+11. **A file's wire form is an object**, `{"hash": "sha256:<hex>", "size": <bytes>, "media_type": "<type>"}`, as `DESIGN.md` §5.2 describes a file attribute; its provenance is its event's, and a string is refused (D559).
+12. **A read of an object that does not exist answers `null`**, on `get`, `history` and `availability` alike, as `library-api.md` §5 types `get` (`Object | None`), and a request for one is the verdict `not_found`; every `4xx` and `5xx` carries a JSON `fault`, and a key an operation does not take is a `400` fault (D555).
+13. **A request names its actor by its actor identity or by its object's id**, the identity resolved first, as both backends' callers already do with ids and `DESIGN.md` §5.8 does with identities (D560); a reference input names an object by its id.
+
+## Alternatives rejected
+
+- **For 1, a declared actor kind per transition, evaluated as a guard** (ADR-0114's rejected alternative). It is the cleaner rule and the bigger change; the recorded kind and an invariant already enforce it, and what failed was what the refusal said.
+- **For 2, evaluator plug-ins compiled into the service**: every integration a fork of the engine.
+- **For 3, `not_requestable` with a field saying why**: a caller branching on `kind` would conflate only-via with not proposable.
+- **For 12, a `404` fault for every read of an absent object**: it contradicts the library's `get`, which answers `None`, and turns a caller's ordinary question, does this still exist, into an error; and **`history` answering an empty list**, as it did, which cannot tell an object with no events from no object.
+- **For 13, identities only**, as §5.8 said: every caller of both backends names actors by id today, the Flow Studio and the examples' replay among them.
+
+## Consequences
+
+- Each decision is built and checked in its own commit, and `TODO.md`'s procurement review section tracks them; the review's §5 points here.
+- `library-api.md` gains the verdict `not_proposable`, the `delegable` inference, `invalid_input`'s reasons, the offer's `actor_dependent` and the `tools` operation; ADR-0150's notation gains a file's form, and its faults the not-found and unknown-key rules.

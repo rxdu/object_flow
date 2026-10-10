@@ -174,3 +174,4 @@
 | [0170](0170-a-cascaded-part-is-of-a-concrete-type.md) | A cascaded part is of a concrete type | Decided by the author |
 | [0171](0171-a-traversal-invariant-reads-through-any-relationship-end.md) | A traversal invariant reads through any relationship end | Decided by the author |
 | [0172](0172-the-internal-form-stays-as-the-reference-checkers-path.md) | The internal form stays as the reference checker's path | Decided by the author |
+| [0173](0173-the-procurement-reviews-questions-decided.md) | The procurement review's questions, decided | Decided by the author |

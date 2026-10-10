@@ -3,6 +3,7 @@
 - **Status:** Accepted by the author, 2026-09-30: "follow your suggestions", on the three questions `reimbursement-cold-draft.md` §5 put, which decisions 1 to 3 answer as suggested.
 - **Date:** 2026-09-30
 - **Refines:** ADR-0114 decision 1 (an outcome may record `actor.kind`), ADR-0068 (the currency is in the declaration)
+- **Refined by:** ADR-0173 — an invariant over a recorded kind refuses with the remedy `delegable`, and `authoring-flows.md` states the multi-currency pattern decision 3 implies.
 - **Relates to:** `declaration-syntax.md` §3.1, §6.9, §8.1, §8.3; `flow-format.md` §4.3, §5, §11.3; `storage-schema.md` §3.1; `reimbursement-cold-draft.md`; D493, D494
 
 ## Context
